@@ -482,6 +482,17 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Plain<small>mins/m²</small></div><input type="number" class="field-input" id="s-rwpplain" value="8" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Patterned<small>mins/m²</small></div><input type="number" class="field-input" id="s-rwppatterned" value="10" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
     </div>
+    <div class="card">
+      <div class="card-header">Exterior Rates</div>
+      <div class="field-row"><div class="field-label">Masonry / Render<small>mins/m² per coat</small></div><input type="number" class="field-input" id="s-rextmasonry" value="5" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Fascias &amp; Soffits<small>mins/lm per coat</small></div><input type="number" class="field-input" id="s-rextfascia" value="8" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Ext Window<small>mins total (2 coats)</small></div><input type="number" class="field-input" id="s-rextwin" value="65" min="1" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Ext Door incl frame<small>mins total (2 coats)</small></div><input type="number" class="field-input" id="s-rextdoor" value="150" min="1" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Garage Door<small>mins total (2 coats)</small></div><input type="number" class="field-input" id="s-rextgarage" value="150" min="1" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Sash prime &amp; paint<small>mins per window</small></div><input type="number" class="field-input" id="s-rsashpaint" value="90" min="1" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Resin repair<small>mins per patch</small></div><input type="number" class="field-input" id="s-rresin" value="22" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Reglaze<small>mins per pane</small></div><input type="number" class="field-input" id="s-rreglaze" value="15" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+    </div>
     <button class="btn btn-danger" onclick="clearAll()">Clear All Rooms</button>
     <div class="card">
       <div class="card-header">Xero Integration</div>
@@ -498,38 +509,99 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 <div id="screen-exterior" class="screen">
   <div class="topbar">
     <div class="topbar-title">Exterior</div>
+    <div style="flex:1"></div>
     <div class="chip" id="ext-chip" style="display:none">£0</div>
+    <button id="ext-clear-btn" onclick="clearExteriorItems()" style="display:none;background:rgba(192,57,43,.1);border:1px solid rgba(192,57,43,.3);color:var(--danger);border-radius:20px;padding:5px 12px;font-size:12px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;margin-left:6px">Clear</button>
+  </div>
+  <div class="content">
+    <div class="empty" id="ext-empty">
+      <div class="empty-icon">🏡</div>
+      <div class="empty-title">No exterior items</div>
+      <div class="empty-sub">Tap + to add exterior elements as you survey</div>
+    </div>
+    <div id="ext-list" style="display:none">
+      <div class="card" id="ext-cards"></div>
+    </div>
+  </div>
+  <button class="fab" onclick="showAddExterior()">+</button>
+</div>
+
+<!-- ══ ADD/EDIT EXTERIOR ══ -->
+<div id="screen-extform" class="screen">
+  <div class="topbar">
+    <button class="back-btn" onclick="goBack()">←</button>
+    <div class="topbar-title" id="extform-title">Add Exterior</div>
+    <button class="btn-ghost btn" onclick="saveExteriorItem()" style="padding:8px 12px;font-size:15px">Save</button>
   </div>
   <div class="content">
     <div class="card">
-      <div class="card-header">Exterior Doors</div>
-      <div class="field-row"><div class="field-label">Qty<small>incl frame</small></div><input type="number" class="field-input" id="ex-doors" value="0" min="0" step="1" inputmode="numeric" oninput="calcExterior()"></div>
-      <div class="field-row"><div class="field-label">Coats</div><div class="seg" id="seg-ex-doors"><button class="seg-btn" onclick="setExtSeg('ex-doors',1)">1</button><button class="seg-btn active" onclick="setExtSeg('ex-doors',2)">2</button><button class="seg-btn" onclick="setExtSeg('ex-doors',3)">3</button></div></div>
+      <div class="card-header">Label</div>
+      <div class="field-row">
+        <div class="field-label">Description<small>e.g. Front elevation, Rear fascias</small></div>
+        <input type="text" class="field-input wide" id="ex-label" placeholder="e.g. Front elevation" autocorrect="off">
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Masonry / Render</div>
+      <div class="field-row"><div class="field-label">Area<small>m²</small></div><input type="number" class="field-input" id="ex-masonry" value="0" min="0" step="0.5" inputmode="decimal" oninput="previewExterior()"></div>
+      <div class="field-row"><div class="field-label">Coats</div><div class="seg" id="seg-ex-masonry"><button class="seg-btn" onclick="setExtSeg('ex-masonry',1)">1</button><button class="seg-btn active" onclick="setExtSeg('ex-masonry',2)">2</button><button class="seg-btn" onclick="setExtSeg('ex-masonry',3)">3</button></div></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Fascias &amp; Soffits</div>
+      <div class="field-row"><div class="field-label">Length<small>linear metres</small></div><input type="number" class="field-input" id="ex-fascia" value="0" min="0" step="0.5" inputmode="decimal" oninput="previewExterior()"></div>
+      <div class="field-row"><div class="field-label">Coats</div><div class="seg" id="seg-ex-fascia"><button class="seg-btn" onclick="setExtSeg('ex-fascia',1)">1</button><button class="seg-btn active" onclick="setExtSeg('ex-fascia',2)">2</button><button class="seg-btn" onclick="setExtSeg('ex-fascia',3)">3</button></div></div>
     </div>
     <div class="card">
       <div class="card-header">Exterior Windows</div>
-      <div class="field-row"><div class="field-label">Qty<small>casement</small></div><input type="number" class="field-input" id="ex-wins" value="0" min="0" step="1" inputmode="numeric" oninput="calcExterior()"></div>
+      <div class="field-row"><div class="field-label">Qty<small>casement</small></div><input type="number" class="field-input" id="ex-wins" value="0" min="0" step="1" inputmode="numeric" oninput="previewExterior()"></div>
       <div class="field-row"><div class="field-label">Coats</div><div class="seg" id="seg-ex-wins"><button class="seg-btn" onclick="setExtSeg('ex-wins',1)">1</button><button class="seg-btn active" onclick="setExtSeg('ex-wins',2)">2</button><button class="seg-btn" onclick="setExtSeg('ex-wins',3)">3</button></div></div>
     </div>
     <div class="card">
+      <div class="card-header">Exterior Doors</div>
+      <div class="field-row"><div class="field-label">Qty<small>standard door incl frame</small></div><input type="number" class="field-input" id="ex-doors" value="0" min="0" step="1" inputmode="numeric" oninput="previewExterior()"></div>
+      <div class="field-row"><div class="field-label">Coats</div><div class="seg" id="seg-ex-doors"><button class="seg-btn" onclick="setExtSeg('ex-doors',1)">1</button><button class="seg-btn active" onclick="setExtSeg('ex-doors',2)">2</button><button class="seg-btn" onclick="setExtSeg('ex-doors',3)">3</button></div></div>
+    </div>
+    <div class="card">
       <div class="card-header">Garage Doors</div>
-      <div class="field-row"><div class="field-label">Qty</div><input type="number" class="field-input" id="ex-garage" value="0" min="0" step="1" inputmode="numeric" oninput="calcExterior()"></div>
+      <div class="field-row"><div class="field-label">Qty</div><input type="number" class="field-input" id="ex-garage" value="0" min="0" step="1" inputmode="numeric" oninput="previewExterior()"></div>
       <div class="field-row"><div class="field-label">Coats</div><div class="seg" id="seg-ex-garage"><button class="seg-btn" onclick="setExtSeg('ex-garage',1)">1</button><button class="seg-btn active" onclick="setExtSeg('ex-garage',2)">2</button><button class="seg-btn" onclick="setExtSeg('ex-garage',3)">3</button></div></div>
     </div>
     <div class="card">
-      <div class="card-header">Render</div>
-      <div class="field-row"><div class="field-label">Area<small>m²</small></div><input type="number" class="field-input" id="ex-render" value="0" min="0" step="0.5" inputmode="decimal" oninput="calcExterior()"></div>
-      <div class="field-row"><div class="field-label">Coats</div><div class="seg" id="seg-ex-render"><button class="seg-btn" onclick="setExtSeg('ex-render',1)">1</button><button class="seg-btn active" onclick="setExtSeg('ex-render',2)">2</button><button class="seg-btn" onclick="setExtSeg('ex-render',3)">3</button></div></div>
+      <div class="card-header">Porch / Feature Door</div>
+      <div class="field-row"><div class="field-label">Days<small>your estimate on site</small></div><input type="number" class="field-input" id="ex-porch" value="0" min="0" step="0.5" inputmode="decimal" oninput="previewExterior()"></div>
     </div>
-    <div class="card" id="ext-preview" style="display:none">
-      <div class="card-header">Results</div>
-      <div class="breakdown-row"><span class="breakdown-label">Ext doors</span><span class="breakdown-value" id="ex-r-doors">—</span></div>
-      <div class="breakdown-row"><span class="breakdown-label">Ext windows</span><span class="breakdown-value" id="ex-r-wins">—</span></div>
-      <div class="breakdown-row"><span class="breakdown-label">Garage doors</span><span class="breakdown-value" id="ex-r-garage">—</span></div>
-      <div class="breakdown-row"><span class="breakdown-label">Render</span><span class="breakdown-value" id="ex-r-render">—</span></div>
-      <div class="breakdown-row" style="background:rgba(26,82,118,0.06)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Total exterior</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="ex-r-total">—</span></div>
-      <div class="breakdown-row"><span class="breakdown-label">Time</span><span class="breakdown-value" id="ex-r-time">—</span></div>
+    <div class="card">
+      <div class="card-header">Sash Window Restoration</div>
+      <div class="field-row"><div class="field-label">Windows<small>qty for prime &amp; paint</small></div><input type="number" class="field-input" id="ex-sash" value="0" min="0" step="1" inputmode="numeric" oninput="previewExterior()"></div>
+      <div class="field-row"><div class="field-label">Resin repairs<small>patches</small></div><input type="number" class="field-input" id="ex-resin" value="0" min="0" step="1" inputmode="numeric" oninput="previewExterior()"></div>
+      <div class="field-row"><div class="field-label">Reglaze<small>panes</small></div><input type="number" class="field-input" id="ex-reglaze" value="0" min="0" step="1" inputmode="numeric" oninput="previewExterior()"></div>
     </div>
+    <div class="card">
+      <div class="card-header">Preparation</div>
+      <div class="field-row">
+        <div class="field-label">Prep Level</div>
+        <div class="seg" id="seg-ex-prep" style="flex:1.5">
+          <button class="seg-btn active" onclick="setExPrep(0)">Standard</button>
+          <button class="seg-btn" onclick="setExPrep(10)">Light</button>
+          <button class="seg-btn" onclick="setExPrep(25)">Full</button>
+          <button class="seg-btn" onclick="setExPrep(-1)">Custom</button>
+        </div>
+      </div>
+      <div class="field-row" id="ex-prep-custom-row" style="display:none">
+        <div class="field-label">Custom prep %</div>
+        <input type="number" class="field-input" id="ex-prep-custom" value="0" min="0" max="100" step="5" inputmode="numeric" oninput="previewExterior()">
+      </div>
+      <div class="field-row" style="border-top:1px solid var(--border)">
+        <div class="field-label">Making Good<small>£ fixed cost</small></div>
+        <input type="number" class="field-input" id="ex-making-good" value="0" min="0" step="5" inputmode="decimal" oninput="previewExterior()">
+      </div>
+    </div>
+    <div class="card" id="ext-preview-card" style="display:none">
+      <div class="card-header">Preview</div>
+      <div class="breakdown-row"><span class="breakdown-label">Estimated cost</span><span class="breakdown-value" style="color:var(--accent)" id="ext-prev-cost">—</span></div>
+      <div class="breakdown-row"><span class="breakdown-label">Estimated time</span><span class="breakdown-value" id="ext-prev-time">—</span></div>
+    </div>
+    <button class="btn btn-danger" id="del-ext-btn" style="display:none" onclick="deleteExteriorItem()">Delete</button>
   </div>
 </div>
 
@@ -607,7 +679,15 @@ function saveSettings() {
     rMist:   +document.getElementById('s-rmist').value,
     rWPLining:    +document.getElementById('s-rwplining').value,
     rWPPlain:     +document.getElementById('s-rwpplain').value,
-    rWPPatterned: +document.getElementById('s-rwppatterned').value
+    rWPPatterned: +document.getElementById('s-rwppatterned').value,
+    rExtMasonry:  +document.getElementById('s-rextmasonry').value,
+    rExtFascia:   +document.getElementById('s-rextfascia').value,
+    rExtWin:      +document.getElementById('s-rextwin').value,
+    rExtDoor:     +document.getElementById('s-rextdoor').value,
+    rExtGarage:   +document.getElementById('s-rextgarage').value,
+    rSashPaint:   +document.getElementById('s-rsashpaint').value,
+    rResin:       +document.getElementById('s-rresin').value,
+    rReglaze:     +document.getElementById('s-rreglaze').value
   };
   localStorage.setItem('pe-settings', JSON.stringify(settings));
   apiPut('/api/settings', settings);
@@ -645,7 +725,7 @@ function clearAll() {
   var xc=document.getElementById('xero-client'); if(xc) xc.value='';
   var xr=document.getElementById('xero-ref'); if(xr) xr.value='';
   saveRooms(); saveStair();
-  apiDelete('/api/exterior');
+  extItems=[]; saveExtItems();
   renderHome(); goTab('home');
 }
 function clearEverything() {
@@ -749,16 +829,8 @@ async function initApp() {
   swCost = parseFloat(localStorage.getItem('pe-swcost')||'0');
   swTime = parseFloat(localStorage.getItem('pe-swtime')||'0');
 
-  var extLocal = JSON.parse(localStorage.getItem('pe-exterior')||'null');
-  if (extLocal) {
-    extCost = extLocal.cost||0; extTime = extLocal.time||0;
-    document.getElementById('ex-doors').value=extLocal.doors||0;
-    document.getElementById('ex-wins').value=extLocal.wins||0;
-    document.getElementById('ex-garage').value=extLocal.garage||0;
-    document.getElementById('ex-render').value=extLocal.render||0;
-    if(extLocal.coats){extCoats=extLocal.coats;Object.keys(extCoats).forEach(function(k){document.querySelectorAll('#seg-'+k+' .seg-btn').forEach(function(b,i){b.classList.toggle('active',i+1===extCoats[k]);});});}
-    calcExterior();
-  }
+  var extLocal = JSON.parse(localStorage.getItem('pe-extitems')||'null');
+  if (extLocal && extLocal.length > 0) { extItems = extLocal; }
 
   renderHome();
 
@@ -793,15 +865,9 @@ async function initApp() {
       localStorage.setItem('pe-swtime',''+swTime);
     }
     var extData = await apiGet('/api/exterior');
-    if (extData && Object.keys(extData).length > 0 && extData.cost) {
-      extCost=extData.cost||0; extTime=extData.time||0;
-      document.getElementById('ex-doors').value=extData.doors||0;
-      document.getElementById('ex-wins').value=extData.wins||0;
-      document.getElementById('ex-garage').value=extData.garage||0;
-      document.getElementById('ex-render').value=extData.render||0;
-      if(extData.coats){extCoats=extData.coats;}
-      localStorage.setItem('pe-exterior', JSON.stringify(extData));
-      calcExterior();
+    if (extData && extData.items && extData.items.length > 0) {
+      extItems = extData.items;
+      localStorage.setItem('pe-extitems', JSON.stringify(extItems));
     }
     var xeroStatus = await apiGet('/auth/status');
     updateXeroButton(xeroStatus.connected);
@@ -885,12 +951,18 @@ var settings = {
   rMist:   _raw.rMist   != null ? _raw.rMist   : 2,
   rWPLining:    _raw.rWPLining    != null ? _raw.rWPLining    : 6,
   rWPPlain:     _raw.rWPPlain     != null ? _raw.rWPPlain     : 8,
-  rWPPatterned: _raw.rWPPatterned != null ? _raw.rWPPatterned : 10
+  rWPPatterned: _raw.rWPPatterned != null ? _raw.rWPPatterned : 10,
+  rExtMasonry:  _raw.rExtMasonry  != null ? _raw.rExtMasonry  : 5,
+  rExtFascia:   _raw.rExtFascia   != null ? _raw.rExtFascia   : 8,
+  rExtWin:      _raw.rExtWin      != null ? _raw.rExtWin      : 65,
+  rExtDoor:     _raw.rExtDoor     != null ? _raw.rExtDoor     : 150,
+  rExtGarage:   _raw.rExtGarage   != null ? _raw.rExtGarage   : 150,
+  rSashPaint:   _raw.rSashPaint   != null ? _raw.rSashPaint   : 90,
+  rResin:       _raw.rResin       != null ? _raw.rResin       : 22,
+  rReglaze:     _raw.rReglaze     != null ? _raw.rReglaze     : 15
 };
 var editId   = null;
-var extCoats = {'ex-doors':2,'ex-wins':2,'ex-garage':2,'ex-render':2};
-var extCost  = parseFloat(localStorage.getItem('pe-extcost')||'0');
-var extTime  = parseFloat(localStorage.getItem('pe-exttime')||'0');
+
 var coats    = {wc:2, cc:2, xc:2};
 var mistWall = false;
 var mistCeil = false;
@@ -911,6 +983,7 @@ function goTab(tab) {
     if(el) el.classList.toggle('active', t===tab);
   });
   if (tab==='summary') renderSummary();
+  if (tab==='exterior') renderExterior();
 }
 
 function goScreen(name) {
@@ -977,6 +1050,14 @@ function loadSettings() {
   document.getElementById('s-rwplining').value    = settings.rWPLining||6;
   document.getElementById('s-rwpplain').value     = settings.rWPPlain||8;
   document.getElementById('s-rwppatterned').value = settings.rWPPatterned||10;
+  document.getElementById('s-rextmasonry').value = settings.rExtMasonry||5;
+  document.getElementById('s-rextfascia').value  = settings.rExtFascia||8;
+  document.getElementById('s-rextwin').value     = settings.rExtWin||65;
+  document.getElementById('s-rextdoor').value    = settings.rExtDoor||150;
+  document.getElementById('s-rextgarage').value  = settings.rExtGarage||150;
+  document.getElementById('s-rsashpaint').value  = settings.rSashPaint||90;
+  document.getElementById('s-rresin').value      = settings.rResin||22;
+  document.getElementById('s-rreglaze').value    = settings.rReglaze||15;
 }
 
 // ── Rate functions ──────────────────────────────────────────────────────────
@@ -1051,68 +1132,216 @@ function tin(l) {
   if(l<=5)return'1×5L'; if(l<=10)return'1×10L'; return Math.ceil(l/10)+'×10L';
 }
 
-// ── Exterior rates ─────────────────────────────────────────────────────────
-// Rates from spreadsheet (mins per unit, prep + coats)
-function extDoorMins(c)   { return (60 + 45 + Math.max(c-1,0)*45); } // door+frame
-function extWinMins(c)    { return (35 + 30 + Math.max(c-1,0)*30); }
-function extGarageMins(c) { return (60 + 45 + Math.max(c-1,0)*45); }
-function extRenderMins(c) { return (10 + 5  + Math.max(c-1,0)*5);  } // per m²
+// ── Exterior items (room-style list) ──────────────────────────────────────────
+var extItems = JSON.parse(localStorage.getItem('pe-extitems') || '[]');
+var editExtId = null;
+var extItemCoats = {'ex-masonry':2,'ex-fascia':2,'ex-wins':2,'ex-doors':2,'ex-garage':2};
+var exPrepPct = 0;
+
+// Exterior rate functions
+function extMasonryMins(c) { return c * (settings.rExtMasonry||5); }
+function extFasciaMins(c)  { return c * (settings.rExtFascia||8); }
+function extWinMins2(c)    { return settings.rExtWin||65; }
+function extDoorMins2(c)   { return settings.rExtDoor||150; }
+function extGarageMins2(c) { return settings.rExtGarage||150; }
+function extSashMins()     { return settings.rSashPaint||90; }
+function extResinMins()    { return settings.rResin||22; }
+function extReglazeMins()  { return settings.rReglaze||15; }
+
+function calcExtItem(item) {
+  var r2 = rpm(); var hpd = settings.hpd;
+  var masonry = +item.masonry||0, fascia = +item.fascia||0;
+  var wins = +item.wins||0, doors = +item.doors||0, garage = +item.garage||0;
+  var porch = +item.porch||0, sash = +item.sash||0;
+  var resin = +item.resin||0, reglaze = +item.reglaze||0;
+  var mc = item.coats||{};
+
+  var masonryCost = masonry > 0 ? masonry * extMasonryMins(mc['ex-masonry']||2) * r2 : 0;
+  var fasciaCost  = fascia  > 0 ? fascia  * extFasciaMins(mc['ex-fascia']||2)   * r2 : 0;
+  var winCost     = wins    > 0 ? wins    * extWinMins2()                        * r2 : 0;
+  var doorCost    = doors   > 0 ? doors   * extDoorMins2()                       * r2 : 0;
+  var garageCost  = garage  > 0 ? garage  * extGarageMins2()                     * r2 : 0;
+  var porchCost   = porch   > 0 ? porch   * settings.dr                               : 0;
+  var sashCost    = sash    > 0 ? sash    * extSashMins()                        * r2 : 0;
+  var resinCost   = resin   > 0 ? resin   * extResinMins()                       * r2 : 0;
+  var reglazeCost = reglaze > 0 ? reglaze * extReglazeMins()                     * r2 : 0;
+  var mg = +item.makingGood||0;
+
+  var prepUp = item.prepPct >= 0 ? item.prepPct : (+item.prepCustom||0);
+  var base = masonryCost+fasciaCost+winCost+doorCost+garageCost+sashCost+resinCost+reglazeCost;
+  var total = base*(1+prepUp/100) + porchCost + mg;
+  var time  = total / r2 / 60 / hpd;
+  return { total: total, time: time };
+}
 
 function setExtSeg(key, val) {
-  extCoats[key] = val;
+  extItemCoats[key] = val;
   document.querySelectorAll('#seg-'+key+' .seg-btn').forEach(function(b,i){b.classList.toggle('active',i+1===val);});
-  calcExterior();
+  previewExterior();
 }
 
-function calcExterior() {
-  var doors  = +document.getElementById('ex-doors').value||0;
-  var wins   = +document.getElementById('ex-wins').value||0;
-  var garage = +document.getElementById('ex-garage').value||0;
-  var render = +document.getElementById('ex-render').value||0;
-  var r2     = rpm();
-  var hpd    = settings.hpd;
-  var dCost  = doors  * extDoorMins(extCoats['ex-doors'])   * r2;
-  var wCost  = wins   * extWinMins(extCoats['ex-wins'])     * r2;
-  var gCost  = garage * extGarageMins(extCoats['ex-garage'])* r2;
-  var rCost  = render * extRenderMins(extCoats['ex-render'])* r2;
-  extCost    = dCost + wCost + gCost + rCost;
-  extTime    = extCost / r2 / 60 / hpd;
-  localStorage.setItem('pe-extcost', ''+extCost);
-  localStorage.setItem('pe-exttime', ''+extTime);
-  var hasAny = doors>0 || wins>0 || garage>0 || render>0;
-  document.getElementById('ext-preview').style.display = hasAny?'block':'none';
-  var chip = document.getElementById('ext-chip');
-  chip.style.display = hasAny?'flex':'none';
-  if(hasAny) chip.textContent = fmt(extCost*(1+settings.mu/100));
-  if(hasAny) {
-    document.getElementById('ex-r-doors').textContent  = doors>0  ? fmt(dCost) : '—';
-    document.getElementById('ex-r-wins').textContent   = wins>0   ? fmt(wCost) : '—';
-    document.getElementById('ex-r-garage').textContent = garage>0 ? fmt(gCost) : '—';
-    document.getElementById('ex-r-render').textContent = render>0 ? fmt(rCost) : '—';
-    document.getElementById('ex-r-total').textContent  = fmt(extCost);
-    document.getElementById('ex-r-time').textContent   = extTime.toFixed(2)+' days';
+function setExPrep(val) {
+  exPrepPct = val;
+  var prepVals=[0,10,25,-1];
+  document.querySelectorAll('#seg-ex-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',prepVals[i]===val);});
+  document.getElementById('ex-prep-custom-row').style.display = val===-1?'flex':'none';
+  previewExterior();
+}
+
+function resetExtForm() {
+  editExtId = null;
+  exPrepPct = 0;
+  extItemCoats = {'ex-masonry':2,'ex-fascia':2,'ex-wins':2,'ex-doors':2,'ex-garage':2};
+  document.getElementById('extform-title').textContent = 'Add Exterior';
+  document.getElementById('ex-label').value = '';
+  ['ex-masonry','ex-fascia','ex-wins','ex-doors','ex-garage','ex-porch',
+   'ex-sash','ex-resin','ex-reglaze','ex-making-good'].forEach(function(id){
+    var el=document.getElementById(id); if(el) el.value='0';
+  });
+  ['ex-masonry','ex-fascia','ex-wins','ex-doors','ex-garage'].forEach(function(k){
+    document.querySelectorAll('#seg-'+k+' .seg-btn').forEach(function(b,i){b.classList.toggle('active',i+1===2);});
+  });
+  var prepVals=[0,10,25,-1];
+  document.querySelectorAll('#seg-ex-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',prepVals[i]===0);});
+  document.getElementById('ex-prep-custom-row').style.display='none';
+  document.getElementById('ext-preview-card').style.display='none';
+  document.getElementById('del-ext-btn').style.display='none';
+}
+
+function previewExterior() {
+  var item = getExtFormData();
+  var c = calcExtItem(item);
+  if(c.total > 0) {
+    document.getElementById('ext-preview-card').style.display='block';
+    document.getElementById('ext-prev-cost').textContent = fmt(c.total);
+    document.getElementById('ext-prev-time').textContent = c.time.toFixed(2)+' days';
+  } else {
+    document.getElementById('ext-preview-card').style.display='none';
   }
 }
 
+function getExtFormData() {
+  return {
+    label: document.getElementById('ex-label').value.trim()||'Exterior',
+    masonry: +document.getElementById('ex-masonry').value||0,
+    fascia:  +document.getElementById('ex-fascia').value||0,
+    wins:    +document.getElementById('ex-wins').value||0,
+    doors:   +document.getElementById('ex-doors').value||0,
+    garage:  +document.getElementById('ex-garage').value||0,
+    porch:   +document.getElementById('ex-porch').value||0,
+    sash:    +document.getElementById('ex-sash').value||0,
+    resin:   +document.getElementById('ex-resin').value||0,
+    reglaze: +document.getElementById('ex-reglaze').value||0,
+    coats:   Object.assign({}, extItemCoats),
+    prepPct: exPrepPct,
+    prepCustom: +document.getElementById('ex-prep-custom').value||0,
+    makingGood: +document.getElementById('ex-making-good').value||0
+  };
+}
+
+function showAddExterior() {
+  resetExtForm();
+  inSub='extform';
+  document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active');});
+  document.getElementById('screen-extform').classList.add('active');
+}
+
+function editExtItem(id) {
+  var item = extItems.find(function(x){return x.id===id;});
+  if(!item) return;
+  editExtId = id;
+  exPrepPct = item.prepPct!=null?item.prepPct:0;
+  extItemCoats = Object.assign({'ex-masonry':2,'ex-fascia':2,'ex-wins':2,'ex-doors':2,'ex-garage':2}, item.coats||{});
+  document.getElementById('extform-title').textContent = 'Edit Exterior';
+  document.getElementById('ex-label').value = item.label||'';
+  document.getElementById('ex-masonry').value = item.masonry||0;
+  document.getElementById('ex-fascia').value  = item.fascia||0;
+  document.getElementById('ex-wins').value    = item.wins||0;
+  document.getElementById('ex-doors').value   = item.doors||0;
+  document.getElementById('ex-garage').value  = item.garage||0;
+  document.getElementById('ex-porch').value   = item.porch||0;
+  document.getElementById('ex-sash').value    = item.sash||0;
+  document.getElementById('ex-resin').value   = item.resin||0;
+  document.getElementById('ex-reglaze').value = item.reglaze||0;
+  document.getElementById('ex-making-good').value = item.makingGood||0;
+  ['ex-masonry','ex-fascia','ex-wins','ex-doors','ex-garage'].forEach(function(k){
+    var v=extItemCoats[k]||2;
+    document.querySelectorAll('#seg-'+k+' .seg-btn').forEach(function(b,i){b.classList.toggle('active',i+1===v);});
+  });
+  var prepVals=[0,10,25,-1];
+  document.querySelectorAll('#seg-ex-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',prepVals[i]===exPrepPct);});
+  document.getElementById('ex-prep-custom-row').style.display = exPrepPct===-1?'flex':'none';
+  document.getElementById('del-ext-btn').style.display='block';
+  previewExterior();
+  inSub='extform';
+  document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active');});
+  document.getElementById('screen-extform').classList.add('active');
+}
+
+function saveExteriorItem() {
+  var item = getExtFormData();
+  item.id = editExtId || uid();
+  item.emoji = '🏡';
+  if(editExtId) {
+    var idx=extItems.findIndex(function(x){return x.id===editExtId;});
+    extItems[idx]=item;
+  } else {
+    extItems.push(item);
+  }
+  saveExtItems();
+  goBack();
+}
+
+function deleteExteriorItem() {
+  if(!editExtId) return;
+  extItems=extItems.filter(function(x){return x.id!==editExtId;});
+  saveExtItems();
+  goBack();
+}
+
+function clearExteriorItems() {
+  if(!confirm('Clear all exterior items?')) return;
+  extItems=[]; saveExtItems(); renderExterior();
+}
+
+function saveExtItems() {
+  localStorage.setItem('pe-extitems', JSON.stringify(extItems));
+  apiPut('/api/exterior', { items: extItems });
+}
+
+function renderExterior() {
+  var empty = document.getElementById('ext-empty');
+  var list  = document.getElementById('ext-list');
+  var cards = document.getElementById('ext-cards');
+  var chip  = document.getElementById('ext-chip');
+  var clr   = document.getElementById('ext-clear-btn');
+  if(extItems.length===0) {
+    empty.style.display='flex'; list.style.display='none';
+    chip.style.display='none'; if(clr) clr.style.display='none'; return;
+  }
+  empty.style.display='none'; list.style.display='block';
+  var total=0;
+  cards.innerHTML = extItems.map(function(item) {
+    var c=calcExtItem(item); total+=c.total;
+    return '<div class="room-item" onclick="editExtItem(this.dataset.id)" data-id="'+item.id+'">'+
+      '<div class="room-icon">'+item.emoji+'</div>'+
+      '<div class="room-info"><div class="room-name">'+item.label+'</div>'+
+      '<div class="room-meta">'+fmtD(c.time)+'</div></div>'+
+      '<div class="room-cost">'+fmt(c.total)+'</div>'+
+      '<div style="color:var(--text3);font-size:16px">›</div></div>';
+  }).join('');
+  var marked = total*(1+settings.mu/100);
+  chip.style.display='flex'; chip.textContent=fmt(marked);
+  if(clr) clr.style.display='block';
+}
+
+// Legacy compat - keep saveExterior for old API calls
+function saveExterior() { saveExtItems(); }
+function calcExterior() {}
 function loadExterior() {
-  // Restore saved exterior values
-  var saved = JSON.parse(localStorage.getItem('pe-exterior')||'null');
-  if(saved) {
-    document.getElementById('ex-doors').value  = saved.doors||0;
-    document.getElementById('ex-wins').value   = saved.wins||0;
-    document.getElementById('ex-garage').value = saved.garage||0;
-    document.getElementById('ex-render').value = saved.render||0;
-    if(saved.coats) {
-      extCoats = saved.coats;
-      Object.keys(extCoats).forEach(function(k){
-        document.querySelectorAll('#seg-'+k+' .seg-btn').forEach(function(b,i){b.classList.toggle('active',i+1===extCoats[k]);});
-      });
-    }
-    calcExterior();
-  }
+  var saved = JSON.parse(localStorage.getItem('pe-extitems')||'[]');
+  if(saved.length>0) { extItems=saved; }
 }
-
-
 
 // ── Home ───────────────────────────────────────────────────────────────────
 function renderHome() {
@@ -1868,7 +2097,9 @@ function renderSummary() {
     '<div class="room-breakdown" id="'+id+'">'+subRows+'</div>'+
     '<div style="height:1px;background:var(--border)"></div>';
   }).join('');
-  var tcS=tc+swCost+extCost; var ttS=tt+swTime+extTime;
+  var extTotal=0; var extTimeTotal=0;
+  extItems.forEach(function(item){var c=calcExtItem(item);extTotal+=c.total;extTimeTotal+=c.time;});
+  var tcS=tc+swCost+extTotal; var ttS=tt+swTime+extTimeTotal;
   var mu=settings.mu/100;
   var total=tcS*(1+mu);
   data.innerHTML=
@@ -1883,7 +2114,7 @@ function renderSummary() {
     '</div>'+
     '<div><div class="section-title" style="margin-bottom:8px">Room Breakdown</div>'+
     '<div class="card">'+rows+
-    (extCost>0?'<div class="breakdown-row"><span class="breakdown-label">🏡 Exterior</span><span class="breakdown-value">'+fmt(extCost)+'</span></div>':'')+
+    (extTotal>0?extItems.map(function(item){var c=calcExtItem(item);return '<div class="breakdown-row"><span class="breakdown-label">🏡 '+item.label+'</span><span class="breakdown-value">'+fmt(c.total*mk)+'</span></div>';}).join(''):'')+
     (swCost>0?'<div class="breakdown-row"><span class="breakdown-label">🪵 Staircase woodwork</span><span class="breakdown-value">'+fmt(swCost)+'</span></div>':'')+
     '<div class="breakdown-row" style="border-top:1px solid var(--border)">'+
       '<span class="breakdown-label" style="font-weight:600;color:var(--text)">Labour subtotal</span>'+
