@@ -199,8 +199,9 @@ router.post('/create-quote', async (req, res) => {
       }
     );
 
-    const quote = quoteRes.data.Quotes[0];
-    res.json({ ok: true, quoteId: quote.QuoteID, quoteNumber: quote.QuoteNumber });
+    const quote = quoteRes.data.Quotes ? quoteRes.data.Quotes[0] : quoteRes.data;
+    console.log('Quote response:', JSON.stringify(quoteRes.data).slice(0, 500));
+    res.json({ ok: true, quoteId: quote?.QuoteID, quoteNumber: quote?.QuoteNumber || 'created' });
 
   } catch (err) {
     console.error('Create quote error:', err.response?.data || err.message);
