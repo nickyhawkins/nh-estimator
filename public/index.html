@@ -942,29 +942,7 @@ function goBack() {
 }
 
 // ── Settings ───────────────────────────────────────────────────────────────
-function saveSettings() {
-  settings = {
-    dr:      +document.getElementById('s-dr').value,
-    hpd:     +document.getElementById('s-hpd').value,
-    mu:      +document.getElementById('s-mu').value,
-    cw:      +document.getElementById('s-cw').value,
-    cc:      +document.getElementById('s-cc').value,
-    cg:      +document.getElementById('s-cg').value,
-    jobname: document.getElementById('s-jobname').value.trim(),
-    rWall:   +document.getElementById('s-rwall').value,
-    rCeil:   +document.getElementById('s-rceil').value,
-    rSkirt:  +document.getElementById('s-rskirt').value,
-    rDoorPrep: +document.getElementById('s-rdoorprep').value,
-    rDoorCoat: +document.getElementById('s-rdoorcoat').value,
-    rWin:    +document.getElementById('s-rwin').value,
-    rRad:    +document.getElementById('s-rrad').value,
-    rMist:   +document.getElementById('s-rmist').value,
-    rWPLining:    +document.getElementById('s-rwplining').value,
-    rWPPlain:     +document.getElementById('s-rwpplain').value,
-    rWPPatterned: +document.getElementById('s-rwppatterned').value
-  };
-  localStorage.setItem('pe-settings', JSON.stringify(settings));
-}
+
 function loadSettings() {
   document.getElementById('s-dr').value      = settings.dr;
   document.getElementById('s-hpd').value     = settings.hpd;
@@ -1043,8 +1021,8 @@ function fmt(n)     { return '£'+n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,'
 function fmtD(d)    { return d<0.1?'<0.1d':d.toFixed(1)+'d'; }
 function fmtM(n)    { return n.toFixed(2)+' m²'; }
 function uid()      { return Date.now().toString(36)+Math.random().toString(36).slice(2); }
-function saveRooms(){ localStorage.setItem('pe-rooms',JSON.stringify(rooms)); }
-function saveStair(){ localStorage.setItem('pe-swcost',''+swCost); localStorage.setItem('pe-swtime',''+swTime); }
+
+
 function roomEmoji(name) {
   var n=(name||'').toLowerCase();
   if(n.includes('kitchen'))return'🍳'; if(n.includes('bath'))return'🛁';
@@ -1119,16 +1097,7 @@ function loadExterior() {
   }
 }
 
-function saveExterior() {
-  var data = {
-    doors:  +document.getElementById('ex-doors').value||0,
-    wins:   +document.getElementById('ex-wins').value||0,
-    garage: +document.getElementById('ex-garage').value||0,
-    render: +document.getElementById('ex-render').value||0,
-    coats:  extCoats
-  };
-  localStorage.setItem('pe-exterior', JSON.stringify(data));
-}
+
 
 // ── Home ───────────────────────────────────────────────────────────────────
 function renderHome() {
@@ -1330,37 +1299,10 @@ function deleteRoom() {
 }
 
 // ── Clear ──────────────────────────────────────────────────────────────────
-function clearRooms() {
-  if(!confirm('Clear all rooms? Settings will be kept.'))return;
-  rooms=[]; swCost=0; swTime=0; extCost=0; extTime=0;
-  saveRooms(); saveStair();
-  localStorage.removeItem('pe-extcost'); localStorage.removeItem('pe-exttime'); localStorage.removeItem('pe-exterior');
-  renderHome();
-}
-function clearEverything() {
-  if(!confirm('Clear ALL data including exterior? This cannot be undone.'))return;
-  rooms=[]; swCost=0; swTime=0; extCost=0; extTime=0;
-  // Reset exterior fields
-  ['ex-doors','ex-wins','ex-garage','ex-render'].forEach(function(id){
-    var el=document.getElementById(id); if(el) el.value='0';
-  });
-  Object.keys(extCoats).forEach(function(k){ extCoats[k]=2; });
-  calcExterior();
-  renderHome(); goTab('home');
-  var b=document.createElement('div');
-  b.style.cssText='position:fixed;top:calc(env(safe-area-inset-top,0px) + 70px);left:20px;right:20px;background:#c0392b;color:white;border-radius:12px;padding:14px 16px;font-size:14px;font-weight:600;z-index:999;text-align:center';
-  b.textContent='All data cleared';
-  document.body.appendChild(b);
-  setTimeout(function(){if(b.parentNode)b.parentNode.removeChild(b);},3000);
-}
 
-function clearAll() {
-  if(!confirm('Clear all rooms? Settings will be kept.'))return;
-  rooms=[]; swCost=0; swTime=0; extCost=0; extTime=0;
-  saveRooms(); saveStair();
-  localStorage.removeItem('pe-extcost'); localStorage.removeItem('pe-exttime'); localStorage.removeItem('pe-exterior');
-  renderHome(); goTab('home');
-}
+
+
+
 
 // ── HSL Calculator ────────────────────────────────────────────────────────────
 var hslFloors = 1;
