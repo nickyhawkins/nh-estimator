@@ -149,7 +149,7 @@ router.post('/create-quote', async (req, res) => {
           Description: room.name,
           Quantity: 1,
           UnitAmount: fmt(room.total * mu),
-          AccountCode: '200'
+          AccountCode: '201'
         });
       });
     }
@@ -160,7 +160,7 @@ router.post('/create-quote', async (req, res) => {
         Description: 'Exterior Works',
         Quantity: 1,
         UnitAmount: fmt(exterior.cost * mu),
-        AccountCode: '200'
+        AccountCode: '201'
       });
     }
 
@@ -170,7 +170,7 @@ router.post('/create-quote', async (req, res) => {
         Description: 'Staircase Woodwork',
         Quantity: 1,
         UnitAmount: fmt(hsl.stairWoodCost * mu),
-        AccountCode: '200'
+        AccountCode: '201'
       });
     }
 
@@ -181,9 +181,8 @@ router.post('/create-quote', async (req, res) => {
         Contact: { Name: clientName || 'Client' },
         Date: new Date().toISOString().split('T')[0],
         LineItems: lineItems,
-        LineAmountTypes: 'Exclusive',
-        Status: 'DRAFT',
-        QuoteNumber: `EST-${Date.now().toString().slice(-6)}`
+        LineAmountTypes: 'NoTax',
+        Status: 'DRAFT'
       }]
     };
 
