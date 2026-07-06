@@ -129,6 +129,7 @@ router.post('/create-quote', async (req, res) => {
   try {
     const accessToken = await getAccessToken();
     const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    console.log('Settings rows:', result.rows);
     const tenantId = result.rows[0]?.xero_tenant_id;
     if (!tenantId) {
       return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
@@ -203,6 +204,7 @@ router.post('/create-quote', async (req, res) => {
 
   } catch (err) {
     console.error('Create quote error:', err.response?.data || err.message);
+    console.error('Stack:', err.stack);
     res.status(500).json({ error: err.message });
   }
 });
