@@ -168,6 +168,7 @@ router.post('/create-quote', async (req, res) => {
       Quotes: [{
         Title: jobName || 'Paint Estimate',
         Contact: { Name: clientName || 'Client' },
+        Date: new Date().toISOString().split('T')[0],
         LineItems: lineItems,
         LineAmountTypes: 'Exclusive',
         Status: 'DRAFT',
