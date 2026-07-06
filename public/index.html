@@ -485,6 +485,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="card-header">Xero Integration</div>
       <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
         <button id="xero-connect-btn" onclick="window.location='/auth/connect'" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:12px;padding:12px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Connect Xero</button>
+        <button id="xero-disconnect-btn" onclick="disconnectXero()" style="display:none;background:rgba(192,57,43,.1);border:1px solid rgba(192,57,43,.3);color:var(--danger);border-radius:12px;padding:12px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Disconnect Xero</button>
         <button id="xero-quote-btn" onclick="createXeroQuote()" style="display:none;background:var(--accent);color:white;border:none;border-radius:12px;padding:12px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Send to Xero</button>
       </div>
       <div class="settings-note">Connect your Xero account to create draft quotes directly from the summary.</div>
@@ -664,18 +665,24 @@ function clearEverything() {
 
 function updateXeroButton(connected) {
   var btn = document.getElementById('xero-connect-btn');
+  var discBtn = document.getElementById('xero-disconnect-btn');
   var quoteBtn = document.getElementById('xero-quote-btn');
   if (!btn) return;
   if (connected) {
-    btn.textContent = '✓ Xero Connected';
-    btn.style.background = 'rgba(26,118,26,0.1)';
-    btn.style.borderColor = 'rgba(26,118,26,0.3)';
-    btn.style.color = '#1a761a';
+    btn.style.display = 'none';
+    if (discBtn) discBtn.style.display = 'block';
     if (quoteBtn) quoteBtn.style.display = 'block';
   } else {
-    btn.textContent = 'Connect Xero';
+    btn.style.display = 'block';
+    if (discBtn) discBtn.style.display = 'none';
     if (quoteBtn) quoteBtn.style.display = 'none';
   }
+}
+
+async function disconnectXero() {
+  if (!confirm('Disconnect Xero?')) return;
+  await fetch('/auth/disconnect', { method: 'POST' });
+  updateXeroButton(false);
 }
 
 async function createXeroQuote() {

@@ -50,6 +50,13 @@ router.get('/xero/callback', async (req, res) => {
       headers: { Authorization: `Bearer ${token.access_token}` }
     });
 
+    console.log('Tenants response:', JSON.stringify(tenantsRes.data));
+
+    if (!tenantsRes.data || tenantsRes.data.length === 0) {
+      console.error('No tenants found');
+      return res.redirect('/?error=no_xero_tenant');
+    }
+
     const tenant = tenantsRes.data[0];
 
     // Save token and tenant to DB
@@ -122,7 +129,10 @@ router.post('/create-quote', async (req, res) => {
   try {
     const accessToken = await getAccessToken();
     const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
-    const tenantId = result.rows[0].xero_tenant_id;
+    const tenantId = result.rows[0]?.xero_tenant_id;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
+    }
 
     // Build line items from rooms
     const lineItems = [];
