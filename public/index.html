@@ -820,7 +820,11 @@ async function initApp() {
       rDoorPrep: rawSettings.rDoorPrep||10, rDoorCoat: rawSettings.rDoorCoat||10,
       rWin: rawSettings.rWin||35, rRad: rawSettings.rRad||15, rMist: rawSettings.rMist||2,
       rWPLining: rawSettings.rWPLining||6, rWPPlain: rawSettings.rWPPlain||8,
-      rWPPatterned: rawSettings.rWPPatterned||10
+      rWPPatterned: rawSettings.rWPPatterned||10,
+      rExtMasonry: rawSettings.rExtMasonry||5, rExtFascia: rawSettings.rExtFascia||8,
+      rExtWin: rawSettings.rExtWin||65, rExtDoor: rawSettings.rExtDoor||150,
+      rExtGarage: rawSettings.rExtGarage||150, rSashPaint: rawSettings.rSashPaint||90,
+      rResin: rawSettings.rResin||22, rReglaze: rawSettings.rReglaze||15
     };
   }
   loadSettings();
@@ -869,6 +873,13 @@ async function initApp() {
       extItems = extData.items;
       localStorage.setItem('pe-extitems', JSON.stringify(extItems));
     }
+    // Update server settings with exterior rates
+    if (s && s.rExtMasonry != null) {
+      settings.rExtMasonry = s.rExtMasonry; settings.rExtFascia = s.rExtFascia;
+      settings.rExtWin = s.rExtWin; settings.rExtDoor = s.rExtDoor;
+      settings.rExtGarage = s.rExtGarage; settings.rSashPaint = s.rSashPaint;
+      settings.rResin = s.rResin; settings.rReglaze = s.rReglaze;
+    }
     var xeroStatus = await apiGet('/auth/status');
     updateXeroButton(xeroStatus.connected);
     serverAvailable = true;
@@ -878,50 +889,6 @@ async function initApp() {
   }
 }
 
-async function initApp() {
-  try {
-    var s = await apiGet('/api/settings');
-    if (s && Object.keys(s).length > 0) {
-      var _raw = s;
-      settings = {
-        dr: _raw.dr!=null?_raw.dr:300, hpd: _raw.hpd!=null?_raw.hpd:7,
-        mu: _raw.mu!=null?_raw.mu:20, cw: _raw.cw!=null?_raw.cw:13,
-        cc: _raw.cc!=null?_raw.cc:13, cg: _raw.cg!=null?_raw.cg:7,
-        jobname: _raw.jobname||'',
-        rWall: _raw.rWall!=null?_raw.rWall:3, rCeil: _raw.rCeil!=null?_raw.rCeil:5,
-        rSkirt: _raw.rSkirt!=null?_raw.rSkirt:4,
-        rDoorPrep: _raw.rDoorPrep!=null?_raw.rDoorPrep:10,
-        rDoorCoat: _raw.rDoorCoat!=null?_raw.rDoorCoat:10,
-        rWin: _raw.rWin!=null?_raw.rWin:35, rRad: _raw.rRad!=null?_raw.rRad:15,
-        rMist: _raw.rMist!=null?_raw.rMist:2,
-        rWPLining: _raw.rWPLining!=null?_raw.rWPLining:6,
-        rWPPlain: _raw.rWPPlain!=null?_raw.rWPPlain:8,
-        rWPPatterned: _raw.rWPPatterned!=null?_raw.rWPPatterned:10
-      };
-    }
-    loadSettings();
-    var roomData = await apiGet('/api/rooms');
-    rooms = roomData || [];
-    var hslData = await apiGet('/api/hsl');
-    if (hslData && hslData.swcost) { swCost=parseFloat(hslData.swcost)||0; swTime=parseFloat(hslData.swtime)||0; }
-    var extData = await apiGet('/api/exterior');
-    if (extData && Object.keys(extData).length > 0) {
-      extCost=extData.cost||0; extTime=extData.time||0;
-      document.getElementById('ex-doors').value=extData.doors||0;
-      document.getElementById('ex-wins').value=extData.wins||0;
-      document.getElementById('ex-garage').value=extData.garage||0;
-      document.getElementById('ex-render').value=extData.render||0;
-      if(extData.coats){extCoats=extData.coats;Object.keys(extCoats).forEach(function(k){document.querySelectorAll('#seg-'+k+' .seg-btn').forEach(function(b,i){b.classList.toggle('active',i+1===extCoats[k]);});});}
-      calcExterior();
-    }
-    var xeroStatus = await apiGet('/auth/status');
-    updateXeroButton(xeroStatus.connected);
-    renderHome();
-  } catch(err) {
-    console.error('Init error:', err);
-    renderHome();
-  }
-}
 
 // ── State ──────────────────────────────────────────────────────────────────
 var rooms    = JSON.parse(localStorage.getItem('pe-rooms') || '[]');
