@@ -6,7 +6,7 @@ const router = express.Router();
 const XERO_AUTH_URL = 'https://login.xero.com/identity/connect/authorize';
 const XERO_TOKEN_URL = 'https://identity.xero.com/connect/token';
 const XERO_API_URL = 'https://api.xero.com/api.xro/2.0';
-const SCOPES = 'openid profile email accounting.transactions accounting.contacts offline_access';
+const SCOPES = 'openid profile email offline_access accounting.contacts accounting.settings.read accounting.transactions';
 
 // Step 1: Redirect to Xero login
 router.get('/connect', (req, res) => {
