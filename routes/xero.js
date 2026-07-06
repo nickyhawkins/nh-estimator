@@ -124,7 +124,7 @@ router.get('/status', async (req, res) => {
 
 // Create quote in Xero
 router.post('/create-quote', async (req, res) => {
-  const { clientName, jobName, rooms, exterior, hsl, settings, markup } = req.body;
+  const { clientName, jobName, xeroRef, rooms, exterior, hsl, settings, markup } = req.body;
 
   try {
     const accessToken = await getAccessToken();
@@ -177,9 +177,9 @@ router.post('/create-quote', async (req, res) => {
     // Create quote in Xero
     const quoteData = {
       Quotes: [{
-        Title: jobName || 'Paint Estimate',
         Contact: { Name: clientName || 'Client' },
         Date: new Date().toISOString().split('T')[0],
+        Reference: xeroRef || '',
         LineItems: lineItems,
         LineAmountTypes: 'NoTax',
         Status: 'DRAFT'
