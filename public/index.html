@@ -427,8 +427,23 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
   </div>
   <div id="xero-quote-panel" style="display:none;padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--border);flex-direction:column;gap:8px">
     <div style="display:flex;gap:8px">
-      <input type="text" id="xero-client" placeholder="Client name" autocorrect="off" style="flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:15px;border-radius:var(--rs);padding:8px 12px;outline:none">
+      <div style="position:relative;flex:1">
+        <input type="text" id="xero-client" placeholder="Client name" autocorrect="off" autocomplete="off" oninput="onXeroClientInput()" onfocus="onXeroClientInput()" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:15px;border-radius:var(--rs);padding:8px 12px;outline:none">
+        <div id="xero-contact-dropdown" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:220px;overflow-y:auto"></div>
+      </div>
       <input type="text" id="xero-ref" placeholder="Reference" autocorrect="off" style="flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:15px;border-radius:var(--rs);padding:8px 12px;outline:none">
+    </div>
+    <div id="xero-new-contact-form" style="display:none;flex-direction:column;gap:8px;background:var(--surface2);border-radius:var(--rs);padding:10px">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.6px">New Xero contact</div>
+        <div style="font-size:13px;color:var(--accent);font-weight:600;cursor:pointer" onclick="hideNewXeroContactForm()">Cancel</div>
+      </div>
+      <input type="email" id="xero-new-email" placeholder="Email" autocorrect="off" style="background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none">
+      <input type="text" id="xero-new-street" placeholder="Street address" autocorrect="off" style="background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none">
+      <div style="display:flex;gap:8px">
+        <input type="text" id="xero-new-town" placeholder="Town" autocorrect="off" style="flex:1;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none">
+        <input type="text" id="xero-new-postcode" placeholder="Postcode" autocorrect="off" style="flex:1;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none">
+      </div>
     </div>
     <button id="xero-quote-btn" onclick="createXeroQuote()" style="background:var(--accent);color:white;border:none;border-radius:var(--rs);padding:12px;font-size:15px;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer;width:100%">Send to Xero</button>
   </div>
@@ -706,7 +721,7 @@ function clearRooms() {
 }
 function clearAll() {
   if(!confirm('Clear all rooms? Settings will be kept.'))return;
-  rooms=[]; swCost=0; swTime=0; extCost=0; extTime=0;
+  rooms=[]; swCost=0; swTime=0;
   localStorage.setItem('pe-rooms','[]');
   localStorage.removeItem('pe-swcost'); localStorage.removeItem('pe-swtime');
   localStorage.removeItem('pe-exterior');
@@ -720,7 +735,7 @@ function clearAll() {
 }
 function clearEverything() {
   if(!confirm('Clear ALL data including exterior? This cannot be undone.'))return;
-  rooms=[]; swCost=0; swTime=0; extCost=0; extTime=0;
+  rooms=[]; swCost=0; swTime=0;
   localStorage.clear();
   apiDelete('/api/all');
   apiDelete('/api/hsl');
@@ -760,6 +775,87 @@ async function disconnectXero() {
   updateXeroButton(false);
 }
 
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+
+// ── Xero contact autocomplete ───────────────────────────────────────────
+var xeroSelectedContactId = null;
+var xeroContactSearchTimer = null;
+var xeroContactResults = [];
+
+function onXeroClientInput() {
+  xeroSelectedContactId = null;
+  var q = document.getElementById('xero-client').value.trim();
+  clearTimeout(xeroContactSearchTimer);
+  xeroContactSearchTimer = setTimeout(function(){ searchXeroContacts(q); }, 300);
+}
+
+async function searchXeroContacts(q) {
+  var items = [];
+  if (q.length >= 2) {
+    try {
+      var resp = await fetch('/auth/contacts?search=' + encodeURIComponent(q));
+      if (resp.ok) items = await resp.json();
+    } catch(e) {}
+  }
+  renderXeroContactDropdown(items, q);
+}
+
+function renderXeroContactDropdown(items, q) {
+  xeroContactResults = items;
+  var dd = document.getElementById('xero-contact-dropdown');
+  var html = items.slice(0, 8).map(function(c, i){
+    return '<div style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:14px" '
+      + 'onclick="selectXeroContact(' + i + ')">'
+      + '<div style="font-weight:600;color:var(--text)">' + escapeHtml(c.name) + '</div>'
+      + (c.email ? '<div style="font-size:12px;color:var(--text2)">' + escapeHtml(c.email) + '</div>' : '')
+      + '</div>';
+  }).join('');
+  html += '<div style="padding:10px 12px;cursor:pointer;color:var(--accent);font-weight:600;font-size:14px" onclick="showNewXeroContactForm()">'
+    + '+ Add new contact' + (q ? ' “' + escapeHtml(q) + '”' : '') + '</div>';
+  dd.innerHTML = html;
+  dd.style.display = 'block';
+}
+
+function selectXeroContact(i) {
+  var c = xeroContactResults[i];
+  if (!c) return;
+  document.getElementById('xero-client').value = c.name;
+  xeroSelectedContactId = c.contactId;
+  hideXeroDropdown();
+  hideNewXeroContactForm();
+}
+
+function hideXeroDropdown() {
+  var dd = document.getElementById('xero-contact-dropdown');
+  if (dd) dd.style.display = 'none';
+}
+
+function showNewXeroContactForm() {
+  xeroSelectedContactId = null;
+  hideXeroDropdown();
+  document.getElementById('xero-new-contact-form').style.display = 'flex';
+}
+
+function hideNewXeroContactForm() {
+  var form = document.getElementById('xero-new-contact-form');
+  form.style.display = 'none';
+  document.getElementById('xero-new-email').value = '';
+  document.getElementById('xero-new-street').value = '';
+  document.getElementById('xero-new-town').value = '';
+  document.getElementById('xero-new-postcode').value = '';
+}
+
+document.addEventListener('click', function(e){
+  var input = document.getElementById('xero-client');
+  var dd = document.getElementById('xero-contact-dropdown');
+  if (!input || !dd) return;
+  if (e.target !== input && !dd.contains(e.target)) hideXeroDropdown();
+});
+
 async function createXeroQuote() {
   var btn = document.getElementById('xero-quote-btn');
   btn.textContent = 'Creating...';
@@ -771,6 +867,21 @@ async function createXeroQuote() {
     });
     var clientName = document.getElementById('xero-client').value.trim() || 'Client';
     var xeroRef = document.getElementById('xero-ref').value.trim();
+
+    var extTotal = 0;
+    extItems.forEach(function(item){ extTotal += calcExtItem(item).total; });
+
+    var newContact = null;
+    if (document.getElementById('xero-new-contact-form').style.display !== 'none') {
+      newContact = {
+        name: clientName,
+        email: document.getElementById('xero-new-email').value.trim(),
+        street: document.getElementById('xero-new-street').value.trim(),
+        town: document.getElementById('xero-new-town').value.trim(),
+        postcode: document.getElementById('xero-new-postcode').value.trim()
+      };
+    }
+
     var resp = await fetch('/auth/create-quote', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
@@ -779,15 +890,19 @@ async function createXeroQuote() {
         jobName: settings.jobname||'',
         xeroRef: xeroRef,
         rooms: roomData,
-        exterior: { cost: extCost },
+        exterior: { cost: extTotal },
         hsl: { stairWoodCost: swCost },
         settings: settings,
-        markup: settings.mu
+        markup: settings.mu,
+        contactId: xeroSelectedContactId,
+        newContact: newContact
       })
     });
     var result = await resp.json();
     if (result.ok) {
       btn.textContent = '✓ Quote created — ' + (result.quoteNumber || 'check Xero');
+      xeroSelectedContactId = null;
+      hideNewXeroContactForm();
       setTimeout(function(){ btn.textContent = 'Send to Xero'; btn.disabled = false; }, 4000);
     } else { throw new Error(result.error); }
   } catch(err) {
@@ -2168,10 +2283,12 @@ function exportCSV() {
     var row=[r.name,r.l,r.w,r.h,c.wallArea.toFixed(2),c.ceilArea.toFixed(2),r.wc,r.cc,r.xc,r.win,r.doors,r.rads,r.np?'Yes':'No',c.total.toFixed(2),c.time.toFixed(2)];
     lines.push(row.map(q).join(','));
   });
-  if(extCost>0){lines.push([q('Exterior'),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(extCost.toFixed(2)),q(extTime.toFixed(2))].join(','));}
+  var extTotal=0, extTimeTotal=0;
+  extItems.forEach(function(item){var c=calcExtItem(item); extTotal+=c.total; extTimeTotal+=c.time;});
+  if(extTotal>0){lines.push([q('Exterior'),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(extTotal.toFixed(2)),q(extTimeTotal.toFixed(2))].join(','));}
   if(swCost>0){lines.push([q('Staircase Woodwork'),'','','','','','','','','','','','',q(swCost.toFixed(2)),q(swTime.toFixed(2))].join(','));}
   lines.push('');
-  var tcS=tc+swCost; var total=tcS*(1+s.mu/100);
+  var tcS=tc+swCost+extTotal; var total=tcS*(1+s.mu/100);
   lines.push([q('Labour subtotal'),q(tcS.toFixed(2))].join(','));
   lines.push([q('Total quote (inc markup)'),q(total.toFixed(2))].join(','));
   var csv=lines.join('\n');

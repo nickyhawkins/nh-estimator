@@ -122,9 +122,43 @@ router.get('/status', async (req, res) => {
   }
 });
 
+// Search Xero contacts (for autocomplete)
+router.get('/contacts', async (req, res) => {
+  const search = (req.query.search || '').trim();
+
+  try {
+    const accessToken = await getAccessToken();
+    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    const tenantId = result.rows[0]?.xero_tenant_id;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
+    }
+
+    const params = new URLSearchParams({ summaryOnly: 'true' });
+    if (search) params.set('SearchTerm', search);
+
+    const contactsRes = await axios.get(`${XERO_API_URL}/Contacts?${params}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Xero-Tenant-Id': tenantId
+      }
+    });
+
+    const contacts = (contactsRes.data.Contacts || []).map(c => ({
+      contactId: c.ContactID,
+      name: c.Name,
+      email: c.EmailAddress || ''
+    }));
+    res.json(contacts);
+  } catch (err) {
+    console.error('Contacts search error:', err.response?.data || err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Create quote in Xero
 router.post('/create-quote', async (req, res) => {
-  const { clientName, jobName, xeroRef, rooms, exterior, hsl, settings, markup } = req.body;
+  const { clientName, jobName, xeroRef, rooms, exterior, hsl, settings, markup, contactId, newContact } = req.body;
 
   try {
     const accessToken = await getAccessToken();
@@ -133,6 +167,38 @@ router.post('/create-quote', async (req, res) => {
     const tenantId = result.rows[0]?.xero_tenant_id;
     if (!tenantId) {
       return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
+    }
+
+    // Resolve the quote's contact: create a new Xero contact, use a selected
+    // existing one, or fall back to a bare name (Xero will match/create it)
+    let contact;
+    if (newContact && newContact.name) {
+      const hasAddress = newContact.street || newContact.town || newContact.postcode;
+      const contactRes = await axios.put(
+        `${XERO_API_URL}/Contacts`,
+        { Contacts: [{
+          Name: newContact.name,
+          EmailAddress: newContact.email || undefined,
+          Addresses: hasAddress ? [{
+            AddressType: 'STREET',
+            AddressLine1: newContact.street || '',
+            City: newContact.town || '',
+            PostalCode: newContact.postcode || ''
+          }] : undefined
+        }] },
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Xero-Tenant-Id': tenantId,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      contact = { ContactID: contactRes.data.Contacts[0].ContactID };
+    } else if (contactId) {
+      contact = { ContactID: contactId };
+    } else {
+      contact = { Name: clientName || 'Client' };
     }
 
     // Build line items from rooms
@@ -177,7 +243,7 @@ router.post('/create-quote', async (req, res) => {
     // Create quote in Xero
     const quoteData = {
       Quotes: [{
-        Contact: { Name: clientName || 'Client' },
+        Contact: contact,
         Date: new Date().toISOString().split('T')[0],
         Reference: xeroRef || '',
         LineItems: lineItems,
