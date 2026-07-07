@@ -2,6 +2,8 @@
 
 Paint estimating web app with Xero integration.
 
+See [NOTES.md](NOTES.md) for architecture notes and gotchas hit during development.
+
 ## Setup
 
 ### 1. Clone and install
