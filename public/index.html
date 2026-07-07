@@ -713,7 +713,9 @@ function clearAll() {
   var xc=document.getElementById('xero-client'); if(xc) xc.value='';
   var xr=document.getElementById('xero-ref'); if(xr) xr.value='';
   saveRooms(); saveStair();
-  extItems=[]; saveExtItems();
+  extItems=[];
+  localStorage.setItem('pe-extitems','[]');
+  apiDelete('/api/extitems');
   renderHome(); goTab('home');
 }
 function clearEverything() {
@@ -856,9 +858,9 @@ async function initApp() {
       localStorage.setItem('pe-swcost',''+swCost);
       localStorage.setItem('pe-swtime',''+swTime);
     }
-    var extData = await apiGet('/api/exterior');
-    if (extData && extData.items && extData.items.length > 0) {
-      extItems = extData.items;
+    var extData = await apiGet('/api/extitems');
+    if (extData && extData.length > 0) {
+      extItems = extData;
       localStorage.setItem('pe-extitems', JSON.stringify(extItems));
       renderExterior();
       if(curTab==='summary') renderSummary();
@@ -1259,12 +1261,20 @@ function deleteExteriorItem() {
 
 function clearExteriorItems() {
   if(!confirm('Clear all exterior items?')) return;
-  extItems=[]; saveExtItems(); renderExterior();
+  extItems=[];
+  localStorage.setItem('pe-extitems','[]');
+  apiDelete('/api/extitems');
+  renderExterior();
 }
 
 function saveExtItems() {
   localStorage.setItem('pe-extitems', JSON.stringify(extItems));
-  apiPut('/api/exterior', { items: extItems });
+  // Save like rooms - each item individually
+  apiDelete('/api/extitems').then(function() {
+    extItems.forEach(function(item) {
+      apiPut('/api/extitems/'+item.id, item);
+    });
+  });
 }
 
 function renderExterior() {
@@ -2000,9 +2010,9 @@ function renderSummary() {
   if(localExt.length > 0) extItems = localExt;
 
   // Then fetch from server and re-render
-  apiGet('/api/exterior').then(function(extData) {
-    if(extData && extData.items && extData.items.length > 0) {
-      extItems = extData.items;
+  apiGet('/api/extitems').then(function(data) {
+    if(data && data.length > 0) {
+      extItems = data;
       localStorage.setItem('pe-extitems', JSON.stringify(extItems));
     }
     _renderSummaryInner();

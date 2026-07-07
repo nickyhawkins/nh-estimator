@@ -45,3 +45,12 @@ CREATE TABLE IF NOT EXISTS exterior_state (
 );
 
 INSERT INTO exterior_state (data) VALUES ('{}') ON CONFLICT DO NOTHING;
+
+-- Exterior items table (mirrors rooms structure)
+CREATE TABLE IF NOT EXISTS exterior_items (
+  id VARCHAR PRIMARY KEY,
+  label VARCHAR NOT NULL,
+  data JSONB NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);

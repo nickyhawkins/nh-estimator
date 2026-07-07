@@ -52,6 +52,53 @@ router.delete('/rooms', async (req, res) => {
   }
 });
 
+
+// ── Exterior Items ─────────────────────────────────────────────────────────
+
+router.get('/extitems', async (req, res) => {
+  try {
+    const result = await db.query('SELECT id, label, data FROM exterior_items ORDER BY created_at ASC');
+    const items = result.rows.map(r => ({ id: r.id, label: r.label, ...r.data }));
+    res.json(items);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/extitems/:id', async (req, res) => {
+  const { id } = req.params;
+  const item = req.body;
+  const { label, ...data } = item;
+  try {
+    await db.query(`
+      INSERT INTO exterior_items (id, label, data, updated_at)
+      VALUES ($1, $2, $3, NOW())
+      ON CONFLICT (id) DO UPDATE SET label = $2, data = $3, updated_at = NOW()
+    `, [id, label || 'Exterior', data]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/extitems/:id', async (req, res) => {
+  try {
+    await db.query('DELETE FROM exterior_items WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/extitems', async (req, res) => {
+  try {
+    await db.query('DELETE FROM exterior_items');
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Settings ───────────────────────────────────────────────────────────────
 
 router.get('/settings', async (req, res) => {
