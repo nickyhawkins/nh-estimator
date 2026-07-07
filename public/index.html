@@ -1278,6 +1278,19 @@ function saveExtItems() {
 }
 
 function renderExterior() {
+  // Always fetch fresh from server
+  apiGet('/api/extitems').then(function(data) {
+    if(data && data.length > 0) {
+      extItems = data;
+      localStorage.setItem('pe-extitems', JSON.stringify(extItems));
+    }
+    _renderExteriorInner();
+  }).catch(function() {
+    _renderExteriorInner();
+  });
+}
+
+function _renderExteriorInner() {
   var empty = document.getElementById('ext-empty');
   var list  = document.getElementById('ext-list');
   var cards = document.getElementById('ext-cards');
@@ -1285,7 +1298,10 @@ function renderExterior() {
   var clr   = document.getElementById('ext-clear-btn');
   if(extItems.length===0) {
     empty.style.display='flex'; list.style.display='none';
-    chip.style.display='none'; if(clr) clr.style.display='none'; return;
+    chip.style.display='none'; if(clr) clr.style.display='none';
+    var sub2=document.getElementById('ext-sub');
+    if(sub2) sub2.textContent='';
+    return;
   }
   empty.style.display='none'; list.style.display='block';
   var total=0;
