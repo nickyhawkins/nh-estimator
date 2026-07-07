@@ -140,7 +140,8 @@ router.get('/contacts', async (req, res) => {
     const contactsRes = await axios.get(`${XERO_API_URL}/Contacts?${params}`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
-        'Xero-Tenant-Id': tenantId
+        'Xero-Tenant-Id': tenantId,
+        Accept: 'application/json'
       }
     });
 
@@ -190,7 +191,8 @@ router.post('/create-quote', async (req, res) => {
           headers: {
             Authorization: `Bearer ${accessToken}`,
             'Xero-Tenant-Id': tenantId,
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            Accept: 'application/json'
           }
         }
       );
@@ -259,7 +261,8 @@ router.post('/create-quote', async (req, res) => {
         headers: {
           Authorization: `Bearer ${accessToken}`,
           'Xero-Tenant-Id': tenantId,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          Accept: 'application/json'
         }
       }
     );
