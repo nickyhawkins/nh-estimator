@@ -1994,7 +1994,27 @@ function toggleRoomBd(id) {
 function renderSummary() {
   var empty=document.getElementById('sum-empty');
   var data=document.getElementById('sum-data');
-  if(rooms.length===0){empty.style.display='flex';data.style.display='none';return;}
+
+  // Always reload extItems from localStorage first
+  var localExt = JSON.parse(localStorage.getItem('pe-extitems')||'[]');
+  if(localExt.length > 0) extItems = localExt;
+
+  // Then fetch from server and re-render
+  apiGet('/api/exterior').then(function(extData) {
+    if(extData && extData.items && extData.items.length > 0) {
+      extItems = extData.items;
+      localStorage.setItem('pe-extitems', JSON.stringify(extItems));
+    }
+    _renderSummaryInner();
+  }).catch(function() {
+    _renderSummaryInner();
+  });
+}
+
+function _renderSummaryInner() {
+  var empty=document.getElementById('sum-empty');
+  var data=document.getElementById('sum-data');
+  if(rooms.length===0&&extItems.length===0){empty.style.display='flex';data.style.display='none';return;}
   empty.style.display='none'; data.style.display='block';
   var tc=0,tt=0,wL=0,cL=0,gL=0,pL=0;
   var mu=settings.mu/100;
