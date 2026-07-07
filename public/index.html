@@ -862,7 +862,7 @@ async function initApp() {
     if (extData && extData.length > 0) {
       extItems = extData;
       renderExterior();
-      if(curTab==='summary') renderSummary();
+      renderSummary();
     }
     // Update server settings with exterior rates
     if (s && s.rExtMasonry != null) {
@@ -940,7 +940,16 @@ function goTab(tab) {
     var el=document.getElementById('nav-'+t);
     if(el) el.classList.toggle('active', t===tab);
   });
-  if (tab==='summary') renderSummary();
+  if (tab==='summary') {
+    if(extItems.length===0) {
+      apiGet('/api/extitems').then(function(data){
+        if(data && data.length>0) extItems=data;
+        renderSummary();
+      }).catch(function(){ renderSummary(); });
+    } else {
+      renderSummary();
+    }
+  }
   if (tab==='exterior') renderExterior();
 }
 
