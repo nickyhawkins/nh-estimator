@@ -1269,18 +1269,16 @@ function clearExteriorItems() {
 
 function saveExtItems() {
   localStorage.setItem('pe-extitems', JSON.stringify(extItems));
-  // Save like rooms - each item individually
-  apiDelete('/api/extitems').then(function() {
-    extItems.forEach(function(item) {
-      apiPut('/api/extitems/'+item.id, item);
-    });
+  // Upsert each item individually (no delete first - avoids race condition)
+  extItems.forEach(function(item) {
+    apiPut('/api/extitems/'+item.id, item);
   });
 }
 
 function renderExterior() {
-  // Always fetch fresh from server
+  // Fetch from server to sync, but don't overwrite if we already have data
   apiGet('/api/extitems').then(function(data) {
-    if(data && data.length > 0) {
+    if(data && data.length > 0 && data.length >= extItems.length) {
       extItems = data;
       localStorage.setItem('pe-extitems', JSON.stringify(extItems));
     }
