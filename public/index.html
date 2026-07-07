@@ -2092,7 +2092,43 @@ async function renderSummary() {
     '</div>'+
     '<div><div class="section-title" style="margin-bottom:8px">Room Breakdown</div>'+
     '<div class="card">'+rows+
-    (extItems.length>0?extItems.map(function(item){var c=calcExtItem(item);return '<div class="breakdown-row"><span class="breakdown-label">🏡 '+item.label+'</span><span class="breakdown-value">'+fmt(c.total*(1+mu))+'</span></div>';}).join(''):'')+
+    (extItems.length>0?extItems.map(function(item,ei){
+      var c=calcExtItem(item); var mk=1+mu; var r2=rpm();
+      var eid='ext-bd-'+ei;
+      var sub='';
+      var mc=item.coats||{};
+      var masonryCost = +item.masonry>0 ? +item.masonry*extMasonryMins(mc['ex-masonry']||2)*r2 : 0;
+      var fasciaCost  = +item.fascia>0 ? +item.fascia*extFasciaMins(mc['ex-fascia']||2)*r2 : 0;
+      var winCost     = +item.wins>0 ? +item.wins*extWinMins2()*r2 : 0;
+      var doorCost    = +item.doors>0 ? +item.doors*extDoorMins2()*r2 : 0;
+      var garageCost  = +item.garage>0 ? +item.garage*extGarageMins2()*r2 : 0;
+      var porchCost   = +item.porch>0 ? +item.porch*settings.dr : 0;
+      var sashCost    = +item.sash>0 ? +item.sash*extSashMins()*r2 : 0;
+      var resinCost   = +item.resin>0 ? +item.resin*extResinMins()*r2 : 0;
+      var reglazeCost = +item.reglaze>0 ? +item.reglaze*extReglazeMins()*r2 : 0;
+      var prepUp = item.prepPct >= 0 ? item.prepPct : (+item.prepCustom||0);
+      var prepLabel = prepUp===0?'Standard':prepUp===10?'Light Prep':prepUp===25?'Full Prep':'Custom '+prepUp+'%';
+      if(prepUp>0){var base=masonryCost+fasciaCost+winCost+doorCost+garageCost+sashCost+resinCost+reglazeCost;sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Prep ('+prepLabel+')</span><span class="breakdown-sub-value">'+fmt(base*(prepUp/100)*mk)+'</span></div>';}
+      if(masonryCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Masonry / Render</span><span class="breakdown-sub-value">'+fmt(masonryCost*mk)+'</span></div>';
+      if(fasciaCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Fascias &amp; Soffits</span><span class="breakdown-sub-value">'+fmt(fasciaCost*mk)+'</span></div>';
+      if(winCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ext Windows</span><span class="breakdown-sub-value">'+fmt(winCost*mk)+'</span></div>';
+      if(doorCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ext Doors</span><span class="breakdown-sub-value">'+fmt(doorCost*mk)+'</span></div>';
+      if(garageCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Garage Doors</span><span class="breakdown-sub-value">'+fmt(garageCost*mk)+'</span></div>';
+      if(porchCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Porch / Feature Door</span><span class="breakdown-sub-value">'+fmt(porchCost*mk)+'</span></div>';
+      if(sashCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Sash prime &amp; paint</span><span class="breakdown-sub-value">'+fmt(sashCost*mk)+'</span></div>';
+      if(resinCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Resin repairs</span><span class="breakdown-sub-value">'+fmt(resinCost*mk)+'</span></div>';
+      if(reglazeCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Reglaze</span><span class="breakdown-sub-value">'+fmt(reglazeCost*mk)+'</span></div>';
+      if(+item.makingGood>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Making Good</span><span class="breakdown-sub-value">'+fmt(+item.makingGood)+'</span></div>';
+      return '<div class="room-item room-item-tap" onclick="toggleRoomBd(this.dataset.id)" data-id="'+eid+'" style="border-bottom:none">'+
+        '<div class="room-icon">🏡</div>'+
+        '<div class="room-info"><div class="room-name">'+item.label+'</div>'+
+        '<div class="room-meta">'+fmtD(c.time)+(prepUp>0?' · '+prepLabel:'')+'</div></div>'+
+        '<div class="room-cost">'+fmt(c.total*mk)+'</div>'+
+        '<div class="room-chevron-icon" id="chev-'+eid+'">›</div>'+
+      '</div>'+
+      '<div class="room-breakdown" id="'+eid+'">'+sub+'</div>'+
+      '<div style="height:1px;background:var(--border)"></div>';
+    }).join(''):'')+
     (swCost>0?'<div class="breakdown-row"><span class="breakdown-label">🪵 Staircase woodwork</span><span class="breakdown-value">'+fmt(swCost)+'</span></div>':'')+
     '<div class="breakdown-row" style="border-top:1px solid var(--border)">'+
       '<span class="breakdown-label" style="font-weight:600;color:var(--text)">Labour subtotal</span>'+
