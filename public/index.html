@@ -861,7 +861,6 @@ async function initApp() {
     var extData = await apiGet('/api/extitems');
     if (extData && extData.length > 0) {
       extItems = extData;
-      localStorage.setItem('pe-extitems', JSON.stringify(extItems));
       renderExterior();
       if(curTab==='summary') renderSummary();
     }
@@ -1093,7 +1092,7 @@ function tin(l) {
 }
 
 // ── Exterior items (room-style list) ──────────────────────────────────────────
-var extItems = JSON.parse(localStorage.getItem('pe-extitems') || '[]');
+var extItems = [];
 var editExtId = null;
 var extItemCoats = {'ex-masonry':2,'ex-fascia':2,'ex-wins':2,'ex-doors':2,'ex-garage':2};
 var exPrepPct = 0;
@@ -1268,24 +1267,13 @@ function clearExteriorItems() {
 }
 
 function saveExtItems() {
-  localStorage.setItem('pe-extitems', JSON.stringify(extItems));
-  // Upsert each item individually (no delete first - avoids race condition)
   extItems.forEach(function(item) {
     apiPut('/api/extitems/'+item.id, item);
   });
 }
 
 function renderExterior() {
-  // Fetch from server to sync, but don't overwrite if we already have data
-  apiGet('/api/extitems').then(function(data) {
-    if(data && data.length > 0 && data.length >= extItems.length) {
-      extItems = data;
-      localStorage.setItem('pe-extitems', JSON.stringify(extItems));
-    }
-    _renderExteriorInner();
-  }).catch(function() {
-    _renderExteriorInner();
-  });
+  _renderExteriorInner();
 }
 
 function _renderExteriorInner() {
@@ -2016,10 +2004,8 @@ function toggleRoomBd(id) {
 }
 
 function renderSummary() {
+  // extItems already in memory from initApp
   // Reload extItems from localStorage
-  var localExt = JSON.parse(localStorage.getItem('pe-extitems')||'[]');
-  if(localExt.length > 0) extItems = localExt;
-
   var empty=document.getElementById('sum-empty');
   var data=document.getElementById('sum-data');
   if(rooms.length===0&&extItems.length===0){empty.style.display='flex';data.style.display='none';return;}
@@ -2086,9 +2072,6 @@ function renderSummary() {
     '<div style="height:1px;background:var(--border)"></div>';
   }).join('');
   // Always reload extItems fresh from localStorage
-  var localExt = JSON.parse(localStorage.getItem('pe-extitems')||'[]');
-  if(localExt.length > 0) extItems = localExt;
-
   var extTotal=0; var extTimeTotal=0;
   extItems.forEach(function(item){var c=calcExtItem(item);extTotal+=c.total;extTimeTotal+=c.time;});
   var tcS=tc+swCost+extTotal; var ttS=tt+swTime+extTimeTotal;
