@@ -27,12 +27,12 @@ Because item names are now consistently formatted, the app can parse this:
 - **Range** = everything before the ` - ` separator
 - **Colour band** = the word(s) after ` - ` and before the size
 - **Tin size** = the trailing `Nltr` value
-- **Price** = SalesUnitPrice from the item
+- **Price** = SalesUnitPrice from the item (sales account 202 — the price charged to the customer)
 
 ## Revised approach
 
 ### Grouping (new — do this first)
-Parse all account-311 Xero items into a structure:
+Parse all account-202 (sales) Xero items into a structure (use SalesUnitPrice for pricing — 202 is the sales account, what the customer is charged; 311 is the purchases/cost account and is NOT used for quoting):
 ```
 range -> colour band -> [ {size_litres, price, itemCode}, ... ]
 ```
@@ -57,7 +57,7 @@ Store the range identifier, not a specific item.
 - **Ceiling / woodwork topcoat / primer:** these are charged per litre (user has per-litre line items). Use litres × per-litre price for the selected range + band. Primer litres = topcoat litres × 0.8.
 
 ### On the quote
-Consolidated materials lines using the real Xero item codes chosen by the optimiser, account 311, No VAT, under the labour lines. For walls this may mean e.g. "1 × Optiva 5 Colours 3ltr" + "1 × Optiva 5 Colours 1ltr" if that's the cheapest fill.
+Consolidated materials lines using the real Xero item codes chosen by the optimiser, account 202 (sales), No VAT, under the labour lines. For walls this may mean e.g. "1 × Optiva 5 Colours 3ltr" + "1 × Optiva 5 Colours 1ltr" if that's the cheapest fill.
 
 ## Build order (revised)
 
