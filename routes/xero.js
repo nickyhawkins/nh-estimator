@@ -179,17 +179,24 @@ router.get('/items', async (req, res) => {
       }
     });
 
-    const items = (itemsRes.data.Items || [])
-      .filter(i => i.SalesDetails?.AccountCode === '311')
+    const allItems = itemsRes.data.Items || [];
+    // 311 is the *purchase*-side (COGS) account code on these items, not the
+    // sales account — every item's SalesDetails.AccountCode is '202' or blank,
+    // regardless of product, so account 311 only ever shows up under
+    // PurchaseDetails. (Confirmed against a live InventoryItems export: 90
+    // items carry PurchaseDetails.AccountCode '311', zero carry it on Sales.)
+    const items = allItems
+      .filter(i => i.PurchaseDetails?.AccountCode === '311')
       .map(i => {
         const sizeMatch = i.Name.match(TIN_SIZE_RE);
         return {
           code: i.Code,
           name: i.Name,
-          price: i.SalesDetails.UnitPrice,
+          price: i.SalesDetails?.UnitPrice ?? null,
           tinSizeL: sizeMatch ? parseFloat(sizeMatch[1]) : null
         };
       });
+    console.log(`Items fetch: ${allItems.length} total, ${items.length} matched account 311`);
     res.json(items);
   } catch (err) {
     console.error('Items fetch error:', err.response?.data || err.message);
