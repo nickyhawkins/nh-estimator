@@ -526,7 +526,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Ceiling paint<small>per litre</small></div><select class="field-input" id="mat-ceiling" onchange="onMaterialSelect('ceiling')"></select></div>
       <div class="field-row"><div class="field-label">Woodwork topcoat<small>per litre</small></div><select class="field-input" id="mat-topcoat" onchange="onMaterialSelect('topcoat')"></select></div>
       <div class="field-row"><div class="field-label">Woodwork primer<small>per litre</small></div><select class="field-input" id="mat-primer" onchange="onMaterialSelect('primer')"></select></div>
-      <div class="settings-note" id="materials-note">Connect Xero above, then tap Refresh to map your paint products (account 311). Until a product is mapped, the Summary shows an estimated litres/tins figure instead of a real price.</div>
+      <div class="settings-note" id="materials-note">Connect Xero above, then tap Refresh to choose a default product range for each role (e.g. "Tikkurila Optiva 5"). Colour band and exact tin size are chosen per job later. Until a range is picked, the Summary shows an estimated litres/tins figure instead of a real price.</div>
     </div>
   </div>
 </div>
@@ -788,13 +788,16 @@ async function disconnectXero() {
 }
 
 // ── Materials mapping (Settings) ────────────────────────────────────────
-var xeroItemsCache = [];
+// Per MATERIALS_SPEC.md: the default is a product RANGE (e.g. "Tikkurila
+// Optiva 5"), not a specific tin — colour band and exact tin size are
+// chosen later (per colour group / by the tin optimiser), not here.
+var materialGroupsCache = {};
 
 async function refreshXeroItems() {
   var btn = document.getElementById('materials-refresh-btn');
   btn.textContent = 'Refreshing…'; btn.disabled = true;
   try {
-    xeroItemsCache = await apiGet('/auth/items');
+    materialGroupsCache = await apiGet('/auth/material-groups');
     populateMaterialSelects();
   } catch (e) {
     alert('Could not fetch Xero items: ' + e.message);
@@ -804,40 +807,34 @@ async function refreshXeroItems() {
 }
 
 function populateMaterialSelects() {
+  var ranges = Object.keys(materialGroupsCache).sort();
   ['wall', 'ceiling', 'topcoat', 'primer'].forEach(function(key) {
     var sel = document.getElementById('mat-' + key);
     if (!sel) return;
     var current = (settings.materials || {})[key];
-    var matchedIdx = -1;
+    var currentRange = current && current.range;
+    var matched = false;
     var opts = '<option value="">— none —</option>';
-    xeroItemsCache.forEach(function(it, i) {
-      if (current && it.code === current.code) matchedIdx = i;
-      opts += '<option value="' + i + '">' + escapeHtml(it.name) + ' — ' + fmt(it.price) + '</option>';
+    ranges.forEach(function(r) {
+      if (r === currentRange) matched = true;
+      opts += '<option value="' + escapeHtml(r) + '"' + (r === currentRange ? ' selected' : '') + '>' + escapeHtml(r) + '</option>';
     });
-    if (current && matchedIdx === -1) {
-      // Saved mapping not in the freshly-fetched (or not-yet-fetched) list —
+    if (currentRange && !matched) {
+      // Saved range not in the freshly-fetched (or not-yet-fetched) list —
       // keep showing it as a placeholder so the choice isn't silently lost.
-      opts += '<option value="saved" selected>' + escapeHtml(current.name) + ' — ' + fmt(current.price) + '</option>';
+      opts += '<option value="' + escapeHtml(currentRange) + '" selected>' + escapeHtml(currentRange) + ' (not found — refresh?)</option>';
     }
     sel.innerHTML = opts;
-    if (matchedIdx >= 0) sel.value = matchedIdx;
   });
   var note = document.getElementById('materials-note');
-  if (note) note.style.display = xeroItemsCache.length ? 'none' : '';
+  if (note) note.style.display = ranges.length ? 'none' : '';
 }
 
 function onMaterialSelect(key) {
   var sel = document.getElementById('mat-' + key);
   var val = sel.value;
   if (!settings.materials) settings.materials = {};
-  if (val === 'saved') {
-    // Placeholder for the already-saved mapping — nothing changed.
-  } else if (val === '') {
-    settings.materials[key] = null;
-  } else {
-    var it = xeroItemsCache[val];
-    settings.materials[key] = { code: it.code, name: it.name, price: it.price, tinSizeL: it.tinSizeL };
-  }
+  settings.materials[key] = val ? { range: val } : null;
   saveSettings();
   renderSummary();
 }
@@ -1304,8 +1301,11 @@ function computeJobLitres() {
 // Mapped rows price at the real Xero item's sell price (already the trade
 // sell price, so no job markup is re-applied on top); unmapped rows fall
 // back to the old litres + guessed-tin-count estimate with no cost/lineItem.
+// A mapping with no resolved `price` (e.g. a range-only selection from the
+// Settings picker, ahead of colour-band/tin-optimiser steps landing) is
+// treated as unmapped too, rather than producing a NaN cost.
 function materialRow(label, litres, mapping, isWall) {
-  if (mapping) {
+  if (mapping && mapping.price != null) {
     var quantity, detail;
     if (isWall) {
       quantity = Math.ceil(litres / (mapping.tinSizeL || litres || 1));
@@ -1335,7 +1335,8 @@ function computeMaterials() {
   var wall    = materialRow('Wall Emulsion', L.wL, matSettings.wall, true);
   var ceiling = materialRow('Ceiling Emulsion', L.cL, matSettings.ceiling, false);
   var topcoat = materialRow('Woodwork Topcoat', L.gL, matSettings.topcoat, false);
-  var primer  = materialRow('Woodwork Primer', matSettings.primer ? primerL : L.pL, matSettings.primer, false);
+  var primerMapped = matSettings.primer && matSettings.primer.price != null;
+  var primer  = materialRow('Woodwork Primer', primerMapped ? primerL : L.pL, matSettings.primer, false);
   return {
     wall: wall, ceiling: ceiling, topcoat: topcoat, primer: primer,
     total: wall.cost + ceiling.cost + topcoat.cost + primer.cost
