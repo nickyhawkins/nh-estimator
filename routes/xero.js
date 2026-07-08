@@ -157,9 +157,49 @@ router.get('/contacts', async (req, res) => {
   }
 });
 
+// Tin size in an item name, e.g. "10L", "2.5L" or "10ltr" (our own price-update
+// script writes "ltr" while other suppliers' Xero items use "L").
+const TIN_SIZE_RE = /(\d+(?:\.\d+)?)\s*l(?:tr)?\b/i;
+
+// List paint products (account 311) for the materials-mapping settings
+router.get('/items', async (req, res) => {
+  try {
+    const accessToken = await getAccessToken();
+    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    const tenantId = result.rows[0]?.xero_tenant_id;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
+    }
+
+    const itemsRes = await axios.get(`${XERO_API_URL}/Items`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Xero-Tenant-Id': tenantId,
+        Accept: 'application/json'
+      }
+    });
+
+    const items = (itemsRes.data.Items || [])
+      .filter(i => i.SalesDetails?.AccountCode === '311')
+      .map(i => {
+        const sizeMatch = i.Name.match(TIN_SIZE_RE);
+        return {
+          code: i.Code,
+          name: i.Name,
+          price: i.SalesDetails.UnitPrice,
+          tinSizeL: sizeMatch ? parseFloat(sizeMatch[1]) : null
+        };
+      });
+    res.json(items);
+  } catch (err) {
+    console.error('Items fetch error:', err.response?.data || err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Create quote in Xero
 router.post('/create-quote', async (req, res) => {
-  const { clientName, jobName, xeroRef, rooms, exterior, hsl, settings, markup, contactId, newContact } = req.body;
+  const { clientName, jobName, xeroRef, rooms, exterior, hsl, materials, settings, markup, contactId, newContact } = req.body;
 
   try {
     const accessToken = await getAccessToken();
@@ -239,6 +279,21 @@ router.post('/create-quote', async (req, res) => {
         Quantity: 1,
         UnitAmount: fmt(hsl.stairWoodCost * mu),
         AccountCode: '201'
+      });
+    }
+
+    // Materials break — real Xero items on account 311, placed after the
+    // labour lines. Priced at the item's own sell price already stored in
+    // Xero, so no job markup is re-applied here (unlike the labour lines above).
+    if (materials) {
+      materials.forEach(m => {
+        lineItems.push({
+          ItemCode: m.itemCode,
+          Description: m.description,
+          Quantity: m.quantity,
+          UnitAmount: fmt(m.unitAmount),
+          AccountCode: '311'
+        });
       });
     }
 

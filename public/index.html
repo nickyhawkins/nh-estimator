@@ -517,6 +517,17 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       </div>
       <div class="settings-note">Connect your Xero account to send quotes directly from the Summary tab.</div>
     </div>
+    <div class="card">
+      <div class="card-header">Materials (Xero Items)</div>
+      <div style="padding:0 16px 14px">
+        <button id="materials-refresh-btn" onclick="refreshXeroItems()" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:12px;padding:12px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;width:100%">Refresh from Xero</button>
+      </div>
+      <div class="field-row"><div class="field-label">Wall paint<small>per tin</small></div><select class="field-input" id="mat-wall" onchange="onMaterialSelect('wall')"></select></div>
+      <div class="field-row"><div class="field-label">Ceiling paint<small>per litre</small></div><select class="field-input" id="mat-ceiling" onchange="onMaterialSelect('ceiling')"></select></div>
+      <div class="field-row"><div class="field-label">Woodwork topcoat<small>per litre</small></div><select class="field-input" id="mat-topcoat" onchange="onMaterialSelect('topcoat')"></select></div>
+      <div class="field-row"><div class="field-label">Woodwork primer<small>per litre</small></div><select class="field-input" id="mat-primer" onchange="onMaterialSelect('primer')"></select></div>
+      <div class="settings-note" id="materials-note">Connect Xero above, then tap Refresh to map your paint products (account 311). Until a product is mapped, the Summary shows an estimated litres/tins figure instead of a real price.</div>
+    </div>
   </div>
 </div>
 
@@ -703,7 +714,8 @@ function saveSettings() {
     rExtGarage:   +document.getElementById('s-rextgarage').value,
     rSashPaint:   +document.getElementById('s-rsashpaint').value,
     rResin:       +document.getElementById('s-rresin').value,
-    rReglaze:     +document.getElementById('s-rreglaze').value
+    rReglaze:     +document.getElementById('s-rreglaze').value,
+    materials:    settings.materials || {}
   };
   localStorage.setItem('pe-settings', JSON.stringify(settings));
   apiPut('/api/settings', settings);
@@ -773,6 +785,66 @@ async function disconnectXero() {
   if (!confirm('Disconnect Xero?')) return;
   await fetch('/auth/disconnect', { method: 'POST' });
   updateXeroButton(false);
+}
+
+// ── Materials mapping (Settings) ────────────────────────────────────────
+var xeroItemsCache = [];
+
+async function refreshXeroItems() {
+  var btn = document.getElementById('materials-refresh-btn');
+  btn.textContent = 'Refreshing…'; btn.disabled = true;
+  try {
+    xeroItemsCache = await apiGet('/auth/items');
+    populateMaterialSelects();
+  } catch (e) {
+    alert('Could not fetch Xero items: ' + e.message);
+  } finally {
+    btn.textContent = 'Refresh from Xero'; btn.disabled = false;
+  }
+}
+
+function populateMaterialSelects() {
+  ['wall', 'ceiling', 'topcoat', 'primer'].forEach(function(key) {
+    var sel = document.getElementById('mat-' + key);
+    if (!sel) return;
+    var current = (settings.materials || {})[key];
+    var matchedIdx = -1;
+    var opts = '<option value="">— none —</option>';
+    xeroItemsCache.forEach(function(it, i) {
+      if (current && it.code === current.code) matchedIdx = i;
+      opts += '<option value="' + i + '">' + escapeHtml(it.name) + ' — ' + fmt(it.price) + '</option>';
+    });
+    if (current && matchedIdx === -1) {
+      // Saved mapping not in the freshly-fetched (or not-yet-fetched) list —
+      // keep showing it as a placeholder so the choice isn't silently lost.
+      opts += '<option value="saved" selected>' + escapeHtml(current.name) + ' — ' + fmt(current.price) + '</option>';
+    }
+    sel.innerHTML = opts;
+    if (matchedIdx >= 0) sel.value = matchedIdx;
+  });
+  var note = document.getElementById('materials-note');
+  if (note) note.style.display = xeroItemsCache.length ? 'none' : '';
+}
+
+function onMaterialSelect(key) {
+  var sel = document.getElementById('mat-' + key);
+  var val = sel.value;
+  if (!settings.materials) settings.materials = {};
+  if (val === 'saved') {
+    // Placeholder for the already-saved mapping — nothing changed.
+  } else if (val === '') {
+    settings.materials[key] = null;
+  } else {
+    var it = xeroItemsCache[val];
+    settings.materials[key] = { code: it.code, name: it.name, price: it.price, tinSizeL: it.tinSizeL };
+  }
+  saveSettings();
+  renderSummary();
+}
+
+function renderMaterialsSettings() {
+  if (!settings.materials) settings.materials = {};
+  populateMaterialSelects();
 }
 
 function escapeHtml(s) {
@@ -871,6 +943,11 @@ async function createXeroQuote() {
     var extTotal = 0;
     extItems.forEach(function(item){ extTotal += calcExtItem(item).total; });
 
+    var mats = computeMaterials();
+    var materials = [mats.wall, mats.ceiling, mats.topcoat, mats.primer]
+      .filter(function(row){ return row.lineItem; })
+      .map(function(row){ return row.lineItem; });
+
     var newContact = null;
     if (document.getElementById('xero-new-contact-form').style.display !== 'none') {
       newContact = {
@@ -892,6 +969,7 @@ async function createXeroQuote() {
         rooms: roomData,
         exterior: { cost: extTotal },
         hsl: { stairWoodCost: swCost },
+        materials: materials,
         settings: settings,
         markup: settings.mu,
         contactId: xeroSelectedContactId,
@@ -929,7 +1007,8 @@ async function initApp() {
       rExtMasonry: rawSettings.rExtMasonry||5, rExtFascia: rawSettings.rExtFascia||8,
       rExtWin: rawSettings.rExtWin||65, rExtDoor: rawSettings.rExtDoor||150,
       rExtGarage: rawSettings.rExtGarage||150, rSashPaint: rawSettings.rSashPaint||90,
-      rResin: rawSettings.rResin||22, rReglaze: rawSettings.rReglaze||15
+      rResin: rawSettings.rResin||22, rReglaze: rawSettings.rReglaze||15,
+      materials: rawSettings.materials||{}
     };
   }
   loadSettings();
@@ -985,6 +1064,10 @@ async function initApp() {
       settings.rExtWin = s.rExtWin; settings.rExtDoor = s.rExtDoor;
       settings.rExtGarage = s.rExtGarage; settings.rSashPaint = s.rSashPaint;
       settings.rResin = s.rResin; settings.rReglaze = s.rReglaze;
+    }
+    if (s && s.materials) {
+      settings.materials = s.materials;
+      renderMaterialsSettings();
     }
     var xeroStatus = await apiGet('/auth/status');
     updateXeroButton(xeroStatus.connected);
@@ -1132,6 +1215,7 @@ function loadSettings() {
   document.getElementById('s-rsashpaint').value  = settings.rSashPaint||90;
   document.getElementById('s-rresin').value      = settings.rResin||22;
   document.getElementById('s-rreglaze').value    = settings.rReglaze||15;
+  renderMaterialsSettings();
 }
 
 // ── Rate functions ──────────────────────────────────────────────────────────
@@ -1204,6 +1288,58 @@ function roomEmoji(name) {
 function tin(l) {
   if(l===0)return'—'; if(l<=1)return'1×1L'; if(l<=2.5)return'1×2.5L';
   if(l<=5)return'1×5L'; if(l<=10)return'1×10L'; return Math.ceil(l/10)+'×10L';
+}
+
+// ── Materials (shared by renderSummary and createXeroQuote so the two never
+// drift apart) ───────────────────────────────────────────────────────────
+function computeJobLitres() {
+  var wL=0,cL=0,gL=0,pL=0;
+  rooms.forEach(function(r) {
+    var c=calcRoom(r);
+    wL+=c.wallL; cL+=c.ceilL; gL+=c.glossL; pL+=c.primerL;
+  });
+  return {wL:wL, cL:cL, gL:gL, pL:pL};
+}
+
+// Mapped rows price at the real Xero item's sell price (already the trade
+// sell price, so no job markup is re-applied on top); unmapped rows fall
+// back to the old litres + guessed-tin-count estimate with no cost/lineItem.
+function materialRow(label, litres, mapping, isWall) {
+  if (mapping) {
+    var quantity, detail;
+    if (isWall) {
+      quantity = Math.ceil(litres / (mapping.tinSizeL || litres || 1));
+      detail = quantity + ' × ' + mapping.name;
+    } else {
+      quantity = litres;
+      detail = litres.toFixed(1) + 'L · ' + mapping.name;
+    }
+    var cost = quantity * mapping.price;
+    return {
+      html: '<div class="mat-row"><div><div class="mat-label">'+label+'</div><div class="mat-detail">'+escapeHtml(detail)+'</div></div><div class="mat-val">'+fmt(cost)+'</div></div>',
+      cost: cost,
+      lineItem: { itemCode: mapping.code, description: mapping.name, quantity: quantity, unitAmount: mapping.price }
+    };
+  }
+  return {
+    html: '<div class="mat-row"><div><div class="mat-label">'+label+'</div><div class="mat-detail">'+litres.toFixed(1)+'L · '+tin(litres)+'</div></div><div class="mat-val">'+litres.toFixed(1)+'L</div></div>',
+    cost: 0,
+    lineItem: null
+  };
+}
+
+function computeMaterials() {
+  var L = computeJobLitres();
+  var matSettings = settings.materials || {};
+  var primerL = L.gL * 0.8; // topcoat volume × 0.8, per the real pricing rule
+  var wall    = materialRow('Wall Emulsion', L.wL, matSettings.wall, true);
+  var ceiling = materialRow('Ceiling Emulsion', L.cL, matSettings.ceiling, false);
+  var topcoat = materialRow('Woodwork Topcoat', L.gL, matSettings.topcoat, false);
+  var primer  = materialRow('Woodwork Primer', matSettings.primer ? primerL : L.pL, matSettings.primer, false);
+  return {
+    wall: wall, ceiling: ceiling, topcoat: topcoat, primer: primer,
+    total: wall.cost + ceiling.cost + topcoat.cost + primer.cost
+  };
 }
 
 // ── Exterior items (room-style list) ──────────────────────────────────────────
@@ -2128,11 +2264,10 @@ async function renderSummary() {
   var data=document.getElementById('sum-data');
   if(rooms.length===0&&extItems.length===0){empty.style.display='flex';data.style.display='none';return;}
   empty.style.display='none'; data.style.display='block';
-  var tc=0,tt=0,wL=0,cL=0,gL=0,pL=0;
+  var tc=0,tt=0;
   var mu=settings.mu/100;
   var rows=rooms.map(function(r,ri){
     var c=calcRoom(r); tc+=c.total; tt+=c.time;
-    wL+=c.wallL; cL+=c.ceilL; gL+=c.glossL; pL+=c.primerL;
     // Per-element costs with markup
     var r2=rpm(); var hpd=settings.hpd;
     var wc=+r.wc,cc=+r.cc,xc=+r.xc;
@@ -2194,7 +2329,12 @@ async function renderSummary() {
   extItems.forEach(function(item){var c=calcExtItem(item);extTotal+=c.total;extTimeTotal+=c.time;});
   var tcS=tc+swCost+extTotal; var ttS=tt+swTime+extTimeTotal;
   var mu=settings.mu/100;
-  var total=tcS*(1+mu);
+
+  var mats = computeMaterials();
+  var materialsTotal = mats.total;
+
+  var labourTotal=tcS*(1+mu);
+  var total=labourTotal+materialsTotal;
   data.innerHTML=
     '<div class="hero">'+
       '<div class="hero-label">Total Quote</div>'+
@@ -2250,15 +2390,17 @@ async function renderSummary() {
       '<span class="breakdown-value" style="color:var(--accent)">'+fmt(tcS)+'</span></div>'+
     '<div class="breakdown-row">'+
       '<span class="breakdown-label" style="font-weight:600;color:var(--text)">+ '+settings.mu+'% markup</span>'+
-      '<span class="breakdown-value" style="color:var(--accent)">'+fmt(total)+'</span></div>'+
+      '<span class="breakdown-value" style="color:var(--accent)">'+fmt(labourTotal)+'</span></div>'+
     '</div></div>'+
     '<div><div class="section-title" style="margin-bottom:8px">Materials</div>'+
     '<div class="card">'+
-      '<div class="mat-row"><div><div class="mat-label">Wall Emulsion</div><div class="mat-detail">'+wL.toFixed(1)+'L · '+tin(wL)+'</div></div><div class="mat-val">'+wL.toFixed(1)+'L</div></div>'+
-      '<div class="mat-row"><div><div class="mat-label">Ceiling Emulsion</div><div class="mat-detail">'+cL.toFixed(1)+'L · '+tin(cL)+'</div></div><div class="mat-val">'+cL.toFixed(1)+'L</div></div>'+
-      '<div class="mat-row"><div><div class="mat-label">Gloss / Satinwood</div><div class="mat-detail">'+gL.toFixed(1)+'L · '+tin(gL)+'</div></div><div class="mat-val">'+gL.toFixed(1)+'L</div></div>'+
-      '<div class="mat-row"><div><div class="mat-label">Primer / Undercoat</div><div class="mat-detail">'+pL.toFixed(1)+'L · '+tin(pL)+'</div></div><div class="mat-val">'+pL.toFixed(1)+'L</div></div>'+
-    '</div></div>';
+      mats.wall.html+mats.ceiling.html+mats.topcoat.html+mats.primer.html+
+      (materialsTotal>0?'<div class="breakdown-row" style="border-top:1px solid var(--border);padding:12px 16px">'+
+        '<span class="breakdown-label" style="font-weight:600;color:var(--text)">Materials subtotal</span>'+
+        '<span class="breakdown-value" style="color:var(--accent)">'+fmt(materialsTotal)+'</span></div>':'')+
+    '</div>'+
+    '<div class="info-banner" style="margin-top:10px">Materials assume one wall colour; adjust in Xero for multi-colour jobs.</div>'+
+    '</div>';
 }
 
 // ── Export CSV ─────────────────────────────────────────────────────────────
