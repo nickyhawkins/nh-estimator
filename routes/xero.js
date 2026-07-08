@@ -157,9 +157,25 @@ router.get('/contacts', async (req, res) => {
   }
 });
 
-// Tin size in an item name, e.g. "10L", "2.5L" or "10ltr" (our own price-update
-// script writes "ltr" while other suppliers' Xero items use "L").
+// Tin size in an item name, e.g. "10L", "2.5L", "10ltr" or "2.5 ltr" (our own
+// price-update script writes "ltr" while other, not-yet-tidied suppliers'
+// Xero items use "L" or a space before the unit).
 const TIN_SIZE_RE = /(\d+(?:\.\d+)?)\s*l(?:tr)?\b/i;
+// Millilitres, for suppliers that haven't been tidied yet (e.g. "750ml").
+const TIN_SIZE_ML_RE = /(\d+(?:\.\d+)?)\s*ml\b/i;
+
+// Find a tin size anywhere in a name and return it normalised to litres,
+// along with where the match starts/ends so callers can split off whatever
+// came before it. Prefers a litre match over a millilitre one since "l"
+// never accidentally matches inside "ml" (a digit can't sit directly before
+// the "l" in "50ml" — "m" does) — trying litres first is just the common case.
+function parseSize(name) {
+  const lMatch = name.match(TIN_SIZE_RE);
+  if (lMatch) return { sizeL: parseFloat(lMatch[1]), start: lMatch.index, end: lMatch.index + lMatch[0].length };
+  const mlMatch = name.match(TIN_SIZE_ML_RE);
+  if (mlMatch) return { sizeL: parseFloat(mlMatch[1]) / 1000, start: mlMatch.index, end: mlMatch.index + mlMatch[0].length };
+  return null;
+}
 
 // List paint products (account 311) for the materials-mapping settings
 router.get('/items', async (req, res) => {
@@ -206,26 +222,33 @@ router.get('/items', async (req, res) => {
 
 // Parse "Range - Band SizeLtr[ (per litre)]" into its parts, per the naming
 // convention MATERIALS_SPEC.md documents (enforced by
-// scripts/update_supplier_prices.py). Names with no ' - ' or no parseable
-// size can't be placed in the range/band/size hierarchy.
+// scripts/update_supplier_prices.py) — but degrade gracefully for suppliers
+// that haven't been tidied yet: colour bands are optional (band: '' when
+// there's no separate band segment), and a name with no ' - ' at all still
+// gets a range, just no band. Only a name with no parseable size at all is
+// unusable and returns sizeL: null.
 function parseItemName(name) {
-  const sep = name.lastIndexOf(' - ');
-  if (sep === -1) return { range: name, band: null, sizeL: null };
-  const range = name.slice(0, sep);
-  const right = name.slice(sep + 3);
-  const sizeMatch = right.match(TIN_SIZE_RE);
-  const band = (sizeMatch ? right.slice(0, sizeMatch.index) : right).trim();
-  return { range, band: band || null, sizeL: sizeMatch ? parseFloat(sizeMatch[1]) : null };
+  const size = parseSize(name);
+  if (!size) return { range: name, band: null, sizeL: null };
+  let prefix = name.slice(0, size.start).trim();
+  if (prefix.endsWith('-')) {
+    // "Range - 5ltr" — the dash separates range from size with an empty band.
+    return { range: prefix.slice(0, -1).trim(), band: '', sizeL: size.sizeL };
+  }
+  const sep = prefix.lastIndexOf(' - ');
+  if (sep === -1) return { range: prefix, band: '', sizeL: size.sizeL };
+  return { range: prefix.slice(0, sep), band: prefix.slice(sep + 3).trim(), sizeL: size.sizeL };
 }
 
 // range -> band -> [{ sizeL, price, itemCode }, ...] (sizes ascending).
-// Items without both a band and a parseable size can't be used for tin
-// optimisation and are dropped.
+// Unbanded products group under band '' (a single implicit band) rather
+// than being dropped — only items with no parseable size at all are
+// skipped, since there's nothing usable to put in the sizes list.
 function groupMaterialItems(items) {
   const groups = {};
   items.forEach(i => {
     const { range, band, sizeL } = parseItemName(i.Name);
-    if (!band || sizeL == null) return;
+    if (sizeL == null) return;
     if (!groups[range]) groups[range] = {};
     if (!groups[range][band]) groups[range][band] = [];
     groups[range][band].push({ sizeL, price: i.SalesDetails?.UnitPrice ?? null, itemCode: i.Code });
