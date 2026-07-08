@@ -204,6 +204,74 @@ router.get('/items', async (req, res) => {
   }
 });
 
+// Parse "Range - Band SizeLtr[ (per litre)]" into its parts, per the naming
+// convention MATERIALS_SPEC.md documents (enforced by
+// scripts/update_supplier_prices.py). Names with no ' - ' or no parseable
+// size can't be placed in the range/band/size hierarchy.
+function parseItemName(name) {
+  const sep = name.lastIndexOf(' - ');
+  if (sep === -1) return { range: name, band: null, sizeL: null };
+  const range = name.slice(0, sep);
+  const right = name.slice(sep + 3);
+  const sizeMatch = right.match(TIN_SIZE_RE);
+  const band = (sizeMatch ? right.slice(0, sizeMatch.index) : right).trim();
+  return { range, band: band || null, sizeL: sizeMatch ? parseFloat(sizeMatch[1]) : null };
+}
+
+// range -> band -> [{ sizeL, price, itemCode }, ...] (sizes ascending).
+// Items without both a band and a parseable size can't be used for tin
+// optimisation and are dropped.
+function groupMaterialItems(items) {
+  const groups = {};
+  items.forEach(i => {
+    const { range, band, sizeL } = parseItemName(i.Name);
+    if (!band || sizeL == null) return;
+    if (!groups[range]) groups[range] = {};
+    if (!groups[range][band]) groups[range][band] = [];
+    groups[range][band].push({ sizeL, price: i.SalesDetails?.UnitPrice ?? null, itemCode: i.Code });
+  });
+  Object.values(groups).forEach(bands =>
+    Object.values(bands).forEach(sizes => sizes.sort((a, b) => a.sizeL - b.sizeL))
+  );
+  return groups;
+}
+
+// Range -> colour band -> tin sizes, for the materials-mapping settings.
+// Supersedes the flat per-tin /items picker per MATERIALS_SPEC.md — lets the
+// app pick a default RANGE (not a single tin) and later choose the cheapest
+// combination of that range's tin sizes to cover the litres a job needs.
+router.get('/material-groups', async (req, res) => {
+  try {
+    const accessToken = await getAccessToken();
+    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    const tenantId = result.rows[0]?.xero_tenant_id;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
+    }
+
+    const itemsRes = await axios.get(`${XERO_API_URL}/Items`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Xero-Tenant-Id': tenantId,
+        Accept: 'application/json'
+      }
+    });
+
+    const allItems = itemsRes.data.Items || [];
+    // 202 is the sales account — what the customer is charged. 311 (purchase
+    // side) was used to identify materials before the user re-coded their
+    // Xero data; every material item now carries SalesDetails.AccountCode
+    // 202, so filter on that directly, per MATERIALS_SPEC.md.
+    const salesItems = allItems.filter(i => i.SalesDetails?.AccountCode === '202');
+    const groups = groupMaterialItems(salesItems);
+    console.log(`Material groups: ${allItems.length} total items, ${salesItems.length} on account 202, ${Object.keys(groups).length} ranges`);
+    res.json(groups);
+  } catch (err) {
+    console.error('Material groups fetch error:', err.response?.data || err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Create quote in Xero
 router.post('/create-quote', async (req, res) => {
   const { clientName, jobName, xeroRef, rooms, exterior, hsl, materials, settings, markup, contactId, newContact } = req.body;
