@@ -25,9 +25,26 @@ Hierarchy: **Range** (`Tikkurila Optiva 5`) → **Colour band** (`White` / `Magn
 
 Because item names are now consistently formatted, the app can parse this:
 - **Range** = everything before the ` - ` separator
-- **Colour band** = the word(s) after ` - ` and before the size
+- **Colour band** = the word(s) after ` - ` and before the size (OPTIONAL — may be absent for unbanded products; treat as null/single band)
 - **Tin size** = the trailing `Nltr` value
 - **Price** = SalesUnitPrice from the item (sales account 202 — the price charged to the customer)
+
+## Must work across ALL suppliers, not just Tikkurila
+
+The grouping and parsing must be **supplier-agnostic**. Tikkurila is just the first supplier we tidied. Requirements:
+
+- **Parse whatever consistent structure exists** for any supplier, not hardcoded to Tikkurila. The rules below (range before ` - `, band + size after) should apply generically based on the item name format, regardless of supplier prefix or item code prefix.
+
+- **Colour bands are OPTIONAL.** Many products have no White/Magnolia/Colours band — they're just a product in various sizes (e.g. a primer or a trade white that isn't banded). The parser must handle both shapes:
+  - `range -> band -> [sizes]` (banded, like Optiva 5)
+  - `range -> [sizes]` (no band — treat as a single implicit band, or band = null)
+  Do NOT assume every product has bands.
+
+- **Size format tolerance.** Parse sizes robustly: `10ltr`, `3ltr`, `1ltr`, and also legacy formats that may still exist for un-tidied suppliers (`2.5 ltr`, `750ml`, `5L`). Normalise to litres for calculation. (ml → litres, e.g. 750ml = 0.75.) Flag or skip items whose size can't be parsed rather than guessing.
+
+- **Depends on consistent naming.** Reliable grouping across suppliers depends on their item names following the same convention Tikkurila now uses. **Action required outside the app:** run the price-tidy script (in `scripts/`) across the other suppliers to standardise their naming (keep supplier prefix, `range - band size` structure, `ltr` units). Until a supplier is tidied, the parser should degrade gracefully — group what it can, flag what it can't — rather than break.
+
+- **No hardcoded supplier or range names** in the grouping logic. It reads the data and derives ranges/bands/sizes from the names. Adding a new supplier or product should require no code change, only consistent naming.
 
 ## Revised approach
 
@@ -74,3 +91,5 @@ Consolidated materials lines using the real Xero item codes chosen by the optimi
 - Watch for duplicate function definitions.
 - Read from in-memory arrays; don't reintroduce localStorage as a competing source of truth.
 - Item names are the source of truth for range/band/size parsing — depends on the consistent naming from the price-tidy script, so keep that naming convention when adding new products.
+- Grouping MUST be supplier-agnostic and handle optional colour bands — see the cross-supplier section above. No hardcoded supplier/range names.
+- Other suppliers still need the tidy-up script run over them to standardise naming; until then the parser should group what it can and flag the rest, not break.
