@@ -24,9 +24,15 @@ This document captures planned features for the NH Estimator app, scoped and rea
 Pull paint products from the user's Xero account, calculate quantities from the litres already computed per surface, cost them, and place them on the quote as real Xero line items. Feeds the job total and the deposit calculation.
 
 ### Xero data structure (confirmed)
-- Items live on account code **311 - Materials - Paint**
+- Paint materials are identified by **PurchaseDetails account code 311** (a
+  purchase/COGS account) — this is how `/auth/items` finds them, *not* the
+  sales account. Every item's `SalesDetails` account code is **202**, same
+  as everything else that gets sold, so quote line items for materials use
+  **202**, not 311 (confirmed against a live 1603-row InventoryItems export:
+  90 items carry `PurchaseDetails.AccountCode` `311`, zero carry it under
+  `SalesDetails`).
 - Item example: code `DUL234`, name `Dulux Heritage Velvet Matt Tinted - Tinted 2.5L`, price £40.49 excl tax, No VAT
-- **Tin size is in the item name** (e.g. `2.5L`, `5L`, `10L`) — parseable by regex
+- **Tin size is in the item name** (e.g. `2.5L`, `5L`, `10L`, or `10ltr` for suppliers whose names use the "ltr" convention) — parseable by regex
 - Every product has all its tin sizes available as separate items in Xero
 - Ceiling and woodwork paints also exist as **per-litre** line items in Xero
 
@@ -39,14 +45,14 @@ Pull paint products from the user's Xero account, calculate quantities from the 
 
 ---
 
-### PHASE 1 — Core materials (build first)
+### PHASE 1 — Core materials (build first) ✅ built
 
 Simplifying assumption: one wall colour per job.
 
 1. **New endpoint** `GET /auth/items` in `routes/xero.js`:
    - Fetch Xero Items (`GET /api.xro/2.0/Items`)
-   - Filter to account code 311
-   - Return: code, name, unit price, parsed tin size (from name)
+   - Filter to **`PurchaseDetails.AccountCode === '311'`** (not sales — see "Xero data structure" above)
+   - Return: code, name, unit price (from `SalesDetails.UnitPrice`), parsed tin size (from name)
    - Reuse existing `getAccessToken()` helper
 
 2. **Settings — map four default products** from fetched Xero items:
@@ -66,7 +72,7 @@ Simplifying assumption: one wall colour per job.
 
 5. **Feed the total** — materials sum added to labour total for the true job value.
 
-6. **On send to Xero** — add each material as a line item using the real Xero item code, account 311, No VAT, placed after the labour lines (materials break).
+6. **On send to Xero** — add each material as a line item using the real Xero item code, account **202** (the sales account — 311 is purchase-side only, used for identifying materials in step 1, not for pricing the quote), No VAT, placed after the labour lines (materials break).
 
 7. **Flag for multi-colour jobs** — until Phase 2, show a note: "Materials assume one wall colour; adjust in Xero for multi-colour jobs."
 

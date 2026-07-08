@@ -289,9 +289,13 @@ router.post('/create-quote', async (req, res) => {
       });
     }
 
-    // Materials break — real Xero items on account 311, placed after the
-    // labour lines. Priced at the item's own sell price already stored in
-    // Xero, so no job markup is re-applied here (unlike the labour lines above).
+    // Materials break — real Xero items on account 202 (the sales account
+    // set on every item), placed after the labour lines. 311 is the
+    // purchase/COGS account used only to identify which items are paint
+    // materials in /auth/items — quotes are a sales document, so the line
+    // itself belongs on the sales account. Priced at the item's own sell
+    // price already stored in Xero, so no job markup is re-applied here
+    // (unlike the labour lines above).
     if (materials) {
       materials.forEach(m => {
         lineItems.push({
@@ -299,7 +303,7 @@ router.post('/create-quote', async (req, res) => {
           Description: m.description,
           Quantity: m.quantity,
           UnitAmount: fmt(m.unitAmount),
-          AccountCode: '311'
+          AccountCode: '202'
         });
       });
     }
