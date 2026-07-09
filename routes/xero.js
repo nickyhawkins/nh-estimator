@@ -220,6 +220,14 @@ router.get('/items', async (req, res) => {
   }
 });
 
+// Marks a "sell any fractional quantity at this rate" item, e.g. "Tikkurila
+// Anti Reflex 2 - White 1ltr (per litre)" — distinct from a genuine discrete
+// tin even though it parses to the same sizeL. Confirmed against real data:
+// the per-litre price matches the range's 10L tin price ÷ 10 almost exactly
+// (e.g. £56.78 / 10 = £5.678 ≈ £5.69), i.e. it's priced at the bulk rate, not
+// a small-tin markup — a genuine per-litre SKU, not just a 1L tin.
+const PER_LITRE_RE = /\(\s*per\s+litre\s*\)/i;
+
 // Parse "Range - Band SizeLtr[ (per litre)]" into its parts, per the naming
 // convention MATERIALS_SPEC.md documents (enforced by
 // scripts/update_supplier_prices.py) — but degrade gracefully for suppliers
@@ -229,29 +237,35 @@ router.get('/items', async (req, res) => {
 // unusable and returns sizeL: null.
 function parseItemName(name) {
   const size = parseSize(name);
-  if (!size) return { range: name, band: null, sizeL: null };
+  const isPerLitre = PER_LITRE_RE.test(name);
+  if (!size) return { range: name, band: null, sizeL: null, isPerLitre };
   let prefix = name.slice(0, size.start).trim();
   if (prefix.endsWith('-')) {
     // "Range - 5ltr" — the dash separates range from size with an empty band.
-    return { range: prefix.slice(0, -1).trim(), band: '', sizeL: size.sizeL };
+    return { range: prefix.slice(0, -1).trim(), band: '', sizeL: size.sizeL, isPerLitre };
   }
   const sep = prefix.lastIndexOf(' - ');
-  if (sep === -1) return { range: prefix, band: '', sizeL: size.sizeL };
-  return { range: prefix.slice(0, sep), band: prefix.slice(sep + 3).trim(), sizeL: size.sizeL };
+  if (sep === -1) return { range: prefix, band: '', sizeL: size.sizeL, isPerLitre };
+  return { range: prefix.slice(0, sep), band: prefix.slice(sep + 3).trim(), sizeL: size.sizeL, isPerLitre };
 }
 
-// range -> band -> [{ sizeL, price, itemCode }, ...] (sizes ascending).
-// Unbanded products group under band '' (a single implicit band) rather
-// than being dropped — only items with no parseable size at all are
-// skipped, since there's nothing usable to put in the sizes list.
+// range -> band -> [{ sizeL, price, itemCode, isPerLitre }, ...] (sizes
+// ascending). Unbanded products group under band '' (a single implicit
+// band) rather than being dropped — only items with no parseable size at
+// all are skipped, since there's nothing usable to put in the sizes list.
+// isPerLitre entries stay in the same sizes array (a real, choosable price
+// point) but are flagged so callers can tell them apart: the wall tin
+// optimiser (step 4) should exclude them from tin-combination candidates,
+// and the per-litre roles — ceiling/topcoat/primer (step 5) — should prefer
+// one directly (litres × price, no rounding) over combining tins.
 function groupMaterialItems(items) {
   const groups = {};
   items.forEach(i => {
-    const { range, band, sizeL } = parseItemName(i.Name);
+    const { range, band, sizeL, isPerLitre } = parseItemName(i.Name);
     if (sizeL == null) return;
     if (!groups[range]) groups[range] = {};
     if (!groups[range][band]) groups[range][band] = [];
-    groups[range][band].push({ sizeL, price: i.SalesDetails?.UnitPrice ?? null, itemCode: i.Code });
+    groups[range][band].push({ sizeL, price: i.SalesDetails?.UnitPrice ?? null, itemCode: i.Code, isPerLitre });
   });
   Object.values(groups).forEach(bands =>
     Object.values(bands).forEach(sizes => sizes.sort((a, b) => a.sizeL - b.sizeL))
