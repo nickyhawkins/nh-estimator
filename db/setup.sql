@@ -45,3 +45,12 @@ CREATE TABLE IF NOT EXISTS exterior_items (
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Colours table (job-scoped list of {number, label}, same lifecycle as
+-- rooms/exterior_items — not a permanent setting, cleared with the job)
+CREATE TABLE IF NOT EXISTS colours (
+  number INTEGER PRIMARY KEY,
+  label VARCHAR NOT NULL DEFAULT '',
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);

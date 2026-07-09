@@ -99,6 +99,53 @@ router.delete('/extitems', async (req, res) => {
   }
 });
 
+
+// ── Colours ────────────────────────────────────────────────────────────────
+// Job-scoped list of {number, label} — same lifecycle as rooms/exterior
+// items, not a permanent setting.
+
+router.get('/colours', async (req, res) => {
+  try {
+    const result = await db.query('SELECT number, label FROM colours ORDER BY number ASC');
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/colours/:number', async (req, res) => {
+  const number = +req.params.number;
+  const { label } = req.body;
+  try {
+    await db.query(`
+      INSERT INTO colours (number, label, updated_at)
+      VALUES ($1, $2, NOW())
+      ON CONFLICT (number) DO UPDATE SET label = $2, updated_at = NOW()
+    `, [number, label || '']);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/colours/:number', async (req, res) => {
+  try {
+    await db.query('DELETE FROM colours WHERE number = $1', [+req.params.number]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/colours', async (req, res) => {
+  try {
+    await db.query('DELETE FROM colours');
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Settings ───────────────────────────────────────────────────────────────
 
 router.get('/settings', async (req, res) => {
@@ -161,6 +208,7 @@ router.delete('/all', async (req, res) => {
     await db.query('DELETE FROM rooms');
     await db.query("UPDATE hsl_state SET data = '{}' WHERE id = 1");
     await db.query('DELETE FROM exterior_items');
+    await db.query('DELETE FROM colours');
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

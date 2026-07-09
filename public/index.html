@@ -173,6 +173,10 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       </div>
     </div>
     <div class="card">
+      <div class="card-header">Colour</div>
+      <div class="field-row"><div class="field-label">Colour<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour" style="flex-wrap:wrap"></div></div>
+    </div>
+    <div class="card">
       <div class="card-header">Dimensions</div>
       <div class="field-row"><div class="field-label">Length<small>metres</small></div><input type="number" class="field-input" id="r-l" value="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
       <div class="field-row"><div class="field-label">Width<small>metres</small></div><input type="number" class="field-input" id="r-w" value="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
@@ -557,6 +561,24 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
   <button class="fab" onclick="showAddExterior()">+</button>
 </div>
 
+<!-- ══ COLOURS ══ -->
+<div id="screen-colours" class="screen">
+  <div class="topbar">
+    <div class="topbar-title">Colours</div>
+  </div>
+  <div class="content">
+    <div class="empty" id="colours-empty">
+      <div class="empty-icon">🎨</div>
+      <div class="empty-title">No colours yet</div>
+      <div class="empty-sub">Tap + to add a colour as you discuss them</div>
+    </div>
+    <div id="colours-list" style="display:none">
+      <div class="card" id="colours-cards"></div>
+    </div>
+  </div>
+  <button class="fab" onclick="addColour()">+</button>
+</div>
+
 <!-- ══ ADD/EDIT EXTERIOR ══ -->
 <div id="screen-extform" class="screen">
   <div class="topbar">
@@ -640,6 +662,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 <nav class="navbar">
   <button class="nav-item active" id="nav-home" onclick="goTab('home')"><span class="nav-icon">🏠</span><span class="nav-label">Rooms</span></button>
   <button class="nav-item" id="nav-exterior" onclick="goTab('exterior')"><span class="nav-icon">🏡</span><span class="nav-label">Exterior</span></button>
+  <button class="nav-item" id="nav-colours" onclick="goTab('colours')"><span class="nav-icon">🎨</span><span class="nav-label">Colours</span></button>
   <button class="nav-item" id="nav-summary" onclick="goTab('summary')"><span class="nav-icon">📋</span><span class="nav-label">Summary</span></button>
   <button class="nav-item" id="nav-settings" onclick="goTab('settings')"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></button>
 </nav>
@@ -737,7 +760,7 @@ function clearRooms() {
 }
 function clearEverything() {
   if(!confirm('Clear ALL data including exterior? This cannot be undone.'))return;
-  rooms=[]; swCost=0; swTime=0; extItems=[];
+  rooms=[]; swCost=0; swTime=0; extItems=[]; colours=[];
   localStorage.clear();
   apiDelete('/api/all');
   apiDelete('/api/hsl');
@@ -1044,6 +1067,9 @@ async function initApp() {
   var extLocal = JSON.parse(localStorage.getItem('pe-extitems')||'null');
   if (extLocal && extLocal.length > 0) { extItems = extLocal; }
 
+  var coloursLocal = JSON.parse(localStorage.getItem('pe-colours')||'null');
+  if (coloursLocal && coloursLocal.length > 0) { colours = coloursLocal; }
+
   renderHome();
 
   // ── Step 2: Sync from server in background ──
@@ -1082,6 +1108,12 @@ async function initApp() {
       localStorage.setItem('pe-extitems', JSON.stringify(extItems));
       renderExterior();
       renderSummary();
+    }
+    var colourData = await apiGet('/api/colours');
+    if (colourData && colourData.length > 0) {
+      colours = colourData;
+      localStorage.setItem('pe-colours', JSON.stringify(colours));
+      renderColours();
     }
     // Update server settings with exterior rates
     if (s && s.rExtMasonry != null) {
@@ -1177,12 +1209,13 @@ function goTab(tab) {
   curTab = tab; inSub = null;
   document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active');});
   document.getElementById('screen-'+tab).classList.add('active');
-  ['home','exterior','summary','settings'].forEach(function(t){
+  ['home','exterior','colours','summary','settings'].forEach(function(t){
     var el=document.getElementById('nav-'+t);
     if(el) el.classList.toggle('active', t===tab);
   });
   if (tab==='summary') renderSummary();
   if (tab==='exterior') renderExterior();
+  if (tab==='colours') renderColours();
 }
 
 function goScreen(name) {
@@ -1192,6 +1225,7 @@ function goScreen(name) {
   if (name==='stair') loadHSLState();
   if (name==='room') {
     editId=null; coats={wc:2,cc:2,xc:2}; mistWall=false; mistCeil=false; prepPct=0;
+    roomColourNumber=1; populateRoomColourChips();
     document.getElementById('room-title').textContent='Add Room';
     document.getElementById('r-name').value='';
     document.getElementById('r-l').value='0';
@@ -1473,6 +1507,87 @@ function computeMaterials() {
     wall: wall, ceiling: ceiling, topcoat: topcoat, primer: primer,
     total: wall.cost + ceiling.cost + topcoat.cost + primer.cost
   };
+}
+
+// ── Colours (job-scoped list, same lifecycle as rooms/extItems) ────────────
+var colours = [];
+
+function saveColours() {
+  localStorage.setItem('pe-colours', JSON.stringify(colours));
+  apiDelete('/api/colours').then(function() {
+    colours.forEach(function(c) { apiPut('/api/colours/'+c.number, { label: c.label }); });
+  });
+}
+
+function renderColours() {
+  var empty = document.getElementById('colours-empty');
+  var list  = document.getElementById('colours-list');
+  var cards = document.getElementById('colours-cards');
+  if (colours.length === 0) {
+    empty.style.display = 'flex'; list.style.display = 'none';
+    return;
+  }
+  empty.style.display = 'none'; list.style.display = 'block';
+  cards.innerHTML = colours.slice().sort(function(a, b){ return a.number - b.number; }).map(function(c) {
+    return '<div class="field-row">'+
+      '<div class="room-icon" style="font-size:16px;font-weight:700">'+c.number+'</div>'+
+      '<input type="text" class="field-input wide" placeholder="Name this colour (optional)" autocorrect="off" value="'+escapeHtml(c.label||'')+'" onchange="renameColour('+c.number+',this.value)">'+
+      '<div onclick="deleteColour('+c.number+')" style="color:var(--danger);font-size:22px;padding:0 4px;cursor:pointer">×</div>'+
+    '</div>';
+  }).join('');
+}
+
+function addColour() {
+  var nextNumber = colours.length ? Math.max.apply(null, colours.map(function(c){ return c.number; })) + 1 : 1;
+  colours.push({ number: nextNumber, label: '' });
+  saveColours();
+  renderColours();
+}
+
+function renameColour(number, label) {
+  var c = colours.find(function(x){ return x.number === number; });
+  if (!c) return;
+  c.label = label.trim();
+  saveColours();
+}
+
+function deleteColour(number) {
+  if (!confirm('Delete this colour?')) return;
+  colours = colours.filter(function(c){ return c.number !== number; });
+  saveColours();
+  renderColours();
+}
+
+// ── Room colour picker (room edit screen) ───────────────────────────────────
+// Temp editing-state var, same pattern as coats/mistWall/prepPct — read into
+// the room object by saveRoom(), set by goScreen('room')/editRoom().
+var roomColourNumber = 1;
+
+function populateRoomColourChips() {
+  var seg = document.getElementById('seg-colour');
+  if (!seg) return;
+  var hasOne = colours.some(function(c){ return c.number === 1; });
+  var list = (hasOne ? colours.slice() : [{number:1,label:''}].concat(colours))
+    .sort(function(a,b){ return a.number - b.number; });
+  var html = list.map(function(c) {
+    var label = c.label ? c.label : ('Colour '+c.number);
+    return '<button type="button" class="seg-btn'+(c.number===roomColourNumber?' active':'')+'" onclick="setRoomColour('+c.number+')">'+escapeHtml(label)+'</button>';
+  }).join('');
+  html += '<button type="button" class="seg-btn" onclick="addRoomColourInline()">+</button>';
+  seg.innerHTML = html;
+}
+
+function setRoomColour(number) {
+  roomColourNumber = number;
+  populateRoomColourChips();
+}
+
+function addRoomColourInline() {
+  var nextNumber = colours.length ? Math.max.apply(null, colours.map(function(c){ return c.number; })) + 1 : 2;
+  colours.push({ number: nextNumber, label: '' });
+  saveColours();
+  roomColourNumber = nextNumber;
+  populateRoomColourChips();
 }
 
 // ── Exterior items (room-style list) ──────────────────────────────────────────
@@ -1830,6 +1945,7 @@ function editRoom(id) {
     return;
   }
   editId=id; coats={wc:+r.wc,cc:+r.cc,xc:+r.xc};
+  roomColourNumber = r.colourNumber || 1; populateRoomColourChips();
   document.getElementById('room-title').textContent='Edit Room';
   document.getElementById('r-name').value=r.name||'';
   document.getElementById('r-l').value=r.l;
@@ -1868,6 +1984,7 @@ function saveRoom() {
   var name=document.getElementById('r-name').value.trim()||'Room';
   var room={
     id:editId||uid(), name:name,
+    colourNumber:roomColourNumber,
     l:+document.getElementById('r-l').value, w:+document.getElementById('r-w').value, h:+document.getElementById('r-h').value,
     wc:coats.wc, cc:coats.cc, xc:coats.xc,
     win:+document.getElementById('r-win').value, doors:+document.getElementById('r-doors').value, rads:+document.getElementById('r-rads').value,
