@@ -38,6 +38,7 @@ SUPPLIERS = {
     "LG": {"file": "little_greene.json", "brand_prefix": "LG"},
     "FAR": {"file": "farrow_ball.json", "brand_prefix": "F&B"},
     "BM": {"file": "benjamin_moore.json", "brand_prefix": "BM"},
+    "TIK": {"file": "tikkurila.json", "brand_prefix": "Tikkurila"},
 }
 
 SIZE_RE = re.compile(r"^(.*?)[\s]*(\d+(?:\.\d+)?)\s*(LT|LTR|LITRE|L|ML)\.?\s*$", re.IGNORECASE)
@@ -133,6 +134,8 @@ def load_lookups():
         entries = []
         for category, bands in data.get("products", {}).items():
             for band, sizes in bands.items():
+                if band == "_note" or not isinstance(sizes, dict):
+                    continue
                 for size_str, price in sizes.items():
                     entries.append((category, band, size_str, price))
         flat[prefix] = entries
@@ -175,6 +178,10 @@ SHORTEN_RULES = [
     (re.compile(r"\bBlack/Charcoal\b"), "Black"),
     (re.compile(r"\s*\bAcrylic\b"), ""),
     (re.compile(r"\bDiamond Glaze Varnish Gloss & Satin\b"), "Diamond Glaze"),
+    (re.compile(r"\bClear/\s+Colours\b"), "Clear/Colours"),
+    (re.compile(r"\bLacquer\b"), "Laq"),
+    (re.compile(r"\bMetal Primer\b"), "Primer"),
+    (re.compile(r"\s*\b\d+/\d+/\d+\b"), ""),
 ]
 
 
@@ -340,7 +347,7 @@ def process(csv_path, out_dir):
         m = re.match(r"[A-Z]+", code)
         prefix = m.group(0) if m else ""
 
-        if prefix == "TIK" or prefix not in SUPPLIERS:
+        if prefix not in SUPPLIERS:
             continue  # leave completely unchanged
         if KG_RE.search(name):
             continue  # KG/G product, leave unchanged
