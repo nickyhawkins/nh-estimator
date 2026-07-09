@@ -51,13 +51,9 @@ The grouping and parsing must be **supplier-agnostic**. Tikkurila is just the fi
 ### Grouping (new — do this first)
 Parse all account-202 (sales) Xero items into a structure (use SalesUnitPrice for pricing — 202 is the sales account, what the customer is charged; 311 is the purchases/cost account and is NOT used for quoting):
 ```
-range -> colour band -> [ {size_litres, price, itemCode, isPerLitre}, ... ]
+range -> colour band -> [ {size_litres, price, itemCode}, ... ]
 ```
 This gives the app, for any range + band, the full list of available tin sizes and prices to optimise over.
-
-**`isPerLitre`**: some items are a dedicated "sell any fractional quantity at this rate" SKU, e.g. `Tikkurila Anti Reflex 2 - White 1ltr (per litre)` — priced at essentially the range's bulk (10L) per-litre rate, not a small-tin markup. Confirmed in real data: `£56.78 / 10 = £5.678 ≈ £5.69` (the per-litre price). These get `isPerLitre: true` (matched on `(per litre)` in the name) and stay in the same sizes array as real tins, but are a different kind of thing: the tin optimiser (step 4) must never pick one as a combinable tin; the per-litre calc (step 5) should use one directly (litres × price, no rounding) when the selected band has one.
-
-Currently only 3 Tikkurila SKUs carry this flag (Anti Reflex 2, Otex Akva, Helmi 30 — all White band, 1ltr) — likely the actual ceiling/topcoat/primer products in practice. Colours/Pastels bands on the same ranges have no per-litre item, only discrete tins.
 
 ### Settings — default products by RANGE
 User selects default **ranges** (not tins) for:
@@ -75,10 +71,37 @@ Store the range identifier, not a specific item.
 
 ### Calculations
 - **Walls (per colour group):** litres needed for that group → choose cheapest combination of available tin sizes *within the selected range + band* that covers the litres → sum cost. (This is the tin optimisation — cheapest fill, e.g. 3.5ltr = 3ltr + ... whichever combo of that band's sizes is cheapest and sufficient.)
-- **Ceiling / woodwork topcoat / primer:** these are charged per litre. If the selected range + band has an `isPerLitre` item, use litres × its price directly (no rounding). **If it doesn't** (e.g. a Colours/Pastels band with only discrete tins), fall back to the same tin-optimisation logic as walls for that band, rather than restricting these roles to White-only — confirmed with the user since these three roles aren't guaranteed to stay on White forever. Primer litres = topcoat litres × 0.8.
+- **Ceiling / woodwork topcoat / primer:** these are charged per litre (user has per-litre line items). Use litres × per-litre price for the selected range + band. Primer litres = topcoat litres × 0.8.
 
 ### On the quote
 Consolidated materials lines using the real Xero item codes chosen by the optimiser, account 202 (sales), No VAT, under the labour lines. For walls this may mean e.g. "1 × Optiva 5 Colours 3ltr" + "1 × Optiva 5 Colours 1ltr" if that's the cheapest fill.
+
+## PHASE 2 — Per-room colour numbering AND product override
+
+These two belong together — they share the same per-room data model and the same room setup screen, so build them as one coherent piece rather than colour now / product later.
+
+### Real-world switching logic (why this is needed)
+Nicky's per-room changes follow predictable patterns:
+- **Most common:** client wants a specific colour → Nicky colour-matches in the default product (e.g. Tikkurila). This is just a colour number + optional label on the default range. No product change.
+- **Client wants a specific brand** (e.g. Farrow & Ball rather than a colour match) → product/range override for that room.
+- **Room type demands a different product** (e.g. bathroom → moisture-resistant range) → product/range override.
+- **Tin-size economics** (e.g. needs ~5ltr, so switch to Dulux/Crown which sell 5ltr tins where Tikkurila jumps 3ltr→10ltr) → product/range override. NOTE: this overlaps with tin optimisation — a future enhancement could *flag* when another supplier's tin sizes would be more economical for the required litres, but for now Nicky makes this call manually.
+
+### What Phase 2 adds — per-room selections, defaulting to settings
+For each room, all three are optional and default to the settings defaults (so most rooms need no touching):
+1. **Colour number** — Room 1 = colour 1, Rooms 2 & 3 = colour 2, etc. Groups rooms sharing a colour so tins are calculated per colour group.
+2. **Colour label** (optional) — free-text for reference (e.g. "Farrow & Ball Hague Blue"). The NUMBER drives calculation; the label is for reference and can show on the quote/notes.
+3. **Product/range override** (optional) — switch the wall product range for that room away from the settings default (for brand requests, bathroom products, or tin-size economics). Falls back to the default when not set.
+
+### Data model
+A room carries: `{ colourNumber, colourLabel?, wallRangeOverride?, bandOverride? }`. All optional. The calculation resolves each room's effective product as `wallRangeOverride ?? settings.defaultWallRange`, and groups by (effective range + band + colour number) so tins are optimised within each genuine group.
+
+### Calculation impact
+- Whole-tin optimisation runs per (range + band + colour group) — a room overridden to Farrow & Ball is its own group and gets its own tins, never shared with a Tikkurila room.
+- Ceiling/woodwork can also take a per-room/per-job product override (e.g. bathroom ceiling in a different product) — same fallback-to-default pattern.
+
+### On the quote
+Each distinct product/band/colour group produces its own consolidated material line(s) with the correct Xero item codes. A job with two Tikkurila colours + one Farrow & Ball room shows three separate wall-paint groupings.
 
 ## Build order (revised)
 
@@ -88,7 +111,8 @@ Consolidated materials lines using the real Xero item codes chosen by the optimi
 4. **Tin optimisation** — cheapest combination of sizes within a range+band to cover required litres.
 5. **Per-litre products** — ceiling, topcoat, primer (primer = topcoat × 0.8).
 6. **Materials on summary + total + Xero line items.**
-7. **Then deposit feature** (25% of labour + materials, weekly split option).
+7. **Phase 2 — per-room colour numbering + product override** (see section above). Build colour and product override together; both default to settings.
+8. **Then deposit feature** (25% of labour + materials, weekly split option).
 
 ## Gotchas (still apply)
 - Whole-tin logic is per colour group, not per room and not per whole job.
