@@ -523,10 +523,14 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         <button id="materials-refresh-btn" onclick="refreshXeroItems()" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:12px;padding:12px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;width:100%">Refresh from Xero</button>
       </div>
       <div class="field-row"><div class="field-label">Wall paint<small>per tin</small></div><select class="field-input" id="mat-wall" onchange="onMaterialSelect('wall')"></select></div>
+      <div class="field-row"><div class="field-label">— Colour band<small>&nbsp;</small></div><select class="field-input" id="mat-wall-band" onchange="onBandSelect('wall')" disabled></select></div>
       <div class="field-row"><div class="field-label">Ceiling paint<small>per litre</small></div><select class="field-input" id="mat-ceiling" onchange="onMaterialSelect('ceiling')"></select></div>
+      <div class="field-row"><div class="field-label">— Colour band<small>&nbsp;</small></div><select class="field-input" id="mat-ceiling-band" onchange="onBandSelect('ceiling')" disabled></select></div>
       <div class="field-row"><div class="field-label">Woodwork topcoat<small>per litre</small></div><select class="field-input" id="mat-topcoat" onchange="onMaterialSelect('topcoat')"></select></div>
+      <div class="field-row"><div class="field-label">— Colour band<small>&nbsp;</small></div><select class="field-input" id="mat-topcoat-band" onchange="onBandSelect('topcoat')" disabled></select></div>
       <div class="field-row"><div class="field-label">Woodwork primer<small>per litre</small></div><select class="field-input" id="mat-primer" onchange="onMaterialSelect('primer')"></select></div>
-      <div class="settings-note" id="materials-note">Connect Xero above, then tap Refresh to choose a default product range for each role (e.g. "Tikkurila Optiva 5"). Colour band and exact tin size are chosen per job later. Until a range is picked, the Summary shows an estimated litres/tins figure instead of a real price.</div>
+      <div class="field-row"><div class="field-label">— Colour band<small>&nbsp;</small></div><select class="field-input" id="mat-primer-band" onchange="onBandSelect('primer')" disabled></select></div>
+      <div class="settings-note" id="materials-note">Connect Xero above, then tap Refresh to choose a default product range and colour band for each role (e.g. "Tikkurila Optiva 5" / "White"). This is one band for the whole job for now — per-room colour groups come later. Until a range is picked, the Summary shows an estimated litres/tins figure instead of a real price.</div>
     </div>
   </div>
 </div>
@@ -825,9 +829,40 @@ function populateMaterialSelects() {
       opts += '<option value="' + escapeHtml(currentRange) + '" selected>' + escapeHtml(currentRange) + ' (not found — refresh?)</option>';
     }
     sel.innerHTML = opts;
+    populateBandSelect(key);
   });
   var note = document.getElementById('materials-note');
   if (note) note.style.display = ranges.length ? 'none' : '';
+}
+
+// One band for the whole job for now (per MATERIALS_SPEC.md step 3 — per-
+// colour-group band selection is a later refinement, once colour numbering
+// exists). Self-heals a missing/stale band (e.g. a range picked before this
+// step existed, or a range whose bands changed since) to White if present,
+// else the first band alphabetically, rather than leaving it unset.
+function populateBandSelect(key) {
+  var bandSel = document.getElementById('mat-' + key + '-band');
+  if (!bandSel) return;
+  var current = (settings.materials || {})[key];
+  if (!current || !current.range) {
+    bandSel.innerHTML = '<option value="">— pick a range first —</option>';
+    bandSel.disabled = true;
+    return;
+  }
+  var bands = Object.keys(materialGroupsCache[current.range] || {}).sort();
+  if (bands.length === 0) {
+    bandSel.innerHTML = '<option value="' + escapeHtml(current.band || '') + '">' + escapeHtml(current.band || '(bands unknown — refresh?)') + '</option>';
+    bandSel.disabled = true;
+    return;
+  }
+  bandSel.disabled = false;
+  if (current.band == null || bands.indexOf(current.band) === -1) {
+    current.band = bands.indexOf('White') !== -1 ? 'White' : bands[0];
+  }
+  bandSel.innerHTML = bands.map(function(b) {
+    var label = b === '' ? '(no band)' : b;
+    return '<option value="' + escapeHtml(b) + '"' + (b === current.band ? ' selected' : '') + '>' + escapeHtml(label) + '</option>';
+  }).join('');
 }
 
 function onMaterialSelect(key) {
@@ -835,6 +870,15 @@ function onMaterialSelect(key) {
   var val = sel.value;
   if (!settings.materials) settings.materials = {};
   settings.materials[key] = val ? { range: val } : null;
+  populateBandSelect(key);
+  saveSettings();
+  renderSummary();
+}
+
+function onBandSelect(key) {
+  var bandSel = document.getElementById('mat-' + key + '-band');
+  if (!settings.materials || !settings.materials[key]) return;
+  settings.materials[key].band = bandSel.value;
   saveSettings();
   renderSummary();
 }
