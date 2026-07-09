@@ -177,49 +177,6 @@ function parseSize(name) {
   return null;
 }
 
-// List paint products (account 311) for the materials-mapping settings
-router.get('/items', async (req, res) => {
-  try {
-    const accessToken = await getAccessToken();
-    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
-    const tenantId = result.rows[0]?.xero_tenant_id;
-    if (!tenantId) {
-      return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
-    }
-
-    const itemsRes = await axios.get(`${XERO_API_URL}/Items`, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Xero-Tenant-Id': tenantId,
-        Accept: 'application/json'
-      }
-    });
-
-    const allItems = itemsRes.data.Items || [];
-    // 311 is the *purchase*-side (COGS) account code on these items, not the
-    // sales account — every item's SalesDetails.AccountCode is '202' or blank,
-    // regardless of product, so account 311 only ever shows up under
-    // PurchaseDetails. (Confirmed against a live InventoryItems export: 90
-    // items carry PurchaseDetails.AccountCode '311', zero carry it on Sales.)
-    const items = allItems
-      .filter(i => i.PurchaseDetails?.AccountCode === '311')
-      .map(i => {
-        const sizeMatch = i.Name.match(TIN_SIZE_RE);
-        return {
-          code: i.Code,
-          name: i.Name,
-          price: i.SalesDetails?.UnitPrice ?? null,
-          tinSizeL: sizeMatch ? parseFloat(sizeMatch[1]) : null
-        };
-      });
-    console.log(`Items fetch: ${allItems.length} total, ${items.length} matched account 311`);
-    res.json(items);
-  } catch (err) {
-    console.error('Items fetch error:', err.response?.data || err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // Marks a "sell any fractional quantity at this rate" item, e.g. "Tikkurila
 // Anti Reflex 2 - White 1ltr (per litre)" — distinct from a genuine discrete
 // tin even though it parses to the same sizeL. Confirmed against real data:

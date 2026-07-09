@@ -740,7 +740,6 @@ function clearAll() {
   rooms=[]; swCost=0; swTime=0;
   localStorage.setItem('pe-rooms','[]');
   localStorage.removeItem('pe-swcost'); localStorage.removeItem('pe-swtime');
-  localStorage.removeItem('pe-exterior');
   var xc=document.getElementById('xero-client'); if(xc) xc.value='';
   var xr=document.getElementById('xero-ref'); if(xr) xr.value='';
   saveRooms(); saveStair();
@@ -751,16 +750,14 @@ function clearAll() {
 }
 function clearEverything() {
   if(!confirm('Clear ALL data including exterior? This cannot be undone.'))return;
-  rooms=[]; swCost=0; swTime=0;
+  rooms=[]; swCost=0; swTime=0; extItems=[];
   localStorage.clear();
   apiDelete('/api/all');
   apiDelete('/api/hsl');
-  apiDelete('/api/exterior');
-  ['ex-doors','ex-wins','ex-garage','ex-render'].forEach(function(id){
+  ['ex-doors','ex-wins','ex-garage'].forEach(function(id){
     var el=document.getElementById(id); if(el) el.value='0';
   });
-  Object.keys(extCoats).forEach(function(k){ extCoats[k]=2; });
-  calcExterior();
+  Object.keys(extItemCoats).forEach(function(k){ extItemCoats[k]=2; });
   renderHome(); goTab('home');
   var b=document.createElement('div');
   b.style.cssText='position:fixed;top:calc(env(safe-area-inset-top,0px) + 70px);left:20px;right:20px;background:#c0392b;color:white;border-radius:12px;padding:14px 16px;font-size:14px;font-weight:600;z-index:999;text-align:center';
@@ -1095,6 +1092,7 @@ async function initApp() {
     var extData = await apiGet('/api/extitems');
     if (extData && extData.length > 0) {
       extItems = extData;
+      localStorage.setItem('pe-extitems', JSON.stringify(extItems));
       renderExterior();
       renderSummary();
     }
@@ -1109,6 +1107,11 @@ async function initApp() {
       settings.materials = s.materials;
       renderMaterialsSettings();
     }
+    // Re-persist settings now that the patches above (rExt* / materials) have
+    // been applied — the earlier localStorage.setItem for pe-settings ran
+    // before these, so without this the local cache would miss them until
+    // something else calls saveSettings().
+    localStorage.setItem('pe-settings', JSON.stringify(settings));
     var xeroStatus = await apiGet('/auth/status');
     updateXeroButton(xeroStatus.connected);
     if (xeroStatus.connected) {
@@ -1699,14 +1702,6 @@ function _renderExteriorInner() {
   if(clr) clr.style.display='block';
   var sub=document.getElementById('ext-sub');
   if(sub) sub.textContent=extItems.length+' item'+(extItems.length===1?'':'s');
-}
-
-// Legacy compat - keep saveExterior for old API calls
-function saveExterior() { saveExtItems(); }
-function calcExterior() {}
-function loadExterior() {
-  var saved = JSON.parse(localStorage.getItem('pe-extitems')||'[]');
-  if(saved.length>0) { extItems=saved; }
 }
 
 // ── Home ───────────────────────────────────────────────────────────────────

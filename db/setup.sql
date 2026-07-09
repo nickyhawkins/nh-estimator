@@ -37,15 +37,6 @@ CREATE TABLE IF NOT EXISTS hsl_state (
 
 INSERT INTO hsl_state (data) VALUES ('{}') ON CONFLICT DO NOTHING;
 
--- Exterior state table  
-CREATE TABLE IF NOT EXISTS exterior_state (
-  id SERIAL PRIMARY KEY,
-  data JSONB NOT NULL DEFAULT '{}',
-  updated_at TIMESTAMP DEFAULT NOW()
-);
-
-INSERT INTO exterior_state (data) VALUES ('{}') ON CONFLICT DO NOTHING;
-
 -- Exterior items table (mirrors rooms structure)
 CREATE TABLE IF NOT EXISTS exterior_items (
   id VARCHAR PRIMARY KEY,
