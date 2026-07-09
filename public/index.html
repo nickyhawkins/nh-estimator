@@ -1116,8 +1116,9 @@ async function initApp() {
     if (colourData && colourData.length > 0) {
       colours = colourData;
       localStorage.setItem('pe-colours', JSON.stringify(colours));
-      renderColours();
     }
+    ensureDefaultColour();
+    renderColours();
     // Update server settings with exterior rates
     if (s && s.rExtMasonry != null) {
       settings.rExtMasonry = s.rExtMasonry; settings.rExtFascia = s.rExtFascia;
@@ -1522,26 +1523,36 @@ function saveColours() {
   });
 }
 
-function renderColours() {
-  var empty = document.getElementById('colours-empty');
-  var list  = document.getElementById('colours-list');
-  var cards = document.getElementById('colours-cards');
-  if (colours.length === 0) {
-    empty.style.display = 'flex'; list.style.display = 'none';
-    return;
+// Colour 1 is the implicit default every room falls back to (unset
+// colourNumber), but it must still be a REAL, nameable entry — not just a
+// synthetic placeholder — or there's never anywhere to type its name. Every
+// place that reads/renders `colours` calls this first so colour 1 always
+// exists; it's idempotent and only persists when it actually had to seed.
+function ensureDefaultColour() {
+  if (!colours.some(function(c){ return c.number === 1; })) {
+    colours.unshift({ number: 1, label: '' });
+    saveColours();
   }
+}
+
+function renderColours() {
+  ensureDefaultColour();
+  var list  = document.getElementById('colours-list');
+  var empty = document.getElementById('colours-empty');
+  var cards = document.getElementById('colours-cards');
   empty.style.display = 'none'; list.style.display = 'block';
   cards.innerHTML = colours.slice().sort(function(a, b){ return a.number - b.number; }).map(function(c) {
     return '<div class="field-row">'+
       '<div class="room-icon" style="font-size:16px;font-weight:700">'+c.number+'</div>'+
       '<input type="text" class="field-input wide" placeholder="Name this colour (optional)" autocorrect="off" value="'+escapeHtml(c.label||'')+'" onchange="renameColour('+c.number+',this.value)">'+
-      '<div onclick="deleteColour('+c.number+')" style="color:var(--danger);font-size:22px;padding:0 4px;cursor:pointer">×</div>'+
+      (c.number===1 ? '' : '<div onclick="deleteColour('+c.number+')" style="color:var(--danger);font-size:22px;padding:0 4px;cursor:pointer">×</div>')+
     '</div>';
   }).join('');
 }
 
 function addColour() {
-  var nextNumber = colours.length ? Math.max.apply(null, colours.map(function(c){ return c.number; })) + 1 : 1;
+  ensureDefaultColour();
+  var nextNumber = Math.max.apply(null, colours.map(function(c){ return c.number; })) + 1;
   colours.push({ number: nextNumber, label: '' });
   saveColours();
   renderColours();
@@ -1555,6 +1566,7 @@ function renameColour(number, label) {
 }
 
 function deleteColour(number) {
+  if (number === 1) return; // the default colour — can be renamed, not removed
   if (!confirm('Delete this colour?')) return;
   colours = colours.filter(function(c){ return c.number !== number; });
   saveColours();
@@ -1569,9 +1581,8 @@ var roomColourNumber = 1;
 function populateRoomColourChips() {
   var seg = document.getElementById('seg-colour');
   if (!seg) return;
-  var hasOne = colours.some(function(c){ return c.number === 1; });
-  var list = (hasOne ? colours.slice() : [{number:1,label:''}].concat(colours))
-    .sort(function(a,b){ return a.number - b.number; });
+  ensureDefaultColour();
+  var list = colours.slice().sort(function(a,b){ return a.number - b.number; });
   var html = list.map(function(c) {
     var label = c.label ? c.label : ('Colour '+c.number);
     return '<button type="button" class="seg-btn'+(c.number===roomColourNumber?' active':'')+'" onclick="setRoomColour('+c.number+')">'+escapeHtml(label)+'</button>';
@@ -1586,7 +1597,8 @@ function setRoomColour(number) {
 }
 
 function addRoomColourInline() {
-  var nextNumber = colours.length ? Math.max.apply(null, colours.map(function(c){ return c.number; })) + 1 : 2;
+  ensureDefaultColour();
+  var nextNumber = Math.max.apply(null, colours.map(function(c){ return c.number; })) + 1;
   colours.push({ number: nextNumber, label: '' });
   saveColours();
   roomColourNumber = nextNumber;
