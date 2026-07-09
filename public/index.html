@@ -1432,7 +1432,10 @@ function resolveMaterial(mapping, litres, isWall) {
   if (!combo) return null;
   return {
     cost: combo.cost,
-    detail: combo.lines.map(function(l) { return l.quantity + '×' + l.sizeL + 'ltr'; }).join(' + ') + ' · ' + mapping.range + ' (' + mapping.band + ')',
+    // Litres needed comes first (as it always did pre-optimiser) so it's easy
+    // to sanity-check the tin breakdown against it at a glance — e.g. "11.5L"
+    // next to "2×1ltr + 1×10ltr" should visibly add up to at least 11.5.
+    detail: litres.toFixed(1) + 'L · ' + combo.lines.map(function(l) { return l.quantity + '×' + l.sizeL + 'ltr'; }).join(' + ') + ' · ' + mapping.range + ' (' + mapping.band + ')',
     lineItems: combo.lines.map(function(l) {
       return {
         itemCode: l.itemCode,
