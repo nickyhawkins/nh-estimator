@@ -401,7 +401,11 @@ router.post('/create-quote', async (req, res) => {
     // itself belongs on the sales account. Priced at the item's own sell
     // price already stored in Xero, so no job markup is re-applied here
     // (unlike the labour lines above).
-    if (materials) {
+    if (materials && materials.length > 0) {
+      // Text-only divider row, matching the manual convention: no ItemCode,
+      // Quantity or UnitAmount at all (not even zero) — Xero renders a line
+      // item with only a Description as plain narrative text, no columns.
+      lineItems.push({ Description: '-----materials estimate-----' });
       materials.forEach(m => {
         lineItems.push({
           ItemCode: m.itemCode,
