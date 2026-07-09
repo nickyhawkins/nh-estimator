@@ -141,7 +141,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     <div style="flex:1"></div>
     <div class="topbar-sub" id="home-sub"></div>
     <div class="chip" id="home-chip" style="display:none">£0</div>
-    <button id="clear-btn" onclick="clearAll()" style="display:none;background:rgba(192,57,43,.1);border:1px solid rgba(192,57,43,.3);color:var(--danger);border-radius:20px;padding:5px 12px;font-size:12px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;margin-left:6px">Clear</button>
+    <button id="clear-btn" onclick="clearRooms()" style="display:none;background:rgba(192,57,43,.1);border:1px solid rgba(192,57,43,.3);color:var(--danger);border-radius:20px;padding:5px 12px;font-size:12px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;margin-left:6px">Clear</button>
   </div>
   <div class="content">
     <div class="empty" id="home-empty">
@@ -508,7 +508,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Resin repair<small>mins per patch</small></div><input type="number" class="field-input" id="s-rresin" value="22" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Reglaze<small>mins per pane</small></div><input type="number" class="field-input" id="s-rreglaze" value="15" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
     </div>
-    <button class="btn btn-danger" onclick="clearAll()">Clear All Rooms &amp; Exterior</button>
+    <button class="btn btn-danger" onclick="clearEverything()">Clear Everything</button>
     <div class="card">
       <div class="card-header">Xero Integration</div>
       <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
@@ -725,18 +725,15 @@ function saveSettings() {
   apiPut('/api/settings', settings);
 }
 
-function clearAll() {
+function clearRooms() {
   if(!confirm('Clear all rooms? Settings will be kept.'))return;
   rooms=[]; swCost=0; swTime=0;
   localStorage.setItem('pe-rooms','[]');
-  localStorage.removeItem('pe-swcost'); localStorage.removeItem('pe-swtime');
+  localStorage.removeItem('pe-swcost');
+  localStorage.removeItem('pe-swtime');
   var xc=document.getElementById('xero-client'); if(xc) xc.value='';
   var xr=document.getElementById('xero-ref'); if(xr) xr.value='';
-  saveRooms(); saveStair();
-  extItems=[];
-  localStorage.setItem('pe-extitems','[]');
-  apiDelete('/api/extitems');
-  renderHome(); goTab('home');
+  saveRooms(); saveStair(); renderHome();
 }
 function clearEverything() {
   if(!confirm('Clear ALL data including exterior? This cannot be undone.'))return;
