@@ -82,7 +82,7 @@ Consolidated materials lines using the real Xero item codes chosen by the optimi
 
 ## PHASE 2 — Per-room colour numbering AND product override
 
-These two belong together — they share the same per-room data model and the same room setup screen, so build them as one coherent piece rather than colour now / product later.
+These two belong together — colour number and product override are both optional per-room attributes resolved the same way (fall back to the job/settings default when unset), so build them as one coherent piece rather than colour now / product later, even though colour *definition* lives on its own tab (see below) rather than on the room screen itself.
 
 ### Real-world switching logic (why this is needed)
 Nicky's per-room changes follow predictable patterns:
@@ -91,21 +91,30 @@ Nicky's per-room changes follow predictable patterns:
 - **Room type demands a different product** (e.g. bathroom → moisture-resistant range) → product/range override.
 - **Tin-size economics** (e.g. needs ~5ltr, so switch to Dulux/Crown which sell 5ltr tins where Tikkurila jumps 3ltr→10ltr) → product/range override. NOTE: this overlaps with tin optimisation — a future enhancement could *flag* when another supplier's tin sizes would be more economical for the required litres, but for now Nicky makes this call manually.
 
-### What Phase 2 adds — per-room selections, defaulting to settings
-For each room, all three are optional and default to the settings defaults (so most rooms need no touching):
-1. **Colour number** — Room 1 = colour 1, Rooms 2 & 3 = colour 2, etc. Groups rooms sharing a colour so tins are calculated per colour group.
-2. **Colour label** (optional) — free-text for reference (e.g. "Farrow & Ball Hague Blue"). The NUMBER drives calculation; the label is for reference and can show on the quote/notes.
-3. **Product/range override** (optional) — switch the wall product range for that room away from the settings default (for brand requests, bathroom products, or tin-size economics). Falls back to the default when not set.
+### Colours as their own tab (not inline per-room fields)
+
+Real workflow: Nicky walks the job room-by-room capturing dimensions/requirements first, and discusses colours afterward as a separate pass — occasionally a colour comes up mid-walkthrough, and switching tabs briefly for that is fine. This means colour *definition* and room *walkthrough* are different moments, so they get different screens:
+
+- **New "Colours" tab** — a list screen like Exterior's, where colours are defined: `{ number, label }` entries (add / rename / remove). This is where "Colour 2 = Farrow & Ball Hague Blue" actually gets typed in, once, in one place — not retyped per room.
+- **Room edit screen** — gets a colour dropdown referencing whatever's defined on the Colours tab, defaulting to unassigned (= colour 1, so untouched rooms need no action). The dropdown also gets a **"+ New colour"** inline option, so the rare mid-walkthrough mention doesn't force a tab switch — it adds to the same shared list the Colours tab manages.
+- The room edit screen separately gets the **product/range override** control (per room, optional, falls back to the settings default when unset) — this is unrelated to colour number and stays on the room screen since it's a per-room product decision, not a colour concept.
+
+### What Phase 2 adds
+1. **Colours tab** — list of `{ number, label }` entries, persisted with the same lifecycle as rooms/exterior items (loads into memory on init, clears on Clear Rooms / Clear Everything — colours belong to the current job, not permanent settings).
+2. **Colour number on each room** — optional, defaults to unassigned/colour 1. Picked via dropdown on the room screen (referencing the Colours tab list), with inline "+ New colour". Groups rooms sharing a colour so wall tins are calculated per colour group.
+3. **Product/range override** (optional, per room) — switches the wall product range+band for that room away from the settings default (brand requests, bathroom products, tin-size economics). Falls back to the default when not set.
+4. **Ceiling/topcoat/primer override** — job-wide only, **not** per-room and **not** colour-grouped (decided: these are charged per-litre with no whole-tin-rounding reason to split by group, unlike walls). One optional override per role, living on the Summary screen near the materials display (same job-scoped lifecycle as client name/reference today), falling back to `settings.materials.<role>` when unset.
 
 ### Data model
-A room carries: `{ colourNumber, colourLabel?, wallRangeOverride?, bandOverride? }`. All optional. The calculation resolves each room's effective product as `wallRangeOverride ?? settings.defaultWallRange`, and groups by (effective range + band + colour number) so tins are optimised within each genuine group.
+- A room carries: `{ colourNumber?, wallRangeOverride?, bandOverride? }`. All optional. `colourNumber` unset means colour 1 (unassigned/default).
+- A new job-scoped `colours` list: `[{ number, label }]`, managed on the Colours tab.
+- The calculation resolves each room's effective wall product as `wallRangeOverride ?? settings.materials.wall`, and groups by (effective range + band + colourNumber) so tins are optimised within each genuine group.
 
 ### Calculation impact
-- Whole-tin optimisation runs per (range + band + colour group) — a room overridden to Farrow & Ball is its own group and gets its own tins, never shared with a Tikkurila room.
-- Ceiling/woodwork can also take a per-room/per-job product override (e.g. bathroom ceiling in a different product) — same fallback-to-default pattern.
+Whole-tin optimisation runs per (range + band + colour group) — a room overridden to a different product is its own group and gets its own tins, never shared with a room on the default product.
 
 ### On the quote
-Each distinct product/band/colour group produces its own consolidated material line(s) with the correct Xero item codes. A job with two Tikkurila colours + one Farrow & Ball room shows three separate wall-paint groupings.
+Each distinct product/band/colour group produces its own consolidated wall-material line(s) with the correct Xero item codes. A job with two colour groups on the default product plus one room overridden to a different brand shows three separate wall-paint groupings. The now-inaccurate "Materials assume one wall colour; adjust in Xero for multi-colour jobs" banner comes out once this ships.
 
 ## Build order (revised)
 
@@ -115,8 +124,12 @@ Each distinct product/band/colour group produces its own consolidated material l
 4. **Tin optimisation** — cheapest combination of sizes within a range+band to cover required litres.
 5. **Per-litre products** — ceiling, topcoat, primer (primer = topcoat × 0.8).
 6. **Materials on summary + total + Xero line items.**
-7. **Phase 2 — per-room colour numbering + product override** (see section above). Build colour and product override together; both default to settings.
-8. **Then deposit feature** (25% of labour + materials, weekly split option).
+7. **Phase 2 step A — Colours tab + room colour dropdown.** New tab: list of `{number, label}` colours (add/rename/remove), persisted with the rooms/exterior lifecycle. Room screen: colour dropdown (default unassigned) + inline "+ New colour". No calculation change yet — still one pooled wall total. Test: colours persist correctly, existing jobs unaffected until a room is actually assigned a non-default colour.
+8. **Phase 2 step B — wall grouping by colour number.** Restructure the wall calc to bucket by `(range, band, colourNumber)` and tin-optimise per group, still only the default range/band. Test: a 2-colour-number job on the default product produces two independently-rounded tin totals instead of one pooled total.
+9. **Phase 2 step C — per-room product override.** Room screen gets the range/band override control; rooms with it set use their own product within their group.
+10. **Phase 2 step D — job-wide ceiling/topcoat/primer override.** Summary-screen control, no grouping, falls back to settings default.
+11. **Phase 2 step E — Xero quote + cleanup.** Per-group wall material line sets; remove the now-obsolete multi-colour banner. End-to-end test with a real multi-colour job sent to Xero.
+12. **Then deposit feature** (25% of labour + materials, weekly split option).
 
 ## Gotchas (still apply)
 - Whole-tin logic is per colour group, not per room and not per whole job.
