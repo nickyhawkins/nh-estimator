@@ -986,8 +986,7 @@ async function createXeroQuote() {
 
     var mats = computeMaterials();
     var materials = [mats.wall, mats.ceiling, mats.topcoat, mats.primer]
-      .filter(function(row){ return row.lineItem; })
-      .map(function(row){ return row.lineItem; });
+      .reduce(function(acc, row){ return acc.concat(row.lineItems); }, []);
 
     var newContact = null;
     if (document.getElementById('xero-new-contact-form').style.display !== 'none') {
@@ -1112,6 +1111,19 @@ async function initApp() {
     }
     var xeroStatus = await apiGet('/auth/status');
     updateXeroButton(xeroStatus.connected);
+    if (xeroStatus.connected) {
+      // Populate materialGroupsCache at startup, not just on a manual Settings
+      // "Refresh from Xero" — computeMaterials() needs it wherever it runs
+      // (Summary, Send to Xero), which may happen without visiting Settings
+      // first in this session. Isolated try/catch so a failure here doesn't
+      // mark the whole sync as failed.
+      try {
+        materialGroupsCache = await apiGet('/auth/material-groups');
+        renderMaterialsSettings();
+      } catch (e) {
+        console.log('Material groups fetch failed — Settings materials will show as unmapped until Refresh is used');
+      }
+    }
     serverAvailable = true;
   } catch(err) {
     console.log('Server sync failed — running from local cache');
@@ -1342,45 +1354,128 @@ function computeJobLitres() {
   return {wL:wL, cL:cL, gL:gL, pL:pL};
 }
 
-// Mapped rows price at the real Xero item's sell price (already the trade
-// sell price, so no job markup is re-applied on top); unmapped rows fall
-// back to the old litres + guessed-tin-count estimate with no cost/lineItem.
-// A mapping with no resolved `price` (e.g. a range-only selection from the
-// Settings picker, ahead of colour-band/tin-optimiser steps landing) is
-// treated as unmapped too, rather than producing a NaN cost.
-function materialRow(label, litres, mapping, isWall) {
-  if (mapping && mapping.price != null) {
-    var quantity, detail;
-    if (isWall) {
-      quantity = Math.ceil(litres / (mapping.tinSizeL || litres || 1));
-      detail = quantity + ' × ' + mapping.name;
-    } else {
-      quantity = litres;
-      detail = litres.toFixed(1) + 'L · ' + mapping.name;
+// Cheapest combination of discrete (non-per-litre) tin sizes that covers at
+// least requiredLitres. Classic "minimum cost to reach at least N" unbounded
+// DP: dp[u] = min cost to cover >= u units, working in 0.1L units so
+// decimal tin sizes (2.5L etc.) stay exact integers. Search stops one
+// largest-tin's-worth past the target — an optimal combination never needs
+// to overshoot further than that, since a single tin of the largest size
+// covers any smaller remainder in one step.
+function optimizeTinCombo(sizes, requiredLitres) {
+  var usable = (sizes || []).filter(function(s) { return !s.isPerLitre; });
+  if (!usable.length || requiredLitres <= 0) return null;
+  var GRAN = 10;
+  var reqUnits = Math.max(1, Math.ceil(requiredLitres * GRAN - 1e-9));
+  var sizeUnits = usable.map(function(s) { return Math.max(1, Math.round(s.sizeL * GRAN)); });
+  var maxUnit = Math.max.apply(null, sizeUnits);
+  var cap = reqUnits + maxUnit;
+  var dp = new Array(cap + 1).fill(Infinity);
+  var choice = new Array(cap + 1).fill(-1);
+  dp[0] = 0;
+  for (var u = 1; u <= cap; u++) {
+    for (var i = 0; i < usable.length; i++) {
+      var prev = u - sizeUnits[i] > 0 ? u - sizeUnits[i] : 0;
+      var cost = dp[prev] + usable[i].price;
+      if (cost < dp[u]) { dp[u] = cost; choice[u] = i; }
     }
-    var cost = quantity * mapping.price;
+  }
+  var bestU = -1, bestCost = Infinity;
+  for (var v = reqUnits; v <= cap; v++) {
+    if (dp[v] < bestCost) { bestCost = dp[v]; bestU = v; }
+  }
+  if (bestU === -1) return null;
+  var counts = {};
+  var cur = bestU;
+  while (cur > 0) {
+    var idx = choice[cur];
+    if (idx === -1) break;
+    counts[usable[idx].itemCode] = (counts[usable[idx].itemCode] || 0) + 1;
+    cur = cur - sizeUnits[idx] > 0 ? cur - sizeUnits[idx] : 0;
+  }
+  var lines = Object.keys(counts).map(function(code) {
+    var s = usable.filter(function(x) { return x.itemCode === code; })[0];
+    return { itemCode: code, sizeL: s.sizeL, price: s.price, quantity: counts[code] };
+  });
+  return { cost: bestCost, lines: lines };
+}
+
+// Resolve a {range, band} mapping + required litres into a concrete cost
+// and Xero line items, using materialGroupsCache (populated at startup and
+// via the Settings "Refresh from Xero" button). Returns null if unresolvable
+// — mapping incomplete, or that range+band isn't in the cache yet — so
+// callers can fall back to the old litres estimate rather than show nothing.
+// Non-wall roles (ceiling/topcoat/primer) prefer a per-litre-flagged item
+// (exact litres × its rate, no rounding) when the band has one; otherwise —
+// and always for walls — fall back to the tin optimiser, per MATERIALS_SPEC.md.
+function resolveMaterial(mapping, litres, isWall) {
+  if (!mapping || !mapping.range || mapping.band == null) return null;
+  var sizes = (materialGroupsCache[mapping.range] || {})[mapping.band];
+  if (!sizes || !sizes.length || litres <= 0) return null;
+
+  if (!isWall) {
+    var perLitre = sizes.filter(function(s) { return s.isPerLitre; })[0];
+    if (perLitre) {
+      return {
+        cost: litres * perLitre.price,
+        detail: litres.toFixed(1) + 'L · ' + mapping.range + ' (' + mapping.band + ')',
+        lineItems: [{
+          itemCode: perLitre.itemCode,
+          description: mapping.range + ' - ' + mapping.band + ' ' + perLitre.sizeL + 'ltr',
+          quantity: litres,
+          unitAmount: perLitre.price
+        }]
+      };
+    }
+  }
+
+  var combo = optimizeTinCombo(sizes, litres);
+  if (!combo) return null;
+  return {
+    cost: combo.cost,
+    detail: combo.lines.map(function(l) { return l.quantity + '×' + l.sizeL + 'ltr'; }).join(' + ') + ' · ' + mapping.range + ' (' + mapping.band + ')',
+    lineItems: combo.lines.map(function(l) {
+      return {
+        itemCode: l.itemCode,
+        description: mapping.range + ' - ' + mapping.band + ' ' + l.sizeL + 'ltr',
+        quantity: l.quantity,
+        unitAmount: l.price
+      };
+    })
+  };
+}
+
+// Resolved rows price at the Xero items' own sell price (already the trade
+// sell price, so no job markup is re-applied on top); unresolved rows fall
+// back to the old litres + guessed-tin-count estimate with no cost/lineItems.
+function materialRow(label, litres, mapping, isWall) {
+  var resolved = resolveMaterial(mapping, litres, isWall);
+  if (resolved) {
     return {
-      html: '<div class="mat-row"><div><div class="mat-label">'+label+'</div><div class="mat-detail">'+escapeHtml(detail)+'</div></div><div class="mat-val">'+fmt(cost)+'</div></div>',
-      cost: cost,
-      lineItem: { itemCode: mapping.code, description: mapping.name, quantity: quantity, unitAmount: mapping.price }
+      html: '<div class="mat-row"><div><div class="mat-label">'+label+'</div><div class="mat-detail">'+escapeHtml(resolved.detail)+'</div></div><div class="mat-val">'+fmt(resolved.cost)+'</div></div>',
+      cost: resolved.cost,
+      lineItems: resolved.lineItems
     };
   }
   return {
     html: '<div class="mat-row"><div><div class="mat-label">'+label+'</div><div class="mat-detail">'+litres.toFixed(1)+'L · '+tin(litres)+'</div></div><div class="mat-val">'+litres.toFixed(1)+'L</div></div>',
     cost: 0,
-    lineItem: null
+    lineItems: []
   };
 }
 
 function computeMaterials() {
   var L = computeJobLitres();
   var matSettings = settings.materials || {};
-  var primerL = L.gL * 0.8; // topcoat volume × 0.8, per the real pricing rule
+  // Primer litres use the corrected topcoat×0.8 rule once primer actually
+  // resolves to a real product; otherwise fall back to the old per-room pL
+  // estimate so the unresolved display isn't built from a formula nobody's
+  // confirmed pricing for yet.
+  var primerL = L.gL * 0.8;
+  var primerResolved = resolveMaterial(matSettings.primer, primerL, false) != null;
   var wall    = materialRow('Wall Emulsion', L.wL, matSettings.wall, true);
   var ceiling = materialRow('Ceiling Emulsion', L.cL, matSettings.ceiling, false);
   var topcoat = materialRow('Woodwork Topcoat', L.gL, matSettings.topcoat, false);
-  var primerMapped = matSettings.primer && matSettings.primer.price != null;
-  var primer  = materialRow('Woodwork Primer', primerMapped ? primerL : L.pL, matSettings.primer, false);
+  var primer  = materialRow('Woodwork Primer', primerResolved ? primerL : L.pL, matSettings.primer, false);
   return {
     wall: wall, ceiling: ceiling, topcoat: topcoat, primer: primer,
     total: wall.cost + ceiling.cost + topcoat.cost + primer.cost
