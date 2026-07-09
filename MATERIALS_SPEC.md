@@ -51,9 +51,13 @@ The grouping and parsing must be **supplier-agnostic**. Tikkurila is just the fi
 ### Grouping (new — do this first)
 Parse all account-202 (sales) Xero items into a structure (use SalesUnitPrice for pricing — 202 is the sales account, what the customer is charged; 311 is the purchases/cost account and is NOT used for quoting):
 ```
-range -> colour band -> [ {size_litres, price, itemCode}, ... ]
+range -> colour band -> [ {size_litres, price, itemCode, isPerLitre}, ... ]
 ```
 This gives the app, for any range + band, the full list of available tin sizes and prices to optimise over.
+
+**`isPerLitre`**: some items are a dedicated "sell any fractional quantity at this rate" SKU, e.g. `Tikkurila Anti Reflex 2 - White 1ltr (per litre)` — priced at essentially the range's bulk (10L) per-litre rate, not a small-tin markup. Confirmed in real data: `£56.78 / 10 = £5.678 ≈ £5.69` (the per-litre price). These get `isPerLitre: true` (matched on `(per litre)` in the name) and stay in the same sizes array as real tins, but are a different kind of thing: the tin optimiser (step 4) must never pick one as a combinable tin; the per-litre calc (step 5) should use one directly (litres × price, no rounding) when the selected band has one.
+
+Currently only 3 Tikkurila SKUs carry this flag (Anti Reflex 2, Otex Akva, Helmi 30 — all White band, 1ltr) — likely the actual ceiling/topcoat/primer products in practice. Colours/Pastels bands on the same ranges have no per-litre item, only discrete tins.
 
 ### Settings — default products by RANGE
 User selects default **ranges** (not tins) for:
@@ -71,7 +75,7 @@ Store the range identifier, not a specific item.
 
 ### Calculations
 - **Walls (per colour group):** litres needed for that group → choose cheapest combination of available tin sizes *within the selected range + band* that covers the litres → sum cost. (This is the tin optimisation — cheapest fill, e.g. 3.5ltr = 3ltr + ... whichever combo of that band's sizes is cheapest and sufficient.)
-- **Ceiling / woodwork topcoat / primer:** these are charged per litre (user has per-litre line items). Use litres × per-litre price for the selected range + band. Primer litres = topcoat litres × 0.8.
+- **Ceiling / woodwork topcoat / primer:** these are charged per litre. If the selected range + band has an `isPerLitre` item, use litres × its price directly (no rounding). **If it doesn't** (e.g. a Colours/Pastels band with only discrete tins), fall back to the same tin-optimisation logic as walls for that band, rather than restricting these roles to White-only — confirmed with the user since these three roles aren't guaranteed to stay on White forever. Primer litres = topcoat litres × 0.8.
 
 ### On the quote
 Consolidated materials lines using the real Xero item codes chosen by the optimiser, account 202 (sales), No VAT, under the labour lines. For walls this may mean e.g. "1 × Optiva 5 Colours 3ltr" + "1 × Optiva 5 Colours 1ltr" if that's the cheapest fill.
