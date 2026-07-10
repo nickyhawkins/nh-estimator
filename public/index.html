@@ -1495,7 +1495,13 @@ function computeRoleGroups(role, litresPerRoom, skipRoom) {
     if (!buckets[key]) buckets[key] = { mapping: mapping, colourNumber: num, litres: 0 };
     buckets[key].litres += litresPerRoom(r);
   });
+  // A room with e.g. wc=0 (walls not being painted) still lands in some
+  // bucket via its colour/product grouping, contributing 0 -- if it's the
+  // only room in that particular bucket, the bucket ends up at exactly 0
+  // litres. Drop those: a "buy 0.0L" row is never meaningful, on Summary
+  // or (especially) the Colours tab's ordering roll-up.
   return Object.keys(buckets).map(function(k) { return buckets[k]; })
+    .filter(function(g) { return g.litres > 0; })
     .sort(function(a, b) { return a.colourNumber - b.colourNumber; });
 }
 
@@ -1630,7 +1636,13 @@ function buildRoleRows(label, role, litresPerRoom, skipRoom) {
     var suffix = groups.length > 1
       ? ' — Colour ' + g.colourNumber + (colourLabels[g.colourNumber] ? ' (' + colourLabels[g.colourNumber] + ')' : '')
       : '';
-    return materialRow(label + suffix, g.litres, g.mapping, role === 'wall');
+    var row = materialRow(label + suffix, g.litres, g.mapping, role === 'wall');
+    // Additive fields, only consumed by the Colours tab's paint-quantity
+    // roll-up (renderColours) -- existing consumers (Summary, Xero export)
+    // only ever read .html/.cost/.lineItems, so this is safe to attach.
+    row.colourNumber = g.colourNumber;
+    row.role = role;
+    return row;
   });
 }
 
@@ -1676,18 +1688,40 @@ function ensureDefaultColour() {
   }
 }
 
+// Colours tab doubles as the job's paint/ordering view: beyond naming a
+// colour, each entry shows which rooms it covers (per role -- wall/
+// ceiling/woodwork can each land a room in a different colour number
+// since Phase 2's colour-grouping fix) and rolls up the actual litres/
+// tins to buy for that colour, reusing the exact same materialRow() HTML
+// already built for the Summary tab so the numbers can never drift apart.
+// Rooms = input the work, Summary = the price, Colours = what to buy.
 function renderColours() {
   ensureDefaultColour();
   var list  = document.getElementById('colours-list');
   var empty = document.getElementById('colours-empty');
   var cards = document.getElementById('colours-cards');
   empty.style.display = 'none'; list.style.display = 'block';
+  var mats = computeMaterials();
+  var allMatRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows);
   cards.innerHTML = colours.slice().sort(function(a, b){ return a.number - b.number; }).map(function(c) {
+    var bdId = 'colour-bd-' + c.number;
+    var wallRooms = rooms.filter(function(r){ return (r.colourNumber||1)===c.number && +r.wc>0; }).map(function(r){ return r.name; });
+    var ceilRooms = rooms.filter(function(r){ return (r.ceilingColourNumber||1)===c.number && +r.cc>0; }).map(function(r){ return r.name; });
+    var woodRooms = rooms.filter(function(r){ return (r.woodworkColourNumber||1)===c.number && +r.xc>0; }).map(function(r){ return r.name; });
+    var matRows = allMatRows.filter(function(r){ return r.colourNumber===c.number; });
+    var hasBreakdown = wallRooms.length || ceilRooms.length || woodRooms.length || matRows.length;
+    var sub = '';
+    if (wallRooms.length) sub += '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Walls</span><span class="breakdown-sub-value">'+escapeHtml(wallRooms.join(', '))+'</span></div>';
+    if (ceilRooms.length) sub += '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ceiling</span><span class="breakdown-sub-value">'+escapeHtml(ceilRooms.join(', '))+'</span></div>';
+    if (woodRooms.length) sub += '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Woodwork</span><span class="breakdown-sub-value">'+escapeHtml(woodRooms.join(', '))+'</span></div>';
+    matRows.forEach(function(r){ sub += r.html; });
     return '<div class="field-row">'+
       '<div class="room-icon" style="font-size:16px;font-weight:700">'+c.number+'</div>'+
       '<input type="text" class="field-input wide" placeholder="Name this colour (optional)" autocorrect="off" value="'+escapeHtml(c.label||'')+'" onchange="renameColour('+c.number+',this.value)">'+
       (c.number===1 ? '' : '<div onclick="deleteColour('+c.number+')" style="color:var(--danger);font-size:22px;padding:0 4px;cursor:pointer">×</div>')+
-    '</div>';
+      (hasBreakdown ? '<div class="room-chevron-icon" id="chev-'+bdId+'" onclick="toggleRoomBd(\''+bdId+'\')" style="cursor:pointer">›</div>' : '')+
+    '</div>'+
+    (hasBreakdown ? '<div class="room-breakdown" id="'+bdId+'">'+sub+'</div>' : '');
   }).join('');
 }
 
