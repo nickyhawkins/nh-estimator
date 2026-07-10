@@ -129,6 +129,13 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 .room-item-tap{cursor:pointer}
 .room-chevron-icon{color:var(--text3);font-size:16px;transition:transform 0.2s}
 .room-chevron-icon.open{transform:rotate(90deg)}
+.card-header.toggle{cursor:pointer;user-select:none}
+.sec-chev{color:var(--text3);font-size:18px;transition:transform .18s;flex-shrink:0}
+.sec-chev.open{transform:rotate(90deg)}
+.card-body{display:none}
+.card-body.open{display:block}
+.subsection-label{padding:12px 16px 4px;font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--text2);border-top:1px solid var(--border)}
+.subsection-label:first-child{border-top:none}
 </style>
 </head>
 <body>
@@ -186,96 +193,98 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Woodwork</div><div class="seg" id="seg-xc"><button class="seg-btn" onclick="setSeg('xc',0)">0</button><button class="seg-btn" onclick="setSeg('xc',1)">1</button><button class="seg-btn active" onclick="setSeg('xc',2)">2</button><button class="seg-btn" onclick="setSeg('xc',3)">3</button></div></div>
     </div>
     <div class="card">
-      <div class="card-header">Preparation</div>
-      <div class="field-row">
-        <div class="field-label">Prep Level</div>
-        <div class="seg" id="seg-prep" style="flex:1.5">
-          <button class="seg-btn active" onclick="setPrep(0)">Standard</button>
-          <button class="seg-btn" onclick="setPrep(10)">Light</button>
-          <button class="seg-btn" onclick="setPrep(25)">Full</button>
-          <button class="seg-btn" onclick="setPrep(-1)">Custom</button>
+      <div class="card-header toggle" onclick="toggleFormSection('extras')"><span>Extras</span><span class="sec-chev" id="sec-chev-extras">›</span></div>
+      <div class="card-body" id="sec-extras">
+        <div class="field-row"><div class="field-label">Windows<small>total m²</small></div><input type="number" class="field-input" id="r-win" value="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+        <div class="field-row"><div class="field-label">Doors<small>qty</small></div><input type="number" class="field-input" id="r-doors" value="0" min="0" step="1" inputmode="numeric" oninput="previewRoom()"></div>
+        <div class="field-row"><div class="field-label">Radiators<small>m²</small></div><input type="number" class="field-input" id="r-rads" value="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header toggle" onclick="toggleFormSection('prep')"><span>Preparation</span><span class="sec-chev" id="sec-chev-prep">›</span></div>
+      <div class="card-body" id="sec-prep">
+        <div class="field-row">
+          <div class="field-label">Prep Level</div>
+          <div class="seg" id="seg-prep" style="flex:1.5">
+            <button class="seg-btn active" onclick="setPrep(0)">Standard</button>
+            <button class="seg-btn" onclick="setPrep(10)">Light</button>
+            <button class="seg-btn" onclick="setPrep(25)">Full</button>
+            <button class="seg-btn" onclick="setPrep(-1)">Custom</button>
+          </div>
+        </div>
+        <div class="field-row" id="prep-custom-row" style="display:none">
+          <div class="field-label">Custom prep %<small>uplift on room total</small></div>
+          <input type="number" class="field-input" id="r-prep-custom" value="0" min="0" max="100" step="5" inputmode="numeric" oninput="previewRoom()">
+        </div>
+        <div class="field-row" style="border-top:1px solid var(--border)">
+          <div class="field-label">Making Good<small>£ fixed cost for repairs</small></div>
+          <input type="number" class="field-input" id="r-making-good" value="0" min="0" step="5" inputmode="decimal" oninput="previewRoom()">
         </div>
       </div>
-      <div class="field-row" id="prep-custom-row" style="display:none">
-        <div class="field-label">Custom prep %<small>uplift on room total</small></div>
-        <input type="number" class="field-input" id="r-prep-custom" value="0" min="0" max="100" step="5" inputmode="numeric" oninput="previewRoom()">
-      </div>
-      <div class="field-row" style="border-top:1px solid var(--border)">
-        <div class="field-label">Making Good<small>£ fixed cost for repairs</small></div>
-        <input type="number" class="field-input" id="r-making-good" value="0" min="0" step="5" inputmode="decimal" oninput="previewRoom()">
-      </div>
     </div>
     <div class="card">
-      <div class="card-header">Extras</div>
-      <div class="field-row"><div class="field-label">Windows<small>total m²</small></div><input type="number" class="field-input" id="r-win" value="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
-      <div class="field-row"><div class="field-label">Doors<small>qty</small></div><input type="number" class="field-input" id="r-doors" value="0" min="0" step="1" inputmode="numeric" oninput="previewRoom()"></div>
-      <div class="field-row"><div class="field-label">Radiators<small>m²</small></div><input type="number" class="field-input" id="r-rads" value="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
-    </div>
-    <div class="card">
-      <div class="card-header">Mist Coat</div>
-      <div class="toggle-row">
-        <div class="toggle-label">Mist coat — Walls<small>Adds a mist coat pass to walls</small></div>
-        <div class="toggle" id="tog-mw" onclick="toggleMist('mw')"></div>
-      </div>
-      <div class="toggle-row" style="border-top:1px solid var(--border)">
-        <div class="toggle-label">Mist coat — Ceiling<small>Adds a mist coat pass to ceiling</small></div>
-        <div class="toggle" id="tog-mc" onclick="toggleMist('mc')"></div>
-      </div>
-
-    </div>
-    <div class="card">
-      <div class="card-header">Colour</div>
-      <div class="field-row"><div class="field-label">Wall<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-wall" style="flex-wrap:wrap"></div></div>
-      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Ceiling<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-ceiling" style="flex-wrap:wrap"></div></div>
-      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Woodwork<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-woodwork" style="flex-wrap:wrap"></div></div>
-    </div>
-    <div class="card">
-      <div class="card-header">Wall Paint</div>
-      <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><select class="field-input" id="r-wall-range" onchange="onRoomOverrideRangeSelect('wall')"></select></div>
-      <div class="field-row" id="r-wall-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-wall-band" onchange="onRoomOverrideBandSelect('wall')"></select></div>
-    </div>
-    <div class="card">
-      <div class="card-header">Ceiling Paint</div>
-      <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><select class="field-input" id="r-ceiling-range" onchange="onRoomOverrideRangeSelect('ceiling')"></select></div>
-      <div class="field-row" id="r-ceiling-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-ceiling-band" onchange="onRoomOverrideBandSelect('ceiling')"></select></div>
-    </div>
-    <div class="card">
-      <div class="card-header">Woodwork Topcoat</div>
-      <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><select class="field-input" id="r-topcoat-range" onchange="onRoomOverrideRangeSelect('topcoat')"></select></div>
-      <div class="field-row" id="r-topcoat-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-topcoat-band" onchange="onRoomOverrideBandSelect('topcoat')"></select></div>
-    </div>
-    <div class="card">
-      <div class="card-header">Woodwork Primer</div>
-      <div class="field-row"><div class="field-label">Product<small>defaults to Settings, or None</small></div><select class="field-input" id="r-primer-range" onchange="onRoomOverrideRangeSelect('primer')"></select></div>
-      <div class="field-row" id="r-primer-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-primer-band" onchange="onRoomOverrideBandSelect('primer')"></select></div>
-    </div>
-    <div class="card">
-      <div class="card-header">Wallpaper</div>
-      <div class="field-row">
-        <div class="field-label">Walls</div>
-        <div class="seg" id="seg-wpw" style="flex:1.5">
-          <button class="seg-btn active" onclick="setWP('wpw','none')">None</button>
-          <button class="seg-btn" onclick="setWP('wpw','lining')">Lining</button>
-          <button class="seg-btn" onclick="setWP('wpw','plain')">Plain</button>
-          <button class="seg-btn" onclick="setWP('wpw','patterned')">Patterned</button>
+      <div class="card-header toggle" onclick="toggleFormSection('mist')"><span>Mist Coat</span><span class="sec-chev" id="sec-chev-mist">›</span></div>
+      <div class="card-body" id="sec-mist">
+        <div class="toggle-row">
+          <div class="toggle-label">Mist coat — Walls<small>Adds a mist coat pass to walls</small></div>
+          <div class="toggle" id="tog-mw" onclick="toggleMist('mw')"></div>
+        </div>
+        <div class="toggle-row" style="border-top:1px solid var(--border)">
+          <div class="toggle-label">Mist coat — Ceiling<small>Adds a mist coat pass to ceiling</small></div>
+          <div class="toggle" id="tog-mc" onclick="toggleMist('mc')"></div>
         </div>
       </div>
-      <div class="field-row" id="wpw-area-row" style="display:none">
-        <div class="field-label">Wall paper area<small>m² — auto-filled if 0 coats</small></div>
-        <input type="number" class="field-input" id="r-wpw-area" value="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()">
+    </div>
+    <div class="card">
+      <div class="card-header toggle" onclick="toggleFormSection('paint')"><span>Paint &amp; Colour</span><span class="sec-chev" id="sec-chev-paint">›</span></div>
+      <div class="card-body" id="sec-paint">
+        <div class="subsection-label">Colour</div>
+        <div class="field-row"><div class="field-label">Wall<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-wall" style="flex-wrap:wrap"></div></div>
+        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Ceiling<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-ceiling" style="flex-wrap:wrap"></div></div>
+        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Woodwork<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-woodwork" style="flex-wrap:wrap"></div></div>
+        <div class="subsection-label">Wall Paint</div>
+        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><select class="field-input" id="r-wall-range" onchange="onRoomOverrideRangeSelect('wall')"></select></div>
+        <div class="field-row" id="r-wall-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-wall-band" onchange="onRoomOverrideBandSelect('wall')"></select></div>
+        <div class="subsection-label">Ceiling Paint</div>
+        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><select class="field-input" id="r-ceiling-range" onchange="onRoomOverrideRangeSelect('ceiling')"></select></div>
+        <div class="field-row" id="r-ceiling-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-ceiling-band" onchange="onRoomOverrideBandSelect('ceiling')"></select></div>
+        <div class="subsection-label">Woodwork Topcoat</div>
+        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><select class="field-input" id="r-topcoat-range" onchange="onRoomOverrideRangeSelect('topcoat')"></select></div>
+        <div class="field-row" id="r-topcoat-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-topcoat-band" onchange="onRoomOverrideBandSelect('topcoat')"></select></div>
+        <div class="subsection-label">Woodwork Primer</div>
+        <div class="field-row"><div class="field-label">Product<small>defaults to Settings, or None</small></div><select class="field-input" id="r-primer-range" onchange="onRoomOverrideRangeSelect('primer')"></select></div>
+        <div class="field-row" id="r-primer-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-primer-band" onchange="onRoomOverrideBandSelect('primer')"></select></div>
       </div>
-      <div class="field-row" style="border-top:1px solid var(--border)">
-        <div class="field-label">Ceiling</div>
-        <div class="seg" id="seg-wpc" style="flex:1.5">
-          <button class="seg-btn active" onclick="setWP('wpc','none')">None</button>
-          <button class="seg-btn" onclick="setWP('wpc','lining')">Lining</button>
-          <button class="seg-btn" onclick="setWP('wpc','plain')">Plain</button>
-          <button class="seg-btn" onclick="setWP('wpc','patterned')">Patterned</button>
+    </div>
+    <div class="card">
+      <div class="card-header toggle" onclick="toggleFormSection('wallpaper')"><span>Wallpaper</span><span class="sec-chev" id="sec-chev-wallpaper">›</span></div>
+      <div class="card-body" id="sec-wallpaper">
+        <div class="field-row">
+          <div class="field-label">Walls</div>
+          <div class="seg" id="seg-wpw" style="flex:1.5">
+            <button class="seg-btn active" onclick="setWP('wpw','none')">None</button>
+            <button class="seg-btn" onclick="setWP('wpw','lining')">Lining</button>
+            <button class="seg-btn" onclick="setWP('wpw','plain')">Plain</button>
+            <button class="seg-btn" onclick="setWP('wpw','patterned')">Patterned</button>
+          </div>
         </div>
-      </div>
-      <div class="field-row" id="wpc-area-row" style="display:none">
-        <div class="field-label">Ceiling paper area<small>m² — auto-filled if 0 coats</small></div>
-        <input type="number" class="field-input" id="r-wpc-area" value="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()">
+        <div class="field-row" id="wpw-area-row" style="display:none">
+          <div class="field-label">Wall paper area<small>m² — auto-filled if 0 coats</small></div>
+          <input type="number" class="field-input" id="r-wpw-area" value="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()">
+        </div>
+        <div class="field-row" style="border-top:1px solid var(--border)">
+          <div class="field-label">Ceiling</div>
+          <div class="seg" id="seg-wpc" style="flex:1.5">
+            <button class="seg-btn active" onclick="setWP('wpc','none')">None</button>
+            <button class="seg-btn" onclick="setWP('wpc','lining')">Lining</button>
+            <button class="seg-btn" onclick="setWP('wpc','plain')">Plain</button>
+            <button class="seg-btn" onclick="setWP('wpc','patterned')">Patterned</button>
+          </div>
+        </div>
+        <div class="field-row" id="wpc-area-row" style="display:none">
+          <div class="field-label">Ceiling paper area<small>m² — auto-filled if 0 coats</small></div>
+          <input type="number" class="field-input" id="r-wpc-area" value="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()">
+        </div>
       </div>
     </div>
     <div class="card" id="room-preview" style="display:none">
@@ -1253,12 +1262,31 @@ function goTab(tab) {
   if (tab==='colours') renderColours();
 }
 
+// Collapsible room-form sections (Extras/Preparation/Mist Coat/Paint &
+// Colour/Wallpaper) -- purely presentational, mirrors the existing
+// toggleRoomBd() chevron pattern used on the Summary screen. Collapsed by
+// default each time the room screen is entered (resetFormSections, called
+// from both goScreen('room') and editRoom() since editRoom doesn't route
+// through goScreen).
+function toggleFormSection(id) {
+  var body = document.getElementById('sec-'+id);
+  var chev = document.getElementById('sec-chev-'+id);
+  if (!body) return;
+  var open = body.classList.toggle('open');
+  if (chev) chev.classList.toggle('open', open);
+}
+function resetFormSections() {
+  document.querySelectorAll('#screen-room .card-body').forEach(function(el) { el.classList.remove('open'); });
+  document.querySelectorAll('#screen-room .sec-chev').forEach(function(el) { el.classList.remove('open'); });
+}
+
 function goScreen(name) {
   inSub = name;
   document.querySelectorAll('.screen').forEach(function(s) { s.classList.remove('active'); });
   document.getElementById('screen-'+name).classList.add('active');
   if (name==='stair') loadHSLState();
   if (name==='room') {
+    resetFormSections();
     editId=null; coats={wc:2,cc:2,xc:2}; mistWall=false; mistCeil=false; prepPct=0;
     roomColourNumbers = { wall:1, ceiling:1, woodwork:1 };
     ['wall','ceiling','woodwork'].forEach(populateRoomColourChips);
@@ -2119,6 +2147,7 @@ function editRoom(id) {
     goScreen('stair');
     return;
   }
+  resetFormSections();
   editId=id; coats={wc:+r.wc,cc:+r.cc,xc:+r.xc};
   roomColourNumbers = { wall: r.colourNumber || 1, ceiling: r.ceilingColourNumber || 1, woodwork: r.woodworkColourNumber || 1 };
   ['wall','ceiling','woodwork'].forEach(populateRoomColourChips);
