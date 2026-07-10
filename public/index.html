@@ -1688,6 +1688,36 @@ function ensureDefaultColour() {
   }
 }
 
+// Shared by the Colour Schedule (Summary tab) and CSV export so the two
+// never say something different for the same room/colour.
+function colourLabelFor(num) {
+  var c = colours.find(function(x){ return x.number === num; });
+  return 'Colour ' + num + (c && c.label ? ' (' + c.label + ')' : '');
+}
+
+// Per-room colour line for the Colour Schedule: compact "Colour N (Label)"
+// when every painted surface in the room shares one colour (the common
+// case), or a per-surface breakdown grouped by colour when they don't
+// (feature walls etc.) -- mirrors how wall/ceiling/woodwork are already
+// independently assignable elsewhere. Returns null for a room with
+// nothing actually painted (every coat count at 0).
+function roomColourSchedule(r) {
+  var parts = [];
+  if (+r.wc > 0) parts.push({ role: 'Walls', num: r.colourNumber || 1 });
+  if (+r.cc > 0) parts.push({ role: 'Ceiling', num: r.ceilingColourNumber || 1 });
+  if (+r.xc > 0) parts.push({ role: 'Woodwork', num: r.woodworkColourNumber || 1 });
+  if (!parts.length) return null;
+  if (parts.every(function(p){ return p.num === parts[0].num; })) {
+    return colourLabelFor(parts[0].num);
+  }
+  var byColour = {}, order = [];
+  parts.forEach(function(p){
+    if (!byColour[p.num]) { byColour[p.num] = []; order.push(p.num); }
+    byColour[p.num].push(p.role);
+  });
+  return order.map(function(num){ return byColour[num].join('/') + ': ' + colourLabelFor(num); }).join(' · ');
+}
+
 // Colours tab doubles as the job's paint/ordering view: beyond naming a
 // colour, each entry shows which rooms it covers (per role -- wall/
 // ceiling/woodwork can each land a room in a different colour number
@@ -2887,6 +2917,11 @@ async function renderSummary() {
   var mats = computeMaterials();
   var materialsTotal = mats.total;
 
+  var scheduleRows = rooms.map(function(r){
+    var line = roomColourSchedule(r);
+    return line ? '<div class="breakdown-row"><span class="breakdown-label">'+escapeHtml(r.name)+'</span><span class="breakdown-value">'+escapeHtml(line)+'</span></div>' : '';
+  }).join('');
+
   var labourTotal=tcS*(1+mu);
   var total=labourTotal+materialsTotal;
   data.innerHTML=
@@ -2953,7 +2988,8 @@ async function renderSummary() {
         '<span class="breakdown-label" style="font-weight:600;color:var(--text)">Materials subtotal</span>'+
         '<span class="breakdown-value" style="color:var(--accent)">'+fmt(materialsTotal)+'</span></div>':'')+
     '</div>'+
-    '</div>';
+    '</div>'+
+    (scheduleRows?'<div><div class="section-title" style="margin-bottom:8px">Colour Schedule</div><div class="card">'+scheduleRows+'</div></div>':'');
 }
 
 // ── Export CSV ─────────────────────────────────────────────────────────────
@@ -2970,12 +3006,15 @@ function exportCSV() {
   lines.push([q('Hours Per Day'),q(s.hpd)].join(','));
   lines.push([q('Markup %'),q(s.mu)].join(','));
   lines.push('');
-  var hdr=['Room','L','W','H','Wall Area','Ceil Area','Walls Coats','Ceil Coats','Wood Coats','Windows','Doors','Rads','New Plaster','Cost','Time (days)'];
+  var hdr=['Room','L','W','H','Wall Area','Ceil Area','Walls Coats','Ceil Coats','Wood Coats','Windows','Doors','Rads','New Plaster','Wall Colour','Ceiling Colour','Woodwork Colour','Cost','Time (days)'];
   lines.push(hdr.map(q).join(','));
   var tc=0,tt=0;
   rooms.forEach(function(r){
     var c=calcRoom(r); tc+=c.total; tt+=c.time;
-    var row=[r.name,r.l,r.w,r.h,c.wallArea.toFixed(2),c.ceilArea.toFixed(2),r.wc,r.cc,r.xc,r.win,r.doors,r.rads,r.np?'Yes':'No',c.total.toFixed(2),c.time.toFixed(2)];
+    var wallColour = +r.wc>0 ? colourLabelFor(r.colourNumber||1) : '';
+    var ceilColour = +r.cc>0 ? colourLabelFor(r.ceilingColourNumber||1) : '';
+    var woodColour = +r.xc>0 ? colourLabelFor(r.woodworkColourNumber||1) : '';
+    var row=[r.name,r.l,r.w,r.h,c.wallArea.toFixed(2),c.ceilArea.toFixed(2),r.wc,r.cc,r.xc,r.win,r.doors,r.rads,r.np?'Yes':'No',wallColour,ceilColour,woodColour,c.total.toFixed(2),c.time.toFixed(2)];
     lines.push(row.map(q).join(','));
   });
   var extTotal=0, extTimeTotal=0;

@@ -151,11 +151,18 @@ Beyond defining `{number, label}` colours (Phase 2), the Colours tab can become 
 ### Secondary polish (later)
 3. **Brand/code autofill** — see "Colour reference library" in FEATURES.md (seed Farrow & Ball + Little Greene, which cover ~90% of colours Nicky uses; personal list for the rest). Note: that FEATURES.md section doesn't actually exist yet, so this one's scope is still just the one-liner here, not a written spec.
 4. **Finish/sheen per colour** — same colour can go on in different finishes (matt walls, eggshell woodwork); note against the colour for ordering accuracy.
+
+**Skipped, on reflection.** Once a room's product is actually mapped to a real Xero item (e.g. "Farrow & Ball Estate Eggshell"), the finish is already sitting right there in the product name on the Colours tab's paint-quantity roll-up -- a separate finish field would only add value for the narrow case of an unmapped colour where you want to jot the finish down before picking a real product, which didn't seem worth a DB migration and new UI for.
+
 5. **Surfaces per colour** — which surfaces each colour covers (walls only vs walls+ceiling), so a feature-wall colour is distinguished from a whole-room one.
 
 **Shipped.** Derived, not stored: `surfaceSummary()` turns the same wallRooms/ceilRooms/woodRooms lists already computed for the rooms-per-colour breakdown into a short chip next to the colour name — "Walls", "Walls + Ceiling", "All surfaces", etc. No new field on the colour object and nothing for the user to keep in sync manually; a feature-wall colour (assigned to a room's walls only) reads differently from a whole-room one (assigned to walls+ceiling+woodwork) purely because the underlying room assignments already differ. Matches the Notes below ("surfacing data, not new logic") more literally than a manually-maintained tag would have.
 
-6. **Colour schedule output** — a tidy "Colour Schedule" (room, colour, finish) on the quote or as a shareable summary. Professional touch; doubles as Nicky's own worksheet on the job.
+6. **Colour schedule output** — a tidy "Colour Schedule" (room, colour) on the quote or as a shareable summary. Professional touch; doubles as Nicky's own worksheet on the job.
+
+**Shipped**, minus "finish" (dropped along with item 4) and minus the quote (deliberately not embedded there — a room/colour breakdown doesn't fit the line-item model and would clutter a financial document; can add as plain narrative text later if actually wanted). Two places:
+- A new "Colour Schedule" card on the Summary tab, room-by-room, via `roomColourSchedule()`: compact `Colour N (Label)` when every painted surface in the room shares one colour (the common case), or a per-surface breakdown grouped by colour when they don't (`Walls: Colour 2 (Hague Blue) · Ceiling/Woodwork: Colour 1 (Dimity)`) -- mirrors how wall/ceiling/woodwork are already independently assignable. Rooms with nothing painted (all coat counts at 0) are omitted.
+- Three new columns on the CSV export (Wall/Ceiling/Woodwork Colour, blank when that role has no coats), via the same `colourLabelFor()` helper the schedule card uses, so the two can't say something different for the same room.
 
 ### Notes
 - Leans on existing calculations — mostly surfacing data, not new logic.
