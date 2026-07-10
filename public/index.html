@@ -178,6 +178,11 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Colour<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour" style="flex-wrap:wrap"></div></div>
     </div>
     <div class="card">
+      <div class="card-header">Wall Paint</div>
+      <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><select class="field-input" id="r-wall-range" onchange="onRoomWallRangeSelect()"></select></div>
+      <div class="field-row" id="r-wall-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-wall-band" onchange="onRoomWallBandSelect()"></select></div>
+    </div>
+    <div class="card">
       <div class="card-header">Dimensions</div>
       <div class="field-row"><div class="field-label">Length<small>metres</small></div><input type="number" class="field-input" id="r-l" value="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
       <div class="field-row"><div class="field-label">Width<small>metres</small></div><input type="number" class="field-input" id="r-w" value="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
@@ -1239,6 +1244,7 @@ function goScreen(name) {
   if (name==='room') {
     editId=null; coats={wc:2,cc:2,xc:2}; mistWall=false; mistCeil=false; prepPct=0;
     roomColourNumber=1; populateRoomColourChips();
+    roomWallRangeOverride=''; roomWallBandOverride=''; populateRoomWallOverridePicker();
     document.getElementById('room-title').textContent='Add Room';
     document.getElementById('r-name').value='';
     document.getElementById('r-l').value='0';
@@ -1391,20 +1397,29 @@ function computeJobLitres() {
   return {cL:cL, gL:gL, pL:pL};
 }
 
-// Wall litres bucketed by colour group (room.colourNumber, defaulting to 1)
-// — each group gets its own tin optimisation, since paint bought for one
-// colour can't be shared with another. Returns one entry per colour number
-// actually in use, sorted ascending; a job where nobody's touched colour
-// assignment naturally comes back as a single group covering every room.
+// Wall litres bucketed by (effective product, colour number) — each group
+// gets its own tin optimisation, since paint bought for one product/colour
+// can't be shared with another's. "Effective product" is a room's own
+// wallRangeOverride/bandOverride if set, else the Settings default — two
+// rooms sharing a colour number but different overrides still end up in
+// separate groups, since that's what actually determines which tins can be
+// pooled. A job where nobody's touched colour or override naturally comes
+// back as a single group covering every room.
 function computeWallGroups() {
-  var totals = {};
+  var defaultMapping = (settings.materials || {}).wall || null;
+  var buckets = {};
   rooms.forEach(function(r) {
+    var mapping = r.wallRangeOverride
+      ? { range: r.wallRangeOverride, band: r.bandOverride || '' }
+      : defaultMapping;
     var num = r.colourNumber || 1;
-    totals[num] = (totals[num] || 0) + calcRoom(r).wallL;
+    var mapKey = mapping ? (mapping.range + '' + mapping.band) : 'unmapped';
+    var key = mapKey + '' + num;
+    if (!buckets[key]) buckets[key] = { mapping: mapping, colourNumber: num, litres: 0 };
+    buckets[key].litres += calcRoom(r).wallL;
   });
-  return Object.keys(totals).map(function(k) {
-    return { colourNumber: +k, litres: totals[k] };
-  }).sort(function(a, b) { return a.colourNumber - b.colourNumber; });
+  return Object.keys(buckets).map(function(k) { return buckets[k]; })
+    .sort(function(a, b) { return a.colourNumber - b.colourNumber; });
 }
 
 // Cheapest combination of discrete (non-per-litre) tin sizes that covers at
@@ -1529,10 +1544,13 @@ function computeMaterials() {
   var primerL = L.gL * 0.8;
   var primerResolved = resolveMaterial(matSettings.primer, primerL, false) != null;
 
-  // One wall row per colour group — each colour's litres get their own tin
-  // optimisation, never pooled with another colour's. The common case
-  // (nobody's touched colour assignment) is a single group covering every
-  // room, so the label only gets a colour suffix once there's more than one.
+  // One wall row per group — each group (a distinct colour number and/or a
+  // room's own product override) gets its own tin optimisation, never pooled
+  // with another's. The common case (nobody's touched colour or override) is
+  // a single group covering every room, so the label only gets a colour
+  // suffix once there's more than one. The resolved product/band is already
+  // visible in each row's detail line (from resolveMaterial), so the label
+  // itself only needs to disambiguate by colour, not by product.
   var colourLabels = {};
   colours.forEach(function(c) { colourLabels[c.number] = c.label; });
   var wallGroups = computeWallGroups();
@@ -1540,7 +1558,7 @@ function computeMaterials() {
     var suffix = wallGroups.length > 1
       ? ' — Colour ' + g.colourNumber + (colourLabels[g.colourNumber] ? ' (' + colourLabels[g.colourNumber] + ')' : '')
       : '';
-    return materialRow('Wall Emulsion' + suffix, g.litres, matSettings.wall, true);
+    return materialRow('Wall Emulsion' + suffix, g.litres, g.mapping, true);
   });
   var wallCost = wallRows.reduce(function(sum, r) { return sum + r.cost; }, 0);
 
@@ -1643,6 +1661,62 @@ function addRoomColourInline() {
   saveColours();
   roomColourNumber = nextNumber;
   populateRoomColourChips();
+}
+
+// ── Room wall-product override (room edit screen) ───────────────────────────
+// Temp editing-state vars, same pattern as roomColourNumber — read into the
+// room object by saveRoom(), set by goScreen('room')/editRoom(). Empty
+// string means "use the Settings default", same falsy-sentinel convention
+// used elsewhere in this file (e.g. wpWall||'none').
+var roomWallRangeOverride = '';
+var roomWallBandOverride = '';
+
+function populateRoomWallOverridePicker() {
+  var rangeSel = document.getElementById('r-wall-range');
+  if (!rangeSel) return;
+  var ranges = Object.keys(materialGroupsCache).sort();
+  var opts = '<option value="">Use default (Settings)</option>';
+  ranges.forEach(function(r) {
+    opts += '<option value="'+escapeHtml(r)+'"'+(r===roomWallRangeOverride?' selected':'')+'>'+escapeHtml(r)+'</option>';
+  });
+  if (roomWallRangeOverride && ranges.indexOf(roomWallRangeOverride) === -1) {
+    opts += '<option value="'+escapeHtml(roomWallRangeOverride)+'" selected>'+escapeHtml(roomWallRangeOverride)+' (not found — refresh?)</option>';
+  }
+  rangeSel.innerHTML = opts;
+  populateRoomWallBandPicker();
+}
+
+function populateRoomWallBandPicker() {
+  var bandRow = document.getElementById('r-wall-band-row');
+  var bandSel = document.getElementById('r-wall-band');
+  if (!bandRow || !bandSel) return;
+  if (!roomWallRangeOverride) {
+    bandRow.style.display = 'none';
+    roomWallBandOverride = '';
+    return;
+  }
+  bandRow.style.display = 'flex';
+  var bands = Object.keys(materialGroupsCache[roomWallRangeOverride] || {}).sort();
+  if (bands.length === 0) {
+    bandSel.innerHTML = '<option value="'+escapeHtml(roomWallBandOverride)+'">'+escapeHtml(roomWallBandOverride || '(bands unknown — refresh?)')+'</option>';
+    return;
+  }
+  if (!roomWallBandOverride || bands.indexOf(roomWallBandOverride) === -1) {
+    roomWallBandOverride = bands.indexOf('White') !== -1 ? 'White' : bands[0];
+  }
+  bandSel.innerHTML = bands.map(function(b) {
+    var label = b === '' ? '(no band)' : b;
+    return '<option value="'+escapeHtml(b)+'"'+(b===roomWallBandOverride?' selected':'')+'>'+escapeHtml(label)+'</option>';
+  }).join('');
+}
+
+function onRoomWallRangeSelect() {
+  roomWallRangeOverride = document.getElementById('r-wall-range').value;
+  populateRoomWallBandPicker();
+}
+
+function onRoomWallBandSelect() {
+  roomWallBandOverride = document.getElementById('r-wall-band').value;
 }
 
 // ── Exterior items (room-style list) ──────────────────────────────────────────
@@ -2001,6 +2075,7 @@ function editRoom(id) {
   }
   editId=id; coats={wc:+r.wc,cc:+r.cc,xc:+r.xc};
   roomColourNumber = r.colourNumber || 1; populateRoomColourChips();
+  roomWallRangeOverride = r.wallRangeOverride || ''; roomWallBandOverride = r.bandOverride || ''; populateRoomWallOverridePicker();
   document.getElementById('room-title').textContent='Edit Room';
   document.getElementById('r-name').value=r.name||'';
   document.getElementById('r-l').value=r.l;
@@ -2040,6 +2115,7 @@ function saveRoom() {
   var room={
     id:editId||uid(), name:name,
     colourNumber:roomColourNumber,
+    wallRangeOverride:roomWallRangeOverride||undefined, bandOverride:roomWallBandOverride||undefined,
     l:+document.getElementById('r-l').value, w:+document.getElementById('r-w').value, h:+document.getElementById('r-h').value,
     wc:coats.wc, cc:coats.cc, xc:coats.xc,
     win:+document.getElementById('r-win').value, doors:+document.getElementById('r-doors').value, rads:+document.getElementById('r-rads').value,
