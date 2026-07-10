@@ -117,13 +117,42 @@ Whole-tin optimisation (or per-litre pricing) runs per (effective range + band +
 ### On the quote
 Each distinct product/band/colour group produces its own consolidated wall-material line(s) with the correct Xero item codes. A job with two colour groups on the default product plus one room overridden to a different brand shows three separate wall-paint groupings. The now-inaccurate "Materials assume one wall colour; adjust in Xero for multi-colour jobs" banner comes out once this ships.
 
+## MIST COAT — fifth material product (gap found in testing)
+
+Mist coats currently add application TIME but no PAINT — the mist coat is a distinct product that isn't costed anywhere. Fix: treat mist coat as a fifth material product alongside wall/ceiling/topcoat/primer.
+
+- **Product:** a fifth default mapping in Settings — "Mist coat / contract matt" (a distinct product, NOT the default wall paint — mist coats use a contract matt or specific mist product, thinned). Per-room override should follow the same pattern as the other roles (optional, falls back to the settings default).
+- **Coverage:** its own coverage rate in Settings — thinned paint on porous new plaster covers differently, so don't reuse the wall rate. Calibratable like the others.
+- **Area basis:** the room already has a mist-coat surface selector (walls / ceiling / both). Use the selected surface area(s) for the mist litres. ADD an optional manual area (m²) input in the mist coat section for when only part of the room is new plaster — if entered, use it instead of the full surface area; if blank, default to the toggle-selected surface area(s).
+- **Calculation:** mist area ÷ mist coverage rate = litres → cost from the mapped product. Charged per litre by default (like ceiling/woodwork); switch to per-tin rounding if Nicky buys/charges mist coat in whole tins.
+- Feeds the materials total, the deposit calc, and the Xero quote as its own line item, grouped the same way as the other roles (per effective range + band + colour group).
+
+## COLOURS TAB — evolution into the paint/ordering view
+
+Beyond defining `{number, label}` colours (Phase 2), the Colours tab can become the job's paint/ordering screen using data the materials feature already calculates. Conceptual clarity: **Rooms = input the work, Summary = the price, Colours = what you actually buy and put where.**
+
+### Priority additions (the big win — surface existing data)
+1. **Rooms per colour** — under each colour show the rooms assigned to it (e.g. "Colour 1 — Dimity — Lounge, Hall, Landing"). Turns the tab into a colour schedule at a glance. Data already exists (rooms carry colour number).
+2. **Paint quantity per colour** — roll up the litres/tins for each colour group (e.g. "Colour 1 — Dimity — 12ltr · 2 × 5ltr + 1 × 2ltr"). This is the ordering list — look at Colours, not Summary, when buying paint. Uses the per-colour-group tin calculation already built for materials.
+
+### Secondary polish (later)
+3. **Brand/code autofill** — see "Colour reference library" in FEATURES.md (seed Farrow & Ball + Little Greene, which cover ~90% of colours Nicky uses; personal list for the rest).
+4. **Finish/sheen per colour** — same colour can go on in different finishes (matt walls, eggshell woodwork); note against the colour for ordering accuracy.
+5. **Surfaces per colour** — which surfaces each colour covers (walls only vs walls+ceiling), so a feature-wall colour is distinguished from a whole-room one.
+6. **Colour schedule output** — a tidy "Colour Schedule" (room, colour, finish) on the quote or as a shareable summary. Professional touch; doubles as Nicky's own worksheet on the job.
+
+### Notes
+- Leans on existing calculations — mostly surfacing data, not new logic.
+- The colour NUMBER still drives the materials calculation; names/codes/finishes are reference only.
+- Build after core materials + per-room overrides are solid.
+
 ## Build order (revised)
 
 1. **Item grouping** — parse Xero items into range → band → sizes. Test it returns correct structure for Optiva 5 (3 bands, 3 sizes each).
 2. **Settings** — select default ranges for the four product roles.
 3. **Colour band selection** — per colour group (start simple: one band for the whole job, refine to per-group with colour numbering).
 4. **Tin optimisation** — cheapest combination of sizes within a range+band to cover required litres.
-5. **Per-litre products** — ceiling, topcoat, primer (primer = topcoat × 0.8).
+5. **Per-litre products** — ceiling, topcoat, primer (primer = topcoat × 0.8), and mist coat (fifth product — see Mist Coat section; area from the room's surface toggle or optional manual m² override ÷ its own coverage rate).
 6. **Materials on summary + total + Xero line items.**
 7. **Phase 2 step A — Colours tab + room colour dropdown.** New tab: list of `{number, label}` colours (add/rename/remove), persisted with the rooms/exterior lifecycle. Room screen: colour dropdown (default unassigned) + inline "+ New colour". No calculation change yet — still one pooled wall total. Test: colours persist correctly, existing jobs unaffected until a room is actually assigned a non-default colour.
 8. **Phase 2 step B — wall grouping by colour number.** Restructure the wall calc to bucket by `(range, band, colourNumber)` and tin-optimise per group, still only the default range/band. Test: a 2-colour-number job on the default product produces two independently-rounded tin totals instead of one pooled total.
