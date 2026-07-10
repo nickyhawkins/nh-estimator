@@ -1112,10 +1112,19 @@ async function initApp() {
       renderExterior();
       renderSummary();
     }
-    var colourData = await apiGet('/api/colours');
-    if (colourData && colourData.length > 0) {
-      colours = colourData;
-      localStorage.setItem('pe-colours', JSON.stringify(colours));
+    // Isolated try/catch — a failure here (e.g. the colours table not existing
+    // yet on a database that hasn't had db/setup.sql re-run) must not abort
+    // the rest of this block, which still needs to reach the Xero status
+    // check below. ensureDefaultColour()/renderColours() run either way so
+    // colour 1 is ready immediately rather than only lazily on next render.
+    try {
+      var colourData = await apiGet('/api/colours');
+      if (colourData && colourData.length > 0) {
+        colours = colourData;
+        localStorage.setItem('pe-colours', JSON.stringify(colours));
+      }
+    } catch (e) {
+      console.log('Colours fetch failed — running from local cache:', e.message);
     }
     ensureDefaultColour();
     renderColours();
