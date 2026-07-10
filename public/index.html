@@ -1695,6 +1695,20 @@ function ensureDefaultColour() {
 // tins to buy for that colour, reusing the exact same materialRow() HTML
 // already built for the Summary tab so the numbers can never drift apart.
 // Rooms = input the work, Summary = the price, Colours = what to buy.
+// Derived, not stored -- "which surfaces does this colour cover" is just a
+// summary of the same wall/ceiling/woodwork room lists already computed for
+// the breakdown, so a feature-wall colour (Walls only) reads differently
+// at a glance from a whole-room one (All surfaces) without the user having
+// to maintain a separate tag that could drift from the real assignments.
+function surfaceSummary(hasWalls, hasCeiling, hasWood) {
+  var parts = [];
+  if (hasWalls) parts.push('Walls');
+  if (hasCeiling) parts.push('Ceiling');
+  if (hasWood) parts.push('Woodwork');
+  if (parts.length === 3) return 'All surfaces';
+  return parts.join(' + ');
+}
+
 function renderColours() {
   ensureDefaultColour();
   var list  = document.getElementById('colours-list');
@@ -1710,6 +1724,7 @@ function renderColours() {
     var woodRooms = rooms.filter(function(r){ return (r.woodworkColourNumber||1)===c.number && +r.xc>0; }).map(function(r){ return r.name; });
     var matRows = allMatRows.filter(function(r){ return r.colourNumber===c.number; });
     var hasBreakdown = wallRooms.length || ceilRooms.length || woodRooms.length || matRows.length;
+    var surfaces = surfaceSummary(wallRooms.length>0, ceilRooms.length>0, woodRooms.length>0);
     var sub = '';
     if (wallRooms.length) sub += '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Walls</span><span class="breakdown-sub-value">'+escapeHtml(wallRooms.join(', '))+'</span></div>';
     if (ceilRooms.length) sub += '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ceiling</span><span class="breakdown-sub-value">'+escapeHtml(ceilRooms.join(', '))+'</span></div>';
@@ -1718,6 +1733,7 @@ function renderColours() {
     return '<div class="field-row">'+
       '<div class="room-icon" style="font-size:16px;font-weight:700">'+c.number+'</div>'+
       '<input type="text" class="field-input wide" placeholder="Name this colour (optional)" autocorrect="off" value="'+escapeHtml(c.label||'')+'" onchange="renameColour('+c.number+',this.value)">'+
+      (surfaces ? '<div class="chip">'+surfaces+'</div>' : '')+
       (c.number===1 ? '' : '<div onclick="deleteColour('+c.number+')" style="color:var(--danger);font-size:22px;padding:0 4px;cursor:pointer">×</div>')+
       (hasBreakdown ? '<div class="room-chevron-icon" id="chev-'+bdId+'" onclick="toggleRoomBd(\''+bdId+'\')" style="cursor:pointer">›</div>' : '')+
     '</div>'+

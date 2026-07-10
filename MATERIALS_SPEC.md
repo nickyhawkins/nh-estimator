@@ -149,9 +149,12 @@ Beyond defining `{number, label}` colours (Phase 2), the Colours tab can become 
 - UI reuses the existing `room-breakdown`/`room-chevron-icon`/`toggleRoomBd()` collapse pattern already used on the Summary tab's room list, rather than inventing a new one.
 
 ### Secondary polish (later)
-3. **Brand/code autofill** — see "Colour reference library" in FEATURES.md (seed Farrow & Ball + Little Greene, which cover ~90% of colours Nicky uses; personal list for the rest).
+3. **Brand/code autofill** — see "Colour reference library" in FEATURES.md (seed Farrow & Ball + Little Greene, which cover ~90% of colours Nicky uses; personal list for the rest). Note: that FEATURES.md section doesn't actually exist yet, so this one's scope is still just the one-liner here, not a written spec.
 4. **Finish/sheen per colour** — same colour can go on in different finishes (matt walls, eggshell woodwork); note against the colour for ordering accuracy.
 5. **Surfaces per colour** — which surfaces each colour covers (walls only vs walls+ceiling), so a feature-wall colour is distinguished from a whole-room one.
+
+**Shipped.** Derived, not stored: `surfaceSummary()` turns the same wallRooms/ceilRooms/woodRooms lists already computed for the rooms-per-colour breakdown into a short chip next to the colour name — "Walls", "Walls + Ceiling", "All surfaces", etc. No new field on the colour object and nothing for the user to keep in sync manually; a feature-wall colour (assigned to a room's walls only) reads differently from a whole-room one (assigned to walls+ceiling+woodwork) purely because the underlying room assignments already differ. Matches the Notes below ("surfacing data, not new logic") more literally than a manually-maintained tag would have.
+
 6. **Colour schedule output** — a tidy "Colour Schedule" (room, colour, finish) on the quote or as a shareable summary. Professional touch; doubles as Nicky's own worksheet on the job.
 
 ### Notes
