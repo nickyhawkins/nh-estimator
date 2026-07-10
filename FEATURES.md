@@ -37,56 +37,9 @@ Pull paint products from the user's Xero account, calculate quantities from the 
 - **Woodwork primer** — charged per litre. Primer volume = topcoat volume × 0.8 (20% less).
 - Quote layout: itemised labour sections → materials line break → materials list.
 
----
+> **NOTE: The detailed materials build is specced in `MATERIALS_SPEC.md`, which SUPERSEDES the old Phase 1/2/3 split that used to live here.** That doc is the authoritative source: range → band → size grouping, supplier-agnostic parsing, per-room colour numbering + product overrides (all four roles, primer "None"), the fifth "mist coat" product, tin optimisation, and the Colours-tab-as-ordering-view. The summary below is kept only as high-level context.
 
-### PHASE 1 — Core materials (build first)
-
-Simplifying assumption: one wall colour per job.
-
-1. **New endpoint** `GET /auth/items` in `routes/xero.js`:
-   - Fetch Xero Items (`GET /api.xro/2.0/Items`)
-   - Filter to account code 202 (sales); read SalesUnitPrice
-   - Return: code, name, unit price, parsed tin size (from name)
-   - Reuse existing `getAccessToken()` helper
-
-2. **Settings — map four default products** from fetched Xero items:
-   - Wall paint (per tin — parse tin size from name)
-   - Ceiling paint (per litre)
-   - Woodwork topcoat (per litre)
-   - Woodwork primer (per litre)
-   - Store the mapping (item code + name + price + tin size) in settings
-
-3. **Calculations** using litres already computed per surface in the summary:
-   - **Walls:** total wall litres for job ÷ tin size, round UP to whole tins (at JOB level, not per room), × tin price
-   - **Ceiling:** total ceiling litres × per-litre price
-   - **Woodwork topcoat:** total woodwork litres × per-litre price
-   - **Woodwork primer:** (total woodwork litres × 0.8) × per-litre price
-
-4. **Materials list on summary** — consolidated across the whole job, shown under the labour breakdown (e.g. "6 × Dulux Heritage Velvet Matt 2.5L — £242.94", "12L ceiling paint — £X").
-
-5. **Feed the total** — materials sum added to labour total for the true job value.
-
-6. **On send to Xero** — add each material as a line item using the real Xero item code, account 202 (sales), No VAT, placed after the labour lines (materials break).
-
-7. **Flag for multi-colour jobs** — until Phase 2, show a note: "Materials assume one wall colour; adjust in Xero for multi-colour jobs."
-
----
-
-### PHASE 2 — Colour grouping
-
-8. **Colour number per room** — each room gets a colour number (Room 1 = colour 1, Rooms 2 & 3 = colour 2, etc.)
-
-9. **Optional colour label per number** — free-text note for the user's reference (e.g. colour 1 = "Farrow & Ball Hague Blue"). The NUMBER drives the calculation; the label is for reference only and can show on the quote/notes.
-
-10. **Walls grouped by colour** — sum wall area within each colour group, calculate tins per group separately (a 25m² room in colour 2 needs its own tin(s) regardless of colour 1's usage). Whole-tin rounding happens per colour group.
-
----
-
-### PHASE 3 — Cheapest tin combination
-
-11. **Pull all tin sizes** for each wall product from Xero (all already exist as items).
-
-12. **Optimise** — given litres needed for a colour group, find the cheapest combination of available tin sizes that covers it (e.g. 3.5L → 2.5L + 1L if cheaper than 2 × 2.5L). Small bin-packing / least-cost-fill problem.
+High level: select default products by RANGE (not specific tin) for five roles — wall (per tin), ceiling, woodwork topcoat, woodwork primer, and mist coat (per litre). Parse range/band/size from the consistent Xero item names. Group by (range + band + colour number), tin-optimise per group, feed the total + deposit, and write real Xero item codes onto the quote. See MATERIALS_SPEC.md for the full build order and data model.
 
 ---
 
@@ -106,6 +59,23 @@ Depends on materials (Phase 1) so the deposit is based on the true job total inc
 3. **Optional** — write payment terms as a line into the Xero quote (terms/notes field). Actual weekly invoicing stays in Xero.
 
 ---
+
+## FEATURE: Colour reference library (nice-to-have, low priority)
+
+The Colours tab lets each colour number carry a name (e.g. colour 1 = "Dimity"). Enhancement: autofill colour names/codes as you type, to help with ordering (exact names and codes to hand for the merchant).
+
+Approach — personal growing list, seeded with the two main brands:
+- Store each colour as `{ name, brand, code }`.
+- **SEED with Farrow & Ball and Little Greene full ranges** (name + code) — these cover ~90% of colours Nicky uses, are manageable in size (~130 each), and are the brands where exact name/code matters most for ordering.
+- As you type a colour name on the Colours tab, autofill brand + code from the library.
+- For colours not in the seed (the other ~10%), add on first use — the app remembers them, so the personal list grows over time. No need to source a full cross-brand database.
+- Fallback: if a typed colour isn't known, accept it as free text and offer to save it (name/brand/code) for next time.
+
+Data notes:
+- Big trade brands (Dulux etc.) are usually colour-matched anyway, so not worth seeding wholesale — the personal-list approach handles them.
+- Colour label is reference/ordering only; the colour NUMBER still drives the materials calculation (see MATERIALS_SPEC.md).
+
+Priority: low. Build after materials + deposit are done. Genuinely useful for ordering, but not day-to-day critical.
 
 ## FEATURE ideas (not yet scoped)
 
