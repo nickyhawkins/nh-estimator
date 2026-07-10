@@ -783,13 +783,16 @@ function saveSettings() {
 
 function clearRooms() {
   if(!confirm('Clear all rooms? Settings will be kept.'))return;
-  rooms=[]; swCost=0; swTime=0;
+  // Colours are job-scoped, not a Settings value (see Colours tab spec),
+  // so they clear along with the rooms they were assigned to -- otherwise
+  // Colour 1's label survives into the next job untouched.
+  rooms=[]; swCost=0; swTime=0; colours=[];
   localStorage.setItem('pe-rooms','[]');
   localStorage.removeItem('pe-swcost');
   localStorage.removeItem('pe-swtime');
   var xc=document.getElementById('xero-client'); if(xc) xc.value='';
   var xr=document.getElementById('xero-ref'); if(xr) xr.value='';
-  saveRooms(); saveStair(); renderHome();
+  saveRooms(); saveStair(); saveColours(); renderHome();
 }
 function clearEverything() {
   if(!confirm('Clear ALL data including exterior? This cannot be undone.'))return;
@@ -1531,6 +1534,12 @@ function resolveMaterial(mapping, litres, isWall) {
   if (!mapping || !mapping.range || mapping.band == null) return null;
   var sizes = (materialGroupsCache[mapping.range] || {})[mapping.band];
   if (!sizes || !sizes.length || litres <= 0) return null;
+  // Litres arrives as a sum of per-room floats (and, for primer, a further
+  // ×0.8), so it can carry binary float noise (e.g. 3.6000000000000005) by
+  // the time it reaches here. Round once at the entry point -- paint
+  // quantity is only ever meaningful to 0.1L anyway -- so it's clean for
+  // both the per-litre quantity sent to Xero and the tin-optimiser input.
+  litres = Math.round(litres * 10) / 10;
 
   if (!isWall) {
     var perLitre = sizes.filter(function(s) { return s.isPerLitre; })[0];
