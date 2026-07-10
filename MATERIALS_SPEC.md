@@ -127,6 +127,14 @@ Mist coats currently add application TIME but no PAINT — the mist coat is a di
 - **Calculation:** mist area ÷ mist coverage rate = litres → cost from the mapped product. Charged per litre by default (like ceiling/woodwork); switch to per-tin rounding if Nicky buys/charges mist coat in whole tins.
 - Feeds the materials total, the deposit calc, and the Xero quote as its own line item, grouped the same way as the other roles (per effective range + band + colour group).
 
+**Shipped.** Implementation notes:
+- Colour grouping: mist coat shares the **wall** colour number (`ROLE_COLOUR_FIELD.mist = 'colourNumber'`), not a dedicated one — it's prep for whichever colour goes on the walls, and in practice is one generic product regardless of the final decorative colour, so a fourth colour picker would be UI for a distinction that rarely matters. Confirmed with the user before building.
+- Coverage rate lives in Settings as `settings.cMist` (m²/litre), default 15, alongside `cw`/`cc`/`cg` — distinct from the pre-existing `rMist` (mins/m², a TIME rate, unrelated to paint quantity).
+- Data model additions: `mistRangeOverride?`, `mistBandOverride?` (per-room product override, same pattern as the other four roles), `mistAreaOverride?` (optional manual m² — see Area basis above). Litres = `(mistAreaOverride if set and >0, else mistWall?wallArea:0 + mistCeil?ceilArea:0) / cMist`, rounded to 0.1L.
+- The manual area override affects **litres only**, not the existing time-cost calculation (`mistWCost`/`mistCCost`), which stays on the full toggle-selected area(s) — prepping/accessing the room still takes roughly as long regardless of how much of it is actually new plaster.
+- Rooms with mist coat off (the default) are excluded from grouping entirely via `skipRoom`, same as `primerNone` — an unused product renders no row, not a "0.0L" one.
+- Deposit calc doesn't exist yet (see Build order) — mist coat flows into `materialsTotal` like the other four roles, so it'll be included automatically whenever that feature lands.
+
 ## COLOURS TAB — evolution into the paint/ordering view
 
 Beyond defining `{number, label}` colours (Phase 2), the Colours tab can become the job's paint/ordering screen using data the materials feature already calculates. Conceptual clarity: **Rooms = input the work, Summary = the price, Colours = what you actually buy and put where.**

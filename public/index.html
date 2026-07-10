@@ -232,6 +232,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
           <div class="toggle-label">Mist coat — Ceiling<small>Adds a mist coat pass to ceiling</small></div>
           <div class="toggle" id="tog-mc" onclick="toggleMist('mc')"></div>
         </div>
+        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Manual area override<small>m² — for when only part is new plaster; blank uses the selected surface(s) above</small></div><input type="number" class="field-input" id="r-mist-area" value="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
       </div>
     </div>
     <div class="card">
@@ -253,6 +254,9 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         <div class="subsection-label">Woodwork Primer</div>
         <div class="field-row"><div class="field-label">Product<small>defaults to Settings, or None</small></div><select class="field-input" id="r-primer-range" onchange="onRoomOverrideRangeSelect('primer')"></select></div>
         <div class="field-row" id="r-primer-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-primer-band" onchange="onRoomOverrideBandSelect('primer')"></select></div>
+        <div class="subsection-label">Mist Coat</div>
+        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><select class="field-input" id="r-mist-range" onchange="onRoomOverrideRangeSelect('mist')"></select></div>
+        <div class="field-row" id="r-mist-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-mist-band" onchange="onRoomOverrideBandSelect('mist')"></select></div>
       </div>
     </div>
     <div class="card">
@@ -515,6 +519,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Wall Emulsion<small>m² per litre</small></div><input type="number" class="field-input" id="s-cw" value="13" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Ceiling Emulsion<small>m² per litre</small></div><input type="number" class="field-input" id="s-cc" value="13" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Gloss / Satinwood<small>m² per litre</small></div><input type="number" class="field-input" id="s-cg" value="7" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Mist Coat<small>m² per litre — thinned product</small></div><input type="number" class="field-input" id="s-cmist" value="15" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
     </div>
     <div class="card">
       <div class="card-header">Time Rates</div>
@@ -566,7 +571,9 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">— Colour band<small>&nbsp;</small></div><select class="field-input" id="mat-topcoat-band" onchange="onBandSelect('topcoat')" disabled></select></div>
       <div class="field-row"><div class="field-label">Woodwork primer<small>per litre</small></div><select class="field-input" id="mat-primer" onchange="onMaterialSelect('primer')"></select></div>
       <div class="field-row"><div class="field-label">— Colour band<small>&nbsp;</small></div><select class="field-input" id="mat-primer-band" onchange="onBandSelect('primer')" disabled></select></div>
-      <div class="settings-note" id="materials-note">Connect Xero above, then tap Refresh to choose a default product range and colour band for each role (e.g. "Tikkurila Optiva 5" / "White"). This is one band for the whole job for now — per-room colour groups come later. Until a range is picked, the Summary shows an estimated litres/tins figure instead of a real price.</div>
+      <div class="field-row"><div class="field-label">Mist coat<small>per litre</small></div><select class="field-input" id="mat-mist" onchange="onMaterialSelect('mist')"></select></div>
+      <div class="field-row"><div class="field-label">— Colour band<small>&nbsp;</small></div><select class="field-input" id="mat-mist-band" onchange="onBandSelect('mist')" disabled></select></div>
+      <div class="settings-note" id="materials-note">Connect Xero above, then tap Refresh to choose a default product range and colour band for each role (e.g. "Tikkurila Optiva 5" / "White"). These are job-wide defaults — override per room on the room screen if a room needs a different product or colour. Until a range is picked, the Summary shows an estimated litres/tins figure instead of a real price.</div>
     </div>
   </div>
 </div>
@@ -755,6 +762,7 @@ function saveSettings() {
     cw:      +document.getElementById('s-cw').value,
     cc:      +document.getElementById('s-cc').value,
     cg:      +document.getElementById('s-cg').value,
+    cMist:   +document.getElementById('s-cmist').value,
     jobname: document.getElementById('s-jobname').value.trim(),
     rWall:   +document.getElementById('s-rwall').value,
     rCeil:   +document.getElementById('s-rceil').value,
@@ -855,7 +863,7 @@ async function refreshXeroItems() {
 
 function populateMaterialSelects() {
   var ranges = Object.keys(materialGroupsCache).sort();
-  ['wall', 'ceiling', 'topcoat', 'primer'].forEach(function(key) {
+  ['wall', 'ceiling', 'topcoat', 'primer', 'mist'].forEach(function(key) {
     var sel = document.getElementById('mat-' + key);
     if (!sel) return;
     var current = (settings.materials || {})[key];
@@ -1028,7 +1036,7 @@ async function createXeroQuote() {
     extItems.forEach(function(item){ extTotal += calcExtItem(item).total; });
 
     var mats = computeMaterials();
-    var materials = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows)
+    var materials = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows)
       .reduce(function(acc, row){ return acc.concat(row.lineItems); }, []);
 
     var newContact = null;
@@ -1080,6 +1088,7 @@ async function initApp() {
     settings = {
       dr: rawSettings.dr||300, hpd: rawSettings.hpd||7, mu: rawSettings.mu||20,
       cw: rawSettings.cw||13, cc: rawSettings.cc||13, cg: rawSettings.cg||7,
+      cMist: rawSettings.cMist||15,
       jobname: rawSettings.jobname||'',
       rWall: rawSettings.rWall||3, rCeil: rawSettings.rCeil||5,
       rSkirt: rawSettings.rSkirt||4,
@@ -1115,6 +1124,7 @@ async function initApp() {
       settings = {
         dr: s.dr||300, hpd: s.hpd||7, mu: s.mu||20,
         cw: s.cw||13, cc: s.cc||13, cg: s.cg||7,
+        cMist: s.cMist||15,
         jobname: s.jobname||'',
         rWall: s.rWall||3, rCeil: s.rCeil||5, rSkirt: s.rSkirt||4,
         rDoorPrep: s.rDoorPrep||10, rDoorCoat: s.rDoorCoat||10,
@@ -1217,6 +1227,7 @@ var settings = {
   cw:      _raw.cw      != null ? _raw.cw      : (_raw.covWall  != null ? _raw.covWall  : 13),
   cc:      _raw.cc      != null ? _raw.cc      : (_raw.covCeil  != null ? _raw.covCeil  : 13),
   cg:      _raw.cg      != null ? _raw.cg      : (_raw.covGloss != null ? _raw.covGloss : 7),
+  cMist:   _raw.cMist   != null ? _raw.cMist   : 15,
   jobname: _raw.jobname || '',
   rWall:   _raw.rWall   != null ? _raw.rWall   : 3,
   rCeil:   _raw.rCeil   != null ? _raw.rCeil   : 5,
@@ -1294,9 +1305,11 @@ function goScreen(name) {
     ['wall','ceiling','woodwork'].forEach(populateRoomColourChips);
     roomOverrides = {
       wall: { range:'', band:'' }, ceiling: { range:'', band:'' },
-      topcoat: { range:'', band:'' }, primer: { range:'', band:'', none:false }
+      topcoat: { range:'', band:'' }, primer: { range:'', band:'', none:false },
+      mist: { range:'', band:'' }
     };
-    ['wall','ceiling','topcoat','primer'].forEach(populateRoomOverridePicker);
+    document.getElementById('r-mist-area').value = '0';
+    ['wall','ceiling','topcoat','primer','mist'].forEach(populateRoomOverridePicker);
     document.getElementById('room-title').textContent='Add Room';
     document.getElementById('r-name').value='';
     document.getElementById('r-l').value='0';
@@ -1343,6 +1356,7 @@ function loadSettings() {
   document.getElementById('s-cw').value      = settings.cw;
   document.getElementById('s-cc').value      = settings.cc;
   document.getElementById('s-cg').value      = settings.cg;
+  document.getElementById('s-cmist').value   = settings.cMist;
   document.getElementById('s-jobname').value = settings.jobname||'';
   document.getElementById('s-rwall').value        = settings.rWall||3;
   document.getElementById('s-rceil').value        = settings.rCeil||5;
@@ -1413,9 +1427,14 @@ function calcRoom(r) {
   var cL  = cc>0 ? Math.ceil(ceilArea*cc/settings.cc*2)/2 : 0;
   var wdA = perim*0.15 + doors*1.9;
   var gL  = xc>0 ? Math.ceil(wdA*xc/settings.cg*2)/2 : 0;
-  var pL  = xc>0 ? Math.ceil(wdA/settings.cg*2)/2 : 0;
+  // Manual override only applies to the paint quantity (only part of the
+  // room may be new plaster) -- the time cost above stays on the full
+  // toggle-selected area(s), since prepping/accessing the room still takes
+  // roughly as long regardless of how much of it actually gets mist paint.
+  var mistArea = (r.mistAreaOverride && +r.mistAreaOverride > 0) ? +r.mistAreaOverride : ((mistW?wallArea:0) + (mistC?ceilArea:0));
+  var mL  = mistArea>0 ? Math.ceil(mistArea/settings.cMist*2)/2 : 0;
   return {total:total, time:time, wallArea:wallArea, ceilArea:ceilArea,
-           wallL:wL, ceilL:cL, glossL:gL, primerL:pL};
+           wallL:wL, ceilL:cL, glossL:gL, mistL:mL};
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -1454,8 +1473,11 @@ function tin(l) {
 // Colour-group field per role: wall and ceiling each have their own, while
 // topcoat and primer share the "woodwork" colour, since primer has no
 // visible colour identity of its own -- it just follows whatever the
-// topcoat in that room is grouped as.
-var ROLE_COLOUR_FIELD = { wall: 'colourNumber', ceiling: 'ceilingColourNumber', topcoat: 'woodworkColourNumber', primer: 'woodworkColourNumber' };
+// topcoat in that room is grouped as. Mist coat shares wall's colour: it's
+// prep for whichever colour goes on the walls, and is normally one generic
+// product regardless of the final decorative colour, so a separate colour
+// number for it would be needless UI for a distinction that rarely matters.
+var ROLE_COLOUR_FIELD = { wall: 'colourNumber', ceiling: 'ceilingColourNumber', topcoat: 'woodworkColourNumber', primer: 'woodworkColourNumber', mist: 'colourNumber' };
 
 function computeRoleGroups(role, litresPerRoom, skipRoom) {
   var defaultMapping = (settings.materials || {})[role] || null;
@@ -1621,10 +1643,15 @@ function computeMaterials() {
   // now, mapped or not, since it's a material-quantity rule, not a pricing
   // assumption. Rooms with primerNone are excluded entirely: no row, no cost.
   var primerRows  = buildRoleRows('Woodwork Primer', 'primer', function(r) { return calcRoom(r).glossL * 0.8; }, function(r) { return !!r.primerNone; });
+  // Mist coat is opt-in per room (off by default), so most jobs have no
+  // rooms using it at all -- skip any room contributing zero mist litres
+  // rather than let it join a "0.0L" group, so an unused product never
+  // renders a row (matches primerNone's "no row at all" behaviour).
+  var mistRows    = buildRoleRows('Mist Coat', 'mist', function(r) { return calcRoom(r).mistL; }, function(r) { return calcRoom(r).mistL <= 0; });
 
-  var allRows = wallRows.concat(ceilingRows, topcoatRows, primerRows);
+  var allRows = wallRows.concat(ceilingRows, topcoatRows, primerRows, mistRows);
   var total = allRows.reduce(function(sum, r) { return sum + r.cost; }, 0);
-  return { wallRows: wallRows, ceilingRows: ceilingRows, topcoatRows: topcoatRows, primerRows: primerRows, total: total };
+  return { wallRows: wallRows, ceilingRows: ceilingRows, topcoatRows: topcoatRows, primerRows: primerRows, mistRows: mistRows, total: total };
 }
 
 // ── Colours (job-scoped list, same lifecycle as rooms/extItems) ────────────
@@ -1730,9 +1757,9 @@ function addRoomColourInline(role) {
 }
 
 // ── Room product overrides (room edit screen) ───────────────────────────────
-// Generic across all four material roles — wall/ceiling/topcoat/primer each
-// get their own "Use default (Settings)" + product/band picker, keyed by
-// role in both the DOM (id="r-<role>-range" etc.) and the room object
+// Generic across all five material roles — wall/ceiling/topcoat/primer/mist
+// each get their own "Use default (Settings)" + product/band picker, keyed
+// by role in both the DOM (id="r-<role>-range" etc.) and the room object
 // (<role>RangeOverride / <role>BandOverride). Only primer has a third
 // state, `none`, since some topcoats are self-priming and need no primer at
 // all — that's a dedicated flag, not a fake range name, so it's unambiguous.
@@ -1742,7 +1769,8 @@ var roomOverrides = {
   wall:    { range: '', band: '' },
   ceiling: { range: '', band: '' },
   topcoat: { range: '', band: '' },
-  primer:  { range: '', band: '', none: false }
+  primer:  { range: '', band: '', none: false },
+  mist:    { range: '', band: '' }
 };
 
 function populateRoomOverridePicker(role) {
@@ -2165,9 +2193,11 @@ function editRoom(id) {
     wall:    { range: r.wallRangeOverride || '', band: r.wallBandOverride || r.bandOverride || '' },
     ceiling: { range: r.ceilingRangeOverride || '', band: r.ceilingBandOverride || '' },
     topcoat: { range: r.topcoatRangeOverride || '', band: r.topcoatBandOverride || '' },
-    primer:  { range: r.primerRangeOverride || '', band: r.primerBandOverride || '', none: !!r.primerNone }
+    primer:  { range: r.primerRangeOverride || '', band: r.primerBandOverride || '', none: !!r.primerNone },
+    mist:    { range: r.mistRangeOverride || '', band: r.mistBandOverride || '' }
   };
-  ['wall','ceiling','topcoat','primer'].forEach(populateRoomOverridePicker);
+  ['wall','ceiling','topcoat','primer','mist'].forEach(populateRoomOverridePicker);
+  document.getElementById('r-mist-area').value = r.mistAreaOverride || '0';
   document.getElementById('room-title').textContent='Edit Room';
   document.getElementById('r-name').value=r.name||'';
   document.getElementById('r-l').value=r.l;
@@ -2215,6 +2245,8 @@ function saveRoom() {
     primerNone:roomOverrides.primer.none||undefined,
     primerRangeOverride:roomOverrides.primer.none?undefined:(roomOverrides.primer.range||undefined),
     primerBandOverride:roomOverrides.primer.none?undefined:(roomOverrides.primer.band||undefined),
+    mistRangeOverride:roomOverrides.mist.range||undefined, mistBandOverride:roomOverrides.mist.band||undefined,
+    mistAreaOverride:+document.getElementById('r-mist-area').value||undefined,
     l:+document.getElementById('r-l').value, w:+document.getElementById('r-w').value, h:+document.getElementById('r-h').value,
     wc:coats.wc, cc:coats.cc, xc:coats.xc,
     win:+document.getElementById('r-win').value, doors:+document.getElementById('r-doors').value, rads:+document.getElementById('r-rads').value,
@@ -2866,7 +2898,7 @@ async function renderSummary() {
     '</div></div>'+
     '<div><div class="section-title" style="margin-bottom:8px">Materials</div>'+
     '<div class="card">'+
-      mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows).map(function(r){return r.html;}).join('')+
+      mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows).map(function(r){return r.html;}).join('')+
       (materialsTotal>0?'<div class="breakdown-row" style="border-top:1px solid var(--border);padding:12px 16px">'+
         '<span class="breakdown-label" style="font-weight:600;color:var(--text)">Materials subtotal</span>'+
         '<span class="breakdown-value" style="color:var(--accent)">'+fmt(materialsTotal)+'</span></div>':'')+
