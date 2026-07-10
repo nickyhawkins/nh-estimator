@@ -43,9 +43,31 @@ High level: select default products by RANGE (not specific tin) for five roles �
 
 ---
 
+## FEATURE: Materials editing + sundries (BUILD BEFORE DEPOSIT)
+
+Must come before the deposit feature: the deposit is based on the materials/total, so the total has to be final and adjustable *before* sending — no more editing in Xero after the fact.
+
+### Materials editing (trim the auto-calculations) — this quote only
+- **Edit a calculated line's quantity** — override the auto quantity (e.g. 6 tins → 5 or 7 for access/wastage); cost and total follow the new quantity.
+- **Delete a line** — remove a calculated material not wanted on this quote (client supplying, paint in stock, etc.); total recalculates without it.
+- **Add a one-off specific item** — add a material the model didn't calculate (specialist product), pick the Xero item (or free-text) + quantity; joins the materials total and the Xero quote.
+- **Scope: this quote only** — edits are a snapshot, they don't feed back into settings or defaults.
+- **Recalculate-from-rooms button** — edits are a snapshot on top of the live calculation; if rooms change afterwards, a visible "recalculate" resets materials to freshly-calculated values (discarding manual edits). Keeps the model simple — no tracking overrides through every recalc.
+
+### Sundries (% of labour)
+- **A percentage set in Settings** (editable) applied to the **labour total BEFORE markup** — sundries scale with time on the job, not paint cost. Markup then applies to everything including sundries.
+- Covers the general consumables: tape, filler, caulk, floor protection, sandpaper, dust sheets — the long tail Nicky doesn't itemise.
+- Anything specific/expensive is still added as its own one-off material line (above), not absorbed into the %.
+- **Shows as a labelled line** — e.g. "Sundries & consumables" or "Protection, masking & materials" (a plain "Sundries" with a big number invites client questions; a descriptive label reads as value). Consider showing it among the materials lines rather than standalone so it looks like a normal part of the job. Start visible; revisit if it draws questions on real quotes.
+- Feeds the materials/total and therefore the deposit; goes onto the Xero quote as its own line.
+- Typical decorating sundries land ~3–8% of labour, but Nicky sets the real figure in settings and calibrates.
+
+### Calculation order (important)
+labour (before markup) → sundries = labour × sundries% → materials (calculated, then edited/trimmed) → subtotal = labour + sundries + materials → markup applied → deposit calculated on the marked-up total. Get this order right so sundries is on raw labour and the deposit is on the true final figure.
+
 ## FEATURE: Deposit & staged payments
 
-Depends on materials (Phase 1) so the deposit is based on the true job total including materials.
+Depends on materials AND materials-editing/sundries above, so the deposit is based on the true, adjusted job total (labour + sundries + edited materials, marked up).
 
 1. **Deposit calculation on summary:**
    - Default 25% (editable in settings)
