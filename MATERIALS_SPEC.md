@@ -127,13 +127,26 @@ Mist coats currently add application TIME but no PAINT — the mist coat is a di
 - **Calculation:** mist area ÷ mist coverage rate = litres → cost from the mapped product. Charged per litre by default (like ceiling/woodwork); switch to per-tin rounding if Nicky buys/charges mist coat in whole tins.
 - Feeds the materials total, the deposit calc, and the Xero quote as its own line item, grouped the same way as the other roles (per effective range + band + colour group).
 
-**Shipped.** Implementation notes:
-- Colour grouping: mist coat shares the **wall** colour number (`ROLE_COLOUR_FIELD.mist = 'colourNumber'`), not a dedicated one — it's prep for whichever colour goes on the walls, and in practice is one generic product regardless of the final decorative colour, so a fourth colour picker would be UI for a distinction that rarely matters. Confirmed with the user before building.
-- Coverage rate lives in Settings as `settings.cMist` (m²/litre), default 15, alongside `cw`/`cc`/`cg` — distinct from the pre-existing `rMist` (mins/m², a TIME rate, unrelated to paint quantity).
-- Data model additions: `mistRangeOverride?`, `mistBandOverride?` (per-room product override, same pattern as the other four roles), `mistAreaOverride?` (optional manual m² — see Area basis above). Litres = `(mistAreaOverride if set and >0, else mistWall?wallArea:0 + mistCeil?ceilArea:0) / cMist`, rounded to 0.1L.
-- The manual area override affects **litres only**, not the existing time-cost calculation (`mistWCost`/`mistCCost`), which stays on the full toggle-selected area(s) — prepping/accessing the room still takes roughly as long regardless of how much of it is actually new plaster.
-- Rooms with mist coat off (the default) are excluded from grouping entirely via `skipRoom`, same as `primerNone` — an unused product renders no row, not a "0.0L" one.
-- Deposit calc doesn't exist yet (see Build order) — mist coat flows into `materialsTotal` like the other four roles, so it'll be included automatically whenever that feature lands.
+## REFINEMENTS FOUND IN TESTING (band default + feature wall)
+
+### Bug: product override always defaults to White band
+When overriding a product per room, the band defaults to White. If the client wants that product in a colour, the total is calculated on White's (cheaper) price and is wrong (e.g. Optiva 5 10ltr: White £95.84 vs Colours £119.74).
+
+**Fix — band as an EXPLICIT selection when overriding, never assumed:**
+- When a per-room product override is set, the user explicitly chooses BOTH the range AND the band (White / Magnolia / Colours). No default-to-White.
+- **The band selection also serves as the finish/sheen choice.** The separate sheen selector was removed to avoid complication; range + band together now capture both finish and colour tier. The range encodes the sheen (Optiva 5 vs Optiva 3 vs Helmi 30 etc. are different sheens); the band encodes the colour tier and its price. So choosing range + band explicitly = choosing finish + colour tier in one place.
+- Applies to all overridable roles (wall, ceiling, topcoat, primer, mist) — band is always an explicit part of an override, never silently White.
+- This is the "colour band per colour group" requirement surfacing as a real bug, not just a nice-to-have — the band genuinely changes the price and must be chosen.
+
+### Feature: paint feature wall (exists for wallpaper, not paint)
+A feature wall is a subset of a room's wall area in a different colour/product from the rest — effectively a small colour group carved out of the room.
+
+**Approach — manual area, carved out of the room's wall total (same pattern as mist coat manual area):**
+- In the room, allow flagging a paint feature wall with a **manual area (m²)** input.
+- That area is **subtracted from the room's main wall area** before the main colour's paint is calculated — so the rest of the room's walls are costed on the reduced area (no double-counting).
+- The feature wall area becomes **its own colour group** with its own range / band / colour number (explicit selection as above), and gets its own tin(s) via the normal per-group tin optimisation.
+- Feeds the materials total, deposit, Colours tab and Xero quote like any other colour group.
+- Consistent with the mist coat manual-area carve-out, so the pattern is familiar and the grouping logic is reused rather than rebuilt.
 
 ## COLOURS TAB — evolution into the paint/ordering view
 
@@ -143,26 +156,11 @@ Beyond defining `{number, label}` colours (Phase 2), the Colours tab can become 
 1. **Rooms per colour** — under each colour show the rooms assigned to it (e.g. "Colour 1 — Dimity — Lounge, Hall, Landing"). Turns the tab into a colour schedule at a glance. Data already exists (rooms carry colour number).
 2. **Paint quantity per colour** — roll up the litres/tins for each colour group (e.g. "Colour 1 — Dimity — 12ltr · 2 × 5ltr + 1 × 2ltr"). This is the ordering list — look at Colours, not Summary, when buying paint. Uses the per-colour-group tin calculation already built for materials.
 
-**Shipped.** Implementation notes:
-- Since wall/ceiling/woodwork can each land a room in a *different* colour number (the colour-grouping fix), "rooms per colour" is broken out by role — Walls / Ceiling / Woodwork, each its own line, only shown when non-empty. Gated on the room actually having that role's coats > 0 (a room with `wc: 0` doesn't get listed under Walls for any colour, even one it's nominally assigned to) — this surfaced and fixed a latent bug in `computeRoleGroups()`: a room contributing zero litres to a bucket it's otherwise alone in used to leave a phantom "0.0L" row; groups are now filtered to `litres > 0` before being returned, which benefits Summary and the Xero quote too, not just this tab.
-- The paint-quantity roll-up reuses `buildRoleRows()`'s already-computed rows directly (each row gained a `colourNumber` and `role` field, purely additive — existing consumers only ever read `.html`/`.cost`/`.lineItems`) rather than recomputing anything, so the numbers can't drift from what Summary/Xero show. Filtering `mats.wallRows.concat(...).filter(r => r.colourNumber === N)` per colour gives exactly the right rows, including the case where one colour number spans two different product groups (e.g. some rooms on the default range, one room in the same colour overridden to a different brand) — both rows show up under that colour, correctly.
-- UI reuses the existing `room-breakdown`/`room-chevron-icon`/`toggleRoomBd()` collapse pattern already used on the Summary tab's room list, rather than inventing a new one.
-
 ### Secondary polish (later)
-3. **Brand/code autofill** — see "Colour reference library" in FEATURES.md (seed Farrow & Ball + Little Greene, which cover ~90% of colours Nicky uses; personal list for the rest). Note: that FEATURES.md section doesn't actually exist yet, so this one's scope is still just the one-liner here, not a written spec.
+3. **Brand/code autofill** — see "Colour reference library" in FEATURES.md (seed Farrow & Ball + Little Greene, which cover ~90% of colours Nicky uses; personal list for the rest).
 4. **Finish/sheen per colour** — same colour can go on in different finishes (matt walls, eggshell woodwork); note against the colour for ordering accuracy.
-
-**Skipped, on reflection.** Once a room's product is actually mapped to a real Xero item (e.g. "Farrow & Ball Estate Eggshell"), the finish is already sitting right there in the product name on the Colours tab's paint-quantity roll-up -- a separate finish field would only add value for the narrow case of an unmapped colour where you want to jot the finish down before picking a real product, which didn't seem worth a DB migration and new UI for.
-
 5. **Surfaces per colour** — which surfaces each colour covers (walls only vs walls+ceiling), so a feature-wall colour is distinguished from a whole-room one.
-
-**Shipped.** Derived, not stored: `surfaceSummary()` turns the same wallRooms/ceilRooms/woodRooms lists already computed for the rooms-per-colour breakdown into a short chip next to the colour name — "Walls", "Walls + Ceiling", "All surfaces", etc. No new field on the colour object and nothing for the user to keep in sync manually; a feature-wall colour (assigned to a room's walls only) reads differently from a whole-room one (assigned to walls+ceiling+woodwork) purely because the underlying room assignments already differ. Matches the Notes below ("surfacing data, not new logic") more literally than a manually-maintained tag would have.
-
-6. **Colour schedule output** — a tidy "Colour Schedule" (room, colour) on the quote or as a shareable summary. Professional touch; doubles as Nicky's own worksheet on the job.
-
-**Shipped**, minus "finish" (dropped along with item 4) and minus the quote (deliberately not embedded there — a room/colour breakdown doesn't fit the line-item model and would clutter a financial document; can add as plain narrative text later if actually wanted). Two places:
-- A new "Colour Schedule" card on the Summary tab, room-by-room, via `roomColourSchedule()`: compact `Colour N (Label)` when every painted surface in the room shares one colour (the common case), or a per-surface breakdown grouped by colour when they don't (`Walls: Colour 2 (Hague Blue) · Ceiling/Woodwork: Colour 1 (Dimity)`) -- mirrors how wall/ceiling/woodwork are already independently assignable. Rooms with nothing painted (all coat counts at 0) are omitted.
-- Three new columns on the CSV export (Wall/Ceiling/Woodwork Colour, blank when that role has no coats), via the same `colourLabelFor()` helper the schedule card uses, so the two can't say something different for the same room.
+6. **Colour schedule output** — a tidy "Colour Schedule" (room, colour, finish) on the quote or as a shareable summary. Professional touch; doubles as Nicky's own worksheet on the job.
 
 ### Notes
 - Leans on existing calculations — mostly surfacing data, not new logic.
@@ -182,7 +180,9 @@ Beyond defining `{number, label}` colours (Phase 2), the Colours tab can become 
 9. **Phase 2 step C — per-room product override.** Room screen gets the range/band override control; rooms with it set use their own product within their group.
 10. **Phase 2 step D — per-room ceiling/topcoat/primer override, primer "None".** Room screen gets the same override control for all three roles as wall already has; primer additionally gets a None option that excludes that room from primer entirely (no row, no cost). Revised from job-wide-only after building — a room's topcoat and whether it needs primer are both genuinely per-room decisions.
 11. **Phase 2 step E — Xero quote + cleanup.** Per-group wall material line sets; remove the now-obsolete multi-colour banner. End-to-end test with a real multi-colour job sent to Xero.
-12. **Then deposit feature** (25% of labour + materials, weekly split option).
+12. **Refinement — band as explicit override selection.** Fix the override-defaults-to-White bug: band (White/Magnolia/Colours) becomes an explicit choice whenever a product override is set, for all roles. Doubles as the finish/sheen selection. See Refinements section.
+13. **Refinement — paint feature wall.** Manual m² input, carved out of the room's main wall area, becomes its own colour group with explicit range/band/colour. See Refinements section.
+14. **Then deposit feature** (25% of labour + materials, weekly split option).
 
 ## Gotchas (still apply)
 - Whole-tin logic is per colour group, not per room and not per whole job.
