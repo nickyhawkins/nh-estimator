@@ -513,6 +513,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Day Rate<small>£ per day</small></div><input type="number" class="field-input" id="s-dr" value="300" min="0" step="10" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Hours Per Day</div><input type="number" class="field-input" id="s-hpd" value="7" min="1" max="12" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Markup<small>%</small></div><input type="number" class="field-input" id="s-mu" value="20" min="0" max="100" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Sundries &amp; Consumables<small>% of labour, before markup</small></div><input type="number" class="field-input" id="s-sundries" value="5" min="0" max="100" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
     </div>
     <div class="card">
       <div class="card-header">Coverage Rates</div>
@@ -759,6 +760,7 @@ function saveSettings() {
     dr:      +document.getElementById('s-dr').value,
     hpd:     +document.getElementById('s-hpd').value,
     mu:      +document.getElementById('s-mu').value,
+    sundriesPct: +document.getElementById('s-sundries').value,
     cw:      +document.getElementById('s-cw').value,
     cc:      +document.getElementById('s-cc').value,
     cg:      +document.getElementById('s-cg').value,
@@ -1097,6 +1099,7 @@ async function initApp() {
   if (Object.keys(rawSettings).length > 0) {
     settings = {
       dr: rawSettings.dr||300, hpd: rawSettings.hpd||7, mu: rawSettings.mu||20,
+      sundriesPct: rawSettings.sundriesPct!=null ? rawSettings.sundriesPct : 5,
       cw: rawSettings.cw||13, cc: rawSettings.cc||13, cg: rawSettings.cg||7,
       cMist: rawSettings.cMist||15,
       jobname: rawSettings.jobname||'',
@@ -1136,6 +1139,7 @@ async function initApp() {
     if (s && Object.keys(s).length > 0) {
       settings = {
         dr: s.dr||300, hpd: s.hpd||7, mu: s.mu||20,
+        sundriesPct: s.sundriesPct!=null ? s.sundriesPct : 5,
         cw: s.cw||13, cc: s.cc||13, cg: s.cg||7,
         cMist: s.cMist||15,
         jobname: s.jobname||'',
@@ -1249,6 +1253,7 @@ var settings = {
   dr:      _raw.dr      != null ? _raw.dr      : (_raw.dayRate  != null ? _raw.dayRate  : 300),
   hpd:     _raw.hpd     != null ? _raw.hpd     : 7,
   mu:      _raw.mu      != null ? _raw.mu      : (_raw.markup   != null ? _raw.markup   : 20),
+  sundriesPct: _raw.sundriesPct != null ? _raw.sundriesPct : 5,
   cw:      _raw.cw      != null ? _raw.cw      : (_raw.covWall  != null ? _raw.covWall  : 13),
   cc:      _raw.cc      != null ? _raw.cc      : (_raw.covCeil  != null ? _raw.covCeil  : 13),
   cg:      _raw.cg      != null ? _raw.cg      : (_raw.covGloss != null ? _raw.covGloss : 7),
@@ -1378,6 +1383,7 @@ function loadSettings() {
   document.getElementById('s-dr').value      = settings.dr;
   document.getElementById('s-hpd').value     = settings.hpd;
   document.getElementById('s-mu').value      = settings.mu;
+  document.getElementById('s-sundries').value = settings.sundriesPct;
   document.getElementById('s-cw').value      = settings.cw;
   document.getElementById('s-cc').value      = settings.cc;
   document.getElementById('s-cg').value      = settings.cg;
@@ -3074,7 +3080,13 @@ async function renderSummary() {
     return line ? '<div class="breakdown-row"><span class="breakdown-label">'+escapeHtml(r.name)+'</span><span class="breakdown-value">'+escapeHtml(line)+'</span></div>' : '';
   }).join('');
 
-  var labourTotal=tcS*(1+mu);
+  // Sundries is a % of raw labour, added BEFORE markup (so markup applies to
+  // it too, like any other labour-side cost) -- materials stay excluded from
+  // markup throughout, since Xero's sell price is already the customer
+  // price. Order: labour -> +sundries -> x markup -> +materials (unmarked-up).
+  var sundriesPct = (settings.sundriesPct||0)/100;
+  var sundries = tcS * sundriesPct;
+  var labourTotal=(tcS+sundries)*(1+mu);
   var total=labourTotal+materialsTotal;
   data.innerHTML=
     '<div class="hero">'+
@@ -3130,11 +3142,12 @@ async function renderSummary() {
       '<span class="breakdown-label" style="font-weight:600;color:var(--text)">Labour subtotal</span>'+
       '<span class="breakdown-value" style="color:var(--accent)">'+fmt(tcS)+'</span></div>'+
     '<div class="breakdown-row">'+
-      '<span class="breakdown-label" style="font-weight:600;color:var(--text)">+ '+settings.mu+'% markup</span>'+
+      '<span class="breakdown-label" style="font-weight:600;color:var(--text)">+ '+settings.mu+'% markup<small style="display:block;font-weight:400;color:var(--text2)">on labour + sundries</small></span>'+
       '<span class="breakdown-value" style="color:var(--accent)">'+fmt(labourTotal)+'</span></div>'+
     '</div></div>'+
     '<div><div class="section-title" style="margin-bottom:8px">Materials</div>'+
     '<div class="card">'+
+      (sundries>0?'<div class="mat-row"><div><div class="mat-label">Sundries &amp; Consumables</div><div class="mat-detail">'+settings.sundriesPct+'% of labour</div></div><div class="mat-val">'+fmt(sundries)+'</div></div>':'')+
       editableRowsHtml + unmappedRowsHtml +
       (materialsTotal>0?'<div class="breakdown-row" style="border-top:1px solid var(--border);padding:12px 16px">'+
         '<span class="breakdown-label" style="font-weight:600;color:var(--text)">Materials subtotal</span>'+

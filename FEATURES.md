@@ -63,7 +63,12 @@ Must come before the deposit feature: the deposit is based on the materials/tota
 - Typical decorating sundries land ~3–8% of labour, but Nicky sets the real figure in settings and calibrates.
 
 ### Calculation order (important)
-labour (before markup) → sundries = labour × sundries% → materials (calculated, then edited/trimmed) → subtotal = labour + sundries + materials → markup applied → deposit calculated on the marked-up total. Get this order right so sundries is on raw labour and the deposit is on the true final figure.
+labour (before markup) → sundries = labour × sundries% → (labour + sundries) × markup → + materials (calculated, then edited/trimmed, NOT marked up — corrected during build: materials are priced at Xero's own sell price, which already IS the customer price, so re-applying markup would double it) → total → deposit calculated on that total. Get this order right so sundries is on raw labour, materials never get marked up twice, and the deposit is on the true final figure.
+
+**Shipped**, in three steps:
+1. **Materials editing** — a new job-scoped `materialsSnapshot` (same lifecycle as rooms/colours/extItems, its own DB table + `/api/materials` routes). Only mapped roles (real Xero product picked) feed it, since editing only makes sense where there's a real quantity/price. `recalculateMaterialsSnapshot()` builds it from the live calculation and is the only thing that ever discards edits — genuinely a full overwrite, not a merge, exactly as scoped. Quantity edits and deletes operate on snapshot entries directly; a one-off line (product-picked or free-text) pushes a `custom: true` entry into the same array, so it edits/deletes/gets-wiped-by-recalculate identically to a calculated line.
+2. **Sundries %** — `settings.sundriesPct` (a genuine setting, unlike the per-quote snapshot), computed on raw labour before markup, folded into the same marked-up figure as labour (`labourTotal = (tcS + sundries) × (1 + mu)`). Displayed as its own row inside the Materials card (per the "reads like a normal part of the job" preference above) even though it's calculated from labour — purely a presentation choice, not double-counted since it's never added to `materialsTotal`.
+3. **Xero quote** — sends whatever's in the snapshot (not a fresh live recalculation) as the materials line items, plus a separate Sundries & Consumables line computed server-side the same way, on account 202 (booked as consumables, not labour) but WITH markup applied (the one 202 line that gets it, since materials proper don't).
 
 ## FEATURE: Deposit & staged payments
 

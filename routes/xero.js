@@ -351,13 +351,37 @@ router.post('/create-quote', async (req, res) => {
       });
     }
 
+    // Sundries & consumables — a % of raw labour (before markup), same as
+    // the app's own Summary card. Booked on account 202 alongside materials
+    // for bookkeeping purposes (it's consumables, not labour), but unlike
+    // every other 202 line it DOES get markup applied here, since the
+    // confirmed calc order is labour + sundries -> x markup -> + materials
+    // (materials alone stay unmarked-up, at their real Xero sell price).
+    // See MATERIALS_SPEC.md's Materials editing section.
+    const sundriesPct = (settings && settings.sundriesPct) || 0;
+    if (sundriesPct > 0) {
+      let labourSubtotal = 0;
+      if (rooms) rooms.forEach(r => { labourSubtotal += r.total; });
+      if (exterior && exterior.cost > 0) labourSubtotal += exterior.cost;
+      if (hsl && hsl.stairWoodCost > 0) labourSubtotal += hsl.stairWoodCost;
+      const sundriesAmount = labourSubtotal * (sundriesPct / 100);
+      if (sundriesAmount > 0) {
+        lineItems.push({
+          Description: 'Sundries & Consumables',
+          Quantity: 1,
+          UnitAmount: fmt(sundriesAmount * mu),
+          AccountCode: '202'
+        });
+      }
+    }
+
     // Materials break — real Xero items on account 202 (the sales account
     // set on every item), placed after the labour lines. 311 is the
     // purchase/COGS account used only to identify which items are paint
     // materials in /auth/items — quotes are a sales document, so the line
     // itself belongs on the sales account. Priced at the item's own sell
     // price already stored in Xero, so no job markup is re-applied here
-    // (unlike the labour lines above).
+    // (unlike the labour lines above, and unlike the sundries line above).
     if (materials && materials.length > 0) {
       // Text-only divider row, matching the manual convention: no ItemCode,
       // Quantity or UnitAmount at all (not even zero) — Xero renders a line
