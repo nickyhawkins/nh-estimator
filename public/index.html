@@ -519,6 +519,12 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Hours Per Day</div><input type="number" class="field-input" id="s-hpd" value="7" min="1" max="12" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Markup<small>%</small></div><input type="number" class="field-input" id="s-mu" value="20" min="0" max="100" step="5" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Sundries &amp; Consumables<small>% of labour, before markup</small></div><input type="number" class="field-input" id="s-sundries" value="5" min="0" max="100" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Deposit<small>% of quote — or materials+sundries cost, whichever greater</small></div><input type="number" class="field-input" id="s-deposit-pct" value="25" min="0" max="100" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Scheduling</div>
+      <div class="field-row"><div class="field-label">Daily overhead<small>mins/day — setup, protection, cleanup (not costed, just stretches the diary)</small></div><input type="number" class="field-input" id="s-overhead-mins" value="45" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Schedule buffer<small>% — optional, for drying/slippage</small></div><input type="number" class="field-input" id="s-buffer-pct" value="0" min="0" max="100" step="5" inputmode="numeric" onchange="saveSettings()"></div>
     </div>
     <div class="card">
       <div class="card-header">Coverage Rates</div>
@@ -766,6 +772,9 @@ function saveSettings() {
     hpd:     +document.getElementById('s-hpd').value,
     mu:      +document.getElementById('s-mu').value,
     sundriesPct: +document.getElementById('s-sundries').value,
+    depositPct: +document.getElementById('s-deposit-pct').value,
+    overheadMins: +document.getElementById('s-overhead-mins').value,
+    bufferPct:    +document.getElementById('s-buffer-pct').value,
     cw:      +document.getElementById('s-cw').value,
     cc:      +document.getElementById('s-cc').value,
     cg:      +document.getElementById('s-cg').value,
@@ -790,10 +799,32 @@ function saveSettings() {
     rSashPaint:   +document.getElementById('s-rsashpaint').value,
     rResin:       +document.getElementById('s-rresin').value,
     rReglaze:     +document.getElementById('s-rreglaze').value,
-    materials:    settings.materials || {}
+    materials:    settings.materials || {},
+    // No Settings-screen field for these two -- they're set from the
+    // Summary tab's Payment card (setPaymentType/setPaymentWeeks), so carry
+    // forward whatever's already in memory rather than reading a DOM field
+    // that doesn't exist. Same pattern as materials above.
+    paymentType:  settings.paymentType || 'single',
+    paymentWeeks: settings.paymentWeeks || null
   };
   localStorage.setItem('pe-settings', JSON.stringify(settings));
   apiPut('/api/settings', settings);
+}
+
+// Payment plan (Summary tab's Payment card) -- set directly on settings
+// rather than through a Settings-screen field, same pattern as the
+// materials product mapping. saveSettings() carries these two forward from
+// memory since it has no matching DOM input for them.
+function setPaymentType(type) {
+  settings.paymentType = type;
+  saveSettings();
+  renderSummary();
+}
+function setPaymentWeeks(val) {
+  var n = Math.max(1, parseInt(val, 10) || 1);
+  settings.paymentWeeks = n;
+  saveSettings();
+  renderSummary();
 }
 
 function clearRooms() {
@@ -1032,15 +1063,17 @@ async function createXeroQuote() {
   btn.textContent = 'Creating...';
   btn.disabled = true;
   try {
+    var tcS = 0, ttS = 0;
     var roomData = rooms.map(function(r) {
       var c = calcRoom(r);
+      tcS += c.total; ttS += c.time;
       return { name: r.name, total: c.total };
     });
     var clientName = document.getElementById('xero-client').value.trim() || 'Client';
     var xeroRef = document.getElementById('xero-ref').value.trim();
 
-    var extTotal = 0;
-    extItems.forEach(function(item){ extTotal += calcExtItem(item).total; });
+    var extTotal = 0, extTimeTotal = 0;
+    extItems.forEach(function(item){ var c = calcExtItem(item); extTotal += c.total; extTimeTotal += c.time; });
 
     // Materials sent to Xero come from the editable snapshot, not a fresh
     // live calculation -- that's the whole point of the snapshot (see
@@ -1055,6 +1088,15 @@ async function createXeroQuote() {
     var materials = materialsSnapshot.map(function(l) {
       return { itemCode: l.itemCode, description: l.description, quantity: l.quantity, unitAmount: l.unitAmount };
     });
+    var materialsTotal = materials.reduce(function(sum, m) { return sum + (+m.quantity||0)*(+m.unitAmount||0); }, 0);
+
+    // Same deposit/balance/weekly-instalment figures Summary shows, written
+    // onto the quote's free-text Terms field -- see buildPaymentTermsText().
+    tcS += extTotal + swCost;
+    ttS += extTimeTotal + swTime;
+    var onSiteDays = realisticDays(ttS);
+    var depositPlan = computeDepositPlan(tcS, materialsTotal, onSiteDays);
+    var paymentTerms = buildPaymentTermsText(depositPlan);
 
     var newContact = null;
     if (document.getElementById('xero-new-contact-form').style.display !== 'none') {
@@ -1080,6 +1122,7 @@ async function createXeroQuote() {
         materials: materials,
         settings: settings,
         markup: settings.mu,
+        paymentTerms: paymentTerms,
         contactId: xeroSelectedContactId,
         newContact: newContact
       })
@@ -1105,6 +1148,11 @@ async function initApp() {
     settings = {
       dr: rawSettings.dr||300, hpd: rawSettings.hpd||7, mu: rawSettings.mu||20,
       sundriesPct: rawSettings.sundriesPct!=null ? rawSettings.sundriesPct : 5,
+      depositPct: rawSettings.depositPct!=null ? rawSettings.depositPct : 25,
+      paymentType: rawSettings.paymentType || 'single',
+      paymentWeeks: rawSettings.paymentWeeks || null,
+      overheadMins: rawSettings.overheadMins!=null ? rawSettings.overheadMins : 45,
+      bufferPct: rawSettings.bufferPct!=null ? rawSettings.bufferPct : 0,
       cw: rawSettings.cw||13, cc: rawSettings.cc||13, cg: rawSettings.cg||7,
       cMist: rawSettings.cMist||15,
       jobname: rawSettings.jobname||'',
@@ -1145,6 +1193,11 @@ async function initApp() {
       settings = {
         dr: s.dr||300, hpd: s.hpd||7, mu: s.mu||20,
         sundriesPct: s.sundriesPct!=null ? s.sundriesPct : 5,
+        depositPct: s.depositPct!=null ? s.depositPct : 25,
+        paymentType: s.paymentType || 'single',
+        paymentWeeks: s.paymentWeeks || null,
+        overheadMins: s.overheadMins!=null ? s.overheadMins : 45,
+        bufferPct: s.bufferPct!=null ? s.bufferPct : 0,
         cw: s.cw||13, cc: s.cc||13, cg: s.cg||7,
         cMist: s.cMist||15,
         jobname: s.jobname||'',
@@ -1259,6 +1312,11 @@ var settings = {
   hpd:     _raw.hpd     != null ? _raw.hpd     : 7,
   mu:      _raw.mu      != null ? _raw.mu      : (_raw.markup   != null ? _raw.markup   : 20),
   sundriesPct: _raw.sundriesPct != null ? _raw.sundriesPct : 5,
+  depositPct:  _raw.depositPct  != null ? _raw.depositPct  : 25,
+  paymentType: _raw.paymentType || 'single',
+  paymentWeeks: _raw.paymentWeeks || null,
+  overheadMins: _raw.overheadMins != null ? _raw.overheadMins : 45,
+  bufferPct:    _raw.bufferPct    != null ? _raw.bufferPct    : 0,
   cw:      _raw.cw      != null ? _raw.cw      : (_raw.covWall  != null ? _raw.covWall  : 13),
   cc:      _raw.cc      != null ? _raw.cc      : (_raw.covCeil  != null ? _raw.covCeil  : 13),
   cg:      _raw.cg      != null ? _raw.cg      : (_raw.covGloss != null ? _raw.covGloss : 7),
@@ -1390,6 +1448,9 @@ function loadSettings() {
   document.getElementById('s-hpd').value     = settings.hpd;
   document.getElementById('s-mu').value      = settings.mu;
   document.getElementById('s-sundries').value = settings.sundriesPct;
+  document.getElementById('s-deposit-pct').value = settings.depositPct;
+  document.getElementById('s-overhead-mins').value = settings.overheadMins;
+  document.getElementById('s-buffer-pct').value    = settings.bufferPct;
   document.getElementById('s-cw').value      = settings.cw;
   document.getElementById('s-cc').value      = settings.cc;
   document.getElementById('s-cg').value      = settings.cg;
@@ -1489,6 +1550,99 @@ function fmt(n)     { return '£'+n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,'
 function fmtD(d)    { return d<0.1?'<0.1d':d.toFixed(1)+'d'; }
 function fmtM(n)    { return n.toFixed(2)+' m²'; }
 function uid()      { return Date.now().toString(36)+Math.random().toString(36).slice(2); }
+
+// Realistic on-site duration for SCHEDULING only -- never feeds cost. A
+// per-day overhead (setup/protection/cleanup) eats into productive hours/day,
+// which stretches the same total working hours over more calendar days; an
+// optional buffer % on top covers drying/slippage. Pure function of
+// (workingDays, settings) -- takes workingDays as an argument rather than
+// recomputing job totals itself, so it never touches calcRoom() and any
+// caller (Summary now, the deposit feature later for its weeks-from-
+// realistic-days chain) can reuse it with whatever working-days figure it
+// already has in scope.
+function realisticDays(workingDays) {
+  if (workingDays <= 0) return 0;
+  var hpd = settings.hpd || 7;
+  // Floor guards against overhead >= a full day, which would otherwise send
+  // effectiveHpd to zero/negative and blow up the division below.
+  var effectiveHpd = Math.max(hpd - (settings.overheadMins||0)/60, 0.5);
+  var days = (workingDays * hpd) / effectiveHpd;
+  var buffered = days * (1 + (settings.bufferPct||0)/100);
+  // Round UP to the nearest half-day -- a diary is blocked out in half/whole
+  // days, not tenths, and rounding up (never down) keeps this a safe
+  // scheduling estimate. Same Math.ceil(x*2)/2 convention already used for
+  // paint litres elsewhere (wallL, mistL, etc.).
+  return Math.ceil(buffered * 2) / 2;
+}
+
+// Single source of truth for the whole money picture from tcS (raw labour
+// subtotal) + materialsTotal (unmarked-up) + onSiteDays (feeds the
+// multi-week derivation) through to deposit/balance/weekly instalments --
+// used by renderSummary() AND createXeroQuote() (for the quote's Terms
+// text) so the two can never show different figures for the same job.
+function computeDepositPlan(tcS, materialsTotal, onSiteDays) {
+  var sundriesPct = (settings.sundriesPct||0)/100;
+  var sundries = tcS * sundriesPct;
+  var labourTotal = (tcS+sundries)*(1+settings.mu/100);
+  var total = labourTotal + materialsTotal;
+
+  // Deposit: Nicky's actual Terms of Business read "25% of quotation or cost
+  // of materials, sundries and equipment, whichever the greater" -- so this
+  // is never just a flat percentage, it's the higher of the percentage basis
+  // and the RAW (pre-markup) materials+sundries outlay, since that outlay is
+  // what actually needs covering to get the job started regardless of quote
+  // size.
+  var depositPct = settings.depositPct!=null ? settings.depositPct : 25;
+  var depositByPct = total * depositPct/100;
+  var depositByCost = materialsTotal + sundries;
+  var deposit = Math.max(depositByPct, depositByCost);
+  var depositBasis = depositByPct >= depositByCost ? (depositPct+'% of quote') : 'Materials & sundries cost';
+  var balance = total - deposit;
+
+  // Multi-week: week count derives from the REALISTIC on-site estimate (see
+  // realisticDays()), not raw working days -- a 6.85-working-day job can
+  // realistically span two working weeks, which is exactly when staged
+  // weekly payments apply; working days alone would miscount that. Derived
+  // live until the user explicitly overrides it via setPaymentWeeks(), same
+  // "live default until touched" pattern as other manual overrides.
+  var paymentType = settings.paymentType || 'single';
+  var derivedWeeks = Math.max(Math.ceil(onSiteDays/5), 1);
+  var paymentWeeks = (settings.paymentWeeks>0) ? settings.paymentWeeks : derivedWeeks;
+  var weeklyRows = [];
+  if (paymentType==='multiweek' && paymentWeeks>0) {
+    // Floor every instalment but the last to 2dp, then let the last one
+    // absorb whatever's left -- guarantees the instalments sum to EXACTLY
+    // the balance (no penny drift).
+    var weeklyBase = Math.floor((balance/paymentWeeks)*100)/100;
+    var accounted = 0;
+    for (var wI=1; wI<=paymentWeeks; wI++) {
+      var amt = wI===paymentWeeks ? (balance-accounted) : weeklyBase;
+      accounted += amt;
+      weeklyRows.push(amt);
+    }
+  }
+
+  return { sundries:sundries, labourTotal:labourTotal, total:total, deposit:deposit,
+           depositBasis:depositBasis, balance:balance, paymentType:paymentType,
+           paymentWeeks:paymentWeeks, weeklyRows:weeklyRows };
+}
+
+// One-paragraph payment-terms summary for the Xero quote's free-text Terms
+// field (confirmed to exist on the standard Quotes API -- Title/Summary/
+// Terms, all plain text; NOT guaranteed to print on the PDF, that depends
+// on the account's branding theme, so check a real sent quote once this is
+// live). Built from the same computeDepositPlan() output Summary renders,
+// so the quote text can never say something different from the app.
+function buildPaymentTermsText(plan) {
+  var text = 'Deposit due on acceptance: ' + fmt(plan.deposit) + ' (' + plan.depositBasis + ').';
+  if (plan.paymentType === 'multiweek' && plan.weeklyRows.length > 0) {
+    var weekParts = plan.weeklyRows.map(function(amt, i) { return 'Week ' + (i+1) + ' ' + fmt(amt); }).join(', ');
+    text += ' Balance of ' + fmt(plan.balance) + ' split across ' + plan.weeklyRows.length + ' weekly instalments: ' + weekParts + '.';
+  } else {
+    text += ' Balance of ' + fmt(plan.balance) + ' due on completion.';
+  }
+  return text;
+}
 
 
 function roomEmoji(name) {
@@ -3117,6 +3271,7 @@ async function renderSummary() {
   var extTotal=0; var extTimeTotal=0;
   extItems.forEach(function(item){var c=calcExtItem(item);extTotal+=c.total;extTimeTotal+=c.time;});
   var tcS=tc+swCost+extTotal; var ttS=tt+swTime+extTimeTotal;
+  var onSiteDays = realisticDays(ttS);
   var mu=settings.mu/100;
 
   var mats = computeMaterials();
@@ -3154,14 +3309,15 @@ async function renderSummary() {
     return line ? '<div class="breakdown-row"><span class="breakdown-label">'+escapeHtml(r.name)+'</span><span class="breakdown-value">'+escapeHtml(line)+'</span></div>' : '';
   }).join('');
 
-  // Sundries is a % of raw labour, added BEFORE markup (so markup applies to
-  // it too, like any other labour-side cost) -- materials stay excluded from
-  // markup throughout, since Xero's sell price is already the customer
-  // price. Order: labour -> +sundries -> x markup -> +materials (unmarked-up).
-  var sundriesPct = (settings.sundriesPct||0)/100;
-  var sundries = tcS * sundriesPct;
-  var labourTotal=(tcS+sundries)*(1+mu);
-  var total=labourTotal+materialsTotal;
+  // Sundries/deposit/balance/payment-plan all come from the shared
+  // computeDepositPlan() -- see its own comment for the formula. Shared with
+  // createXeroQuote() so the quote's Terms text can never drift from what
+  // Summary actually shows.
+  var plan = computeDepositPlan(tcS, materialsTotal, onSiteDays);
+  var sundries = plan.sundries, labourTotal = plan.labourTotal, total = plan.total,
+      deposit = plan.deposit, depositBasis = plan.depositBasis, balance = plan.balance,
+      paymentType = plan.paymentType, paymentWeeks = plan.paymentWeeks, weeklyRows = plan.weeklyRows;
+
   data.innerHTML=
     '<div class="hero">'+
       '<div class="hero-label">Total Quote</div>'+
@@ -3170,7 +3326,26 @@ async function renderSummary() {
     '</div>'+
     '<div class="stat-grid">'+
       '<div class="stat-card"><div class="stat-label">Labour</div><div class="stat-value ac">'+fmt(tcS)+'</div></div>'+
-      '<div class="stat-card"><div class="stat-label">Time</div><div class="stat-value bl">'+ttS.toFixed(1)+'d</div></div>'+
+      '<div class="stat-card"><div class="stat-label">On Site</div><div class="stat-value bl">'+fmtD(onSiteDays)+'</div>'+
+        '<small style="display:block;font-weight:400;color:var(--text2);margin-top:2px">'+ttS.toFixed(1)+'d working</small></div>'+
+    '</div>'+
+    '<div class="card" style="margin-top:16px">'+
+      '<div class="card-header">Payment</div>'+
+      '<div class="breakdown-row"><span class="breakdown-label">Deposit due on acceptance<small style="display:block;font-weight:400;color:var(--text2)">'+depositBasis+'</small></span>'+
+        '<span class="breakdown-value" style="color:var(--accent)">'+fmt(deposit)+'</span></div>'+
+      '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Balance</span>'+
+        '<span class="breakdown-value">'+fmt(balance)+'</span></div>'+
+      '<div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Payment plan</div><div class="seg" id="seg-payment-type">'+
+        '<button type="button" class="seg-btn'+(paymentType==='single'?' active':'')+'" onclick="setPaymentType(\'single\')">Single</button>'+
+        '<button type="button" class="seg-btn'+(paymentType==='multiweek'?' active':'')+'" onclick="setPaymentType(\'multiweek\')">Multi-week</button>'+
+      '</div></div>'+
+      (paymentType==='multiweek' ? (
+        '<div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Weeks<small>from on-site estimate, editable</small></div>'+
+          '<input type="number" class="field-input" style="width:70px" value="'+paymentWeeks+'" min="1" step="1" inputmode="numeric" onchange="setPaymentWeeks(this.value)"></div>'+
+        weeklyRows.map(function(amt, wi){
+          return '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Week '+(wi+1)+'</span><span class="breakdown-sub-value">'+fmt(amt)+'</span></div>';
+        }).join('')
+      ) : '') +
     '</div>'+
     '<div><div class="section-title" style="margin-bottom:8px">Room Breakdown</div>'+
     '<div class="card">'+rows+

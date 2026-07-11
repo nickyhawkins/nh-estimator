@@ -268,7 +268,7 @@ router.get('/material-groups', async (req, res) => {
 
 // Create quote in Xero
 router.post('/create-quote', async (req, res) => {
-  const { clientName, jobName, xeroRef, rooms, exterior, hsl, materials, settings, markup, contactId, newContact } = req.body;
+  const { clientName, jobName, xeroRef, rooms, exterior, hsl, materials, settings, markup, paymentTerms, contactId, newContact } = req.body;
 
   try {
     const accessToken = await getAccessToken();
@@ -407,7 +407,12 @@ router.post('/create-quote', async (req, res) => {
         Reference: xeroRef || '',
         LineItems: lineItems,
         LineAmountTypes: 'NoTax',
-        Status: 'DRAFT'
+        Status: 'DRAFT',
+        // Free-text field on the standard Quotes API (confirmed via Xero's
+        // docs, alongside Title/Summary) -- whether it actually prints on
+        // the client-facing PDF depends on the account's branding theme, so
+        // this isn't guaranteed visible without checking a real sent quote.
+        Terms: paymentTerms || undefined
       }]
     };
 
