@@ -794,17 +794,17 @@ function clearRooms() {
   // Colours are job-scoped, not a Settings value (see Colours tab spec),
   // so they clear along with the rooms they were assigned to -- otherwise
   // Colour 1's label survives into the next job untouched.
-  rooms=[]; swCost=0; swTime=0; colours=[];
+  rooms=[]; swCost=0; swTime=0; colours=[]; materialsSnapshot=[];
   localStorage.setItem('pe-rooms','[]');
   localStorage.removeItem('pe-swcost');
   localStorage.removeItem('pe-swtime');
   var xc=document.getElementById('xero-client'); if(xc) xc.value='';
   var xr=document.getElementById('xero-ref'); if(xr) xr.value='';
-  saveRooms(); saveStair(); saveColours(); renderHome();
+  saveRooms(); saveStair(); saveColours(); saveMaterialsSnapshot(); renderHome();
 }
 function clearEverything() {
   if(!confirm('Clear ALL data including exterior? This cannot be undone.'))return;
-  rooms=[]; swCost=0; swTime=0; extItems=[]; colours=[];
+  rooms=[]; swCost=0; swTime=0; extItems=[]; colours=[]; materialsSnapshot=[];
   localStorage.clear();
   apiDelete('/api/all');
   apiDelete('/api/hsl');
@@ -1035,9 +1035,19 @@ async function createXeroQuote() {
     var extTotal = 0;
     extItems.forEach(function(item){ extTotal += calcExtItem(item).total; });
 
-    var mats = computeMaterials();
-    var materials = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows)
-      .reduce(function(acc, row){ return acc.concat(row.lineItems); }, []);
+    // Materials sent to Xero come from the editable snapshot, not a fresh
+    // live calculation -- that's the whole point of the snapshot (see
+    // recalculateMaterialsSnapshot): what's on the quote is whatever the
+    // user has edited it down to, not silently whatever rooms compute to
+    // right now. Guard mirrors renderSummary()'s lazy auto-populate in case
+    // this is somehow reached before the Summary tab has ever rendered.
+    if (materialsSnapshot.length === 0) {
+      var checkMats = computeMaterials();
+      if (checkMats.total > 0) recalculateMaterialsSnapshot();
+    }
+    var materials = materialsSnapshot.map(function(l) {
+      return { itemCode: l.itemCode, description: l.description, quantity: l.quantity, unitAmount: l.unitAmount };
+    });
 
     var newContact = null;
     if (document.getElementById('xero-new-contact-form').style.display !== 'none') {
@@ -1115,6 +1125,9 @@ async function initApp() {
   var coloursLocal = JSON.parse(localStorage.getItem('pe-colours')||'null');
   if (coloursLocal && coloursLocal.length > 0) { colours = coloursLocal; }
 
+  var materialsLocal = JSON.parse(localStorage.getItem('pe-materials-snapshot')||'null');
+  if (materialsLocal && materialsLocal.length > 0) { materialsSnapshot = materialsLocal; }
+
   renderHome();
 
   // ── Step 2: Sync from server in background ──
@@ -1171,6 +1184,18 @@ async function initApp() {
     }
     ensureDefaultColour();
     renderColours();
+    // Isolated for the same reason as colours above -- the materials_snapshot
+    // table is new too, so a database that hasn't had db/setup.sql re-run
+    // yet must not abort the rest of this block.
+    try {
+      var materialsData = await apiGet('/api/materials');
+      if (materialsData && materialsData.length > 0) {
+        materialsSnapshot = materialsData;
+        localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot));
+      }
+    } catch (e) {
+      console.log('Materials snapshot fetch failed — running from local cache:', e.message);
+    }
     // Update server settings with exterior rates
     if (s && s.rExtMasonry != null) {
       settings.rExtMasonry = s.rExtMasonry; settings.rExtFascia = s.rExtFascia;
@@ -1664,6 +1689,58 @@ function computeMaterials() {
   var allRows = wallRows.concat(ceilingRows, topcoatRows, primerRows, mistRows);
   var total = allRows.reduce(function(sum, r) { return sum + r.cost; }, 0);
   return { wallRows: wallRows, ceilingRows: ceilingRows, topcoatRows: topcoatRows, primerRows: primerRows, mistRows: mistRows, total: total };
+}
+
+// ── Materials snapshot (job-scoped, editable, same lifecycle as rooms/
+// extItems/colours) ─────────────────────────────────────────────────────
+// computeMaterials() above stays a pure live calculation from rooms --
+// unchanged, still used for the read-only unmapped/estimate rows and as
+// the source recalculateMaterialsSnapshot() pulls from. This snapshot is
+// the separate, editable "what's actually going on the quote" list: once
+// taken, it's frozen (survives room edits untouched) until the user
+// explicitly hits Recalculate, deliberately not kept in sync automatically
+// -- see MATERIALS_SPEC.md's Materials editing section for why.
+var materialsSnapshot = [];
+
+function saveMaterialsSnapshot() {
+  localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot));
+  apiDelete('/api/materials').then(function() {
+    materialsSnapshot.forEach(function(l) { apiPut('/api/materials/'+l.id, l); });
+  });
+}
+
+// Rebuilds the snapshot from scratch out of whatever computeMaterials()
+// currently produces -- only the real, priced line items (mapped roles),
+// never the unmapped litres-guess fallback, since there's no real
+// quantity/price to make editable there. Discards every prior edit,
+// deletion, and custom line -- a full overwrite, not a merge, by design.
+function recalculateMaterialsSnapshot() {
+  var mats = computeMaterials();
+  var allRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows);
+  materialsSnapshot = allRows.reduce(function(acc, row) {
+    return acc.concat(row.lineItems.map(function(li) {
+      return { id: uid(), itemCode: li.itemCode, description: li.description, quantity: li.quantity, unitAmount: li.unitAmount, custom: false };
+    }));
+  }, []);
+  saveMaterialsSnapshot();
+}
+
+function materialsSnapshotTotal() {
+  return materialsSnapshot.reduce(function(sum, l) { return sum + (+l.quantity||0) * (+l.unitAmount||0); }, 0);
+}
+
+function setMaterialLineQuantity(id, value) {
+  var line = materialsSnapshot.find(function(l) { return l.id === id; });
+  if (!line) return;
+  line.quantity = Math.max(0, +value || 0);
+  saveMaterialsSnapshot();
+  renderSummary();
+}
+
+function deleteMaterialLine(id) {
+  materialsSnapshot = materialsSnapshot.filter(function(l) { return l.id !== id; });
+  saveMaterialsSnapshot();
+  renderSummary();
 }
 
 // ── Colours (job-scoped list, same lifecycle as rooms/extItems) ────────────
@@ -2915,7 +2992,30 @@ async function renderSummary() {
   var mu=settings.mu/100;
 
   var mats = computeMaterials();
-  var materialsTotal = mats.total;
+  // First time this job has real materials and no snapshot's been taken yet,
+  // seed one automatically so a brand-new quote shows real numbers without
+  // an extra manual step -- after this, nothing touches the snapshot except
+  // explicit edits or the Recalculate button (see recalculateMaterialsSnapshot).
+  if (materialsSnapshot.length === 0 && mats.total > 0) {
+    recalculateMaterialsSnapshot();
+  }
+  var materialsTotal = materialsSnapshotTotal();
+  var allMatRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows);
+  // Unmapped roles (no Xero product picked) have no real quantity/price to
+  // make editable -- they stay exactly as before, a read-only litres/tin-
+  // guess estimate contributing nothing to the total. Only rows that
+  // actually resolved to real lineItems feed the editable snapshot.
+  var unmappedRowsHtml = allMatRows.filter(function(r){ return r.lineItems.length === 0; }).map(function(r){ return r.html; }).join('');
+  var editableRowsHtml = materialsSnapshot.map(function(l){
+    var cost = (+l.quantity||0) * (+l.unitAmount||0);
+    return '<div class="mat-row"><div><div class="mat-label">'+escapeHtml(l.description)+'</div>'+
+      '<div class="mat-detail">'+fmt(+l.unitAmount||0)+' each</div></div>'+
+      '<div style="display:flex;align-items:center;gap:8px">'+
+        '<input type="number" class="field-input" style="width:56px;padding:6px 8px" value="'+l.quantity+'" min="0" step="1" onchange="setMaterialLineQuantity(\''+l.id+'\',this.value)">'+
+        '<div class="mat-val">'+fmt(cost)+'</div>'+
+        '<div onclick="deleteMaterialLine(\''+l.id+'\')" style="color:var(--danger);font-size:20px;cursor:pointer;padding:0 4px">×</div>'+
+      '</div></div>';
+  }).join('');
 
   var scheduleRows = rooms.map(function(r){
     var line = roomColourSchedule(r);
@@ -2983,11 +3083,12 @@ async function renderSummary() {
     '</div></div>'+
     '<div><div class="section-title" style="margin-bottom:8px">Materials</div>'+
     '<div class="card">'+
-      mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows).map(function(r){return r.html;}).join('')+
+      editableRowsHtml + unmappedRowsHtml +
       (materialsTotal>0?'<div class="breakdown-row" style="border-top:1px solid var(--border);padding:12px 16px">'+
         '<span class="breakdown-label" style="font-weight:600;color:var(--text)">Materials subtotal</span>'+
         '<span class="breakdown-value" style="color:var(--accent)">'+fmt(materialsTotal)+'</span></div>':'')+
     '</div>'+
+    '<button onclick="recalculateMaterialsSnapshot();renderSummary();" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%;margin-top:8px">Recalculate from rooms</button>'+
     '</div>'+
     (scheduleRows?'<div><div class="section-title" style="margin-bottom:8px">Colour Schedule</div><div class="card">'+scheduleRows+'</div></div>':'');
 }

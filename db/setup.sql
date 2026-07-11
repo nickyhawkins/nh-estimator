@@ -54,3 +54,15 @@ CREATE TABLE IF NOT EXISTS colours (
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Materials snapshot table (job-scoped, editable list of priced material
+-- lines for the current quote -- same lifecycle as rooms/exterior_items,
+-- not a permanent setting. Populated by "recalculate from rooms", then
+-- edited/deleted/added-to as a frozen snapshot until explicitly
+-- recalculated again. See MATERIALS_SPEC.md.)
+CREATE TABLE IF NOT EXISTS materials_snapshot (
+  id VARCHAR PRIMARY KEY,
+  data JSONB NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);

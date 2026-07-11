@@ -146,6 +146,54 @@ router.delete('/colours', async (req, res) => {
   }
 });
 
+
+// ── Materials snapshot ────────────────────────────────────────────────────
+// Job-scoped, editable list of priced material lines for the current quote
+// — same lifecycle as rooms/exterior items, not a permanent setting.
+
+router.get('/materials', async (req, res) => {
+  try {
+    const result = await db.query('SELECT id, data FROM materials_snapshot ORDER BY created_at ASC');
+    const lines = result.rows.map(r => ({ id: r.id, ...r.data }));
+    res.json(lines);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/materials/:id', async (req, res) => {
+  const { id } = req.params;
+  const { id: _drop, ...data } = req.body;
+  try {
+    await db.query(`
+      INSERT INTO materials_snapshot (id, data, updated_at)
+      VALUES ($1, $2, NOW())
+      ON CONFLICT (id) DO UPDATE SET data = $2, updated_at = NOW()
+    `, [id, data]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/materials/:id', async (req, res) => {
+  try {
+    await db.query('DELETE FROM materials_snapshot WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/materials', async (req, res) => {
+  try {
+    await db.query('DELETE FROM materials_snapshot');
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Settings ───────────────────────────────────────────────────────────────
 
 router.get('/settings', async (req, res) => {
@@ -209,6 +257,7 @@ router.delete('/all', async (req, res) => {
     await db.query("UPDATE hsl_state SET data = '{}' WHERE id = 1");
     await db.query('DELETE FROM exterior_items');
     await db.query('DELETE FROM colours');
+    await db.query('DELETE FROM materials_snapshot');
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
