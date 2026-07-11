@@ -1743,6 +1743,58 @@ function deleteMaterialLine(id) {
   renderSummary();
 }
 
+// ── Add a one-off material line ─────────────────────────────────────────
+// The product select picks any real Xero item out of materialGroupsCache
+// (flattened range/band/size, not just the five default role products --
+// a one-off might be a specialist product outside the usual roles
+// entirely) and autofills description + price, still editable; "— Free
+// text —" leaves both blank for a manual entry with no itemCode, which
+// Xero renders the same way the labour lines already do (Description/
+// Quantity/UnitAmount, no ItemCode). addMaterialProductOptions is a
+// parallel lookup array rather than encoding data into option values
+// directly, to avoid attribute-escaping a JSON blob.
+var addMaterialProductOptions = [];
+
+function populateAddMaterialProductSelect() {
+  var sel = document.getElementById('add-mat-product');
+  if (!sel) return;
+  addMaterialProductOptions = [];
+  var opts = '<option value="-1">— Free text —</option>';
+  Object.keys(materialGroupsCache).sort().forEach(function(range) {
+    Object.keys(materialGroupsCache[range]).sort().forEach(function(band) {
+      materialGroupsCache[range][band].forEach(function(item) {
+        var idx = addMaterialProductOptions.length;
+        var desc = range + (band ? ' - ' + band : '') + ' ' + item.sizeL + 'ltr';
+        addMaterialProductOptions.push({ itemCode: item.itemCode, description: desc, unitAmount: item.price });
+        opts += '<option value="'+idx+'">'+escapeHtml(desc)+' — '+fmt(item.price)+'</option>';
+      });
+    });
+  });
+  sel.innerHTML = opts;
+}
+
+function onAddMaterialProductSelect() {
+  var idx = +document.getElementById('add-mat-product').value;
+  document.getElementById('add-mat-itemcode').value = '';
+  if (idx < 0) return;
+  var opt = addMaterialProductOptions[idx];
+  if (!opt) return;
+  document.getElementById('add-mat-desc').value = opt.description;
+  document.getElementById('add-mat-price').value = opt.unitAmount;
+  document.getElementById('add-mat-itemcode').value = opt.itemCode;
+}
+
+function addCustomMaterialLine() {
+  var desc = document.getElementById('add-mat-desc').value.trim();
+  if (!desc) { alert('Enter a description for the material.'); return; }
+  var qty = +document.getElementById('add-mat-qty').value || 0;
+  var price = +document.getElementById('add-mat-price').value || 0;
+  var itemCode = document.getElementById('add-mat-itemcode').value || undefined;
+  materialsSnapshot.push({ id: uid(), itemCode: itemCode, description: desc, quantity: qty, unitAmount: price, custom: true });
+  saveMaterialsSnapshot();
+  renderSummary();
+}
+
 // ── Colours (job-scoped list, same lifecycle as rooms/extItems) ────────────
 var colours = [];
 
@@ -3089,8 +3141,18 @@ async function renderSummary() {
         '<span class="breakdown-value" style="color:var(--accent)">'+fmt(materialsTotal)+'</span></div>':'')+
     '</div>'+
     '<button onclick="recalculateMaterialsSnapshot();renderSummary();" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%;margin-top:8px">Recalculate from rooms</button>'+
+    '<div class="card" style="margin-top:8px">'+
+      '<div class="card-header">Add Material</div>'+
+      '<div class="field-row"><div class="field-label">Product<small>optional</small></div><select class="field-input wide" id="add-mat-product" onchange="onAddMaterialProductSelect()"></select></div>'+
+      '<div class="field-row"><div class="field-label">Description</div><input type="text" class="field-input wide" id="add-mat-desc" placeholder="e.g. Dust sheets" autocorrect="off"></div>'+
+      '<div class="field-row"><div class="field-label">Unit price</div><input type="number" class="field-input" id="add-mat-price" value="0" min="0" step="0.01" inputmode="decimal"></div>'+
+      '<div class="field-row"><div class="field-label">Quantity</div><input type="number" class="field-input" id="add-mat-qty" value="1" min="0" step="1" inputmode="numeric"></div>'+
+      '<input type="hidden" id="add-mat-itemcode">'+
+    '</div>'+
+    '<button onclick="addCustomMaterialLine()" style="background:var(--accent);color:#fff;border:none;border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%;margin-top:8px">Add Material</button>'+
     '</div>'+
     (scheduleRows?'<div><div class="section-title" style="margin-bottom:8px">Colour Schedule</div><div class="card">'+scheduleRows+'</div></div>':'');
+  populateAddMaterialProductSelect();
 }
 
 // ── Export CSV ─────────────────────────────────────────────────────────────
