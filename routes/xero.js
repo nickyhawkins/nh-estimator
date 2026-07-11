@@ -351,12 +351,36 @@ router.post('/create-quote', async (req, res) => {
       });
     }
 
+    // Materials break — real Xero items on account 202 (the sales account
+    // set on every item), placed after the labour lines. 311 is the
+    // purchase/COGS account used only to identify which items are paint
+    // materials in /auth/items — quotes are a sales document, so the line
+    // itself belongs on the sales account. Priced at the item's own sell
+    // price already stored in Xero, so no job markup is re-applied here
+    // (unlike the labour lines above, and unlike the sundries line below).
+    if (materials && materials.length > 0) {
+      // Text-only divider row, matching the manual convention: no ItemCode,
+      // Quantity or UnitAmount at all (not even zero) — Xero renders a line
+      // item with only a Description as plain narrative text, no columns.
+      lineItems.push({ Description: '-----materials estimate-----' });
+      materials.forEach(m => {
+        lineItems.push({
+          ItemCode: m.itemCode,
+          Description: m.description,
+          Quantity: m.quantity,
+          UnitAmount: fmt(m.unitAmount),
+          AccountCode: '202'
+        });
+      });
+    }
+
     // Sundries & consumables — a % of raw labour (before markup), same as
     // the app's own Summary card. Booked on account 202 alongside materials
     // for bookkeeping purposes (it's consumables, not labour), but unlike
     // every other 202 line it DOES get markup applied here, since the
     // confirmed calc order is labour + sundries -> x markup -> + materials
     // (materials alone stay unmarked-up, at their real Xero sell price).
+    // Placed last on the quote (after materials), per request.
     // See MATERIALS_SPEC.md's Materials editing section.
     const sundriesPct = (settings && settings.sundriesPct) || 0;
     if (sundriesPct > 0) {
@@ -373,29 +397,6 @@ router.post('/create-quote', async (req, res) => {
           AccountCode: '202'
         });
       }
-    }
-
-    // Materials break — real Xero items on account 202 (the sales account
-    // set on every item), placed after the labour lines. 311 is the
-    // purchase/COGS account used only to identify which items are paint
-    // materials in /auth/items — quotes are a sales document, so the line
-    // itself belongs on the sales account. Priced at the item's own sell
-    // price already stored in Xero, so no job markup is re-applied here
-    // (unlike the labour lines above, and unlike the sundries line above).
-    if (materials && materials.length > 0) {
-      // Text-only divider row, matching the manual convention: no ItemCode,
-      // Quantity or UnitAmount at all (not even zero) — Xero renders a line
-      // item with only a Description as plain narrative text, no columns.
-      lineItems.push({ Description: '-----materials estimate-----' });
-      materials.forEach(m => {
-        lineItems.push({
-          ItemCode: m.itemCode,
-          Description: m.description,
-          Quantity: m.quantity,
-          UnitAmount: fmt(m.unitAmount),
-          AccountCode: '202'
-        });
-      });
     }
 
     // Create quote in Xero
