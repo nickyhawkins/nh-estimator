@@ -1610,7 +1610,8 @@ function resolveMaterial(mapping, litres, isWall) {
           itemCode: perLitre.itemCode,
           description: mapping.range + ' - ' + mapping.band + ' ' + perLitre.sizeL + 'ltr',
           quantity: litres,
-          unitAmount: perLitre.price
+          unitAmount: perLitre.price,
+          isPerLitre: true
         }]
       };
     }
@@ -1725,7 +1726,7 @@ function recalculateMaterialsSnapshot() {
   var allRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows);
   materialsSnapshot = allRows.reduce(function(acc, row) {
     return acc.concat(row.lineItems.map(function(li) {
-      return { id: uid(), itemCode: li.itemCode, description: li.description, quantity: li.quantity, unitAmount: li.unitAmount, custom: false };
+      return { id: uid(), itemCode: li.itemCode, description: li.description, quantity: li.quantity, unitAmount: li.unitAmount, custom: false, isPerLitre: !!li.isPerLitre };
     }));
   }, []);
   saveMaterialsSnapshot();
@@ -3066,12 +3067,16 @@ async function renderSummary() {
   var unmappedRowsHtml = allMatRows.filter(function(r){ return r.lineItems.length === 0; }).map(function(r){ return r.html; }).join('');
   var editableRowsHtml = materialsSnapshot.map(function(l){
     var cost = (+l.quantity||0) * (+l.unitAmount||0);
+    // Fixed widths on qty + price (not just the qty input) so the group's
+    // total width is constant row to row -- otherwise a longer price on one
+    // row pushes everything after it, and the qty column visibly "jumps"
+    // between rows even though the input itself has a fixed width.
     return '<div class="mat-row"><div><div class="mat-label">'+escapeHtml(l.description)+'</div>'+
-      '<div class="mat-detail">'+fmt(+l.unitAmount||0)+' each</div></div>'+
-      '<div style="display:flex;align-items:center;gap:8px">'+
-        '<input type="number" class="field-input" style="width:56px;padding:6px 8px" value="'+l.quantity+'" min="0" step="1" onchange="setMaterialLineQuantity(\''+l.id+'\',this.value)">'+
-        '<div class="mat-val">'+fmt(cost)+'</div>'+
-        '<div onclick="deleteMaterialLine(\''+l.id+'\')" style="color:var(--danger);font-size:20px;cursor:pointer;padding:0 4px">×</div>'+
+      '<div class="mat-detail">'+fmt(+l.unitAmount||0)+(l.isPerLitre?'/ltr':' each')+'</div></div>'+
+      '<div style="display:flex;align-items:center;gap:10px">'+
+        '<input type="number" class="field-input" style="width:60px;padding:6px 8px;text-align:center" value="'+l.quantity+'" min="0" step="1" onchange="setMaterialLineQuantity(\''+l.id+'\',this.value)">'+
+        '<div class="mat-val" style="width:72px;text-align:right">'+fmt(cost)+'</div>'+
+        '<div onclick="deleteMaterialLine(\''+l.id+'\')" style="color:var(--text3);font-size:18px;cursor:pointer;padding:8px;margin-left:4px">×</div>'+
       '</div></div>';
   }).join('');
 
@@ -3142,7 +3147,7 @@ async function renderSummary() {
       '<span class="breakdown-label" style="font-weight:600;color:var(--text)">Labour subtotal</span>'+
       '<span class="breakdown-value" style="color:var(--accent)">'+fmt(tcS)+'</span></div>'+
     (sundries>0?'<div class="breakdown-row">'+
-      '<span class="breakdown-label">Sundries &amp; Consumables<small>'+settings.sundriesPct+'% of labour</small></span>'+
+      '<span class="breakdown-label">Sundries &amp; Consumables<small style="display:block;font-weight:400;color:var(--text2)">'+settings.sundriesPct+'% of labour</small></span>'+
       '<span class="breakdown-value">'+fmt(sundries)+'</span></div>':'')+
     '<div class="breakdown-row">'+
       '<span class="breakdown-label" style="font-weight:600;color:var(--text)">+ '+settings.mu+'% markup<small style="display:block;font-weight:400;color:var(--text2)">on labour + sundries</small></span>'+
