@@ -260,9 +260,9 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         <div class="field-row">
           <div class="field-label">Prep Level</div>
           <div class="seg" id="seg-prep" style="flex:1.5">
-            <button class="seg-btn active" onclick="setPrep(0)">Standard</button>
-            <button class="seg-btn" onclick="setPrep(10)">Light</button>
-            <button class="seg-btn" onclick="setPrep(25)">Full</button>
+            <button class="seg-btn active" onclick="setPrep(0)">Minimal</button>
+            <button class="seg-btn" onclick="setPrep(10)">Standard</button>
+            <button class="seg-btn" onclick="setPrep(25)">Heavy</button>
             <button class="seg-btn" onclick="setPrep(-1)">Custom</button>
           </div>
         </div>
@@ -2474,7 +2474,7 @@ function setWP(key, val) {
 
 function setPrep(val) {
   prepPct = val;
-  var labels = ['Standard','Light','Full','Custom'];
+  var labels = ['Minimal','Standard','Heavy','Custom'];
   var vals   = [0, 10, 25, -1];
   document.querySelectorAll('#seg-prep .seg-btn').forEach(function(b,i){
     b.classList.toggle('active', vals[i]===val);
@@ -3075,7 +3075,7 @@ async function renderSummary() {
     var subRows='';
     var woodTotal = (woodCost + winCost + radCost + fwCost) * mk;
     var prepUp2 = r.prepPct >= 0 ? r.prepPct : (+r.prepCustom||0);
-    var prepLabel = prepUp2===0?'Standard':prepUp2===10?'Light Prep':prepUp2===25?'Full Prep':'Custom '+prepUp2+'%';
+    var prepLabel = prepUp2===0?'Minimal':prepUp2===10?'Standard Prep':prepUp2===25?'Heavy Prep':'Custom '+prepUp2+'%';
     if(prepUp2>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Prep ('+prepLabel+')</span><span class="breakdown-sub-value">'+fmt(c.total*mk - (c.total/(1+prepUp2/100))*mk)+'</span></div>';
     if(+r.makingGood>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Making Good</span><span class="breakdown-sub-value">'+fmt(+r.makingGood)+'</span></div>';
     var dispWallCost = r.wallCostStore != null ? +r.wallCostStore : wallCost;
@@ -3108,7 +3108,7 @@ async function renderSummary() {
       '<div class="room-meta">'+
       (r.isHSL
         ? 'Walls '+c.wallArea.toFixed(1)+'m² · '+fmtD(c.time)
-        : r.l+'×'+r.w+'×'+r.h+'m · '+fmtD(c.time)+(r.prepPct&&r.prepPct!==0?' · '+(r.prepPct===-1?'Custom '+r.prepCustom+'%':r.prepPct===10?'Light Prep':'Full Prep'):'')      )+
+        : r.l+'×'+r.w+'×'+r.h+'m · '+fmtD(c.time)+(r.prepPct&&r.prepPct!==0?' · '+(r.prepPct===-1?'Custom '+r.prepCustom+'%':r.prepPct===10?'Standard Prep':'Heavy Prep'):'')      )+
       '</div></div>'+
       '<div class="room-cost">'+fmt(c.total*mk)+'</div>'+
       '<div class="room-chevron-icon" id="chev-'+id+'">›</div>'+
