@@ -260,9 +260,9 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         <div class="field-row">
           <div class="field-label">Prep Level</div>
           <div class="seg" id="seg-prep" style="flex:1.5">
-            <button class="seg-btn active" onclick="setPrep(0)">Minimal</button>
-            <button class="seg-btn" onclick="setPrep(10)">Standard</button>
-            <button class="seg-btn" onclick="setPrep(25)">Heavy</button>
+            <button class="seg-btn active" onclick="setPrep(10)">Minimal</button>
+            <button class="seg-btn" onclick="setPrep(25)">Standard</button>
+            <button class="seg-btn" onclick="setPrep(40)">Heavy</button>
             <button class="seg-btn" onclick="setPrep(-1)">Custom</button>
           </div>
         </div>
@@ -1241,7 +1241,7 @@ var mistWall = false;
 var mistCeil = false;
 var wpWall = 'none'; // none / lining / plain / patterned
 var wpCeil = 'none';
-var prepPct  = 0; // 0, 10, 25, or -1 for custom
+var prepPct  = 10; // 10 (Minimal, default), 25 (Standard), 40 (Heavy), or -1 for custom
 var swCoats  = 2;
 var curTab   = 'home';
 var inSub    = null; // 'room' | 'stair' | null
@@ -1284,7 +1284,7 @@ function goScreen(name) {
   document.getElementById('screen-'+name).classList.add('active');
   if (name==='room') {
     resetFormSections();
-    editId=null; coats={wc:2,cc:2,xc:2}; mistWall=false; mistCeil=false; prepPct=0;
+    editId=null; coats={wc:2,cc:2,xc:2}; mistWall=false; mistCeil=false; prepPct=10;
     roomIsStaircase=false; hslFloors=1; hslStairWalls={1:1,2:1}; hslCoats={swc:2};
     [['hsl-h1-l','0'],['hsl-h1-w','0'],['hsl-h1-h','2.4'],
      ['hsl-s1-steps','13'],['hsl-s1-w','0.9'],['hsl-s1-wallh','2.4'],['hsl-s1-riser','0.22'],['hsl-s1-tread','0.22'],
@@ -1328,8 +1328,8 @@ function goScreen(name) {
     document.getElementById('prep-custom-row').style.display='none';
     document.getElementById('r-prep-custom').value='0';
     document.getElementById('r-making-good').value='0';
-    var prepVals=[0,10,25,-1];
-    document.querySelectorAll('#seg-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',prepVals[i]===0);});
+    var prepVals=[10,25,40,-1];
+    document.querySelectorAll('#seg-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',prepVals[i]===10);});
     document.getElementById('del-room-btn').style.display='none';
     document.getElementById('room-preview').style.display='none';
     ['wc','cc','xc'].forEach(function(k) { setSeg(k,2); });
@@ -2475,7 +2475,7 @@ function setWP(key, val) {
 function setPrep(val) {
   prepPct = val;
   var labels = ['Minimal','Standard','Heavy','Custom'];
-  var vals   = [0, 10, 25, -1];
+  var vals   = [10, 25, 40, -1];
   document.querySelectorAll('#seg-prep .seg-btn').forEach(function(b,i){
     b.classList.toggle('active', vals[i]===val);
   });
@@ -2550,8 +2550,8 @@ function editRoom(id) {
   mistWall=!!r.mistWall; mistCeil=!!r.mistCeil;
   document.getElementById('tog-mw').classList.toggle('on',mistWall);
   document.getElementById('tog-mc').classList.toggle('on',mistCeil);
-  prepPct = r.prepPct != null ? r.prepPct : 0;
-  var prepVals=[0,10,25,-1];
+  prepPct = r.prepPct != null ? r.prepPct : 10;
+  var prepVals=[10,25,40,-1];
   document.querySelectorAll('#seg-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',prepVals[i]===prepPct);});
   document.getElementById('r-prep-custom').value = r.prepCustom||0;
   document.getElementById('prep-custom-row').style.display = prepPct===-1?'flex':'none';
@@ -3075,7 +3075,7 @@ async function renderSummary() {
     var subRows='';
     var woodTotal = (woodCost + winCost + radCost + fwCost) * mk;
     var prepUp2 = r.prepPct >= 0 ? r.prepPct : (+r.prepCustom||0);
-    var prepLabel = prepUp2===0?'Minimal':prepUp2===10?'Standard Prep':prepUp2===25?'Heavy Prep':'Custom '+prepUp2+'%';
+    var prepLabel = prepUp2===10?'Minimal':prepUp2===25?'Standard Prep':prepUp2===40?'Heavy Prep':'Custom '+prepUp2+'%';
     if(prepUp2>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Prep ('+prepLabel+')</span><span class="breakdown-sub-value">'+fmt(c.total*mk - (c.total/(1+prepUp2/100))*mk)+'</span></div>';
     if(+r.makingGood>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Making Good</span><span class="breakdown-sub-value">'+fmt(+r.makingGood)+'</span></div>';
     var dispWallCost = r.wallCostStore != null ? +r.wallCostStore : wallCost;
@@ -3108,7 +3108,7 @@ async function renderSummary() {
       '<div class="room-meta">'+
       (r.isHSL
         ? 'Walls '+c.wallArea.toFixed(1)+'m² · '+fmtD(c.time)
-        : r.l+'×'+r.w+'×'+r.h+'m · '+fmtD(c.time)+(r.prepPct&&r.prepPct!==0?' · '+(r.prepPct===-1?'Custom '+r.prepCustom+'%':r.prepPct===10?'Standard Prep':'Heavy Prep'):'')      )+
+        : r.l+'×'+r.w+'×'+r.h+'m · '+fmtD(c.time)+(r.prepPct&&r.prepPct!==10?' · '+(r.prepPct===-1?'Custom '+r.prepCustom+'%':r.prepPct===25?'Standard Prep':'Heavy Prep'):'')      )+
       '</div></div>'+
       '<div class="room-cost">'+fmt(c.total*mk)+'</div>'+
       '<div class="room-chevron-icon" id="chev-'+id+'">›</div>'+
