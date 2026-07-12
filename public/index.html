@@ -337,6 +337,34 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
           <div class="field-label">Wall paper area<small>m² — auto-filled if 0 coats</small></div>
           <input type="number" class="field-input" id="r-wpw-area" value="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()">
         </div>
+        <div class="field-row" id="wp-rolls-header-row" style="display:none;border-top:1px solid var(--border)"><div class="field-label" style="color:var(--text2);font-weight:600">Rolls to order<small>does not feed the quote total — client buys the paper</small></div></div>
+        <div class="field-row" id="wp-roll-len-row" style="display:none">
+          <div class="field-label">Roll length<small>metres — check the label</small></div>
+          <input type="number" class="field-input" id="r-wp-roll-len" value="10.05" min="0.1" step="0.05" inputmode="decimal" oninput="previewRoom()">
+        </div>
+        <div class="field-row" id="wp-roll-width-row" style="display:none">
+          <div class="field-label">Roll width<small>metres — check the label</small></div>
+          <input type="number" class="field-input" id="r-wp-roll-width" value="0.53" min="0.05" step="0.01" inputmode="decimal" oninput="previewRoom()">
+        </div>
+        <div class="field-row" id="wp-match-row" style="display:none">
+          <div class="field-label">Pattern match</div>
+          <div class="seg" id="seg-wp-match" style="flex:1.5">
+            <button class="seg-btn active" onclick="setWPMatch('none')">No match</button>
+            <button class="seg-btn" onclick="setWPMatch('straight')">Straight</button>
+            <button class="seg-btn" onclick="setWPMatch('offset')">Offset</button>
+          </div>
+        </div>
+        <div class="field-row" id="wp-repeat-row" style="display:none">
+          <div class="field-label">Pattern repeat<small>cm — off the roll label</small></div>
+          <input type="number" class="field-input" id="r-wp-repeat" value="0" min="0" step="1" inputmode="numeric" oninput="previewRoom()">
+        </div>
+        <div class="toggle-row" id="wp-spare-row" style="display:none">
+          <div class="toggle-label">Spare roll<small>order one extra, just in case</small></div>
+          <div class="toggle" id="tog-wp-spare" onclick="toggleWPSpare()"></div>
+        </div>
+        <div class="breakdown-row" id="wp-r-droplen-row" style="display:none"><span class="breakdown-label">Drop length</span><span class="breakdown-value" id="wp-r-droplen">—</span></div>
+        <div class="breakdown-row" id="wp-r-drops-row" style="display:none"><span class="breakdown-label">Drops per roll / needed</span><span class="breakdown-value" id="wp-r-drops">—</span></div>
+        <div class="breakdown-row" id="wp-r-rolls-row" style="display:none;background:rgba(26,82,118,.06)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Rolls to order</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="wp-r-rolls">—</span></div>
         <div class="field-row" style="border-top:1px solid var(--border)">
           <div class="field-label">Ceiling</div>
           <div class="seg" id="seg-wpc" style="flex:1.5">
@@ -465,6 +493,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Lining / Wallrock<small>mins/m²</small></div><input type="number" class="field-input" id="s-rwplining" value="6" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Plain<small>mins/m²</small></div><input type="number" class="field-input" id="s-rwpplain" value="8" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Patterned<small>mins/m²</small></div><input type="number" class="field-input" id="s-rwppatterned" value="10" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Trim allowance<small>cm added per drop, top+bottom</small></div><input type="number" class="field-input" id="s-wptrim" value="10" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
     </div>
     <div class="card">
       <div class="card-header">Exterior Rates</div>
@@ -702,6 +731,7 @@ function saveSettings() {
     rWPLining:    +document.getElementById('s-rwplining').value,
     rWPPlain:     +document.getElementById('s-rwpplain').value,
     rWPPatterned: +document.getElementById('s-rwppatterned').value,
+    wpTrimCm:     +document.getElementById('s-wptrim').value,
     rExtMasonry:  +document.getElementById('s-rextmasonry').value,
     rExtFascia:   +document.getElementById('s-rextfascia').value,
     rExtWin:      +document.getElementById('s-rextwin').value,
@@ -1074,6 +1104,7 @@ async function initApp() {
       rWin: rawSettings.rWin||35, rRad: rawSettings.rRad||15, rMist: rawSettings.rMist||2,
       rWPLining: rawSettings.rWPLining||6, rWPPlain: rawSettings.rWPPlain||8,
       rWPPatterned: rawSettings.rWPPatterned||10,
+      wpTrimCm: rawSettings.wpTrimCm!=null ? rawSettings.wpTrimCm : 10,
       rExtMasonry: rawSettings.rExtMasonry||5, rExtFascia: rawSettings.rExtFascia||8,
       rExtWin: rawSettings.rExtWin||65, rExtDoor: rawSettings.rExtDoor||150,
       rExtGarage: rawSettings.rExtGarage||150, rSashPaint: rawSettings.rSashPaint||90,
@@ -1115,7 +1146,8 @@ async function initApp() {
         rDoorPrep: s.rDoorPrep||10, rDoorCoat: s.rDoorCoat||10,
         rWin: s.rWin||35, rRad: s.rRad||15, rMist: s.rMist||2,
         rWPLining: s.rWPLining||6, rWPPlain: s.rWPPlain||8,
-        rWPPatterned: s.rWPPatterned||10
+        rWPPatterned: s.rWPPatterned||10,
+        wpTrimCm: s.wpTrimCm!=null ? s.wpTrimCm : 10
       };
       localStorage.setItem('pe-settings', JSON.stringify(settings));
       loadSettings();
@@ -1229,6 +1261,7 @@ var settings = {
   rWPLining:    _raw.rWPLining    != null ? _raw.rWPLining    : 6,
   rWPPlain:     _raw.rWPPlain     != null ? _raw.rWPPlain     : 8,
   rWPPatterned: _raw.rWPPatterned != null ? _raw.rWPPatterned : 10,
+  wpTrimCm:     _raw.wpTrimCm     != null ? _raw.wpTrimCm     : 10,
   rExtMasonry:  _raw.rExtMasonry  != null ? _raw.rExtMasonry  : 5,
   rExtFascia:   _raw.rExtFascia   != null ? _raw.rExtFascia   : 8,
   rExtWin:      _raw.rExtWin      != null ? _raw.rExtWin      : 65,
@@ -1245,6 +1278,8 @@ var mistWall = false;
 var mistCeil = false;
 var wpWall = 'none'; // none / lining / plain / patterned
 var wpCeil = 'none';
+var wpMatch = 'none'; // none / straight / offset -- pattern match type for the walls roll calculator
+var wpSpareRoll = false;
 var prepPct  = 10; // 10 (Minimal, default), 25 (Standard), 40 (Heavy), or -1 for custom
 var swCoats  = 2;
 var curTab   = 'home';
@@ -1329,6 +1364,15 @@ function goScreen(name) {
     });
     document.getElementById('r-wpw-area').value='0';
     document.getElementById('r-wpc-area').value='0';
+    wpMatch='none'; wpSpareRoll=false;
+    document.querySelectorAll('#seg-wp-match .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===0);});
+    document.getElementById('tog-wp-spare').classList.remove('on');
+    document.getElementById('r-wp-roll-len').value='10.05';
+    document.getElementById('r-wp-roll-width').value='0.53';
+    document.getElementById('r-wp-repeat').value='0';
+    ['wp-rolls-header-row','wp-roll-len-row','wp-roll-width-row','wp-match-row','wp-spare-row','wp-repeat-row','wp-r-droplen-row','wp-r-drops-row','wp-r-rolls-row'].forEach(function(id){
+      var el=document.getElementById(id); if(el) el.style.display='none';
+    });
     document.getElementById('prep-custom-row').style.display='none';
     document.getElementById('r-prep-custom').value='0';
     document.getElementById('r-making-good').value='0';
@@ -1375,6 +1419,7 @@ function loadSettings() {
   document.getElementById('s-rwplining').value    = settings.rWPLining||6;
   document.getElementById('s-rwpplain').value     = settings.rWPPlain||8;
   document.getElementById('s-rwppatterned').value = settings.rWPPatterned||10;
+  document.getElementById('s-wptrim').value       = settings.wpTrimCm!=null ? settings.wpTrimCm : 10;
   document.getElementById('s-rextmasonry').value = settings.rExtMasonry||5;
   document.getElementById('s-rextfascia').value  = settings.rExtFascia||8;
   document.getElementById('s-rextwin').value     = settings.rExtWin||65;
@@ -2454,6 +2499,18 @@ function setWP(key, val) {
   // Show/hide area row
   var areaRow = document.getElementById(key+'-area-row');
   if (areaRow) areaRow.style.display = val!=='none' ? 'flex' : 'none';
+  // Rolls-to-order calculator -- walls only for now (see FEATURES.md, the
+  // ceiling case is deferred). Shown/hidden as one group alongside the area
+  // row; the repeat row within it has its own match-type-driven visibility,
+  // handled by setWPMatch().
+  if (key==='wpw') {
+    var rollsOn = val!=='none';
+    ['wp-rolls-header-row','wp-roll-len-row','wp-roll-width-row','wp-match-row','wp-spare-row'].forEach(function(id){
+      var el = document.getElementById(id); if (el) el.style.display = rollsOn ? 'flex' : 'none';
+    });
+    var repeatRow = document.getElementById('wp-repeat-row');
+    if (repeatRow) repeatRow.style.display = (rollsOn && wpMatch!=='none') ? 'flex' : 'none';
+  }
   // Auto-fill area based on coats
   if (val !== 'none') {
     if (key==='wpw') {
@@ -2474,6 +2531,51 @@ function setWP(key, val) {
     }
   }
   previewRoom();
+}
+
+function setWPMatch(val) {
+  wpMatch = val;
+  var vals = ['none','straight','offset'];
+  document.querySelectorAll('#seg-wp-match .seg-btn').forEach(function(b,i){
+    b.classList.toggle('active', vals[i]===val);
+  });
+  var repeatRow = document.getElementById('wp-repeat-row');
+  if (repeatRow) repeatRow.style.display = (val!=='none' && wpWall!=='none') ? 'flex' : 'none';
+  previewRoom();
+}
+
+function toggleWPSpare() {
+  wpSpareRoll = !wpSpareRoll;
+  document.getElementById('tog-wp-spare').classList.toggle('on', wpSpareRoll);
+  previewRoom();
+}
+
+// Rolls-to-order calculator -- NOT a cost, doesn't feed the quote total.
+// Nicky doesn't supply/order wallpaper, so this purely tells the client (via
+// Nicky) how many rolls to buy. Drops-per-roll method, not raw area:
+//   - matchAllowance: straight match needs a full pattern repeat of waste
+//     per drop (worst case, to align with the previous drop); offset/drop
+//     match halves that, since only every other drop needs re-aligning.
+//   - dropLength = wall height + matchAllowance + trim (top+bottom waste).
+//   - dropsPerRoll: how many full drops fit down one roll's length.
+//   - dropsNeeded: how many drops fit around the wall's total width.
+//   - rolls: dropsNeeded spread across dropsPerRoll-per-roll, rounded up
+//     (never down -- Nicky isn't the one who runs out if this is short, the
+//     client is, so the bias is deliberately toward over- not under-buying).
+// dropsPerRoll is floored at 1 -- if a single drop is taller than the roll
+// itself (an extreme multi-storey case needing spliced rolls), the maths
+// still yields "one roll per drop" rather than dividing by zero; genuinely
+// splicing rolls is rare enough to not model further here.
+function calcWallpaperRolls(wallHeight, wallWidth, rollLen, rollWidth, matchType, repeatCm, trimCm, spareRoll) {
+  if (wallHeight<=0 || wallWidth<=0 || rollLen<=0 || rollWidth<=0) return null;
+  var repeatM = (repeatCm||0)/100;
+  var trimM = (trimCm||0)/100;
+  var matchAllowance = matchType==='straight' ? repeatM : matchType==='offset' ? repeatM/2 : 0;
+  var dropLength = wallHeight + matchAllowance + trimM;
+  var dropsPerRoll = Math.max(1, Math.floor(rollLen / dropLength));
+  var dropsNeeded = Math.ceil(wallWidth / rollWidth);
+  var rolls = Math.ceil(dropsNeeded / dropsPerRoll) + (spareRoll ? 1 : 0);
+  return { dropLength:dropLength, dropsPerRoll:dropsPerRoll, dropsNeeded:dropsNeeded, rolls:rolls };
 }
 
 function setPrep(val) {
@@ -2521,6 +2623,31 @@ function previewRoom() {
   document.getElementById('prev-ceil').textContent=fmtM(c.ceilArea);
   document.getElementById('prev-cost').textContent=fmt(c.total);
   document.getElementById('prev-time').textContent=fmtD(c.time);
+
+  // Rolls-to-order live preview -- walls only. Wall width here means the
+  // linear metres of wall to paper (room perimeter), NOT the wpwArea m²
+  // figure above (that's for the hanging-labour time cost, a different
+  // dimension entirely). Doors aren't subtracted from the perimeter --
+  // deliberate, same "round generously" bias as the rest of this feature.
+  if (wpWall !== 'none') {
+    var rollLen = +document.getElementById('r-wp-roll-len').value||0;
+    var rollWidth = +document.getElementById('r-wp-roll-width').value||0;
+    var repeatCm = +document.getElementById('r-wp-repeat').value||0;
+    var wallWidthLM = (L+W)*2;
+    var rollCalc = calcWallpaperRolls(H, wallWidthLM, rollLen, rollWidth, wpMatch, repeatCm, settings.wpTrimCm, wpSpareRoll);
+    if (rollCalc) {
+      document.getElementById('wp-r-droplen-row').style.display = 'flex';
+      document.getElementById('wp-r-drops-row').style.display = 'flex';
+      document.getElementById('wp-r-rolls-row').style.display = 'flex';
+      document.getElementById('wp-r-droplen').textContent = rollCalc.dropLength.toFixed(2)+' m';
+      document.getElementById('wp-r-drops').textContent = rollCalc.dropsPerRoll+' / '+rollCalc.dropsNeeded;
+      document.getElementById('wp-r-rolls').textContent = rollCalc.rolls;
+    }
+  } else {
+    ['wp-r-droplen-row','wp-r-drops-row','wp-r-rolls-row'].forEach(function(id){
+      document.getElementById(id).style.display = 'none';
+    });
+  }
 }
 function editRoom(id) {
   var r=rooms.find(function(x){return x.id===id;});
@@ -2569,6 +2696,19 @@ function editRoom(id) {
   document.getElementById('wpc-area-row').style.display = wpCeil!=='none'?'flex':'none';
   document.getElementById('r-wpw-area').value = r.wpwArea||0;
   document.getElementById('r-wpc-area').value = r.wpcArea||0;
+  // Restore the rolls-to-order calculator (walls only)
+  wpMatch = r.wpMatch||'none'; wpSpareRoll = !!r.wpSpareRoll;
+  var wpMatchVals=['none','straight','offset'];
+  document.querySelectorAll('#seg-wp-match .seg-btn').forEach(function(b,i){b.classList.toggle('active',wpMatchVals[i]===wpMatch);});
+  document.getElementById('tog-wp-spare').classList.toggle('on', wpSpareRoll);
+  document.getElementById('r-wp-roll-len').value = r.wpRollLen||10.05;
+  document.getElementById('r-wp-roll-width').value = r.wpRollWidth||0.53;
+  document.getElementById('r-wp-repeat').value = r.wpRepeatCm||0;
+  var rollsOn = wpWall!=='none';
+  ['wp-rolls-header-row','wp-roll-len-row','wp-roll-width-row','wp-match-row','wp-spare-row'].forEach(function(id){
+    var el = document.getElementById(id); if (el) el.style.display = rollsOn ? 'flex' : 'none';
+  });
+  document.getElementById('wp-repeat-row').style.display = (rollsOn && wpMatch!=='none') ? 'flex' : 'none';
   document.getElementById('del-room-btn').style.display='block';
   ['wc','cc','xc'].forEach(function(k){setSeg(k,+r[k]);});
   // Staircase/HSL: restore the geometry inputs from hslInputs (saveRoom()'s
@@ -2644,6 +2784,11 @@ function saveRoom() {
     wpWall:wpWall, wpCeil:wpCeil,
     wpwArea:+document.getElementById('r-wpw-area').value,
     wpcArea:+document.getElementById('r-wpc-area').value,
+    wpRollLen:+document.getElementById('r-wp-roll-len').value||10.05,
+    wpRollWidth:+document.getElementById('r-wp-roll-width').value||0.53,
+    wpMatch:wpMatch,
+    wpRepeatCm:+document.getElementById('r-wp-repeat').value||0,
+    wpSpareRoll:wpSpareRoll,
     prepPct:prepPct,
     prepCustom:+document.getElementById('r-prep-custom').value,
     makingGood:+document.getElementById('r-making-good').value,
