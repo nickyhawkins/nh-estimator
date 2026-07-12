@@ -165,12 +165,6 @@ Decide scope deliberately — a staircase isn't a room (own geometry: slope calc
 ### Sequencing
 Fix Step 1 now (small). Step 2 is a proper alignment task — slot it in deliberately, not off the cuff, because the materials-integration part connects to everything recently built. Confirm the materials flow before/after so HSL paint is counted exactly once.
 
-## FEATURE ideas (not yet scoped)
-
-- Quote status tracking (sent/accepted/declined) — note: overlaps with Xero, may not be worth it
-- Photo attachments per room/item — needs external storage (Cloudinary/S3); parked for now
-- Job templates (e.g. "standard 3-bed repaint") to load and tweak
-
 ## Quote description templates
 
 Six templates are stored as iOS/Mac text replacements (`;;paint`, `;;paper`, etc.) and pasted into the Xero line item description fields directly (item selector overwrites price, so paste into description instead). Templates: Painting only, Wallpaper only, Combined, Exterior Render, Exterior Woodwork, Kitchen Cabinet Spraying. Follow-on rooms use "As above".
