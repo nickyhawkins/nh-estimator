@@ -208,10 +208,11 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="card-header">Staircase 1</div>
       <div class="field-row"><div class="field-label">Stair walls<small>how many sides get painted</small></div><div class="seg" id="seg-hsl-s1-walls"><button class="seg-btn active" onclick="setHSLStairWalls(1,1)">1</button><button class="seg-btn" onclick="setHSLStairWalls(1,2)">2</button></div></div>
       <div class="field-row"><div class="field-label">Steps<small>count as you go up</small></div><input type="number" class="field-input" id="hsl-s1-steps" value="13" min="1" step="1" inputmode="numeric" oninput="calcHSL()"></div>
-      <div class="field-row"><div class="field-label">Width<small>metres</small></div><input type="number" class="field-input" id="hsl-s1-w" value="0.9" min="0.1" step="0.05" inputmode="decimal" oninput="calcHSL()"></div>
+      <div class="field-row"><div class="field-label">Stair width<small>metres — physical width of the stairs</small></div><input type="number" class="field-input" id="hsl-s1-w" value="0.9" min="0.1" step="0.05" inputmode="decimal" oninput="calcHSL()"></div>
       <div class="field-row"><div class="field-label">Wall height at bottom<small>metres</small></div><input type="number" class="field-input" id="hsl-s1-wallh" value="2.4" min="0.5" step="0.05" inputmode="decimal" oninput="calcHSL()"></div>
       <div class="field-row" style="background:var(--surface2)"><div class="field-label" style="color:var(--text2)">Riser<small>default 220mm</small></div><input type="number" class="field-input" id="hsl-s1-riser" value="0.22" min="0.1" step="0.01" inputmode="decimal" oninput="calcHSL()"></div>
       <div class="field-row" style="background:var(--surface2)"><div class="field-label" style="color:var(--text2)">Tread<small>default 220mm</small></div><input type="number" class="field-input" id="hsl-s1-tread" value="0.22" min="0.1" step="0.01" inputmode="decimal" oninput="calcHSL()"></div>
+      <div class="field-row"><div class="field-label">Top step<small>metres — measure at the top, see diagram</small></div><input type="number" class="field-input" id="hsl-s1-topstep" value="0" min="0" step="0.01" inputmode="decimal" oninput="calcHSL()"></div>
     </div>
     <div class="card" id="hsl-land1-card" style="display:none">
       <div class="card-header">1st Floor Landing</div>
@@ -223,10 +224,11 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="card-header">Staircase 2</div>
       <div class="field-row"><div class="field-label">Stair walls<small>how many sides get painted</small></div><div class="seg" id="seg-hsl-s2-walls"><button class="seg-btn active" onclick="setHSLStairWalls(2,1)">1</button><button class="seg-btn" onclick="setHSLStairWalls(2,2)">2</button></div></div>
       <div class="field-row"><div class="field-label">Steps</div><input type="number" class="field-input" id="hsl-s2-steps" value="13" min="1" step="1" inputmode="numeric" oninput="calcHSL()"></div>
-      <div class="field-row"><div class="field-label">Width<small>metres</small></div><input type="number" class="field-input" id="hsl-s2-w" value="0.9" min="0.1" step="0.05" inputmode="decimal" oninput="calcHSL()"></div>
+      <div class="field-row"><div class="field-label">Stair width<small>metres — physical width of the stairs</small></div><input type="number" class="field-input" id="hsl-s2-w" value="0.9" min="0.1" step="0.05" inputmode="decimal" oninput="calcHSL()"></div>
       <div class="field-row"><div class="field-label">Wall height at bottom<small>metres</small></div><input type="number" class="field-input" id="hsl-s2-wallh" value="2.4" min="0.5" step="0.05" inputmode="decimal" oninput="calcHSL()"></div>
       <div class="field-row" style="background:var(--surface2)"><div class="field-label" style="color:var(--text2)">Riser<small>default 220mm</small></div><input type="number" class="field-input" id="hsl-s2-riser" value="0.22" min="0.1" step="0.01" inputmode="decimal" oninput="calcHSL()"></div>
       <div class="field-row" style="background:var(--surface2)"><div class="field-label" style="color:var(--text2)">Tread<small>default 220mm</small></div><input type="number" class="field-input" id="hsl-s2-tread" value="0.22" min="0.1" step="0.01" inputmode="decimal" oninput="calcHSL()"></div>
+      <div class="field-row"><div class="field-label">Top step<small>metres — measure at the top, see diagram</small></div><input type="number" class="field-input" id="hsl-s2-topstep" value="0" min="0" step="0.01" inputmode="decimal" oninput="calcHSL()"></div>
     </div>
     <div class="card" id="hsl-land2-card" style="display:none">
       <div class="card-header">2nd Floor Landing</div>
@@ -353,8 +355,10 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     <div class="card" id="hsl-results-card" style="display:none">
       <div class="card-header">Staircase Areas</div>
       <div class="breakdown-row"><span class="breakdown-label">Hall wall area</span><span class="breakdown-value" id="hsl-r-hall">—</span></div>
+      <div class="breakdown-row" id="hsl-r-stair1-width-row" style="display:none"><span class="breakdown-label">Stair 1 wall width<small>derived — hall width + steps + top step</small></span><span class="breakdown-value" id="hsl-r-stair1-width">—</span></div>
       <div class="breakdown-row" id="hsl-r-stair1-row" style="display:none"><span class="breakdown-label">Staircase 1 walls</span><span class="breakdown-value" id="hsl-r-stair1">—</span></div>
       <div class="breakdown-row" id="hsl-r-land1-row" style="display:none"><span class="breakdown-label">1st floor landing walls</span><span class="breakdown-value" id="hsl-r-land1">—</span></div>
+      <div class="breakdown-row" id="hsl-r-stair2-width-row" style="display:none"><span class="breakdown-label">Stair 2 wall width<small>derived — landing width + steps + top step</small></span><span class="breakdown-value" id="hsl-r-stair2-width">—</span></div>
       <div class="breakdown-row" id="hsl-r-stair2-row" style="display:none"><span class="breakdown-label">Staircase 2 walls</span><span class="breakdown-value" id="hsl-r-stair2">—</span></div>
       <div class="breakdown-row" id="hsl-r-land2-row" style="display:none"><span class="breakdown-label">2nd floor landing walls</span><span class="breakdown-value" id="hsl-r-land2">—</span></div>
       <div class="breakdown-row"><span class="breakdown-label">Total ceiling area</span><span class="breakdown-value" id="hsl-r-ceil">—</span></div>
@@ -1287,9 +1291,9 @@ function goScreen(name) {
     editId=null; coats={wc:2,cc:2,xc:2}; mistWall=false; mistCeil=false; prepPct=10;
     roomIsStaircase=false; hslFloors=1; hslStairWalls={1:1,2:1}; hslCoats={swc:2};
     [['hsl-h1-l','0'],['hsl-h1-w','0'],['hsl-h1-h','2.4'],
-     ['hsl-s1-steps','13'],['hsl-s1-w','0.9'],['hsl-s1-wallh','2.4'],['hsl-s1-riser','0.22'],['hsl-s1-tread','0.22'],
+     ['hsl-s1-steps','13'],['hsl-s1-w','0.9'],['hsl-s1-wallh','2.4'],['hsl-s1-riser','0.22'],['hsl-s1-tread','0.22'],['hsl-s1-topstep','0'],
      ['hsl-l1-l','0'],['hsl-l1-w','0'],['hsl-l1-h','2.4'],
-     ['hsl-s2-steps','13'],['hsl-s2-w','0.9'],['hsl-s2-wallh','2.4'],['hsl-s2-riser','0.22'],['hsl-s2-tread','0.22'],
+     ['hsl-s2-steps','13'],['hsl-s2-w','0.9'],['hsl-s2-wallh','2.4'],['hsl-s2-riser','0.22'],['hsl-s2-tread','0.22'],['hsl-s2-topstep','0'],
      ['hsl-l2-l','0'],['hsl-l2-w','0'],['hsl-l2-h','2.4'],
      ['hsl-spindles','0'],['hsl-newels','0']
     ].forEach(function(pair){ var el=document.getElementById(pair[0]); if(el) el.value=pair[1]; });
@@ -2579,10 +2583,10 @@ function editRoom(id) {
     hslCoats = {swc: hi.swc || 2};
     document.getElementById('hsl-h1-l').value = hi.h1l||'0'; document.getElementById('hsl-h1-w').value = hi.h1w||'0'; document.getElementById('hsl-h1-h').value = hi.h1h||'2.4';
     document.getElementById('hsl-s1-steps').value = hi.s1steps||'13'; document.getElementById('hsl-s1-w').value = hi.s1w||'0.9'; document.getElementById('hsl-s1-wallh').value = hi.s1wallh||'2.4';
-    document.getElementById('hsl-s1-riser').value = hi.s1riser||'0.22'; document.getElementById('hsl-s1-tread').value = hi.s1tread||'0.22';
+    document.getElementById('hsl-s1-riser').value = hi.s1riser||'0.22'; document.getElementById('hsl-s1-tread').value = hi.s1tread||'0.22'; document.getElementById('hsl-s1-topstep').value = hi.s1topstep||'0';
     document.getElementById('hsl-l1-l').value = hi.l1l||'0'; document.getElementById('hsl-l1-w').value = hi.l1w||'0'; document.getElementById('hsl-l1-h').value = hi.l1h||'2.4';
     document.getElementById('hsl-s2-steps').value = hi.s2steps||'13'; document.getElementById('hsl-s2-w').value = hi.s2w||'0.9'; document.getElementById('hsl-s2-wallh').value = hi.s2wallh||'2.4';
-    document.getElementById('hsl-s2-riser').value = hi.s2riser||'0.22'; document.getElementById('hsl-s2-tread').value = hi.s2tread||'0.22';
+    document.getElementById('hsl-s2-riser').value = hi.s2riser||'0.22'; document.getElementById('hsl-s2-tread').value = hi.s2tread||'0.22'; document.getElementById('hsl-s2-topstep').value = hi.s2topstep||'0';
     document.getElementById('hsl-l2-l').value = hi.l2l||'0'; document.getElementById('hsl-l2-w').value = hi.l2w||'0'; document.getElementById('hsl-l2-h').value = hi.l2h||'2.4';
     document.getElementById('hsl-spindles').value = hi.spindles||'0'; document.getElementById('hsl-newels').value = hi.newels||'0';
     document.querySelectorAll('#seg-hsl-floors .seg-btn').forEach(function(b,i){b.classList.toggle('active',i+1===hslFloors);});
@@ -2719,10 +2723,14 @@ function setHSLFloors(n) {
   var l1row = document.getElementById('hsl-r-land1-row');
   var r2row = document.getElementById('hsl-r-stair2-row');
   var l2row = document.getElementById('hsl-r-land2-row');
+  var w1row = document.getElementById('hsl-r-stair1-width-row');
+  var w2row = document.getElementById('hsl-r-stair2-width-row');
   if(r1row) r1row.style.display = n>=2 ? 'flex' : 'none';
   if(l1row) l1row.style.display = n>=2 ? 'flex' : 'none';
   if(r2row) r2row.style.display = n>=3 ? 'flex' : 'none';
   if(l2row) l2row.style.display = n>=3 ? 'flex' : 'none';
+  if(w1row) w1row.style.display = n>=2 ? 'flex' : 'none';
+  if(w2row) w2row.style.display = n>=3 ? 'flex' : 'none';
   calcHSL();
 }
 
@@ -2745,12 +2753,27 @@ function setHSLSeg(key, val) {
   calcHSL();
 }
 
-function stairWallArea(steps, width, wallH, riser, tread, walls) {
-  var run   = steps * tread;
-  var rise  = steps * riser;
-  var slope = Math.sqrt(run*run + rise*rise);
+// Derived stair-wall width -- built UP from the bottom (starting width +
+// steps*tread + top step), NEVER measured across the top via landing
+// length, which overlaps the stairwell void and double-counts. See
+// stair_wall_measurement_v2.png. startWidth is the width of whatever the
+// flight launches from (ground floor hall for stair 1, the landing below
+// for stair 2 -- NOT the arrival landing's length).
+function stairWallWidth(startWidth, steps, tread, topStep) {
+  return startWidth + (steps * tread) + topStep;
+}
+// Stepped-bottom stair-wall area, reconstructed from 3 flat/simple regions
+// (deliberately NOT modelling each individual step as its own sliver --
+// round generously instead, per the diagram):
+//   1. startWidth-wide rectangle at wallH (the flat hall/landing height)
+//   2. (steps*tread)-wide "rake" trapezoid, averaging wallH up to topHeight
+//   3. topStep-wide rectangle at topHeight (already full height)
+// topHeight is the landing height this flight arrives at.
+function stairWallArea(startWidth, steps, tread, topStep, wallH, topHeight, walls) {
+  var rakeWidth = steps * tread;
+  var area = (wallH * startWidth) + (((wallH + topHeight) / 2) * rakeWidth) + (topHeight * topStep);
   var sides = walls || 1;
-  return slope * wallH * sides * 1.10; // +10% buffer
+  return area * sides * 1.10; // +10% buffer
 }
 function stairSlope(steps, riser, tread) {
   var run  = steps * tread;
@@ -2785,20 +2808,26 @@ function calcHSL() {
   var stair1Wall=0, land1Wall=0, land1Ceil=0, stair2Wall=0, land2Wall=0, land2Ceil=0;
   var totalSlope=0;
 
+  var stair1WallWidth=0, stair2WallWidth=0;
+
   if(hslFloors>=2) {
-    // Staircase 1
+    // Staircase 1 -- launches from the ground floor hall, arrives at the
+    // 1st floor landing (topHeight). Landing dims read first since l1h
+    // feeds the stair-wall calc as well as the landing's own wall area.
     var s1steps=+document.getElementById('hsl-s1-steps').value||13;
     var s1w    =+document.getElementById('hsl-s1-w').value||0.9;
     var s1wallh=+document.getElementById('hsl-s1-wallh').value||2.4;
     var s1riser=+document.getElementById('hsl-s1-riser').value||0.22;
     var s1tread=+document.getElementById('hsl-s1-tread').value||0.22;
-    stair1Wall = stairWallArea(s1steps,s1w,s1wallh,s1riser,s1tread,hslStairWalls[1]);
-    totalSlope += stairSlope(s1steps,s1riser,s1tread);
-    totalWall  += stair1Wall;
-    // 1st floor landing
+    var s1topstep=+document.getElementById('hsl-s1-topstep').value||0;
     var l1l=+document.getElementById('hsl-l1-l').value||0;
     var l1w=+document.getElementById('hsl-l1-w').value||0;
     var l1h=+document.getElementById('hsl-l1-h').value||2.4;
+    stair1WallWidth = stairWallWidth(h1w,s1steps,s1tread,s1topstep);
+    stair1Wall = stairWallArea(h1w,s1steps,s1tread,s1topstep,s1wallh,l1h,hslStairWalls[1]);
+    totalSlope += stairSlope(s1steps,s1riser,s1tread);
+    totalWall  += stair1Wall;
+    // 1st floor landing's own 4 walls -- separate from the stair wall above
     land1Wall = roomWallArea(l1l,l1w,l1h);
     land1Ceil = roomCeilArea(l1l,l1w);
     totalWall += land1Wall;
@@ -2806,19 +2835,22 @@ function calcHSL() {
   }
 
   if(hslFloors>=3) {
-    // Staircase 2
+    // Staircase 2 -- launches from the 1st floor landing (l1w as its
+    // "starting width"), arrives at the 2nd floor landing (l2h).
     var s2steps=+document.getElementById('hsl-s2-steps').value||13;
     var s2w    =+document.getElementById('hsl-s2-w').value||0.9;
     var s2wallh=+document.getElementById('hsl-s2-wallh').value||2.4;
     var s2riser=+document.getElementById('hsl-s2-riser').value||0.22;
     var s2tread=+document.getElementById('hsl-s2-tread').value||0.22;
-    stair2Wall = stairWallArea(s2steps,s2w,s2wallh,s2riser,s2tread,hslStairWalls[2]);
+    var s2topstep=+document.getElementById('hsl-s2-topstep').value||0;
+    var l2h=+document.getElementById('hsl-l2-h').value||2.4;
+    stair2WallWidth = stairWallWidth(l1w,s2steps,s2tread,s2topstep);
+    stair2Wall = stairWallArea(l1w,s2steps,s2tread,s2topstep,s2wallh,l2h,hslStairWalls[2]);
     totalSlope += stairSlope(s2steps,s2riser,s2tread);
     totalWall  += stair2Wall;
-    // 2nd floor landing
+    // 2nd floor landing's own 4 walls
     var l2l=+document.getElementById('hsl-l2-l').value||0;
     var l2w=+document.getElementById('hsl-l2-w').value||0;
-    var l2h=+document.getElementById('hsl-l2-h').value||2.4;
     land2Wall = roomWallArea(l2l,l2w,l2h);
     land2Ceil = roomCeilArea(l2l,l2w);
     totalWall += land2Wall;
@@ -2883,10 +2915,12 @@ function calcHSL() {
   document.getElementById('hsl-r-ceil').textContent  = totalCeil.toFixed(2)+' m²';
   document.getElementById('hsl-r-walls').textContent = totalWall.toFixed(2)+' m²';
   if(hslFloors>=2) {
+    document.getElementById('hsl-r-stair1-width').textContent = stair1WallWidth.toFixed(2)+' m';
     document.getElementById('hsl-r-stair1').textContent = stair1Wall.toFixed(2)+' m²';
     document.getElementById('hsl-r-land1').textContent  = land1Wall.toFixed(2)+' m²';
   }
   if(hslFloors>=3) {
+    document.getElementById('hsl-r-stair2-width').textContent = stair2WallWidth.toFixed(2)+' m';
     document.getElementById('hsl-r-stair2').textContent = stair2Wall.toFixed(2)+' m²';
     document.getElementById('hsl-r-land2').textContent  = land2Wall.toFixed(2)+' m²';
   }
@@ -2926,15 +2960,18 @@ function computeHSLOverrides() {
     var s1wallh=+document.getElementById('hsl-s1-wallh').value||2.4;
     var s1riser=+document.getElementById('hsl-s1-riser').value||0.22;
     var s1tread=+document.getElementById('hsl-s1-tread').value||0.22;
+    var s1topstep=+document.getElementById('hsl-s1-topstep').value||0;
+    var l1l=+document.getElementById('hsl-l1-l').value||0;
+    var l1w=+document.getElementById('hsl-l1-w').value||0;
+    var l1h=+document.getElementById('hsl-l1-h').value||2.4;
     // hslStairWalls[1] (how many sides get painted) -- the old useHSL()
     // dropped this argument, always costing/materialising a single wall's
     // worth of area even when the user picked 2, while the live preview
     // (calcHSL) always passed it correctly. Fixed here to match the preview.
-    totalWall  += stairWallArea(s1steps,s1w,s1wallh,s1riser,s1tread,hslStairWalls[1]);
+    // Width is derived (hall width + steps*tread + top step), not measured
+    // via landing length -- see stairWallArea()'s comment.
+    totalWall  += stairWallArea(h1w,s1steps,s1tread,s1topstep,s1wallh,l1h,hslStairWalls[1]);
     totalSlope += stairSlope(s1steps,s1riser,s1tread);
-    var l1l=+document.getElementById('hsl-l1-l').value||0;
-    var l1w=+document.getElementById('hsl-l1-w').value||0;
-    var l1h=+document.getElementById('hsl-l1-h').value||2.4;
     totalWall += roomWallArea(l1l,l1w,l1h);
     totalCeil += roomCeilArea(l1l,l1w);
   }
@@ -2944,11 +2981,12 @@ function computeHSLOverrides() {
     var s2wallh=+document.getElementById('hsl-s2-wallh').value||2.4;
     var s2riser=+document.getElementById('hsl-s2-riser').value||0.22;
     var s2tread=+document.getElementById('hsl-s2-tread').value||0.22;
-    totalWall  += stairWallArea(s2steps,s2w,s2wallh,s2riser,s2tread,hslStairWalls[2]);
-    totalSlope += stairSlope(s2steps,s2riser,s2tread);
+    var s2topstep=+document.getElementById('hsl-s2-topstep').value||0;
     var l2l=+document.getElementById('hsl-l2-l').value||0;
     var l2w=+document.getElementById('hsl-l2-w').value||0;
     var l2h=+document.getElementById('hsl-l2-h').value||2.4;
+    totalWall  += stairWallArea(l1w,s2steps,s2tread,s2topstep,s2wallh,l2h,hslStairWalls[2]);
+    totalSlope += stairSlope(s2steps,s2riser,s2tread);
     totalWall += roomWallArea(l2l,l2w,l2h);
     totalCeil += roomCeilArea(l2l,l2w);
   }
@@ -3026,10 +3064,10 @@ function computeHSLOverrides() {
       floors: hslFloors,
       h1l: document.getElementById('hsl-h1-l').value, h1w: document.getElementById('hsl-h1-w').value, h1h: document.getElementById('hsl-h1-h').value,
       s1steps: document.getElementById('hsl-s1-steps').value, s1w: document.getElementById('hsl-s1-w').value, s1wallh: document.getElementById('hsl-s1-wallh').value,
-      s1riser: document.getElementById('hsl-s1-riser').value, s1tread: document.getElementById('hsl-s1-tread').value,
+      s1riser: document.getElementById('hsl-s1-riser').value, s1tread: document.getElementById('hsl-s1-tread').value, s1topstep: document.getElementById('hsl-s1-topstep').value,
       l1l: document.getElementById('hsl-l1-l').value, l1w: document.getElementById('hsl-l1-w').value, l1h: document.getElementById('hsl-l1-h').value,
       s2steps: document.getElementById('hsl-s2-steps').value, s2w: document.getElementById('hsl-s2-w').value, s2wallh: document.getElementById('hsl-s2-wallh').value,
-      s2riser: document.getElementById('hsl-s2-riser').value, s2tread: document.getElementById('hsl-s2-tread').value,
+      s2riser: document.getElementById('hsl-s2-riser').value, s2tread: document.getElementById('hsl-s2-tread').value, s2topstep: document.getElementById('hsl-s2-topstep').value,
       l2l: document.getElementById('hsl-l2-l').value, l2w: document.getElementById('hsl-l2-w').value, l2h: document.getElementById('hsl-l2-h').value,
       spindles: document.getElementById('hsl-spindles').value, newels: document.getElementById('hsl-newels').value,
       swc: hslCoats.swc, stairWalls: hslStairWalls
