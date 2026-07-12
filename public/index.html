@@ -35,6 +35,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
 /* Cards */
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+#colours-cards{overflow:visible} /* colour-library autocomplete dropdown must escape the card's rounded-corner clipping */
 .card-header{padding:14px 16px;font-size:11px;font-weight:600;letter-spacing:.8px;color:var(--text2);text-transform:uppercase;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
 .field-row{display:flex;align-items:center;padding:14px 16px;border-bottom:1px solid var(--border);gap:12px}
 .field-row:last-child{border-bottom:none}
@@ -1121,6 +1122,9 @@ async function initApp() {
   var coloursLocal = JSON.parse(localStorage.getItem('pe-colours')||'null');
   if (coloursLocal && coloursLocal.length > 0) { colours = coloursLocal; }
 
+  var colourLibraryLocal = JSON.parse(localStorage.getItem('pe-colour-library')||'null');
+  if (colourLibraryLocal && colourLibraryLocal.length > 0) { colourLibrary = colourLibraryLocal; }
+
   var materialsLocal = JSON.parse(localStorage.getItem('pe-materials-snapshot')||'null');
   if (materialsLocal && materialsLocal.length > 0) { materialsSnapshot = materialsLocal; }
 
@@ -1179,6 +1183,19 @@ async function initApp() {
       }
     } catch (e) {
       console.log('Colours fetch failed — running from local cache:', e.message);
+    }
+    // Same isolated try/catch reasoning as colours above -- colour_library
+    // is a new table too. It's global/permanent (not job-scoped), so unlike
+    // rooms/colours there's no "clear if empty" case to worry about, just
+    // refresh the cache whenever the fetch succeeds.
+    try {
+      var libData = await apiGet('/api/colour-library');
+      if (libData && libData.length > 0) {
+        colourLibrary = libData;
+        localStorage.setItem('pe-colour-library', JSON.stringify(colourLibrary));
+      }
+    } catch (e) {
+      console.log('Colour library fetch failed — running from local cache:', e.message);
     }
     ensureDefaultColour();
     renderColours();
@@ -1955,10 +1972,16 @@ function addCustomMaterialLine() {
 // ── Colours (job-scoped list, same lifecycle as rooms/extItems) ────────────
 var colours = [];
 
+// Global, permanent reference list of {name, brand, code} -- seeded once
+// with the Farrow & Ball and Little Greene full ranges, grows over time as
+// unmatched colours are saved from the Colours tab. Unlike `colours` above
+// (job-scoped), this is never cleared by Clear Rooms/Clear Everything.
+var colourLibrary = [];
+
 function saveColours() {
   localStorage.setItem('pe-colours', JSON.stringify(colours));
   apiDelete('/api/colours').then(function() {
-    colours.forEach(function(c) { apiPut('/api/colours/'+c.number, { label: c.label }); });
+    colours.forEach(function(c) { apiPut('/api/colours/'+c.number, { label: c.label, brand: c.brand||'', code: c.code||'' }); });
   });
 }
 
@@ -2053,9 +2076,14 @@ function renderColours() {
     if (woodRooms.length) sub += '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Woodwork</span><span class="breakdown-sub-value">'+escapeHtml(woodRooms.join(', '))+'</span></div>';
     if (featureWallRooms.length) sub += '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Feature wall</span><span class="breakdown-sub-value">'+escapeHtml(featureWallRooms.join(', '))+'</span></div>';
     matRows.forEach(function(r){ sub += r.html; });
+    var brandChip = c.brand ? '<div class="chip" style="white-space:nowrap">'+escapeHtml(c.brand)+(c.code ? ' · No. '+escapeHtml(c.code) : '')+'</div>' : '';
     return '<div class="field-row">'+
       '<div class="room-icon" style="font-size:16px;font-weight:700">'+c.number+'</div>'+
-      '<input type="text" class="field-input wide" placeholder="Name this colour (optional)" autocorrect="off" value="'+escapeHtml(c.label||'')+'" onchange="renameColour('+c.number+',this.value)">'+
+      '<div style="position:relative">'+
+        '<input type="text" class="field-input wide" id="c-label-'+c.number+'" placeholder="Name this colour (optional)" autocorrect="off" autocomplete="off" value="'+escapeHtml(c.label||'')+'" oninput="onColourLabelInput('+c.number+',this.value)" onfocus="onColourLabelInput('+c.number+',this.value)" onchange="renameColour('+c.number+',this.value)">'+
+        '<div id="colour-dd-'+c.number+'" style="display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:260px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div>'+
+      '</div>'+
+      brandChip+
       (surfaces ? '<div class="chip">'+surfaces+'</div>' : '')+
       (c.number===1 ? '' : '<div onclick="deleteColour('+c.number+')" style="color:var(--danger);font-size:22px;padding:0 4px;cursor:pointer">×</div>')+
       (hasBreakdown ? '<div class="room-chevron-icon" id="chev-'+bdId+'" onclick="toggleRoomBd(\''+bdId+'\')" style="cursor:pointer">›</div>' : '')+
@@ -2067,17 +2095,149 @@ function renderColours() {
 function addColour() {
   ensureDefaultColour();
   var nextNumber = Math.max.apply(null, colours.map(function(c){ return c.number; })) + 1;
-  colours.push({ number: nextNumber, label: '' });
+  colours.push({ number: nextNumber, label: '', brand: '', code: '' });
   saveColours();
   renderColours();
 }
 
+// Plain blur-commit path (no dropdown selection): if the typed text
+// happens to exactly match a library entry, autofill brand/code anyway;
+// otherwise it's free text and carries no brand/code metadata.
+// Guarded against firing while this row's dropdown/save-form is open --
+// clicking from the label input into the save-form's own Brand/Code
+// fields blurs the label input too, and committing here would wipe out
+// the save-form (a full renderColours() rebuild) before the user can use
+// it. The dropdown's own click handlers (selectLibraryColour,
+// confirmSaveColour, the outside-click listener below) commit instead.
 function renameColour(number, label) {
+  if (colourDropdownFor === number) return;
+  label = label.trim();
+  var match = colourLibrary.find(function(l){ return l.name.toLowerCase() === label.toLowerCase(); });
+  commitColour(number, label, match ? match.brand : '', match ? match.code : '');
+}
+
+function commitColour(number, label, brand, code) {
   var c = colours.find(function(x){ return x.number === number; });
   if (!c) return;
-  c.label = label.trim();
+  c.label = label;
+  c.brand = brand || '';
+  c.code = code || '';
   saveColours();
+  renderColours();
 }
+
+// ── Colour reference library autocomplete (Colours tab) ─────────────────────
+// Mirrors the Xero contact autocomplete pattern (onXeroClientInput etc.)
+// but filters the in-memory colourLibrary instead of hitting a server
+// search endpoint -- the whole library (~500 entries) is cheap to keep
+// client-side and filter on every keystroke.
+var colourDropdownMatches = [];
+var colourDropdownFor = null;
+
+function onColourLabelInput(number, value) {
+  colourDropdownFor = number;
+  var q = value.trim();
+  var dd = document.getElementById('colour-dd-'+number);
+  if (!dd) return;
+  if (q.length < 2) { dd.style.display = 'none'; return; }
+  var qLower = q.toLowerCase();
+  colourDropdownMatches = colourLibrary.filter(function(c){
+    return c.name.toLowerCase().indexOf(qLower) !== -1;
+  }).slice(0, 8);
+  var html = colourDropdownMatches.map(function(c, i){
+    return '<div style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:14px" onmousedown="event.preventDefault()" onclick="selectLibraryColour('+number+','+i+')">'
+      + '<div style="font-weight:600;color:var(--text)">' + escapeHtml(c.name) + '</div>'
+      + '<div style="font-size:12px;color:var(--text2)">' + escapeHtml(c.brand) + (c.code ? ' · No. ' + escapeHtml(c.code) : '') + '</div>'
+      + '</div>';
+  }).join('');
+  var exact = colourLibrary.some(function(c){ return c.name.toLowerCase() === qLower; });
+  if (!exact) {
+    html += '<div style="padding:10px 12px;cursor:pointer;color:var(--accent);font-weight:600;font-size:14px" onmousedown="event.preventDefault()" onclick="showSaveColourForm('+number+')">+ Save “' + escapeHtml(q) + '” to your colour library</div>';
+  }
+  dd.innerHTML = html;
+  dd.style.display = 'block';
+}
+
+function selectLibraryColour(number, idx) {
+  var c = colourDropdownMatches[idx];
+  if (!c) return;
+  var input = document.getElementById('c-label-'+number);
+  if (input) input.value = c.name;
+  commitColour(number, c.name, c.brand, c.code);
+  hideColourDropdown(number);
+}
+
+function showSaveColourForm(number) {
+  var input = document.getElementById('c-label-'+number);
+  var q = input ? input.value.trim() : '';
+  var dd = document.getElementById('colour-dd-'+number);
+  if (!dd || !q) return;
+  dd.innerHTML =
+    '<div style="padding:10px 12px;background:var(--surface2)">'
+    + '<div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Save “'+escapeHtml(q)+'” to colour library</div>'
+    + '<input type="text" id="cs-brand-'+number+'" placeholder="Brand (e.g. Farrow &amp; Ball)" autocorrect="off" style="width:100%;box-sizing:border-box;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:\'DM Sans\',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none;margin-bottom:6px">'
+    + '<input type="text" id="cs-code-'+number+'" placeholder="Code (optional)" autocorrect="off" style="width:100%;box-sizing:border-box;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:\'DM Sans\',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none;margin-bottom:8px">'
+    + '<div style="display:flex;gap:8px">'
+    + '<button onclick="confirmSaveColour('+number+')" style="flex:1;background:var(--accent);color:white;border:none;border-radius:var(--rs);padding:8px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer">Save</button>'
+    + '<button onclick="skipSaveColour('+number+')" style="flex:1;background:none;border:1px solid var(--border);color:var(--text2);border-radius:var(--rs);padding:8px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer">Skip</button>'
+    + '</div>'
+    + '</div>';
+}
+
+function confirmSaveColour(number) {
+  var input = document.getElementById('c-label-'+number);
+  var q = input ? input.value.trim() : '';
+  if (!q) return;
+  var brandEl = document.getElementById('cs-brand-'+number);
+  var codeEl = document.getElementById('cs-code-'+number);
+  var brand = brandEl ? brandEl.value.trim() : '';
+  var code = codeEl ? codeEl.value.trim() : '';
+  if (brand) {
+    colourLibrary.push({ name: q, brand: brand, code: code });
+    localStorage.setItem('pe-colour-library', JSON.stringify(colourLibrary));
+    fetch('/api/colour-library', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ name: q, brand: brand, code: code })
+    }).catch(function(){});
+  }
+  commitColour(number, q, brand, code);
+  hideColourDropdown(number);
+}
+
+// Declining to save to the library still commits the typed text as free
+// text (per the fallback spec) -- only the library-save step is skipped.
+function skipSaveColour(number) {
+  var input = document.getElementById('c-label-'+number);
+  var label = input ? input.value.trim() : '';
+  hideColourDropdown(number);
+  commitColour(number, label, '', '');
+}
+
+function hideColourDropdown(number) {
+  var dd = document.getElementById('colour-dd-'+number);
+  if (dd) dd.style.display = 'none';
+  if (colourDropdownFor === number) colourDropdownFor = null;
+}
+
+document.addEventListener('click', function(e){
+  if (colourDropdownFor == null) return;
+  var number = colourDropdownFor;
+  var input = document.getElementById('c-label-'+number);
+  var dd = document.getElementById('colour-dd-'+number);
+  if (!input || !dd) return;
+  // Use composedPath (captured at dispatch time) rather than dd.contains(e.target) --
+  // a click on a dropdown row (e.g. "+ Save to library") runs its own onclick
+  // first, which replaces dd's innerHTML with the save-form. By the time this
+  // bubbled listener runs, e.target is a detached node and dd.contains(e.target)
+  // would wrongly report "outside", closing the form before it's used.
+  var path = typeof e.composedPath === 'function' ? e.composedPath() : [e.target];
+  var insideDd = path.indexOf(dd) !== -1;
+  if (e.target !== input && !insideDd) {
+    hideColourDropdown(number); // clears colourDropdownFor so the renameColour guard above no longer blocks
+    renameColour(number, input.value);
+  }
+});
 
 function deleteColour(number) {
   if (number === 1) return; // the default colour — can be renamed, not removed

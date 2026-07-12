@@ -46,13 +46,33 @@ CREATE TABLE IF NOT EXISTS exterior_items (
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- Colours table (job-scoped list of {number, label}, same lifecycle as
--- rooms/exterior_items — not a permanent setting, cleared with the job)
+-- Colours table (job-scoped list of {number, label, brand, code}, same
+-- lifecycle as rooms/exterior_items — not a permanent setting, cleared
+-- with the job). brand/code are filled from the colour_library below,
+-- either via autocomplete match or after saving a new library entry.
 CREATE TABLE IF NOT EXISTS colours (
   number INTEGER PRIMARY KEY,
   label VARCHAR NOT NULL DEFAULT '',
+  brand VARCHAR NOT NULL DEFAULT '',
+  code VARCHAR NOT NULL DEFAULT '',
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
+);
+ALTER TABLE colours ADD COLUMN IF NOT EXISTS brand VARCHAR NOT NULL DEFAULT '';
+ALTER TABLE colours ADD COLUMN IF NOT EXISTS code VARCHAR NOT NULL DEFAULT '';
+
+-- Colour reference library: global and permanent, NOT job-scoped and NOT
+-- cleared by Clear Rooms/Clear Everything (more like settings than a job
+-- record). Seeded once with the Farrow & Ball and Little Greene full
+-- ranges (see db/seed-colour-library.js); grows over time as unmatched
+-- colours are saved on first use from the Colours tab. See FEATURES.md.
+CREATE TABLE IF NOT EXISTS colour_library (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR NOT NULL,
+  brand VARCHAR NOT NULL,
+  code VARCHAR NOT NULL DEFAULT '',
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(name, brand)
 );
 
 -- Materials snapshot table (job-scoped, editable list of priced material
