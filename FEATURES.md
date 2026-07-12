@@ -160,10 +160,77 @@ Decide scope deliberately — a staircase isn't a room (own geometry: slope calc
 - **Trigger from the room add flow, not a separate button/tab.** Lose the dedicated HSL button; instead HSL options surface when adding a room. Two ways, decide when building: (a) a **"staircase / HSL" toggle** in the room form — RECOMMENDED, explicit and predictable, reveals the staircase inputs when on; or (b) a **keyword in the name** (typing "HSL") auto-reveals them — slicker but risks false triggers, so match a specific keyword like "HSL" only, never general words like "hall"/"stairs"/"landing". Prefer the toggle unless the typed-keyword magic is specifically wanted. Either way the staircase form is a DIFFERENT input set (slope/going/rise, spindles, newels, strings as counts), so it swaps in staircase inputs rather than just appending fields to a normal room.
 - **Data pattern** — same server-load-into-memory approach, same persistence, no competing localStorage. (Check this — it may have drifted.)
 - **Materials integration (the important bit)** — HSL surfaces (stair walls, spindles, newels, strings) must feed the materials calculation and colour grouping like rooms do, so HSL paint flows into the tin calculations, the Colours tab and the Xero quote. WITHOUT this, jobs with significant staircase work under-count paint — the same gap found with mist coats.
+- **Stair-wall geometry fix (improves PAINT accuracy; also the geometry the wallpaper calculator reuses).** The real stair wall is an irregular polygon with a stepped bottom edge following the stairs — a full-height section plus a raking section, not a tidy triangle. The current calculation is wrong because it derives width partly from the landing length, which overlaps the stairwell void and double-counts. The fix is small because most inputs already exist — see "What actually changes" below. Reference diagram: `stair_wall_measurement_v2.png`.
+
+  **The method — DERIVE the width, MEASURE the heights.** Width can't be measured across the bottom (stairs in the way) or the top (landing overlap). Instead derive it from floor-level pieces, and take laser height readings at the points the top edge changes. A stairwell is usually a SET of walls (large raking wall, opposite lower wall, narrow head wall) entered as a group. Note stairwell heights can be multi-storey (4m+) — don't assume standard ceiling heights; for wallpaper a 4m+ drop often yields only ONE usable drop per roll.
+
+  **What actually changes (checked against the current app):**
+  Already captured in the HSL block: Steps (e.g. 13), Tread (0.22 = the going), Wall height at bottom, plus hall width and landing height (hall/landing are HSL inputs — all local, no cross-room pulling). Landing height = the stair-wall's top/full height.
+  - **ADD one input:** top step measurement (completes the width). The only genuinely missing measurement.
+  - **CHANGE the width calc:** stair-wall width = hall width + (Steps × Tread) + top step. STOP using landing length for stair-wall width (that's the current double-count error). Landing length stays for the landing's own wall area only.
+  - **REUSE:** Steps × Tread (horizontal run — already captured, just not yet wired into width); landing height (top height); hall width.
+  - **LABEL clearly:** "stair width" (physical, 0.9m) vs derived "stair wall width".
+  - **Build reconstructs** the stepped-bottom shape from derived width + height readings → area for paint (and drop lengths for wallpaper).
+
+  **DELIBERATE SIMPLIFICATION — don't over-engineer.** Stop at full-height / rake / step. Do NOT model finer slope slivers (e.g. a small sloped bit above the first steps) — the difference is tiny and never changes the rounded result (paint rounds to whole tins; Nicky doesn't pay for wallpaper). Round generously instead. Conscious accuracy-vs-usability trade, not an oversight — don't "fix" it later by adding slope inputs.
 - **NOT full parity** — HSL doesn't need every room option (probably doesn't need per-item colour numbers/product overrides unless wanted); stop short of replicating rooms wholesale.
 
 ### Sequencing
 Fix Step 1 now (small). Step 2 is a proper alignment task — slot it in deliberately, not off the cuff, because the materials-integration part connects to everything recently built. Confirm the materials flow before/after so HSL paint is counted exactly once.
+
+## FEATURE: Wallpaper calculator (rolls to order — reuses stair geometry)
+
+A separate tool, triggered from a room being measured, that tells Nicky (and the client) how many rolls to ORDER. Nicky does NOT supply/order wallpaper — so this is NOT a material cost and does NOT feed the quote total. Purely a "how many rolls should the customer buy" figure. Common real request: measuring a room, client says they want wallpaper, Nicky selects wallpaper and needs to tell them rolls required. Depends on the stair-wall geometry from HSL alignment (build after that so it reuses it, not re-solving the raking wall).
+
+### Trigger / flow
+- When wallpaper is selected on a room being measured, reveal wallpaper inputs and calculate from the room's existing measurements (reuse them — don't re-enter dimensions). For a stair wall, reuse the derived stair-wall geometry from HSL alignment.
+
+### Inputs
+- Roll dimensions: **length and width, with sensible UK defaults pre-filled** (~10.05m × 0.53m), editable per job (paper varies, usually client-supplied).
+- **Match type selector: no match / straight match / offset (drop) match** — affects waste and drops per roll.
+- Optional spare-roll toggle.
+
+### Calculation (drops-per-roll method, not raw area)
+- Drop length = wall height + pattern-repeat/match allowance + trim allowance.
+- Drops per roll = roll length ÷ drop length, rounded DOWN.
+- Drops needed = wall width ÷ roll width, rounded UP.
+- Rolls = drops needed ÷ drops per roll, rounded UP.
+- **Staircase walls:** use the derived stair geometry — drops get progressively longer/shorter across the rake; calculate each drop's length, then rolls as above. Multi-storey drops (4m+) often give only ONE drop per roll.
+
+### Output
+- **Number of rolls to order**, plus **notes the drops required** (show the working so Nicky can sanity-check and explain to the client).
+- No cost line — doesn't feed the quote total (client buys the paper).
+
+### Design bias
+- Since Nicky doesn't pay for the paper, **err toward not running short** — round generously; an extra roll isn't Nicky's cost, running out mid-job is the real problem.
+- Lining paper: calculations don't matter much (leftovers go to stock), so the tool is mainly for finish/patterned papers where the client orders exact quantities.
+
+## FEATURE: Colours tab evolution (paint/ordering view)
+
+Beyond defining `{number, label}` colours, the Colours tab can become the job's paint/ordering screen using data the materials feature already calculates. Conceptual clarity: **Rooms = input the work, Summary = the price, Colours = what you actually buy and put where.**
+
+### Priority additions (the big win — surface existing data)
+1. **Rooms per colour** — under each colour show the rooms assigned to it (e.g. "Colour 1 — Dimity — Lounge, Hall, Landing"). Turns the tab into a colour schedule at a glance. Data already exists (rooms carry colour number).
+2. **Paint quantity per colour** — roll up the litres/tins for each colour group (e.g. "Colour 1 — Dimity — 12ltr · 2 × 5ltr + 1 × 2ltr"). This is the ordering list — look at Colours, not Summary, when buying paint. Uses the per-colour-group tin calculation already built. Must read from the SAME calculation as the summary (one source of truth — don't diverge). Watch: a room with a product override under the same colour number is a different product → show as its own sub-grouping, don't merge tins across different products under one colour heading.
+
+### Secondary polish (later)
+3. **Brand/code autofill** — see "Colour reference library" (seed F&B + Little Greene).
+4. **Finish/sheen per colour** — same colour can go on in different finishes (matt walls, eggshell woodwork); note against the colour for ordering accuracy.
+5. **Surfaces per colour** — which surfaces each colour covers (walls only vs walls+ceiling), so a feature-wall colour is distinguished from a whole-room one.
+6. **Colour schedule output** — a tidy "Colour Schedule" (room, colour, finish) on the quote or as a shareable summary. Professional touch; doubles as Nicky's own worksheet.
+
+### Notes
+- Leans on existing calculations — mostly surfacing data, not new logic.
+- The colour NUMBER still drives the materials calculation; names/codes/finishes are reference only.
+- Build after core materials + per-room overrides are solid.
+
+## FEATURE ideas (not yet scoped / parked)
+
+- **Job templates** (e.g. "standard 3-bed repaint") to load and tweak — overlaps with Multiple saved jobs (a template is just a job you duplicate); build on that foundation.
+- **Quote status tracking** (sent / accepted / declined) — overlaps with Xero, may not be worth it.
+- **Photo attachments** per room/item — needs external storage (Cloudinary/S3); parked, Nicky stores photos on his phone for now.
+
+
 
 ## Quote description templates
 
