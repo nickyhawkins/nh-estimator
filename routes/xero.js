@@ -268,7 +268,7 @@ router.get('/material-groups', async (req, res) => {
 
 // Create quote in Xero
 router.post('/create-quote', async (req, res) => {
-  const { clientName, jobName, xeroRef, rooms, exterior, hsl, materials, settings, markup, paymentTerms, contactId, newContact } = req.body;
+  const { clientName, jobName, xeroRef, rooms, exterior, hsl, materials, settings, markup, paymentTerms, paymentSummary, contactId, newContact } = req.body;
 
   try {
     const accessToken = await getAccessToken();
@@ -362,7 +362,12 @@ router.post('/create-quote', async (req, res) => {
       // Text-only divider row, matching the manual convention: no ItemCode,
       // Quantity or UnitAmount at all (not even zero) — Xero renders a line
       // item with only a Description as plain narrative text, no columns.
-      lineItems.push({ Description: '-----materials estimate-----' });
+      // Reads as a plain heading since the API can't apply bold/shading to
+      // one row differently from the others -- every LineItem renders
+      // through the same repeated table row in the DOCX template, so any
+      // real visual distinction (bold, shaded background) has to happen
+      // there, not here.
+      lineItems.push({ Description: 'MATERIALS' });
       materials.forEach(m => {
         lineItems.push({
           ItemCode: m.itemCode,
@@ -408,11 +413,15 @@ router.post('/create-quote', async (req, res) => {
         LineItems: lineItems,
         LineAmountTypes: 'NoTax',
         Status: 'DRAFT',
-        // Free-text field on the standard Quotes API (confirmed via Xero's
-        // docs, alongside Title/Summary) -- whether it actually prints on
-        // the client-facing PDF depends on the account's branding theme, so
-        // this isn't guaranteed visible without checking a real sent quote.
-        Terms: paymentTerms || undefined
+        // Confirmed against a real generated quote: this API property (Terms)
+        // maps to the DOCX merge field «QuoteTerms» -- NOT the plain «Terms»
+        // name, which doesn't resolve. Full explanatory sentence, see
+        // buildPaymentTermsText() client-side.
+        Terms: paymentTerms || undefined,
+        // Compact deposit/balance figures only, kept separate from Terms so
+        // the DOCX template can bold just the numbers -- confirmed this API
+        // property maps to the DOCX field «Summary» (plain, unprefixed).
+        Summary: paymentSummary || undefined
       }]
     };
 

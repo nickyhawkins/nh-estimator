@@ -1092,11 +1092,15 @@ async function createXeroQuote() {
 
     // Same deposit/balance/weekly-instalment figures Summary shows, written
     // onto the quote's free-text Terms field -- see buildPaymentTermsText().
+    // paymentSummary is the same figures again, compact -- see
+    // buildPaymentSummaryText() -- sent to the API's separate Summary
+    // property so the template can bold just the numbers.
     tcS += extTotal + swCost;
     ttS += extTimeTotal + swTime;
     var onSiteDays = realisticDays(ttS);
     var depositPlan = computeDepositPlan(tcS, materialsTotal, onSiteDays);
     var paymentTerms = buildPaymentTermsText(depositPlan);
+    var paymentSummary = buildPaymentSummaryText(depositPlan);
 
     var newContact = null;
     if (document.getElementById('xero-new-contact-form').style.display !== 'none') {
@@ -1123,6 +1127,7 @@ async function createXeroQuote() {
         settings: settings,
         markup: settings.mu,
         paymentTerms: paymentTerms,
+        paymentSummary: paymentSummary,
         contactId: xeroSelectedContactId,
         newContact: newContact
       })
@@ -1627,12 +1632,13 @@ function computeDepositPlan(tcS, materialsTotal, onSiteDays) {
            paymentWeeks:paymentWeeks, weeklyRows:weeklyRows };
 }
 
-// One-paragraph payment-terms summary for the Xero quote's free-text Terms
-// field (confirmed to exist on the standard Quotes API -- Title/Summary/
-// Terms, all plain text; NOT guaranteed to print on the PDF, that depends
-// on the account's branding theme, so check a real sent quote once this is
-// live). Built from the same computeDepositPlan() output Summary renders,
-// so the quote text can never say something different from the app.
+// One-paragraph payment-terms summary for the Xero quote. Sent as the API's
+// Terms property, which maps to the DOCX merge field «QuoteTerms» (confirmed
+// against a real generated quote -- NOT the plain «Terms»/«QuoteSummary»
+// names, which don't resolve; «Summary» is also real but separate, see
+// buildPaymentSummaryText() below). Built from the same computeDepositPlan()
+// output Summary renders, so the quote text can never say something
+// different from the app.
 function buildPaymentTermsText(plan) {
   var text = 'Deposit due on acceptance: ' + fmt(plan.deposit) + ' (' + plan.depositBasis + ').';
   if (plan.paymentType === 'multiweek' && plan.weeklyRows.length > 0) {
@@ -1642,6 +1648,16 @@ function buildPaymentTermsText(plan) {
     text += ' Balance of ' + fmt(plan.balance) + ' due on completion.';
   }
   return text;
+}
+
+// Compact "headline" figures, sent separately from buildPaymentTermsText()'s
+// full sentence -- Xero's merge fields are plain text, one formatting run
+// per field, so there's no way to bold just the numbers within a single
+// field's text. Splitting the amounts into their own field (mapped to the
+// API's Summary property) lets the DOCX template wrap THIS field in bold
+// while leaving the explanatory sentence in QuoteTerms at normal weight.
+function buildPaymentSummaryText(plan) {
+  return 'Deposit ' + fmt(plan.deposit) + '  ·  Balance ' + fmt(plan.balance);
 }
 
 
