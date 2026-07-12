@@ -2566,6 +2566,25 @@ function toggleWPSpare() {
 // itself (an extreme multi-storey case needing spliced rolls), the maths
 // still yields "one roll per drop" rather than dividing by zero; genuinely
 // splicing rolls is rare enough to not model further here.
+// Greedy first-fit bin packing: walk drops in order, fill the current roll
+// until the next drop doesn't fit, then start a new one (the leftover on
+// the exhausted roll is wasted, exactly like real off-the-roll cutting).
+// For UNIFORM drop lengths this is mathematically identical to
+// ceil(dropsNeeded / floor(rollLen/dropLength)) -- the old formula -- so
+// normal rooms are unaffected; it's needed once drops have different
+// lengths (a staircase's raking wall, see calcHSLWallpaperRolls()).
+function packWallpaperRolls(dropLengths, rollLen, spareRoll) {
+  if (!dropLengths || !dropLengths.length || rollLen<=0) return null;
+  var rolls = 0, remaining = 0;
+  dropLengths.forEach(function(len) {
+    if (len > rollLen) { rolls += 1; remaining = 0; return; } // extreme case: a single drop taller than a whole roll
+    if (remaining < len) { rolls += 1; remaining = rollLen; }
+    remaining -= len;
+  });
+  if (spareRoll) rolls += 1;
+  return rolls;
+}
+
 function calcWallpaperRolls(wallHeight, wallWidth, rollLen, rollWidth, matchType, repeatCm, trimCm, spareRoll) {
   if (wallHeight<=0 || wallWidth<=0 || rollLen<=0 || rollWidth<=0) return null;
   var repeatM = (repeatCm||0)/100;
@@ -2574,8 +2593,38 @@ function calcWallpaperRolls(wallHeight, wallWidth, rollLen, rollWidth, matchType
   var dropLength = wallHeight + matchAllowance + trimM;
   var dropsPerRoll = Math.max(1, Math.floor(rollLen / dropLength));
   var dropsNeeded = Math.ceil(wallWidth / rollWidth);
-  var rolls = Math.ceil(dropsNeeded / dropsPerRoll) + (spareRoll ? 1 : 0);
+  var rolls = packWallpaperRolls(new Array(dropsNeeded).fill(dropLength), rollLen, spareRoll);
   return { dropLength:dropLength, dropsPerRoll:dropsPerRoll, dropsNeeded:dropsNeeded, rolls:rolls };
+}
+
+// Height of a stair wall at horizontal position x (0..totalWidth) -- SAME
+// 3-region model as stairWallArea() (flat at wallH over startWidth, a
+// smooth ramp up across the steps*tread rake, flat at topHeight over the
+// top step), evaluated as a height profile instead of integrated into an
+// area. Same deliberate "don't model individual steps" simplification.
+function stairWallHeightAt(x, startWidth, rakeWidth, wallH, topHeight) {
+  if (x <= startWidth) return wallH;
+  if (rakeWidth<=0 || x <= startWidth+rakeWidth) {
+    var t = rakeWidth>0 ? (x-startWidth)/rakeWidth : 1;
+    return wallH + t*(topHeight-wallH);
+  }
+  return topHeight;
+}
+
+// Per-drop lengths for a stair wall's wallpaper -- each drop's height is
+// taken at its FAR (taller) edge within the rake, never the near edge, so
+// a drop spanning a rising section is never cut short. Same "round
+// generously" bias as the rest of this feature.
+function stairWallDropLengths(startWidth, rakeWidth, topStep, wallH, topHeight, rollWidth, matchAllowance, trimM) {
+  var totalWidth = startWidth + rakeWidth + topStep;
+  var dropsNeeded = Math.max(1, Math.ceil(totalWidth / rollWidth));
+  var lengths = [];
+  for (var i=0; i<dropsNeeded; i++) {
+    var farEdge = Math.min((i+1)*rollWidth, totalWidth);
+    var h = stairWallHeightAt(farEdge, startWidth, rakeWidth, wallH, topHeight);
+    lengths.push(h + matchAllowance + trimM);
+  }
+  return lengths;
 }
 
 function setPrep(val) {
@@ -3034,6 +3083,50 @@ function calcHSL() {
   var wpwCostDisp = wpwAreaDisp>0&&wpWall!=='none' ? wpwAreaDisp*wpMins(wpWall,false)*1.20*r2 : 0;
   var wpcCostDisp = wpcAreaDisp>0&&wpCeil!=='none' ? wpcAreaDisp*wpMins(wpCeil,true)*1.20*r2  : 0;
 
+  // Rolls to order -- ONE combined total across every wallpapered surface
+  // in the run (hall + stair walls + landings), since that's how paper is
+  // actually bought and cut for a whole staircase job, not per-surface.
+  // Hall/landing walls are flat (uniform height, like a normal room);
+  // stair walls need the per-drop height profile from
+  // stairWallDropLengths() since height varies across the rake. hslWalls
+  // (1 or 2 sides painted) duplicates that stair's drop set, same as it
+  // doubles the paint area.
+  var hslRollsResult = null;
+  if (wpWall !== 'none') {
+    var hRollLen = +document.getElementById('r-wp-roll-len').value||0;
+    var hRollWidth = +document.getElementById('r-wp-roll-width').value||0;
+    var hRepeatCm = +document.getElementById('r-wp-repeat').value||0;
+    if (hRollLen>0 && hRollWidth>0) {
+      var hRepeatM = hRepeatCm/100, hTrimM = (settings.wpTrimCm||0)/100;
+      var hMatchAllowance = wpMatch==='straight' ? hRepeatM : wpMatch==='offset' ? hRepeatM/2 : 0;
+      var allDropLengths = [];
+      var pushUniformDrops = function(height, perim) {
+        if (height<=0 || perim<=0) return;
+        var n = Math.max(1, Math.ceil(perim / hRollWidth));
+        var len = height + hMatchAllowance + hTrimM;
+        for (var i=0; i<n; i++) allDropLengths.push(len);
+      };
+      pushUniformDrops(h1h, (h1l+h1w)*2);
+      if (hslFloors>=2) {
+        var s1Drops = stairWallDropLengths(h1w, s1steps*s1tread, s1topstep, s1wallh, l1h, hRollWidth, hMatchAllowance, hTrimM);
+        for (var w1=0; w1<hslStairWalls[1]; w1++) allDropLengths = allDropLengths.concat(s1Drops);
+        pushUniformDrops(l1h, (l1l+l1w)*2);
+      }
+      if (hslFloors>=3) {
+        var s2Drops = stairWallDropLengths(l1w, s2steps*s2tread, s2topstep, s2wallh, l2h, hRollWidth, hMatchAllowance, hTrimM);
+        for (var w2=0; w2<hslStairWalls[2]; w2++) allDropLengths = allDropLengths.concat(s2Drops);
+        pushUniformDrops(l2h, (l2l+l2w)*2);
+      }
+      if (allDropLengths.length) {
+        hslRollsResult = {
+          rolls: packWallpaperRolls(allDropLengths, hRollLen, wpSpareRoll),
+          minDrop: Math.min.apply(null, allDropLengths),
+          maxDrop: Math.max.apply(null, allDropLengths)
+        };
+      }
+    }
+  }
+
   // Mist coat -- same shared toggle/fields as a normal room, against this
   // preview's own (overridden) wall/ceiling totals.
   var mistAreaFieldDisp = +document.getElementById('r-mist-area').value||0;
@@ -3078,6 +3171,21 @@ function calcHSL() {
   if(doorSkirtCostDisp>0) document.getElementById('hsl-r-doorskirt').textContent = fmt(doorSkirtCostDisp);
   document.getElementById('hsl-r-cost').textContent = fmt(totalCostDisp);
   document.getElementById('hsl-r-time').textContent = totalTimeDisp.toFixed(2)+' days';
+
+  // Rolls to order -- reuses the SAME shared result elements a normal
+  // room's Wallpaper card populates (wp-r-*); drop length shows as a
+  // range here since it varies across the rake, not one fixed number.
+  if (hslRollsResult) {
+    document.getElementById('wp-r-droplen-row').style.display = 'flex';
+    document.getElementById('wp-r-drops-row').style.display = 'none';
+    document.getElementById('wp-r-rolls-row').style.display = 'flex';
+    document.getElementById('wp-r-droplen').textContent = hslRollsResult.minDrop.toFixed(2)+'–'+hslRollsResult.maxDrop.toFixed(2)+' m';
+    document.getElementById('wp-r-rolls').textContent = hslRollsResult.rolls;
+  } else {
+    ['wp-r-droplen-row','wp-r-drops-row','wp-r-rolls-row'].forEach(function(id){
+      document.getElementById(id).style.display = 'none';
+    });
+  }
 }
 
 // Computes the override fields for a staircase/HSL room from its geometry

@@ -187,7 +187,10 @@ A separate tool, triggered from a room being measured, that tells Nicky (and the
 
 ### Inputs
 - Roll dimensions: **length and width, with sensible UK defaults pre-filled** (~10.05m × 0.53m), editable per job (paper varies, usually client-supplied).
-- **Match type selector: no match / straight match / offset (drop) match** — affects waste and drops per roll.
+- **Paper type: lining vs top/finish paper.** This REPLACES the old lining/plain/patterned three-way selector, which is now redundant — the pattern repeat + match type capture the complexity precisely (plain = no match; patterned = straight or offset match), so the old classification did the same job twice. Lining = calculation barely matters (leftovers go to stock) so keep it simple/rough; top paper = the real calc applies.
+- **Match type selector: no match / straight match / offset (drop) match** — affects waste and drops per roll. (For a plain paper choose no match; this now carries what "plain vs patterned" used to.)
+- **Pattern repeat** (mm) — drives the match allowance in the drop-length calc.
+- ⚠️ **Before removing lining/plain/patterned:** grep for everything that keys off those values. If wallpaper LABOUR time uses the plain-vs-patterned distinction (patterned often takes longer to hang), keep that distinction for the labour side while simplifying the materials/roll side. Don't rip it out until you've confirmed what depends on it.
 - Optional spare-roll toggle.
 
 ### Calculation (drops-per-roll method, not raw area)
@@ -204,6 +207,13 @@ A separate tool, triggered from a room being measured, that tells Nicky (and the
 ### Design bias
 - Since Nicky doesn't pay for the paper, **err toward not running short** — round generously; an extra roll isn't Nicky's cost, running out mid-job is the real problem.
 - Lining paper: calculations don't matter much (leftovers go to stock), so the tool is mainly for finish/patterned papers where the client orders exact quantities.
+
+### FOLLOW-ON (build after the roll calculator is solid): per-roll labour charging
+Now that rolls are calculated, wallpaper LABOUR could be charged per roll rather than by area — hanging labour scales with number of drops/rolls, not floor area (8 rolls ≈ twice the work of 4). Proposed:
+- **Wallpaper hanging labour = rolls × per-roll hanging rate** (rate in Settings), **+ a % uplift for staircases** (access, long drops, working over stairs).
+- Keep this SEPARATE from the rolls-to-order output: rolls-to-order stays a client figure (not Nicky's cost); the per-roll labour is what feeds Nicky's quote.
+- **Check first (before building):** (1) does a per-roll rate actually match how Nicky prices wallpaper labour, vs per-wall/per-day — only adopt if it matches his mental model; (2) does the staircase % uplift overlap with difficulty already captured in markups/prep levels — avoid double-counting.
+- **Sequence:** finish the roll calculator first; do this labour-charging change as its own step so "how many rolls" and "how much to charge" aren't entangled in one build.
 
 ## FEATURE: Colours tab evolution (paint/ordering view)
 
@@ -223,6 +233,14 @@ Beyond defining `{number, label}` colours, the Colours tab can become the job's 
 - Leans on existing calculations — mostly surfacing data, not new logic.
 - The colour NUMBER still drives the materials calculation; names/codes/finishes are reference only.
 - Build after core materials + per-room overrides are solid.
+
+## FEATURE ideas (not yet scoped / parked)
+
+- **Job templates** (e.g. "standard 3-bed repaint") to load and tweak — overlaps with Multiple saved jobs (a template is just a job you duplicate); build on that foundation.
+- **Quote status tracking** (sent / accepted / declined) — overlaps with Xero, may not be worth it.
+- **Photo attachments** per room/item — needs external storage (Cloudinary/S3); parked, Nicky stores photos on his phone for now.
+
+
 
 ## Quote description templates
 
