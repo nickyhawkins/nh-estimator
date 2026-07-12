@@ -63,27 +63,45 @@ Must come before the deposit feature: the deposit is based on the materials/tota
 - Typical decorating sundries land ~3–8% of labour, but Nicky sets the real figure in settings and calibrates.
 
 ### Calculation order (important)
-labour (before markup) → sundries = labour × sundries% → (labour + sundries) × markup → + materials (calculated, then edited/trimmed, NOT marked up — corrected during build: materials are priced at Xero's own sell price, which already IS the customer price, so re-applying markup would double it) → total → deposit calculated on that total. Get this order right so sundries is on raw labour, materials never get marked up twice, and the deposit is on the true final figure.
+labour (before markup) → sundries = labour × sundries% → materials (calculated, then edited/trimmed) → subtotal = labour + sundries + materials → markup applied → deposit calculated on the marked-up total. Get this order right so sundries is on raw labour and the deposit is on the true final figure.
 
-**Shipped**, in three steps:
-1. **Materials editing** — a new job-scoped `materialsSnapshot` (same lifecycle as rooms/colours/extItems, its own DB table + `/api/materials` routes). Only mapped roles (real Xero product picked) feed it, since editing only makes sense where there's a real quantity/price. `recalculateMaterialsSnapshot()` builds it from the live calculation and is the only thing that ever discards edits — genuinely a full overwrite, not a merge, exactly as scoped. Quantity edits and deletes operate on snapshot entries directly; a one-off line (product-picked or free-text) pushes a `custom: true` entry into the same array, so it edits/deletes/gets-wiped-by-recalculate identically to a calculated line.
-2. **Sundries %** — `settings.sundriesPct` (a genuine setting, unlike the per-quote snapshot), computed on raw labour before markup, folded into the same marked-up figure as labour (`labourTotal = (tcS + sundries) × (1 + mu)`). Displayed as its own row inside the Materials card (per the "reads like a normal part of the job" preference above) even though it's calculated from labour — purely a presentation choice, not double-counted since it's never added to `materialsTotal`.
-3. **Xero quote** — sends whatever's in the snapshot (not a fresh live recalculation) as the materials line items, plus a separate Sundries & Consumables line computed server-side the same way, on account 202 (booked as consumables, not labour) but WITH markup applied (the one 202 line that gets it, since materials proper don't).
+## FEATURE: Realistic time estimate (scheduling — BUILD BEFORE DEPOSIT)
+
+The app calculates **working time** (hands-on hours ÷ day length) — accurate for costing, but not calendar reality. A job at 2.85 working days actually spans more calendar days once drying, floor protection, setup, masking and clearing up are counted. Those non-productive elements are currently only in the markup (cost), not reflected in the *time*.
+
+**This is NOT a costing change** — the quote total stays exactly as-is. It's a parallel "realistic duration" figure for scheduling, shown alongside working time:
+- **Working time** — e.g. 2.85 days (drives labour/cost, unchanged)
+- **Estimated on site** — e.g. ~4 days (what to block out in the diary)
+
+### Approach — per-day overhead + optional buffer
+- **Per-day overhead** (Settings, editable) — a fixed non-productive allowance per day on site (setup, protection, masking, cleanup — say 45–60 mins). Reduces effective productive hours/day, which stretches calendar days. Scales correctly: more days = more accumulated setup/cleanup.
+- **Optional buffer multiplier** (Settings) — a modest × for drying/slippage on top, if wanted.
+- Keep it to "realistic days on site" — don't try to model drying times precisely or manage the diary; that's calendar territory.
+
+### Why it must come before the deposit feature (KEY LINK)
+The staged-payment logic keys off job length — and it must use REALISTIC time, not working time. Example: 6.85 working days looks like just over one week, but realistically spans **two working weeks**, which is exactly when weekly staged payments apply. If the payment logic used raw working days it could treat a two-week job as single-week and miss the staging.
+
+Chain for staged payments: working time → realistic time (× overhead/buffer) → working weeks (realistic days ÷ 5, or however weeks fall) → number of weekly payments.
+
+### Client-facing (optional)
+Having the realistic duration to hand is also better for telling the client "about a week" — the raw working time would sound too short and set wrong expectations.
 
 ## FEATURE: Deposit & staged payments
 
-Depends on materials AND materials-editing/sundries above, so the deposit is based on the true, adjusted job total (labour + sundries + edited materials, marked up).
+Depends on materials AND materials-editing/sundries above AND the realistic time estimate above, so the deposit is based on the true adjusted total, and the staged-payment schedule is based on realistic job length (not working days).
 
 1. **Deposit calculation on summary:**
    - Default 25% (editable in settings)
-   - Calculated on labour + materials total
-   - Show: Total, Deposit (25%) due on acceptance, Balance
+   - **"25% of quote OR cost of materials/sundries, whichever is GREATER"** — this matches Nicky's existing Terms wording ("25% of quotation or cost of materials, sundries and equipment, whichever the greater"). So compute both 25% of the marked-up total AND the materials+sundries cost, and take the higher. Needs materials to feed the total (hence the dependency).
+   - Show: Total, Deposit due on acceptance (and which basis applied), Balance
 
 2. **Two job types:**
    - **Single payment** — deposit + balance on completion
-   - **Multi-week** — enter number of weeks; split the balance (after deposit) evenly across weekly payments. Show deposit + N weekly instalments.
+   - **Multi-week** — the number of weeks is DERIVED from the realistic time estimate (realistic days ÷ working week), not entered blind or taken from working days. Split the balance (after deposit) evenly across weekly payments. Show deposit + N weekly instalments. User can override the auto-derived week count if needed.
 
 3. **Optional** — write payment terms as a line into the Xero quote (terms/notes field). Actual weekly invoicing stays in Xero.
+
+**Shipped.** `computeDepositPlan()`'s output feeds two text builders sent on quote creation: `buildPaymentTermsText()` (the full deposit/balance/instalment sentence) and `buildPaymentSummaryText()` (a compact "Deposit X · Balance Y" headline, split out separately since Xero merge fields are one plain-text run each — no way to bold just the numbers within a single field). Confirmed against a real generated quote that these map to the API's `Terms`/`Summary` properties and the DOCX merge fields `«QuoteTerms»`/`«Summary»` — NOT the plain `«Terms»` or `«QuoteSummary»` names, which don't resolve. Bold styling and the "MATERIALS" divider row's shading still need the DOCX template itself (see "Xero quote PDF templates" below) — not achievable from the API payload alone.
 
 ---
 
@@ -104,6 +122,50 @@ Data notes:
 
 Priority: low. Build after materials + deposit are done. Genuinely useful for ordering, but not day-to-day critical.
 
+## FEATURE: Multiple saved jobs (structural — build AFTER materials + deposit)
+
+Right now the app holds ONE working job at a time (one set of rooms, exterior items, colours). Doing two surveys in a day means manually combining them into one session and separating later. This makes jobs first-class: save a job, start another, come back to either to tweak before committing to Xero.
+
+### The core change
+Everything that's currently "the current job" — rooms, exterior items, colours, sundries, materials edits, client/reference fields — becomes per-job. **Settings stay GLOBAL** (rates, coverage, product defaults, sundries % = business config, not per-job).
+
+### What it needs
+- **Jobs list screen** — list saved jobs (name, date, maybe client); open / create / delete.
+- **Save & switch** — creating or switching persists the current job and loads the other.
+- **Job identity** — each job has a name (client / address / reference) to tell them apart.
+- **Everything scopes to the active job** — rooms, exterior, colours, materials all belong to the currently open job. The existing load-into-memory pattern becomes "load THIS job's rows into memory."
+- **Send to Xero stays per-job** — commit whichever job is open.
+
+### Database
+Significant but not huge: add a `jobs` table, and a `job_id` column to rooms, exterior_items, colours (and any other per-job tables) so rows belong to a job. Settings table stays global (no job_id).
+
+### Sequencing (important)
+Build AFTER the current materials refinements and the deposit feature — get the single-job flow completely solid first. This is a structural change touching all data handling; doing it while materials logic is still settling risks tangling two big things at once (the cause of earlier bugs). It layers cleanly on top: once single-job is right, wrapping it in "which job am I working on" is additive, not a rewrite. Materials/colours/quote logic don't change — they just operate on the active job.
+
+### Open design question
+Are jobs fully separate (each its own everything, no overlap), or do you want to **duplicate a job as a template** to tweak? The second overlaps with the "Job templates" idea below (standard 3-bed repaint etc.) — if templates are wanted, multiple-jobs is the natural foundation for them (a template is just a job you copy). Decide before building: fully-separate is simpler; duplicate-to-template is a nice touch and reuses the same machinery.
+
+## FEATURE: HSL alignment with the room system
+
+The HSL (halls / stairs / landings) system predates recent changes and has drifted out of step with how regular rooms now work. Two parts: fix a bug first, then align — as SEPARATE tasks (don't tangle them).
+
+### Step 1 — Bug: stray staircase woodwork line (do first, contained)
+A "staircase woodwork" line still shows as an extra line on the summary. Likely legacy code from before spindles/newels were rolled into the HSL total (same fingerprint as the old exterior migration — old code surviving alongside new).
+- **Investigate before changing:** where is staircase woodwork calculated? Is its value ALREADY in the HSL/labour total, or ONLY in this separate line?
+- If double-counted (in total AND separate line) → costing bug, remove the duplicate line.
+- If only in the separate line → re-home it into the HSL breakdown.
+- **Do NOT just delete the visible line** without confirming its value is accounted for elsewhere — could silently drop a real cost or leave a double-count.
+
+### Step 2 — Bring HSL inline (its own task, after the bug)
+Decide scope deliberately — a staircase isn't a room (own geometry: slope calcs, spindles, newels, strings), so full room-parity is NOT the goal. Target scope:
+- **UI pattern** — collapsible sections + same visual style as the compacted room tab, so it feels consistent.
+- **Data pattern** — same server-load-into-memory approach, same persistence, no competing localStorage. (Check this — it may have drifted.)
+- **Materials integration (the important bit)** — HSL surfaces (stair walls, spindles, newels, strings) must feed the materials calculation and colour grouping like rooms do, so HSL paint flows into the tin calculations, the Colours tab and the Xero quote. WITHOUT this, jobs with significant staircase work under-count paint — the same gap found with mist coats.
+- **NOT full parity** — HSL doesn't need every room option (probably doesn't need per-item colour numbers/product overrides unless wanted); stop short of replicating rooms wholesale.
+
+### Sequencing
+Fix Step 1 now (small). Step 2 is a proper alignment task — slot it in deliberately, not off the cuff, because the materials-integration part connects to everything recently built. Confirm the materials flow before/after so HSL paint is counted exactly once.
+
 ## FEATURE ideas (not yet scoped)
 
 - Quote status tracking (sent/accepted/declined) — note: overlaps with Xero, may not be worth it
@@ -113,3 +175,17 @@ Priority: low. Build after materials + deposit are done. Genuinely useful for or
 ## Quote description templates
 
 Six templates are stored as iOS/Mac text replacements (`;;paint`, `;;paper`, etc.) and pasted into the Xero line item description fields directly (item selector overwrites price, so paste into description instead). Templates: Painting only, Wallpaper only, Combined, Exterior Render, Exterior Woodwork, Kitchen Cabinet Spraying. Follow-on rooms use "As above".
+
+## Xero quote PDF templates (custom DOCX)
+
+The Xero quote branding uses **custom DOCX templates** (downloaded from Xero → Settings → branding themes). These are editable via Claude Code (docx skill), unlike Xero's built-in theme editor. Use this to make the growing quote — materials line items, sundries line, deposit/payment terms — display cleanly, especially a long itemised materials list that looks cramped in the default layout.
+
+**How they work:** Word documents with Xero **merge fields** (e.g. `«LineDescription»`, `«LineAmount»`, `«Total»`) that Xero swaps for real data at generation time. Claude Code can restyle/rearrange layout, spacing, columns, fonts and the arrangement of merge fields.
+
+**Constraints / cautions:**
+- Can only use merge fields Xero actually supports, named EXACTLY — can't invent new ones. If you want data shown (e.g. deposit amount), there must be a Xero merge field for it, or it comes through as a line item / terms text.
+- A branding theme can have separate templates (quote, invoice, etc.) — be explicit which one is being edited. The quote has multiple pages (cover letter, itemised quote, terms, cancellation) — specify which.
+- **BACK UP the working template before editing.** A renamed field or broken structure can make quotes generate wrong or fail to populate. Edit a copy, keep the original safe.
+- **Test on a real draft quote in Xero before going live** — merge-field templates can look right in Word but only prove out when Xero renders them with real data. Check branding, materials flow, totals and terms all populate.
+
+**Process:** download current template from Xero → give the DOCX to Claude Code → tell it what's being added and how it should look → it edits keeping branding + merge fields intact → re-upload to Xero → test on a draft.
