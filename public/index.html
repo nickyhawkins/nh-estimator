@@ -359,7 +359,8 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="breakdown-row" id="hsl-r-land2-row" style="display:none"><span class="breakdown-label">2nd floor landing walls</span><span class="breakdown-value" id="hsl-r-land2">—</span></div>
       <div class="breakdown-row"><span class="breakdown-label">Total ceiling area</span><span class="breakdown-value" id="hsl-r-ceil">—</span></div>
       <div class="breakdown-row" style="background:rgba(26,82,118,.06)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Total wall area</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="hsl-r-walls">—</span></div>
-      <div class="breakdown-row" id="hsl-r-wood-row" style="display:none"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Woodwork cost</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="hsl-r-wood">—</span></div>
+      <div class="breakdown-row" id="hsl-r-doorskirt-row" style="display:none"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Woodwork (doors &amp; skirtings)</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="hsl-r-doorskirt">—</span></div>
+      <div class="breakdown-row" id="hsl-r-wood-row" style="display:none"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Staircase woodwork</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="hsl-r-wood">—</span></div>
       <div class="breakdown-row" style="background:rgba(26,82,118,.06)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Estimated cost (ex markup)</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="hsl-r-cost">—</span></div>
       <div class="breakdown-row"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Estimated time</span><span class="breakdown-value" id="hsl-r-time">—</span></div>
     </div>
@@ -2488,6 +2489,12 @@ function toggleMist(key) {
   previewRoom();
 }
 function previewRoom() {
+  // Shared fields (prep, making good, mist, wallpaper, windows/doors/
+  // radiators) live on both room types now and all call previewRoom() on
+  // input -- redirect to the staircase live preview here so a single choke
+  // point covers every one of them, rather than special-casing each field's
+  // oninput handler individually.
+  if (roomIsStaircase) { calcHSL(); return; }
   var L=+document.getElementById('r-l').value;
   var W=+document.getElementById('r-w').value;
   var H=+document.getElementById('r-h').value;
@@ -2886,6 +2893,10 @@ function calcHSL() {
   var woodRow = document.getElementById('hsl-r-wood-row');
   if(woodRow) woodRow.style.display = wMins>0 ? 'flex' : 'none';
   if(wMins>0) document.getElementById('hsl-r-wood').textContent = fmt(calcWoodCost);
+  var doorSkirtCostDisp = skirtCostDisp + doorCostDisp;
+  var doorSkirtRow = document.getElementById('hsl-r-doorskirt-row');
+  if(doorSkirtRow) doorSkirtRow.style.display = doorSkirtCostDisp>0 ? 'flex' : 'none';
+  if(doorSkirtCostDisp>0) document.getElementById('hsl-r-doorskirt').textContent = fmt(doorSkirtCostDisp);
   document.getElementById('hsl-r-cost').textContent = fmt(totalCostDisp);
   document.getElementById('hsl-r-time').textContent = totalTimeDisp.toFixed(2)+' days';
 }
