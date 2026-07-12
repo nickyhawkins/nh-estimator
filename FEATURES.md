@@ -187,10 +187,9 @@ A separate tool, triggered from a room being measured, that tells Nicky (and the
 
 ### Inputs
 - Roll dimensions: **length and width, with sensible UK defaults pre-filled** (~10.05m × 0.53m), editable per job (paper varies, usually client-supplied).
-- **Paper type: lining vs top/finish paper.** This REPLACES the old lining/plain/patterned three-way selector, which is now redundant — the pattern repeat + match type capture the complexity precisely (plain = no match; patterned = straight or offset match), so the old classification did the same job twice. Lining = calculation barely matters (leftovers go to stock) so keep it simple/rough; top paper = the real calc applies.
-- **Match type selector: no match / straight match / offset (drop) match** — affects waste and drops per roll. (For a plain paper choose no match; this now carries what "plain vs patterned" used to.)
+- **Paper type: lining vs finish paper.** REPLACES the old lining/plain/patterned three-way selector. Now SAFE to remove: the only thing that depended on plain-vs-patterned was wallpaper labour timing (`wpMins()`, 8 vs 10 mins/m²), and the new per-roll labour model (see below) removes that dependency. Lining vs finish also picks the £30 vs £40 per-roll rate.
+- **Match type selector: no match / straight match / offset (drop) match** — affects waste and drops per roll. (For a plain paper choose no match; this now carries what "plain vs patterned" used to on the materials side.)
 - **Pattern repeat** (mm) — drives the match allowance in the drop-length calc.
-- ⚠️ **Before removing lining/plain/patterned:** grep for everything that keys off those values. If wallpaper LABOUR time uses the plain-vs-patterned distinction (patterned often takes longer to hang), keep that distinction for the labour side while simplifying the materials/roll side. Don't rip it out until you've confirmed what depends on it.
 - Optional spare-roll toggle.
 
 ### Calculation (drops-per-roll method, not raw area)
@@ -208,12 +207,24 @@ A separate tool, triggered from a room being measured, that tells Nicky (and the
 - Since Nicky doesn't pay for the paper, **err toward not running short** — round generously; an extra roll isn't Nicky's cost, running out mid-job is the real problem.
 - Lining paper: calculations don't matter much (leftovers go to stock), so the tool is mainly for finish/patterned papers where the client orders exact quantities.
 
-### FOLLOW-ON (build after the roll calculator is solid): per-roll labour charging
-Now that rolls are calculated, wallpaper LABOUR could be charged per roll rather than by area — hanging labour scales with number of drops/rolls, not floor area (8 rolls ≈ twice the work of 4). Proposed:
-- **Wallpaper hanging labour = rolls × per-roll hanging rate** (rate in Settings), **+ a % uplift for staircases** (access, long drops, working over stairs).
-- Keep this SEPARATE from the rolls-to-order output: rolls-to-order stays a client figure (not Nicky's cost); the per-roll labour is what feeds Nicky's quote.
-- **Check first (before building):** (1) does a per-roll rate actually match how Nicky prices wallpaper labour, vs per-wall/per-day — only adopt if it matches his mental model; (2) does the staircase % uplift overlap with difficulty already captured in markups/prep levels — avoid double-counting.
-- **Sequence:** finish the roll calculator first; do this labour-charging change as its own step so "how many rolls" and "how much to charge" aren't entangled in one build.
+### Wallpaper LABOUR — per-roll model (replaces area × mins/m²)
+**This change also unblocks removing the old lining/plain/patterned selector.** Claude Code confirmed `wpMins()` used plain-vs-patterned for hanging time (8 vs 10 mins/m²), which blocked simplifying the selector. Switching labour to per-roll removes that dependency — the roll count already captures the extra work of patterned paper (more match waste → more rolls → more labour automatically), so plain-vs-patterned is no longer needed for labour timing.
+
+**Model:**
+- **Lining paper: £30/roll**; **Finish paper: £40/roll** — both editable in Settings.
+- **Ceiling multiplier: +15%.** **Staircase multiplier: +25%.** Editable in Settings.
+- **Wallpaper labour = rolls × per-roll rate × (1 + applicable multiplier).**
+- Multipliers apply to LABOUR only, NOT the roll count — a staircase needs 25% more labour to hang the same rolls (access/long drops), not 25% more rolls. Roll count stays driven by geometry/area.
+- Multipliers apply to different surfaces (a wall vs a ceiling), so they generally don't stack on the same rolls — but define behaviour explicitly if both are ever flagged for one surface.
+
+**What this removes:**
+- `wpMins()` / the area × mins/m² wallpaper labour path → replaced by the per-roll calc.
+- The lining/plain/patterned three-way selector → collapses to **lining vs finish paper** (needed anyway to pick £30 vs £40).
+
+**What stays (roll-count / materials side, unchanged):** roll dimensions, match type (no/straight/offset), pattern repeat — these still drive the rolls-to-order calculation.
+
+### FOLLOW-ON note (superseded by the per-roll model above)
+The earlier "check whether per-roll matches Nicky's pricing" question is now answered — per-roll IS the chosen model (£30 lining / £40 finish, +15% ceiling / +25% stair). Still confirm the staircase % doesn't double-count difficulty already in general markups/prep before shipping.
 
 ## FEATURE: Colours tab evolution (paint/ordering view)
 
