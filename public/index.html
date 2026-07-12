@@ -114,7 +114,6 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 .chip{display:inline-flex;align-items:center;gap:4px;background:rgba(26,82,118,.10);color:var(--accent);border:1px solid rgba(26,82,118,.25);border-radius:20px;padding:4px 10px;font-size:12px;font-weight:600}
 .fab{position:fixed;bottom:calc(var(--sb) + 80px);right:20px;width:56px;height:56px;border-radius:50%;background:var(--accent);border:none;color:#fff;font-size:28px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(26,82,118,.4);cursor:pointer;z-index:50;transition:all .15s}
 .fab:active{transform:scale(.92)}
-.hsl-btn{position:fixed;bottom:calc(var(--sb) + 80px);right:84px;background:var(--surface);border:1px solid var(--border);color:var(--accent);border-radius:28px;padding:10px 16px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.1);z-index:50}
 .note-card{background:rgba(245,166,35,.06);border:1px solid rgba(245,166,35,.25);border-radius:var(--r);overflow:hidden}
 .note-card .card-header{color:var(--warn)}
 .note-text{padding:14px 16px;font-size:13px;color:var(--text2);line-height:1.6}
@@ -154,14 +153,13 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     <div class="empty" id="home-empty">
       <div class="empty-icon">🏠</div>
       <div class="empty-title">No rooms yet</div>
-      <div class="empty-sub">Tap + to add rooms as you walk round. Tap HSL for the staircase calculator.</div>
+      <div class="empty-sub">Tap + to add rooms as you walk round. Toggle Staircase / HSL on the room form for halls, stairs &amp; landings.</div>
     </div>
     <div id="room-list" style="display:none">
       <div class="card" id="room-cards"></div>
     </div>
   </div>
   <button class="fab" onclick="goScreen('room')">+</button>
-  <button class="hsl-btn" onclick="goScreen('stair')">🏠 HSL</button>
 </div>
 
 <!-- ══ ADD/EDIT ROOM ══ -->
@@ -178,12 +176,69 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         <div class="field-label">Room Name</div>
         <input type="text" class="field-input wide" id="r-name" placeholder="e.g. Kitchen" autocorrect="off">
       </div>
+      <div class="toggle-row" style="border-top:1px solid var(--border)">
+        <div class="toggle-label">Staircase / HSL<small>Hall, stairs &amp; landing — swaps in staircase geometry below</small></div>
+        <div class="toggle" id="tog-staircase" onclick="setRoomStaircase(!roomIsStaircase)"></div>
+      </div>
     </div>
-    <div class="card">
+    <div class="card" id="card-dimensions">
       <div class="card-header">Dimensions</div>
       <div class="field-row"><div class="field-label">Length<small>metres</small></div><input type="number" class="field-input" id="r-l" value="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
       <div class="field-row"><div class="field-label">Width<small>metres</small></div><input type="number" class="field-input" id="r-w" value="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
       <div class="field-row"><div class="field-label">Height<small>metres</small></div><input type="number" class="field-input" id="r-h" value="2.4" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+    </div>
+    <div class="card" id="card-hsl-geometry" style="display:none">
+      <div class="card-header">Number of Floors</div>
+      <div class="field-row">
+        <div class="field-label">Floors<small>inc ground floor</small></div>
+        <div class="seg" id="seg-hsl-floors">
+          <button class="seg-btn active" onclick="setHSLFloors(1)">1</button>
+          <button class="seg-btn" onclick="setHSLFloors(2)">2</button>
+          <button class="seg-btn" onclick="setHSLFloors(3)">3</button>
+        </div>
+      </div>
+    </div>
+    <div class="card" id="card-hsl-hall" style="display:none">
+      <div class="card-header">Ground Floor Hall</div>
+      <div class="field-row"><div class="field-label">Length<small>metres</small></div><input type="number" class="field-input" id="hsl-h1-l" value="0" min="0" step="0.1" inputmode="decimal" oninput="calcHSL()"></div>
+      <div class="field-row"><div class="field-label">Width<small>metres</small></div><input type="number" class="field-input" id="hsl-h1-w" value="0" min="0" step="0.1" inputmode="decimal" oninput="calcHSL()"></div>
+      <div class="field-row"><div class="field-label">Height<small>metres</small></div><input type="number" class="field-input" id="hsl-h1-h" value="2.4" min="0" step="0.1" inputmode="decimal" oninput="calcHSL()"></div>
+    </div>
+    <div class="card" id="hsl-stair1-card" style="display:none">
+      <div class="card-header">Staircase 1</div>
+      <div class="field-row"><div class="field-label">Stair walls<small>how many sides get painted</small></div><div class="seg" id="seg-hsl-s1-walls"><button class="seg-btn active" onclick="setHSLStairWalls(1,1)">1</button><button class="seg-btn" onclick="setHSLStairWalls(1,2)">2</button></div></div>
+      <div class="field-row"><div class="field-label">Steps<small>count as you go up</small></div><input type="number" class="field-input" id="hsl-s1-steps" value="13" min="1" step="1" inputmode="numeric" oninput="calcHSL()"></div>
+      <div class="field-row"><div class="field-label">Width<small>metres</small></div><input type="number" class="field-input" id="hsl-s1-w" value="0.9" min="0.1" step="0.05" inputmode="decimal" oninput="calcHSL()"></div>
+      <div class="field-row"><div class="field-label">Wall height at bottom<small>metres</small></div><input type="number" class="field-input" id="hsl-s1-wallh" value="2.4" min="0.5" step="0.05" inputmode="decimal" oninput="calcHSL()"></div>
+      <div class="field-row" style="background:var(--surface2)"><div class="field-label" style="color:var(--text2)">Riser<small>default 220mm</small></div><input type="number" class="field-input" id="hsl-s1-riser" value="0.22" min="0.1" step="0.01" inputmode="decimal" oninput="calcHSL()"></div>
+      <div class="field-row" style="background:var(--surface2)"><div class="field-label" style="color:var(--text2)">Tread<small>default 220mm</small></div><input type="number" class="field-input" id="hsl-s1-tread" value="0.22" min="0.1" step="0.01" inputmode="decimal" oninput="calcHSL()"></div>
+    </div>
+    <div class="card" id="hsl-land1-card" style="display:none">
+      <div class="card-header">1st Floor Landing</div>
+      <div class="field-row"><div class="field-label">Length<small>metres</small></div><input type="number" class="field-input" id="hsl-l1-l" value="0" min="0" step="0.1" inputmode="decimal" oninput="calcHSL()"></div>
+      <div class="field-row"><div class="field-label">Width<small>metres</small></div><input type="number" class="field-input" id="hsl-l1-w" value="0" min="0" step="0.1" inputmode="decimal" oninput="calcHSL()"></div>
+      <div class="field-row"><div class="field-label">Height<small>metres</small></div><input type="number" class="field-input" id="hsl-l1-h" value="2.4" min="0" step="0.1" inputmode="decimal" oninput="calcHSL()"></div>
+    </div>
+    <div class="card" id="hsl-stair2-card" style="display:none">
+      <div class="card-header">Staircase 2</div>
+      <div class="field-row"><div class="field-label">Stair walls<small>how many sides get painted</small></div><div class="seg" id="seg-hsl-s2-walls"><button class="seg-btn active" onclick="setHSLStairWalls(2,1)">1</button><button class="seg-btn" onclick="setHSLStairWalls(2,2)">2</button></div></div>
+      <div class="field-row"><div class="field-label">Steps</div><input type="number" class="field-input" id="hsl-s2-steps" value="13" min="1" step="1" inputmode="numeric" oninput="calcHSL()"></div>
+      <div class="field-row"><div class="field-label">Width<small>metres</small></div><input type="number" class="field-input" id="hsl-s2-w" value="0.9" min="0.1" step="0.05" inputmode="decimal" oninput="calcHSL()"></div>
+      <div class="field-row"><div class="field-label">Wall height at bottom<small>metres</small></div><input type="number" class="field-input" id="hsl-s2-wallh" value="2.4" min="0.5" step="0.05" inputmode="decimal" oninput="calcHSL()"></div>
+      <div class="field-row" style="background:var(--surface2)"><div class="field-label" style="color:var(--text2)">Riser<small>default 220mm</small></div><input type="number" class="field-input" id="hsl-s2-riser" value="0.22" min="0.1" step="0.01" inputmode="decimal" oninput="calcHSL()"></div>
+      <div class="field-row" style="background:var(--surface2)"><div class="field-label" style="color:var(--text2)">Tread<small>default 220mm</small></div><input type="number" class="field-input" id="hsl-s2-tread" value="0.22" min="0.1" step="0.01" inputmode="decimal" oninput="calcHSL()"></div>
+    </div>
+    <div class="card" id="hsl-land2-card" style="display:none">
+      <div class="card-header">2nd Floor Landing</div>
+      <div class="field-row"><div class="field-label">Length<small>metres</small></div><input type="number" class="field-input" id="hsl-l2-l" value="0" min="0" step="0.1" inputmode="decimal" oninput="calcHSL()"></div>
+      <div class="field-row"><div class="field-label">Width<small>metres</small></div><input type="number" class="field-input" id="hsl-l2-w" value="0" min="0" step="0.1" inputmode="decimal" oninput="calcHSL()"></div>
+      <div class="field-row"><div class="field-label">Height<small>metres</small></div><input type="number" class="field-input" id="hsl-l2-h" value="2.4" min="0" step="0.1" inputmode="decimal" oninput="calcHSL()"></div>
+    </div>
+    <div class="card" id="card-hsl-woodwork" style="display:none">
+      <div class="card-header">Staircase Details</div>
+      <div class="field-row"><div class="field-label">Spindles<small>total across whole run</small></div><input type="number" class="field-input" id="hsl-spindles" value="0" min="0" step="1" inputmode="numeric" oninput="calcHSL()"></div>
+      <div class="field-row"><div class="field-label">Newel posts</div><input type="number" class="field-input" id="hsl-newels" value="0" min="0" step="1" inputmode="numeric" oninput="calcHSL()"></div>
+      <div class="field-row"><div class="field-label">Woodwork coats<small>spindles / newels / strings</small></div><div class="seg" id="seg-hsl-swc"><button class="seg-btn" onclick="setHSLSeg('swc',1)">1</button><button class="seg-btn active" onclick="setHSLSeg('swc',2)">2</button><button class="seg-btn" onclick="setHSLSeg('swc',3)">3</button></div></div>
     </div>
     <div class="card">
       <div class="card-header">Coats</div>
@@ -191,7 +246,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Ceiling</div><div class="seg" id="seg-cc"><button class="seg-btn" onclick="setSeg('cc',0)">0</button><button class="seg-btn" onclick="setSeg('cc',1)">1</button><button class="seg-btn active" onclick="setSeg('cc',2)">2</button><button class="seg-btn" onclick="setSeg('cc',3)">3</button></div></div>
       <div class="field-row"><div class="field-label">Woodwork</div><div class="seg" id="seg-xc"><button class="seg-btn" onclick="setSeg('xc',0)">0</button><button class="seg-btn" onclick="setSeg('xc',1)">1</button><button class="seg-btn active" onclick="setSeg('xc',2)">2</button><button class="seg-btn" onclick="setSeg('xc',3)">3</button></div></div>
     </div>
-    <div class="card">
+    <div class="card" id="card-extras">
       <div class="card-header sec-toggle" onclick="toggleFormSection('extras')"><span>Extras</span><span class="sec-chev" id="sec-chev-extras">›</span></div>
       <div class="card-body" id="sec-extras">
         <div class="field-row"><div class="field-label">Windows<small>total m²</small></div><input type="number" class="field-input" id="r-win" value="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
@@ -295,158 +350,8 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         </div>
       </div>
     </div>
-    <div class="card" id="room-preview" style="display:none">
-      <div class="card-header">Preview</div>
-      <div class="breakdown-row"><span class="breakdown-label">Wall area</span><span class="breakdown-value" id="prev-wall">—</span></div>
-      <div class="breakdown-row"><span class="breakdown-label">Ceiling area</span><span class="breakdown-value" id="prev-ceil">—</span></div>
-      <div class="breakdown-row"><span class="breakdown-label">Estimated cost</span><span class="breakdown-value" style="color:var(--accent)" id="prev-cost">—</span></div>
-      <div class="breakdown-row"><span class="breakdown-label">Estimated time</span><span class="breakdown-value" id="prev-time">—</span></div>
-    </div>
-    <button class="btn btn-danger" id="del-room-btn" style="display:none" onclick="deleteRoom()">Delete Room</button>
-  </div>
-</div>
-
-<!-- ══ HSL CALCULATOR ══ -->
-<div id="screen-stair" class="screen">
-  <div class="topbar">
-    <button class="back-btn" onclick="goBack()">←</button>
-    <div class="topbar-title">Hall, Stairs &amp; Landing</div>
-    <button class="btn-ghost btn" onclick="useHSL()" style="padding:8px 12px;font-size:15px">Add</button>
-  </div>
-  <div class="content">
-
-    <div class="card" style="background:rgba(26,82,118,.07);border-color:rgba(26,82,118,.2)">
-      <div class="card-header" style="color:var(--accent)">HOW IT WORKS</div>
-      <div class="note-text">Enter floors, dimensions and staircase details. All doors counted once across the whole HSL. Tap <strong>Add</strong> to create a single HSL room.</div>
-    </div>
-
-    <div class="card">
-      <div class="card-header">Number of Floors</div>
-      <div class="field-row">
-        <div class="field-label">Floors<small>inc ground floor</small></div>
-        <div class="seg" id="seg-hsl-floors">
-          <button class="seg-btn active" onclick="setHSLFloors(1)">1</button>
-          <button class="seg-btn" onclick="setHSLFloors(2)">2</button>
-          <button class="seg-btn" onclick="setHSLFloors(3)">3</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Ground floor hall -->
-    <div class="card">
-      <div class="card-header">Ground Floor Hall</div>
-      <div class="field-row"><div class="field-label">Length<small>metres</small></div><input type="number" class="field-input" id="hsl-h1-l" value="0" min="0" step="0.1" inputmode="decimal" oninput="calcHSL()"></div>
-      <div class="field-row"><div class="field-label">Width<small>metres</small></div><input type="number" class="field-input" id="hsl-h1-w" value="0" min="0" step="0.1" inputmode="decimal" oninput="calcHSL()"></div>
-      <div class="field-row"><div class="field-label">Height<small>metres</small></div><input type="number" class="field-input" id="hsl-h1-h" value="2.4" min="0" step="0.1" inputmode="decimal" oninput="calcHSL()"></div>
-    </div>
-
-    <!-- Staircase 1 (shown for 2+ floors) -->
-    <div class="card" id="hsl-stair1-card" style="display:none">
-      <div class="card-header">Staircase 1</div>
-      <div class="field-row"><div class="field-label">Stair walls<small>how many sides get painted</small></div><div class="seg" id="seg-hsl-s1-walls"><button class="seg-btn active" onclick="setHSLStairWalls(1,1)">1</button><button class="seg-btn" onclick="setHSLStairWalls(1,2)">2</button></div></div>
-      <div class="field-row"><div class="field-label">Steps<small>count as you go up</small></div><input type="number" class="field-input" id="hsl-s1-steps" value="13" min="1" step="1" inputmode="numeric" oninput="calcHSL()"></div>
-      <div class="field-row"><div class="field-label">Width<small>metres</small></div><input type="number" class="field-input" id="hsl-s1-w" value="0.9" min="0.1" step="0.05" inputmode="decimal" oninput="calcHSL()"></div>
-      <div class="field-row"><div class="field-label">Wall height at bottom<small>metres</small></div><input type="number" class="field-input" id="hsl-s1-wallh" value="2.4" min="0.5" step="0.05" inputmode="decimal" oninput="calcHSL()"></div>
-      <div class="field-row" style="background:var(--surface2)"><div class="field-label" style="color:var(--text2)">Riser<small>default 220mm</small></div><input type="number" class="field-input" id="hsl-s1-riser" value="0.22" min="0.1" step="0.01" inputmode="decimal" oninput="calcHSL()"></div>
-      <div class="field-row" style="background:var(--surface2)"><div class="field-label" style="color:var(--text2)">Tread<small>default 220mm</small></div><input type="number" class="field-input" id="hsl-s1-tread" value="0.22" min="0.1" step="0.01" inputmode="decimal" oninput="calcHSL()"></div>
-    </div>
-
-    <!-- First floor landing (shown for 2+ floors) -->
-    <div class="card" id="hsl-land1-card" style="display:none">
-      <div class="card-header">1st Floor Landing</div>
-      <div class="field-row"><div class="field-label">Length<small>metres</small></div><input type="number" class="field-input" id="hsl-l1-l" value="0" min="0" step="0.1" inputmode="decimal" oninput="calcHSL()"></div>
-      <div class="field-row"><div class="field-label">Width<small>metres</small></div><input type="number" class="field-input" id="hsl-l1-w" value="0" min="0" step="0.1" inputmode="decimal" oninput="calcHSL()"></div>
-      <div class="field-row"><div class="field-label">Height<small>metres</small></div><input type="number" class="field-input" id="hsl-l1-h" value="2.4" min="0" step="0.1" inputmode="decimal" oninput="calcHSL()"></div>
-    </div>
-
-    <!-- Staircase 2 (shown for 3 floors) -->
-    <div class="card" id="hsl-stair2-card" style="display:none">
-      <div class="card-header">Staircase 2</div>
-      <div class="field-row"><div class="field-label">Stair walls<small>how many sides get painted</small></div><div class="seg" id="seg-hsl-s2-walls"><button class="seg-btn active" onclick="setHSLStairWalls(2,1)">1</button><button class="seg-btn" onclick="setHSLStairWalls(2,2)">2</button></div></div>
-      <div class="field-row"><div class="field-label">Steps</div><input type="number" class="field-input" id="hsl-s2-steps" value="13" min="1" step="1" inputmode="numeric" oninput="calcHSL()"></div>
-      <div class="field-row"><div class="field-label">Width<small>metres</small></div><input type="number" class="field-input" id="hsl-s2-w" value="0.9" min="0.1" step="0.05" inputmode="decimal" oninput="calcHSL()"></div>
-      <div class="field-row"><div class="field-label">Wall height at bottom<small>metres</small></div><input type="number" class="field-input" id="hsl-s2-wallh" value="2.4" min="0.5" step="0.05" inputmode="decimal" oninput="calcHSL()"></div>
-      <div class="field-row" style="background:var(--surface2)"><div class="field-label" style="color:var(--text2)">Riser<small>default 220mm</small></div><input type="number" class="field-input" id="hsl-s2-riser" value="0.22" min="0.1" step="0.01" inputmode="decimal" oninput="calcHSL()"></div>
-      <div class="field-row" style="background:var(--surface2)"><div class="field-label" style="color:var(--text2)">Tread<small>default 220mm</small></div><input type="number" class="field-input" id="hsl-s2-tread" value="0.22" min="0.1" step="0.01" inputmode="decimal" oninput="calcHSL()"></div>
-    </div>
-
-    <!-- Second floor landing (shown for 3 floors) -->
-    <div class="card" id="hsl-land2-card" style="display:none">
-      <div class="card-header">2nd Floor Landing</div>
-      <div class="field-row"><div class="field-label">Length<small>metres</small></div><input type="number" class="field-input" id="hsl-l2-l" value="0" min="0" step="0.1" inputmode="decimal" oninput="calcHSL()"></div>
-      <div class="field-row"><div class="field-label">Width<small>metres</small></div><input type="number" class="field-input" id="hsl-l2-w" value="0" min="0" step="0.1" inputmode="decimal" oninput="calcHSL()"></div>
-      <div class="field-row"><div class="field-label">Height<small>metres</small></div><input type="number" class="field-input" id="hsl-l2-h" value="2.4" min="0" step="0.1" inputmode="decimal" oninput="calcHSL()"></div>
-    </div>
-
-    <!-- Wallpaper -->
-    <div class="card">
-      <div class="card-header">Wallpaper<span style="font-size:10px;font-weight:400;color:var(--text2);text-transform:none;letter-spacing:0"> — rates +20% for HSL complexity</span></div>
-      <div class="field-row">
-        <div class="field-label">Walls</div>
-        <div class="seg" id="seg-hsl-wpw" style="flex:1.5">
-          <button class="seg-btn active" onclick="setHSLWP('wpw','none')">None</button>
-          <button class="seg-btn" onclick="setHSLWP('wpw','lining')">Lining</button>
-          <button class="seg-btn" onclick="setHSLWP('wpw','plain')">Plain</button>
-          <button class="seg-btn" onclick="setHSLWP('wpw','patterned')">Patterned</button>
-        </div>
-      </div>
-      <div class="field-row" id="hsl-wpw-area-row" style="display:none">
-        <div class="field-label">Wall paper area<small>m² — auto if 0 paint coats</small></div>
-        <input type="number" class="field-input" id="hsl-wpw-area" value="0" min="0" step="0.1" inputmode="decimal" oninput="calcHSL()">
-      </div>
-      <div class="field-row" style="border-top:1px solid var(--border)">
-        <div class="field-label">Ceiling</div>
-        <div class="seg" id="seg-hsl-wpc" style="flex:1.5">
-          <button class="seg-btn active" onclick="setHSLWP('wpc','none')">None</button>
-          <button class="seg-btn" onclick="setHSLWP('wpc','lining')">Lining</button>
-          <button class="seg-btn" onclick="setHSLWP('wpc','plain')">Plain</button>
-          <button class="seg-btn" onclick="setHSLWP('wpc','patterned')">Patterned</button>
-        </div>
-      </div>
-      <div class="field-row" id="hsl-wpc-area-row" style="display:none">
-        <div class="field-label">Ceiling paper area<small>m² — auto if 0 paint coats</small></div>
-        <input type="number" class="field-input" id="hsl-wpc-area" value="0" min="0" step="0.1" inputmode="decimal" oninput="calcHSL()">
-      </div>
-    </div>
-
-    <!-- Coats -->
-    <div class="card">
-      <div class="card-header">Coats</div>
-      <div class="field-row"><div class="field-label">Walls</div><div class="seg" id="seg-hsl-wc"><button class="seg-btn" onclick="setHSLSeg('wc',0)">0</button><button class="seg-btn" onclick="setHSLSeg('wc',1)">1</button><button class="seg-btn active" onclick="setHSLSeg('wc',2)">2</button><button class="seg-btn" onclick="setHSLSeg('wc',3)">3</button></div></div>
-      <div class="field-row"><div class="field-label">Ceiling</div><div class="seg" id="seg-hsl-cc"><button class="seg-btn" onclick="setHSLSeg('cc',0)">0</button><button class="seg-btn" onclick="setHSLSeg('cc',1)">1</button><button class="seg-btn active" onclick="setHSLSeg('cc',2)">2</button><button class="seg-btn" onclick="setHSLSeg('cc',3)">3</button></div></div>
-      <div class="field-row"><div class="field-label">Woodwork</div><div class="seg" id="seg-hsl-xc"><button class="seg-btn" onclick="setHSLSeg('xc',0)">0</button><button class="seg-btn" onclick="setHSLSeg('xc',1)">1</button><button class="seg-btn active" onclick="setHSLSeg('xc',2)">2</button><button class="seg-btn" onclick="setHSLSeg('xc',3)">3</button></div></div>
-      <div class="field-row"><div class="field-label">Doors<small>total across whole HSL</small></div><input type="number" class="field-input" id="hsl-doors" value="0" min="0" step="1" inputmode="numeric" oninput="calcHSL()"></div>
-    </div>
-
-    <!-- Staircase woodwork -->
-    <div class="card" id="hsl-wood-card" style="display:none">
-      <div class="card-header">Staircase Woodwork</div>
-      <div class="field-row"><div class="field-label">Spindles<small>total across whole run</small></div><input type="number" class="field-input" id="hsl-spindles" value="0" min="0" step="1" inputmode="numeric" oninput="calcHSL()"></div>
-      <div class="field-row"><div class="field-label">Newel posts</div><input type="number" class="field-input" id="hsl-newels" value="0" min="0" step="1" inputmode="numeric" oninput="calcHSL()"></div>
-      <div class="field-row"><div class="field-label">Coats</div><div class="seg" id="seg-hsl-swc"><button class="seg-btn" onclick="setHSLSeg('swc',1)">1</button><button class="seg-btn active" onclick="setHSLSeg('swc',2)">2</button><button class="seg-btn" onclick="setHSLSeg('swc',3)">3</button></div></div>
-    </div>
-
-    <!-- Prep Level -->
-    <div class="card">
-      <div class="card-header">Preparation</div>
-      <div class="field-row">
-        <div class="field-label">Prep Level</div>
-        <div class="seg" id="seg-hsl-prep" style="flex:1.5">
-          <button class="seg-btn active" onclick="setHSLPrep(0)">Standard</button>
-          <button class="seg-btn" onclick="setHSLPrep(10)">Light</button>
-          <button class="seg-btn" onclick="setHSLPrep(25)">Full</button>
-          <button class="seg-btn" onclick="setHSLPrep(-1)">Custom</button>
-        </div>
-      </div>
-      <div class="field-row" id="hsl-prep-custom-row" style="display:none">
-        <div class="field-label">Custom prep %</div>
-        <input type="number" class="field-input" id="hsl-prep-custom" value="0" min="0" max="100" step="5" inputmode="numeric" oninput="calcHSL()">
-      </div>
-    </div>
-
-    <!-- Results -->
     <div class="card" id="hsl-results-card" style="display:none">
-      <div class="card-header">Results</div>
+      <div class="card-header">Staircase Areas</div>
       <div class="breakdown-row"><span class="breakdown-label">Hall wall area</span><span class="breakdown-value" id="hsl-r-hall">—</span></div>
       <div class="breakdown-row" id="hsl-r-stair1-row" style="display:none"><span class="breakdown-label">Staircase 1 walls</span><span class="breakdown-value" id="hsl-r-stair1">—</span></div>
       <div class="breakdown-row" id="hsl-r-land1-row" style="display:none"><span class="breakdown-label">1st floor landing walls</span><span class="breakdown-value" id="hsl-r-land1">—</span></div>
@@ -458,8 +363,14 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="breakdown-row" style="background:rgba(26,82,118,.06)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Estimated cost (ex markup)</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="hsl-r-cost">—</span></div>
       <div class="breakdown-row"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Estimated time</span><span class="breakdown-value" id="hsl-r-time">—</span></div>
     </div>
-
-    <button class="btn btn-danger" id="hsl-delete-btn" style="display:none" onclick="deleteHSL()">Delete HSL</button>
+    <div class="card" id="room-preview" style="display:none">
+      <div class="card-header">Preview</div>
+      <div class="breakdown-row"><span class="breakdown-label">Wall area</span><span class="breakdown-value" id="prev-wall">—</span></div>
+      <div class="breakdown-row"><span class="breakdown-label">Ceiling area</span><span class="breakdown-value" id="prev-ceil">—</span></div>
+      <div class="breakdown-row"><span class="breakdown-label">Estimated cost</span><span class="breakdown-value" style="color:var(--accent)" id="prev-cost">—</span></div>
+      <div class="breakdown-row"><span class="breakdown-label">Estimated time</span><span class="breakdown-value" id="prev-time">—</span></div>
+    </div>
+    <button class="btn btn-danger" id="del-room-btn" style="display:none" onclick="deleteRoom()">Delete Room</button>
   </div>
 </div>
 
@@ -761,11 +672,6 @@ function saveRooms() {
     rooms.forEach(function(r) { apiPut('/api/rooms/'+r.id, r); });
   });
 }
-function saveStair() {
-  localStorage.setItem('pe-swcost', ''+swCost);
-  localStorage.setItem('pe-swtime', ''+swTime);
-  apiPut('/api/hsl', { swcost: swCost, swtime: swTime });
-}
 function saveSettings() {
   settings = {
     dr:      +document.getElementById('s-dr').value,
@@ -832,20 +738,17 @@ function clearRooms() {
   // Colours are job-scoped, not a Settings value (see Colours tab spec),
   // so they clear along with the rooms they were assigned to -- otherwise
   // Colour 1's label survives into the next job untouched.
-  rooms=[]; swCost=0; swTime=0; colours=[]; materialsSnapshot=[];
+  rooms=[]; colours=[]; materialsSnapshot=[];
   localStorage.setItem('pe-rooms','[]');
-  localStorage.removeItem('pe-swcost');
-  localStorage.removeItem('pe-swtime');
   var xc=document.getElementById('xero-client'); if(xc) xc.value='';
   var xr=document.getElementById('xero-ref'); if(xr) xr.value='';
-  saveRooms(); saveStair(); saveColours(); saveMaterialsSnapshot(); renderHome();
+  saveRooms(); saveColours(); saveMaterialsSnapshot(); renderHome();
 }
 function clearEverything() {
   if(!confirm('Clear ALL data including exterior? This cannot be undone.'))return;
-  rooms=[]; swCost=0; swTime=0; extItems=[]; colours=[]; materialsSnapshot=[];
+  rooms=[]; extItems=[]; colours=[]; materialsSnapshot=[];
   localStorage.clear();
   apiDelete('/api/all');
-  apiDelete('/api/hsl');
   ['ex-doors','ex-wins','ex-garage'].forEach(function(id){
     var el=document.getElementById(id); if(el) el.value='0';
   });
@@ -1095,8 +998,8 @@ async function createXeroQuote() {
     // paymentSummary is the same figures again, compact -- see
     // buildPaymentSummaryText() -- sent to the API's separate Summary
     // property so the template can bold just the numbers.
-    tcS += extTotal + swCost;
-    ttS += extTimeTotal + swTime;
+    tcS += extTotal;
+    ttS += extTimeTotal;
     var onSiteDays = realisticDays(ttS);
     var depositPlan = computeDepositPlan(tcS, materialsTotal, onSiteDays);
     var paymentTerms = buildPaymentTermsText(depositPlan);
@@ -1122,7 +1025,6 @@ async function createXeroQuote() {
         xeroRef: xeroRef,
         rooms: roomData,
         exterior: { cost: extTotal },
-        hsl: { stairWoodCost: swCost },
         materials: materials,
         settings: settings,
         markup: settings.mu,
@@ -1177,8 +1079,6 @@ async function initApp() {
   loadSettings();
 
   rooms = JSON.parse(localStorage.getItem('pe-rooms') || '[]');
-  swCost = parseFloat(localStorage.getItem('pe-swcost')||'0');
-  swTime = parseFloat(localStorage.getItem('pe-swtime')||'0');
 
   var extLocal = JSON.parse(localStorage.getItem('pe-extitems')||'null');
   if (extLocal && extLocal.length > 0) { extItems = extLocal; }
@@ -1220,27 +1120,6 @@ async function initApp() {
       rooms = serverRooms;
       localStorage.setItem('pe-rooms', JSON.stringify(rooms));
       renderHome();
-    }
-    var hslData = await apiGet('/api/hsl');
-    if (hslData && hslData.swcost) {
-      // useHSL() always rolls swCost into the "Hall, Stairs & Landing"
-      // room's own total in the same call that computes it, so a nonzero
-      // server value alongside an already-existing HSL room can only be a
-      // stale leftover from before useHSL() persisted the zeroed state back
-      // (the bug this fixes) -- self-heal it here instead of resurrecting a
-      // double-count of woodwork the room's total already includes.
-      var hasHSLRoom = rooms.some(function(r){ return r.name === 'Hall, Stairs & Landing'; });
-      if (hasHSLRoom) {
-        swCost = 0; swTime = 0;
-        localStorage.removeItem('pe-swcost');
-        localStorage.removeItem('pe-swtime');
-        saveStair();
-      } else {
-        swCost=parseFloat(hslData.swcost)||0;
-        swTime=parseFloat(hslData.swtime)||0;
-        localStorage.setItem('pe-swcost',''+swCost);
-        localStorage.setItem('pe-swtime',''+swTime);
-      }
     }
     var extData = await apiGet('/api/extitems');
     if (extData && extData.length > 0) {
@@ -1318,13 +1197,6 @@ async function initApp() {
 
 // ── State ──────────────────────────────────────────────────────────────────
 var rooms    = JSON.parse(localStorage.getItem('pe-rooms') || '[]');
-var swCost   = parseFloat(localStorage.getItem('pe-swcost') || '0');
-var swTime   = parseFloat(localStorage.getItem('pe-swtime') || '0');
-// Clear stair woodwork if rooms were cleared (no rooms = no staircase)
-if(JSON.parse(localStorage.getItem('pe-rooms') || '[]').length === 0) {
-  swCost = 0; swTime = 0;
-  localStorage.removeItem('pe-swcost'); localStorage.removeItem('pe-swtime');
-}
 var _raw = JSON.parse(localStorage.getItem('pe-settings') || 'null') || {};
 var settings = {
   dr:      _raw.dr      != null ? _raw.dr      : (_raw.dayRate  != null ? _raw.dayRate  : 300),
@@ -1409,10 +1281,21 @@ function goScreen(name) {
   inSub = name;
   document.querySelectorAll('.screen').forEach(function(s) { s.classList.remove('active'); });
   document.getElementById('screen-'+name).classList.add('active');
-  if (name==='stair') loadHSLState();
   if (name==='room') {
     resetFormSections();
     editId=null; coats={wc:2,cc:2,xc:2}; mistWall=false; mistCeil=false; prepPct=0;
+    roomIsStaircase=false; hslFloors=1; hslStairWalls={1:1,2:1}; hslCoats={swc:2};
+    [['hsl-h1-l','0'],['hsl-h1-w','0'],['hsl-h1-h','2.4'],
+     ['hsl-s1-steps','13'],['hsl-s1-w','0.9'],['hsl-s1-wallh','2.4'],['hsl-s1-riser','0.22'],['hsl-s1-tread','0.22'],
+     ['hsl-l1-l','0'],['hsl-l1-w','0'],['hsl-l1-h','2.4'],
+     ['hsl-s2-steps','13'],['hsl-s2-w','0.9'],['hsl-s2-wallh','2.4'],['hsl-s2-riser','0.22'],['hsl-s2-tread','0.22'],
+     ['hsl-l2-l','0'],['hsl-l2-w','0'],['hsl-l2-h','2.4'],
+     ['hsl-spindles','0'],['hsl-newels','0']
+    ].forEach(function(pair){ var el=document.getElementById(pair[0]); if(el) el.value=pair[1]; });
+    document.querySelectorAll('#seg-hsl-floors .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===0);});
+    document.querySelectorAll('#seg-hsl-s1-walls .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===0);});
+    document.querySelectorAll('#seg-hsl-s2-walls .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===0);});
+    document.querySelectorAll('#seg-hsl-swc .seg-btn').forEach(function(b,i){b.classList.toggle('active',i+1===2);});
     roomColourNumbers = { wall:1, ceiling:1, woodwork:1, featurewall:1 };
     ['wall','ceiling','woodwork','featurewall'].forEach(populateRoomColourChips);
     roomOverrides = {
@@ -1449,6 +1332,7 @@ function goScreen(name) {
     document.getElementById('del-room-btn').style.display='none';
     document.getElementById('room-preview').style.display='none';
     ['wc','cc','xc'].forEach(function(k) { setSeg(k,2); });
+    setRoomStaircase(false);
   }
 }
 
@@ -1552,7 +1436,13 @@ function calcRoom(r) {
   var wL  = wc>0 ? Math.ceil(mainWallPaintArea*wc/settings.cw*2)/2 : 0;
   var fwL = (featureWallArea>0 && wc>0) ? Math.ceil(featureWallArea*wc/settings.cw*2)/2 : 0;
   var cL  = cc>0 ? Math.ceil(ceilArea*cc/settings.cc*2)/2 : 0;
-  var wdA = perim*0.15 + doors*1.9;
+  // woodAreaOverride: same pattern as wallAreaOverride/ceilAreaOverride above
+  // -- staircase/HSL rooms set this to the REAL skirting+door+spindle+newel
+  // surface area (computeHSLOverrides()), since the generic perim*0.15
+  // formula below is meaningless against a staircase room's dummy l=w=h=1
+  // placeholder dimensions. This was the actual materials-under-counting
+  // bug the HSL/room alignment work exists to fix.
+  var wdA = r.woodAreaOverride ? +r.woodAreaOverride : perim*0.15 + doors*1.9;
   var gL  = xc>0 ? Math.ceil(wdA*xc/settings.cg*2)/2 : 0;
   // Manual override only applies to the paint quantity (only part of the
   // room may be new plaster) -- the time cost above stays on the full
@@ -2624,11 +2514,6 @@ function previewRoom() {
 function editRoom(id) {
   var r=rooms.find(function(x){return x.id===id;});
   if(!r)return;
-  // HSL room — open HSL screen instead of room form
-  if(r.name==='Hall, Stairs & Landing') {
-    goScreen('stair');
-    return;
-  }
   resetFormSections();
   editId=id; coats={wc:+r.wc,cc:+r.cc,xc:+r.xc};
   roomColourNumbers = { wall: r.colourNumber || 1, ceiling: r.ceilingColourNumber || 1, woodwork: r.woodworkColourNumber || 1, featurewall: r.featureWallColourNumber || 1 };
@@ -2675,7 +2560,32 @@ function editRoom(id) {
   document.getElementById('r-wpc-area').value = r.wpcArea||0;
   document.getElementById('del-room-btn').style.display='block';
   ['wc','cc','xc'].forEach(function(k){setSeg(k,+r[k]);});
-  previewRoom();
+  // Staircase/HSL: restore the geometry inputs from hslInputs (saveRoom()'s
+  // computeHSLOverrides() call saved them there) and swap in the Staircase
+  // Geometry cards instead of Dimensions/Extras. Everything above (colour,
+  // overrides, mist, prep, wallpaper, coats) is already restored generically
+  // regardless of room type.
+  if (r.isHSL && r.hslInputs) {
+    var hi = r.hslInputs;
+    hslFloors = hi.floors || 1;
+    hslStairWalls = hi.stairWalls || {1:1,2:1};
+    hslCoats = {swc: hi.swc || 2};
+    document.getElementById('hsl-h1-l').value = hi.h1l||'0'; document.getElementById('hsl-h1-w').value = hi.h1w||'0'; document.getElementById('hsl-h1-h').value = hi.h1h||'2.4';
+    document.getElementById('hsl-s1-steps').value = hi.s1steps||'13'; document.getElementById('hsl-s1-w').value = hi.s1w||'0.9'; document.getElementById('hsl-s1-wallh').value = hi.s1wallh||'2.4';
+    document.getElementById('hsl-s1-riser').value = hi.s1riser||'0.22'; document.getElementById('hsl-s1-tread').value = hi.s1tread||'0.22';
+    document.getElementById('hsl-l1-l').value = hi.l1l||'0'; document.getElementById('hsl-l1-w').value = hi.l1w||'0'; document.getElementById('hsl-l1-h').value = hi.l1h||'2.4';
+    document.getElementById('hsl-s2-steps').value = hi.s2steps||'13'; document.getElementById('hsl-s2-w').value = hi.s2w||'0.9'; document.getElementById('hsl-s2-wallh').value = hi.s2wallh||'2.4';
+    document.getElementById('hsl-s2-riser').value = hi.s2riser||'0.22'; document.getElementById('hsl-s2-tread').value = hi.s2tread||'0.22';
+    document.getElementById('hsl-l2-l').value = hi.l2l||'0'; document.getElementById('hsl-l2-w').value = hi.l2w||'0'; document.getElementById('hsl-l2-h').value = hi.l2h||'2.4';
+    document.getElementById('hsl-spindles').value = hi.spindles||'0'; document.getElementById('hsl-newels').value = hi.newels||'0';
+    document.querySelectorAll('#seg-hsl-floors .seg-btn').forEach(function(b,i){b.classList.toggle('active',i+1===hslFloors);});
+    document.querySelectorAll('#seg-hsl-s1-walls .seg-btn').forEach(function(b,i){b.classList.toggle('active',i+1===hslStairWalls[1]);});
+    document.querySelectorAll('#seg-hsl-s2-walls .seg-btn').forEach(function(b,i){b.classList.toggle('active',i+1===hslStairWalls[2]);});
+    document.querySelectorAll('#seg-hsl-swc .seg-btn').forEach(function(b,i){b.classList.toggle('active',i+1===hslCoats.swc);});
+    setRoomStaircase(true);
+  } else {
+    setRoomStaircase(false);
+  }
   inSub='room';
   document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active');});
   document.getElementById('screen-room').classList.add('active');
@@ -2693,7 +2603,7 @@ function saveRoom() {
       return;
     }
   }
-  var name=document.getElementById('r-name').value.trim()||'Room';
+  var name=document.getElementById('r-name').value.trim()||(roomIsStaircase?'Hall, Stairs & Landing':'Room');
   var room={
     id:editId||uid(), name:name,
     colourNumber:roomColourNumbers.wall,
@@ -2727,8 +2637,19 @@ function saveRoom() {
     prepCustom:+document.getElementById('r-prep-custom').value,
     makingGood:+document.getElementById('r-making-good').value,
     fwa:0, fwt:'',
-    emoji:editId?(rooms.find(function(r){return r.id===editId;})||{}).emoji||roomEmoji(name):roomEmoji(name)
+    emoji:roomIsStaircase?'🏠':(editId?(rooms.find(function(r){return r.id===editId;})||{}).emoji||roomEmoji(name):roomEmoji(name))
   };
+  // Staircase/HSL: l/w/h are meaningless placeholders here (area comes from
+  // wallAreaOverride/ceilAreaOverride instead) -- merge in the real
+  // geometry-derived overrides computeHSLOverrides() returns, on top of
+  // everything else already set generically above (coats, colour, product
+  // overrides, mist, prep, wallpaper -- all shared with normal rooms).
+  if (roomIsStaircase) {
+    room.l = '1'; room.w = '1'; room.h = '1';
+    room.isHSL = true;
+    var hslOverrides = computeHSLOverrides();
+    Object.keys(hslOverrides).forEach(function(k){ room[k] = hslOverrides[k]; });
+  }
   if(editId){var idx=rooms.findIndex(function(r){return r.id===editId;});rooms[idx]=room;}
   else rooms.push(room);
   saveRooms(); goBack();
@@ -2744,13 +2665,40 @@ function deleteRoom() {
 
 
 
-// ── HSL Calculator ────────────────────────────────────────────────────────────
+// ── Staircase / HSL (inline on the room form) ───────────────────────────────
+// Temp editing state, same lifecycle as coats/mistWall/prepPct -- read into
+// the room object by saveRoom() via computeHSLOverrides(), set by
+// goScreen('room')/editRoom(). Coats (wc/cc/xc), prep and wallpaper all
+// come from the shared room temp-state now (coats/prepPct/wpWall/wpCeil) --
+// only the geometry and the staircase-woodwork coat count are unique here.
+var roomIsStaircase = false;
 var hslFloors = 1;
-var hslCoats  = {wc:2, cc:2, xc:2, swc:2};
-var hslWPWall = 'none';
-var hslWPCeil = 'none';
-var hslPrepPct = 0;
+var hslCoats  = {swc:2};
 var hslStairWalls = {1:1, 2:1}; // default 1 wall per staircase
+
+// Toggles the room form between a normal room (Dimensions + Extras) and a
+// staircase/HSL entry (Staircase Geometry cards instead) -- everything else
+// on the form (Coats, Preparation, Mist Coat, Paint & Colour, Wallpaper) is
+// shared and just works once wallAreaOverride/ceilAreaOverride/
+// woodAreaOverride are set correctly, so only these cards need swapping.
+function setRoomStaircase(on) {
+  roomIsStaircase = on;
+  document.getElementById('tog-staircase').classList.toggle('on', on);
+  document.getElementById('card-dimensions').style.display = on ? 'none' : 'block';
+  document.getElementById('card-hsl-geometry').style.display = on ? 'block' : 'none';
+  document.getElementById('card-hsl-hall').style.display = on ? 'block' : 'none';
+  document.getElementById('card-hsl-woodwork').style.display = on ? 'block' : 'none';
+  if (on) {
+    document.getElementById('room-preview').style.display = 'none';
+    setHSLFloors(hslFloors);
+  } else {
+    document.getElementById('hsl-results-card').style.display = 'none';
+    ['hsl-stair1-card','hsl-land1-card','hsl-stair2-card','hsl-land2-card'].forEach(function(id){
+      var el = document.getElementById(id); if (el) el.style.display = 'none';
+    });
+    previewRoom();
+  }
+}
 
 function setHSLFloors(n) {
   hslFloors = n;
@@ -2760,7 +2708,6 @@ function setHSLFloors(n) {
   document.getElementById('hsl-land1-card').style.display   = n>=2 ? 'block' : 'none';
   document.getElementById('hsl-stair2-card').style.display  = n>=3 ? 'block' : 'none';
   document.getElementById('hsl-land2-card').style.display   = n>=3 ? 'block' : 'none';
-  document.getElementById('hsl-wood-card').style.display    = n>=2 ? 'block' : 'none';
   var r1row = document.getElementById('hsl-r-stair1-row');
   var l1row = document.getElementById('hsl-r-land1-row');
   var r2row = document.getElementById('hsl-r-stair2-row');
@@ -2772,92 +2719,22 @@ function setHSLFloors(n) {
   calcHSL();
 }
 
-function setHSLPrep(val) {
-  hslPrepPct = val;
-  var prepVals = [0,10,25,-1];
-  document.querySelectorAll('#seg-hsl-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',prepVals[i]===val);});
-  document.getElementById('hsl-prep-custom-row').style.display = val===-1?'flex':'none';
-  calcHSL();
-}
-
-function deleteHSL() {
-  if(!confirm('Remove Hall, Stairs & Landing?'))return;
-  rooms = rooms.filter(function(r){return r.name!=='Hall, Stairs & Landing';});
-  localStorage.removeItem('pe-hsl');
-  saveRooms(); renderHome(); goTab('home');
-}
-
 function setHSLStairWalls(stair, val) {
   hslStairWalls[stair] = val;
   document.querySelectorAll('#seg-hsl-s'+stair+'-walls .seg-btn').forEach(function(b,i){b.classList.toggle('active',i+1===val);});
   calcHSL();
 }
 
+// Staircase woodwork (spindles/newels/strings) coats -- its own count,
+// distinct from the shared Coats card's woodwork coats (xc, which covers
+// skirting/doors), since they aren't always painted the same number of
+// times. Everything else HSL used to have its own segmented control for
+// (wall/ceiling/woodwork coats, prep, wallpaper) now reuses the same
+// shared room fields/functions (setSeg/setPrep/setWP) -- see
+// setRoomStaircase() and computeHSLOverrides().
 function setHSLSeg(key, val) {
   hslCoats[key] = val;
-  var segId = 'seg-hsl-'+key;
-  var btns = document.querySelectorAll('#'+segId+' .seg-btn');
-  if(key==='swc') {
-    btns.forEach(function(b,i){b.classList.toggle('active',i+1===val);});
-  } else {
-    btns.forEach(function(b,i){b.classList.toggle('active',i===val);});
-  }
-  calcHSL();
-}
-
-function setHSLWP(key, val) {
-  if(key==='wpw') hslWPWall=val;
-  if(key==='wpc') hslWPCeil=val;
-  var btnVals=['none','lining','plain','patterned'];
-  document.querySelectorAll('#seg-hsl-'+key+' .seg-btn').forEach(function(b,i){
-    b.classList.toggle('active', btnVals[i]===val);
-  });
-  var areaRow=document.getElementById('hsl-'+key+'-area-row');
-  if(areaRow) areaRow.style.display=val!=='none'?'flex':'none';
-  // Auto-fill based on coats
-  if(val!=='none') {
-    if(key==='wpw') {
-      var totalW=0;
-      // Sum all wall areas from current inputs
-      var h1l=+document.getElementById('hsl-h1-l').value||0;
-      var h1w=+document.getElementById('hsl-h1-w').value||0;
-      var h1h=+document.getElementById('hsl-h1-h').value||0;
-      totalW+=roomWallArea(h1l,h1w,h1h);
-      if(hslFloors>=2){
-        var s1steps=+document.getElementById('hsl-s1-steps').value||13;
-        var s1w=+document.getElementById('hsl-s1-w').value||0.9;
-        var s1wallh=+document.getElementById('hsl-s1-wallh').value||2.4;
-        var s1riser=+document.getElementById('hsl-s1-riser').value||0.22;
-        var s1tread=+document.getElementById('hsl-s1-tread').value||0.22;
-        totalW+=stairWallArea(s1steps,s1w,s1wallh,s1riser,s1tread);
-        var l1l=+document.getElementById('hsl-l1-l').value||0;
-        var l1w=+document.getElementById('hsl-l1-w').value||0;
-        var l1h=+document.getElementById('hsl-l1-h').value||2.4;
-        totalW+=roomWallArea(l1l,l1w,l1h);
-      }
-      if(hslFloors>=3){
-        var s2steps=+document.getElementById('hsl-s2-steps').value||13;
-        var s2w=+document.getElementById('hsl-s2-w').value||0.9;
-        var s2wallh=+document.getElementById('hsl-s2-wallh').value||2.4;
-        var s2riser=+document.getElementById('hsl-s2-riser').value||0.22;
-        var s2tread=+document.getElementById('hsl-s2-tread').value||0.22;
-        totalW+=stairWallArea(s2steps,s2w,s2wallh,s2riser,s2tread);
-        var l2l=+document.getElementById('hsl-l2-l').value||0;
-        var l2w=+document.getElementById('hsl-l2-w').value||0;
-        var l2h=+document.getElementById('hsl-l2-h').value||2.4;
-        totalW+=roomWallArea(l2l,l2w,l2h);
-      }
-      document.getElementById('hsl-wpw-area').value = hslCoats.wc===0 ? totalW.toFixed(2) : '0';
-    }
-    if(key==='wpc') {
-      var h1l2=+document.getElementById('hsl-h1-l').value||0;
-      var h1w2=+document.getElementById('hsl-h1-w').value||0;
-      var totalC=h1l2*h1w2;
-      if(hslFloors>=2){var l1l2=+document.getElementById('hsl-l1-l').value||0;var l1w2=+document.getElementById('hsl-l1-w').value||0;totalC+=l1l2*l1w2;}
-      if(hslFloors>=3){var l2l2=+document.getElementById('hsl-l2-l').value||0;var l2w2=+document.getElementById('hsl-l2-w').value||0;totalC+=l2l2*l2w2;}
-      document.getElementById('hsl-wpc-area').value = hslCoats.cc===0 ? totalC.toFixed(2) : '0';
-    }
-  }
+  document.querySelectorAll('#seg-hsl-'+key+' .seg-btn').forEach(function(b,i){b.classList.toggle('active',i+1===val);});
   calcHSL();
 }
 
@@ -2878,10 +2755,17 @@ function roomWallArea(l, w, h) {
 }
 function roomCeilArea(l, w) { return l*w; }
 
+// Live preview for the Staircase Geometry card -- same role as previewRoom()
+// for a normal room, called on every geometry field's oninput. Reads coats/
+// prep/wallpaper/mist from the SAME shared room fields a normal room uses
+// (coats, prepPct, wpWall/wpCeil, mistWall/mistCeil) -- only the geometry
+// itself (hall/stairs/landings) and the spindle/newel woodwork are unique to
+// a staircase. Mirrors computeHSLOverrides()'s math exactly so the preview
+// never drifts from what actually gets saved.
 function calcHSL() {
   var r2  = rpm();
   var hpd = settings.hpd;
-  var wc  = hslCoats.wc, cc = hslCoats.cc, xc = hslCoats.xc;
+  var wc  = coats.wc, cc = coats.cc, xc = coats.xc;
 
   // Ground floor hall
   var h1l=+document.getElementById('hsl-h1-l').value||0;
@@ -2934,8 +2818,11 @@ function calcHSL() {
     totalCeil += land2Ceil;
   }
 
-  // Woodwork
-  var doors   = +document.getElementById('hsl-doors').value||0;
+  // Staircase woodwork (spindles/newels/strings/handrail) -- its own coat
+  // count (hslCoats.swc), distinct from the general woodwork coats (xc)
+  // below, since spindles/newels aren't always coated the same number of
+  // times as skirting/doors.
+  var doors   = +document.getElementById('r-doors').value||0;
   var spindles= +document.getElementById('hsl-spindles').value||0;
   var newels  = +document.getElementById('hsl-newels').value||0;
   var swc     = hslCoats.swc;
@@ -2943,22 +2830,44 @@ function calcHSL() {
   var hrLm    = totalSlope;
   var wMins   = (spindles>0||newels>0) ? (spindles*5+newels*5+strLm*2+hrLm*3)*swc : 0;
   var calcWoodCost = wMins*r2;
-  var calcWoodTime = wMins/60/hpd;
 
-  // Wallpaper costs (+20% for HSL complexity)
-  var hslWPWArea = +document.getElementById('hsl-wpw-area').value||0;
-  var hslWPCArea = +document.getElementById('hsl-wpc-area').value||0;
-  var hslWPWCost = hslWPWArea>0&&hslWPWall!=='none' ? hslWPWArea*wpMins(hslWPWall,false)*1.20*r2 : 0;
-  var hslWPCCost = hslWPCArea>0&&hslWPCeil!=='none' ? hslWPCArea*wpMins(hslWPCeil,true)*1.20*r2  : 0;
+  // Skirting/doors -- perimeter includes hall AND landings (previously this
+  // preview only used the hall's perimeter, undercounting vs what actually
+  // got saved; fixed here to match computeHSLOverrides() exactly).
+  var landPerimDisp = 0;
+  if (hslFloors>=2) { var l1lv=+document.getElementById('hsl-l1-l').value||0, l1wv=+document.getElementById('hsl-l1-w').value||0; landPerimDisp += (l1lv+l1wv)*2; }
+  if (hslFloors>=3) { var l2lv=+document.getElementById('hsl-l2-l').value||0, l2wv=+document.getElementById('hsl-l2-w').value||0; landPerimDisp += (l2lv+l2wv)*2; }
+  var hallPerimDisp = (h1l+h1w)*2;
+  var totalSkirtPerimDisp = hallPerimDisp + landPerimDisp;
+  var skirtCostDisp = xc>0 ? totalSkirtPerimDisp*skirtMins(xc)*r2 : 0;
+  var doorCostDisp  = xc>0 ? doors*doorMins(xc)*r2 : 0;
+
+  // Wallpaper -- same shared card/fields as a normal room (r-wpw-area/
+  // r-wpc-area/wpWall/wpCeil), with the existing +20% HSL-complexity
+  // multiplier this always had.
+  var wpwAreaDisp = +document.getElementById('r-wpw-area').value||0;
+  var wpcAreaDisp = +document.getElementById('r-wpc-area').value||0;
+  var wpwCostDisp = wpwAreaDisp>0&&wpWall!=='none' ? wpwAreaDisp*wpMins(wpWall,false)*1.20*r2 : 0;
+  var wpcCostDisp = wpcAreaDisp>0&&wpCeil!=='none' ? wpcAreaDisp*wpMins(wpCeil,true)*1.20*r2  : 0;
+
+  // Mist coat -- same shared toggle/fields as a normal room, against this
+  // preview's own (overridden) wall/ceiling totals.
+  var mistAreaFieldDisp = +document.getElementById('r-mist-area').value||0;
+  var mistAreaDisp = mistAreaFieldDisp>0 ? mistAreaFieldDisp : ((mistWall?totalWall:0)+(mistCeil?totalCeil:0));
+  var mistCostDisp = mistAreaDisp>0 ? mistAreaDisp*settings.rMist*r2 : 0;
+
+  // Windows/radiators -- same shared Extras fields as a normal room.
+  var winDisp  = +document.getElementById('r-win').value||0;
+  var radsDisp = +document.getElementById('r-rads').value||0;
+  var winCostDisp  = winDisp>0  ? winDisp*winMins()*r2  : 0;
+  var radCostDisp  = radsDisp>0 ? radsDisp*radMins()*r2 : 0;
 
   // Total cost and time for display
   var wallCostDisp = wc>0 ? totalWall*wallMins(wc)*r2 : 0;
   var ceilCostDisp = cc>0 ? totalCeil*ceilMins(cc)*r2 : 0;
-  var hallPerimDisp = (h1l+h1w)*2;
-  var skirtCostDisp = xc>0 ? hallPerimDisp*skirtMins(xc)*r2 : 0;
-  var doorCostDisp  = xc>0 ? (+document.getElementById('hsl-doors').value||0)*doorMins(xc)*r2 : 0;
-  var hslPrepUpDisp = hslPrepPct >= 0 ? hslPrepPct : (+document.getElementById('hsl-prep-custom').value||0);
-  var totalCostDisp = (wallCostDisp+ceilCostDisp+skirtCostDisp+doorCostDisp+calcWoodCost+hslWPWCost+hslWPCCost) * (1+hslPrepUpDisp/100);
+  var prepUpDisp = prepPct >= 0 ? prepPct : (+document.getElementById('r-prep-custom').value||0);
+  var makingGoodDisp = +document.getElementById('r-making-good').value||0;
+  var totalCostDisp = (wallCostDisp+ceilCostDisp+skirtCostDisp+doorCostDisp+calcWoodCost+wpwCostDisp+wpcCostDisp+mistCostDisp+winCostDisp+radCostDisp) * (1+prepUpDisp/100) + makingGoodDisp;
   var totalTimeDisp = totalCostDisp/r2/60/hpd;
 
   // Update results display
@@ -2981,15 +2890,18 @@ function calcHSL() {
   document.getElementById('hsl-r-time').textContent = totalTimeDisp.toFixed(2)+' days';
 }
 
-function useHSL() {
-  // Run final calc to get all values
-  calcHSL();
+// Computes the override fields for a staircase/HSL room from its geometry
+// inputs -- called by saveRoom() when roomIsStaircase is set, replacing the
+// old useHSL() (which used to build and push its own room directly). Same
+// geometry math as calcHSL()'s live preview; coats/prep/wallpaper/mist come
+// from the SAME shared room fields/temp-state a normal room uses -- only
+// the geometry itself and the spindle/newel woodwork are staircase-unique.
+// Returns null-safe defaults if called with floors unset.
+function computeHSLOverrides() {
   var r2  = rpm();
-  var hpd = settings.hpd;
-  var wc  = hslCoats.wc, cc = hslCoats.cc, xc = hslCoats.xc;
-  var doors = +document.getElementById('hsl-doors').value||0;
+  var wc  = coats.wc, cc = coats.cc, xc = coats.xc;
+  var doors = +document.getElementById('r-doors').value||0;
 
-  // Collect total wall and ceil areas
   var h1l=+document.getElementById('hsl-h1-l').value||0;
   var h1w=+document.getElementById('hsl-h1-w').value||0;
   var h1h=+document.getElementById('hsl-h1-h').value||0;
@@ -3003,7 +2915,11 @@ function useHSL() {
     var s1wallh=+document.getElementById('hsl-s1-wallh').value||2.4;
     var s1riser=+document.getElementById('hsl-s1-riser').value||0.22;
     var s1tread=+document.getElementById('hsl-s1-tread').value||0.22;
-    totalWall  += stairWallArea(s1steps,s1w,s1wallh,s1riser,s1tread);
+    // hslStairWalls[1] (how many sides get painted) -- the old useHSL()
+    // dropped this argument, always costing/materialising a single wall's
+    // worth of area even when the user picked 2, while the live preview
+    // (calcHSL) always passed it correctly. Fixed here to match the preview.
+    totalWall  += stairWallArea(s1steps,s1w,s1wallh,s1riser,s1tread,hslStairWalls[1]);
     totalSlope += stairSlope(s1steps,s1riser,s1tread);
     var l1l=+document.getElementById('hsl-l1-l').value||0;
     var l1w=+document.getElementById('hsl-l1-w').value||0;
@@ -3017,7 +2933,7 @@ function useHSL() {
     var s2wallh=+document.getElementById('hsl-s2-wallh').value||2.4;
     var s2riser=+document.getElementById('hsl-s2-riser').value||0.22;
     var s2tread=+document.getElementById('hsl-s2-tread').value||0.22;
-    totalWall  += stairWallArea(s2steps,s2w,s2wallh,s2riser,s2tread);
+    totalWall  += stairWallArea(s2steps,s2w,s2wallh,s2riser,s2tread,hslStairWalls[2]);
     totalSlope += stairSlope(s2steps,s2riser,s2tread);
     var l2l=+document.getElementById('hsl-l2-l').value||0;
     var l2w=+document.getElementById('hsl-l2-w').value||0;
@@ -3026,22 +2942,24 @@ function useHSL() {
     totalCeil += roomCeilArea(l2l,l2w);
   }
 
-  // Calculate woodwork (spindles/newels/stringers/handrail)
-  var spindles2=+document.getElementById('hsl-spindles').value||0;
-  var newels2  =+document.getElementById('hsl-newels').value||0;
-  var swc2     =hslCoats.swc;
-  var strLm2   =totalSlope*2;
-  var hrLm2    =totalSlope;
-  var wMins2   =(spindles2>0||newels2>0)?(spindles2*5+newels2*5+strLm2*2+hrLm2*3)*swc2:0;
-  swCost = wMins2*r2;
-  swTime = wMins2/60/hpd;
-  saveStair();
+  // Staircase woodwork (spindles/newels/strings/handrail) -- own coat count.
+  var spindles=+document.getElementById('hsl-spindles').value||0;
+  var newels  =+document.getElementById('hsl-newels').value||0;
+  var swc     =hslCoats.swc;
+  var strLm   =totalSlope*2;
+  var hrLm    =totalSlope;
+  var wMins   =(spindles>0||newels>0)?(spindles*5+newels*5+strLm*2+hrLm*3)*swc:0;
+  var stairWoodStore = wMins*r2;
 
-  // Calculate costs using standard rates
   var wallCost = wc>0 ? totalWall*wallMins(wc)*r2 : 0;
   var ceilCost = cc>0 ? totalCeil*ceilMins(cc)*r2 : 0;
 
-  // Skirting from hall + landing perimeters
+  // Skirting from hall + landing perimeters -- same real geometry feeds
+  // BOTH the cost (skirtCost/doorCost below) AND, via woodAreaOverride,
+  // the woodwork MATERIAL litres. Previously only cost used this real
+  // perimeter; materials silently used a generic formula against the
+  // room's dummy 1x1 placeholder dimensions and under-counted paint --
+  // the actual bug this whole alignment pass exists to fix.
   var hallPerim = (h1l+h1w)*2;
   var landPerim = 0;
   if(hslFloors>=2) {
@@ -3057,170 +2975,55 @@ function useHSL() {
   var totalSkirtPerim = hallPerim + landPerim;
   var skirtCost = xc>0 ? totalSkirtPerim*skirtMins(xc)*r2 : 0;
   var doorCost  = xc>0 ? doors*doorMins(xc)*r2 : 0;
-  var woodCost  = skirtCost + doorCost + swCost; // includes staircase woodwork
-
-  // Roll staircase woodwork into the room — clear floating swCost line
-  // Wallpaper costs for HSL (+20% complexity)
-  var hslWPWAreaU = +document.getElementById('hsl-wpw-area').value||0;
-  var hslWPCAreaU = +document.getElementById('hsl-wpc-area').value||0;
-  var hslWPWCostU = hslWPWAreaU>0&&hslWPWall!=='none' ? hslWPWAreaU*wpMins(hslWPWall,false)*1.20*r2 : 0;
-  var hslWPCCostU = hslWPCAreaU>0&&hslWPCeil!=='none' ? hslWPCAreaU*wpMins(hslWPCeil,true)*1.20*r2  : 0;
-
   var doorSkirtCost = skirtCost + doorCost;
-  var hslPrepUp = hslPrepPct >= 0 ? hslPrepPct : (+document.getElementById('hsl-prep-custom').value||0);
-  var roomTotal = (wallCost + ceilCost + doorSkirtCost + swCost + hslWPWCostU + hslWPCCostU) * (1 + hslPrepUp/100);
-  var stairWoodStore = swCost;
-  swCost = 0; swTime = 0;
-  // saveStair() at the top of this function persisted the PRE-roll-in
-  // nonzero value (server + localStorage) -- without re-persisting the
-  // zeroed state here too, the server keeps that stale nonzero swcost
-  // forever (nothing else ever re-syncs it), and the next page load
-  // resurrects it via initApp()'s server sync, double-counting the
-  // woodwork this room's own total (and stairWoodStore) already includes.
-  saveStair();
+  var woodAreaOverride = totalSkirtPerim*0.15 + doors*1.9;
 
-  // Save all HSL inputs for restoration
-  var hslState = {
-    floors: hslFloors,
-    h1l: document.getElementById('hsl-h1-l').value,
-    h1w: document.getElementById('hsl-h1-w').value,
-    h1h: document.getElementById('hsl-h1-h').value,
-    s1steps: document.getElementById('hsl-s1-steps').value,
-    s1w: document.getElementById('hsl-s1-w').value,
-    s1wallh: document.getElementById('hsl-s1-wallh').value,
-    s1riser: document.getElementById('hsl-s1-riser').value,
-    s1tread: document.getElementById('hsl-s1-tread').value,
-    l1l: document.getElementById('hsl-l1-l').value,
-    l1w: document.getElementById('hsl-l1-w').value,
-    l1h: document.getElementById('hsl-l1-h').value,
-    s2steps: document.getElementById('hsl-s2-steps').value,
-    s2w: document.getElementById('hsl-s2-w').value,
-    s2wallh: document.getElementById('hsl-s2-wallh').value,
-    s2riser: document.getElementById('hsl-s2-riser').value,
-    s2tread: document.getElementById('hsl-s2-tread').value,
-    l2l: document.getElementById('hsl-l2-l').value,
-    l2w: document.getElementById('hsl-l2-w').value,
-    l2h: document.getElementById('hsl-l2-h').value,
-    doors: document.getElementById('hsl-doors').value,
-    spindles: document.getElementById('hsl-spindles').value,
-    newels: document.getElementById('hsl-newels').value,
-    coats: hslCoats,
-    stairWalls: hslStairWalls,
-    prepPct: hslPrepPct,
-    prepCustom: document.getElementById('hsl-prep-custom').value,
-    wpWall: hslWPWall,
-    wpCeil: hslWPCeil,
-    wpwArea: document.getElementById('hsl-wpw-area').value,
-    wpcArea: document.getElementById('hsl-wpc-area').value
+  // Wallpaper -- shared card/fields, +20% HSL-complexity multiplier kept.
+  var wpwArea = +document.getElementById('r-wpw-area').value||0;
+  var wpcArea = +document.getElementById('r-wpc-area').value||0;
+  var wpwCost = wpwArea>0&&wpWall!=='none' ? wpwArea*wpMins(wpWall,false)*1.2*r2 : 0;
+  var wpcCost = wpcArea>0&&wpCeil!=='none' ? wpcArea*wpMins(wpCeil,true)*1.2*r2 : 0;
+
+  // Mist coat -- shared toggle/fields, against this room's own overridden
+  // wall/ceiling areas.
+  var mistAreaField = +document.getElementById('r-mist-area').value||0;
+  var mistArea = mistAreaField>0 ? mistAreaField : ((mistWall?totalWall:0)+(mistCeil?totalCeil:0));
+  var mistCost = mistArea>0 ? mistArea*settings.rMist*r2 : 0;
+
+  // Windows/radiators -- same shared Extras fields as a normal room.
+  var win  = +document.getElementById('r-win').value||0;
+  var rads = +document.getElementById('r-rads').value||0;
+  var winCost = win>0  ? win*winMins()*r2   : 0;
+  var radCost = rads>0 ? rads*radMins()*r2  : 0;
+
+  // totalOverride bypasses calcRoom()'s generic prep/makingGood application
+  // entirely (see calcRoom()'s totalOverride branch), so both must be baked
+  // in here manually -- same as the old useHSL() did for prep, extended to
+  // also cover makingGood (which the old flow silently dropped for HSL
+  // rooms, since the dedicated HSL screen never had a Making Good field).
+  var baseTotal = wallCost+ceilCost+doorSkirtCost+stairWoodStore+wpwCost+wpcCost+mistCost+winCost+radCost;
+  var prepUp = prepPct>=0 ? prepPct : (+document.getElementById('r-prep-custom').value||0);
+  var makingGood = +document.getElementById('r-making-good').value||0;
+  var totalOverride = baseTotal*(1+prepUp/100) + makingGood;
+
+  return {
+    wallAreaOverride: totalWall, ceilAreaOverride: totalCeil, woodAreaOverride: woodAreaOverride,
+    wallCostStore: wallCost, ceilCostStore: ceilCost, woodCostStore: doorSkirtCost,
+    stairWoodStore: stairWoodStore, totalOverride: totalOverride,
+    hslWPWCost: wpwCost, hslWPCCost: wpcCost,
+    hslInputs: {
+      floors: hslFloors,
+      h1l: document.getElementById('hsl-h1-l').value, h1w: document.getElementById('hsl-h1-w').value, h1h: document.getElementById('hsl-h1-h').value,
+      s1steps: document.getElementById('hsl-s1-steps').value, s1w: document.getElementById('hsl-s1-w').value, s1wallh: document.getElementById('hsl-s1-wallh').value,
+      s1riser: document.getElementById('hsl-s1-riser').value, s1tread: document.getElementById('hsl-s1-tread').value,
+      l1l: document.getElementById('hsl-l1-l').value, l1w: document.getElementById('hsl-l1-w').value, l1h: document.getElementById('hsl-l1-h').value,
+      s2steps: document.getElementById('hsl-s2-steps').value, s2w: document.getElementById('hsl-s2-w').value, s2wallh: document.getElementById('hsl-s2-wallh').value,
+      s2riser: document.getElementById('hsl-s2-riser').value, s2tread: document.getElementById('hsl-s2-tread').value,
+      l2l: document.getElementById('hsl-l2-l').value, l2w: document.getElementById('hsl-l2-w').value, l2h: document.getElementById('hsl-l2-h').value,
+      spindles: document.getElementById('hsl-spindles').value, newels: document.getElementById('hsl-newels').value,
+      swc: hslCoats.swc, stairWalls: hslStairWalls
+    }
   };
-  localStorage.setItem('pe-hsl', JSON.stringify(hslState));
-
-  // Create room with overrides
-  var room = {
-    id: uid(),
-    name: 'Hall, Stairs & Landing',
-    l: '1', w: '1', h: '1',
-    wc: wc, cc: cc, xc: xc,
-    win: 0, doors: 0, rads: 0,
-    np: false, mistWall: false, mistCeil: false,
-    prepPct: 0, prepCustom: 0, makingGood: 0,
-    fwa: 0, fwt: '',
-    emoji: '🏠',
-    wallAreaOverride: totalWall,
-    ceilAreaOverride: totalCeil,
-    wallCostStore: wallCost,
-    ceilCostStore: ceilCost,
-    woodCostStore: doorSkirtCost,
-    prepPct: hslPrepPct,
-    prepCustom: +document.getElementById('hsl-prep-custom').value||0,
-    stairWoodStore: stairWoodStore,
-    hslWPWCost: hslWPWCostU,
-    hslWPCCost: hslWPCCostU,
-    totalOverride: roomTotal
-  };
-
-  rooms = rooms.filter(function(r){return r.name !== 'Hall, Stairs & Landing';});
-  rooms.push(room);
-  saveRooms();
-  renderHome();
-  goTab('home');
-
-}
-
-function loadHSLState() {
-  var saved = JSON.parse(localStorage.getItem('pe-hsl') || 'null');
-  var hasHSL = rooms.some(function(r){return r.name==='Hall, Stairs & Landing';});
-  var delBtn = document.getElementById('hsl-delete-btn');
-  if(delBtn) delBtn.style.display = hasHSL ? 'block' : 'none';
-  if (!saved) return;
-  // Restore floor count
-  setHSLFloors(saved.floors || 1);
-  // Restore hall
-  document.getElementById('hsl-h1-l').value = saved.h1l || '0';
-  document.getElementById('hsl-h1-w').value = saved.h1w || '0';
-  document.getElementById('hsl-h1-h').value = saved.h1h || '2.4';
-  // Staircase 1
-  document.getElementById('hsl-s1-steps').value = saved.s1steps || '13';
-  document.getElementById('hsl-s1-w').value     = saved.s1w     || '0.9';
-  document.getElementById('hsl-s1-wallh').value = saved.s1wallh || '2.4';
-  document.getElementById('hsl-s1-riser').value = saved.s1riser || '0.22';
-  document.getElementById('hsl-s1-tread').value = saved.s1tread || '0.22';
-  // Landing 1
-  document.getElementById('hsl-l1-l').value = saved.l1l || '0';
-  document.getElementById('hsl-l1-w').value = saved.l1w || '0';
-  document.getElementById('hsl-l1-h').value = saved.l1h || '2.4';
-  // Staircase 2
-  document.getElementById('hsl-s2-steps').value = saved.s2steps || '13';
-  document.getElementById('hsl-s2-w').value     = saved.s2w     || '0.9';
-  document.getElementById('hsl-s2-wallh').value = saved.s2wallh || '2.4';
-  document.getElementById('hsl-s2-riser').value = saved.s2riser || '0.22';
-  document.getElementById('hsl-s2-tread').value = saved.s2tread || '0.22';
-  // Landing 2
-  document.getElementById('hsl-l2-l').value = saved.l2l || '0';
-  document.getElementById('hsl-l2-w').value = saved.l2w || '0';
-  document.getElementById('hsl-l2-h').value = saved.l2h || '2.4';
-  // Doors and woodwork
-  document.getElementById('hsl-doors').value    = saved.doors    || '0';
-  document.getElementById('hsl-spindles').value = saved.spindles || '0';
-  document.getElementById('hsl-newels').value   = saved.newels   || '0';
-  // Restore coats
-  if (saved.stairWalls) {
-    hslStairWalls = saved.stairWalls;
-    [1,2].forEach(function(s){
-      var sw=hslStairWalls[s]||1;
-      document.querySelectorAll('#seg-hsl-s'+s+'-walls .seg-btn').forEach(function(b,i){b.classList.toggle('active',i+1===sw);});
-    });
-  }
-  if (saved.coats) {
-    hslCoats = saved.coats;
-    ['wc','cc','xc'].forEach(function(k) {
-      document.querySelectorAll('#seg-hsl-'+k+' .seg-btn').forEach(function(b,i){
-        b.classList.toggle('active', i===hslCoats[k]);
-      });
-    });
-    document.querySelectorAll('#seg-hsl-swc .seg-btn').forEach(function(b,i){
-      b.classList.toggle('active', i+1===hslCoats.swc);
-    });
-  }
-  // Restore wallpaper
-  if(saved.prepPct != null) {
-    hslPrepPct = saved.prepPct;
-    var prepVals=[0,10,25,-1];
-    document.querySelectorAll('#seg-hsl-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',prepVals[i]===hslPrepPct);});
-    document.getElementById('hsl-prep-custom').value = saved.prepCustom||0;
-    document.getElementById('hsl-prep-custom-row').style.display = hslPrepPct===-1?'flex':'none';
-  }
-  if(saved.wpWall) {
-    hslWPWall=saved.wpWall; hslWPCeil=saved.wpCeil||'none';
-    var wpVals=['none','lining','plain','patterned'];
-    document.querySelectorAll('#seg-hsl-wpw .seg-btn').forEach(function(b,i){b.classList.toggle('active',wpVals[i]===hslWPWall);});
-    document.querySelectorAll('#seg-hsl-wpc .seg-btn').forEach(function(b,i){b.classList.toggle('active',wpVals[i]===hslWPCeil);});
-    document.getElementById('hsl-wpw-area-row').style.display=hslWPWall!=='none'?'flex':'none';
-    document.getElementById('hsl-wpc-area-row').style.display=hslWPCeil!=='none'?'flex':'none';
-    document.getElementById('hsl-wpw-area').value=saved.wpwArea||'0';
-    document.getElementById('hsl-wpc-area').value=saved.wpcArea||'0';
-  }
-  calcHSL();
 }
 
 // ── Summary ────────────────────────────────────────────────────────────────
@@ -3292,7 +3095,7 @@ async function renderSummary() {
       '<div class="room-icon">'+r.emoji+'</div>'+
       '<div class="room-info"><div class="room-name">'+r.name+'</div>'+
       '<div class="room-meta">'+
-      (r.name==='Hall, Stairs & Landing'
+      (r.isHSL
         ? 'Walls '+c.wallArea.toFixed(1)+'m² · '+fmtD(c.time)
         : r.l+'×'+r.w+'×'+r.h+'m · '+fmtD(c.time)+(r.prepPct&&r.prepPct!==0?' · '+(r.prepPct===-1?'Custom '+r.prepCustom+'%':r.prepPct===10?'Light Prep':'Full Prep'):'')      )+
       '</div></div>'+
@@ -3305,7 +3108,7 @@ async function renderSummary() {
   // Always reload extItems fresh from localStorage
   var extTotal=0; var extTimeTotal=0;
   extItems.forEach(function(item){var c=calcExtItem(item);extTotal+=c.total;extTimeTotal+=c.time;});
-  var tcS=tc+swCost+extTotal; var ttS=tt+swTime+extTimeTotal;
+  var tcS=tc+extTotal; var ttS=tt+extTimeTotal;
   var onSiteDays = realisticDays(ttS);
   var mu=settings.mu/100;
 
@@ -3421,12 +3224,6 @@ async function renderSummary() {
       '<div class="room-breakdown" id="'+eid+'">'+sub+'</div>'+
       '<div style="height:1px;background:var(--border)"></div>';
     }).join(''):'')+
-    // swCost is a transient staging value ONLY -- useHSL() always rolls it
-    // into the "Hall, Stairs & Landing" room's own total (see
-    // stairWoodStore there) and resets this global to zero in the same
-    // call, so it should never be >0 here. No separate breakdown row for
-    // it -- that was the double-counted "stray line" bug; the room's own
-    // breakdown already shows its staircase woodwork sub-row.
     '<div class="breakdown-row" style="border-top:1px solid var(--border)">'+
       '<span class="breakdown-label" style="font-weight:600;color:var(--text)">Labour subtotal</span>'+
       '<span class="breakdown-value" style="color:var(--accent)">'+fmt(tcS)+'</span></div>'+
@@ -3487,12 +3284,8 @@ function exportCSV() {
   var extTotal=0, extTimeTotal=0;
   extItems.forEach(function(item){var c=calcExtItem(item); extTotal+=c.total; extTimeTotal+=c.time;});
   if(extTotal>0){lines.push([q('Exterior'),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(extTotal.toFixed(2)),q(extTimeTotal.toFixed(2))].join(','));}
-  // No separate CSV row for swCost -- same reasoning as the Summary tab:
-  // it's a transient staging value useHSL() always rolls into the "Hall,
-  // Stairs & Landing" room's own total and zeroes, never a real standalone
-  // figure by the time export runs.
   lines.push('');
-  var tcS=tc+swCost+extTotal; var total=tcS*(1+s.mu/100);
+  var tcS=tc+extTotal; var total=tcS*(1+s.mu/100);
   lines.push([q('Labour subtotal'),q(tcS.toFixed(2))].join(','));
   lines.push([q('Total quote (inc markup)'),q(total.toFixed(2))].join(','));
   var csv=lines.join('\n');

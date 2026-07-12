@@ -217,44 +217,11 @@ router.put('/settings', async (req, res) => {
   }
 });
 
-// ── HSL State ──────────────────────────────────────────────────────────────
-
-router.get('/hsl', async (req, res) => {
-  try {
-    const result = await db.query('SELECT data FROM hsl_state WHERE id = 1');
-    res.json(result.rows[0]?.data || {});
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-router.put('/hsl', async (req, res) => {
-  try {
-    await db.query(
-      'UPDATE hsl_state SET data = $1, updated_at = NOW() WHERE id = 1',
-      [req.body]
-    );
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-router.delete('/hsl', async (req, res) => {
-  try {
-    await db.query("UPDATE hsl_state SET data = '{}', updated_at = NOW() WHERE id = 1");
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // ── Clear all ──────────────────────────────────────────────────────────────
 
 router.delete('/all', async (req, res) => {
   try {
     await db.query('DELETE FROM rooms');
-    await db.query("UPDATE hsl_state SET data = '{}' WHERE id = 1");
     await db.query('DELETE FROM exterior_items');
     await db.query('DELETE FROM colours');
     await db.query('DELETE FROM materials_snapshot');

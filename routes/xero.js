@@ -268,7 +268,7 @@ router.get('/material-groups', async (req, res) => {
 
 // Create quote in Xero
 router.post('/create-quote', async (req, res) => {
-  const { clientName, jobName, xeroRef, rooms, exterior, hsl, materials, settings, markup, paymentTerms, paymentSummary, contactId, newContact } = req.body;
+  const { clientName, jobName, xeroRef, rooms, exterior, materials, settings, markup, paymentTerms, paymentSummary, contactId, newContact } = req.body;
 
   try {
     const accessToken = await getAccessToken();
@@ -341,15 +341,11 @@ router.post('/create-quote', async (req, res) => {
       });
     }
 
-    // Add staircase woodwork if present
-    if (hsl && hsl.stairWoodCost > 0) {
-      lineItems.push({
-        Description: 'Staircase Woodwork',
-        Quantity: 1,
-        UnitAmount: fmt(hsl.stairWoodCost * mu),
-        AccountCode: '201'
-      });
-    }
+    // Staircase/HSL entries are now just rooms (see the room-alignment work
+    // in public/index.html) -- their woodwork cost is already baked into
+    // room.total via the rooms.forEach loop above, pushed as that room's own
+    // line item. No separate staircase line here; adding one would
+    // double-count exactly the woodwork the room's own line already covers.
 
     // Materials break — real Xero items on account 202 (the sales account
     // set on every item), placed after the labour lines. 311 is the
@@ -392,7 +388,6 @@ router.post('/create-quote', async (req, res) => {
       let labourSubtotal = 0;
       if (rooms) rooms.forEach(r => { labourSubtotal += r.total; });
       if (exterior && exterior.cost > 0) labourSubtotal += exterior.cost;
-      if (hsl && hsl.stairWoodCost > 0) labourSubtotal += hsl.stairWoodCost;
       const sundriesAmount = labourSubtotal * (sundriesPct / 100);
       if (sundriesAmount > 0) {
         lineItems.push({
