@@ -101,8 +101,6 @@ Depends on materials AND materials-editing/sundries above AND the realistic time
 
 3. **Optional** — write payment terms as a line into the Xero quote (terms/notes field). Actual weekly invoicing stays in Xero.
 
-**Shipped.** `computeDepositPlan()`'s output feeds two text builders sent on quote creation: `buildPaymentTermsText()` (the full deposit/balance/instalment sentence) and `buildPaymentSummaryText()` (a compact "Deposit X · Balance Y" headline, split out separately since Xero merge fields are one plain-text run each — no way to bold just the numbers within a single field). Confirmed against a real generated quote that these map to the API's `Terms`/`Summary` properties and the DOCX merge fields `«QuoteTerms»`/`«Summary»` — NOT the plain `«Terms»` or `«QuoteSummary»` names, which don't resolve. Bold styling and the "MATERIALS" divider row's shading still need the DOCX template itself (see "Xero quote PDF templates" below) — not achievable from the API payload alone.
-
 ---
 
 ## FEATURE: Colour reference library (nice-to-have, low priority)
@@ -159,6 +157,7 @@ A "staircase woodwork" line still shows as an extra line on the summary. Likely 
 ### Step 2 — Bring HSL inline (its own task, after the bug)
 Decide scope deliberately — a staircase isn't a room (own geometry: slope calcs, spindles, newels, strings), so full room-parity is NOT the goal. Target scope:
 - **UI pattern** — collapsible sections + same visual style as the compacted room tab, so it feels consistent.
+- **Trigger from the room add flow, not a separate button/tab.** Lose the dedicated HSL button; instead HSL options surface when adding a room. Two ways, decide when building: (a) a **"staircase / HSL" toggle** in the room form — RECOMMENDED, explicit and predictable, reveals the staircase inputs when on; or (b) a **keyword in the name** (typing "HSL") auto-reveals them — slicker but risks false triggers, so match a specific keyword like "HSL" only, never general words like "hall"/"stairs"/"landing". Prefer the toggle unless the typed-keyword magic is specifically wanted. Either way the staircase form is a DIFFERENT input set (slope/going/rise, spindles, newels, strings as counts), so it swaps in staircase inputs rather than just appending fields to a normal room.
 - **Data pattern** — same server-load-into-memory approach, same persistence, no competing localStorage. (Check this — it may have drifted.)
 - **Materials integration (the important bit)** — HSL surfaces (stair walls, spindles, newels, strings) must feed the materials calculation and colour grouping like rooms do, so HSL paint flows into the tin calculations, the Colours tab and the Xero quote. WITHOUT this, jobs with significant staircase work under-count paint — the same gap found with mist coats.
 - **NOT full parity** — HSL doesn't need every room option (probably doesn't need per-item colour numbers/product overrides unless wanted); stop short of replicating rooms wholesale.
