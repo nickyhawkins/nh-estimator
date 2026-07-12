@@ -224,14 +224,6 @@ Beyond defining `{number, label}` colours, the Colours tab can become the job's 
 - The colour NUMBER still drives the materials calculation; names/codes/finishes are reference only.
 - Build after core materials + per-room overrides are solid.
 
-## FEATURE ideas (not yet scoped / parked)
-
-- **Job templates** (e.g. "standard 3-bed repaint") to load and tweak — overlaps with Multiple saved jobs (a template is just a job you duplicate); build on that foundation.
-- **Quote status tracking** (sent / accepted / declined) — overlaps with Xero, may not be worth it.
-- **Photo attachments** per room/item — needs external storage (Cloudinary/S3); parked, Nicky stores photos on his phone for now.
-
-
-
 ## Quote description templates
 
 Six templates are stored as iOS/Mac text replacements (`;;paint`, `;;paper`, etc.) and pasted into the Xero line item description fields directly (item selector overwrites price, so paste into description instead). Templates: Painting only, Wallpaper only, Combined, Exterior Render, Exterior Woodwork, Kitchen Cabinet Spraying. Follow-on rooms use "As above".
