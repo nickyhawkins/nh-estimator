@@ -178,6 +178,30 @@ Decide scope deliberately — a staircase isn't a room (own geometry: slope calc
 ### Sequencing
 Fix Step 1 now (small). Step 2 is a proper alignment task — slot it in deliberately, not off the cuff, because the materials-integration part connects to everything recently built. Confirm the materials flow before/after so HSL paint is counted exactly once.
 
+## FEATURE: Exterior alignment with the interior system
+
+The exterior section has fallen behind — it's still the basic original page: a long scroll of items, no materials, and some measurements that don't capture the real work. Bring it inline with everything done for interior. Build AFTER multiple saved jobs is complete and solid (don't run two big structural changes at once). Treat as a multi-part task, sequenced:
+
+### 1. Measurement tweaks first (small, contained, improves labour accuracy)
+- **Window panes:** add a panes-per-window input. A 1m² window with 2 panes is vastly less work than one with 16 panes (e.g. Georgian/sash) — labour time should scale on pane count, not just area/size. Current area-only measurement can't capture this.
+- Review other exterior items for the same kind of gap (where the current measurement doesn't reflect real work) and fix them in the same pass — list them all before starting so it's one pass, not a dribble. (Nicky to confirm the full list.)
+
+### 2. UI compaction (usability)
+- Give exterior the same treatment as the compacted room tab: collapsible sections, essentials visible, less-used options tucked away. Replaces the current long-scroll list.
+
+### 3. Exterior materials — REUSE the existing engine (big win, small effort)
+- **All exterior products are already in Xero** with the same tidied range/band/size naming as interior. So this is NOT a new materials system — point the EXISTING materials engine (range→band→size grouping, tin optimisation, per-litre handling, per-room/item overrides) at exterior surfaces.
+- Map exterior surfaces to products: masonry/render paint, exterior wood paint (topcoat), exterior primers/undercoats, etc. — same default-mapping-in-Settings pattern as interior's five roles.
+- Feed exterior paint quantities through the same calculation → materials list, total, deposit, Xero line items.
+
+### 4. Integration parity
+- Exterior materials must feed the same places interior does: the total, the deposit, the Colours tab (exterior colours), and the Xero quote — counted exactly ONCE (same discipline as HSL/mist coat).
+
+### Notes / gotchas
+- Because the materials engine already exists and exterior products are already in Xero, part 3 is far smaller than it looks — mostly wiring exterior surfaces into the existing calculation, not building new logic.
+- Watch the recurring failure mode: exterior originally had the extCost/extItems migration mess — make sure new work reads from the current extItems in-memory pattern, no duplicate functions, no competing localStorage.
+- Sequence deliberately: measurements → UI → materials → integration, so materials build on a tidied foundation (same logic as interior materials coming after the room system was solid).
+
 ## FEATURE: Wallpaper calculator (rolls to order — reuses stair geometry)
 
 A separate tool, triggered from a room being measured, that tells Nicky (and the client) how many rolls to ORDER. Nicky does NOT supply/order wallpaper — so this is NOT a material cost and does NOT feed the quote total. Purely a "how many rolls should the customer buy" figure. Common real request: measuring a room, client says they want wallpaper, Nicky selects wallpaper and needs to tell them rolls required. Depends on the stair-wall geometry from HSL alignment (build after that so it reuses it, not re-solving the raking wall).
