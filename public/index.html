@@ -315,8 +315,9 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         <div class="subsection-label">Wall Paint</div>
         <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><select class="field-input" id="r-wall-range" onchange="onRoomOverrideRangeSelect('wall')"></select></div>
         <div class="field-row" id="r-wall-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-wall-band" onchange="onRoomOverrideBandSelect('wall')"></select></div>
-        <div class="subsection-label">Feature Wall</div>
-        <div class="field-row"><div class="field-label">Feature wall area<small>m² — carved out of the wall area above, its own colour/product</small></div><input type="number" class="field-input" id="r-featurewall-area" value="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+        <div class="subsection-label">Feature Wall<small>its own colour/product — leave room dimensions at 0 to price a feature-wall-only job</small></div>
+        <div class="field-row"><div class="field-label">Width<small>metres</small></div><input type="number" class="field-input" id="r-featurewall-width" value="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Height<small>metres</small></div><input type="number" class="field-input" id="r-featurewall-height" value="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
         <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Colour<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-featurewall" style="flex-wrap:wrap"></div></div>
         <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Product<small>no default — choose explicitly</small></div><select class="field-input" id="r-featurewall-range" onchange="onRoomOverrideRangeSelect('featurewall')"></select></div>
         <div class="field-row" id="r-featurewall-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-featurewall-band" onchange="onRoomOverrideBandSelect('featurewall')"></select></div>
@@ -501,10 +502,11 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="card-header">Exterior Rates</div>
       <div class="field-row"><div class="field-label">Masonry / Render<small>mins/m² per coat</small></div><input type="number" class="field-input" id="s-rextmasonry" value="5" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Fascias &amp; Soffits<small>mins/lm per coat</small></div><input type="number" class="field-input" id="s-rextfascia" value="8" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Ext Window<small>mins total (2 coats)</small></div><input type="number" class="field-input" id="s-rextwin" value="65" min="1" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Ext Window base<small>mins/coat at 2 panes</small></div><input type="number" class="field-input" id="s-rextwinbase" value="25" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Ext Window per pane<small>mins/coat, beyond 2 panes</small></div><input type="number" class="field-input" id="s-rextwinperpane" value="2" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Ext Door incl frame<small>mins total (2 coats)</small></div><input type="number" class="field-input" id="s-rextdoor" value="150" min="1" step="5" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Garage Door<small>mins total (2 coats)</small></div><input type="number" class="field-input" id="s-rextgarage" value="150" min="1" step="5" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Sash prime &amp; paint<small>mins per window</small></div><input type="number" class="field-input" id="s-rsashpaint" value="90" min="1" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Sash multiplier<small>% on top of window rate, for sash complexity</small></div><input type="number" class="field-input" id="s-rsashmultiplier" value="20" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Resin repair<small>mins per patch</small></div><input type="number" class="field-input" id="s-rresin" value="22" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Reglaze<small>mins per pane</small></div><input type="number" class="field-input" id="s-rreglaze" value="15" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
     </div>
@@ -605,8 +607,9 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Coats</div><div class="seg" id="seg-ex-fascia"><button class="seg-btn" onclick="setExtSeg('ex-fascia',1)">1</button><button class="seg-btn active" onclick="setExtSeg('ex-fascia',2)">2</button><button class="seg-btn" onclick="setExtSeg('ex-fascia',3)">3</button></div></div>
     </div>
     <div class="card">
-      <div class="card-header">Exterior Windows</div>
-      <div class="field-row"><div class="field-label">Qty<small>casement</small></div><input type="number" class="field-input" id="ex-wins" value="0" min="0" step="1" inputmode="numeric" oninput="previewExterior()"></div>
+      <div class="card-header">Exterior Windows<small>casement — each window has its own pane count, since a 2-pane window is far less work than a 16-pane one</small></div>
+      <div id="ex-windows-list"></div>
+      <div class="field-row" style="cursor:pointer" onclick="addExtWindow('windows')"><div class="field-label" style="color:var(--accent);font-weight:600">+ Add window</div></div>
       <div class="field-row"><div class="field-label">Coats</div><div class="seg" id="seg-ex-wins"><button class="seg-btn" onclick="setExtSeg('ex-wins',1)">1</button><button class="seg-btn active" onclick="setExtSeg('ex-wins',2)">2</button><button class="seg-btn" onclick="setExtSeg('ex-wins',3)">3</button></div></div>
     </div>
     <div class="card">
@@ -624,8 +627,9 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Days<small>your estimate on site</small></div><input type="number" class="field-input" id="ex-porch" value="0" min="0" step="0.5" inputmode="decimal" oninput="previewExterior()"></div>
     </div>
     <div class="card">
-      <div class="card-header">Sash Window Restoration</div>
-      <div class="field-row"><div class="field-label">Windows<small>qty for prime &amp; paint</small></div><input type="number" class="field-input" id="ex-sash" value="0" min="0" step="1" inputmode="numeric" oninput="previewExterior()"></div>
+      <div class="card-header">Sash Window Restoration<small>qty for prime &amp; paint — each window has its own pane count</small></div>
+      <div id="ex-sash-list"></div>
+      <div class="field-row" style="cursor:pointer" onclick="addExtWindow('sashWindows')"><div class="field-label" style="color:var(--accent);font-weight:600">+ Add sash window</div></div>
       <div class="field-row"><div class="field-label">Resin repairs<small>patches</small></div><input type="number" class="field-input" id="ex-resin" value="0" min="0" step="1" inputmode="numeric" oninput="previewExterior()"></div>
       <div class="field-row"><div class="field-label">Reglaze<small>panes</small></div><input type="number" class="field-input" id="ex-reglaze" value="0" min="0" step="1" inputmode="numeric" oninput="previewExterior()"></div>
     </div>
@@ -740,10 +744,11 @@ function saveSettings() {
     wpTrimCm:     +document.getElementById('s-wptrim').value,
     rExtMasonry:  +document.getElementById('s-rextmasonry').value,
     rExtFascia:   +document.getElementById('s-rextfascia').value,
-    rExtWin:      +document.getElementById('s-rextwin').value,
+    rExtWinBase:      +document.getElementById('s-rextwinbase').value,
+    rExtWinPerPane:   +document.getElementById('s-rextwinperpane').value,
     rExtDoor:     +document.getElementById('s-rextdoor').value,
     rExtGarage:   +document.getElementById('s-rextgarage').value,
-    rSashPaint:   +document.getElementById('s-rsashpaint').value,
+    rSashMultiplierPct: +document.getElementById('s-rsashmultiplier').value,
     rResin:       +document.getElementById('s-rresin').value,
     rReglaze:     +document.getElementById('s-rreglaze').value,
     materials:    settings.materials || {},
@@ -1117,8 +1122,11 @@ async function initApp() {
       wpStairMultPct: rawSettings.wpStairMultPct!=null ? rawSettings.wpStairMultPct : 25,
       wpTrimCm: rawSettings.wpTrimCm!=null ? rawSettings.wpTrimCm : 10,
       rExtMasonry: rawSettings.rExtMasonry||5, rExtFascia: rawSettings.rExtFascia||8,
-      rExtWin: rawSettings.rExtWin||65, rExtDoor: rawSettings.rExtDoor||150,
-      rExtGarage: rawSettings.rExtGarage||150, rSashPaint: rawSettings.rSashPaint||90,
+      rExtWinBase: rawSettings.rExtWinBase!=null ? rawSettings.rExtWinBase : 25,
+      rExtWinPerPane: rawSettings.rExtWinPerPane!=null ? rawSettings.rExtWinPerPane : 2,
+      rExtDoor: rawSettings.rExtDoor||150,
+      rExtGarage: rawSettings.rExtGarage||150,
+      rSashMultiplierPct: rawSettings.rSashMultiplierPct!=null ? rawSettings.rSashMultiplierPct : 20,
       rResin: rawSettings.rResin||22, rReglaze: rawSettings.rReglaze||15,
       materials: rawSettings.materials||{}
     };
@@ -1261,8 +1269,9 @@ async function initApp() {
     // Update server settings with exterior rates
     if (s && s.rExtMasonry != null) {
       settings.rExtMasonry = s.rExtMasonry; settings.rExtFascia = s.rExtFascia;
-      settings.rExtWin = s.rExtWin; settings.rExtDoor = s.rExtDoor;
-      settings.rExtGarage = s.rExtGarage; settings.rSashPaint = s.rSashPaint;
+      settings.rExtWinBase = s.rExtWinBase; settings.rExtWinPerPane = s.rExtWinPerPane;
+      settings.rExtDoor = s.rExtDoor;
+      settings.rExtGarage = s.rExtGarage; settings.rSashMultiplierPct = s.rSashMultiplierPct;
       settings.rResin = s.rResin; settings.rReglaze = s.rReglaze;
     }
     if (s && s.materials) {
@@ -1336,10 +1345,11 @@ var settings = {
   wpTrimCm:     _raw.wpTrimCm     != null ? _raw.wpTrimCm     : 10,
   rExtMasonry:  _raw.rExtMasonry  != null ? _raw.rExtMasonry  : 5,
   rExtFascia:   _raw.rExtFascia   != null ? _raw.rExtFascia   : 8,
-  rExtWin:      _raw.rExtWin      != null ? _raw.rExtWin      : 65,
+  rExtWinBase:  _raw.rExtWinBase  != null ? _raw.rExtWinBase  : 25,
+  rExtWinPerPane: _raw.rExtWinPerPane != null ? _raw.rExtWinPerPane : 2,
   rExtDoor:     _raw.rExtDoor     != null ? _raw.rExtDoor     : 150,
   rExtGarage:   _raw.rExtGarage   != null ? _raw.rExtGarage   : 150,
-  rSashPaint:   _raw.rSashPaint   != null ? _raw.rSashPaint   : 90,
+  rSashMultiplierPct: _raw.rSashMultiplierPct != null ? _raw.rSashMultiplierPct : 20,
   rResin:       _raw.rResin       != null ? _raw.rResin       : 22,
   rReglaze:     _raw.rReglaze     != null ? _raw.rReglaze     : 15
 };
@@ -1542,7 +1552,8 @@ function goScreen(name) {
       mist: { range:'', band:'' }, featurewall: { range:'', band:'' }
     };
     document.getElementById('r-mist-area').value = '0';
-    document.getElementById('r-featurewall-area').value = '0';
+    document.getElementById('r-featurewall-width').value = '0';
+    document.getElementById('r-featurewall-height').value = '0';
     ['wall','ceiling','topcoat','primer','mist','featurewall'].forEach(populateRoomOverridePicker);
     document.getElementById('room-title').textContent='Add Room';
     document.getElementById('r-name').value='';
@@ -1617,10 +1628,11 @@ function loadSettings() {
   document.getElementById('s-wptrim').value       = settings.wpTrimCm!=null ? settings.wpTrimCm : 10;
   document.getElementById('s-rextmasonry').value = settings.rExtMasonry||5;
   document.getElementById('s-rextfascia').value  = settings.rExtFascia||8;
-  document.getElementById('s-rextwin').value     = settings.rExtWin||65;
+  document.getElementById('s-rextwinbase').value     = settings.rExtWinBase!=null ? settings.rExtWinBase : 25;
+  document.getElementById('s-rextwinperpane').value  = settings.rExtWinPerPane!=null ? settings.rExtWinPerPane : 2;
   document.getElementById('s-rextdoor').value    = settings.rExtDoor||150;
   document.getElementById('s-rextgarage').value  = settings.rExtGarage||150;
-  document.getElementById('s-rsashpaint').value  = settings.rSashPaint||90;
+  document.getElementById('s-rsashmultiplier').value = settings.rSashMultiplierPct!=null ? settings.rSashMultiplierPct : 20;
   document.getElementById('s-rresin').value      = settings.rResin||22;
   document.getElementById('s-rreglaze').value    = settings.rReglaze||15;
   renderMaterialsSettings();
@@ -1658,6 +1670,25 @@ function calcRoom(r) {
                  (xc>0 ? (perim*skirtMins(xc) + doors*doorMins(xc))*r2 : 0);
   var radCost  = rads>0 ? rads*radMins()*r2 : 0;
   var fwCost   = fwa>0&&fwt ? fwa*fwMins(fwt)*r2 : 0;
+  // Feature wall: width x height (its own measured wall, not a guessed
+  // m²), painted in its own colour/product, carved out of the general
+  // wall area above. No longer capped to wallArea -- it's an
+  // independently measured wall now, not a hand-typed guess that needed
+  // sanity-bounding, so it can legitimately exceed (or exist without) a
+  // wallArea of 0. mainWallPaintArea is floored at 0 instead, so an
+  // oversized feature wall just leaves nothing for the "main" colour
+  // rather than going negative.
+  var featureWallArea = Math.max(+r.featureWallArea || 0, 0);
+  var mainWallPaintArea = Math.max(wallArea - featureWallArea, 0);
+  var wL  = wc>0 ? Math.ceil(mainWallPaintArea*wc/settings.cw*2)/2 : 0;
+  var fwL = (featureWallArea>0 && wc>0) ? Math.ceil(featureWallArea*wc/settings.cw*2)/2 : 0;
+  // Normally painting the feature wall is already covered by wallCost
+  // above, since that's costed on the FULL wallArea regardless of the
+  // colour carve-out -- no extra labour needed for a real room. But a
+  // feature-wall-only job (room dimensions left at 0x0x0, just this
+  // wall) has no general wallArea to absorb that labour, so it needs its
+  // own line -- otherwise a feature-wall-only room prices at £0.
+  var featureWallOwnCost = (wallArea<=0 && featureWallArea>0 && wc>0) ? featureWallArea*wallMins(wc)*r2 : 0;
   // Wallpaper labour = rolls x per-roll rate x (1 + multiplier) -- see
   // wallpaperLabourCost()/roomWallpaperRolls(). Replaces the old
   // area x mins/m2 path entirely; isHSL rooms pick up the staircase
@@ -1667,24 +1698,13 @@ function calcRoom(r) {
   var wpcRolls = roomWallpaperRolls(r, true);
   var wpwCost  = wallpaperLabourCost(r.wpWall, wpwRolls, false, !!r.isHSL);
   var wpcCost  = wallpaperLabourCost(r.wpCeil, wpcRolls, true, !!r.isHSL);
-  var baseTotal = wallCost+ceilCost+winCost+woodCost+radCost+fwCost+mistWCost+mistCCost+wpwCost+wpcCost;
+  var baseTotal = wallCost+ceilCost+winCost+woodCost+radCost+fwCost+featureWallOwnCost+mistWCost+mistCCost+wpwCost+wpcCost;
   var prepUp  = r.prepPct >= 0 ? r.prepPct : (+r.prepCustom||0);
   var makingGood = +r.makingGood||0;
   var total   = r.totalOverride != null
     ? +r.totalOverride
     : baseTotal * (1 + prepUp/100) + makingGood;
   var time     = total / r2 / 60 / hpd;
-  // Feature wall: a manual m² carve-out of the SAME wall area, painted in
-  // its own colour/product -- same pattern as the mist coat override just
-  // below. Only the paint quantity is affected: the labour above (wallCost)
-  // already stayed on the full wallArea, since painting the feature wall
-  // still takes the same total time, just in a different colour. Capped at
-  // wallArea so a mistaken/oversized entry can't produce negative main-wall
-  // litres.
-  var featureWallArea = Math.min(Math.max(+r.featureWallArea || 0, 0), wallArea);
-  var mainWallPaintArea = wallArea - featureWallArea;
-  var wL  = wc>0 ? Math.ceil(mainWallPaintArea*wc/settings.cw*2)/2 : 0;
-  var fwL = (featureWallArea>0 && wc>0) ? Math.ceil(featureWallArea*wc/settings.cw*2)/2 : 0;
   var cL  = cc>0 ? Math.ceil(ceilArea*cc/settings.cc*2)/2 : 0;
   // woodAreaOverride: same pattern as wallAreaOverride/ceilAreaOverride above
   // -- staircase/HSL rooms set this to the REAL skirting+door+spindle+newel
@@ -2574,32 +2594,109 @@ var extItems = [];
 var editExtId = null;
 var extItemCoats = {'ex-masonry':2,'ex-fascia':2,'ex-wins':2,'ex-doors':2,'ex-garage':2};
 var exPrepPct = 0;
+// Form-local window lists (not the saved item's own arrays until Save is
+// tapped) -- each window/sash window is its own {panes} record, since a
+// 2-pane window is far less work than a 16-pane one and a flat qty can't
+// capture that. Mirrors the materials-list add/remove idiom
+// (addCustomMaterialLine/deleteMaterialLine), not a new UI pattern.
+var extFormWindows = [];
+var extFormSashWindows = [];
+
+function extWindowListKey(key) { return key === 'sashWindows' ? 'ex-sash-list' : 'ex-windows-list'; }
+function extWindowFormArray(key) { return key === 'sashWindows' ? extFormSashWindows : extFormWindows; }
+
+function renderExtWindowList(key) {
+  var list = extWindowFormArray(key);
+  var el = document.getElementById(extWindowListKey(key));
+  if (!el) return;
+  el.innerHTML = list.map(function(w, i) {
+    return '<div class="field-row">'+
+      '<div class="field-label">'+(key==='sashWindows'?'Sash window':'Window')+' '+(i+1)+'<small>panes</small></div>'+
+      '<input type="number" class="field-input" value="'+(w.panes!=null?w.panes:2)+'" min="1" step="1" inputmode="numeric" onchange="setExtWindowPanes(\''+key+'\','+i+',this.value)">'+
+      '<div onclick="removeExtWindow(\''+key+'\','+i+')" style="color:var(--danger);font-size:22px;padding:0 4px;cursor:pointer">×</div>'+
+    '</div>';
+  }).join('');
+}
+
+function addExtWindow(key) {
+  extWindowFormArray(key).push({ panes: 2 });
+  renderExtWindowList(key);
+  previewExterior();
+}
+
+function removeExtWindow(key, idx) {
+  extWindowFormArray(key).splice(idx, 1);
+  renderExtWindowList(key);
+  previewExterior();
+}
+
+function setExtWindowPanes(key, idx, value) {
+  var arr = extWindowFormArray(key);
+  if (!arr[idx]) return;
+  arr[idx].panes = Math.max(1, +value || 1);
+  previewExterior();
+}
 
 // Exterior rate functions
 function extMasonryMins(c) { return c * (settings.rExtMasonry||5); }
 function extFasciaMins(c)  { return c * (settings.rExtFascia||8); }
-function extWinMins2(c)    { return settings.rExtWin||65; }
+// Total minutes for ONE window across all its coats: a base time (at a
+// 2-pane baseline) plus an addition for each pane beyond 2, then × coat
+// count. Unlike the old flat per-unit rate, this scales with both window
+// complexity (panes) and coats -- previously coats were ignored entirely
+// for windows/doors/garage, unlike masonry/fascia which already scaled.
+function extWindowMins(panes, coats) {
+  var base = settings.rExtWinBase!=null ? settings.rExtWinBase : 25;
+  var perPane = settings.rExtWinPerPane!=null ? settings.rExtWinPerPane : 2;
+  var extraPanes = Math.max(0, (+panes||2) - 2);
+  var perCoat = base + extraPanes * perPane;
+  return perCoat * (+coats||2);
+}
+// Sash windows: same base formula, then a multiplier on top for the
+// added complexity (sash cords/weights, frame + sash painted separately).
+function extSashWindowMins(panes, coats) {
+  var mult = 1 + (settings.rSashMultiplierPct!=null ? settings.rSashMultiplierPct : 20)/100;
+  return extWindowMins(panes, coats) * mult;
+}
 function extDoorMins2(c)   { return settings.rExtDoor||150; }
 function extGarageMins2(c) { return settings.rExtGarage||150; }
-function extSashMins()     { return settings.rSashPaint||90; }
 function extResinMins()    { return settings.rResin||22; }
 function extReglazeMins()  { return settings.rReglaze||15; }
+
+// Windows/sash used to be a flat qty number with no per-window pane
+// data. Old saved items may still only have item.wins/item.sash (a
+// number) rather than item.windows/item.sashWindows (an array) -- treat
+// each as a baseline 2-pane window so existing jobs keep costing out the
+// same as before until re-saved, rather than silently losing windows.
+function legacyWindowList(qty) {
+  var list = [];
+  for (var i = 0; i < (+qty||0); i++) list.push({ panes: 2 });
+  return list;
+}
 
 function calcExtItem(item) {
   var r2 = rpm(); var hpd = settings.hpd;
   var masonry = +item.masonry||0, fascia = +item.fascia||0;
-  var wins = +item.wins||0, doors = +item.doors||0, garage = +item.garage||0;
-  var porch = +item.porch||0, sash = +item.sash||0;
+  var windows = item.windows || legacyWindowList(item.wins);
+  var sashWindows = item.sashWindows || legacyWindowList(item.sash);
+  var doors = +item.doors||0, garage = +item.garage||0;
+  var porch = +item.porch||0;
   var resin = +item.resin||0, reglaze = +item.reglaze||0;
   var mc = item.coats||{};
 
   var masonryCost = masonry > 0 ? masonry * extMasonryMins(mc['ex-masonry']||2) * r2 : 0;
   var fasciaCost  = fascia  > 0 ? fascia  * extFasciaMins(mc['ex-fascia']||2)   * r2 : 0;
-  var winCost     = wins    > 0 ? wins    * extWinMins2()                        * r2 : 0;
+  var winCoats = mc['ex-wins']||2;
+  var winMins  = windows.reduce(function(sum,w){ return sum + extWindowMins(w.panes, winCoats); }, 0);
+  var winCost  = winMins * r2;
   var doorCost    = doors   > 0 ? doors   * extDoorMins2()                       * r2 : 0;
   var garageCost  = garage  > 0 ? garage  * extGarageMins2()                     * r2 : 0;
   var porchCost   = porch   > 0 ? porch   * settings.dr                               : 0;
-  var sashCost    = sash    > 0 ? sash    * extSashMins()                        * r2 : 0;
+  // Sash restoration has no coats toggle of its own -- "prime & paint" is
+  // inherently a fixed 2-pass process, so coats is hardcoded here rather
+  // than adding a UI control for it.
+  var sashMins = sashWindows.reduce(function(sum,w){ return sum + extSashWindowMins(w.panes, 2); }, 0);
+  var sashCost = sashMins * r2;
   var resinCost   = resin   > 0 ? resin   * extResinMins()                       * r2 : 0;
   var reglazeCost = reglaze > 0 ? reglaze * extReglazeMins()                     * r2 : 0;
   var mg = +item.makingGood||0;
@@ -2608,7 +2705,7 @@ function calcExtItem(item) {
   var base = masonryCost+fasciaCost+winCost+doorCost+garageCost+sashCost+resinCost+reglazeCost;
   var total = base*(1+prepUp/100) + porchCost + mg;
   var time  = total / r2 / 60 / hpd;
-  return { total: total, time: time };
+  return { total: total, time: time, winCost: winCost, sashCost: sashCost };
 }
 
 function setExtSeg(key, val) {
@@ -2629,10 +2726,14 @@ function resetExtForm() {
   editExtId = null;
   exPrepPct = 0;
   extItemCoats = {'ex-masonry':2,'ex-fascia':2,'ex-wins':2,'ex-doors':2,'ex-garage':2};
+  extFormWindows = [];
+  extFormSashWindows = [];
+  renderExtWindowList('windows');
+  renderExtWindowList('sashWindows');
   document.getElementById('extform-title').textContent = 'Add Exterior';
   document.getElementById('ex-label').value = '';
-  ['ex-masonry','ex-fascia','ex-wins','ex-doors','ex-garage','ex-porch',
-   'ex-sash','ex-resin','ex-reglaze','ex-making-good'].forEach(function(id){
+  ['ex-masonry','ex-fascia','ex-doors','ex-garage','ex-porch',
+   'ex-resin','ex-reglaze','ex-making-good'].forEach(function(id){
     var el=document.getElementById(id); if(el) el.value='0';
   });
   ['ex-masonry','ex-fascia','ex-wins','ex-doors','ex-garage'].forEach(function(k){
@@ -2662,11 +2763,15 @@ function getExtFormData() {
     label: document.getElementById('ex-label').value.trim()||'Exterior',
     masonry: +document.getElementById('ex-masonry').value||0,
     fascia:  +document.getElementById('ex-fascia').value||0,
-    wins:    +document.getElementById('ex-wins').value||0,
+    windows: extFormWindows.slice(),
+    // wins/sash counts kept alongside the arrays -- harmless, and covers
+    // anything (CSV, older code) that still just wants a qty.
+    wins:    extFormWindows.length,
     doors:   +document.getElementById('ex-doors').value||0,
     garage:  +document.getElementById('ex-garage').value||0,
     porch:   +document.getElementById('ex-porch').value||0,
-    sash:    +document.getElementById('ex-sash').value||0,
+    sashWindows: extFormSashWindows.slice(),
+    sash:    extFormSashWindows.length,
     resin:   +document.getElementById('ex-resin').value||0,
     reglaze: +document.getElementById('ex-reglaze').value||0,
     coats:   Object.assign({}, extItemCoats),
@@ -2693,11 +2798,13 @@ function editExtItem(id) {
   document.getElementById('ex-label').value = item.label||'';
   document.getElementById('ex-masonry').value = item.masonry||0;
   document.getElementById('ex-fascia').value  = item.fascia||0;
-  document.getElementById('ex-wins').value    = item.wins||0;
+  extFormWindows = (item.windows || legacyWindowList(item.wins)).map(function(w){ return { panes: w.panes||2 }; });
+  extFormSashWindows = (item.sashWindows || legacyWindowList(item.sash)).map(function(w){ return { panes: w.panes||2 }; });
+  renderExtWindowList('windows');
+  renderExtWindowList('sashWindows');
   document.getElementById('ex-doors').value   = item.doors||0;
   document.getElementById('ex-garage').value  = item.garage||0;
   document.getElementById('ex-porch').value   = item.porch||0;
-  document.getElementById('ex-sash').value    = item.sash||0;
   document.getElementById('ex-resin').value   = item.resin||0;
   document.getElementById('ex-reglaze').value = item.reglaze||0;
   document.getElementById('ex-making-good').value = item.makingGood||0;
@@ -3183,7 +3290,12 @@ function editRoom(id) {
   };
   ['wall','ceiling','topcoat','primer','mist','featurewall'].forEach(populateRoomOverridePicker);
   document.getElementById('r-mist-area').value = r.mistAreaOverride || '0';
-  document.getElementById('r-featurewall-area').value = r.featureWallArea || '0';
+  // Older saved rooms only have featureWallArea (a plain m² guess, no
+  // width/height) -- fall back to width=area/height=1 so the SAME area
+  // is preserved on re-save even if the user doesn't touch these fields,
+  // rather than silently losing it. New rooms always have both.
+  document.getElementById('r-featurewall-width').value = r.featureWallWidth || r.featureWallArea || '0';
+  document.getElementById('r-featurewall-height').value = r.featureWallHeight || (r.featureWallArea ? 1 : 0);
   document.getElementById('room-title').textContent='Edit Room';
   document.getElementById('r-name').value=r.name||'';
   document.getElementById('r-l').value=r.l;
@@ -3292,7 +3404,9 @@ function saveRoom() {
     // don't have this constraint (colour field goes through ROLE_COLOUR_
     // FIELD's explicit mapping; area is read directly by calcRoom()).
     featurewallRangeOverride:roomOverrides.featurewall.range||undefined, featurewallBandOverride:roomOverrides.featurewall.band||undefined,
-    featureWallArea:+document.getElementById('r-featurewall-area').value||undefined,
+    featureWallWidth:+document.getElementById('r-featurewall-width').value||undefined,
+    featureWallHeight:+document.getElementById('r-featurewall-height').value||undefined,
+    featureWallArea:(+document.getElementById('r-featurewall-width').value||0)*(+document.getElementById('r-featurewall-height').value||0)||undefined,
     l:+document.getElementById('r-l').value, w:+document.getElementById('r-w').value, h:+document.getElementById('r-h').value,
     wc:coats.wc, cc:coats.cc, xc:coats.xc,
     win:+document.getElementById('r-win').value, doors:+document.getElementById('r-doors').value, rads:+document.getElementById('r-rads').value,
@@ -3976,11 +4090,15 @@ async function renderSummary() {
       var mc=item.coats||{};
       var masonryCost = +item.masonry>0 ? +item.masonry*extMasonryMins(mc['ex-masonry']||2)*r2 : 0;
       var fasciaCost  = +item.fascia>0 ? +item.fascia*extFasciaMins(mc['ex-fascia']||2)*r2 : 0;
-      var winCost     = +item.wins>0 ? +item.wins*extWinMins2()*r2 : 0;
+      // winCost/sashCost come straight from calcExtItem() (c, above) rather
+      // than being recomputed here -- avoids a second, driftable copy of
+      // the per-window/pane formula (this file's recurring gotcha: old
+      // calc logic surviving alongside new).
+      var winCost     = c.winCost||0;
       var doorCost    = +item.doors>0 ? +item.doors*extDoorMins2()*r2 : 0;
       var garageCost  = +item.garage>0 ? +item.garage*extGarageMins2()*r2 : 0;
       var porchCost   = +item.porch>0 ? +item.porch*settings.dr : 0;
-      var sashCost    = +item.sash>0 ? +item.sash*extSashMins()*r2 : 0;
+      var sashCost    = c.sashCost||0;
       var resinCost   = +item.resin>0 ? +item.resin*extResinMins()*r2 : 0;
       var reglazeCost = +item.reglaze>0 ? +item.reglaze*extReglazeMins()*r2 : 0;
       var prepUp = item.prepPct >= 0 ? item.prepPct : (+item.prepCustom||0);
