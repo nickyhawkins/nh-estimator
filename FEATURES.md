@@ -277,6 +277,18 @@ Small, self-contained. Jobs get named fast on site (client/address); allow editi
 
 Gap in the current wallpaper build: labour charges £30/roll lining or £40/roll finish, but one job often has BOTH (line out then finish, or lining some walls + finish elsewhere). Paper type currently seems to be one choice per room/job — needs to allow both in one job. The calc already knows both rates; the change is letting paper type be per-wall/per-area rather than a single setting, and summing labour across the mix. Refinement to the wallpaper feature, not a new system.
 
+## FEATURE: Feature wall — paint/wallpaper toggle (follows lining+finish; build straight after)
+
+Extends the feature-wall pricing (input dimensions → price the wall on its own). **Depends on and follows the "Lining + finish paper on the same job" work** — the wallpaper option reuses that lining+finish mechanism, so build lining/finish first, then this straight after (parked until then).
+
+- **Paint/wallpaper toggle on the feature wall** routes its dimensions to EITHER path:
+  - **Paint:** carves out of the main wall area, own colour/product, feeds materials (as already planned).
+  - **Wallpaper:** the feature wall area is REMOVED from paint materials entirely and uses the wallpaper roll calc + per-roll labour. Include an **optional lining toggle** (lining + finish, each at their per-roll rate — same mechanism as lining+finish-on-one-job).
+- **Critical:** a wallpapered feature wall must be EXCLUDED from paint (not just relabelled), and the rest of the room's walls still calculate paint normally. Avoid double-counting the area in both paint and wallpaper.
+- **Reuse one wallpaper implementation** — whole-room wallpaper and feature-wall wallpaper should share the same logic, not two separate versions (same "solve it once" principle as the stair geometry).
+- **Move the feature wall into its own collapsible section** in the room tab (occasional feature → collapsed by default), consistent with the compacted layout.
+- Before wiring in, confirm how the feature-wall area flows in each case (paint vs wallpaper) so it's excluded from paint correctly when wallpaper is chosen.
+
 ## FEATURE: Material tracking (actuals vs estimate — job management)
 
 DIFFERENT from everything else so far — everything to date is ESTIMATING (what a job should cost). This is ACTUALS: track what was really used/purchased against a job so nothing's missed at invoicing (forgotten materials = lost money). Turns the app from a quoting tool into a light job-management tool.

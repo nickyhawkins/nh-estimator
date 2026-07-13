@@ -339,11 +339,10 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="card-header sec-toggle" onclick="toggleFormSection('wallpaper')"><span>Wallpaper</span><span class="sec-chev" id="sec-chev-wallpaper">›</span></div>
       <div class="card-body" id="sec-wallpaper">
         <div class="field-row">
-          <div class="field-label">Walls</div>
+          <div class="field-label">Walls<small>both can be on — e.g. line out then finish</small></div>
           <div class="seg" id="seg-wpw" style="flex:1.5">
-            <button class="seg-btn active" onclick="setWP('wpw','none')">None</button>
-            <button class="seg-btn" onclick="setWP('wpw','lining')">Lining</button>
-            <button class="seg-btn" onclick="setWP('wpw','finish')">Finish</button>
+            <button class="seg-btn" onclick="toggleWP('wpw','lining')">Lining</button>
+            <button class="seg-btn" onclick="toggleWP('wpw','finish')">Finish</button>
           </div>
         </div>
         <div class="breakdown-row" id="wp-r-wall-labour-row" style="display:none"><span class="breakdown-label">Wall wallpaper labour</span><span class="breakdown-value" id="wp-r-wall-labour">—</span></div>
@@ -376,11 +375,10 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         <div class="breakdown-row" id="wp-r-drops-row" style="display:none"><span class="breakdown-label">Drops per roll / needed</span><span class="breakdown-value" id="wp-r-drops">—</span></div>
         <div class="breakdown-row" id="wp-r-rolls-row" style="display:none;background:rgba(26,82,118,.06)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Rolls to order</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="wp-r-rolls">—</span></div>
         <div class="field-row" style="border-top:1px solid var(--border)">
-          <div class="field-label">Ceiling</div>
+          <div class="field-label">Ceiling<small>both can be on — e.g. line out then finish</small></div>
           <div class="seg" id="seg-wpc" style="flex:1.5">
-            <button class="seg-btn active" onclick="setWP('wpc','none')">None</button>
-            <button class="seg-btn" onclick="setWP('wpc','lining')">Lining</button>
-            <button class="seg-btn" onclick="setWP('wpc','finish')">Finish</button>
+            <button class="seg-btn" onclick="toggleWP('wpc','lining')">Lining</button>
+            <button class="seg-btn" onclick="toggleWP('wpc','finish')">Finish</button>
           </div>
         </div>
         <div class="breakdown-row" id="wp-r-ceil-labour-row" style="display:none"><span class="breakdown-label">Ceiling wallpaper labour</span><span class="breakdown-value" id="wp-r-ceil-labour">—</span></div>
@@ -1358,8 +1356,12 @@ var editId   = null;
 var coats    = {wc:2, cc:2, xc:2};
 var mistWall = false;
 var mistCeil = false;
-var wpWall = 'none'; // none / lining / finish
-var wpCeil = 'none';
+// Lining and finish are independently toggleable per surface now (not a
+// single none/lining/finish choice) -- covers lining a wall then hanging
+// finish paper over it, both genuinely billable on the same area. See
+// wpSurfaceResult()/migrateWPFields() below.
+var wpWallLining = false, wpWallFinish = false;
+var wpCeilLining = false, wpCeilFinish = false;
 var wpMatch = 'none'; // none / straight / offset -- pattern match type for the walls roll calculator
 var wpSpareRoll = false;
 var prepPct  = 10; // 10 (Minimal, default), 25 (Standard), 40 (Heavy), or -1 for custom
@@ -1566,9 +1568,9 @@ function goScreen(name) {
 
     document.getElementById('tog-mw').classList.remove('on');
     document.getElementById('tog-mc').classList.remove('on');
-    wpWall='none'; wpCeil='none';
+    wpWallLining=false; wpWallFinish=false; wpCeilLining=false; wpCeilFinish=false;
     ['wpw','wpc'].forEach(function(k){
-      document.querySelectorAll('#seg-'+k+' .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===0);});
+      document.querySelectorAll('#seg-'+k+' .seg-btn').forEach(function(b){b.classList.remove('active');});
     });
     wpMatch='none'; wpSpareRoll=false;
     document.querySelectorAll('#seg-wp-match .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===0);});
@@ -1650,6 +1652,7 @@ function fwMins(t)      { return t==='lining'?12 : t==='wallrock'?11 : t==='patt
 
 // ── Room calc ──────────────────────────────────────────────────────────────
 function calcRoom(r) {
+  migrateWPFields(r);
   var L=+r.l, W=+r.w, H=+r.h;
   var doors=+r.doors, win=+r.win, rads=+r.rads;
   var wc=+r.wc, cc=+r.cc, xc=+r.xc;
@@ -1689,15 +1692,17 @@ function calcRoom(r) {
   // wall) has no general wallArea to absorb that labour, so it needs its
   // own line -- otherwise a feature-wall-only room prices at £0.
   var featureWallOwnCost = (wallArea<=0 && featureWallArea>0 && wc>0) ? featureWallArea*wallMins(wc)*r2 : 0;
-  // Wallpaper labour = rolls x per-roll rate x (1 + multiplier) -- see
-  // wallpaperLabourCost()/roomWallpaperRolls(). Replaces the old
-  // area x mins/m2 path entirely; isHSL rooms pick up the staircase
-  // multiplier automatically via roomWallpaperRolls()'s override read and
-  // wallpaperLabourCost()'s isStaircase argument.
-  var wpwRolls = roomWallpaperRolls(r, false);
-  var wpcRolls = roomWallpaperRolls(r, true);
-  var wpwCost  = wallpaperLabourCost(r.wpWall, wpwRolls, false, !!r.isHSL);
-  var wpcCost  = wallpaperLabourCost(r.wpCeil, wpcRolls, true, !!r.isHSL);
+  // Wallpaper labour = rolls x per-roll rate x (1 + multiplier), summed
+  // across whichever of {lining, finish} are active for this surface --
+  // see wpSurfaceResult()/roomWallpaperRolls(). isHSL rooms pick up the
+  // staircase multiplier automatically via roomWallpaperRolls()'s
+  // override read and wallpaperLabourCost()'s isStaircase argument.
+  var wpwResult = wpSurfaceResult(r.wpWallLining, r.wpWallFinish, false, !!r.isHSL, function(t){ return { rolls: roomWallpaperRolls(r, false, t) }; });
+  var wpcResult = wpSurfaceResult(r.wpCeilLining, r.wpCeilFinish, true, !!r.isHSL, function(t){ return { rolls: roomWallpaperRolls(r, true, t) }; });
+  var wpwCost  = wpwResult.cost;
+  var wpcCost  = wpcResult.cost;
+  var wpwRolls = wpwResult.parts.reduce(function(sum,p){ return sum + p.rolls; }, 0);
+  var wpcRolls = wpcResult.parts.reduce(function(sum,p){ return sum + p.rolls; }, 0);
   var baseTotal = wallCost+ceilCost+winCost+woodCost+radCost+fwCost+featureWallOwnCost+mistWCost+mistCCost+wpwCost+wpcCost;
   var prepUp  = r.prepPct >= 0 ? r.prepPct : (+r.prepCustom||0);
   var makingGood = +r.makingGood||0;
@@ -2939,6 +2944,48 @@ function wpNormalisePaperType(t) {
   return (t==='plain' || t==='patterned') ? 'finish' : t;
 }
 
+// Old rooms only have wpWall/wpCeil (a single 'none'/'lining'/'finish'
+// string, or legacy 'plain'/'patterned'). Derive the new independent
+// booleans from it once, so every downstream read site can just trust
+// r.wpWallLining/r.wpWallFinish exist as real booleans -- no repeated
+// fallback branching scattered through calcRoom/previewRoom/HSL. Mutates
+// the room object in place; idempotent (skips if already migrated).
+function migrateWPFields(r) {
+  if (r.wpWallLining == null && r.wpWallFinish == null) {
+    var t = wpNormalisePaperType(r.wpWall);
+    r.wpWallLining = t === 'lining'; r.wpWallFinish = t === 'finish';
+  }
+  if (r.wpCeilLining == null && r.wpCeilFinish == null) {
+    var tc = wpNormalisePaperType(r.wpCeil);
+    r.wpCeilLining = tc === 'lining'; r.wpCeilFinish = tc === 'finish';
+  }
+}
+
+// Computes wallpaper rolls + labour cost for a surface (walls or
+// ceiling) across however many of {lining, finish} are active. Each
+// active type gets its own roll calc via rollsForType(type) (the actual
+// roll mechanics differ between a normal room's calcWallpaperRolls() and
+// a staircase's geometry-aware computeHSLWallpaperRolls(), so that part
+// stays a caller-supplied callback), then costs are summed via
+// wallpaperLabourCost() below. Both the normal-room and HSL paths share
+// this one loop so "sum across the mix" has a single implementation, not
+// three (see the plan doc -- this file used to have three near-identical
+// roll-calc copies before this).
+function wpSurfaceResult(liningOn, finishOn, isCeil, isStaircase, rollsForType) {
+  var types = [];
+  if (liningOn) types.push('lining');
+  if (finishOn) types.push('finish');
+  var totalCost = 0, parts = [];
+  types.forEach(function(t) {
+    var res = rollsForType(t);
+    if (!res || !res.rolls) return;
+    var cost = wallpaperLabourCost(t, res.rolls, isCeil, isStaircase);
+    totalCost += cost;
+    parts.push(Object.assign({ type: t, cost: cost }, res));
+  });
+  return { cost: totalCost, parts: parts };
+}
+
 // Wallpaper labour = rolls x per-roll rate x (1 + applicable multiplier(s)).
 // Replaces the old area x mins/m2 path entirely -- the roll count already
 // captures the extra work of a demanding paper (more match waste -> more
@@ -2958,17 +3005,17 @@ function wallpaperLabourCost(type, rolls, isCeil, isStaircase) {
   return rolls * rate * mult;
 }
 
-// Rolls needed for a room's wall or ceiling wallpaper, for labour costing.
-// Staircase rooms use the precomputed override (wallRollsOverride/
-// ceilRollsOverride, set by computeHSLOverrides() from the real geometry --
-// calcRoom() only ever sees l=w=h='1' dummy dims for a staircase room, same
-// reason wallAreaOverride/ceilAreaOverride exist). Normal rooms compute
-// fresh from their real l/w/h, same pattern as wallArea/ceilArea.
-function roomWallpaperRolls(r, isCeil) {
-  var overrideField = isCeil ? 'ceilRollsOverride' : 'wallRollsOverride';
+// Rolls needed for a room's wall or ceiling wallpaper of ONE explicit
+// type ('lining'/'finish'), for labour costing. Staircase rooms use the
+// precomputed per-type override (wallRollsOverrideLining/Finish,
+// ceilRollsOverrideLining/Finish -- set by computeHSLOverrides() from the
+// real geometry; calcRoom() only ever sees l=w=h='1' dummy dims for a
+// staircase room, same reason wallAreaOverride/ceilAreaOverride exist).
+// Normal rooms compute fresh from their real l/w/h, same pattern as
+// wallArea/ceilArea. Called once per active type via wpSurfaceResult().
+function roomWallpaperRolls(r, isCeil, type) {
+  var overrideField = (isCeil ? 'ceilRollsOverride' : 'wallRollsOverride') + (type==='lining' ? 'Lining' : 'Finish');
   if (r[overrideField] != null) return +r[overrideField];
-  var type = wpNormalisePaperType(isCeil ? r.wpCeil : r.wpWall);
-  if (!type || type==='none') return 0;
   var L=+r.l, W=+r.w, H=+r.h;
   var rollLen=+r.wpRollLen||10.05, rollWidth=+r.wpRollWidth||0.53;
   var effectiveMatch = type==='lining' ? 'none' : (r.wpMatch||'none');
@@ -2980,27 +3027,32 @@ function roomWallpaperRolls(r, isCeil) {
   return calc ? calc.rolls : 0;
 }
 
-function setWP(key, val) {
-  if (key==='wpw') wpWall = val;
-  if (key==='wpc') wpCeil = val;
-  var btnVals = ['none','lining','finish'];
+// Lining and finish are independent toggles per surface now (checkbox
+// semantics via button styling, not radio) -- clicking one only flips its
+// own boolean, the sibling button's state is untouched, so both can be on
+// at once (e.g. line out then finish over the top).
+function toggleWP(key, type) {
+  if (key==='wpw') { if (type==='lining') wpWallLining=!wpWallLining; else wpWallFinish=!wpWallFinish; }
+  if (key==='wpc') { if (type==='lining') wpCeilLining=!wpCeilLining; else wpCeilFinish=!wpCeilFinish; }
+  var liningOn = key==='wpw' ? wpWallLining : wpCeilLining;
+  var finishOn = key==='wpw' ? wpWallFinish : wpCeilFinish;
   document.querySelectorAll('#seg-'+key+' .seg-btn').forEach(function(b,i){
-    b.classList.toggle('active', btnVals[i]===val);
+    b.classList.toggle('active', i===0 ? liningOn : finishOn);
   });
   // Rolls-to-order calculator (and now labour too) -- ONE shared set of
   // roll length/width/match/repeat/spare-roll inputs serves BOTH walls and
   // ceiling (they're usually the same paper spec even when one surface is
-  // lining and the other isn't), so the input rows show whenever EITHER
-  // surface needs rolls. Match type + repeat only matter for "finish"
+  // lining and the other isn't), so the input rows show whenever ANY
+  // surface/type needs rolls. Match type + repeat only matter for "finish"
   // paper -- lining has no pattern to match, so those two rows stay
-  // hidden unless at least one surface is finish, even though roll
+  // hidden unless at least one surface has finish active, even though roll
   // length/width/spare-roll still apply (a rough rolls estimate, and
   // therefore a labour figure, still runs for lining). Wall and ceiling
   // output rows are gated independently in previewRoom(), since they're
   // separate purchases and separate labour lines.
   if (key==='wpw' || key==='wpc') {
-    var rollsOn = wpWall!=='none' || wpCeil!=='none';
-    var isTopPaper = wpWall==='finish' || wpCeil==='finish';
+    var rollsOn = wpWallLining || wpWallFinish || wpCeilLining || wpCeilFinish;
+    var isTopPaper = wpWallFinish || wpCeilFinish;
     ['wp-rolls-header-row','wp-roll-len-row','wp-roll-width-row','wp-spare-row'].forEach(function(id){
       var el = document.getElementById(id); if (el) el.style.display = rollsOn ? 'flex' : 'none';
     });
@@ -3017,7 +3069,7 @@ function setWPMatch(val) {
     b.classList.toggle('active', vals[i]===val);
   });
   var repeatRow = document.getElementById('wp-repeat-row');
-  var isTopPaper = wpWall==='finish' || wpCeil==='finish';
+  var isTopPaper = wpWallFinish || wpCeilFinish;
   if (repeatRow) repeatRow.style.display = (val!=='none' && isTopPaper) ? 'flex' : 'none';
   previewRoom();
 }
@@ -3191,7 +3243,8 @@ function previewRoom() {
     win:+document.getElementById('r-win').value,
     rads:+document.getElementById('r-rads').value,
     mistWall:mistWall, mistCeil:mistCeil,
-    wpWall:wpWall, wpCeil:wpCeil,
+    wpWallLining:wpWallLining, wpWallFinish:wpWallFinish,
+    wpCeilLining:wpCeilLining, wpCeilFinish:wpCeilFinish,
     wpRollLen:+document.getElementById('r-wp-roll-len').value||10.05,
     wpRollWidth:+document.getElementById('r-wp-roll-width').value||0.53,
     wpMatch:wpMatch,
@@ -3209,34 +3262,38 @@ function previewRoom() {
   document.getElementById('prev-time').textContent=fmtD(c.time);
 
   // Wallpaper labour -- reads c.wpwCost/c.wpcCost straight from calcRoom()
-  // (same numbers, single source of truth), rather than recomputing here.
-  document.getElementById('wp-r-wall-labour-row').style.display = wpWall!=='none' ? 'flex' : 'none';
-  if (wpWall!=='none') document.getElementById('wp-r-wall-labour').textContent = fmt(c.wpwCost);
-  document.getElementById('wp-r-ceil-labour-row').style.display = wpCeil!=='none' ? 'flex' : 'none';
-  if (wpCeil!=='none') document.getElementById('wp-r-ceil-labour').textContent = fmt(c.wpcCost);
+  // (same numbers, single source of truth, already summed across whichever
+  // of lining/finish are active), rather than recomputing here.
+  var wpwOn = wpWallLining || wpWallFinish;
+  var wpcOn = wpCeilLining || wpCeilFinish;
+  document.getElementById('wp-r-wall-labour-row').style.display = wpwOn ? 'flex' : 'none';
+  if (wpwOn) document.getElementById('wp-r-wall-labour').textContent = fmt(c.wpwCost);
+  document.getElementById('wp-r-ceil-labour-row').style.display = wpcOn ? 'flex' : 'none';
+  if (wpcOn) document.getElementById('wp-r-ceil-labour').textContent = fmt(c.wpcCost);
 
   // Rolls-to-order live preview -- walls only. Wall width here means the
   // linear metres of wall to paper (room perimeter). Doors aren't
   // subtracted from the perimeter -- deliberate, same "round generously"
-  // bias as the rest of this feature.
-  if (wpWall !== 'none') {
-    var rollLen = +document.getElementById('r-wp-roll-len').value||0;
-    var rollWidth = +document.getElementById('r-wp-roll-width').value||0;
-    var repeatMm = +document.getElementById('r-wp-repeat').value||0;
-    var wallWidthLM = (L+W)*2;
-    // Lining paper has no pattern to match, regardless of whatever match
-    // type happens to be stored -- force "no match" behaviour for it.
-    // Finish paper (was plain/patterned) differs only via match type +
-    // repeat now, not a separate labour-timing rate.
-    var effectiveMatch = wpWall==='lining' ? 'none' : wpMatch;
-    var rollCalc = calcWallpaperRolls(H, wallWidthLM, rollLen, rollWidth, effectiveMatch, repeatMm, settings.wpTrimCm, wpSpareRoll);
-    if (rollCalc) {
+  // bias as the rest of this feature. Lining and finish each get their own
+  // roll calc via wpSurfaceResult() (lining forces "no match" regardless of
+  // the stored match type, finish uses whatever's set) -- when both are
+  // active the figures are joined "Lining X · Finish Y" via joinWPParts().
+  var rollLen = +document.getElementById('r-wp-roll-len').value||0;
+  var rollWidth = +document.getElementById('r-wp-roll-width').value||0;
+  var repeatMm = +document.getElementById('r-wp-repeat').value||0;
+  var wallWidthLM = (L+W)*2;
+  if (wpwOn) {
+    var wpwRollResult = wpSurfaceResult(wpWallLining, wpWallFinish, false, false, function(t){
+      var match = t==='lining' ? 'none' : wpMatch;
+      return calcWallpaperRolls(H, wallWidthLM, rollLen, rollWidth, match, repeatMm, settings.wpTrimCm, wpSpareRoll);
+    });
+    if (wpwRollResult.parts.length) {
       document.getElementById('wp-r-droplen-row').style.display = 'flex';
       document.getElementById('wp-r-drops-row').style.display = 'flex';
       document.getElementById('wp-r-rolls-row').style.display = 'flex';
-      document.getElementById('wp-r-droplen').textContent = rollCalc.dropLength.toFixed(2)+' m';
-      document.getElementById('wp-r-drops').textContent = rollCalc.dropsPerRoll+' / '+rollCalc.dropsNeeded;
-      document.getElementById('wp-r-rolls').textContent = rollCalc.rolls;
+      document.getElementById('wp-r-droplen').textContent = joinWPParts(wpwRollResult.parts, function(p){ return p.dropLength.toFixed(2)+' m'; });
+      document.getElementById('wp-r-drops').textContent = joinWPParts(wpwRollResult.parts, function(p){ return p.dropsPerRoll+' / '+p.dropsNeeded; });
+      document.getElementById('wp-r-rolls').textContent = joinWPParts(wpwRollResult.parts, function(p){ return p.rolls; });
     }
   } else {
     ['wp-r-droplen-row','wp-r-drops-row','wp-r-rolls-row'].forEach(function(id){
@@ -3246,30 +3303,38 @@ function previewRoom() {
 
   // Ceiling rolls-to-order -- reuses the SAME calcWallpaperRolls() as walls
   // (no new maths needed) and the SAME shared roll length/width/match/
-  // repeat/spare inputs, just gated on wpCeil instead of wpWall. Drop
-  // length runs along the LONGER room dimension and width-to-cover is the
-  // SHORTER one -- minimises the number of seams across the ceiling
-  // (fewer, longer drops), matching real hanging practice.
-  if (wpCeil !== 'none') {
-    var cRollLen = +document.getElementById('r-wp-roll-len').value||0;
-    var cRollWidth = +document.getElementById('r-wp-roll-width').value||0;
-    var cRepeatMm = +document.getElementById('r-wp-repeat').value||0;
-    var cEffectiveMatch = wpCeil==='lining' ? 'none' : wpMatch;
+  // repeat/spare inputs, just gated on ceiling lining/finish instead of
+  // wall. Drop length runs along the LONGER room dimension and
+  // width-to-cover is the SHORTER one -- minimises the number of seams
+  // across the ceiling (fewer, longer drops), matching real hanging
+  // practice.
+  if (wpcOn) {
     var ceilDrop = Math.max(L,W), ceilWidthToCover = Math.min(L,W);
-    var ceilRollCalc = calcWallpaperRolls(ceilDrop, ceilWidthToCover, cRollLen, cRollWidth, cEffectiveMatch, cRepeatMm, settings.wpTrimCm, wpSpareRoll);
-    if (ceilRollCalc) {
+    var wpcRollResult = wpSurfaceResult(wpCeilLining, wpCeilFinish, true, false, function(t){
+      var match = t==='lining' ? 'none' : wpMatch;
+      return calcWallpaperRolls(ceilDrop, ceilWidthToCover, rollLen, rollWidth, match, repeatMm, settings.wpTrimCm, wpSpareRoll);
+    });
+    if (wpcRollResult.parts.length) {
       document.getElementById('wp-r-ceil-droplen-row').style.display = 'flex';
       document.getElementById('wp-r-ceil-drops-row').style.display = 'flex';
       document.getElementById('wp-r-ceil-rolls-row').style.display = 'flex';
-      document.getElementById('wp-r-ceil-droplen').textContent = ceilRollCalc.dropLength.toFixed(2)+' m';
-      document.getElementById('wp-r-ceil-drops').textContent = ceilRollCalc.dropsPerRoll+' / '+ceilRollCalc.dropsNeeded;
-      document.getElementById('wp-r-ceil-rolls').textContent = ceilRollCalc.rolls;
+      document.getElementById('wp-r-ceil-droplen').textContent = joinWPParts(wpcRollResult.parts, function(p){ return p.dropLength.toFixed(2)+' m'; });
+      document.getElementById('wp-r-ceil-drops').textContent = joinWPParts(wpcRollResult.parts, function(p){ return p.dropsPerRoll+' / '+p.dropsNeeded; });
+      document.getElementById('wp-r-ceil-rolls').textContent = joinWPParts(wpcRollResult.parts, function(p){ return p.rolls; });
     }
   } else {
     ['wp-r-ceil-droplen-row','wp-r-ceil-drops-row','wp-r-ceil-rolls-row'].forEach(function(id){
       document.getElementById(id).style.display = 'none';
     });
   }
+}
+
+// Joins per-type roll-calc figures for display when both lining and finish
+// are active on the same surface, e.g. "Lining 2.50 m · Finish 2.82 m".
+function joinWPParts(parts, formatter) {
+  return parts.map(function(p){
+    return (p.type==='lining' ? 'Lining ' : 'Finish ') + formatter(p);
+  }).join(' · ');
 }
 function editRoom(id) {
   var r=rooms.find(function(x){return x.id===id;});
@@ -3314,14 +3379,15 @@ function editRoom(id) {
   document.getElementById('r-prep-custom').value = r.prepCustom||0;
   document.getElementById('prep-custom-row').style.display = prepPct===-1?'flex':'none';
   document.getElementById('r-making-good').value = r.makingGood||0;
-  // Restore wallpaper -- old saved rooms may still have 'plain'/'patterned'
-  // from before the selector collapsed; normalise to 'finish' on load so
-  // the button highlighting and labour calc treat them the same as any
-  // room saved after the change.
-  wpWall = wpNormalisePaperType(r.wpWall||'none'); wpCeil = wpNormalisePaperType(r.wpCeil||'none');
-  var wpVals=['none','lining','finish'];
-  document.querySelectorAll('#seg-wpw .seg-btn').forEach(function(b,i){b.classList.toggle('active',wpVals[i]===wpWall);});
-  document.querySelectorAll('#seg-wpc .seg-btn').forEach(function(b,i){b.classList.toggle('active',wpVals[i]===wpCeil);});
+  // Restore wallpaper -- migrateWPFields() derives the new independent
+  // booleans from old rooms' single wpWall/wpCeil string (including legacy
+  // 'plain'/'patterned' via wpNormalisePaperType()) the first time this
+  // room is touched, so every room -- old or new -- has real booleans here.
+  migrateWPFields(r);
+  wpWallLining = !!r.wpWallLining; wpWallFinish = !!r.wpWallFinish;
+  wpCeilLining = !!r.wpCeilLining; wpCeilFinish = !!r.wpCeilFinish;
+  document.querySelectorAll('#seg-wpw .seg-btn').forEach(function(b,i){b.classList.toggle('active', i===0?wpWallLining:wpWallFinish);});
+  document.querySelectorAll('#seg-wpc .seg-btn').forEach(function(b,i){b.classList.toggle('active', i===0?wpCeilLining:wpCeilFinish);});
   // Restore the rolls-to-order calculator (shared inputs, walls + ceiling)
   wpMatch = r.wpMatch||'none'; wpSpareRoll = !!r.wpSpareRoll;
   var wpMatchVals=['none','straight','offset'];
@@ -3330,8 +3396,8 @@ function editRoom(id) {
   document.getElementById('r-wp-roll-len').value = r.wpRollLen||10.05;
   document.getElementById('r-wp-roll-width').value = r.wpRollWidth||0.53;
   document.getElementById('r-wp-repeat').value = r.wpRepeatMm||0;
-  var rollsOn = wpWall!=='none' || wpCeil!=='none';
-  var isTopPaperEdit = wpWall==='finish' || wpCeil==='finish';
+  var rollsOn = wpWallLining || wpWallFinish || wpCeilLining || wpCeilFinish;
+  var isTopPaperEdit = wpWallFinish || wpCeilFinish;
   ['wp-rolls-header-row','wp-roll-len-row','wp-roll-width-row','wp-spare-row'].forEach(function(id){
     var el = document.getElementById(id); if (el) el.style.display = rollsOn ? 'flex' : 'none';
   });
@@ -3411,7 +3477,8 @@ function saveRoom() {
     wc:coats.wc, cc:coats.cc, xc:coats.xc,
     win:+document.getElementById('r-win').value, doors:+document.getElementById('r-doors').value, rads:+document.getElementById('r-rads').value,
     mistWall:mistWall, mistCeil:mistCeil,
-    wpWall:wpWall, wpCeil:wpCeil,
+    wpWallLining:wpWallLining, wpWallFinish:wpWallFinish,
+    wpCeilLining:wpCeilLining, wpCeilFinish:wpCeilFinish,
     wpRollLen:+document.getElementById('r-wp-roll-len').value||10.05,
     wpRollWidth:+document.getElementById('r-wp-roll-width').value||0.53,
     wpMatch:wpMatch,
@@ -3659,28 +3726,29 @@ function calcHSL() {
   // ceilings), since that's how paper is actually bought and cut for a
   // whole staircase job, not per-surface. See computeHSLWallpaperRolls()
   // (shared with computeHSLOverrides()'s persisted calc, so the two can
-  // never drift apart).
+  // never drift apart). Lining and finish are summed via wpSurfaceResult(),
+  // same shared helper a normal room uses -- isStaircase=true always here
+  // (this whole function IS the staircase preview), so the staircase
+  // multiplier applies automatically inside wallpaperLabourCost(), stacking
+  // with the ceiling multiplier for wallpapered hall/landing ceilings.
   var hRollLen = +document.getElementById('r-wp-roll-len').value||0;
   var hRollWidth = +document.getElementById('r-wp-roll-width').value||0;
   var hRepeatMm = +document.getElementById('r-wp-repeat').value||0;
   var s1v = hslFloors>=2, s2v = hslFloors>=3;
-  var hslRollsResult = computeHSLWallpaperRolls(false, wpWall, hRollLen, hRollWidth, hRepeatMm, wpSpareRoll,
-    h1l, h1w, h1h, hslFloors, hslStairWalls,
-    s1v?s1steps:0, s1v?s1tread:0, s1v?s1topstep:0, s1v?s1wallh:0, s1v?l1l:0, s1v?l1w:0, s1v?l1h:0,
-    s2v?s2steps:0, s2v?s2tread:0, s2v?s2topstep:0, s2v?s2wallh:0, s2v?l2l:0, s2v?l2w:0, s2v?l2h:0);
-  var hslCeilRollsResult = computeHSLWallpaperRolls(true, wpCeil, hRollLen, hRollWidth, hRepeatMm, wpSpareRoll,
-    h1l, h1w, h1h, hslFloors, hslStairWalls,
-    0, 0, 0, 0, s1v?l1l:0, s1v?l1w:0, 0,
-    0, 0, 0, 0, s2v?l2l:0, s2v?l2w:0, 0);
-
-  // Wallpaper labour -- same rolls x rate x multiplier model as a normal
-  // room (wallpaperLabourCost()), reusing the combined roll totals just
-  // computed above rather than recalculating. isStaircase=true always
-  // here, since this whole function IS the staircase preview -- picks up
-  // the staircase multiplier automatically, stacking with the ceiling
-  // multiplier for wallpapered hall/landing ceilings.
-  var wpwCostDisp = wallpaperLabourCost(wpWall, hslRollsResult?hslRollsResult.rolls:0, false, true);
-  var wpcCostDisp = wallpaperLabourCost(wpCeil, hslCeilRollsResult?hslCeilRollsResult.rolls:0, true, true);
+  var wpwHSLResult = wpSurfaceResult(wpWallLining, wpWallFinish, false, true, function(t){
+    return computeHSLWallpaperRolls(false, t, hRollLen, hRollWidth, hRepeatMm, wpSpareRoll,
+      h1l, h1w, h1h, hslFloors, hslStairWalls,
+      s1v?s1steps:0, s1v?s1tread:0, s1v?s1topstep:0, s1v?s1wallh:0, s1v?l1l:0, s1v?l1w:0, s1v?l1h:0,
+      s2v?s2steps:0, s2v?s2tread:0, s2v?s2topstep:0, s2v?s2wallh:0, s2v?l2l:0, s2v?l2w:0, s2v?l2h:0);
+  });
+  var wpcHSLResult = wpSurfaceResult(wpCeilLining, wpCeilFinish, true, true, function(t){
+    return computeHSLWallpaperRolls(true, t, hRollLen, hRollWidth, hRepeatMm, wpSpareRoll,
+      h1l, h1w, h1h, hslFloors, hslStairWalls,
+      0, 0, 0, 0, s1v?l1l:0, s1v?l1w:0, 0,
+      0, 0, 0, 0, s2v?l2l:0, s2v?l2w:0, 0);
+  });
+  var wpwCostDisp = wpwHSLResult.cost;
+  var wpcCostDisp = wpcHSLResult.cost;
 
   // Mist coat -- same shared toggle/fields as a normal room, against this
   // preview's own (overridden) wall/ceiling totals.
@@ -3730,29 +3798,33 @@ function calcHSL() {
   // Rolls to order -- reuses the SAME shared result elements a normal
   // room's Wallpaper card populates (wp-r-*); drop length shows as a
   // range here since it varies across the rake, not one fixed number.
-  document.getElementById('wp-r-wall-labour-row').style.display = wpWall!=='none' ? 'flex' : 'none';
-  if (wpWall!=='none') document.getElementById('wp-r-wall-labour').textContent = fmt(wpwCostDisp);
-  document.getElementById('wp-r-ceil-labour-row').style.display = wpCeil!=='none' ? 'flex' : 'none';
-  if (wpCeil!=='none') document.getElementById('wp-r-ceil-labour').textContent = fmt(wpcCostDisp);
+  // Joined "Lining X · Finish Y" via joinWPParts() when both are active,
+  // same as a normal room's preview.
+  var wpwHSLOn = wpWallLining || wpWallFinish;
+  var wpcHSLOn = wpCeilLining || wpCeilFinish;
+  document.getElementById('wp-r-wall-labour-row').style.display = wpwHSLOn ? 'flex' : 'none';
+  if (wpwHSLOn) document.getElementById('wp-r-wall-labour').textContent = fmt(wpwCostDisp);
+  document.getElementById('wp-r-ceil-labour-row').style.display = wpcHSLOn ? 'flex' : 'none';
+  if (wpcHSLOn) document.getElementById('wp-r-ceil-labour').textContent = fmt(wpcCostDisp);
 
-  if (hslRollsResult) {
+  if (wpwHSLResult.parts.length) {
     document.getElementById('wp-r-droplen-row').style.display = 'flex';
     document.getElementById('wp-r-drops-row').style.display = 'none';
     document.getElementById('wp-r-rolls-row').style.display = 'flex';
-    document.getElementById('wp-r-droplen').textContent = hslRollsResult.minDrop.toFixed(2)+'–'+hslRollsResult.maxDrop.toFixed(2)+' m';
-    document.getElementById('wp-r-rolls').textContent = hslRollsResult.rolls;
+    document.getElementById('wp-r-droplen').textContent = joinWPParts(wpwHSLResult.parts, function(p){ return p.minDrop.toFixed(2)+'–'+p.maxDrop.toFixed(2)+' m'; });
+    document.getElementById('wp-r-rolls').textContent = joinWPParts(wpwHSLResult.parts, function(p){ return p.rolls; });
   } else {
     ['wp-r-droplen-row','wp-r-drops-row','wp-r-rolls-row'].forEach(function(id){
       document.getElementById(id).style.display = 'none';
     });
   }
 
-  if (hslCeilRollsResult) {
+  if (wpcHSLResult.parts.length) {
     document.getElementById('wp-r-ceil-droplen-row').style.display = 'flex';
     document.getElementById('wp-r-ceil-drops-row').style.display = 'none';
     document.getElementById('wp-r-ceil-rolls-row').style.display = 'flex';
-    document.getElementById('wp-r-ceil-droplen').textContent = hslCeilRollsResult.minDrop.toFixed(2)+'–'+hslCeilRollsResult.maxDrop.toFixed(2)+' m';
-    document.getElementById('wp-r-ceil-rolls').textContent = hslCeilRollsResult.rolls;
+    document.getElementById('wp-r-ceil-droplen').textContent = joinWPParts(wpcHSLResult.parts, function(p){ return p.minDrop.toFixed(2)+'–'+p.maxDrop.toFixed(2)+' m'; });
+    document.getElementById('wp-r-ceil-rolls').textContent = joinWPParts(wpcHSLResult.parts, function(p){ return p.rolls; });
   } else {
     ['wp-r-ceil-droplen-row','wp-r-ceil-drops-row','wp-r-ceil-rolls-row'].forEach(function(id){
       document.getElementById(id).style.display = 'none';
@@ -3853,27 +3925,42 @@ function computeHSLOverrides() {
   var woodAreaOverride = totalSkirtPerim*0.15 + doors*1.9;
 
   // Wallpaper -- shared card/fields. Rolls computed once here via the SAME
-  // computeHSLWallpaperRolls() calcHSL()'s live preview uses, so the two
-  // can never disagree; the roll counts are also stored below
-  // (wallRollsOverride/ceilRollsOverride) for calcRoom() and the Summary
-  // breakdown to reuse without recomputing from a staircase room's dummy
-  // 1x1 dimensions (same reason wallAreaOverride etc. exist).
+  // computeHSLWallpaperRolls() calcHSL()'s live preview uses (through the
+  // same wpSurfaceResult() helper), so all three can never disagree; the
+  // per-type roll counts are also stored below (wallRollsOverrideLining/
+  // Finish, ceilRollsOverrideLining/Finish) for calcRoom()'s
+  // roomWallpaperRolls() and the Summary breakdown to reuse without
+  // recomputing from a staircase room's dummy 1x1 dimensions (same reason
+  // wallAreaOverride etc. exist). Only active types get a stored override
+  // -- calcRoom() only ever asks roomWallpaperRolls() for a type that's
+  // actually on, via r.wpWallLining/r.wpWallFinish gating wpSurfaceResult's
+  // own loop, so an inactive type's field is left undefined.
   var wpRollLen = +document.getElementById('r-wp-roll-len').value||10.05;
   var wpRollWidth = +document.getElementById('r-wp-roll-width').value||0.53;
   var wpRepeatMm = +document.getElementById('r-wp-repeat').value||0;
   var s1v2 = hslFloors>=2, s2v2 = hslFloors>=3;
-  var wallRollsResult = computeHSLWallpaperRolls(false, wpWall, wpRollLen, wpRollWidth, wpRepeatMm, wpSpareRoll,
-    h1l, h1w, h1h, hslFloors, hslStairWalls,
-    s1v2?s1steps:0, s1v2?s1tread:0, s1v2?s1topstep:0, s1v2?s1wallh:0, s1v2?l1l:0, s1v2?l1w:0, s1v2?l1h:0,
-    s2v2?s2steps:0, s2v2?s2tread:0, s2v2?s2topstep:0, s2v2?s2wallh:0, s2v2?l2l:0, s2v2?l2w:0, s2v2?l2h:0);
-  var ceilRollsResult = computeHSLWallpaperRolls(true, wpCeil, wpRollLen, wpRollWidth, wpRepeatMm, wpSpareRoll,
-    h1l, h1w, h1h, hslFloors, hslStairWalls,
-    0, 0, 0, 0, s1v2?l1l:0, s1v2?l1w:0, 0,
-    0, 0, 0, 0, s2v2?l2l:0, s2v2?l2w:0, 0);
-  var wallRollsOverride = wallRollsResult ? wallRollsResult.rolls : 0;
-  var ceilRollsOverride = ceilRollsResult ? ceilRollsResult.rolls : 0;
-  var wpwCost = wallpaperLabourCost(wpWall, wallRollsOverride, false, true);
-  var wpcCost = wallpaperLabourCost(wpCeil, ceilRollsOverride, true, true);
+  var wallRollsHSLResult = wpSurfaceResult(wpWallLining, wpWallFinish, false, true, function(t){
+    return computeHSLWallpaperRolls(false, t, wpRollLen, wpRollWidth, wpRepeatMm, wpSpareRoll,
+      h1l, h1w, h1h, hslFloors, hslStairWalls,
+      s1v2?s1steps:0, s1v2?s1tread:0, s1v2?s1topstep:0, s1v2?s1wallh:0, s1v2?l1l:0, s1v2?l1w:0, s1v2?l1h:0,
+      s2v2?s2steps:0, s2v2?s2tread:0, s2v2?s2topstep:0, s2v2?s2wallh:0, s2v2?l2l:0, s2v2?l2w:0, s2v2?l2h:0);
+  });
+  var ceilRollsHSLResult = wpSurfaceResult(wpCeilLining, wpCeilFinish, true, true, function(t){
+    return computeHSLWallpaperRolls(true, t, wpRollLen, wpRollWidth, wpRepeatMm, wpSpareRoll,
+      h1l, h1w, h1h, hslFloors, hslStairWalls,
+      0, 0, 0, 0, s1v2?l1l:0, s1v2?l1w:0, 0,
+      0, 0, 0, 0, s2v2?l2l:0, s2v2?l2w:0, 0);
+  });
+  function hslRollsFor(result, type) {
+    var p = result.parts.filter(function(x){ return x.type===type; })[0];
+    return p ? p.rolls : 0;
+  }
+  var wallRollsOverrideLining = wpWallLining ? hslRollsFor(wallRollsHSLResult, 'lining') : undefined;
+  var wallRollsOverrideFinish = wpWallFinish ? hslRollsFor(wallRollsHSLResult, 'finish') : undefined;
+  var ceilRollsOverrideLining = wpCeilLining ? hslRollsFor(ceilRollsHSLResult, 'lining') : undefined;
+  var ceilRollsOverrideFinish = wpCeilFinish ? hslRollsFor(ceilRollsHSLResult, 'finish') : undefined;
+  var wpwCost = wallRollsHSLResult.cost;
+  var wpcCost = ceilRollsHSLResult.cost;
 
   // Mist coat -- shared toggle/fields, against this room's own overridden
   // wall/ceiling areas.
@@ -3901,7 +3988,8 @@ function computeHSLOverrides() {
     wallAreaOverride: totalWall, ceilAreaOverride: totalCeil, woodAreaOverride: woodAreaOverride,
     wallCostStore: wallCost, ceilCostStore: ceilCost, woodCostStore: doorSkirtCost,
     stairWoodStore: stairWoodStore, totalOverride: totalOverride,
-    wallRollsOverride: wallRollsOverride, ceilRollsOverride: ceilRollsOverride,
+    wallRollsOverrideLining: wallRollsOverrideLining, wallRollsOverrideFinish: wallRollsOverrideFinish,
+    ceilRollsOverrideLining: ceilRollsOverrideLining, ceilRollsOverrideFinish: ceilRollsOverrideFinish,
     hslInputs: {
       floors: hslFloors,
       h1l: document.getElementById('hsl-h1-l').value, h1w: document.getElementById('hsl-h1-w').value, h1h: document.getElementById('hsl-h1-h').value,
