@@ -2169,8 +2169,18 @@ function saveColours() {
 // place that reads/renders `colours` calls this first so colour 1 always
 // exists; it's idempotent and only persists when it actually had to seed.
 function ensureDefaultColour() {
-  if (!colours.some(function(c){ return c.number === 1; })) {
-    colours.unshift({ number: 1, label: '' });
+  // Defaults to "White" rather than blank -- an unlabelled Colour 1 read
+  // as if adding Colour 2 for an accent/feature wall had left every other
+  // surface's colour undefined too. Labelling it makes clear Colour 1 is
+  // the base/default and stays that way. Also backfills any EXISTING
+  // colour 1 still sitting blank from before this default existed (older
+  // jobs), not just newly created ones.
+  var c1 = colours.find(function(c){ return c.number === 1; });
+  if (!c1) {
+    colours.unshift({ number: 1, label: 'White', brand: '', code: '' });
+    saveColours();
+  } else if (!c1.label) {
+    c1.label = 'White';
     saveColours();
   }
 }
