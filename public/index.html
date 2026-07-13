@@ -315,12 +315,6 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         <div class="subsection-label">Wall Paint</div>
         <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><select class="field-input" id="r-wall-range" onchange="onRoomOverrideRangeSelect('wall')"></select></div>
         <div class="field-row" id="r-wall-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-wall-band" onchange="onRoomOverrideBandSelect('wall')"></select></div>
-        <div class="subsection-label">Feature Wall<small>its own colour/product — leave room dimensions at 0 to price a feature-wall-only job</small></div>
-        <div class="field-row"><div class="field-label">Width<small>metres</small></div><input type="number" class="field-input" id="r-featurewall-width" value="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
-        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Height<small>metres</small></div><input type="number" class="field-input" id="r-featurewall-height" value="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
-        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Colour<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-featurewall" style="flex-wrap:wrap"></div></div>
-        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Product<small>no default — choose explicitly</small></div><select class="field-input" id="r-featurewall-range" onchange="onRoomOverrideRangeSelect('featurewall')"></select></div>
-        <div class="field-row" id="r-featurewall-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-featurewall-band" onchange="onRoomOverrideBandSelect('featurewall')"></select></div>
         <div class="subsection-label">Ceiling Paint</div>
         <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><select class="field-input" id="r-ceiling-range" onchange="onRoomOverrideRangeSelect('ceiling')"></select></div>
         <div class="field-row" id="r-ceiling-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-ceiling-band" onchange="onRoomOverrideBandSelect('ceiling')"></select></div>
@@ -333,6 +327,40 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         <div class="subsection-label">Mist Coat</div>
         <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><select class="field-input" id="r-mist-range" onchange="onRoomOverrideRangeSelect('mist')"></select></div>
         <div class="field-row" id="r-mist-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-mist-band" onchange="onRoomOverrideBandSelect('mist')"></select></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header sec-toggle" onclick="toggleFormSection('featurewall')"><span>Feature Wall</span><span class="sec-chev" id="sec-chev-featurewall">›</span></div>
+      <div class="card-body" id="sec-featurewall">
+        <div class="subsection-label">Feature Wall<small>leave width/height at 0 to skip, or to price a feature-wall-only job</small></div>
+        <div class="field-row"><div class="field-label">Width<small>metres</small></div><input type="number" class="field-input" id="r-featurewall-width" value="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Height<small>metres</small></div><input type="number" class="field-input" id="r-featurewall-height" value="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+        <div class="field-row" style="border-top:1px solid var(--border)">
+          <div class="field-label">Finish</div>
+          <div class="seg" id="seg-featurewall-mode">
+            <button class="seg-btn active" onclick="setFeatureWallMode('paint')">Paint</button>
+            <button class="seg-btn" onclick="setFeatureWallMode('wallpaper')">Wallpaper</button>
+          </div>
+        </div>
+        <div id="fw-paint-fields">
+          <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Colour<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-featurewall" style="flex-wrap:wrap"></div></div>
+          <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Product<small>no default — choose explicitly</small></div><select class="field-input" id="r-featurewall-range" onchange="onRoomOverrideRangeSelect('featurewall')"></select></div>
+          <div class="field-row" id="r-featurewall-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-featurewall-band" onchange="onRoomOverrideBandSelect('featurewall')"></select></div>
+        </div>
+        <div id="fw-wp-fields" style="display:none">
+          <div class="field-row" style="border-top:1px solid var(--border)">
+            <div class="field-label">Paper<small>both can be on — e.g. line out then finish</small></div>
+            <div class="seg" id="seg-fwwp" style="flex:1.5">
+              <button class="seg-btn" onclick="toggleFWWP('lining')">Lining</button>
+              <button class="seg-btn" onclick="toggleFWWP('finish')">Finish</button>
+            </div>
+          </div>
+          <div class="breakdown-row" id="fwwp-r-labour-row" style="display:none"><span class="breakdown-label">Feature wall wallpaper labour</span><span class="breakdown-value" id="fwwp-r-labour">—</span></div>
+          <div class="breakdown-row" id="fwwp-r-droplen-row" style="display:none"><span class="breakdown-label">Drop length</span><span class="breakdown-value" id="fwwp-r-droplen">—</span></div>
+          <div class="breakdown-row" id="fwwp-r-drops-row" style="display:none"><span class="breakdown-label">Drops per roll / needed</span><span class="breakdown-value" id="fwwp-r-drops">—</span></div>
+          <div class="breakdown-row" id="fwwp-r-rolls-row" style="display:none;background:rgba(26,82,118,.06)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Rolls to order</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="fwwp-r-rolls">—</span></div>
+          <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label" style="color:var(--text2)">Roll length/width, match &amp; spare<small>set in the Wallpaper section below — shared paper spec</small></div></div>
+        </div>
       </div>
     </div>
     <div class="card">
@@ -1364,6 +1392,14 @@ var wpWallLining = false, wpWallFinish = false;
 var wpCeilLining = false, wpCeilFinish = false;
 var wpMatch = 'none'; // none / straight / offset -- pattern match type for the walls roll calculator
 var wpSpareRoll = false;
+// Feature wall paint/wallpaper toggle -- 'wallpaper' routes the feature
+// wall's own width/height to the SAME roll calc + per-roll labour as
+// whole-room wallpaper (fwWpLining/fwWpFinish, same independent-toggle
+// semantics as wpWallLining/wpWallFinish), instead of carving out its own
+// paint colour/product. Shares the wall/ceiling roll spec (roll length/
+// width/match/repeat/spare) rather than duplicating those inputs.
+var featureWallMode = 'paint';
+var fwWpLining = false, fwWpFinish = false;
 var prepPct  = 10; // 10 (Minimal, default), 25 (Standard), 40 (Heavy), or -1 for custom
 var swCoats  = 2;
 var curTab   = 'home';
@@ -1581,6 +1617,14 @@ function goScreen(name) {
     ['wp-rolls-header-row','wp-roll-len-row','wp-roll-width-row','wp-match-row','wp-spare-row','wp-repeat-row','wp-r-wall-labour-row','wp-r-ceil-labour-row','wp-r-droplen-row','wp-r-drops-row','wp-r-rolls-row','wp-r-ceil-droplen-row','wp-r-ceil-drops-row','wp-r-ceil-rolls-row'].forEach(function(id){
       var el=document.getElementById(id); if(el) el.style.display='none';
     });
+    featureWallMode='paint'; fwWpLining=false; fwWpFinish=false;
+    document.querySelectorAll('#seg-featurewall-mode .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===0);});
+    document.getElementById('fw-paint-fields').style.display='block';
+    document.getElementById('fw-wp-fields').style.display='none';
+    document.querySelectorAll('#seg-fwwp .seg-btn').forEach(function(b){b.classList.remove('active');});
+    ['fwwp-r-labour-row','fwwp-r-droplen-row','fwwp-r-drops-row','fwwp-r-rolls-row'].forEach(function(id){
+      var el=document.getElementById(id); if(el) el.style.display='none';
+    });
     document.getElementById('prep-custom-row').style.display='none';
     document.getElementById('r-prep-custom').value='0';
     document.getElementById('r-making-good').value='0';
@@ -1648,7 +1692,6 @@ function skirtMins(c)   { return c * 4; }                                   // 4
 function doorMins(c)    { return 10 + c * 10; }                            // 10 prep + 10 mins per coat (door+frame)
 function winMins()      { return 35; }
 function radMins()      { return 15; }
-function fwMins(t)      { return t==='lining'?12 : t==='wallrock'?11 : t==='patterned'?20 : 0; }
 
 // ── Room calc ──────────────────────────────────────────────────────────────
 function calcRoom(r) {
@@ -1656,7 +1699,6 @@ function calcRoom(r) {
   var L=+r.l, W=+r.w, H=+r.h;
   var doors=+r.doors, win=+r.win, rads=+r.rads;
   var wc=+r.wc, cc=+r.cc, xc=+r.xc;
-  var fwa=+r.fwa, fwt=r.fwt;
   var mistW=!!r.mistWall, mistC=!!r.mistCeil;
   // Use pre-computed area if set (staircase rooms), otherwise calculate normally
   var wallArea = r.wallAreaOverride ? +r.wallAreaOverride : Math.max((L*2+W*2)*H - doors*1.8, 0);
@@ -1666,32 +1708,38 @@ function calcRoom(r) {
   var hpd      = settings.hpd;
   var mistWCost = mistW ? wallArea*settings.rMist*r2 : 0;
   var mistCCost = mistC ? ceilArea*settings.rMist*r2 : 0;
-  var wallCost = wc>0 ? wallArea*wallMins(wc)*r2 : 0;
+  // Feature wall: width x height (its own measured wall, not a guessed
+  // m²), carved out of the general wall area above. No longer capped to
+  // wallArea -- it's an independently measured wall now, not a hand-typed
+  // guess that needed sanity-bounding, so it can legitimately exceed (or
+  // exist without) a wallArea of 0. mainWallPaintArea is floored at 0
+  // instead, so an oversized feature wall just leaves nothing for the
+  // "main" colour rather than going negative.
+  var featureWallArea = Math.max(+r.featureWallArea || 0, 0);
+  var mainWallPaintArea = Math.max(wallArea - featureWallArea, 0);
+  var featureWallMode = r.featureWallMode || 'paint';
+  // Wallpaper mode EXCLUDES the feature wall from paint entirely -- both
+  // the paint labour time (wallCost below, basis switches to
+  // mainWallPaintArea) and the paint litres (fwL/featureWallOwnCost below,
+  // both zeroed) -- not just a relabelling. wL (main colour litres) already
+  // used mainWallPaintArea unconditionally so it needs no change here.
+  var fwWallpaper = featureWallMode === 'wallpaper' && featureWallArea > 0;
+  var wallCost = wc>0 ? (fwWallpaper ? mainWallPaintArea : wallArea)*wallMins(wc)*r2 : 0;
   var ceilCost = cc>0 ? ceilArea*ceilMins(cc)*r2 : 0;
   var winCost  = win>0 ? win*winMins()*r2 : 0;
   var woodCost = r.woodCostOverride != null ? +r.woodCostOverride :
                  (xc>0 ? (perim*skirtMins(xc) + doors*doorMins(xc))*r2 : 0);
   var radCost  = rads>0 ? rads*radMins()*r2 : 0;
-  var fwCost   = fwa>0&&fwt ? fwa*fwMins(fwt)*r2 : 0;
-  // Feature wall: width x height (its own measured wall, not a guessed
-  // m²), painted in its own colour/product, carved out of the general
-  // wall area above. No longer capped to wallArea -- it's an
-  // independently measured wall now, not a hand-typed guess that needed
-  // sanity-bounding, so it can legitimately exceed (or exist without) a
-  // wallArea of 0. mainWallPaintArea is floored at 0 instead, so an
-  // oversized feature wall just leaves nothing for the "main" colour
-  // rather than going negative.
-  var featureWallArea = Math.max(+r.featureWallArea || 0, 0);
-  var mainWallPaintArea = Math.max(wallArea - featureWallArea, 0);
   var wL  = wc>0 ? Math.ceil(mainWallPaintArea*wc/settings.cw*2)/2 : 0;
-  var fwL = (featureWallArea>0 && wc>0) ? Math.ceil(featureWallArea*wc/settings.cw*2)/2 : 0;
+  var fwL = (!fwWallpaper && featureWallArea>0 && wc>0) ? Math.ceil(featureWallArea*wc/settings.cw*2)/2 : 0;
   // Normally painting the feature wall is already covered by wallCost
   // above, since that's costed on the FULL wallArea regardless of the
   // colour carve-out -- no extra labour needed for a real room. But a
   // feature-wall-only job (room dimensions left at 0x0x0, just this
   // wall) has no general wallArea to absorb that labour, so it needs its
-  // own line -- otherwise a feature-wall-only room prices at £0.
-  var featureWallOwnCost = (wallArea<=0 && featureWallArea>0 && wc>0) ? featureWallArea*wallMins(wc)*r2 : 0;
+  // own line -- otherwise a feature-wall-only room prices at £0. Not
+  // applicable when wallpapered -- see featureWallWpCost below instead.
+  var featureWallOwnCost = (!fwWallpaper && wallArea<=0 && featureWallArea>0 && wc>0) ? featureWallArea*wallMins(wc)*r2 : 0;
   // Wallpaper labour = rolls x per-roll rate x (1 + multiplier), summed
   // across whichever of {lining, finish} are active for this surface --
   // see wpSurfaceResult()/roomWallpaperRolls(). isHSL rooms pick up the
@@ -1703,7 +1751,17 @@ function calcRoom(r) {
   var wpcCost  = wpcResult.cost;
   var wpwRolls = wpwResult.parts.reduce(function(sum,p){ return sum + p.rolls; }, 0);
   var wpcRolls = wpcResult.parts.reduce(function(sum,p){ return sum + p.rolls; }, 0);
-  var baseTotal = wallCost+ceilCost+winCost+woodCost+radCost+fwCost+featureWallOwnCost+mistWCost+mistCCost+wpwCost+wpcCost;
+  // Feature wall wallpaper -- SAME wpSurfaceResult()/calcWallpaperRolls()
+  // machinery as walls/ceiling above, just fed the feature wall's own
+  // width/height via featureWallWallpaperRolls() instead of the room's l/w/h.
+  // Always additive on its own (unlike featureWallOwnCost for paint) since
+  // wallpaper labour never overlaps wallCost regardless of whether the room
+  // has any general wall area.
+  var featureWallWpResult = fwWallpaper ? wpSurfaceResult(r.fwWpLining, r.fwWpFinish, false, !!r.isHSL,
+    function(t){ return { rolls: featureWallWallpaperRolls(r, t) }; }) : { cost: 0, parts: [] };
+  var featureWallWpCost  = featureWallWpResult.cost;
+  var featureWallWpRolls = featureWallWpResult.parts.reduce(function(sum,p){ return sum + p.rolls; }, 0);
+  var baseTotal = wallCost+ceilCost+winCost+woodCost+radCost+featureWallOwnCost+mistWCost+mistCCost+wpwCost+wpcCost+featureWallWpCost;
   var prepUp  = r.prepPct >= 0 ? r.prepPct : (+r.prepCustom||0);
   var makingGood = +r.makingGood||0;
   var total   = r.totalOverride != null
@@ -1727,7 +1785,8 @@ function calcRoom(r) {
   var mL  = mistArea>0 ? Math.ceil(mistArea/settings.cMist*2)/2 : 0;
   return {total:total, time:time, wallArea:wallArea, ceilArea:ceilArea,
            wallL:wL, ceilL:cL, glossL:gL, mistL:mL, featureWallL:fwL,
-           wpwCost:wpwCost, wpcCost:wpcCost, wpwRolls:wpwRolls, wpcRolls:wpcRolls};
+           wpwCost:wpwCost, wpcCost:wpcCost, wpwRolls:wpwRolls, wpcRolls:wpcRolls,
+           featureWallMode:featureWallMode, featureWallWpCost:featureWallWpCost, featureWallWpRolls:featureWallWpRolls};
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -2228,7 +2287,7 @@ function roomColourSchedule(r) {
   if (+r.wc > 0) parts.push({ role: 'Walls', num: r.colourNumber || 1 });
   if (+r.cc > 0) parts.push({ role: 'Ceiling', num: r.ceilingColourNumber || 1 });
   if (+r.xc > 0) parts.push({ role: 'Woodwork', num: r.woodworkColourNumber || 1 });
-  if (+r.featureWallArea > 0) parts.push({ role: 'Feature wall', num: r.featureWallColourNumber || 1 });
+  if (+r.featureWallArea > 0 && (r.featureWallMode||'paint')==='paint') parts.push({ role: 'Feature wall', num: r.featureWallColourNumber || 1 });
   if (!parts.length) return null;
   if (parts.every(function(p){ return p.num === parts[0].num; })) {
     return colourLabelFor(parts[0].num);
@@ -2279,7 +2338,7 @@ function renderColours() {
     var wallRooms = rooms.filter(function(r){ return (r.colourNumber||1)===c.number && +r.wc>0; }).map(function(r){ return r.name; });
     var ceilRooms = rooms.filter(function(r){ return (r.ceilingColourNumber||1)===c.number && +r.cc>0; }).map(function(r){ return r.name; });
     var woodRooms = rooms.filter(function(r){ return (r.woodworkColourNumber||1)===c.number && +r.xc>0; }).map(function(r){ return r.name; });
-    var featureWallRooms = rooms.filter(function(r){ return (r.featureWallColourNumber||1)===c.number && +r.featureWallArea>0; }).map(function(r){ return r.name; });
+    var featureWallRooms = rooms.filter(function(r){ return (r.featureWallColourNumber||1)===c.number && +r.featureWallArea>0 && (r.featureWallMode||'paint')==='paint'; }).map(function(r){ return r.name; });
     var matRows = allMatRows.filter(function(r){ return r.colourNumber===c.number; });
     var hasBreakdown = wallRooms.length || ceilRooms.length || woodRooms.length || featureWallRooms.length || matRows.length;
     var surfaces = surfaceSummary(wallRooms.length>0, ceilRooms.length>0, woodRooms.length>0, featureWallRooms.length>0);
@@ -3027,6 +3086,42 @@ function roomWallpaperRolls(r, isCeil, type) {
   return calc ? calc.rolls : 0;
 }
 
+// Rolls needed for the FEATURE WALL's wallpaper of one explicit type --
+// same shape as roomWallpaperRolls() above and reuses the same
+// calcWallpaperRolls(), just fed the feature wall's own directly-measured
+// width/height instead of the room's l/w/h. No HSL override field needed
+// here (unlike roomWallpaperRolls()'s wallRollsOverride*) -- featureWallWidth/
+// Height are always real measurements, never a dummy l=w=h=1 placeholder,
+// for a normal room or a staircase room alike.
+function featureWallWallpaperRolls(r, type) {
+  var w = +r.featureWallWidth || 0, h = +r.featureWallHeight || 0;
+  var rollLen = +r.wpRollLen || 10.05, rollWidth = +r.wpRollWidth || 0.53;
+  var effectiveMatch = type==='lining' ? 'none' : (r.wpMatch || 'none');
+  var repeatMm = +r.wpRepeatMm || 0;
+  var calc = calcWallpaperRolls(h, w, rollLen, rollWidth, effectiveMatch, repeatMm, settings.wpTrimCm, !!r.wpSpareRoll);
+  return calc ? calc.rolls : 0;
+}
+
+// Rolls-to-order calculator (and now labour too) -- ONE shared set of roll
+// length/width/match/repeat/spare-roll inputs serves walls, ceiling AND the
+// feature wall (usually the same paper spec even when surfaces differ on
+// lining vs finish), so the input rows show whenever ANY surface/type needs
+// rolls. Match type + repeat only matter for "finish" paper -- lining has no
+// pattern to match, so those two rows stay hidden unless at least one
+// surface has finish active, even though roll length/width/spare-roll still
+// apply (a rough rolls estimate, and therefore a labour figure, still runs
+// for lining). Per-surface output rows are gated independently in
+// previewRoom(), since they're separate purchases and separate labour lines.
+function updateWPRollSpecVisibility() {
+  var rollsOn = wpWallLining || wpWallFinish || wpCeilLining || wpCeilFinish || fwWpLining || fwWpFinish;
+  var isTopPaper = wpWallFinish || wpCeilFinish || fwWpFinish;
+  ['wp-rolls-header-row','wp-roll-len-row','wp-roll-width-row','wp-spare-row'].forEach(function(id){
+    var el = document.getElementById(id); if (el) el.style.display = rollsOn ? 'flex' : 'none';
+  });
+  document.getElementById('wp-match-row').style.display = isTopPaper ? 'flex' : 'none';
+  document.getElementById('wp-repeat-row').style.display = (isTopPaper && wpMatch!=='none') ? 'flex' : 'none';
+}
+
 // Lining and finish are independent toggles per surface now (checkbox
 // semantics via button styling, not radio) -- clicking one only flips its
 // own boolean, the sibling button's state is untouched, so both can be on
@@ -3039,26 +3134,20 @@ function toggleWP(key, type) {
   document.querySelectorAll('#seg-'+key+' .seg-btn').forEach(function(b,i){
     b.classList.toggle('active', i===0 ? liningOn : finishOn);
   });
-  // Rolls-to-order calculator (and now labour too) -- ONE shared set of
-  // roll length/width/match/repeat/spare-roll inputs serves BOTH walls and
-  // ceiling (they're usually the same paper spec even when one surface is
-  // lining and the other isn't), so the input rows show whenever ANY
-  // surface/type needs rolls. Match type + repeat only matter for "finish"
-  // paper -- lining has no pattern to match, so those two rows stay
-  // hidden unless at least one surface has finish active, even though roll
-  // length/width/spare-roll still apply (a rough rolls estimate, and
-  // therefore a labour figure, still runs for lining). Wall and ceiling
-  // output rows are gated independently in previewRoom(), since they're
-  // separate purchases and separate labour lines.
-  if (key==='wpw' || key==='wpc') {
-    var rollsOn = wpWallLining || wpWallFinish || wpCeilLining || wpCeilFinish;
-    var isTopPaper = wpWallFinish || wpCeilFinish;
-    ['wp-rolls-header-row','wp-roll-len-row','wp-roll-width-row','wp-spare-row'].forEach(function(id){
-      var el = document.getElementById(id); if (el) el.style.display = rollsOn ? 'flex' : 'none';
-    });
-    document.getElementById('wp-match-row').style.display = isTopPaper ? 'flex' : 'none';
-    document.getElementById('wp-repeat-row').style.display = (isTopPaper && wpMatch!=='none') ? 'flex' : 'none';
-  }
+  updateWPRollSpecVisibility();
+  previewRoom();
+}
+
+// Feature wall's own lining/finish toggle -- same independent-toggle
+// semantics as toggleWP() above, scoped to fwWpLining/fwWpFinish, reusing
+// the SAME shared roll-spec rows (see updateWPRollSpecVisibility()) rather
+// than a duplicate set of inputs.
+function toggleFWWP(type) {
+  if (type==='lining') fwWpLining=!fwWpLining; else fwWpFinish=!fwWpFinish;
+  document.querySelectorAll('#seg-fwwp .seg-btn').forEach(function(b,i){
+    b.classList.toggle('active', i===0 ? fwWpLining : fwWpFinish);
+  });
+  updateWPRollSpecVisibility();
   previewRoom();
 }
 
@@ -3069,7 +3158,7 @@ function setWPMatch(val) {
     b.classList.toggle('active', vals[i]===val);
   });
   var repeatRow = document.getElementById('wp-repeat-row');
-  var isTopPaper = wpWallFinish || wpCeilFinish;
+  var isTopPaper = wpWallFinish || wpCeilFinish || fwWpFinish;
   if (repeatRow) repeatRow.style.display = (val!=='none' && isTopPaper) ? 'flex' : 'none';
   previewRoom();
 }
@@ -3077,6 +3166,21 @@ function setWPMatch(val) {
 function toggleWPSpare() {
   wpSpareRoll = !wpSpareRoll;
   document.getElementById('tog-wp-spare').classList.toggle('on', wpSpareRoll);
+  previewRoom();
+}
+
+// Feature wall paint/wallpaper toggle -- swaps the card between the paint
+// colour/product fields and the wallpaper lining/finish + rolls fields.
+// Doesn't touch featureWallColourNumber/roomOverrides.featurewall -- those
+// stay intact if the user flips back to Paint.
+function setFeatureWallMode(mode) {
+  featureWallMode = mode;
+  document.querySelectorAll('#seg-featurewall-mode .seg-btn').forEach(function(b,i){
+    b.classList.toggle('active', (i===0) === (mode==='paint'));
+  });
+  document.getElementById('fw-paint-fields').style.display = mode==='paint' ? 'block' : 'none';
+  document.getElementById('fw-wp-fields').style.display = mode==='wallpaper' ? 'block' : 'none';
+  updateWPRollSpecVisibility();
   previewRoom();
 }
 
@@ -3253,7 +3357,10 @@ function previewRoom() {
     prepPct:prepPct,
     prepCustom:+document.getElementById('r-prep-custom').value,
     makingGood:+document.getElementById('r-making-good').value,
-    fwa:0, fwt:''};
+    featureWallWidth:+document.getElementById('r-featurewall-width').value||undefined,
+    featureWallHeight:+document.getElementById('r-featurewall-height').value||undefined,
+    featureWallArea:(+document.getElementById('r-featurewall-width').value||0)*(+document.getElementById('r-featurewall-height').value||0)||undefined,
+    featureWallMode:featureWallMode, fwWpLining:fwWpLining, fwWpFinish:fwWpFinish};
   var c=calcRoom(r);
   document.getElementById('room-preview').style.display='block';
   document.getElementById('prev-wall').textContent=fmtM(c.wallArea);
@@ -3327,6 +3434,35 @@ function previewRoom() {
       document.getElementById(id).style.display = 'none';
     });
   }
+
+  // Feature wall wallpaper live preview -- reuses c.featureWallWpCost from
+  // calcRoom() for labour (single source of truth), and a direct
+  // calcWallpaperRolls() call against the feature wall's own width/height
+  // for the drop-length/drops/rolls breakdown, same pattern as the wall/
+  // ceiling blocks above.
+  var fwWidth = +document.getElementById('r-featurewall-width').value||0;
+  var fwHeight = +document.getElementById('r-featurewall-height').value||0;
+  var fwwpOn = featureWallMode==='wallpaper' && fwWidth>0 && fwHeight>0 && (fwWpLining || fwWpFinish);
+  document.getElementById('fwwp-r-labour-row').style.display = fwwpOn ? 'flex' : 'none';
+  if (fwwpOn) document.getElementById('fwwp-r-labour').textContent = fmt(c.featureWallWpCost);
+  if (fwwpOn) {
+    var fwwpRollResult = wpSurfaceResult(fwWpLining, fwWpFinish, false, false, function(t){
+      var match = t==='lining' ? 'none' : wpMatch;
+      return calcWallpaperRolls(fwHeight, fwWidth, rollLen, rollWidth, match, repeatMm, settings.wpTrimCm, wpSpareRoll);
+    });
+    if (fwwpRollResult.parts.length) {
+      document.getElementById('fwwp-r-droplen-row').style.display = 'flex';
+      document.getElementById('fwwp-r-drops-row').style.display = 'flex';
+      document.getElementById('fwwp-r-rolls-row').style.display = 'flex';
+      document.getElementById('fwwp-r-droplen').textContent = joinWPParts(fwwpRollResult.parts, function(p){ return p.dropLength.toFixed(2)+' m'; });
+      document.getElementById('fwwp-r-drops').textContent = joinWPParts(fwwpRollResult.parts, function(p){ return p.dropsPerRoll+' / '+p.dropsNeeded; });
+      document.getElementById('fwwp-r-rolls').textContent = joinWPParts(fwwpRollResult.parts, function(p){ return p.rolls; });
+    }
+  } else {
+    ['fwwp-r-droplen-row','fwwp-r-drops-row','fwwp-r-rolls-row'].forEach(function(id){
+      document.getElementById(id).style.display = 'none';
+    });
+  }
 }
 
 // Joins per-type roll-calc figures for display when both lining and finish
@@ -3361,6 +3497,20 @@ function editRoom(id) {
   // rather than silently losing it. New rooms always have both.
   document.getElementById('r-featurewall-width').value = r.featureWallWidth || r.featureWallArea || '0';
   document.getElementById('r-featurewall-height').value = r.featureWallHeight || (r.featureWallArea ? 1 : 0);
+  // Restore feature wall mode/lining/finish directly (no setFeatureWallMode()/
+  // toggleFWWP() calls here) -- same "defer previewRoom() until dimensions
+  // are restored" reasoning as the mist/wallpaper restores below: r-l/r-w/r-h
+  // are still stale at this point in editRoom(), so triggering a live preview
+  // now would compute against the WRONG room's dimensions. The real preview
+  // fires later via setSeg() once everything is in place.
+  featureWallMode = r.featureWallMode || 'paint';
+  document.querySelectorAll('#seg-featurewall-mode .seg-btn').forEach(function(b,i){
+    b.classList.toggle('active', (i===0) === (featureWallMode==='paint'));
+  });
+  document.getElementById('fw-paint-fields').style.display = featureWallMode==='paint' ? 'block' : 'none';
+  document.getElementById('fw-wp-fields').style.display = featureWallMode==='wallpaper' ? 'block' : 'none';
+  fwWpLining = !!r.fwWpLining; fwWpFinish = !!r.fwWpFinish;
+  document.querySelectorAll('#seg-fwwp .seg-btn').forEach(function(b,i){b.classList.toggle('active', i===0?fwWpLining:fwWpFinish);});
   document.getElementById('room-title').textContent='Edit Room';
   document.getElementById('r-name').value=r.name||'';
   document.getElementById('r-l').value=r.l;
@@ -3396,13 +3546,7 @@ function editRoom(id) {
   document.getElementById('r-wp-roll-len').value = r.wpRollLen||10.05;
   document.getElementById('r-wp-roll-width').value = r.wpRollWidth||0.53;
   document.getElementById('r-wp-repeat').value = r.wpRepeatMm||0;
-  var rollsOn = wpWallLining || wpWallFinish || wpCeilLining || wpCeilFinish;
-  var isTopPaperEdit = wpWallFinish || wpCeilFinish;
-  ['wp-rolls-header-row','wp-roll-len-row','wp-roll-width-row','wp-spare-row'].forEach(function(id){
-    var el = document.getElementById(id); if (el) el.style.display = rollsOn ? 'flex' : 'none';
-  });
-  document.getElementById('wp-match-row').style.display = isTopPaperEdit ? 'flex' : 'none';
-  document.getElementById('wp-repeat-row').style.display = (isTopPaperEdit && wpMatch!=='none') ? 'flex' : 'none';
+  updateWPRollSpecVisibility();
   document.getElementById('del-room-btn').style.display='block';
   ['wc','cc','xc'].forEach(function(k){setSeg(k,+r[k]);});
   // Staircase/HSL: restore the geometry inputs from hslInputs (saveRoom()'s
@@ -3473,6 +3617,7 @@ function saveRoom() {
     featureWallWidth:+document.getElementById('r-featurewall-width').value||undefined,
     featureWallHeight:+document.getElementById('r-featurewall-height').value||undefined,
     featureWallArea:(+document.getElementById('r-featurewall-width').value||0)*(+document.getElementById('r-featurewall-height').value||0)||undefined,
+    featureWallMode:featureWallMode, fwWpLining:fwWpLining, fwWpFinish:fwWpFinish,
     l:+document.getElementById('r-l').value, w:+document.getElementById('r-w').value, h:+document.getElementById('r-h').value,
     wc:coats.wc, cc:coats.cc, xc:coats.xc,
     win:+document.getElementById('r-win').value, doors:+document.getElementById('r-doors').value, rads:+document.getElementById('r-rads').value,
@@ -3487,7 +3632,6 @@ function saveRoom() {
     prepPct:prepPct,
     prepCustom:+document.getElementById('r-prep-custom').value,
     makingGood:+document.getElementById('r-making-good').value,
-    fwa:0, fwt:'',
     emoji:roomIsStaircase?'🏠':(editId?(rooms.find(function(r){return r.id===editId;})||{}).emoji||roomEmoji(name):roomEmoji(name))
   };
   // Staircase/HSL: l/w/h are meaningless placeholders here (area comes from
@@ -4031,17 +4175,22 @@ async function renderSummary() {
     // Per-element costs with markup
     var r2=rpm(); var hpd=settings.hpd;
     var wc=+r.wc,cc=+r.cc,xc=+r.xc;
-    var wallCost  = wc>0  ? c.wallArea*wallMins(wc)*r2  : 0;
+    // Mirrors calcRoom()'s wallCost basis: a wallpapered feature wall is
+    // excluded from paint labour time, not just relabelled -- see
+    // fwWallpaper in calcRoom() for the source of truth this must stay
+    // in sync with.
+    var featureWallAreaDisp = Math.max(+r.featureWallArea || 0, 0);
+    var fwWallpaperDisp = (r.featureWallMode||'paint')==='wallpaper' && featureWallAreaDisp > 0;
+    var wallCost  = wc>0  ? (fwWallpaperDisp ? Math.max(c.wallArea-featureWallAreaDisp,0) : c.wallArea)*wallMins(wc)*r2  : 0;
     var ceilCost  = cc>0  ? c.ceilArea*ceilMins(cc)*r2 : 0;
     var perim=(+r.l + +r.w)*2;
     var woodCost  = xc>0  ? (perim*skirtMins(xc)+(+r.doors)*doorMins(xc))*r2 : 0;
     var winCost   = +r.win>0  ? +r.win*winMins()*r2  : 0;
     var radCost   = +r.rads>0 ? +r.rads*radMins()*r2 : 0;
-    var fwCost    = +r.fwa>0&&r.fwt ? +r.fwa*fwMins(r.fwt)*r2 : 0;
     var mk=1+mu;
     var id='room-bd-'+ri;
     var subRows='';
-    var woodTotal = (woodCost + winCost + radCost + fwCost) * mk;
+    var woodTotal = (woodCost + winCost + radCost) * mk;
     var prepUp2 = r.prepPct >= 0 ? r.prepPct : (+r.prepCustom||0);
     var prepLabel = prepUp2===10?'Minimal':prepUp2===25?'Standard Prep':prepUp2===40?'Heavy Prep':'Custom '+prepUp2+'%';
     if(prepUp2>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Prep ('+prepLabel+')</span><span class="breakdown-sub-value">'+fmt(c.total*mk - (c.total/(1+prepUp2/100))*mk)+'</span></div>';
@@ -4060,6 +4209,7 @@ async function renderSummary() {
     var wpcC = c.wpcCost;
     if(r.mistWall) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Mist coat (walls)</span><span class="breakdown-sub-value">'+fmt(mwC*mk)+'</span></div>';
     if(wpwC>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Wallpaper (walls)</span><span class="breakdown-sub-value">'+fmt(wpwC*mk)+'</span></div>';
+    if(c.featureWallWpCost>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Feature wall wallpaper</span><span class="breakdown-sub-value">'+fmt(c.featureWallWpCost*mk)+'</span></div>';
     if(cc>0)  subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ceiling</span><span class="breakdown-sub-value">'+fmt(dispCeilCost*mk)+'</span></div>';
     if(r.mistCeil) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Mist coat (ceiling)</span><span class="breakdown-sub-value">'+fmt(mcC*mk)+'</span></div>';
     if(wpcC>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Wallpaper (ceiling)</span><span class="breakdown-sub-value">'+fmt(wpcC*mk)+'</span></div>';
