@@ -392,8 +392,8 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
           </div>
         </div>
         <div class="field-row" id="wp-repeat-row" style="display:none">
-          <div class="field-label">Pattern repeat<small>mm — off the roll label</small></div>
-          <input type="number" class="field-input" id="r-wp-repeat" value="0" min="0" step="5" inputmode="numeric" oninput="previewRoom()">
+          <div class="field-label">Pattern repeat<small>cm — off the roll label</small></div>
+          <input type="number" class="field-input" id="r-wp-repeat" value="0" min="0" step="1" inputmode="numeric" oninput="previewRoom()">
         </div>
         <div class="toggle-row" id="wp-spare-row" style="display:none">
           <div class="toggle-label">Spare roll<small>order one extra, just in case</small></div>
@@ -3102,6 +3102,20 @@ function featureWallWallpaperRolls(r, type) {
   return calc ? calc.rolls : 0;
 }
 
+// Pattern repeat is entered in CM (that's what's printed on a UK wallpaper
+// label), but every roll calc below and r.wpRepeatMm on a saved room work in
+// MM -- this is the one conversion point so every live-preview/save call site
+// stays in sync. The input used to be mislabelled "mm", which silently made
+// the pattern-match allowance (and therefore drop length) 10x too small --
+// under-ordering rolls and under-charging labour. Existing saved rooms'
+// wpRepeatMm is left as-is (not auto-migrated): whether an old value was
+// genuinely typed in mm or was actually the cm number typed under the wrong
+// label can't be told apart after the fact, so re-check any job with a
+// pattern repeat set that was saved before this fix.
+function wpRepeatCmFromInput() {
+  return (+document.getElementById('r-wp-repeat').value || 0) * 10;
+}
+
 // Rolls-to-order calculator (and now labour too) -- ONE shared set of roll
 // length/width/match/repeat/spare-roll inputs serves walls, ceiling AND the
 // feature wall (usually the same paper spec even when surfaces differ on
@@ -3352,7 +3366,7 @@ function previewRoom() {
     wpRollLen:+document.getElementById('r-wp-roll-len').value||10.05,
     wpRollWidth:+document.getElementById('r-wp-roll-width').value||0.53,
     wpMatch:wpMatch,
-    wpRepeatMm:+document.getElementById('r-wp-repeat').value||0,
+    wpRepeatMm:wpRepeatCmFromInput(),
     wpSpareRoll:wpSpareRoll,
     prepPct:prepPct,
     prepCustom:+document.getElementById('r-prep-custom').value,
@@ -3387,7 +3401,7 @@ function previewRoom() {
   // active the figures are joined "Lining X · Finish Y" via joinWPParts().
   var rollLen = +document.getElementById('r-wp-roll-len').value||0;
   var rollWidth = +document.getElementById('r-wp-roll-width').value||0;
-  var repeatMm = +document.getElementById('r-wp-repeat').value||0;
+  var repeatMm = wpRepeatCmFromInput();
   var wallWidthLM = (L+W)*2;
   if (wpwOn) {
     var wpwRollResult = wpSurfaceResult(wpWallLining, wpWallFinish, false, false, function(t){
@@ -3545,7 +3559,12 @@ function editRoom(id) {
   document.getElementById('tog-wp-spare').classList.toggle('on', wpSpareRoll);
   document.getElementById('r-wp-roll-len').value = r.wpRollLen||10.05;
   document.getElementById('r-wp-roll-width').value = r.wpRollWidth||0.53;
-  document.getElementById('r-wp-repeat').value = r.wpRepeatMm||0;
+  // r.wpRepeatMm is stored in mm; the input is cm -- divide back down for
+  // display. Round-trips exactly for anything saved after this fix (display
+  // /10, then save *10 restores the same mm value if untouched). For rooms
+  // saved BEFORE this fix, this just shows whatever raw number was stored
+  // divided by 10 -- it does not attempt to guess or correct old data.
+  document.getElementById('r-wp-repeat').value = r.wpRepeatMm ? r.wpRepeatMm/10 : 0;
   updateWPRollSpecVisibility();
   document.getElementById('del-room-btn').style.display='block';
   ['wc','cc','xc'].forEach(function(k){setSeg(k,+r[k]);});
@@ -3627,7 +3646,7 @@ function saveRoom() {
     wpRollLen:+document.getElementById('r-wp-roll-len').value||10.05,
     wpRollWidth:+document.getElementById('r-wp-roll-width').value||0.53,
     wpMatch:wpMatch,
-    wpRepeatMm:+document.getElementById('r-wp-repeat').value||0,
+    wpRepeatMm:wpRepeatCmFromInput(),
     wpSpareRoll:wpSpareRoll,
     prepPct:prepPct,
     prepCustom:+document.getElementById('r-prep-custom').value,
@@ -3877,7 +3896,7 @@ function calcHSL() {
   // with the ceiling multiplier for wallpapered hall/landing ceilings.
   var hRollLen = +document.getElementById('r-wp-roll-len').value||0;
   var hRollWidth = +document.getElementById('r-wp-roll-width').value||0;
-  var hRepeatMm = +document.getElementById('r-wp-repeat').value||0;
+  var hRepeatMm = wpRepeatCmFromInput();
   var s1v = hslFloors>=2, s2v = hslFloors>=3;
   var wpwHSLResult = wpSurfaceResult(wpWallLining, wpWallFinish, false, true, function(t){
     return computeHSLWallpaperRolls(false, t, hRollLen, hRollWidth, hRepeatMm, wpSpareRoll,
@@ -4081,7 +4100,7 @@ function computeHSLOverrides() {
   // own loop, so an inactive type's field is left undefined.
   var wpRollLen = +document.getElementById('r-wp-roll-len').value||10.05;
   var wpRollWidth = +document.getElementById('r-wp-roll-width').value||0.53;
-  var wpRepeatMm = +document.getElementById('r-wp-repeat').value||0;
+  var wpRepeatMm = wpRepeatCmFromInput();
   var s1v2 = hslFloors>=2, s2v2 = hslFloors>=3;
   var wallRollsHSLResult = wpSurfaceResult(wpWallLining, wpWallFinish, false, true, function(t){
     return computeHSLWallpaperRolls(false, t, wpRollLen, wpRollWidth, wpRepeatMm, wpSpareRoll,
