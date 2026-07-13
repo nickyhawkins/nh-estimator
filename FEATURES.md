@@ -269,6 +269,28 @@ Beyond defining `{number, label}` colours, the Colours tab can become the job's 
 - The colour NUMBER still drives the materials calculation; names/codes/finishes are reference only.
 - Build after core materials + per-room overrides are solid.
 
+## FEATURE: Rename jobs on the jobs list
+
+Small, self-contained. Jobs get named fast on site (client/address); allow editing the name from the jobs list afterwards to tidy or correct. Natural follow-on to Multiple saved jobs (depends on it).
+
+## FEATURE: Lining + finish paper on the same job (wallpaper refinement)
+
+Gap in the current wallpaper build: labour charges £30/roll lining or £40/roll finish, but one job often has BOTH (line out then finish, or lining some walls + finish elsewhere). Paper type currently seems to be one choice per room/job — needs to allow both in one job. The calc already knows both rates; the change is letting paper type be per-wall/per-area rather than a single setting, and summing labour across the mix. Refinement to the wallpaper feature, not a new system.
+
+## FEATURE: Material tracking (actuals vs estimate — job management)
+
+DIFFERENT from everything else so far — everything to date is ESTIMATING (what a job should cost). This is ACTUALS: track what was really used/purchased against a job so nothing's missed at invoicing (forgotten materials = lost money). Turns the app from a quoting tool into a light job-management tool.
+- A place per job to log materials purchased/used, reconciled against the estimate (estimated vs actual, what's outstanding).
+- Bigger conceptual piece than a calculation tweak; depends on Multiple saved jobs (tracking is per-job).
+- Scope carefully when reached — could be as simple as a checklist/log per job, or as involved as full reconciliation. Start simple.
+
+## FEATURE: Backup system (CSV export / import)
+
+The app now holds real job data on Render Postgres — a DB problem would lose everything with no backup. Add export-all-to-CSV and import-from-CSV as a safety net and for portability.
+- Synergy: the same export/import can underpin backup AND moving/archiving jobs between devices.
+- Overlaps with the Multiple saved jobs data model — build after that's settled, since the jobs structure defines what's being exported.
+- Reuse the CSV tooling patterns already in `scripts/` where sensible.
+
 ## Quote description templates
 
 Six templates are stored as iOS/Mac text replacements (`;;paint`, `;;paper`, etc.) and pasted into the Xero line item description fields directly (item selector overwrites price, so paste into description instead). Templates: Painting only, Wallpaper only, Combined, Exterior Render, Exterior Woodwork, Kitchen Cabinet Spraying. Follow-on rooms use "As above".
