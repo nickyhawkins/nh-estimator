@@ -536,6 +536,17 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Resin repair<small>mins per patch</small></div><input type="number" class="field-input" id="s-rresin" value="22" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Reglaze<small>mins per pane</small></div><input type="number" class="field-input" id="s-rreglaze" value="15" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
     </div>
+    <div class="card">
+      <div class="card-header">Exterior Paint Coverage &amp; Areas</div>
+      <div class="settings-note">Exterior items only carry counts/lengths, so paint litres are estimated from an assumed paintable area per unit. Start with these defaults and calibrate against real jobs — same idea as the sundries %.</div>
+      <div class="field-row"><div class="field-label">Masonry coverage<small>m² per litre, per coat</small></div><input type="number" class="field-input" id="s-extmasonrycov" value="6" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Ext woodwork coverage<small>m² per litre, per coat</small></div><input type="number" class="field-input" id="s-extwoodcov" value="12" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Area per window<small>m² paintable, per casement</small></div><input type="number" class="field-input" id="s-extareawindow" value="1.5" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Area per sash window<small>m² paintable, per sash</small></div><input type="number" class="field-input" id="s-extareasash" value="2.5" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Area per door<small>m² paintable, incl frame</small></div><input type="number" class="field-input" id="s-extareadoor" value="2" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Area per garage door<small>m² paintable</small></div><input type="number" class="field-input" id="s-extareagarage" value="6" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Fascia developed width<small>m, to convert linear m → m²</small></div><input type="number" class="field-input" id="s-extfasciawidth" value="0.35" min="0" step="0.05" inputmode="decimal" onchange="saveSettings()"></div>
+    </div>
     <button class="btn btn-danger" onclick="clearEverything()">Clear Everything</button>
     <div class="card">
       <div class="card-header">Xero Integration</div>
@@ -560,6 +571,12 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">— Colour band<small>&nbsp;</small></div><select class="field-input" id="mat-primer-band" onchange="onBandSelect('primer')" disabled></select></div>
       <div class="field-row"><div class="field-label">Mist coat<small>per litre</small></div><select class="field-input" id="mat-mist" onchange="onMaterialSelect('mist')"></select></div>
       <div class="field-row"><div class="field-label">— Colour band<small>&nbsp;</small></div><select class="field-input" id="mat-mist-band" onchange="onBandSelect('mist')" disabled></select></div>
+      <div class="field-row" style="border-top:2px solid var(--border)"><div class="field-label">Masonry / render<small>exterior · per tin</small></div><select class="field-input" id="mat-masonry" onchange="onMaterialSelect('masonry')"></select></div>
+      <div class="field-row"><div class="field-label">— Colour band<small>&nbsp;</small></div><select class="field-input" id="mat-masonry-band" onchange="onBandSelect('masonry')" disabled></select></div>
+      <div class="field-row"><div class="field-label">Ext woodwork topcoat<small>per litre</small></div><select class="field-input" id="mat-extTopcoat" onchange="onMaterialSelect('extTopcoat')"></select></div>
+      <div class="field-row"><div class="field-label">— Colour band<small>&nbsp;</small></div><select class="field-input" id="mat-extTopcoat-band" onchange="onBandSelect('extTopcoat')" disabled></select></div>
+      <div class="field-row"><div class="field-label">Ext woodwork primer<small>per litre · leave as — none — to skip</small></div><select class="field-input" id="mat-extPrimer" onchange="onMaterialSelect('extPrimer')"></select></div>
+      <div class="field-row"><div class="field-label">— Colour band<small>&nbsp;</small></div><select class="field-input" id="mat-extPrimer-band" onchange="onBandSelect('extPrimer')" disabled></select></div>
       <div class="settings-note" id="materials-note">Connect Xero above, then tap Refresh to choose a default product range and colour band for each role (e.g. "Tikkurila Optiva 5" / "White"). These are job-wide defaults — override per room on the room screen if a room needs a different product or colour. Until a range is picked, the Summary shows an estimated litres/tins figure instead of a real price.</div>
     </div>
   </div>
@@ -695,6 +712,13 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       </div>
       </div>
     </div>
+    <div class="card">
+      <div class="card-header sec-toggle" onclick="toggleFormSection('ext-colours')"><span>Paint Colours</span><span class="sec-chev open" id="sec-chev-ext-colours">›</span></div>
+      <div class="card-body open" id="sec-ext-colours">
+      <div class="field-row"><div class="field-label">Masonry colour<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-ext-masonry" style="flex-wrap:wrap"></div></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Woodwork colour<small>windows, doors, fascia, sash</small></div><div class="seg" id="seg-colour-ext-woodwork" style="flex-wrap:wrap"></div></div>
+      </div>
+    </div>
     <div class="card" id="ext-preview-card" style="display:none">
       <div class="card-header">Preview</div>
       <div class="breakdown-row"><span class="breakdown-label">Estimated cost</span><span class="breakdown-value" style="color:var(--accent)" id="ext-prev-cost">—</span></div>
@@ -793,6 +817,13 @@ function saveSettings() {
     rSashMultiplierPct: +document.getElementById('s-rsashmultiplier').value,
     rResin:       +document.getElementById('s-rresin').value,
     rReglaze:     +document.getElementById('s-rreglaze').value,
+    extMasonryCov:  +document.getElementById('s-extmasonrycov').value,
+    extWoodCov:     +document.getElementById('s-extwoodcov').value,
+    extAreaWindow:  +document.getElementById('s-extareawindow').value,
+    extAreaSash:    +document.getElementById('s-extareasash').value,
+    extAreaDoor:    +document.getElementById('s-extareadoor').value,
+    extAreaGarage:  +document.getElementById('s-extareagarage').value,
+    extFasciaWidth: +document.getElementById('s-extfasciawidth').value,
     materials:    settings.materials || {},
     // No Settings-screen field for these two -- they're set from the
     // Summary tab's Payment card (setPaymentType/setPaymentWeeks), so carry
@@ -895,7 +926,7 @@ async function refreshXeroItems() {
 
 function populateMaterialSelects() {
   var ranges = Object.keys(materialGroupsCache).sort();
-  ['wall', 'ceiling', 'topcoat', 'primer', 'mist'].forEach(function(key) {
+  ['wall', 'ceiling', 'topcoat', 'primer', 'mist', 'masonry', 'extTopcoat', 'extPrimer'].forEach(function(key) {
     var sel = document.getElementById('mat-' + key);
     if (!sel) return;
     var current = (settings.materials || {})[key];
@@ -1170,6 +1201,13 @@ async function initApp() {
       rExtGarage: rawSettings.rExtGarage||150,
       rSashMultiplierPct: rawSettings.rSashMultiplierPct!=null ? rawSettings.rSashMultiplierPct : 20,
       rResin: rawSettings.rResin||22, rReglaze: rawSettings.rReglaze||15,
+      extMasonryCov: rawSettings.extMasonryCov!=null ? rawSettings.extMasonryCov : 6,
+      extWoodCov: rawSettings.extWoodCov!=null ? rawSettings.extWoodCov : 12,
+      extAreaWindow: rawSettings.extAreaWindow!=null ? rawSettings.extAreaWindow : 1.5,
+      extAreaSash: rawSettings.extAreaSash!=null ? rawSettings.extAreaSash : 2.5,
+      extAreaDoor: rawSettings.extAreaDoor!=null ? rawSettings.extAreaDoor : 2,
+      extAreaGarage: rawSettings.extAreaGarage!=null ? rawSettings.extAreaGarage : 6,
+      extFasciaWidth: rawSettings.extFasciaWidth!=null ? rawSettings.extFasciaWidth : 0.35,
       materials: rawSettings.materials||{}
     };
   }
@@ -1315,6 +1353,19 @@ async function initApp() {
       settings.rExtDoor = s.rExtDoor;
       settings.rExtGarage = s.rExtGarage; settings.rSashMultiplierPct = s.rSashMultiplierPct;
       settings.rResin = s.rResin; settings.rReglaze = s.rReglaze;
+    }
+    // Exterior paint estimation params (coverage + assumed areas) -- separate
+    // guard from rExt* above since older server rows predate these; fall back
+    // to the same defaults loadSettings() uses when a field is absent.
+    if (s) {
+      settings.extMasonryCov = s.extMasonryCov!=null ? s.extMasonryCov : (settings.extMasonryCov!=null ? settings.extMasonryCov : 6);
+      settings.extWoodCov = s.extWoodCov!=null ? s.extWoodCov : (settings.extWoodCov!=null ? settings.extWoodCov : 12);
+      settings.extAreaWindow = s.extAreaWindow!=null ? s.extAreaWindow : (settings.extAreaWindow!=null ? settings.extAreaWindow : 1.5);
+      settings.extAreaSash = s.extAreaSash!=null ? s.extAreaSash : (settings.extAreaSash!=null ? settings.extAreaSash : 2.5);
+      settings.extAreaDoor = s.extAreaDoor!=null ? s.extAreaDoor : (settings.extAreaDoor!=null ? settings.extAreaDoor : 2);
+      settings.extAreaGarage = s.extAreaGarage!=null ? s.extAreaGarage : (settings.extAreaGarage!=null ? settings.extAreaGarage : 6);
+      settings.extFasciaWidth = s.extFasciaWidth!=null ? s.extFasciaWidth : (settings.extFasciaWidth!=null ? settings.extFasciaWidth : 0.35);
+      loadSettings();
     }
     if (s && s.materials) {
       settings.materials = s.materials;
@@ -1708,6 +1759,13 @@ function loadSettings() {
   document.getElementById('s-rsashmultiplier').value = settings.rSashMultiplierPct!=null ? settings.rSashMultiplierPct : 20;
   document.getElementById('s-rresin').value      = settings.rResin||22;
   document.getElementById('s-rreglaze').value    = settings.rReglaze||15;
+  document.getElementById('s-extmasonrycov').value  = settings.extMasonryCov!=null ? settings.extMasonryCov : 6;
+  document.getElementById('s-extwoodcov').value     = settings.extWoodCov!=null ? settings.extWoodCov : 12;
+  document.getElementById('s-extareawindow').value  = settings.extAreaWindow!=null ? settings.extAreaWindow : 1.5;
+  document.getElementById('s-extareasash').value    = settings.extAreaSash!=null ? settings.extAreaSash : 2.5;
+  document.getElementById('s-extareadoor').value    = settings.extAreaDoor!=null ? settings.extAreaDoor : 2;
+  document.getElementById('s-extareagarage').value  = settings.extAreaGarage!=null ? settings.extAreaGarage : 6;
+  document.getElementById('s-extfasciawidth').value = settings.extFasciaWidth!=null ? settings.extFasciaWidth : 0.35;
   renderMaterialsSettings();
 }
 
@@ -1960,13 +2018,22 @@ function tin(l) {
 // prep for whichever colour goes on the walls, and is normally one generic
 // product regardless of the final decorative colour, so a separate colour
 // number for it would be needless UI for a distinction that rarely matters.
-var ROLE_COLOUR_FIELD = { wall: 'colourNumber', ceiling: 'ceilingColourNumber', topcoat: 'woodworkColourNumber', primer: 'woodworkColourNumber', mist: 'colourNumber', featurewall: 'featureWallColourNumber' };
+// Exterior roles (masonry / extTopcoat / extPrimer) reuse this exact engine
+// but source from extItems, not rooms -- masonry has its own colour number,
+// while extTopcoat + extPrimer share one "exterior woodwork" colour (same
+// logic as interior topcoat/primer sharing the woodwork colour). Exterior
+// items have no per-item range/band overrides, so they always fall to the
+// Settings default mapping.
+var ROLE_COLOUR_FIELD = { wall: 'colourNumber', ceiling: 'ceilingColourNumber', topcoat: 'woodworkColourNumber', primer: 'woodworkColourNumber', mist: 'colourNumber', featurewall: 'featureWallColourNumber', masonry: 'masonryColourNumber', extTopcoat: 'extWoodworkColourNumber', extPrimer: 'extWoodworkColourNumber' };
+// Roles charged by whole tin (tin-optimised) rather than per litre. Masonry
+// mirrors interior walls -- bought and charged in whole tins.
+var TIN_ROLES = { wall: true, masonry: true };
 
-function computeRoleGroups(role, litresPerRoom, skipRoom) {
+function computeRoleGroups(role, litresPerRoom, skipRoom, items) {
   var defaultMapping = (settings.materials || {})[role] || null;
   var colourField = ROLE_COLOUR_FIELD[role] || 'colourNumber';
   var buckets = {};
-  rooms.forEach(function(r) {
+  (items || rooms).forEach(function(r) {
     if (skipRoom && skipRoom(r)) return;
     var overrideRange = r[role + 'RangeOverride'];
     var mapping = overrideRange
@@ -2112,15 +2179,15 @@ function materialRow(label, litres, mapping, isWall) {
 // is already visible in each row's own detail line, so the label itself
 // only needs to disambiguate by colour). Shared by all four roles now that
 // each can be overridden per room, not just wall.
-function buildRoleRows(label, role, litresPerRoom, skipRoom) {
+function buildRoleRows(label, role, litresPerRoom, skipRoom, items) {
   var colourLabels = {};
   colours.forEach(function(c) { colourLabels[c.number] = c.label; });
-  var groups = computeRoleGroups(role, litresPerRoom, skipRoom);
+  var groups = computeRoleGroups(role, litresPerRoom, skipRoom, items);
   return groups.map(function(g) {
     var suffix = groups.length > 1
       ? ' — Colour ' + g.colourNumber + (colourLabels[g.colourNumber] ? ' (' + colourLabels[g.colourNumber] + ')' : '')
       : '';
-    var row = materialRow(label + suffix, g.litres, g.mapping, role === 'wall');
+    var row = materialRow(label + suffix, g.litres, g.mapping, !!TIN_ROLES[role]);
     // Additive fields, only consumed by the Colours tab's paint-quantity
     // roll-up (renderColours) -- existing consumers (Summary, Xero export)
     // only ever read .html/.cost/.lineItems, so this is safe to attach.
@@ -2149,9 +2216,56 @@ function computeMaterials() {
   // featureWallColourNumber), never pooled with the room's main wall colour.
   var featureWallRows = buildRoleRows('Feature Wall', 'featurewall', function(r) { return calcRoom(r).featureWallL; }, function(r) { return calcRoom(r).featureWallL <= 0; });
 
-  var allRows = wallRows.concat(ceilingRows, topcoatRows, primerRows, mistRows, featureWallRows);
+  // ── Exterior roles: same engine, sourced from extItems ──────────────────
+  // Masonry (tin-based) has its own colour; exterior woodwork topcoat + primer
+  // share the "exterior woodwork" colour. Litres come from assumed-area
+  // Settings (see extMasonryLitres / extWoodworkLitres) since exterior items
+  // only carry counts/lengths, not measured m². Primer = topcoat × 0.8, the
+  // same rule as interior; skip an item entirely when it has no exterior
+  // woodwork surfaces (matches primerNone's "no row at all").
+  var masonryRows   = buildRoleRows('Masonry / Render', 'masonry', function(it) { return extMasonryLitres(it); }, function(it) { return extMasonryLitres(it) <= 0; }, extItems);
+  var extTopcoatRows= buildRoleRows('Exterior Woodwork', 'extTopcoat', function(it) { return extWoodworkLitres(it); }, function(it) { return extWoodworkLitres(it) <= 0; }, extItems);
+  var extPrimerRows = buildRoleRows('Exterior Primer', 'extPrimer', function(it) { return extWoodworkLitres(it) * 0.8; }, function(it) { return extWoodworkLitres(it) <= 0; }, extItems);
+
+  var allRows = wallRows.concat(ceilingRows, topcoatRows, primerRows, mistRows, featureWallRows, masonryRows, extTopcoatRows, extPrimerRows);
   var total = allRows.reduce(function(sum, r) { return sum + r.cost; }, 0);
-  return { wallRows: wallRows, ceilingRows: ceilingRows, topcoatRows: topcoatRows, primerRows: primerRows, mistRows: mistRows, featureWallRows: featureWallRows, total: total };
+  return { wallRows: wallRows, ceilingRows: ceilingRows, topcoatRows: topcoatRows, primerRows: primerRows, mistRows: mistRows, featureWallRows: featureWallRows, masonryRows: masonryRows, extTopcoatRows: extTopcoatRows, extPrimerRows: extPrimerRows, total: total };
+}
+
+// Exterior paint-litre estimation. Exterior items only capture counts and
+// lengths, so litres are derived from an assumed paintable area per unit
+// (Settings, editable) run through the same area × coats ÷ coverage formula
+// interior walls use. Masonry has a real m² area already, so it's the most
+// direct; everything else leans on the assumed-area figures.
+function extMasonryLitres(item) {
+  var area = +item.masonry || 0;
+  if (area <= 0) return 0;
+  var coats = (item.coats || {})['ex-masonry'] || 2;
+  var cov = settings.extMasonryCov || 6;
+  return area * coats / cov;
+}
+// All exterior woodwork surfaces (windows, sash, doors, garage, fascia) pooled
+// into one topcoat quantity, since they share one exterior-woodwork colour and
+// product. Each surface's own coat count applies before summing; fascia's
+// linear metres convert to m² via the developed-width setting.
+function extWoodworkLitres(item) {
+  var mc = item.coats || {};
+  var windows = item.windows || legacyWindowList(item.wins);
+  var sashWindows = item.sashWindows || legacyWindowList(item.sash);
+  var aWin  = settings.extAreaWindow!=null ? settings.extAreaWindow : 1.5;
+  var aSash = settings.extAreaSash!=null ? settings.extAreaSash : 2.5;
+  var aDoor = settings.extAreaDoor!=null ? settings.extAreaDoor : 2;
+  var aGar  = settings.extAreaGarage!=null ? settings.extAreaGarage : 6;
+  var fasciaW = settings.extFasciaWidth!=null ? settings.extFasciaWidth : 0.35;
+  var areaCoats = 0;
+  areaCoats += windows.length      * aWin  * (mc['ex-wins']  || 2);
+  areaCoats += sashWindows.length   * aSash * 2;                       // sash prime & paint = fixed 2 passes
+  areaCoats += (+item.doors  || 0)  * aDoor * (mc['ex-doors'] || 2);
+  areaCoats += (+item.garage || 0)  * aGar  * (mc['ex-garage']|| 2);
+  areaCoats += (+item.fascia || 0)  * fasciaW * (mc['ex-fascia'] || 2);
+  if (areaCoats <= 0) return 0;
+  var cov = settings.extWoodCov || 12;
+  return areaCoats / cov;
 }
 
 // ── Materials snapshot (job-scoped, editable, same lifecycle as rooms/
@@ -2179,7 +2293,7 @@ function saveMaterialsSnapshot() {
 // deletion, and custom line -- a full overwrite, not a merge, by design.
 function recalculateMaterialsSnapshot() {
   var mats = computeMaterials();
-  var allRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows, mats.featureWallRows);
+  var allRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows, mats.featureWallRows, mats.masonryRows, mats.extTopcoatRows, mats.extPrimerRows);
   materialsSnapshot = allRows.reduce(function(acc, row) {
     return acc.concat(row.lineItems.map(function(li) {
       return { id: uid(), itemCode: li.itemCode, description: li.description, quantity: li.quantity, unitAmount: li.unitAmount, custom: false, isPerLitre: !!li.isPerLitre };
@@ -2359,21 +2473,26 @@ function renderColours() {
   var cards = document.getElementById('colours-cards');
   empty.style.display = 'none'; list.style.display = 'block';
   var mats = computeMaterials();
-  var allMatRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows, mats.featureWallRows);
+  var allMatRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows, mats.featureWallRows, mats.masonryRows, mats.extTopcoatRows, mats.extPrimerRows);
   cards.innerHTML = colours.slice().sort(function(a, b){ return a.number - b.number; }).map(function(c) {
     var bdId = 'colour-bd-' + c.number;
     var wallRooms = rooms.filter(function(r){ return (r.colourNumber||1)===c.number && +r.wc>0; }).map(function(r){ return r.name; });
     var ceilRooms = rooms.filter(function(r){ return (r.ceilingColourNumber||1)===c.number && +r.cc>0; }).map(function(r){ return r.name; });
     var woodRooms = rooms.filter(function(r){ return (r.woodworkColourNumber||1)===c.number && +r.xc>0; }).map(function(r){ return r.name; });
     var featureWallRooms = rooms.filter(function(r){ return (r.featureWallColourNumber||1)===c.number && +r.featureWallArea>0 && (r.featureWallMode||'paint')==='paint'; }).map(function(r){ return r.name; });
+    // Exterior items assigned to this colour (masonry vs exterior woodwork).
+    var masonryItems = extItems.filter(function(it){ return (it.masonryColourNumber||1)===c.number && extMasonryLitres(it)>0; }).map(function(it){ return it.label; });
+    var extWoodItems = extItems.filter(function(it){ return (it.extWoodworkColourNumber||1)===c.number && extWoodworkLitres(it)>0; }).map(function(it){ return it.label; });
     var matRows = allMatRows.filter(function(r){ return r.colourNumber===c.number; });
-    var hasBreakdown = wallRooms.length || ceilRooms.length || woodRooms.length || featureWallRooms.length || matRows.length;
+    var hasBreakdown = wallRooms.length || ceilRooms.length || woodRooms.length || featureWallRooms.length || masonryItems.length || extWoodItems.length || matRows.length;
     var surfaces = surfaceSummary(wallRooms.length>0, ceilRooms.length>0, woodRooms.length>0, featureWallRooms.length>0);
     var sub = '';
     if (wallRooms.length) sub += '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Walls</span><span class="breakdown-sub-value">'+escapeHtml(wallRooms.join(', '))+'</span></div>';
     if (ceilRooms.length) sub += '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ceiling</span><span class="breakdown-sub-value">'+escapeHtml(ceilRooms.join(', '))+'</span></div>';
     if (woodRooms.length) sub += '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Woodwork</span><span class="breakdown-sub-value">'+escapeHtml(woodRooms.join(', '))+'</span></div>';
     if (featureWallRooms.length) sub += '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Feature wall</span><span class="breakdown-sub-value">'+escapeHtml(featureWallRooms.join(', '))+'</span></div>';
+    if (masonryItems.length) sub += '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Masonry (ext)</span><span class="breakdown-sub-value">'+escapeHtml(masonryItems.join(', '))+'</span></div>';
+    if (extWoodItems.length) sub += '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Woodwork (ext)</span><span class="breakdown-sub-value">'+escapeHtml(extWoodItems.join(', '))+'</span></div>';
     matRows.forEach(function(r){ sub += r.html; });
     var brandChip = c.brand ? '<div class="chip" style="white-space:nowrap">'+escapeHtml(c.brand)+(c.code ? ' · No. '+escapeHtml(c.code) : '')+'</div>' : '';
     return '<div class="field-row">'+
@@ -2586,6 +2705,41 @@ function addRoomColourInline(role) {
   // The new colour is now available to the other pickers too, even
   // though only this one's selection actually changed.
   ['wall','ceiling','woodwork','featurewall'].forEach(populateRoomColourChips);
+}
+
+// ── Exterior item colour chips ──────────────────────────────────────────────
+// Same chip UI/lifecycle as roomColourNumbers, but for exterior items: a
+// masonry colour (drives the masonry role) and one exterior-woodwork colour
+// shared across windows/doors/fascia/sash (drives extTopcoat + extPrimer).
+// DOM ids use 'ext-masonry'/'ext-woodwork'; the saved fields are
+// masonryColourNumber / extWoodworkColourNumber (see ROLE_COLOUR_FIELD).
+var extColourNumbers = { 'ext-masonry': 1, 'ext-woodwork': 1 };
+
+function populateExtColourChips(role) {
+  var seg = document.getElementById('seg-colour-'+role);
+  if (!seg) return;
+  ensureDefaultColour();
+  var list = colours.slice().sort(function(a,b){ return a.number - b.number; });
+  var html = list.map(function(c) {
+    var label = c.label ? c.label : ('Colour '+c.number);
+    return '<button type="button" class="seg-btn'+(c.number===extColourNumbers[role]?' active':'')+'" onclick="setExtColour(\''+role+'\','+c.number+')">'+escapeHtml(label)+'</button>';
+  }).join('');
+  html += '<button type="button" class="seg-btn" onclick="addExtColourInline(\''+role+'\')">+</button>';
+  seg.innerHTML = html;
+}
+
+function setExtColour(role, number) {
+  extColourNumbers[role] = number;
+  populateExtColourChips(role);
+}
+
+function addExtColourInline(role) {
+  ensureDefaultColour();
+  var nextNumber = Math.max.apply(null, colours.map(function(c){ return c.number; })) + 1;
+  colours.push({ number: nextNumber, label: '' });
+  saveColours();
+  extColourNumbers[role] = nextNumber;
+  ['ext-masonry','ext-woodwork'].forEach(populateExtColourChips);
 }
 
 // ── Room product overrides (room edit screen) ───────────────────────────────
@@ -2817,6 +2971,9 @@ function resetExtForm() {
   editExtId = null;
   exPrepPct = 0;
   extItemCoats = {'ex-masonry':2,'ex-fascia':2,'ex-wins':2,'ex-doors':2,'ex-garage':2};
+  extColourNumbers = { 'ext-masonry': 1, 'ext-woodwork': 1 };
+  populateExtColourChips('ext-masonry');
+  populateExtColourChips('ext-woodwork');
   extFormWindows = [];
   extFormSashWindows = [];
   renderExtWindowList('windows');
@@ -2866,6 +3023,8 @@ function getExtFormData() {
     resin:   +document.getElementById('ex-resin').value||0,
     reglaze: +document.getElementById('ex-reglaze').value||0,
     coats:   Object.assign({}, extItemCoats),
+    masonryColourNumber: extColourNumbers['ext-masonry'],
+    extWoodworkColourNumber: extColourNumbers['ext-woodwork'],
     prepPct: exPrepPct,
     prepCustom: +document.getElementById('ex-prep-custom').value||0,
     makingGood: +document.getElementById('ex-making-good').value||0
@@ -2886,6 +3045,9 @@ function editExtItem(id) {
   editExtId = id;
   exPrepPct = item.prepPct!=null?item.prepPct:0;
   extItemCoats = Object.assign({'ex-masonry':2,'ex-fascia':2,'ex-wins':2,'ex-doors':2,'ex-garage':2}, item.coats||{});
+  extColourNumbers = { 'ext-masonry': item.masonryColourNumber||1, 'ext-woodwork': item.extWoodworkColourNumber||1 };
+  populateExtColourChips('ext-masonry');
+  populateExtColourChips('ext-woodwork');
   document.getElementById('extform-title').textContent = 'Edit Exterior';
   document.getElementById('ex-label').value = item.label||'';
   document.getElementById('ex-masonry').value = item.masonry||0;
@@ -4303,7 +4465,7 @@ async function renderSummary() {
     recalculateMaterialsSnapshot();
   }
   var materialsTotal = materialsSnapshotTotal();
-  var allMatRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows, mats.featureWallRows);
+  var allMatRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows, mats.featureWallRows, mats.masonryRows, mats.extTopcoatRows, mats.extPrimerRows);
   // Unmapped roles (no Xero product picked) have no real quantity/price to
   // make editable -- they stay exactly as before, a read-only litres/tin-
   // guess estimate contributing nothing to the total. Only rows that
@@ -4427,7 +4589,7 @@ async function renderSummary() {
         '<span class="breakdown-label" style="font-weight:600;color:var(--text)">Materials subtotal</span>'+
         '<span class="breakdown-value" style="color:var(--accent)">'+fmt(materialsTotal)+'</span></div>':'')+
     '</div>'+
-    '<button onclick="recalculateMaterialsSnapshot();renderSummary();" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%;margin-top:8px">Recalculate from rooms</button>'+
+    '<button onclick="recalculateMaterialsSnapshot();renderSummary();" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%;margin-top:8px">Recalculate from rooms &amp; exterior</button>'+
     '<div class="card" style="margin-top:8px">'+
       '<div class="card-header">Add Material</div>'+
       '<div class="field-row"><div class="field-label">Product<small>optional</small></div><select class="field-input wide" id="add-mat-product" onchange="onAddMaterialProductSelect()"></select></div>'+

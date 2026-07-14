@@ -178,29 +178,31 @@ Decide scope deliberately — a staircase isn't a room (own geometry: slope calc
 ### Sequencing
 Fix Step 1 now (small). Step 2 is a proper alignment task — slot it in deliberately, not off the cuff, because the materials-integration part connects to everything recently built. Confirm the materials flow before/after so HSL paint is counted exactly once.
 
-## FEATURE: Exterior alignment with the interior system
+## FEATURE: Exterior alignment with the interior system ✅ MOSTLY SHIPPED
 
-The exterior section has fallen behind — it's still the basic original page: a long scroll of items, no materials, and some measurements that don't capture the real work. Bring it inline with everything done for interior. Build AFTER multiple saved jobs is complete and solid (don't run two big structural changes at once). Treat as a multi-part task, sequenced:
+The exterior section had fallen behind — a long scroll of items, no materials, and some measurements that didn't capture the real work. Brought inline with interior across four parts. Parts 1–3 and the materials side of part 4 are **shipped**; one piece of part 4 (itemising exterior *labour* on the Xero quote) remains — see below.
 
-### 1. Measurement tweaks first (small, contained, improves labour accuracy)
-- **Window panes:** add a panes-per-window input. A 1m² window with 2 panes is vastly less work than one with 16 panes (e.g. Georgian/sash) — labour time should scale on pane count, not just area/size. Current area-only measurement can't capture this.
-- Review other exterior items for the same kind of gap (where the current measurement doesn't reflect real work) and fix them in the same pass — list them all before starting so it's one pass, not a dribble. (Nicky to confirm the full list.)
+### 1. Measurement tweaks — SHIPPED
+- **Window panes:** panes-per-window input added (per-window `{panes}` records for both casement and sash). Labour scales on pane count via `extWindowMins()`, not just area — a 16-pane Georgian window now costs far more than a 2-pane one.
 
-### 2. UI compaction (usability)
-- Give exterior the same treatment as the compacted room tab: collapsible sections, essentials visible, less-used options tucked away. Replaces the current long-scroll list.
+### 2. UI compaction — SHIPPED
+- Exterior form now uses the same collapsible sections as the compacted room tab (`toggleFormSection()`/`resetExtFormSections()`), default open. Replaced the long-scroll list.
 
-### 3. Exterior materials — REUSE the existing engine (big win, small effort)
-- **All exterior products are already in Xero** with the same tidied range/band/size naming as interior. So this is NOT a new materials system — point the EXISTING materials engine (range→band→size grouping, tin optimisation, per-litre handling, per-room/item overrides) at exterior surfaces.
-- Map exterior surfaces to products: masonry/render paint, exterior wood paint (topcoat), exterior primers/undercoats, etc. — same default-mapping-in-Settings pattern as interior's five roles.
-- Feed exterior paint quantities through the same calculation → materials list, total, deposit, Xero line items.
+### 3. Exterior materials — SHIPPED (2026-07-14)
+- REUSED the existing engine, not a new system: `computeRoleGroups`/`buildRoleRows` generalised to take an optional source list (default `rooms`), with exterior roles sourcing from `extItems`.
+- **Three new roles:** `masonry` (tin-optimised, added to `TIN_ROLES` alongside `wall`), `extTopcoat` + `extPrimer` (per-litre; primer = topcoat × 0.8, same rule as interior). Default product ranges picked in Settings, same pattern as interior's five roles.
+- **Litre estimation from assumed areas:** exterior items only carry counts/lengths, so litres come from an assumed paintable area per unit (new, editable Settings — window/sash/door/garage areas + fascia developed-width + masonry & woodwork coverage), run through the same area × coats ÷ coverage formula. Fascia is treated as woodwork.
+- **Two exterior colour numbers per item:** `masonryColourNumber` + `extWoodworkColourNumber` (the latter shared across windows/doors/fascia/sash, mirroring interior's woodwork colour), picked via a "Paint Colours" chip section on the exterior form.
 
-### 4. Integration parity
-- Exterior materials must feed the same places interior does: the total, the deposit, the Colours tab (exterior colours), and the Xero quote — counted exactly ONCE (same discipline as HSL/mist coat).
+### 4. Integration parity — materials SHIPPED, labour outstanding
+- ✅ Exterior materials feed the total, the deposit, the Colours tab (grouped by masonry vs exterior-woodwork colour), and the Xero quote (as real item lines via the materials snapshot) — counted exactly ONCE.
+- ⬜ **Outstanding:** exterior *labour* still posts to Xero as a single lump `Exterior Works` line (`routes/xero.js`). Itemising it per surface (like interior rooms) is a separate, larger quote/UI change — not yet done.
 
 ### Notes / gotchas
-- Because the materials engine already exists and exterior products are already in Xero, part 3 is far smaller than it looks — mostly wiring exterior surfaces into the existing calculation, not building new logic.
-- Watch the recurring failure mode: exterior originally had the extCost/extItems migration mess — make sure new work reads from the current extItems in-memory pattern, no duplicate functions, no competing localStorage.
-- Sequence deliberately: measurements → UI → materials → integration, so materials build on a tidied foundation (same logic as interior materials coming after the room system was solid).
+- Part 3 was far smaller than it looked because the engine already existed — mostly wiring `extItems` in, no new calc logic. No duplicate functions or competing localStorage introduced (watched for the recurring extCost/extItems failure mode).
+- **Assumed-area defaults are guesses** (masonry 6 m²/L, woodwork 12 m²/L, window 1.5 m², sash 2.5 m², door 2 m², garage 6 m², fascia 0.35 m developed width) — calibrate against real jobs, same as the sundries %.
+- Exterior primer has no per-item "None" toggle: to skip it, leave the extPrimer product unmapped in Settings (shows as a £0 estimate row, same as any unmapped role).
+- Built/verified via the client-only static preview with a faked Xero cache — not yet proven against live Xero/Postgres. Watch the first real exterior quote.
 
 ## FEATURE: Wallpaper calculator (rolls to order — reuses stair geometry)
 
