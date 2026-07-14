@@ -10,7 +10,8 @@ Reconciled against the code on **2026-07-14**. Most of the original roadmap is n
 
 **Still to build:**
 - **Finish/sheen per colour** — the last unbuilt item on the Colours tab (see "Colours tab evolution").
-- **Material tracking (actuals vs estimate)** — not started, but **scoped: see `MATERIAL_TRACKING_SPEC.md`**. The only genuinely NEW territory left; everything else is estimating, this is job management.
+- **Material tracking (actuals vs estimate)** — not started, but **scoped: see `MATERIAL_TRACKING_SPEC.md`**. The only genuinely NEW territory left; everything else is estimating, this is job management. Load-bearing: materials are quoted as an estimate and **invoiced as used**, so actuals are the invoice's materials list.
+- **Navigation: hamburger for job admin** — decided alongside tracking; bottom bar keeps the measuring tabs, menu takes Jobs/Materials/Settings.
 - **Backup: CSV import + full-data export** — a per-job *summary* export exists on the Summary tab, but it is NOT a backup (see "Backup system").
 
 **Loose ends on otherwise-shipped features:**
@@ -363,6 +364,18 @@ Extends the feature-wall pricing (input dimensions → price the wall on its own
 
 > **Still outstanding:** the spec called for moving the feature wall into its own collapsible section (collapsed by default). The room form has collapsible sections and the exterior form uses them throughout, but there's no dedicated feature-wall section — cosmetic, not functional.
 
+## FEATURE: Navigation — hamburger for job admin ⬜ NOT STARTED
+
+Decided alongside material tracking (2026-07-14). Splits navigation **by activity** rather than spreading it across two bars with no clear logic.
+
+- **Bottom bar = measuring** — Rooms · Exterior · Colours · Summary. Stays exactly as-is: used on site, one-handed, every tab one thumb-tap. **Do not put a 5th item here** and do not replace this bar with a menu; a hamburger top-left is the worst thumb zone on a phone held on site, and hiding the measuring tabs behind a tap is a downgrade for the app's main job.
+- **Hamburger = job admin** — Jobs · Materials tracking · Settings. These are used at the merchant and at invoicing, not while measuring. This also absorbs the "My Job ›" and ⚙️ controls currently cluttering the top bar, which was the real mess — navigation is presently split across a bottom bar AND two unrelated top-bar controls.
+
+### Notes
+- **Mostly presentational.** `goTab()` already handles `jobs` and `settings` as targets, so the menu calls the same function — this is re-homing controls, not rewiring navigation. Check before assuming, but it should be small.
+- **The badge is load-bearing.** A hamburger's cost is hiding things. An outstanding count on the menu ("Materials · 4 to buy") is what stops tracking going out of sight and out of mind — build it with the menu, not as later polish.
+- Materials tracking does NOT depend on this landing first — it can be reached however, initially. They were decided together, not sequenced together.
+
 ## FEATURE: Material tracking (actuals vs estimate — job management) ⬜ NOT STARTED, SCOPED
 
 DIFFERENT from everything else so far — everything to date is ESTIMATING (what a job should cost). This is ACTUALS: track what was really used/purchased against a job so nothing's missed at invoicing (forgotten materials = lost money). Turns the app from a quoting tool into a light job-management tool.
@@ -370,10 +383,11 @@ DIFFERENT from everything else so far — everything to date is ESTIMATING (what
 > **NOTE: now specced in `MATERIAL_TRACKING_SPEC.md`, which SUPERSEDES the "scope carefully when reached" note that used to live here.** That doc is authoritative: the quantities-only/derived-money decision, the `material_actuals` data model, the three-phase build order, and the open question of where it lives.
 
 Headlines from the spec:
-- **Quantities only in, money derived out.** Tick lines off and adjust quantities; never type a price. Chargeable value comes from account-202 prices the app already holds.
-- **Actuals must NOT live on materials-snapshot lines.** `recalculateMaterialsSnapshot()` is a full overwrite that regenerates every line id, so actuals stored there would be silently destroyed by a normal mid-job Recalculate. They get their own `material_actuals` table, joined by `itemCode` (stable) rather than line id (not stable).
-- **Margin is Phase 3** — it's the one purpose needing COST prices (account 311 / `PurchaseDetails`), which the app currently filters out. Probably free from the existing `/Items` payload; unverified.
-- **Xero can't supply purchases.** No `accounting.transactions` scope, so logging stays manual.
+- **Materials are quoted as an ESTIMATE and invoiced as USED.** This is the billing model, and it makes tracking load-bearing rather than a safety net: actuals ARE the invoice's materials list, not just a note of what got forgotten. Labour is quoted and billed as quoted; only materials float.
+- **Quantities only in, money derived out — all of it.** Account codes confirmed: **202** sales, **311** paint cost, **314** sundries cost. All ride on the `/Items` payload the app already fetches, so billable value AND margin come from a typed quantity. No manual pricing anywhere.
+- **Actuals must NOT live on materials-snapshot lines.** `recalculateMaterialsSnapshot()` is a full overwrite that regenerates every line id, so actuals stored there would be silently destroyed by a normal mid-job Recalculate — destroying the invoice, under this billing model. They get their own `material_actuals` table, joined by `itemCode` (stable) rather than line id (not stable).
+- **The app has no invoice path** — it only creates Quotes. Billing actuals means either outputting a list to enter in Xero (recommended start) or building `POST /Invoices`.
+- **Xero can't supply purchases.** No `accounting.transactions` scope, so logging stays manual — fine, since only quantities are typed.
 - Depends on Multiple saved jobs (tracking is per-job) — now shipped, so this is unblocked.
 
 ## FEATURE: Backup system (CSV export / import) — ⚠️ PARTIAL, NOT YET A BACKUP
