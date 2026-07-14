@@ -6,12 +6,11 @@ This document captures planned features for the NH Estimator app, scoped and rea
 
 Reconciled against the code on **2026-07-14**. Most of the original roadmap is now built — keep this index honest as things ship, it had drifted badly once already.
 
-**Shipped:** Automatic materials from Xero Items · Materials editing + sundries · Realistic time estimate · Deposit & staged payments · Colour reference library · Multiple saved jobs · Rename jobs · HSL alignment (both steps) · Exterior alignment · Wallpaper calculator · Wallpaper per-roll labour · Lining + finish on one job · Feature wall paint/wallpaper toggle · **Material tracking Phases 0, 1 and 2(a)** (2026-07-14)
+**Shipped:** Automatic materials from Xero Items · Materials editing + sundries · Realistic time estimate · Deposit & staged payments · Colour reference library · Multiple saved jobs · Rename jobs · HSL alignment (both steps) · Exterior alignment · Wallpaper calculator · Wallpaper per-roll labour · Lining + finish on one job · Feature wall paint/wallpaper toggle · Colours tab evolution (paint/ordering view) · **Material tracking Phases 0, 1 and 2(a)** (2026-07-14)
 
 **⚠️ Deploy step outstanding:** material tracking added the `material_actuals` table, and **`db/setup.sql` is not run automatically** (README: `psql $DATABASE_URL -f db/setup.sql`). Until it's run against the live database, the Materials and Invoice screens 500 on a missing relation. Nothing else is affected. `IF NOT EXISTS` throughout, so re-running is safe.
 
 **Still to build:**
-- **Finish/sheen per colour** — the last unbuilt item on the Colours tab (see "Colours tab evolution").
 - ~~**Material tracking (actuals vs estimate)** — not started~~ **Phases 0, 1 and 2(a) SHIPPED 2026-07-14** (`MATERIAL_TRACKING_SPEC.md`): the three-bucket item picker, the actuals log, and the materials list for the invoice. What remains there:
   - **Phase 3 — margin / calibration.** Cheap (311/314 purchase prices already ride on the `/Items` call and are thrown away), but **needs history to be worth building** — run Phase 1 on a few real jobs first.
   - **Phase 2(b) — `POST /Invoices` from the app.** Optional; 2(a) outputs a list to enter in Xero by hand and proves the model first. Needs its scope verified — the app requests `accounting.invoices`, which is not a documented Xero scope name — and probably a re-auth.
@@ -319,7 +318,7 @@ The earlier "check whether per-roll matches Nicky's pricing" question is now ans
 
 > **Outstanding on this feature:** the staircase-% double-count check above was never explicitly confirmed. Worth a look at the first real staircase wallpaper job — does +25% stair labour overlap difficulty already priced into markup/prep?
 
-## FEATURE: Colours tab evolution (paint/ordering view) — MOSTLY SHIPPED
+## FEATURE: Colours tab evolution (paint/ordering view) — SHIPPED
 
 Beyond defining `{number, label}` colours, the Colours tab is now the job's paint/ordering screen, built on data the materials feature already calculates. Conceptual clarity: **Rooms = input the work, Summary = the price, Colours = what you actually buy and put where.**
 
@@ -329,9 +328,10 @@ Beyond defining `{number, label}` colours, the Colours tab is now the job's pain
 
 ### Secondary polish
 3. ✅ **Brand/code autofill** — SHIPPED, see "Colour reference library" above.
-4. ⬜ **Finish/sheen per colour** — **NOT BUILT. The last unbuilt item on this tab.** Same colour can go on in different finishes (matt walls, eggshell woodwork); note it against the colour for ordering accuracy.
-5. ✅ **Surfaces per colour** — `surfaceSummary()` renders a chip ("All surfaces", "Walls + Ceiling", …). Feature wall is treated as a carve-out of Walls, not a whole-room surface in its own right.
-6. ✅ **Colour schedule output** — a Colour Schedule on the Summary tab, sharing its builder with the CSV export so the two can't diverge.
+4. ✅ **Surfaces per colour** — `surfaceSummary()` renders a chip ("All surfaces", "Walls + Ceiling", …). Feature wall is treated as a carve-out of Walls, not a whole-room surface in its own right.
+5. ✅ **Colour schedule output** — a Colour Schedule on the Summary tab, sharing its builder with the CSV export so the two can't diverge.
+
+**Finish/sheen per colour — dropped 2026-07-14, not just deferred.** Was scoped to note matt/eggshell finish against a colour for ordering accuracy. Nicky: not needed. Removed from scope rather than left as a permanent "unbuilt" line — nothing in the app should imply it's still coming.
 
 ### Notes
 - Leans on existing calculations — mostly surfacing data, not new logic.
