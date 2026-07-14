@@ -331,8 +331,22 @@ router.post('/create-quote', async (req, res) => {
       });
     }
 
-    // Add exterior if present
-    if (exterior && exterior.cost > 0) {
+    // Add exterior — one line per exterior item (its own label + cost),
+    // mirroring how each room above is its own line, instead of a single
+    // lump "Exterior Works" total. Falls back to the lump line if an older
+    // client sends only exterior.cost with no itemised array.
+    if (exterior && exterior.items && exterior.items.length > 0) {
+      exterior.items.forEach(item => {
+        if (item.total > 0) {
+          lineItems.push({
+            Description: item.label || 'Exterior',
+            Quantity: 1,
+            UnitAmount: fmt(item.total * mu),
+            AccountCode: '201'
+          });
+        }
+      });
+    } else if (exterior && exterior.cost > 0) {
       lineItems.push({
         Description: 'Exterior Works',
         Quantity: 1,

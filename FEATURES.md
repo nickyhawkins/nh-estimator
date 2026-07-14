@@ -178,9 +178,9 @@ Decide scope deliberately — a staircase isn't a room (own geometry: slope calc
 ### Sequencing
 Fix Step 1 now (small). Step 2 is a proper alignment task — slot it in deliberately, not off the cuff, because the materials-integration part connects to everything recently built. Confirm the materials flow before/after so HSL paint is counted exactly once.
 
-## FEATURE: Exterior alignment with the interior system ✅ MOSTLY SHIPPED
+## FEATURE: Exterior alignment with the interior system ✅ SHIPPED
 
-The exterior section had fallen behind — a long scroll of items, no materials, and some measurements that didn't capture the real work. Brought inline with interior across four parts. Parts 1–3 and the materials side of part 4 are **shipped**; one piece of part 4 (itemising exterior *labour* on the Xero quote) remains — see below.
+The exterior section had fallen behind — a long scroll of items, no materials, and some measurements that didn't capture the real work. Brought inline with interior across four parts, all now **shipped**.
 
 ### 1. Measurement tweaks — SHIPPED
 - **Window panes:** panes-per-window input added (per-window `{panes}` records for both casement and sash). Labour scales on pane count via `extWindowMins()`, not just area — a 16-pane Georgian window now costs far more than a 2-pane one.
@@ -194,9 +194,9 @@ The exterior section had fallen behind — a long scroll of items, no materials,
 - **Litre estimation from assumed areas:** exterior items only carry counts/lengths, so litres come from an assumed paintable area per unit (new, editable Settings — window/sash/door/garage areas + fascia developed-width + masonry & woodwork coverage), run through the same area × coats ÷ coverage formula. Fascia is treated as woodwork.
 - **Two exterior colour numbers per item:** `masonryColourNumber` + `extWoodworkColourNumber` (the latter shared across windows/doors/fascia/sash, mirroring interior's woodwork colour), picked via a "Paint Colours" chip section on the exterior form.
 
-### 4. Integration parity — materials SHIPPED, labour outstanding
+### 4. Integration parity — SHIPPED
 - ✅ Exterior materials feed the total, the deposit, the Colours tab (grouped by masonry vs exterior-woodwork colour), and the Xero quote (as real item lines via the materials snapshot) — counted exactly ONCE.
-- ⬜ **Outstanding:** exterior *labour* still posts to Xero as a single lump `Exterior Works` line (`routes/xero.js`). Itemising it per surface (like interior rooms) is a separate, larger quote/UI change — not yet done.
+- ✅ Exterior *labour* is now itemised on the Xero quote: each exterior item posts as its own labelled line (its `label` + cost × markup), mirroring how each room is its own line — replacing the old single lump `Exterior Works` total. Client sends `exterior.items[]`; `routes/xero.js` falls back to the lump line only if an older client sends just `exterior.cost`. No costing change — the total is identical, just broken out.
 
 ### Notes / gotchas
 - Part 3 was far smaller than it looked because the engine already existed — mostly wiring `extItems` in, no new calc logic. No duplicate functions or competing localStorage introduced (watched for the recurring extCost/extItems failure mode).

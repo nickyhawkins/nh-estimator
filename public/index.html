@@ -1099,7 +1099,10 @@ async function createXeroQuote() {
     var xeroRef = document.getElementById('xero-ref').value.trim();
 
     var extTotal = 0, extTimeTotal = 0;
-    extItems.forEach(function(item){ var c = calcExtItem(item); extTotal += c.total; extTimeTotal += c.time; });
+    // Itemised for the quote: each exterior item is its own labelled line
+    // (mirroring rooms), not a single lump total -- while still summing
+    // extTotal/extTimeTotal for the job total and realistic-time figures.
+    var exteriorData = extItems.map(function(item){ var c = calcExtItem(item); extTotal += c.total; extTimeTotal += c.time; return { label: item.label, total: c.total }; });
 
     // Materials sent to Xero come from the editable snapshot, not a fresh
     // live calculation -- that's the whole point of the snapshot (see
@@ -1147,7 +1150,7 @@ async function createXeroQuote() {
         jobName: (activeJob() && activeJob().name) || '',
         xeroRef: xeroRef,
         rooms: roomData,
-        exterior: { cost: extTotal },
+        exterior: { cost: extTotal, items: exteriorData },
         materials: materials,
         settings: settings,
         markup: settings.mu,
