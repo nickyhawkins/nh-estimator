@@ -20,10 +20,11 @@ Three purposes, all wanted, all served by one view:
 - **Input is QUANTITIES ONLY.** No typing prices, ever. Tick a line as bought, adjust the quantity if it differed, add anything the estimate missed. That is the whole interaction.
 - **Money is DERIVED, never entered — all of it.** Confirmed account codes:
   - **202** — sales price. What the client is charged. Already cached per item.
-  - **311** — purchase price, **paint**. What Nicky paid.
-  - **314** — purchase price, **sundries**.
+  - **311** — purchase price, **paint**.
+  - **314** — purchase price, **specific sundry items** (see below).
 
-  All three ride on the same `/Items` payload the app already fetches, so *every* money figure — billable value AND margin — is derivable from a typed quantity. Nothing needs manual pricing. This is stronger than first assumed: margin does not require a fallback to manual cost entry.
+  All ride on the same `/Items` payload the app already fetches, so *every* money figure — billable value AND margin — is derivable from a typed quantity. Nothing needs manual pricing. Margin does not require a fallback to manual cost entry.
+- **An item's cost is on 311 OR 314 — don't special-case it.** Sundry items aren't a separate category to model; they're just items whose purchase account differs. Read whichever the item carries. The distinction matters for bookkeeping, not for this feature's logic.
 - **Start simple**, per the roadmap's warning against opening with full reconciliation.
 
 ## THE CRITICAL CONSTRAINT — read this first
@@ -76,10 +77,25 @@ One view, all three purposes: filter to "not bought" → shopping list; total ac
 
 ## Phasing
 
-**Phase 1 — the log (build this first)**
+**Phase 0 — FIX THE PICKER FIRST (small, and it blocks the main use case)**
+
+`groupMaterialItems()` (routes/xero.js) drops any item whose name has no parseable size:
+
+```js
+const { range, band, sizeL, isPerLitre } = parseItemName(i.Name);
+if (sizeL == null) return;   // <-- item silently discarded
+```
+
+Paint names carry a tin size ("… Tinted 2.5L"), so they survive. **Wallpaper paste and lining paper don't** — they're sold by roll, sachet or grade. So the very items 314 exists for are almost certainly missing from `materialGroupsCache` today, which means "+ Add a one-off specific item" can't offer them and you'd fall back to free text: no item code, no price, typed by hand, invisible to margin.
+
+- **Verify against the live payload first** — this is read from the code, not observed. Check whether paste/lining paper actually parse.
+- **The fix is small:** keep size-less items in a flat "no size" group instead of discarding them. They're not tin-optimised (there's no size to optimise), they're just item + quantity + price. Don't force them into the range/band/size hierarchy — that model doesn't fit them and shouldn't be bent to.
+- Without this, free-text lines become the NORM for specific sundries rather than the exception, and the quantities-only promise quietly breaks for exactly the case Nicky named.
+
+**Phase 1 — the log**
 - `material_actuals` table + API.
 - A per-job view listing snapshot lines with a tick and an editable actual quantity, defaulting to the estimated quantity — so the common "used exactly what was quoted" case is one tap.
-- "+ Add material the estimate missed" — reuses `populateAddMaterialProductSelect()` / `addMaterialProductOptions` wholesale, which already picks any real Xero item or free text. Don't build a second product picker.
+- "+ Add material the estimate missed" — reuses `populateAddMaterialProductSelect()` / `addMaterialProductOptions` wholesale, which already picks any real Xero item or free text. Don't build a second product picker. (Depends on Phase 0 to be useful for sundries.)
 - Show outstanding count, and actual total vs estimated total (202 prices, already held — free).
 
 **Phase 2 — invoicing from actuals (the payoff)**
@@ -98,7 +114,10 @@ One view, all three purposes: filter to "not bought" → shopping list; total ac
 
 - **Purchases can't be pulled.** Scopes are `accounting.contacts accounting.settings.read accounting.invoices` — no `accounting.transactions`, so real bills/receipts can't be read. Logging stays manual. (Not a problem: quantities are what's typed, and prices come from Items.)
 - **The 202 filter is currently lossy.** `allItems.filter(i => i.SalesDetails?.AccountCode === '202')` throws away the purchase side of every item. Phase 3 needs that kept — a small change at the point of grouping, not a new integration.
-- **Sundries are a % of labour in the app**, but account 314 implies real sundry items exist in Xero. Decide when Phase 3 is reached whether tracked sundries stay a percentage or become itemised actuals — don't let the two models silently disagree.
+- **Sundry items on 314 are NOT the cost side of the sundries %.** Two different mechanisms that must not be conflated:
+  - **The sundries %** (labour × %) covers the **long tail of stock consumables** — caulk, tape, filler, floor protection, dust sheets. Bought across many jobs, need paying for, not worth itemising every time. It stays a percentage. It is **never itemised and never tracked** — it isn't a material, it's a recovery mechanism. Exclude it from the tracking view entirely.
+  - **Specific sundry items** (account 314) are **job-specific consumables the % won't cover** — wallpaper paste, lining paper. They're real Xero items, added as one-off material lines, and tracked exactly like paint. The only difference from paint is which account their cost sits on.
+  - This matches the original sundries spec in FEATURES.md: "anything specific/expensive is still added as its own one-off material line, not absorbed into the %."
 
 ## Where it lives — DECIDED
 
@@ -115,7 +134,8 @@ The nav refactor itself is tracked separately in FEATURES.md — it's nav-wide a
 ## Gotchas
 
 - **The baseline moves.** "Estimated" = the current snapshot. If rooms change and Recalculate runs *after* the quote was sent, the baseline shifts under the actuals. Phase 1 accepts this (actuals survive; they just compare against a newer estimate). If it bites, capture a baseline snapshot at Xero-send time — don't bolt that on speculatively.
-- **Per-litre vs per-tin.** Snapshot lines carry `isPerLitre`. Walls/masonry are whole tins; ceiling/woodwork/mist are litres. An "actual quantity" means different units per line — label it from the line, don't assume tins.
+- **Per-litre vs per-tin — and now per-roll/per-tub.** Snapshot lines carry `isPerLitre`. Walls/masonry are whole tins; ceiling/woodwork/mist are litres; specific sundries are rolls, tubs and sachets. An "actual quantity" means different units per line — label it from the line, never assume tins.
+- **Don't itemise anything the % already covers.** Caulk, tape, filler, floor protection and dust sheets are paid for by the sundries %. Adding one as a material line **charges the client twice**. The rule of thumb is the one Nicky uses: if it's stock kept across jobs, the % covers it; if it's bought for THIS job (paste, lining paper), itemise it. Worth a note in the UI next to "add material" if this ever bites.
 - **Whole-tin rounding is a job-level rule** (see FEATURES.md). Actuals are what was physically bought, so they're inherently whole tins for tin roles — don't re-apply estimate-side rounding to actuals.
 - **Don't reintroduce localStorage as a competing source of truth.** Follow the `materials_snapshot` pattern: server authoritative, load into memory on init. (The colour library's localStorage use is a read-cache of a *global reference list* — not the precedent to copy here.)
 - **Grep for duplicates before adding functions** — the app's recurring failure mode is an old function surviving alongside a new one, later definition silently winning.
