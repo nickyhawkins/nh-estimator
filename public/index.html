@@ -454,9 +454,25 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
   <div class="topbar">
     <button class="back-btn" onclick="goTab('summary')">←</button>
     <div class="topbar-title">Materials</div>
+    <button onclick="goInvoiceList()" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:20px;padding:6px 14px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Invoice ›</button>
   </div>
   <div class="content">
     <div id="actuals-body"></div>
+  </div>
+</div>
+
+<!-- ══ INVOICE MATERIALS LIST (Phase 2a) ══
+     Its own screen rather than a panel on Materials: ticking things off happens
+     at the merchant, invoicing happens at the desk. Different moments, and the
+     working view shouldn't grow an invoice on the end of it. -->
+<div id="screen-invoice" class="screen">
+  <div class="topbar">
+    <button class="back-btn" onclick="openActuals()">←</button>
+    <div class="topbar-title">Invoice</div>
+    <button onclick="copyInvoiceList()" id="inv-copy-btn" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:20px;padding:6px 14px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Copy</button>
+  </div>
+  <div class="content">
+    <div id="invoice-body"></div>
   </div>
 </div>
 
@@ -2799,6 +2815,96 @@ function renderActuals() {
   populateAddMaterialProductSelect('act-add-product');
 }
 
+function goInvoiceList() {
+  goTab('invoice');
+  renderInvoiceList();
+}
+
+function renderInvoiceList() {
+  var el = document.getElementById('invoice-body');
+  if (!el) return;
+  var inv = buildInvoiceList();
+
+  var note = '<div style="font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.45">'
+    + 'Materials only — actual quantities at Xero sell prices. '
+    + '<strong>Labour and sundries carry over from the quote unchanged</strong>, so they aren\'t here.'
+    + '</div>';
+
+  var lines = inv.billed.map(function(l) {
+    return '<div style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">'
+      + '<div style="flex:1;min-width:0">'
+        + '<div style="font-size:14px;font-weight:600">'+escapeHtml(l.description)+'</div>'
+        + '<div style="font-size:12px;color:var(--text2);margin-top:2px">'
+          + (l.itemCode ? escapeHtml(l.itemCode) + ' · ' : '')
+          + l.quantity + ' × ' + fmt(l.unitAmount)
+          + (l.onEstimate ? '' : ' · <span style="color:#b00">not quoted</span>')
+        + '</div>'
+      + '</div>'
+      + '<div style="font-size:14px;font-weight:600;white-space:nowrap">'+fmt(l.lineTotal)+'</div>'
+      + '</div>';
+  }).join('');
+
+  var billedCard = inv.billed.length
+    ? '<div class="card" style="padding:12px 14px">'
+      + '<div class="card-header" style="padding:0 0 4px">To invoice</div>'
+      + lines
+      + '<div style="display:flex;justify-content:space-between;padding-top:10px">'
+        + '<span style="font-weight:600">Materials total</span>'
+        + '<span style="font-weight:700;font-size:16px">'+fmt(inv.total)+'</span>'
+      + '</div>'
+      + '</div>'
+    : '<div class="card" style="padding:16px;color:var(--text2)">Nothing ticked as bought yet, so there\'s nothing to invoice. Tick items off on the Materials screen as you buy them.</div>';
+
+  // Listed, never totalled. Un-ticked means nobody confirmed it was bought:
+  // billing it would charge for goods possibly never delivered, and dropping it
+  // silently would under-bill. Surfaced so it's a decision, not an accident.
+  var unconfirmed = '';
+  if (inv.unconfirmed.length) {
+    unconfirmed = '<div class="section-title" style="margin:18px 0 8px">Not confirmed — check before invoicing</div>'
+      + '<div class="card" style="padding:12px 14px">'
+      + '<div style="font-size:13px;color:var(--text2);margin-bottom:8px;line-height:1.45">'
+        + 'Never ticked as bought, so <strong>not included in the total above</strong>. '
+        + 'If you did buy one, tick it on the Materials screen and it\'ll join the invoice.'
+      + '</div>'
+      + inv.unconfirmed.map(function(l) {
+          return '<div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--border)">'
+            + '<div style="flex:1;min-width:0">'
+              + '<div style="font-size:14px">'+escapeHtml(l.description)+'</div>'
+              + '<div style="font-size:12px;color:var(--text2);margin-top:2px">'
+                + (l.logged ? 'logged ' + l.quantity + ', not ticked' : 'estimated ' + l.estimated)
+              + '</div>'
+            + '</div>'
+            + '<div style="font-size:14px;color:var(--text3);white-space:nowrap">'+fmt(l.lineTotal)+'</div>'
+            + '</div>';
+        }).join('')
+      + '</div>';
+  }
+
+  el.innerHTML = note + billedCard + unconfirmed
+    + '<textarea id="inv-copy-fallback" readonly style="position:absolute;left:-9999px;top:0"></textarea>';
+}
+
+async function copyInvoiceList() {
+  var btn = document.getElementById('inv-copy-btn');
+  var text = invoiceListAsText();
+  var done = function(msg) { btn.textContent = msg; setTimeout(function() { btn.textContent = 'Copy'; }, 1600); };
+  try {
+    await navigator.clipboard.writeText(text);
+    done('Copied ✓');
+  } catch (e) {
+    // navigator.clipboard needs a secure context and can still be refused on
+    // iOS Safari. Fall back to selecting a hidden textarea so the text is at
+    // least copyable by hand rather than lost.
+    var ta = document.getElementById('inv-copy-fallback');
+    ta.value = text;
+    ta.style.position = 'static'; ta.style.left = 'auto';
+    ta.style.width = '100%'; ta.style.height = '160px';
+    ta.select();
+    try { document.execCommand('copy'); done('Copied ✓'); }
+    catch (e2) { done('Select & copy'); }
+  }
+}
+
 function findActualsRow(key) {
   return actualsRowsCache.filter(function(r) { return r.key === key; })[0];
 }
@@ -2903,6 +3009,64 @@ async function addActualFromPicker() {
   };
   materialActuals.push(fresh);
   if (await persistActual(fresh)) renderActuals();
+}
+
+// ── Phase 2(a): the materials list for the invoice ────────────────────────
+// The payoff. Materials go on the quote as an ESTIMATE and the client is billed
+// for what was ACTUALLY used, so this list — actual quantities × 202 sell
+// prices — is what gets invoiced.
+//
+// MATERIALS ONLY. Labour carries over from the quote unchanged (quoted =
+// billed), and the sundries % rides on labour, so neither belongs here. This is
+// not the whole invoice; it's the part that changes.
+//
+// Option (a) of the two in MATERIAL_TRACKING_SPEC: output a list Nicky enters
+// and checks in Xero himself. No POST /Invoices, no new Xero surface, no
+// re-auth — the app has never created an invoice, and the `accounting.invoices`
+// scope it requests isn't a documented Xero scope name, so (b) needs testing
+// before it can be trusted. This proves the model on real jobs first.
+//
+// THE TICK IS THE CONFIRMATION, AND IT DECIDES WHAT GETS BILLED.
+// A row only reaches `billed` if it was ticked as bought. Everything else lands
+// in `unconfirmed` — listed, never totalled. The tracking view's running total
+// falls back to the estimate for un-ticked rows, which is right for a "so far"
+// figure mid-job and WRONG here: billing an estimate nobody confirmed is
+// charging for goods that may never have been delivered. Equally, silently
+// dropping them would under-bill. So they're surfaced and Nicky decides.
+//
+// Ticked at quantity 0 is a real, meaningful state — "confirmed, bought none" —
+// and drops out of both lists rather than printing a £0.00 line.
+function buildInvoiceList() {
+  var billed = [], unconfirmed = [], total = 0;
+  buildActualsView().forEach(function(r) {
+    var price = materialPriceFor({ itemCode: r.itemCode, unitAmount: r.unitAmount });
+    var confirmed = !!(r.actual && r.actual.bought);
+    var qty = actualsRowQuantity(r);
+    var entry = {
+      itemCode: r.itemCode || '', description: r.description,
+      quantity: qty, unitAmount: price, lineTotal: qty * price,
+      onEstimate: r.onEstimate, estimated: r.estimated, logged: !!r.actual
+    };
+    if (confirmed) {
+      if (qty > 0) { billed.push(entry); total += entry.lineTotal; }
+      return; // ticked at 0 = "bought none": not billed, not outstanding either
+    }
+    unconfirmed.push(entry);
+  });
+  return { billed: billed, unconfirmed: unconfirmed, total: total };
+}
+
+// Tab-separated: pastes straight into a spreadsheet or Xero's line grid with
+// the columns intact. CSV would need quoting rules for the commas that appear
+// in real product names ("Bedec MSP (Gloss, Matt, Satin)").
+function invoiceListAsText() {
+  var inv = buildInvoiceList();
+  var rows = [['Item', 'Description', 'Qty', 'Unit price', 'Total'].join('\t')];
+  inv.billed.forEach(function(l) {
+    rows.push([l.itemCode, l.description, l.quantity, l.unitAmount.toFixed(2), l.lineTotal.toFixed(2)].join('\t'));
+  });
+  rows.push(['', 'MATERIALS TOTAL', '', '', inv.total.toFixed(2)].join('\t'));
+  return rows.join('\n');
 }
 
 // ── Colours (job-scoped list, same lifecycle as rooms/extItems) ────────────

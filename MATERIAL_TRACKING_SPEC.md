@@ -219,7 +219,19 @@ Ships whole (table → API → view → add-missing → totals), reached from a 
 
 *Unit labels:* per the Gotchas, an actual quantity means different things per row — litres (`isPerLitre`), tins (paint), or rolls/tubs/kilos (sundries, where the unit is already in the Xero name). Label from the row; never assume tins. Sundry lines only ever enter the snapshot as custom lines, so if the label needs to distinguish them, carry a flag from the picker rather than re-deriving the `SUN` rule in the frontend — the prefix rule lives in `routes/xero.js` and should stay there.
 
-**Phase 2 — invoicing from actuals (the payoff)**
+**Phase 2 — invoicing from actuals (the payoff) — option (a) BUILT (2026-07-14)**
+
+> **Shipped.** `buildInvoiceList()` / `invoiceListAsText()` and a `screen-invoice` view — its own screen, reached from **Invoice ›** on Materials, because ticking things off happens at the merchant and invoicing happens at the desk. Materials only, with a note on screen saying so. **Copy** puts it on the clipboard as tab-separated text (falls back to a selectable textarea when the clipboard API refuses, as iOS Safari can).
+>
+> **THE TICK IS THE CONFIRMATION, AND IT DECIDES WHAT GETS BILLED — decided 2026-07-14.** Only rows ticked as bought reach the total. Everything else is listed under "Not confirmed — check before invoicing" and **never totalled**.
+>
+> This is a deliberate divergence from the tracking view, and the reason matters: `actualsRowQuantity()` falls back to the *estimate* for un-ticked rows, which is right for a "so far" figure mid-job and **wrong on an invoice** — billing an estimate nobody confirmed is charging for goods that may never have been delivered. Silently dropping them would under-bill instead. So they're surfaced and Nicky decides. Both failure modes are visible; neither is automatic.
+>
+> **Ticked at quantity 0 is a real state** — "confirmed, bought none" — and drops out of *both* lists rather than printing a £0.00 line or nagging as outstanding.
+>
+> **Tab-separated, not CSV**, because real product names contain commas (`Bedec MSP (Gloss, Matt, Satin)`) and TSV pastes into a spreadsheet or Xero's line grid with columns intact and no quoting rules.
+>
+> Option (b) (`POST /Invoices`) remains unbuilt and still needs its scope verified — see below. Phase 3 (margin/calibration) is next.
 
 > **~~GATE — close the sundries-% overlap BEFORE this ships.~~ NOT A GATE — RESOLVED 2026-07-14, and it was the wrong question.** Phase 2 is not blocked by this.
 >
@@ -229,9 +241,9 @@ Ships whole (table → API → view → add-missing → totals), reached from a 
 >
 > **The residual risk is behavioural, not structural, and it's the thing to actually watch:** if protection ever gets itemised *routinely* — because it's in the picker and ticking it is easy — the overlap becomes a real double charge. The control is the judgement, not the code. **Don't add an app-side guard for it** (no warnings, no "are you sure?"): the rule is "is this extra beyond normal?", which the app cannot know, and a guard would only train the judgement out.
 
-- Produce the materials list for the invoice: actual quantities × 202 prices.
+- Produce the materials list for the invoice: actual quantities × 202 prices. **Live 202 prices, not the ones frozen into the snapshot at Recalculate time** — same rule as the tracking view, so what you saw while shopping is what you bill.
 - **The app has no invoice path today — it only creates Quotes** (`POST /Quotes`, routes/xero.js). Billing actuals means either:
-  - **(a) Output a list** Nicky enters/checks in Xero himself — small, no new Xero surface, proves the model on real jobs first. **Recommended start.**
+  - **(a) Output a list** Nicky enters/checks in Xero himself — small, no new Xero surface, proves the model on real jobs first. ~~**Recommended start.**~~ **BUILT 2026-07-14 — see above.**
   - **(b) `POST /Invoices`** from the app, mirroring the existing quote builder. More work, and **the scope needs verifying**: the app currently requests `accounting.invoices`, which is not a documented Xero scope name — quotes work with it today, but don't assume invoices will until tested. Budget for a re-auth.
 - Labour lines carry over from the quote unchanged (quoted = billed). Only materials come from actuals.
 
