@@ -6,7 +6,7 @@ This document captures planned features for the NH Estimator app, scoped and rea
 
 Reconciled against the code on **2026-07-14**. Most of the original roadmap is now built — keep this index honest as things ship, it had drifted badly once already.
 
-**Shipped:** Automatic materials from Xero Items · Materials editing + sundries · Realistic time estimate · Deposit & staged payments · Colour reference library · Multiple saved jobs · Rename jobs · HSL alignment (both steps) · Exterior alignment · Wallpaper calculator · Wallpaper per-roll labour · Lining + finish on one job · Feature wall paint/wallpaper toggle · Colours tab evolution (paint/ordering view) · **Material tracking Phases 0, 1 and 2(a)** (2026-07-14)
+**Shipped:** Automatic materials from Xero Items · Materials editing + sundries · Realistic time estimate · Deposit & staged payments · Colour reference library · Multiple saved jobs · Rename jobs · HSL alignment (both steps) · Exterior alignment · Wallpaper calculator · Wallpaper per-roll labour · Lining + finish on one job · Feature wall paint/wallpaper toggle · Colours tab evolution (paint/ordering view) · **Material tracking Phases 0, 1 and 2(a)** · **Navigation: hamburger for job admin** (2026-07-14)
 
 **⚠️ Deploy step outstanding:** material tracking added the `material_actuals` table, and **`db/setup.sql` is not run automatically** (README: `psql $DATABASE_URL -f db/setup.sql`). Until it's run against the live database, the Materials and Invoice screens 500 on a missing relation. Nothing else is affected. `IF NOT EXISTS` throughout, so re-running is safe.
 
@@ -14,7 +14,7 @@ Reconciled against the code on **2026-07-14**. Most of the original roadmap is n
 - ~~**Material tracking (actuals vs estimate)** — not started~~ **Phases 0, 1 and 2(a) SHIPPED 2026-07-14** (`MATERIAL_TRACKING_SPEC.md`): the three-bucket item picker, the actuals log, and the materials list for the invoice. What remains there:
   - **Phase 3 — margin / calibration.** Cheap (311/314 purchase prices already ride on the `/Items` call and are thrown away), but **needs history to be worth building** — run Phase 1 on a few real jobs first.
   - **Phase 2(b) — `POST /Invoices` from the app.** Optional; 2(a) outputs a list to enter in Xero by hand and proves the model first. Needs its scope verified — the app requests `accounting.invoices`, which is not a documented Xero scope name — and probably a re-auth.
-- **Navigation: hamburger for job admin** — decided alongside tracking; bottom bar keeps the measuring tabs, menu takes Jobs/Materials/Settings. **Now has a waiting tenant:** materials tracking sits on a temporary **Materials ›** button on Summary, and its outstanding-count badge (load-bearing, not polish) can't exist until the menu does.
+- ~~**Navigation: hamburger for job admin**~~ **SHIPPED 2026-07-14** (see "Navigation — hamburger for job admin"): Jobs/Materials/Settings in one menu reached from every measuring screen, replacing the scattered "My Job ›" + four separate ⚙️ buttons. The outstanding-count badge is live.
 - **Backup: CSV import + full-data export** — a per-job *summary* export exists on the Summary tab, but it is NOT a backup (see "Backup system"). **Note `material_actuals` is now in scope for this**: it's the only table that regenerates from nothing, so it's the one with most to lose.
 
 **Loose ends on otherwise-shipped features:**
@@ -371,17 +371,18 @@ Extends the feature-wall pricing (input dimensions → price the wall on its own
 
 > **Still outstanding:** the spec called for moving the feature wall into its own collapsible section (collapsed by default). The room form has collapsible sections and the exterior form uses them throughout, but there's no dedicated feature-wall section — cosmetic, not functional.
 
-## FEATURE: Navigation — hamburger for job admin ⬜ NOT STARTED
+## FEATURE: Navigation — hamburger for job admin ✅ SHIPPED (2026-07-14)
 
-Decided alongside material tracking (2026-07-14). Splits navigation **by activity** rather than spreading it across two bars with no clear logic.
+Decided alongside material tracking (2026-07-14), built same day. Splits navigation **by activity** rather than spreading it across two bars with no clear logic.
 
-- **Bottom bar = measuring** — Rooms · Exterior · Colours · Summary. Stays exactly as-is: used on site, one-handed, every tab one thumb-tap. **Do not put a 5th item here** and do not replace this bar with a menu; a hamburger top-left is the worst thumb zone on a phone held on site, and hiding the measuring tabs behind a tap is a downgrade for the app's main job.
-- **Hamburger = job admin** — Jobs · Materials tracking · Settings. These are used at the merchant and at invoicing, not while measuring. This also absorbs the "My Job ›" and ⚙️ controls currently cluttering the top bar, which was the real mess — navigation is presently split across a bottom bar AND two unrelated top-bar controls.
+- **Bottom bar = measuring** — Rooms · Exterior · Colours · Summary. Unchanged: used on site, one-handed, every tab one thumb-tap. No 5th item added; the bar was not replaced with a menu.
+- **Hamburger = job admin** — Jobs · Materials · Settings, one shared overlay (`#nav-menu-panel`) reached identically from all 4 measuring topbars via a single `.nav-ham-btn`. Absorbed the "My Job ›" text and the four separate ⚙️ gear buttons that used to be scattered across the topbars, inconsistently (Home had "My Job ›" + gear; Exterior and Colours had only a gear; Summary had gear + a temporary "Materials ›" button). The active job's name now shows as a sub-line under "Jobs" in the menu, shown at open time rather than pinned permanently in every topbar.
+- **The badge is load-bearing, and it works.** `updateNavBadge()` shows the outstanding-materials count as a small red badge on the hamburger icon itself (visible without opening the menu) and as "N to buy" on the Materials row inside it. Loaded eagerly at `initApp()` and `loadActiveJobData()` — not just when Materials is first opened — so it's correct from the very first paint and updates on every job switch. Verified live: all 4 badge instances update in lock-step the instant a row is ticked on the Materials screen, with no navigation needed.
+- Materials tracking's temporary "Materials ›" button on Summary is retired — the hamburger is now the only entry point, on every measuring screen, not just Summary.
 
-### Notes
-- **Mostly presentational.** `goTab()` already handles `jobs` and `settings` as targets, so the menu calls the same function — this is re-homing controls, not rewiring navigation. Check before assuming, but it should be small.
-- **The badge is load-bearing.** A hamburger's cost is hiding things. An outstanding count on the menu ("Materials · 4 to buy") is what stops tracking going out of sight and out of mind — build it with the menu, not as later polish.
-- Materials tracking does NOT depend on this landing first — it can be reached however, initially. They were decided together, not sequenced together.
+### Build notes
+- **Was mostly presentational, as predicted.** `goTab()` already handled `jobs`/`settings`/`actuals` as targets; the menu just calls the same functions. No navigation logic was rewired.
+- Verified against the real UI (mock server, no postgres on this Mac): the menu opens/closes via both the hamburger and a tap on the backdrop, each of Jobs/Materials/Settings navigates and closes the menu, the badge is present and correct on all 4 measuring screens, and it lays out cleanly at 375px with no horizontal scroll.
 
 ## FEATURE: Material tracking (actuals vs estimate — job management) ⬜ NOT STARTED, SCOPED
 

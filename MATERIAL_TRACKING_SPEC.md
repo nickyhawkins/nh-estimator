@@ -204,7 +204,7 @@ The tin optimiser is **not** at risk — it only reads inside a range you've exp
 >
 > Two things the build changed from this scope, both recorded below in place: **`unit_amount` was added to the DDL** (free-text rows have no Xero item to price from, and this spec already said that's the one place a price gets typed), and **`apiPutStrict`/`apiDeleteStrict` had to be written** — see the API bullet. Phase 2 (invoicing from actuals) is next, behind its sundries-% gate.
 
-Ships whole (table → API → view → add-missing → totals), reached from a **temporary entry point**. The hamburger nav is where this belongs and is decided, but it's nav-wide, tracked separately in FEATURES.md, and this feature doesn't depend on it — so it isn't a prerequisite. Don't let the nav refactor gate the thing it was designed to hold.
+Ships whole (table → API → view → add-missing → totals). ~~Reached from a **temporary entry point**. The hamburger nav is where this belongs and is decided, but it's nav-wide, tracked separately in FEATURES.md, and this feature doesn't depend on it — so it isn't a prerequisite. Don't let the nav refactor gate the thing it was designed to hold.~~ **The hamburger nav shipped the same day (2026-07-14)** — see FEATURES.md "Navigation — hamburger for job admin". Materials is now reached from its "Materials" row, with the outstanding count both as a badge on the hamburger icon and as "N to buy" inside the menu.
 
 **1. `material_actuals` table + API.** DDL and the partial unique index are in "Data model" above. Two constraints repeated because they're the ones that lose the invoice if missed: actuals live in **their own table** (never on snapshot lines — recalc regenerates every line id), and the API **PUTs one row at a time** (never `saveMaterialsSnapshot()`'s delete-all-then-rewrite, which is only safe for regenerable data).
 
@@ -294,17 +294,17 @@ Ships whole (table → API → view → add-missing → totals), reached from a 
 
 **Caveat on re-coding.** If items under other prefixes should be itemisable (`FAR038` paste, `WAL001/2` Fibreliner, the Isomat kilo fillers), making them `SUN` means **changing the Xero item code — the key historical quotes and invoices reference.** Changing an account is routine; changing a code may not be. Check what Xero does to history before mass-recoding. If it's a problem, the sundry rule needs to accept a small set of prefixes (`SUN`, `RPC`, `WAL`…) rather than just one — cheap, and it keeps the codes stable.
 
-## Where it lives — DECIDED
+## Where it lives — DECIDED, and SHIPPED (2026-07-14)
 
 Its own destination, reached from a **hamburger menu**, NOT a fifth bottom tab.
 
 The split is by activity, and it's a real distinction rather than a cosmetic one:
-- **Bottom bar = measuring** (Rooms · Exterior · Colours · Summary) — used on site, one-handed, must stay one thumb-tap.
-- **Hamburger = job admin** (Jobs · Materials tracking · Settings) — used at the merchant and at invoicing, not while measuring. Also absorbs the "My Job ›" and ⚙️ controls currently cluttering the top bar.
+- **Bottom bar = measuring** (Rooms · Exterior · Colours · Summary) — used on site, one-handed, one thumb-tap. Unchanged.
+- **Hamburger = job admin** (Jobs · Materials · Settings) — used at the merchant and at invoicing, not while measuring. Absorbed the "My Job ›" text and the four separate ⚙️ buttons that used to be scattered across the topbars.
 
-**The badge is load-bearing, not decoration.** A hamburger's real cost is hiding things; an outstanding count on the menu ("Materials · 4 to buy") is what keeps tracking from being out of sight and out of mind. Build the badge with the menu, not as polish afterwards.
+**The badge is load-bearing, not decoration, and it works.** `updateNavBadge()` shows the outstanding count both as a small badge on the hamburger icon (visible without opening the menu) and as "N to buy" on the menu's Materials row. Loaded eagerly at app start and on job switch, not just when Materials is first opened, so it's correct from the very first paint.
 
-The nav refactor itself is tracked separately in FEATURES.md — it's nav-wide and not part of this feature. Materials tracking doesn't depend on it (it can be reached however, initially), but they were decided together.
+The nav refactor is tracked in full in FEATURES.md ("Navigation — hamburger for job admin") — it's nav-wide and was built as its own change, same day as this note. Materials tracking never depended on it landing first (it was reachable via a temporary Summary button beforehand); they were decided together and shipped the same day, not sequenced.
 
 ## Gotchas
 
