@@ -909,14 +909,39 @@ async function disconnectXero() {
 // Per MATERIALS_SPEC.md: the default is a product RANGE (e.g. "Tikkurila
 // Optiva 5"), not a specific tin — colour band and exact tin size are
 // chosen later (per colour group / by the tin optimiser), not here.
+//
+// PAINT ONLY. /auth/material-groups returns three buckets; this cache holds
+// the paint one, so range -> band -> sizes still means what it always did and
+// the role pickers, band pickers and tin optimiser are unaffected by sundries.
 var materialGroupsCache = {};
+// Sundries are a FLAT list — { itemCode, description, price }, no range, no
+// band, no size, no tin optimisation (wallpaper paste, lining paper). They
+// belong in exactly one place: the "add a material the estimate missed"
+// product select. They must never reach the role/range pickers — you don't map
+// wallpaper paste as your wall paint — which is why they're a separate cache
+// rather than fake ranges inside materialGroupsCache.
+var materialSundriesCache = [];
+
+// Unwrap the three-bucket response. Both fetch sites go through here so they
+// can't drift; tolerate a bare range map so a stale cached page against a new
+// server degrades to "no sundries" instead of showing "paint"/"sundries"/
+// "unmodellable" as three fake ranges.
+function applyMaterialGroupsResponse(resp) {
+  resp = resp || {};
+  var threeBucket = resp.paint && typeof resp.paint === 'object';
+  materialGroupsCache = threeBucket ? resp.paint : resp;
+  materialSundriesCache = (threeBucket && Array.isArray(resp.sundries)) ? resp.sundries : [];
+}
 
 async function refreshXeroItems() {
   var btn = document.getElementById('materials-refresh-btn');
   btn.textContent = 'Refreshing…'; btn.disabled = true;
   try {
-    materialGroupsCache = await apiGet('/auth/material-groups');
+    applyMaterialGroupsResponse(await apiGet('/auth/material-groups'));
     populateMaterialSelects();
+    // The one-off product select is built from both caches, so it has to be
+    // rebuilt when they change — otherwise a Refresh leaves it on the old list.
+    populateAddMaterialProductSelect();
   } catch (e) {
     alert('Could not fetch Xero items: ' + e.message);
   } finally {
@@ -1388,7 +1413,7 @@ async function initApp() {
       // first in this session. Isolated try/catch so a failure here doesn't
       // mark the whole sync as failed.
       try {
-        materialGroupsCache = await apiGet('/auth/material-groups');
+        applyMaterialGroupsResponse(await apiGet('/auth/material-groups'));
         renderMaterialsSettings();
       } catch (e) {
         console.log('Material groups fetch failed — Settings materials will show as unmapped until Refresh is used');
@@ -2328,15 +2353,21 @@ function deleteMaterialLine(id) {
 }
 
 // ── Add a one-off material line ─────────────────────────────────────────
-// The product select picks any real Xero item out of materialGroupsCache
-// (flattened range/band/size, not just the five default role products --
-// a one-off might be a specialist product outside the usual roles
-// entirely) and autofills description + price, still editable; "— Free
-// text —" leaves both blank for a manual entry with no itemCode, which
-// Xero renders the same way the labour lines already do (Description/
-// Quantity/UnitAmount, no ItemCode). addMaterialProductOptions is a
-// parallel lookup array rather than encoding data into option values
-// directly, to avoid attribute-escaping a JSON blob.
+// The product select picks any real Xero item -- paint (flattened
+// range/band/size out of materialGroupsCache) OR a sundry (flat, out of
+// materialSundriesCache) -- not just the five default role products, since a
+// one-off might be a specialist product outside the usual roles entirely. It
+// autofills description + price, still editable; "— Free text —" leaves both
+// blank for a manual entry with no itemCode, which Xero renders the same way
+// the labour lines already do (Description/Quantity/UnitAmount, no ItemCode).
+// addMaterialProductOptions is a parallel lookup array rather than encoding
+// data into option values directly, to avoid attribute-escaping a JSON blob --
+// it stays flat and index-addressed across both optgroups, so the optgroups
+// are presentation only and onAddMaterialProductSelect() is unaffected.
+//
+// This is the ONLY picker that offers sundries, and per MATERIAL_TRACKING_SPEC
+// Phase 1 it's the one the materials-tracking "+ Add material the estimate
+// missed" flow reuses wholesale. Don't build a second product picker.
 var addMaterialProductOptions = [];
 
 function populateAddMaterialProductSelect() {
@@ -2344,16 +2375,39 @@ function populateAddMaterialProductSelect() {
   if (!sel) return;
   addMaterialProductOptions = [];
   var opts = '<option value="-1">— Free text —</option>';
+
+  function addOption(itemCode, desc, price) {
+    var idx = addMaterialProductOptions.length;
+    addMaterialProductOptions.push({ itemCode: itemCode, description: desc, unitAmount: price });
+    opts += '<option value="'+idx+'">'+escapeHtml(desc)+' — '+fmt(price)+'</option>';
+  }
+
+  // Sundries first: they're the whole reason a one-off line usually gets added
+  // (wallpaper paste, lining paper), and there are ~19 of them against ~1550
+  // paint tins — bottom of a 1500-long list is the same as absent.
+  //
+  // The description is the Xero item name VERBATIM. Do NOT rebuild it from
+  // range/band/size the way paint does: a sundry has none of those, and it's
+  // that rebuild which used to put "Quickgrip Adhesive ( 0.38ltr" on client
+  // quotes. Sold by roll, sachet, tub or kilo — the unit is already in the
+  // name, so quantity here means "how many of that", not litres or tins.
+  if (materialSundriesCache.length) {
+    opts += '<optgroup label="Sundries (paste, lining paper, adhesives)">';
+    materialSundriesCache.forEach(function(item) {
+      addOption(item.itemCode, item.description, item.price);
+    });
+    opts += '</optgroup>';
+  }
+
+  opts += '<optgroup label="Paint">';
   Object.keys(materialGroupsCache).sort().forEach(function(range) {
     Object.keys(materialGroupsCache[range]).sort().forEach(function(band) {
       materialGroupsCache[range][band].forEach(function(item) {
-        var idx = addMaterialProductOptions.length;
-        var desc = range + (band ? ' - ' + band : '') + ' ' + item.sizeL + 'ltr';
-        addMaterialProductOptions.push({ itemCode: item.itemCode, description: desc, unitAmount: item.price });
-        opts += '<option value="'+idx+'">'+escapeHtml(desc)+' — '+fmt(item.price)+'</option>';
+        addOption(item.itemCode, range + (band ? ' - ' + band : '') + ' ' + item.sizeL + 'ltr', item.price);
       });
     });
   });
+  opts += '</optgroup>';
   sel.innerHTML = opts;
 }
 

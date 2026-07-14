@@ -271,15 +271,64 @@ function parseItemName(name) {
   return { range, band, sizeL: size.sizeL, trueL: trueFill(range, size.sizeL, isPerLitre), isPerLitre };
 }
 
-// range -> band -> [{ sizeL, trueL, price, itemCode, isPerLitre }, ...] (sizes
-// ascending). Unbanded products group under band '' (a single implicit
-// band) rather than being dropped — only items with no parseable size at
-// all are skipped, since there's nothing usable to put in the sizes list.
-// isPerLitre entries stay in the same sizes array (a real, choosable price
-// point) but are flagged so callers can tell them apart: the wall tin
-// optimiser (step 4) should exclude them from tin-combination candidates,
-// and the per-litre roles — ceiling/topcoat/primer (step 5) — should prefer
-// one directly (litres × price, no rounding) over combining tins.
+// A sundry is declared by its item CODE, not derived from its name — see
+// "Identifying specific sundries" in MATERIAL_TRACKING_SPEC.md. Nicky curates
+// the SUN prefix in Xero to mean "itemise this on the job"; the app trusts it
+// and does not second-guess. Deliberately NOT account 314: 314 is a real cost
+// account with its own P&L meaning ("sundries cost"), and letting the app's
+// needs reshape the accounts would force tape and floor protection onto some
+// other account purely to satisfy this parser. The code prefix has no second
+// job, so it's free to carry this one — and it survives the accountant
+// re-coding accounts.
+const SUNDRY_CODE_RE = /^SUN/i;
+
+// Split the Xero item list into the three things it actually contains, keyed
+// off the item code FIRST and the name only second:
+//
+//   sundries     — code starts SUN. Flat: item + qty + price, no size, no
+//                  band, no tin optimisation. Wallpaper paste, lining paper.
+//   paint        — anything else whose name yields a tin size. range -> band
+//                  -> sizes, the hierarchy the optimiser needs.
+//   unmodellable — anything else that DOESN'T parse. Surfaced for diagnosis,
+//                  offered to no picker.
+//
+// THE BUCKET ORDER IS LOAD-BEARING. The prefix check must run before the size
+// parse, and it does more work than it looks like:
+//
+//  - It fixes a client-facing description bug for free, with no regex change.
+//    SUN013 "Quickgrip Adhesive (380ml tube)" and SUN014 "Everbuild Stixall
+//    Adhesive (White) - 290ml" used to reach parseItemName(), which sliced the
+//    prefix at the digit and invented the range "Quickgrip Adhesive (" —
+//    trailing bracket and all. Since line descriptions are rebuilt from
+//    range + band + sizeL, picking one put "Quickgrip Adhesive ( 0.38ltr" on a
+//    client's quote. Bucketing them as sundries first means they never reach
+//    the parser at all. (Verified 2026-07-14: these two are the only SUN items
+//    that parse a size, so this is exactly the leak the order closes.)
+//  - BED002 "Bedec MSP ... 750ml" stays in paint, correctly — it's a genuine
+//    sub-litre tin, not a tube, and it isn't SUN.
+//
+// "Didn't parse" is NOT a category — it's a bug bucket, which is why it must
+// stay separate from sundries rather than being swept in as "no size = sundry".
+// The live data proves it: doing that would have surfaced 8 real Isomat paint
+// tins (killed by the old LT regex gap) as pickable *sundries*, permanently
+// masking the fact that four paint ranges were missing from the app entirely.
+// Keep the parse-failure bucket loud.
+//
+// Residual ml false positives are accepted, do not fix: ISO076-ISO079 (Isomat
+// caulks and PU sealants) still parse as 0.28-0.6L "tins" and stay in paint.
+// The optimiser only reads ranges explicitly mapped to a role and nobody maps
+// a caulk as paint, so there's no costing exposure — and they can't be SUN
+// either, because caulk is exactly what the sundries % already recovers. They
+// clutter the range picker with four fake sub-litre entries. That is the whole
+// cost. Don't invent a fourth bucket for it.
+//
+// Within paint: sizes ascending. Unbanded products group under band '' (a
+// single implicit band) rather than being dropped. isPerLitre entries stay in
+// the same sizes array (a real, choosable price point) but are flagged so
+// callers can tell them apart: the wall tin optimiser (step 4) should exclude
+// them from tin-combination candidates, and the per-litre roles —
+// ceiling/topcoat/primer (step 5) — should prefer one directly (litres ×
+// price, no rounding) over combining tins.
 //
 // sizeL and trueL are both carried because they answer different questions and
 // diverge on every band of TIK_REDUCED_FILL_RANGES. sizeL is what the
@@ -289,24 +338,47 @@ function parseItemName(name) {
 // up (tin optimisation, cost per litre). They're equal for every range not in
 // that table, which is why mixing them up survives casual testing.
 function groupMaterialItems(items) {
-  const groups = {};
+  const paint = {};
+  const sundries = [];
+  const unmodellable = [];
   items.forEach(i => {
+    const price = i.SalesDetails?.UnitPrice ?? null;
+    // Code first, name second — see the bucket-order note above.
+    if (SUNDRY_CODE_RE.test(i.Code || '')) {
+      // Flat by design: no size, no band, no tin optimisation. The description
+      // is the raw Xero name because that IS the product — there's no
+      // range/band/size to rebuild it from, and a sundry's name is already
+      // what it should read as on a quote.
+      sundries.push({ itemCode: i.Code, description: i.Name, price });
+      return;
+    }
     const { range, band, sizeL, trueL, isPerLitre } = parseItemName(i.Name);
-    if (sizeL == null) return;
-    if (!groups[range]) groups[range] = {};
-    if (!groups[range][band]) groups[range][band] = [];
-    groups[range][band].push({ sizeL, trueL, price: i.SalesDetails?.UnitPrice ?? null, itemCode: i.Code, isPerLitre });
+    if (sizeL == null) {
+      unmodellable.push({ itemCode: i.Code, name: i.Name });
+      return;
+    }
+    if (!paint[range]) paint[range] = {};
+    if (!paint[range][band]) paint[range][band] = [];
+    paint[range][band].push({ sizeL, trueL, price, itemCode: i.Code, isPerLitre });
   });
-  Object.values(groups).forEach(bands =>
+  Object.values(paint).forEach(bands =>
     Object.values(bands).forEach(sizes => sizes.sort((a, b) => a.sizeL - b.sizeL))
   );
-  return groups;
+  sundries.sort((a, b) => a.description.localeCompare(b.description));
+  unmodellable.sort((a, b) => (a.itemCode || '').localeCompare(b.itemCode || ''));
+  return { paint, sundries, unmodellable };
 }
 
-// Range -> colour band -> tin sizes, for the materials-mapping settings.
-// Supersedes the flat per-tin /items picker per MATERIALS_SPEC.md — lets the
-// app pick a default RANGE (not a single tin) and later choose the cheapest
-// combination of that range's tin sizes to cover the litres a job needs.
+// The three item buckets — { paint, sundries, unmodellable } — for the
+// materials pickers. Paint supersedes the flat per-tin /items picker per
+// MATERIALS_SPEC.md: the app picks a default RANGE (not a single tin) and
+// later chooses the cheapest combination of that range's tin sizes to cover
+// the litres a job needs.
+//
+// NB the response is the three-bucket envelope, NOT a bare range map — the
+// frontend unwraps .paint into materialGroupsCache. Callers that treat the
+// whole body as ranges will show "paint"/"sundries"/"unmodellable" as three
+// fake ranges.
 router.get('/material-groups', async (req, res) => {
   try {
     const accessToken = await getAccessToken();
@@ -330,9 +402,22 @@ router.get('/material-groups', async (req, res) => {
     // Xero data; every material item now carries SalesDetails.AccountCode
     // 202, so filter on that directly, per MATERIALS_SPEC.md.
     const salesItems = allItems.filter(i => i.SalesDetails?.AccountCode === '202');
-    const groups = groupMaterialItems(salesItems);
-    console.log(`Material groups: ${allItems.length} total items, ${salesItems.length} on account 202, ${Object.keys(groups).length} ranges`);
-    res.json(groups);
+    const buckets = groupMaterialItems(salesItems);
+    // Log all three counts, not just ranges. The unmodellable count is the
+    // health signal: it should sit at its known baseline (11 Isomat kg-sold
+    // products as of 2026-07-14 — see scripts/check_item_parse.py). A jump
+    // means a parse regression is eating real paint, which is otherwise
+    // silent. It is NOT expected to be zero, and treating it as an error
+    // bucket is how the next LT-class bug would hide among the residents.
+    console.log(
+      `Material groups: ${allItems.length} total items, ${salesItems.length} on account 202 -> ` +
+      `${Object.keys(buckets.paint).length} paint ranges, ${buckets.sundries.length} sundries, ` +
+      `${buckets.unmodellable.length} unmodellable`
+    );
+    if (buckets.unmodellable.length) {
+      console.log('  unmodellable: ' + buckets.unmodellable.map(u => u.itemCode).join(', '));
+    }
+    res.json(buckets);
   } catch (err) {
     console.error('Material groups fetch error:', err.response?.data || err.message);
     res.status(500).json({ error: err.message });
