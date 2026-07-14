@@ -436,15 +436,20 @@ Cycles completed    X
 
 ## Build order summary
 
-| # | Feature | Depends on | Effort |
-|---|---------|------------|--------|
-| 1 | Payment history | Nothing | Medium |
-| 2 | Debt-free countdown | Nothing | Small |
-| 3 | HMRC as proper debt | Nothing | Data change only |
-| 4 | Push notifications | Nothing | Medium |
-| 5 | Cycle auto-reset prompt | Features 1 + 4 | Small |
-| 6 | Multi-device conflict handling | Nothing | Medium |
-| 7 | Annual summary | Feature 1 | Small |
+| # | Feature | Depends on | Effort | Status |
+|---|---------|------------|--------|--------|
+| 1 | Payment history | Nothing | Medium | ✅ Done |
+| 2 | Debt-free countdown | Nothing | Small | ✅ Done |
+| 3 | HMRC as proper debt | Nothing | Data change only | ⏳ Code done — awaiting HMRC call |
+| 4 | Push notifications | Nothing | Medium | ⬜ Not started |
+| 5 | Cycle auto-reset prompt | Features 1 + 4 | Small | ⬜ Not started |
+| 6 | Multi-device conflict handling | Nothing | Medium | ⬜ Not started |
+| 7 | Annual summary | Feature 1 | Small | ✅ Done |
+
+**Feature 3 note:** the one code change is shipped — `getCurrentTarget()` now only
+excludes HMRC while its `min` is 0, and both yellow reminder cards hide once a
+minimum is set. Nothing more to build: after the Time to Pay call, set HMRC's
+`min`/`due` in Edit Debts and it joins the cycle automatically.
 
 Suggested grouping for Claude Code sessions:
 - **Session 1:** Features 1 + 2 (history foundation + quick countdown win)

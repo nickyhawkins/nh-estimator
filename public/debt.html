@@ -225,8 +225,11 @@ function getMilestones(months){const m={};for(const mo of months)for(const p of 
 // Build the "this cycle" payment list from month 1 of the sim
 function getCurrentTarget(){
   // Mirrors the simulate() priority: clear arrears first (HIGHEST arrears first),
-  // otherwise snowball the smallest remaining balance. Excludes HMRC (id 11) and zero balances.
-  const active=debts.filter(d=>d.balance>0.005 && d.id!==11);
+  // otherwise snowball the smallest remaining balance. Excludes zero balances, and
+  // HMRC while it has no agreed minimum (min=0) — it sits outside the snowball as a
+  // reminder card until Time to Pay is set up. Once HMRC gets a real min in Edit Debts,
+  // this exclusion lifts automatically and surplus can flow to it (Feature 3).
+  const active=debts.filter(d=>d.balance>0.005 && (d.id!==11 || d.min>0.005));
   const arrearsDebts=active.filter(d=>d.arrears>0.005);
   if(arrearsDebts.length){
     // highest arrears first — matches simulate()'s payment order
@@ -243,6 +246,43 @@ function getCyclePayments(){
     const debt=debts.find(d=>d.id===p.id);
     return {id:p.id,name:p.name,amount:p.total,due:debt?.due??99,arrears:p.arrearsPaid>0.005,snowball:p.extra>0.005};
   }).sort((a,b)=>a.due-b.due);
+}
+
+// Groups completed cycles into UK tax years (6 Apr – 5 Apr) for the History
+// tab's annual summary. Computed client-side from the already-loaded `history`
+// array — no extra round trip, keeping the derived display logic on the client
+// like the rest of the app (Feature 7). debtStart is the balance entering the
+// year (the previous cycle's closing balance, or the initial total for the very
+// first cycle) and debtEnd is the last cycle's closing balance, so reduction is
+// meaningful even in a tax year with a single cycle. This mirrors how the
+// per-cycle list derives `reduced` from prevTotal→cycleTotal.
+function getAnnualSummary(){
+  const asc=history.slice().reverse(); // oldest → newest
+  const initialTotal=DEBTS_INITIAL.reduce((s,d)=>s+d.balance,0);
+  const byYear={};
+  let prevClose=initialTotal; // total balance entering the next cycle
+  for(const h of asc){
+    const dt=new Date(h.closedAt);
+    const mo=dt.getMonth(),day=dt.getDate();
+    const beforeApr6=mo<3||(mo===3&&day<=5);
+    const startYr=beforeApr6?dt.getFullYear()-1:dt.getFullYear();
+    const key=`${startYr}/${startYr+1}`;
+    const bal=h.debtSnapshot.reduce((s,d)=>s+d.balance,0);
+    if(!byYear[key])byYear[key]={taxYear:key,startYr,cycles:0,totalIncome:0,totalPaid:0,debtStart:prevClose,debtEnd:bal};
+    const y=byYear[key];
+    y.cycles++;y.totalIncome+=h.totalIncome;y.totalPaid+=h.totalPaid;y.debtEnd=bal;
+    prevClose=bal;
+  }
+  return Object.values(byYear).sort((a,b)=>b.startYr-a.startYr); // most recent first
+}
+
+// The UK tax year (start year) that `now` falls in — used to tag the current
+// year's summary "in progress".
+function currentTaxYearStart(){
+  const now=new Date();
+  const mo=now.getMonth(),day=now.getDate();
+  const beforeApr6=mo<3||(mo===3&&day<=5);
+  return beforeApr6?now.getFullYear()-1:now.getFullYear();
 }
 
 function renderAll(){
@@ -430,12 +470,15 @@ function renderAll(){
       <button class="btn-ghost" style="flex:1" onclick="startNewCycle()">Start new cycle</button>
     </div></div>`;
 
-    // HMRC reminder
+    // HMRC reminder — retires automatically once a Time to Pay minimum is agreed
+    // and entered in Edit Debts, at which point HMRC joins the cycle proper (Feature 3).
     const hmrc=debts.find(d=>d.id===11);
-    html+=`<div class="card card-yellow">
-      <div class="row"><div><div style="font-weight:600">HMRC — ${fmt(hmrc?.balance??0)}</div>
-      <div style="font-size:12px;color:#b5b07c;margin-top:2px">Call 0300 200 3835 to set up Time to Pay</div></div></div>
-    </div>`;
+    if(hmrc && hmrc.min<=0.005){
+      html+=`<div class="card card-yellow">
+        <div class="row"><div><div style="font-weight:600">HMRC — ${fmt(hmrc?.balance??0)}</div>
+        <div style="font-size:12px;color:#b5b07c;margin-top:2px">Call 0300 200 3835 to set up Time to Pay</div></div></div>
+      </div>`;
+    }
 
     // Income log
     if(incomeLog.length){
@@ -643,7 +686,9 @@ function renderAll(){
         <div style="text-align:right;flex-shrink:0;margin-left:10px"><div style="font-size:14px;font-weight:700;color:${m?'#7db87d':'#7c7f96'}">${m?getMonthLabel(m,true):'—'}</div>${m?`<div style="font-size:11px;color:#555">Month ${m}</div>`:''}</div></div></div></div>`;
     });
     const hmrc=debts.find(d=>d.id===11);
-    html+=`<div class="card card-yellow"><div style="font-weight:600">HMRC — ${fmt(hmrc?.balance??0)}</div><div style="font-size:12px;color:#b5b07c;margin-top:4px">Not in the snowball. Call 0300 200 3835 to agree Time to Pay.</div></div>`;
+    if(hmrc && hmrc.min<=0.005){
+      html+=`<div class="card card-yellow"><div style="font-weight:600">HMRC — ${fmt(hmrc?.balance??0)}</div><div style="font-size:12px;color:#b5b07c;margin-top:4px">Not in the snowball. Call 0300 200 3835 to agree Time to Pay.</div></div>`;
+    }
   }
 
   // ---------- HISTORY ----------
@@ -659,6 +704,26 @@ function renderAll(){
     </div>`;
     if(!history.length){
       html+=`<div class="card"><div style="font-size:13px;color:#7c7f96">No cycles completed yet — this fills in after your first "Start new cycle".</div></div>`;
+    }
+    // Annual summary — grouped by UK tax year, above the cycle-by-cycle list
+    const annual=getAnnualSummary();
+    if(annual.length){
+      const curYr=currentTaxYearStart();
+      html+=`<div style="font-size:11px;color:#7c7f96;text-transform:uppercase;letter-spacing:.08em;margin:4px 0 8px">Annual summary</div>`;
+      annual.forEach(y=>{
+        const reduction=y.debtStart-y.debtEnd;
+        const inProgress=y.startYr===curYr;
+        html+=`<div class="card" style="border-radius:12px;margin-bottom:12px">
+          <div class="row" style="margin-bottom:10px">
+            <span style="font-weight:700;font-size:15px">${y.taxYear}${inProgress?` <span style="font-size:11px;color:#e0923b;font-weight:600">· in progress</span>`:''}</span>
+            <span style="font-size:11px;color:#555">${y.cycles} cycle${y.cycles===1?'':'s'}</span>
+          </div>
+          <div class="row" style="margin-bottom:6px"><span style="color:#7c7f96;font-size:12px">Income logged</span><strong style="color:#e8e8ec">${fmt(y.totalIncome)}</strong></div>
+          <div class="row" style="margin-bottom:6px"><span style="color:#7c7f96;font-size:12px">Paid to debts</span><strong style="color:#7db87d">${fmt(y.totalPaid)}</strong></div>
+          <div class="row"><span style="color:#7c7f96;font-size:12px">Debt reduction</span><strong style="color:${reduction>=0?'#5b8def':'#e05c5c'}">${reduction<0?'−':''}${fmt(reduction)}</strong></div>
+        </div>`;
+      });
+      html+=`<div style="font-size:11px;color:#7c7f96;text-transform:uppercase;letter-spacing:.08em;margin:16px 0 8px">By cycle</div>`;
     }
     history.forEach((h,i)=>{
       const cycleTotal=h.debtSnapshot.reduce((s,d)=>s+d.balance,0);
