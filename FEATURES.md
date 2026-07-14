@@ -103,22 +103,30 @@ Depends on materials AND materials-editing/sundries above AND the realistic time
 
 ---
 
-## FEATURE: Colour reference library (nice-to-have, low priority)
+## FEATURE: Colour reference library ✅ SHIPPED
 
-The Colours tab lets each colour number carry a name (e.g. colour 1 = "Dimity"). Enhancement: autofill colour names/codes as you type, to help with ordering (exact names and codes to hand for the merchant).
+The Colours tab lets each colour number carry a name (e.g. colour 1 = "Dimity"). Colour names/codes now autofill as you type, so exact names and codes are to hand for ordering from the merchant.
 
-Approach — personal growing list, seeded with the two main brands:
-- Store each colour as `{ name, brand, code }`.
-- **SEED with Farrow & Ball and Little Greene full ranges** (name + code) — these cover ~90% of colours Nicky uses, are manageable in size (~130 each), and are the brands where exact name/code matters most for ordering.
-- As you type a colour name on the Colours tab, autofill brand + code from the library.
-- For colours not in the seed (the other ~10%), add on first use — the app remembers them, so the personal list grows over time. No need to source a full cross-brand database.
-- Fallback: if a typed colour isn't known, accept it as free text and offer to save it (name/brand/code) for next time.
+### What shipped
+- **Data model** — each colour stored as `{ name, brand, code }` in a `colour_library` table. **Global and permanent**: NOT job-scoped, and deliberately untouched by Clear Rooms / Clear Everything (it's a reference list, not job data).
+- **Seeded with Farrow & Ball + Little Greene** — 509 colours (301 F&B, 208 Little Greene) from `db/colour-library-seed.json`, loaded once via `db/seed-colour-library.js`. Notably larger than the ~130-each the plan assumed.
+- **Autocomplete on the Colours tab** — typing 2+ characters filters the library and shows up to 8 matches (name, brand, code); picking one fills in brand + code. Mirrors the existing Xero contact autocomplete pattern (`onXeroClientInput`), but filters in memory rather than hitting a search endpoint — ~500 entries are cheap to filter on every keystroke.
+- **Grows on first use** — an unknown colour offers "+ Save X to your colour library", which takes brand + code and POSTs to `/api/colour-library` (upsert on name+brand). The personal list grows over time; no cross-brand database needed.
+- **Free-text fallback** — "Skip" still commits the typed name as a plain label with no brand/code, so an unknown colour never blocks the flow.
+- **Same name across brands** (refinement, 2026-07-14) — **the library is keyed on name+brand, NOT name.** Colour names are not unique across brands (Chemise is both F&B 216 and Little Greene 139; trade brands colour-match each other freely), so:
+  - The save option is **always** offered, even when the name already exists — it just reads "+ Add X under another brand" instead of "+ Save X to your colour library". Previously an existing name suppressed the option entirely, making a second brand's version of that name unaddable.
+  - The save form lists what's **already filed under that name** ("Already in library as Farrow & Ball · No. 216; Little Greene · No. 139"), so it's obvious which brands are taken.
+  - Autofill-on-blur only fires when the name resolves to exactly **ONE** entry. An ambiguous name commits the label with a BLANK brand/code rather than guessing — a blank chip reads as "unresolved", a wrong code goes to the merchant silently. Pick from the dropdown to resolve it.
+- **API** — `GET/POST /api/colour-library` in `routes/api.js`.
 
-Data notes:
-- Big trade brands (Dulux etc.) are usually colour-matched anyway, so not worth seeding wholesale — the personal-list approach handles them.
-- Colour label is reference/ordering only; the colour NUMBER still drives the materials calculation (see MATERIALS_SPEC.md).
-
-Priority: low. Build after materials + deposit are done. Genuinely useful for ordering, but not day-to-day critical.
+### Notes / gotchas
+- **Built earlier than planned.** The roadmap had this as low priority behind materials + deposit; it shipped ahead of the deposit feature.
+- **localStorage IS used here, deliberately** — `pe-colour-library` caches the library client-side for instant autocomplete offline/on site. This is a READ CACHE of a global reference list, refreshed from the server on init — not a competing source of truth for job data. The "no localStorage" rule in the architecture notes still applies to rooms/exterior/colours.
+- **Blur-commit is guarded** (`renameColour` returns early while a dropdown is open) — clicking from the label input into the save-form's own Brand/Code fields blurs the label input, and committing there would rebuild the card and destroy the form mid-entry. Watch this if the Colours tab render is refactored.
+- **Brand casing: client matches case-INsensitively, Postgres does not.** `UNIQUE(name, brand)` is case-sensitive, so a typed "farrow & ball" would insert a SECOND row alongside "Farrow & Ball" while the local cache updated only one — the next reload would then show two near-identical brands with different codes. `confirmSaveColour` therefore snaps a re-save to the STORED name/brand spelling before POSTing. If brand ever becomes a free-text field elsewhere, it needs the same treatment (or a case-insensitive index).
+- `#colours-cards` needs `overflow:visible` or the dropdown gets clipped by the card's rounded corners.
+- Colour label stays reference/ordering only; the colour NUMBER still drives the materials calculation (see MATERIALS_SPEC.md).
+- Big trade brands (Dulux etc.) are usually colour-matched anyway — the grow-on-use path handles them, no wholesale seeding.
 
 ## FEATURE: Multiple saved jobs (structural — build AFTER materials + deposit)
 
@@ -261,7 +269,7 @@ Beyond defining `{number, label}` colours, the Colours tab can become the job's 
 2. **Paint quantity per colour** — roll up the litres/tins for each colour group (e.g. "Colour 1 — Dimity — 12ltr · 2 × 5ltr + 1 × 2ltr"). This is the ordering list — look at Colours, not Summary, when buying paint. Uses the per-colour-group tin calculation already built. Must read from the SAME calculation as the summary (one source of truth — don't diverge). Watch: a room with a product override under the same colour number is a different product → show as its own sub-grouping, don't merge tins across different products under one colour heading.
 
 ### Secondary polish (later)
-3. **Brand/code autofill** — see "Colour reference library" (seed F&B + Little Greene).
+3. ~~**Brand/code autofill**~~ — ✅ SHIPPED, see "Colour reference library" above.
 4. **Finish/sheen per colour** — same colour can go on in different finishes (matt walls, eggshell woodwork); note against the colour for ordering accuracy.
 5. **Surfaces per colour** — which surfaces each colour covers (walls only vs walls+ceiling), so a feature-wall colour is distinguished from a whole-room one.
 6. **Colour schedule output** — a tidy "Colour Schedule" (room, colour, finish) on the quote or as a shareable summary. Professional touch; doubles as Nicky's own worksheet.

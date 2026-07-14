@@ -2530,10 +2530,16 @@ function addColour() {
 // the save-form (a full renderColours() rebuild) before the user can use
 // it. The dropdown's own click handlers (selectLibraryColour,
 // confirmSaveColour, the outside-click listener below) commit instead.
+// A name shared by several brands is ambiguous, so autofill only when the
+// name resolves to exactly ONE library entry. With two brands sharing a
+// name, first-match-wins would put a confidently wrong code in front of the
+// merchant; a blank brand chip reads as "unresolved" and is the safer
+// failure. Picking from the dropdown resolves it explicitly.
 function renameColour(number, label) {
   if (colourDropdownFor === number) return;
   label = label.trim();
-  var match = colourLibrary.find(function(l){ return l.name.toLowerCase() === label.toLowerCase(); });
+  var matches = colourLibrary.filter(function(l){ return l.name.toLowerCase() === label.toLowerCase(); });
+  var match = matches.length === 1 ? matches[0] : null;
   commitColour(number, label, match ? match.brand : '', match ? match.code : '');
 }
 
@@ -2571,10 +2577,16 @@ function onColourLabelInput(number, value) {
       + '<div style="font-size:12px;color:var(--text2)">' + escapeHtml(c.brand) + (c.code ? ' · No. ' + escapeHtml(c.code) : '') + '</div>'
       + '</div>';
   }).join('');
+  // The save option is ALWAYS offered, even when the name already exists.
+  // Colour names are not unique across brands (Chemise is both F&B 216 and
+  // Little Greene 139, and trade brands colour-match each other freely), so
+  // an existing name must never block adding the same name under a
+  // different brand. The library's real key is name+brand -- matching the
+  // UNIQUE(name, brand) constraint the table has always had.
   var exact = colourLibrary.some(function(c){ return c.name.toLowerCase() === qLower; });
-  if (!exact) {
-    html += '<div style="padding:10px 12px;cursor:pointer;color:var(--accent);font-weight:600;font-size:14px" onmousedown="event.preventDefault()" onclick="showSaveColourForm('+number+')">+ Save “' + escapeHtml(q) + '” to your colour library</div>';
-  }
+  html += '<div style="padding:10px 12px;cursor:pointer;color:var(--accent);font-weight:600;font-size:14px" onmousedown="event.preventDefault()" onclick="showSaveColourForm('+number+')">'
+    + (exact ? '+ Add “' + escapeHtml(q) + '” under another brand' : '+ Save “' + escapeHtml(q) + '” to your colour library')
+    + '</div>';
   dd.innerHTML = html;
   dd.style.display = 'block';
 }
@@ -2593,9 +2605,19 @@ function showSaveColourForm(number) {
   var q = input ? input.value.trim() : '';
   var dd = document.getElementById('colour-dd-'+number);
   if (!dd || !q) return;
+  // Show what's already filed under this name so it's obvious which brands
+  // are taken -- saving the same name+brand again overwrites that entry's
+  // code rather than adding a second one.
+  var already = colourLibrary.filter(function(c){ return c.name.toLowerCase() === q.toLowerCase(); });
+  var alreadyHtml = already.length
+    ? '<div style="font-size:12px;color:var(--text2);margin-bottom:6px">Already in library as '
+      + already.map(function(c){ return escapeHtml(c.brand) + (c.code ? ' · No. ' + escapeHtml(c.code) : ''); }).join('; ')
+      + '</div>'
+    : '';
   dd.innerHTML =
     '<div style="padding:10px 12px;background:var(--surface2)">'
     + '<div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Save “'+escapeHtml(q)+'” to colour library</div>'
+    + alreadyHtml
     + '<input type="text" id="cs-brand-'+number+'" placeholder="Brand (e.g. Farrow &amp; Ball)" autocorrect="off" style="width:100%;box-sizing:border-box;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:\'DM Sans\',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none;margin-bottom:6px">'
     + '<input type="text" id="cs-code-'+number+'" placeholder="Code (optional)" autocorrect="off" style="width:100%;box-sizing:border-box;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:\'DM Sans\',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none;margin-bottom:8px">'
     + '<div style="display:flex;gap:8px">'
@@ -2614,7 +2636,22 @@ function confirmSaveColour(number) {
   var brand = brandEl ? brandEl.value.trim() : '';
   var code = codeEl ? codeEl.value.trim() : '';
   if (brand) {
-    colourLibrary.push({ name: q, brand: brand, code: code });
+    // Mirror the server's ON CONFLICT (name, brand) DO UPDATE upsert in the
+    // local cache: same name under a NEW brand is a new entry, same
+    // name+brand just refreshes the code. Pushing blindly would leave the
+    // cache holding a duplicate the server doesn't have, and the duplicate
+    // would then make the name look ambiguous to renameColour.
+    var existing = colourLibrary.find(function(c){
+      return c.name.toLowerCase() === q.toLowerCase() && c.brand.toLowerCase() === brand.toLowerCase();
+    });
+    // Snap to the stored name/brand spelling when this is a re-save. The
+    // match above is case-insensitive but the table's UNIQUE(name, brand) is
+    // case-SENSITIVE, so posting a differently-cased "farrow & ball" would
+    // insert a SECOND server row while the cache updated one -- the next
+    // reload would then show two near-identical brands with different codes.
+    // Sending the canonical spelling keeps client and server on one row.
+    if (existing) { q = existing.name; brand = existing.brand; existing.code = code; }
+    else colourLibrary.push({ name: q, brand: brand, code: code });
     localStorage.setItem('pe-colour-library', JSON.stringify(colourLibrary));
     fetch('/api/colour-library', {
       method: 'POST',
