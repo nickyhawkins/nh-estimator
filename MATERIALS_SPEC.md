@@ -40,7 +40,8 @@ The grouping and parsing must be **supplier-agnostic**. Tikkurila is just the fi
   - `range -> [sizes]` (no band — treat as a single implicit band, or band = null)
   Do NOT assume every product has bands.
 
-- **Size format tolerance.** Parse sizes robustly: `10ltr`, `3ltr`, `1ltr`, and also legacy formats that may still exist for un-tidied suppliers (`2.5 ltr`, `750ml`, `5L`). Normalise to litres for calculation. (ml → litres, e.g. 750ml = 0.75.) Flag or skip items whose size can't be parsed rather than guessing.
+- **Size format tolerance.** **`Nltr` is the convention — every paint item ends `ltr`.** Parse tolerantly anyway, because un-tidied suppliers still carry legacy forms: `2.5 ltr`, `750ml`, `5L`, and `10LT` (Isomat). Normalise to litres for calculation. (ml → litres, e.g. 750ml = 0.75.) Flag or skip items whose size can't be parsed rather than guessing. **Tolerance on read is not permission to write** — new and re-tidied items get `ltr`, and `scripts/update_supplier_prices.py` rewrites the legacy forms to it.
+  - `LT` was missed until 2026-07-14 and silently cost four Isomat paint ranges (`\b` won't fire between `L` and `T`). When adding a format, add it to `scripts/check_item_parse.py` and run it over a fresh export — it reports exactly which items the parser discards.
 
 - **Depends on consistent naming.** Reliable grouping across suppliers depends on their item names following the same convention Tikkurila now uses. **Action required outside the app:** run the price-tidy script (in `scripts/`) across the other suppliers to standardise their naming (keep supplier prefix, `range - band size` structure, `ltr` units). Until a supplier is tidied, the parser should degrade gracefully — group what it can, flag what it can't — rather than break.
 

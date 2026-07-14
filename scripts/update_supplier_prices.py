@@ -45,10 +45,14 @@ _OTEX_RULES = [
     (re.compile(r'\bOtex\s+Adhesion\s+Primer\b'), 'Otex'),
 ]
 
-# Trailing size unit, e.g. "10L" or "1L (per litre)" -> "10ltr" / "1ltr (per litre)".
+# Trailing size unit, e.g. "10L", "10LT" or "1L (per litre)" -> "10ltr" /
+# "1ltr (per litre)". "ltr" is the canonical unit; "L" and "LT" (Isomat) are the
+# legacy forms this script exists to normalise away.
 # Anchored to end-of-string so it can only ever match the size segment, never a
 # product code that happens to contain digits next to a letter (e.g. "Temalac ML90").
-_SIZE_RE = re.compile(r'(\d+(?:\.\d+)?)\s*L(\s*\(per litre\))?$', re.IGNORECASE)
+# Matching an already-canonical "10ltr" is harmless -- it rewrites to itself, so
+# the script stays idempotent.
+_SIZE_RE = re.compile(r'(\d+(?:\.\d+)?)\s*L(?:TR|T)?(\s*\(per litre\))?$', re.IGNORECASE)
 
 
 def _collapse_doubled_words(s):

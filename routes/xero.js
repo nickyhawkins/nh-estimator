@@ -157,10 +157,15 @@ router.get('/contacts', async (req, res) => {
   }
 });
 
-// Tin size in an item name, e.g. "10L", "2.5L", "10ltr" or "2.5 ltr" (our own
-// price-update script writes "ltr" while other, not-yet-tidied suppliers'
-// Xero items use "L" or a space before the unit).
-const TIN_SIZE_RE = /(\d+(?:\.\d+)?)\s*l(?:tr)?\b/i;
+// Tin size in an item name, e.g. "10L", "2.5L", "10ltr", "2.5 ltr" or "10LT"
+// (our own price-update script writes "ltr" -- the canonical form -- while
+// other, not-yet-tidied suppliers' Xero items use "L", "LT", or a space before
+// the unit). "ltr" is the convention; the rest are legacy forms we tolerate on
+// read, per MATERIALS_SPEC.md's "parse sizes robustly" rule. Isomat's "10LT" is
+// why the "t" is optional independently of the "r": without it the \b can't
+// fire between the "L" and the "T", and 8 real paint tins parsed as size-less
+// and were silently discarded by groupMaterialItems().
+const TIN_SIZE_RE = /(\d+(?:\.\d+)?)\s*l(?:tr?)?\b/i;
 // Millilitres, for suppliers that haven't been tidied yet (e.g. "750ml").
 const TIN_SIZE_ML_RE = /(\d+(?:\.\d+)?)\s*ml\b/i;
 
