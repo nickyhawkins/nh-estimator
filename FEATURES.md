@@ -2,6 +2,23 @@
 
 This document captures planned features for the NH Estimator app, scoped and ready to build. Work through phases in order — each is independently useful and testable.
 
+## Status at a glance
+
+Reconciled against the code on **2026-07-14**. Most of the original roadmap is now built — keep this index honest as things ship, it had drifted badly once already.
+
+**Shipped:** Automatic materials from Xero Items · Materials editing + sundries · Realistic time estimate · Deposit & staged payments · Colour reference library · Multiple saved jobs · Rename jobs · HSL alignment (both steps) · Exterior alignment · Wallpaper calculator · Wallpaper per-roll labour · Lining + finish on one job · Feature wall paint/wallpaper toggle
+
+**Still to build:**
+- **Finish/sheen per colour** — the last unbuilt item on the Colours tab (see "Colours tab evolution").
+- **Material tracking (actuals vs estimate)** — not started. The only genuinely NEW territory left; everything else is estimating, this is job management.
+- **Backup: CSV import + full-data export** — a per-job *summary* export exists on the Summary tab, but it is NOT a backup (see "Backup system").
+
+**Loose ends on otherwise-shipped features:**
+- Confirm the wallpaper **staircase +25%** doesn't double-count difficulty already in markup/prep — the spec asked for this before shipping and it was never explicitly closed off.
+- Feature wall never got its **own collapsible section** (cosmetic only).
+- **Calibrate the guessed defaults against real jobs:** exterior assumed areas/coverage, and the sundries %.
+- **Exterior materials have not been proven against live Xero/Postgres** — built against a static preview with a faked Xero cache. Watch the first real exterior quote.
+
 ## Architecture reminder
 
 - **Frontend:** `public/index.html` — single-file vanilla JS app
@@ -19,7 +36,7 @@ This document captures planned features for the NH Estimator app, scoped and rea
 
 ---
 
-## FEATURE: Automatic materials from Xero Items
+## FEATURE: Automatic materials from Xero Items ✅ SHIPPED
 
 Pull paint products from the user's Xero account, calculate quantities from the litres already computed per surface, cost them, and place them on the quote as real Xero line items. Feeds the job total and the deposit calculation.
 
@@ -41,11 +58,15 @@ Pull paint products from the user's Xero account, calculate quantities from the 
 
 High level: select default products by RANGE (not specific tin) for five roles — wall (per tin), ceiling, woodwork topcoat, woodwork primer, and mist coat (per litre). Parse range/band/size from the consistent Xero item names. Group by (range + band + colour number), tin-optimise per group, feed the total + deposit, and write real Xero item codes onto the quote. See MATERIALS_SPEC.md for the full build order and data model.
 
+**As built:** `ROLE_COLOUR_FIELD` maps each role to the colour-number field that groups it; `TIN_ROLES` marks the per-tin roles (`wall`, `masonry`) against the per-litre rest. `computeRoleGroups()` / `buildRoleRows()` are the shared engine — later generalised with an optional source list so exterior roles could reuse them (see "Exterior alignment"). Materials post to the quote as real Xero item lines from `routes/xero.js`. Nine roles now exist, not the original five: the interior five plus `featurewall`, `masonry`, `extTopcoat`, `extPrimer`.
+
 ---
 
-## FEATURE: Materials editing + sundries (BUILD BEFORE DEPOSIT)
+## FEATURE: Materials editing + sundries ✅ SHIPPED
 
-Must come before the deposit feature: the deposit is based on the materials/total, so the total has to be final and adjustable *before* sending — no more editing in Xero after the fact.
+Built before the deposit, as sequenced: the deposit is based on the materials/total, so the total had to be final and adjustable *before* sending — no more editing in Xero after the fact.
+
+**As built:** a job-scoped `materials_snapshot` table (`GET/PUT/DELETE /api/materials`), populated by `recalculateMaterialsSnapshot()` and then edited freely as a frozen snapshot. It is deliberately NOT kept in sync with rooms automatically — only an explicit Recalculate re-pulls, exactly as scoped below. Sundries % and deposit % both live in global Settings (`sundriesPct` default 5, `depositPct` default 25).
 
 ### Materials editing (trim the auto-calculations) — this quote only
 - **Edit a calculated line's quantity** — override the auto quantity (e.g. 6 tins → 5 or 7 for access/wastage); cost and total follow the new quantity.
@@ -65,7 +86,9 @@ Must come before the deposit feature: the deposit is based on the materials/tota
 ### Calculation order (important)
 labour (before markup) → sundries = labour × sundries% → materials (calculated, then edited/trimmed) → subtotal = labour + sundries + materials → markup applied → deposit calculated on the marked-up total. Get this order right so sundries is on raw labour and the deposit is on the true final figure.
 
-## FEATURE: Realistic time estimate (scheduling — BUILD BEFORE DEPOSIT)
+## FEATURE: Realistic time estimate (scheduling) ✅ SHIPPED
+
+**As built:** Settings carry `overheadMins` (default 45 mins/day) and `bufferPct` (default 0), which feed an `onSiteDays` figure shown alongside working time. `onSiteDays` is what `computeDepositPlan()` derives the weekly instalment count from — the key link below, wired as specced. No costing change: the quote total is untouched.
 
 The app calculates **working time** (hands-on hours ÷ day length) — accurate for costing, but not calendar reality. A job at 2.85 working days actually spans more calendar days once drying, floor protection, setup, masking and clearing up are counted. Those non-productive elements are currently only in the markup (cost), not reflected in the *time*.
 
@@ -86,9 +109,11 @@ Chain for staged payments: working time → realistic time (× overhead/buffer) 
 ### Client-facing (optional)
 Having the realistic duration to hand is also better for telling the client "about a week" — the raw working time would sound too short and set wrong expectations.
 
-## FEATURE: Deposit & staged payments
+## FEATURE: Deposit & staged payments ✅ SHIPPED
 
-Depends on materials AND materials-editing/sundries above AND the realistic time estimate above, so the deposit is based on the true adjusted total, and the staged-payment schedule is based on realistic job length (not working days).
+Built last of the four, as sequenced — on top of materials, materials-editing/sundries and the realistic time estimate, so the deposit is based on the true adjusted total and the staged-payment schedule on realistic job length (not working days).
+
+**As built:** `computeDepositPlan(tcS, materialsTotal, onSiteDays)` implements the greater-of rule and derives the instalment count from `onSiteDays`. `buildPaymentTermsText()` / `buildPaymentSummaryText()` render it, and `routes/xero.js` writes the deposit/balance figures onto the quote separately from the Terms block. The Summary tab and the Xero quote read the SAME plan object, so they can't diverge.
 
 1. **Deposit calculation on summary:**
    - Default 25% (editable in settings)
@@ -128,9 +153,13 @@ The Colours tab lets each colour number carry a name (e.g. colour 1 = "Dimity").
 - Colour label stays reference/ordering only; the colour NUMBER still drives the materials calculation (see MATERIALS_SPEC.md).
 - Big trade brands (Dulux etc.) are usually colour-matched anyway — the grow-on-use path handles them, no wholesale seeding.
 
-## FEATURE: Multiple saved jobs (structural — build AFTER materials + deposit)
+## FEATURE: Multiple saved jobs ✅ SHIPPED
 
-Right now the app holds ONE working job at a time (one set of rooms, exterior items, colours). Doing two surveys in a day means manually combining them into one session and separating later. This makes jobs first-class: save a job, start another, come back to either to tweak before committing to Xero.
+Was: the app held ONE working job at a time, so two surveys in a day meant manually combining and separating them. Jobs are now first-class — save a job, start another, come back to either before committing to Xero.
+
+**As built:** a `jobs` table (`GET/POST/PUT/DELETE /api/jobs`) seeded with a `'default'` job named "My Job". `rooms`, `exterior_items`, `colours` and `materials_snapshot` each gained a `job_id`, backfilled to `'default'` then set NOT NULL — so existing data migrated into the default job rather than being orphaned. `settings` and `colour_library` stayed global, as scoped. `colours` needed a `colours_job_number_uniq` index on `(job_id, number)`, because colour numbers are unique per-job, not globally.
+
+**Open design question — RESOLVED:** jobs are **fully separate**, no duplicate-as-template (recorded at the top of `db/setup.sql`). If templates are ever wanted, they layer on from here.
 
 ### The core change
 Everything that's currently "the current job" — rooms, exterior items, colours, sundries, materials edits, client/reference fields — becomes per-job. **Settings stay GLOBAL** (rates, coverage, product defaults, sundries % = business config, not per-job).
@@ -151,9 +180,16 @@ Build AFTER the current materials refinements and the deposit feature — get th
 ### Open design question
 Are jobs fully separate (each its own everything, no overlap), or do you want to **duplicate a job as a template** to tweak? The second overlaps with the "Job templates" idea below (standard 3-bed repaint etc.) — if templates are wanted, multiple-jobs is the natural foundation for them (a template is just a job you copy). Decide before building: fully-separate is simpler; duplicate-to-template is a nice touch and reuses the same machinery.
 
-## FEATURE: HSL alignment with the room system
+## FEATURE: HSL alignment with the room system ✅ SHIPPED (both steps)
 
-The HSL (halls / stairs / landings) system predates recent changes and has drifted out of step with how regular rooms now work. Two parts: fix a bug first, then align — as SEPARATE tasks (don't tangle them).
+The HSL (halls / stairs / landings) system had drifted out of step with how regular rooms work. Done as two separate tasks, as sequenced.
+
+**Step 1 outcome — NOT a double-count.** Investigated before changing, as the spec insisted. The staircase woodwork value was only ever in the one place, so it was **re-homed into the HSL breakdown** rather than deleted: `hsl-r-wood-row` is now a breakdown row inside the HSL results card, shown only when there's woodwork to show. `calcWoodCost` lands in `totalCostDisp` exactly ONCE and the row itemises part of that total — it does not add to it. Staircase woodwork keeps its own coats count (`hslCoats.swc`), separate from the shared woodwork coats (`xc`, skirting/doors), since the two aren't always painted the same number of times.
+
+**Step 2 outcome.** HSL now reuses the shared room fields and functions (`setSeg`/`setPrep`/`setWP`) via `setRoomStaircase()` + `computeHSLOverrides()` — it's triggered from the room flow, and the **toggle** approach won over the typed-keyword one, as recommended. The stair-wall geometry fix landed as specced: `stairWallWidth(startWidth, steps, tread, topStep)` builds the width UP from the bottom and **never** uses landing length (the old double-count). The stepped-bottom area is reconstructed from 3 flat regions, with the deliberate "don't model individual step slivers" simplification preserved and commented in the code so nobody "fixes" it later. `startWidth` is whatever the flight launches from — ground-floor hall for stair 1, the landing below for stair 2, NOT the arrival landing.
+
+<details>
+<summary>Original spec (kept for the reasoning)</summary>
 
 ### Step 1 — Bug: stray staircase woodwork line (do first, contained)
 A "staircase woodwork" line still shows as an extra line on the summary. Likely legacy code from before spindles/newels were rolled into the HSL total (same fingerprint as the old exterior migration — old code surviving alongside new).
@@ -186,6 +222,8 @@ Decide scope deliberately — a staircase isn't a room (own geometry: slope calc
 ### Sequencing
 Fix Step 1 now (small). Step 2 is a proper alignment task — slot it in deliberately, not off the cuff, because the materials-integration part connects to everything recently built. Confirm the materials flow before/after so HSL paint is counted exactly once.
 
+</details>
+
 ## FEATURE: Exterior alignment with the interior system ✅ SHIPPED
 
 The exterior section had fallen behind — a long scroll of items, no materials, and some measurements that didn't capture the real work. Brought inline with interior across four parts, all now **shipped**.
@@ -212,7 +250,16 @@ The exterior section had fallen behind — a long scroll of items, no materials,
 - Exterior primer has no per-item "None" toggle: to skip it, leave the extPrimer product unmapped in Settings (shows as a £0 estimate row, same as any unmapped role).
 - Built/verified via the client-only static preview with a faked Xero cache — not yet proven against live Xero/Postgres. Watch the first real exterior quote.
 
-## FEATURE: Wallpaper calculator (rolls to order — reuses stair geometry)
+## FEATURE: Wallpaper calculator (rolls to order) ✅ SHIPPED
+
+**As built:** `calcWallpaperRolls()` implements the drops-per-roll method; `packWallpaperRolls()` handles the packing; `stairWallDropLengths()` + `computeHSLWallpaperRolls()` reuse the derived stair geometry rather than re-solving the raking wall, as intended. `roomWallpaperRolls()` and `featureWallWallpaperRolls()` share that one implementation — whole-room and feature-wall wallpaper are not two versions.
+
+**Per-roll labour SHIPPED too:** `wallpaperLabourCost(type, rolls, isCeil, isStaircase)` replaced the old `wpMins()` area × mins/m² path, which is now gone. That unblocked collapsing the lining/plain/patterned selector, as predicted — `wpNormalisePaperType()` now handles lining vs finish.
+
+**Gotcha found in the field:** pattern repeat is entered in **cm, not mm** (`wpRepeatCmFromInput()`) — the field was originally mislabelled mm and corrected in commit 166eff6. The spec below still says mm; the code is right, the spec is stale.
+
+<details>
+<summary>Original spec (kept for the reasoning)</summary>
 
 A separate tool, triggered from a room being measured, that tells Nicky (and the client) how many rolls to ORDER. Nicky does NOT supply/order wallpaper — so this is NOT a material cost and does NOT feed the quote total. Purely a "how many rolls should the customer buy" figure. Common real request: measuring a room, client says they want wallpaper, Nicky selects wallpaper and needs to tell them rolls required. Depends on the stair-wall geometry from HSL alignment (build after that so it reuses it, not re-solving the raking wall).
 
@@ -260,34 +307,47 @@ A separate tool, triggered from a room being measured, that tells Nicky (and the
 ### FOLLOW-ON note (superseded by the per-roll model above)
 The earlier "check whether per-roll matches Nicky's pricing" question is now answered — per-roll IS the chosen model (£30 lining / £40 finish, +15% ceiling / +25% stair). Still confirm the staircase % doesn't double-count difficulty already in general markups/prep before shipping.
 
-## FEATURE: Colours tab evolution (paint/ordering view)
+</details>
 
-Beyond defining `{number, label}` colours, the Colours tab can become the job's paint/ordering screen using data the materials feature already calculates. Conceptual clarity: **Rooms = input the work, Summary = the price, Colours = what you actually buy and put where.**
+> **Outstanding on this feature:** the staircase-% double-count check above was never explicitly confirmed. Worth a look at the first real staircase wallpaper job — does +25% stair labour overlap difficulty already priced into markup/prep?
 
-### Priority additions (the big win — surface existing data)
-1. **Rooms per colour** — under each colour show the rooms assigned to it (e.g. "Colour 1 — Dimity — Lounge, Hall, Landing"). Turns the tab into a colour schedule at a glance. Data already exists (rooms carry colour number).
-2. **Paint quantity per colour** — roll up the litres/tins for each colour group (e.g. "Colour 1 — Dimity — 12ltr · 2 × 5ltr + 1 × 2ltr"). This is the ordering list — look at Colours, not Summary, when buying paint. Uses the per-colour-group tin calculation already built. Must read from the SAME calculation as the summary (one source of truth — don't diverge). Watch: a room with a product override under the same colour number is a different product → show as its own sub-grouping, don't merge tins across different products under one colour heading.
+## FEATURE: Colours tab evolution (paint/ordering view) — MOSTLY SHIPPED
 
-### Secondary polish (later)
-3. ~~**Brand/code autofill**~~ — ✅ SHIPPED, see "Colour reference library" above.
-4. **Finish/sheen per colour** — same colour can go on in different finishes (matt walls, eggshell woodwork); note against the colour for ordering accuracy.
-5. **Surfaces per colour** — which surfaces each colour covers (walls only vs walls+ceiling), so a feature-wall colour is distinguished from a whole-room one.
-6. **Colour schedule output** — a tidy "Colour Schedule" (room, colour, finish) on the quote or as a shareable summary. Professional touch; doubles as Nicky's own worksheet.
+Beyond defining `{number, label}` colours, the Colours tab is now the job's paint/ordering screen, built on data the materials feature already calculates. Conceptual clarity: **Rooms = input the work, Summary = the price, Colours = what you actually buy and put where.**
+
+### Priority additions — ✅ BOTH SHIPPED
+1. ✅ **Rooms per colour** — `renderColours()` lists the rooms under each colour, split by surface (Walls / Ceiling / Woodwork / Feature wall) and, since the exterior work, by Masonry (ext) / Woodwork (ext) too.
+2. ✅ **Paint quantity per colour** — the tab reads `computeMaterials()` and renders its role rows, so it shares ONE source of truth with the Summary by construction rather than by discipline. This is the ordering list: look at Colours, not Summary, when buying paint.
+
+### Secondary polish
+3. ✅ **Brand/code autofill** — SHIPPED, see "Colour reference library" above.
+4. ⬜ **Finish/sheen per colour** — **NOT BUILT. The last unbuilt item on this tab.** Same colour can go on in different finishes (matt walls, eggshell woodwork); note it against the colour for ordering accuracy.
+5. ✅ **Surfaces per colour** — `surfaceSummary()` renders a chip ("All surfaces", "Walls + Ceiling", …). Feature wall is treated as a carve-out of Walls, not a whole-room surface in its own right.
+6. ✅ **Colour schedule output** — a Colour Schedule on the Summary tab, sharing its builder with the CSV export so the two can't diverge.
 
 ### Notes
 - Leans on existing calculations — mostly surfacing data, not new logic.
 - The colour NUMBER still drives the materials calculation; names/codes/finishes are reference only.
-- Build after core materials + per-room overrides are solid.
+- **Watch when touching the tin roll-up:** a room with a product override under the same colour number is a DIFFERENT product — it must show as its own sub-grouping. Don't merge tins across different products under one colour heading.
 
-## FEATURE: Rename jobs on the jobs list
+## FEATURE: Rename jobs on the jobs list ✅ SHIPPED
 
-Small, self-contained. Jobs get named fast on site (client/address); allow editing the name from the jobs list afterwards to tidy or correct. Natural follow-on to Multiple saved jobs (depends on it).
+`renameJob(id)` behind the ✎ control on each row of the jobs list, PUTting to `/api/jobs/:id`. Jobs get named fast on site (client/address), so the name can be tidied or corrected afterwards.
 
-## FEATURE: Lining + finish paper on the same job (wallpaper refinement)
+## FEATURE: Lining + finish paper on the same job ✅ SHIPPED
 
-Gap in the current wallpaper build: labour charges £30/roll lining or £40/roll finish, but one job often has BOTH (line out then finish, or lining some walls + finish elsewhere). Paper type currently seems to be one choice per room/job — needs to allow both in one job. The calc already knows both rates; the change is letting paper type be per-wall/per-area rather than a single setting, and summing labour across the mix. Refinement to the wallpaper feature, not a new system.
+Was a gap: labour charges £30/roll lining or £40/roll finish, but one job often has BOTH (line out then finish, or lining some walls + finish elsewhere), and paper type was one choice per room/job.
 
-## FEATURE: Feature wall — paint/wallpaper toggle (follows lining+finish; build straight after)
+**As built:** lining and finish are independent flags per surface, not a single either/or — `wpSurfaceResult(liningOn, finishOn, isCeil, isStaircase, rollsForType)` costs whatever combination is on, and the previews join them as "Lining X · Finish Y" via `joinWPParts()`. Labour sums across the mix.
+
+## FEATURE: Feature wall — paint/wallpaper toggle ✅ SHIPPED
+
+Built straight after lining+finish, as sequenced, reusing that mechanism.
+
+**As built:** `featureWallMode` routes the wall's dimensions down either path — `'paint'` carves out of the main wall area and feeds materials via the `featurewall` role; wallpaper hands off to `featureWallWallpaperRolls()`, sharing the one wallpaper implementation rather than a second copy. The critical exclusion holds: `renderColours()` and the materials engine both filter feature walls on `(r.featureWallMode||'paint')==='paint'`, so a wallpapered feature wall drops out of paint entirely instead of being double-counted.
+
+<details>
+<summary>Original spec</summary>
 
 Extends the feature-wall pricing (input dimensions → price the wall on its own). **Depends on and follows the "Lining + finish paper on the same job" work** — the wallpaper option reuses that lining+finish mechanism, so build lining/finish first, then this straight after (parked until then).
 
@@ -299,19 +359,29 @@ Extends the feature-wall pricing (input dimensions → price the wall on its own
 - **Move the feature wall into its own collapsible section** in the room tab (occasional feature → collapsed by default), consistent with the compacted layout.
 - Before wiring in, confirm how the feature-wall area flows in each case (paint vs wallpaper) so it's excluded from paint correctly when wallpaper is chosen.
 
-## FEATURE: Material tracking (actuals vs estimate — job management)
+</details>
+
+> **Still outstanding:** the spec called for moving the feature wall into its own collapsible section (collapsed by default). The room form has collapsible sections and the exterior form uses them throughout, but there's no dedicated feature-wall section — cosmetic, not functional.
+
+## FEATURE: Material tracking (actuals vs estimate — job management) ⬜ NOT STARTED
 
 DIFFERENT from everything else so far — everything to date is ESTIMATING (what a job should cost). This is ACTUALS: track what was really used/purchased against a job so nothing's missed at invoicing (forgotten materials = lost money). Turns the app from a quoting tool into a light job-management tool.
 - A place per job to log materials purchased/used, reconciled against the estimate (estimated vs actual, what's outstanding).
 - Bigger conceptual piece than a calculation tweak; depends on Multiple saved jobs (tracking is per-job).
 - Scope carefully when reached — could be as simple as a checklist/log per job, or as involved as full reconciliation. Start simple.
 
-## FEATURE: Backup system (CSV export / import)
+## FEATURE: Backup system (CSV export / import) — ⚠️ PARTIAL, NOT YET A BACKUP
 
-The app now holds real job data on Render Postgres — a DB problem would lose everything with no backup. Add export-all-to-CSV and import-from-CSV as a safety net and for portability.
-- Synergy: the same export/import can underpin backup AND moving/archiving jobs between devices.
-- Overlaps with the Multiple saved jobs data model — build after that's settled, since the jobs structure defines what's being exported.
-- Reuse the CSV tooling patterns already in `scripts/` where sensible.
+The app holds real job data on Render Postgres — a DB problem would lose everything with no backup. Still true.
+
+**What exists:** an `exportCSV()` button on the Summary tab. It is a **human-readable summary of the ACTIVE job only** — settings header, a room-by-room table (dimensions, coats, counts, colour labels, cost, time), a single lumped Exterior row, and the totals. Useful, and it shares its colour-label builder with the Colour Schedule.
+
+**Why it is NOT a backup — don't mistake one for the other:**
+- **Export only. There is no import**, so nothing can be restored from it.
+- **Active job only** — other saved jobs aren't in the file.
+- **Lossy by design**: exterior items collapse to one total row, and the materials snapshot, the colour library, per-room product overrides and full settings aren't exported. You could not rebuild the job from it.
+
+**What's left to build:** a real export-all (every job + settings + colour library, round-trippable) and the matching import. The Multiple saved jobs data model is now settled, so the structure to export is finally stable. Reuse the CSV tooling patterns in `scripts/` where sensible. Note `db/setup.sql` is written to be re-runnable (ALTER … IF NOT EXISTS, backfill, then NOT NULL), which is the pattern an import would need to respect.
 
 ## Quote description templates
 
