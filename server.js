@@ -30,6 +30,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Routes
 app.use('/auth', require('./routes/xero'));
 app.use('/api', require('./routes/api'));
+app.use('/debt', require('./routes/debt'));
 
 // Serve the app for all other routes
 app.get('*', (req, res) => {

@@ -120,3 +120,63 @@ CREATE TABLE IF NOT EXISTS materials_snapshot (
 ALTER TABLE materials_snapshot ADD COLUMN IF NOT EXISTS job_id VARCHAR;
 UPDATE materials_snapshot SET job_id = 'default' WHERE job_id IS NULL;
 ALTER TABLE materials_snapshot ALTER COLUMN job_id SET NOT NULL;
+
+-- ── Debt Management App ─────────────────────────────────────────────────
+-- Fully separate personal debt-tracking tool, served from /debt, sharing
+-- only this Postgres instance with the paint app. Tables are namespaced
+-- debt_plan_ so they can never collide with the paint app's schema above.
+-- Single-user, so settings/cashflow are single fixed-id rows rather than
+-- per-user or per-job scoped.
+
+CREATE TABLE IF NOT EXISTS debt_plan_debts (
+  id INTEGER PRIMARY KEY,
+  name VARCHAR NOT NULL,
+  balance NUMERIC NOT NULL DEFAULT 0,
+  apr NUMERIC NOT NULL DEFAULT 0,
+  min NUMERIC NOT NULL DEFAULT 0,
+  arrears NUMERIC NOT NULL DEFAULT 0,
+  due INTEGER,
+  account VARCHAR NOT NULL DEFAULT 'personal',
+  note VARCHAR NOT NULL DEFAULT ''
+);
+INSERT INTO debt_plan_debts (id, name, balance, apr, min, arrears, due, account, note) VALUES
+  (2,  'Currys',       965.72,   39.9, 25,     0,        15,   'personal', 'Est. figures'),
+  (3,  'Natwest CC',   1111.90,  26.9, 40.03,  0,        10,   'personal', ''),
+  (4,  'PayPal',       2017.25,  0,    93.44,  0,        11,   'personal', '0% interest'),
+  (5,  'Brewers',      2200.89,  0,    0,      2200.89,  1,    'business', 'Trade account — full balance in arrears'),
+  (6,  'Amex',         4065.64,  30.4, 205,    65.64,    28,   'business', ''),
+  (7,  'Updraft',      3583.81,  17.9, 264.66, 793.98,   20,   'personal', ''),
+  (8,  'Bounce Back',  7733.65,  2.5,  182.08, 177.48,   14,   'business', ''),
+  (9,  'NatWest Loan', 17122.68, 19,   520.01, 2662.97,  15,   'personal', ''),
+  (10, 'Van',          20600,    0,    400,    0,        NULL, 'business', 'Family loan — low priority'),
+  (11, 'HMRC',         31510.32, 0,    0,      0,        NULL, 'business', 'Needs Time to Pay arrangement')
+ON CONFLICT (id) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS debt_plan_settings (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  budget INTEGER NOT NULL DEFAULT 2000,
+  sweep_pct INTEGER NOT NULL DEFAULT 50,
+  savings_pct INTEGER NOT NULL DEFAULT 10,
+  tight_threshold INTEGER NOT NULL DEFAULT 600,
+  last_milestone VARCHAR NOT NULL DEFAULT ''
+);
+INSERT INTO debt_plan_settings (id) VALUES (1) ON CONFLICT DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS debt_plan_cashflow (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  biz_pot NUMERIC NOT NULL DEFAULT 0,
+  per_pot NUMERIC NOT NULL DEFAULT 0,
+  savings_pot NUMERIC NOT NULL DEFAULT 0,
+  paid_this_cycle JSONB NOT NULL DEFAULT '[]'
+);
+INSERT INTO debt_plan_cashflow (id) VALUES (1) ON CONFLICT DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS debt_plan_income_log (
+  id SERIAL PRIMARY KEY,
+  amount NUMERIC NOT NULL,
+  biz_amt NUMERIC NOT NULL DEFAULT 0,
+  per_amt NUMERIC NOT NULL DEFAULT 0,
+  saved_amt NUMERIC NOT NULL DEFAULT 0,
+  date VARCHAR NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
