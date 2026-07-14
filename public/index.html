@@ -443,10 +443,29 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 </div>
 
 <!-- ══ SUMMARY ══ -->
+<!-- ══ MATERIALS TRACKING (actuals vs estimate) ══
+     TEMPORARY ENTRY POINT: reached from a button on Summary. This belongs in
+     the hamburger "job admin" menu (Jobs · Materials tracking · Settings) with
+     an outstanding-count badge -- decided, but the nav refactor is nav-wide,
+     tracked separately in FEATURES.md, and must not gate the feature it was
+     designed to hold. Move this when the hamburger lands; the badge on the menu
+     is load-bearing, not polish (a hamburger's real cost is hiding things). -->
+<div id="screen-actuals" class="screen">
+  <div class="topbar">
+    <button class="back-btn" onclick="goTab('summary')">←</button>
+    <div class="topbar-title">Materials</div>
+  </div>
+  <div class="content">
+    <div id="actuals-body"></div>
+  </div>
+</div>
+
 <div id="screen-summary" class="screen">
   <div class="topbar">
     <div class="topbar-title">Summary</div>
-    <button onclick="exportCSV()" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:20px;padding:6px 14px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Export ↓</button>
+    <!-- Temporary home for materials tracking until the hamburger nav lands. -->
+    <button onclick="openActuals()" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:20px;padding:6px 14px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Materials ›</button>
+    <button onclick="exportCSV()" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:20px;padding:6px 14px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;margin-left:4px">Export ↓</button>
     <button onclick="goTab('settings')" style="background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;padding:4px;margin-left:4px;line-height:1">⚙️</button>
   </div>
   <div id="xero-quote-panel" style="display:none;padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--border);flex-direction:column;gap:8px">
@@ -771,6 +790,37 @@ async function apiDelete(path) {
   }
 }
 
+// Strict variants for MATERIAL ACTUALS, and only those. apiPut/apiDelete above
+// swallow every failure — they don't check response.ok at all — and let the app
+// carry on from localStorage. That's right for rooms/colours/the materials
+// snapshot: all regenerable, all mirrored locally, so a dropped write costs
+// nothing a Recalculate can't rebuild.
+//
+// Actuals are the invoice. They regenerate from nothing and have no local
+// mirror by design, so a write that silently didn't land is a quantity that
+// silently doesn't get billed — the exact failure this feature exists to
+// prevent. These throw on a network error AND on a non-2xx, and hand back the
+// parsed body so the caller can adopt the id the server actually stored.
+async function apiPutStrict(path, data) {
+  const r = await fetch(path, {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(data)
+  });
+  if (!r.ok) {
+    let msg = 'HTTP ' + r.status;
+    try { const b = await r.json(); if (b && b.error) msg = b.error; } catch (e) {}
+    throw new Error(msg);
+  }
+  return r.json();
+}
+
+async function apiDeleteStrict(path) {
+  const r = await fetch(path, { method: 'DELETE' });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+
 // Save to localStorage AND server
 // Returns the save's promise chain (not just fire-and-forget) so
 // switchJob() can await a full flush of the OLD job before reassigning
@@ -922,6 +972,41 @@ var materialGroupsCache = {};
 // rather than fake ranges inside materialGroupsCache.
 var materialSundriesCache = [];
 
+// itemCode -> { itemCode, description, price, isSundry, isPerLitre }, over BOTH
+// caches. The single flattening of "every pickable Xero item", built once when
+// the caches change and shared by everything that needs one:
+//   - the one-off product select (which used to flatten them itself);
+//   - materials tracking, which must price an actual that has no estimate line
+//     and so needs a lookup BY CODE -- addMaterialProductOptions can't serve
+//     that, it's keyed by <option> index, not by item code.
+// Item codes are unique across both buckets (one Xero item, one code, one
+// parse), so a Map keyed on code is safe. Insertion-ordered sundries-first to
+// match the picker's display order -- see populateAddMaterialProductSelect.
+var materialItemIndex = new Map();
+
+function rebuildMaterialItemIndex() {
+  materialItemIndex = new Map();
+  materialSundriesCache.forEach(function(item) {
+    // Description verbatim from Xero -- never rebuilt from range/band/size,
+    // which is what put "Quickgrip Adhesive ( 0.38ltr" on client quotes.
+    materialItemIndex.set(item.itemCode, {
+      itemCode: item.itemCode, description: item.description, price: item.price,
+      isSundry: true, isPerLitre: false
+    });
+  });
+  Object.keys(materialGroupsCache).sort().forEach(function(range) {
+    Object.keys(materialGroupsCache[range]).sort().forEach(function(band) {
+      materialGroupsCache[range][band].forEach(function(item) {
+        materialItemIndex.set(item.itemCode, {
+          itemCode: item.itemCode,
+          description: range + (band ? ' - ' + band : '') + ' ' + item.sizeL + 'ltr',
+          price: item.price, isSundry: false, isPerLitre: !!item.isPerLitre
+        });
+      });
+    });
+  });
+}
+
 // Unwrap the three-bucket response. Both fetch sites go through here so they
 // can't drift; tolerate a bare range map so a stale cached page against a new
 // server degrades to "no sundries" instead of showing "paint"/"sundries"/
@@ -931,6 +1016,7 @@ function applyMaterialGroupsResponse(resp) {
   var threeBucket = resp.paint && typeof resp.paint === 'object';
   materialGroupsCache = threeBucket ? resp.paint : resp;
   materialSundriesCache = (threeBucket && Array.isArray(resp.sundries)) ? resp.sundries : [];
+  rebuildMaterialItemIndex();
 }
 
 async function refreshXeroItems() {
@@ -1641,6 +1727,9 @@ function goTab(tab) {
   if (tab==='exterior') renderExterior();
   if (tab==='colours') renderColours();
   if (tab==='jobs') renderJobs();
+  // NB no renderActuals() here — actuals live only on the server, so the
+  // screen is entered via openActuals(), which loads before it renders.
+  // goTab('actuals') on its own would paint a stale or empty list.
 }
 
 // Collapsible room-form sections (Extras/Preparation/Mist Coat/Paint &
@@ -2328,7 +2417,16 @@ function recalculateMaterialsSnapshot() {
   var allRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows, mats.featureWallRows, mats.masonryRows, mats.extTopcoatRows, mats.extPrimerRows);
   materialsSnapshot = allRows.reduce(function(acc, row) {
     return acc.concat(row.lineItems.map(function(li) {
-      return { id: uid(), itemCode: li.itemCode, description: li.description, quantity: li.quantity, unitAmount: li.unitAmount, custom: false, isPerLitre: !!li.isPerLitre };
+      // colourNumber/role are additive, carried from the row (buildRoleRows
+      // attaches them) purely so materials tracking can show a per-colour
+      // breakdown under each rolled-up product row -- a line item's own
+      // description is the PRODUCT ("Optiva 5 - Pastels 10ltr"), which can't
+      // tell you which colour it was for. Safe to attach: the Xero quote
+      // builder names the fields it sends (itemCode/description/quantity/
+      // unitAmount) rather than spreading the line, so extra keys never reach
+      // Xero. Lines saved before this existed simply have neither, and the
+      // breakdown is skipped for them until the next Recalculate.
+      return { id: uid(), itemCode: li.itemCode, description: li.description, quantity: li.quantity, unitAmount: li.unitAmount, custom: false, isPerLitre: !!li.isPerLitre, colourNumber: row.colourNumber, role: row.role };
     }));
   }, []);
   saveMaterialsSnapshot();
@@ -2370,44 +2468,37 @@ function deleteMaterialLine(id) {
 // missed" flow reuses wholesale. Don't build a second product picker.
 var addMaterialProductOptions = [];
 
-function populateAddMaterialProductSelect() {
-  var sel = document.getElementById('add-mat-product');
+// selId lets a second screen (materials tracking) mount the SAME picker rather
+// than growing a second one -- the repo's recurring failure mode is a duplicate
+// function surviving alongside the original, later definition silently winning.
+// addMaterialProductOptions stays a single shared array: both selects are built
+// from materialItemIndex in the same order, so an option index means the same
+// thing in either, and onAddMaterialProductSelect() works for both.
+function populateAddMaterialProductSelect(selId) {
+  var sel = document.getElementById(selId || 'add-mat-product');
   if (!sel) return;
   addMaterialProductOptions = [];
   var opts = '<option value="-1">— Free text —</option>';
+  var all = Array.from(materialItemIndex.values());
 
-  function addOption(itemCode, desc, price) {
-    var idx = addMaterialProductOptions.length;
-    addMaterialProductOptions.push({ itemCode: itemCode, description: desc, unitAmount: price });
-    opts += '<option value="'+idx+'">'+escapeHtml(desc)+' — '+fmt(price)+'</option>';
+  function group(label, list) {
+    if (!list.length) return '';
+    var s = '<optgroup label="'+escapeHtml(label)+'">';
+    list.forEach(function(item) {
+      var idx = addMaterialProductOptions.length;
+      addMaterialProductOptions.push({ itemCode: item.itemCode, description: item.description, unitAmount: item.price });
+      s += '<option value="'+idx+'">'+escapeHtml(item.description)+' — '+fmt(item.price)+'</option>';
+    });
+    return s + '</optgroup>';
   }
 
   // Sundries first: they're the whole reason a one-off line usually gets added
   // (wallpaper paste, lining paper), and there are ~19 of them against ~1550
-  // paint tins — bottom of a 1500-long list is the same as absent.
-  //
-  // The description is the Xero item name VERBATIM. Do NOT rebuild it from
-  // range/band/size the way paint does: a sundry has none of those, and it's
-  // that rebuild which used to put "Quickgrip Adhesive ( 0.38ltr" on client
-  // quotes. Sold by roll, sachet, tub or kilo — the unit is already in the
-  // name, so quantity here means "how many of that", not litres or tins.
-  if (materialSundriesCache.length) {
-    opts += '<optgroup label="Sundries (paste, lining paper, adhesives)">';
-    materialSundriesCache.forEach(function(item) {
-      addOption(item.itemCode, item.description, item.price);
-    });
-    opts += '</optgroup>';
-  }
-
-  opts += '<optgroup label="Paint">';
-  Object.keys(materialGroupsCache).sort().forEach(function(range) {
-    Object.keys(materialGroupsCache[range]).sort().forEach(function(band) {
-      materialGroupsCache[range][band].forEach(function(item) {
-        addOption(item.itemCode, range + (band ? ' - ' + band : '') + ' ' + item.sizeL + 'ltr', item.price);
-      });
-    });
-  });
-  opts += '</optgroup>';
+  // paint tins — bottom of a 1500-long list is the same as absent. Sold by
+  // roll, sachet, tub or kilo, so quantity means "how many of that", not litres
+  // or tins — the unit is already in the Xero name.
+  opts += group('Sundries (paste, lining paper, adhesives)', all.filter(function(i) { return i.isSundry; }));
+  opts += group('Paint', all.filter(function(i) { return !i.isSundry; }));
   sel.innerHTML = opts;
 }
 
@@ -2431,6 +2522,387 @@ function addCustomMaterialLine() {
   materialsSnapshot.push({ id: uid(), itemCode: itemCode, description: desc, quantity: qty, unitAmount: price, custom: true });
   saveMaterialsSnapshot();
   renderSummary();
+}
+
+// ── Materials tracking: actuals (what was really BOUGHT) ──────────────────
+// Everything above is ESTIMATING -- what a job SHOULD cost. This is ACTUALS.
+// Materials go on the quote as an estimate and the client is billed for what
+// was actually used, so this list is the input to the invoice, not a
+// reconciliation note. See MATERIAL_TRACKING_SPEC.md.
+//
+// Server-authoritative, NO localStorage mirror. materialsSnapshot keeps one
+// because it's regenerable from rooms at the touch of Recalculate, so a stale
+// cache is recoverable; actuals regenerate from nothing, and a local copy that
+// silently diverges from the invoice is worse than a save that visibly fails.
+var materialActuals = [];
+
+// A row is a PRODUCT, not an estimate line -- so both sides of the join key on
+// the same thing: the item code, or (for free-text lines, which have none) the
+// description, which is a user-typed line's only identity.
+function materialKey(x) {
+  return x.itemCode ? 'code:' + x.itemCode : 'desc:' + (x.description || '');
+}
+
+// Roll materialsSnapshot up by item code. THIS IS THE JOIN'S LEFT SIDE, and the
+// reason it exists: item_code is NOT unique within the snapshot.
+// computeRoleGroups() buckets by range + band + colourNumber, and a colour band
+// is a PRICE band covering many colours -- so two Pastels colours on one range
+// produce two estimate lines drawing on the same tins, i.e. the same item code.
+// Joining actuals onto lines by code would fan one actual across those lines and
+// compare it against each. Roll up first, then join. That also matches what the
+// view is for: you shop per product and you invoice per product.
+function rollUpEstimateByItem(lines) {
+  var byKey = {}, out = [];
+  (lines || []).forEach(function(l) {
+    var key = materialKey(l);
+    var e = byKey[key];
+    if (!e) {
+      e = byKey[key] = {
+        key: key,
+        itemCode: l.itemCode || null,
+        description: l.description || '',
+        quantity: 0,
+        unitAmount: +l.unitAmount || 0,
+        isPerLitre: !!l.isPerLitre,
+        custom: !!l.custom,
+        // Count lines explicitly rather than leaning on parts.length: parts
+        // only fill for lines carrying a colourNumber, so it's not a proxy for
+        // "seen one already" and using it silently disabled the check below.
+        lines: 0,
+        parts: []
+      };
+      out.push(e);
+    }
+    e.quantity += +l.quantity || 0;
+    // Price collision: the same code can carry a different unitAmount if a
+    // custom line was priced by hand. Prefer the real (non-custom) line's
+    // price; never silently average two prices into a third that is neither.
+    if (e.custom && !l.custom) { e.unitAmount = +l.unitAmount || 0; e.custom = false; }
+    // isPerLitre disagreeing across lines sharing a code is a bug, not a case
+    // to merge -- one item is per-litre or it isn't. Latch true so a per-litre
+    // line is never silently relabelled as tins, and say so.
+    if (e.lines && e.isPerLitre !== !!l.isPerLitre) {
+      console.warn('Materials: isPerLitre disagrees across lines for ' + key + ' — treating as per-litre');
+      e.isPerLitre = true;
+    }
+    e.lines++;
+    if (l.colourNumber != null) e.parts.push({ colourNumber: l.colourNumber, role: l.role, quantity: +l.quantity || 0 });
+  });
+  // Summing per-room floats reintroduces binary noise (the same reason
+  // resolveMaterial rounds its litres input). Round once, here.
+  out.forEach(function(e) { e.quantity = Math.round(e.quantity * 100) / 100; });
+  return out;
+}
+
+// The 202 sell price for a row: what the client is charged. Prefer the LIVE
+// Xero price over the one frozen into the snapshot at Recalculate time -- the
+// invoice should bill the item's real current sell price, and the snapshot's
+// copy can be months stale. Free-text rows have no Xero item, so they fall back
+// to the manually entered amount: the one place a price is ever typed.
+function materialPriceFor(row) {
+  var live = row.itemCode ? materialItemIndex.get(row.itemCode) : null;
+  if (live && live.price != null) return +live.price;
+  if (row.unitAmount != null) return +row.unitAmount || 0;
+  return 0;
+}
+
+// What one unit of this row IS. Never assume tins: walls are whole tins,
+// ceiling/woodwork/mist are litres, and sundries are rolls, tubs and kilos with
+// the unit already in the Xero name. isSundry comes from the server's SUN rule
+// via materialItemIndex -- don't re-derive the prefix rule here.
+function materialUnitLabel(row) {
+  if (row.isPerLitre) return 'L';
+  var idx = row.itemCode ? materialItemIndex.get(row.itemCode) : null;
+  if (idx && idx.isSundry) return '';
+  return row.itemCode ? (row.quantity === 1 ? 'tin' : 'tins') : '';
+}
+
+async function loadMaterialActuals() {
+  materialActuals = await apiGet('/api/actuals?job_id=' + encodeURIComponent(activeJobId));
+}
+
+// One row per PUT. Deliberately NOT saveMaterialsSnapshot()'s
+// delete-the-job-then-rewrite-everything: that's safe only for data that
+// regenerates from rooms. A failure mid-rewrite here would destroy the invoice.
+async function saveMaterialActual(row) {
+  var body = {
+    jobId: activeJobId,
+    itemCode: row.itemCode || null,
+    description: row.description,
+    actualQuantity: row.actualQuantity,
+    unitAmount: row.unitAmount,
+    bought: row.bought
+  };
+  var path = row.itemCode ? '/api/actuals/' : '/api/actuals-freetext/';
+  var res = await apiPutStrict(path + row.id, body);
+  // On conflict the server keeps the row that already holds this product, so
+  // adopt the id it reports -- otherwise a second edit would PUT an id that
+  // matches nothing and the unique index would reject the insert.
+  if (res && res.id) row.id = res.id;
+  return row;
+}
+
+// The reconciliation: estimate (rolled up) LEFT JOIN actuals, plus any actual
+// with no estimate line -- the case that loses money if it's missed, since it's
+// something bought for the job that was never quoted.
+function buildActualsView() {
+  var estimate = rollUpEstimateByItem(materialsSnapshot);
+  var actualByKey = {};
+  materialActuals.forEach(function(a) { actualByKey[materialKey(a)] = a; });
+
+  var rows = estimate.map(function(e) {
+    var a = actualByKey[e.key];
+    return {
+      key: e.key, itemCode: e.itemCode, description: e.description,
+      estimated: e.quantity, isPerLitre: e.isPerLitre, unitAmount: e.unitAmount,
+      parts: e.parts, actual: a || null, onEstimate: true
+    };
+  });
+  var estKeys = {};
+  estimate.forEach(function(e) { estKeys[e.key] = true; });
+  materialActuals.forEach(function(a) {
+    if (estKeys[materialKey(a)]) return;
+    rows.push({
+      key: materialKey(a), itemCode: a.itemCode, description: a.description,
+      estimated: 0, isPerLitre: false, unitAmount: a.unitAmount,
+      parts: [], actual: a, onEstimate: false
+    });
+  });
+  return rows;
+}
+
+// Quantity actually being billed for a row: the actual once logged, otherwise
+// the estimate. An un-ticked row still bills at estimate, because the estimate
+// is the best information available until it's been shopped for.
+function actualsRowQuantity(row) {
+  return row.actual ? +row.actual.actualQuantity || 0 : row.estimated;
+}
+
+function actualsTotals() {
+  var rows = buildActualsView();
+  var estTotal = 0, actTotal = 0, outstanding = 0;
+  rows.forEach(function(r) {
+    var price = materialPriceFor({ itemCode: r.itemCode, unitAmount: r.unitAmount });
+    estTotal += r.estimated * price;
+    actTotal += actualsRowQuantity(r) * price;
+    if (!(r.actual && r.actual.bought)) outstanding++;
+  });
+  return { rows: rows, estTotal: estTotal, actTotal: actTotal, outstanding: outstanding };
+}
+
+// Rendered rows, so the inline handlers can find a row by key without
+// rebuilding the whole join on every keystroke.
+var actualsRowsCache = [];
+
+async function openActuals() {
+  goTab('actuals');
+  var el = document.getElementById('actuals-body');
+  if (el) el.innerHTML = '<div class="card" style="padding:16px;color:var(--text2)">Loading…</div>';
+  try {
+    await loadMaterialActuals();
+  } catch (e) {
+    if (el) el.innerHTML = '<div class="card" style="padding:16px;color:var(--danger,#b00)">Could not load actuals: '
+      + escapeHtml(e.message) + '<div style="color:var(--text2);margin-top:6px;font-size:13px">Nothing has been saved or lost — reopen to retry.</div></div>';
+    return;
+  }
+  renderActuals();
+}
+
+function renderActuals() {
+  var el = document.getElementById('actuals-body');
+  if (!el) return;
+  var t = actualsTotals();
+  actualsRowsCache = t.rows;
+
+  var colourLabels = {};
+  colours.forEach(function(c) { colourLabels[c.number] = c.label; });
+
+  // Variance against what the CLIENT was told, surfaced during the job rather
+  // than at invoicing. They were given a materials estimate; if actuals run
+  // well over it the invoice will exceed it, and that's a conversation to have
+  // while it's still cheap. Client-relations feature, not arithmetic.
+  var diff = t.actTotal - t.estTotal;
+  var diffColour = Math.abs(diff) < 0.005 ? 'var(--text2)' : (diff > 0 ? '#b00' : 'var(--accent)');
+  var head =
+    '<div class="card" style="padding:14px;margin-bottom:12px">'
+    + '<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="color:var(--text2)">Estimated</span><span>'+fmt(t.estTotal)+'</span></div>'
+    + '<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="color:var(--text2)">Actual (so far)</span><span style="font-weight:600">'+fmt(t.actTotal)+'</span></div>'
+    + '<div style="display:flex;justify-content:space-between;padding-top:6px;border-top:1px solid var(--border)">'
+      + '<span style="color:var(--text2)">Variance</span>'
+      + '<span style="font-weight:600;color:'+diffColour+'">'+(diff > 0 ? '+' : '')+fmt(diff)+'</span>'
+    + '</div>'
+    + '<div style="margin-top:8px;font-size:13px;color:var(--text2)">'
+      + (t.outstanding ? t.outstanding + ' still to buy' : 'Everything ticked off')
+    + '</div>'
+    + '</div>';
+
+  var rowsHtml = t.rows.map(function(r) {
+    var price = materialPriceFor({ itemCode: r.itemCode, unitAmount: r.unitAmount });
+    var qty = actualsRowQuantity(r);
+    var unit = materialUnitLabel({ itemCode: r.itemCode, isPerLitre: r.isPerLitre, quantity: qty });
+    var bought = !!(r.actual && r.actual.bought);
+    var logged = !!r.actual;
+    var variance = logged && Math.abs(qty - r.estimated) > 0.001;
+
+    // Which colours drove this product's quantity. Informational only —
+    // actuals are per product, not per colour (you buy one tin, it doesn't
+    // know which room it's for). Absent on lines saved before Recalculate
+    // started carrying colourNumber.
+    var parts = (r.parts || []).filter(function(p) { return p.quantity > 0; });
+    var detail = parts.length > 1
+      ? parts.map(function(p) {
+          return 'Colour ' + p.colourNumber + (colourLabels[p.colourNumber] ? ' (' + colourLabels[p.colourNumber] + ')' : '') + ' · ' + (Math.round(p.quantity * 100) / 100);
+        }).join('  ·  ')
+      : '';
+
+    var tag = !r.onEstimate
+      ? '<span style="font-size:11px;font-weight:600;color:#b00;background:rgba(187,0,0,.08);border-radius:10px;padding:2px 8px;margin-left:6px">not quoted</span>'
+      : (variance ? '<span style="font-size:11px;font-weight:600;color:var(--text2);background:var(--surface2);border-radius:10px;padding:2px 8px;margin-left:6px">est '+(Math.round(r.estimated*100)/100)+'</span>' : '');
+
+    return '<div class="card" style="padding:12px;margin-bottom:8px;'+(bought ? 'opacity:.6' : '')+'">'
+      + '<div style="display:flex;align-items:flex-start;gap:10px">'
+        + '<input type="checkbox" '+(bought ? 'checked' : '')+' onchange="toggleActualBought(\''+escapeHtml(r.key)+'\')" style="margin-top:3px;width:20px;height:20px;flex:none;accent-color:var(--accent)">'
+        + '<div style="flex:1;min-width:0">'
+          + '<div style="font-size:14px;font-weight:600'+(bought ? ';text-decoration:line-through' : '')+'">'+escapeHtml(r.description)+tag+'</div>'
+          + (detail ? '<div style="font-size:12px;color:var(--text2);margin-top:3px">'+escapeHtml(detail)+'</div>' : '')
+          + '<div style="display:flex;align-items:center;gap:8px;margin-top:8px">'
+            + '<input type="number" min="0" step="'+(r.isPerLitre ? '0.1' : '1')+'" value="'+qty+'" inputmode="decimal"'
+              + ' onchange="setActualQuantity(\''+escapeHtml(r.key)+'\', this.value)"'
+              + ' style="width:74px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:\'DM Sans\',sans-serif;font-size:15px;border-radius:var(--rs);padding:6px 8px;outline:none">'
+            + '<span style="font-size:13px;color:var(--text2)">'+escapeHtml(unit)+'</span>'
+            + '<span style="margin-left:auto;font-size:14px;font-weight:600">'+fmt(qty * price)+'</span>'
+            + (r.onEstimate ? '' : '<button onclick="removeActual(\''+escapeHtml(r.key)+'\')" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0 2px;line-height:1">✕</button>')
+          + '</div>'
+        + '</div>'
+      + '</div>'
+      + '</div>';
+  }).join('');
+
+  if (!t.rows.length) {
+    rowsHtml = '<div class="card" style="padding:16px;color:var(--text2)">No materials yet. Recalculate the snapshot on Summary, or add what you bought below.</div>';
+  }
+
+  var add =
+    '<div class="section-title" style="margin:16px 0 8px">Add material the estimate missed</div>'
+    + '<div class="card">'
+      + '<div class="field-row"><div class="field-label">Product</div><select class="field-input wide" id="act-add-product" onchange="onActualsProductSelect()"></select></div>'
+      + '<div class="field-row"><div class="field-label">Description</div><input type="text" class="field-input wide" id="act-add-desc" placeholder="e.g. Extra roller sleeves" autocorrect="off"></div>'
+      + '<div class="field-row"><div class="field-label">Unit price<small>free text only</small></div><input type="number" class="field-input" id="act-add-price" value="0" min="0" step="0.01" inputmode="decimal"></div>'
+      + '<div class="field-row"><div class="field-label">Quantity</div><input type="number" class="field-input" id="act-add-qty" value="1" min="0" step="1" inputmode="decimal"></div>'
+      + '<input type="hidden" id="act-add-itemcode">'
+    + '</div>'
+    + '<button onclick="addActualFromPicker()" style="background:var(--accent);color:#fff;border:none;border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%;margin-top:8px">Add Material</button>';
+
+  el.innerHTML = head + rowsHtml + add;
+  // Reuses the Summary picker wholesale — same function, same shared options
+  // array, just mounted on this screen's select.
+  populateAddMaterialProductSelect('act-add-product');
+}
+
+function findActualsRow(key) {
+  return actualsRowsCache.filter(function(r) { return r.key === key; })[0];
+}
+
+// Create the actual on first touch, defaulting to the ESTIMATED quantity — so
+// "used exactly what was quoted", the common case, is a single tick.
+function ensureActual(row) {
+  if (row.actual) return row.actual;
+  row.actual = {
+    id: uid(),
+    itemCode: row.itemCode || null,
+    description: row.description,
+    actualQuantity: row.estimated,
+    // Real items price live from Xero; only free text carries a typed amount.
+    unitAmount: row.itemCode ? null : (row.unitAmount || 0),
+    bought: false
+  };
+  materialActuals.push(row.actual);
+  return row.actual;
+}
+
+async function persistActual(a) {
+  try {
+    await saveMaterialActual(a);
+  } catch (e) {
+    alert('Could not save: ' + e.message + '\n\nThis figure goes on the invoice, so it has NOT been kept locally. Try again.');
+    await openActuals();
+    return false;
+  }
+  return true;
+}
+
+async function setActualQuantity(key, value) {
+  var row = findActualsRow(key); if (!row) return;
+  var a = ensureActual(row);
+  a.actualQuantity = Math.max(0, +value || 0);
+  if (await persistActual(a)) renderActuals();
+}
+
+async function toggleActualBought(key) {
+  var row = findActualsRow(key); if (!row) return;
+  var a = ensureActual(row);
+  a.bought = !a.bought;
+  if (await persistActual(a)) renderActuals();
+}
+
+async function removeActual(key) {
+  var row = findActualsRow(key); if (!row || !row.actual) return;
+  if (!confirm('Remove "' + row.actual.description + '" from the actuals? It will no longer be invoiced.')) return;
+  try {
+    await apiDeleteStrict('/api/actuals/' + row.actual.id);
+  } catch (e) {
+    alert('Could not remove: ' + e.message);
+    return;
+  }
+  materialActuals = materialActuals.filter(function(x) { return x.id !== row.actual.id; });
+  renderActuals();
+}
+
+function onActualsProductSelect() {
+  var idx = +document.getElementById('act-add-product').value;
+  var priceEl = document.getElementById('act-add-price');
+  document.getElementById('act-add-itemcode').value = '';
+  if (idx < 0) { priceEl.disabled = false; return; }
+  var opt = addMaterialProductOptions[idx];
+  if (!opt) return;
+  document.getElementById('act-add-desc').value = opt.description;
+  document.getElementById('act-add-itemcode').value = opt.itemCode;
+  // A real Xero item always prices from live 202 data, so the field is shown
+  // for information only. Typing a price is reserved for free text.
+  priceEl.value = opt.unitAmount;
+  priceEl.disabled = true;
+}
+
+async function addActualFromPicker() {
+  var desc = document.getElementById('act-add-desc').value.trim();
+  if (!desc) { alert('Enter a description for the material.'); return; }
+  var itemCode = document.getElementById('act-add-itemcode').value || null;
+  var qty = Math.max(0, +document.getElementById('act-add-qty').value || 0);
+  var price = +document.getElementById('act-add-price').value || 0;
+
+  // Already logged (or already on the estimate)? Add to it rather than making
+  // a second row — a row is a product, and the unique index would reject the
+  // duplicate anyway. Better to fold it in than to fail at the database.
+  var key = materialKey({ itemCode: itemCode, description: desc });
+  var existing = materialActuals.filter(function(a) { return materialKey(a) === key; })[0];
+  if (existing) {
+    existing.actualQuantity = (+existing.actualQuantity || 0) + qty;
+    if (await persistActual(existing)) { renderActuals(); }
+    return;
+  }
+  var row = findActualsRow(key);
+  if (row) {
+    var a = ensureActual(row);
+    a.actualQuantity = qty;
+    if (await persistActual(a)) renderActuals();
+    return;
+  }
+  var fresh = {
+    id: uid(), itemCode: itemCode, description: desc, actualQuantity: qty,
+    unitAmount: itemCode ? null : price, bought: false
+  };
+  materialActuals.push(fresh);
+  if (await persistActual(fresh)) renderActuals();
 }
 
 // ── Colours (job-scoped list, same lifecycle as rooms/extItems) ────────────

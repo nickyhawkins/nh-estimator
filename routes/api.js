@@ -64,6 +64,7 @@ router.delete('/jobs/:id', async (req, res) => {
     await db.query('DELETE FROM exterior_items WHERE job_id = $1', [id]);
     await db.query('DELETE FROM colours WHERE job_id = $1', [id]);
     await db.query('DELETE FROM materials_snapshot WHERE job_id = $1', [id]);
+    await db.query('DELETE FROM material_actuals WHERE job_id = $1', [id]);
     await db.query('DELETE FROM jobs WHERE id = $1', [id]);
     res.json({ ok: true });
   } catch (err) {
@@ -308,6 +309,100 @@ router.delete('/materials', async (req, res) => {
   }
 });
 
+// ── Material actuals ──────────────────────────────────────────────────────
+// Job-scoped log of what was really BOUGHT, against materials_snapshot's
+// estimate of what should be needed. See MATERIAL_TRACKING_SPEC.md.
+//
+// THE SAVE STRATEGY IS DELIBERATELY NOT THE SNAPSHOT'S. saveMaterialsSnapshot()
+// does DELETE(whole job) then re-PUTs every line — safe there only because the
+// snapshot regenerates from rooms at the touch of Recalculate. Actuals are the
+// INVOICE and regenerate from nothing: a failure between that DELETE and the
+// re-PUTs would destroy them silently. So there is no collection-level "replace
+// all" route here on purpose. One row per PUT, delete one row at a time.
+//
+// A row is a PRODUCT, not an estimate line — one row per item_code per job,
+// enforced by the partial unique index in db/setup.sql. The ON CONFLICT below
+// targets that index rather than the primary key, so a client that PUTs a fresh
+// uid() for an item already logged updates that row instead of failing.
+
+router.get('/actuals', async (req, res) => {
+  const jobId = requireJobId(req, res); if (!jobId) return;
+  try {
+    const result = await db.query(
+      `SELECT id, item_code, description, actual_quantity, unit_amount, bought
+         FROM material_actuals WHERE job_id = $1 ORDER BY created_at ASC`,
+      [jobId]
+    );
+    // Numerics come back from pg as strings — cast at the boundary so the
+    // client never has to think about it (it multiplies these by prices).
+    res.json(result.rows.map(r => ({
+      id: r.id,
+      itemCode: r.item_code,
+      description: r.description,
+      actualQuantity: r.actual_quantity == null ? 0 : +r.actual_quantity,
+      unitAmount: r.unit_amount == null ? null : +r.unit_amount,
+      bought: r.bought,
+    })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/actuals/:id', async (req, res) => {
+  const { id } = req.params;
+  const jobId = requireJobId(req, res); if (!jobId) return;
+  const { itemCode, description, actualQuantity, unitAmount, bought } = req.body;
+  if (!description) return res.status(400).json({ error: 'description is required' });
+  try {
+    // Empty string -> NULL: a free-text row has no code, and '' would defeat
+    // the partial unique index (it's only partial on NULL), letting two
+    // free-text rows collide as one product.
+    const code = itemCode || null;
+    const result = await db.query(`
+      INSERT INTO material_actuals (id, job_id, item_code, description, actual_quantity, unit_amount, bought, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+      ON CONFLICT (job_id, item_code) WHERE item_code IS NOT NULL
+      DO UPDATE SET description = $4, actual_quantity = $5, unit_amount = $6, bought = $7, updated_at = NOW()
+      RETURNING id
+    `, [id, jobId, code, description, +actualQuantity || 0, unitAmount == null || unitAmount === '' ? null : +unitAmount, !!bought]);
+    // Report the id that actually holds the row: on conflict the server keeps
+    // the original, so a client PUTting a new uid() for an already-logged item
+    // would otherwise hold an id that matches nothing.
+    res.json({ ok: true, id: result.rows[0].id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/actuals-freetext/:id', async (req, res) => {
+  // Free-text rows (item_code NULL) can't use the ON CONFLICT above — the
+  // partial index doesn't cover them, so there's nothing to conflict on and
+  // every PUT would insert a duplicate. They key on the primary key instead.
+  const { id } = req.params;
+  const jobId = requireJobId(req, res); if (!jobId) return;
+  const { description, actualQuantity, unitAmount, bought } = req.body;
+  if (!description) return res.status(400).json({ error: 'description is required' });
+  try {
+    await db.query(`
+      INSERT INTO material_actuals (id, job_id, item_code, description, actual_quantity, unit_amount, bought, updated_at)
+      VALUES ($1, $2, NULL, $3, $4, $5, $6, NOW())
+      ON CONFLICT (id) DO UPDATE SET description = $3, actual_quantity = $4, unit_amount = $5, bought = $6, updated_at = NOW()
+    `, [id, jobId, description, +actualQuantity || 0, unitAmount == null || unitAmount === '' ? null : +unitAmount, !!bought]);
+    res.json({ ok: true, id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/actuals/:id', async (req, res) => {
+  try {
+    await db.query('DELETE FROM material_actuals WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Settings ───────────────────────────────────────────────────────────────
 // Global — not job-scoped.
 
@@ -341,6 +436,13 @@ router.delete('/all', async (req, res) => {
     await db.query('DELETE FROM exterior_items WHERE job_id = $1', [jobId]);
     await db.query('DELETE FROM colours WHERE job_id = $1', [jobId]);
     await db.query('DELETE FROM materials_snapshot WHERE job_id = $1', [jobId]);
+    // Actuals go too: this is "clear ALL data in this job", the user has
+    // confirmed "cannot be undone", and leaving them would strand an invoice
+    // log against an estimate that no longer exists. NB this is the ONLY route
+    // that clears actuals wholesale, and it's user-confirmed. clearJob()
+    // (rooms/colours/snapshot only) deliberately leaves them alone —
+    // destroying the estimate must never destroy the invoice.
+    await db.query('DELETE FROM material_actuals WHERE job_id = $1', [jobId]);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

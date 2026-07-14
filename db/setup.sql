@@ -121,6 +121,51 @@ ALTER TABLE materials_snapshot ADD COLUMN IF NOT EXISTS job_id VARCHAR;
 UPDATE materials_snapshot SET job_id = 'default' WHERE job_id IS NULL;
 ALTER TABLE materials_snapshot ALTER COLUMN job_id SET NOT NULL;
 
+-- Material actuals (job-scoped log of what was really bought and used, as
+-- opposed to materials_snapshot's estimate of what SHOULD be needed).
+-- See MATERIAL_TRACKING_SPEC.md.
+--
+-- THIS TABLE IS THE INVOICE. Materials go on the quote as an estimate and the
+-- client is billed for what was actually used, so these quantities are the
+-- input to the bill -- not a reconciliation note. Two consequences that look
+-- like inconsistencies with the rest of the schema and are deliberate:
+--
+-- 1. NOT a `data JSONB` blob, unlike rooms/exterior_items/materials_snapshot.
+--    Those get round-tripped whole (write the blob, read the blob). This one
+--    gets QUERIED -- Phase 3 aggregates quantities and margin across jobs,
+--    which over JSONB means (data->>'actual_quantity')::numeric casts and no
+--    real index on the join key. Don't "fix" the inconsistency.
+--
+-- 2. Deliberately NOT hung off materials_snapshot line ids.
+--    recalculateMaterialsSnapshot() is a full overwrite that regenerates
+--    id: uid() for every line on every run, and recalculating is a normal
+--    action (rooms changed -> re-pull materials). Anything keyed on those ids
+--    would orphan on the first recalc mid-job -- silently destroying the
+--    invoice. item_code is stable across recalcs; line ids are not.
+CREATE TABLE IF NOT EXISTS material_actuals (
+  id VARCHAR PRIMARY KEY,
+  job_id VARCHAR NOT NULL,
+  item_code VARCHAR,            -- Xero item code; NULL for free-text entries
+  description VARCHAR NOT NULL, -- denormalised so free-text entries, and items
+                                -- later recoded in Xero, still read properly
+  actual_quantity NUMERIC NOT NULL DEFAULT 0,
+  unit_amount NUMERIC,          -- only for free-text rows, which have no Xero
+                                -- 202 price to derive from; NULL otherwise so
+                                -- real items always price from live Xero data
+  bought BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+-- ONE actual row per product per job: a tracking row is a PRODUCT, not an
+-- estimate line. item_code is NOT unique within the snapshot (a colour band is
+-- a PRICE band covering many colours, so two colours on one range yield two
+-- estimate lines sharing item codes), so the estimate is rolled up by item_code
+-- before joining. This index is the storage-level guarantee behind that.
+-- Partial, because free-text rows have no code and must stay many-per-job.
+CREATE UNIQUE INDEX IF NOT EXISTS material_actuals_job_item
+  ON material_actuals (job_id, item_code) WHERE item_code IS NOT NULL;
+CREATE INDEX IF NOT EXISTS material_actuals_job ON material_actuals (job_id);
+
 -- ── Debt Management App ─────────────────────────────────────────────────
 -- Fully separate personal debt-tracking tool, served from /debt, sharing
 -- only this Postgres instance with the paint app. Tables are namespaced
