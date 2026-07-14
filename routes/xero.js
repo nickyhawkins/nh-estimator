@@ -527,15 +527,18 @@ router.post('/create-quote', async (req, res) => {
     // price already stored in Xero, so no job markup is re-applied here
     // (unlike the labour lines above, and unlike the sundries line below).
     if (materials && materials.length > 0) {
-      // Text-only divider row, matching the manual convention: no ItemCode,
-      // Quantity or UnitAmount at all (not even zero) — Xero renders a line
-      // item with only a Description as plain narrative text, no columns.
-      // Reads as a plain heading since the API can't apply bold/shading to
-      // one row differently from the others -- every LineItem renders
-      // through the same repeated table row in the DOCX template, so any
-      // real visual distinction (bold, shaded background) has to happen
+      // Heading/divider row for the materials block. A leading newline puts a
+      // blank line above it so it sits with the same vertical spacing as the
+      // other scope-of-work headings (PAINTING, COMPLETION, ...) rather than
+      // butting straight up against the paragraph before it. Quantity and
+      // UnitAmount are set to 0 explicitly so those columns render blank on
+      // the heading row (a 0 qty × 0 price line contributes nothing to the
+      // total). Reads as a plain heading since the API can't apply
+      // bold/shading to one row differently from the others -- every LineItem
+      // renders through the same repeated table row in the DOCX template, so
+      // any real visual distinction (bold, shaded background) has to happen
       // there, not here.
-      lineItems.push({ Description: 'MATERIALS' });
+      lineItems.push({ Description: '\nMATERIALS ESTIMATE', Quantity: 0, UnitAmount: 0 });
       materials.forEach(m => {
         lineItems.push({
           ItemCode: m.itemCode,
