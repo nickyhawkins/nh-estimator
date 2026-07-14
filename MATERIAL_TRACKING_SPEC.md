@@ -40,7 +40,9 @@ Therefore: **actuals are their own per-job list**, joined to the estimate for di
 
 ## Data model
 
-New table, mirroring the existing per-job pattern (`job_id`, backfill, NOT NULL — same shape as `materials_snapshot`):
+New table, following the per-job convention (`job_id`, backfill, NOT NULL). **Typed columns, NOT the `data JSONB` blob** the other job-scoped tables use — confirmed 2026-07-14.
+
+> **Correction (2026-07-14):** this section used to say "same shape as `materials_snapshot`". It isn't, and never was — `materials_snapshot` is `id / data JSONB / created_at / updated_at` + `job_id`, exactly like `rooms` and `exterior_items`. The DDL below was always typed. The divergence is now **deliberate**: those tables are round-tripped whole (write the blob, read the blob), whereas this one gets **queried** — Phase 3 aggregates actual quantities and margin *across jobs*, which over JSONB means `(data->>'actual_quantity')::numeric` casts and no clean index on the join key. Don't "fix" the inconsistency by blob-ifying it.
 
 ```sql
 CREATE TABLE IF NOT EXISTS material_actuals (
@@ -53,16 +55,39 @@ CREATE TABLE IF NOT EXISTS material_actuals (
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
+
+-- ONE actual row per product per job. Partial (item_code IS NOT NULL) so
+-- free-text rows, which have no code, can still be many per job. This is the
+-- storage-level guarantee behind "a row is a product" -- see below.
+CREATE UNIQUE INDEX IF NOT EXISTS material_actuals_job_item
+  ON material_actuals (job_id, item_code) WHERE item_code IS NOT NULL;
 ```
 
-- **Join key is `item_code`, not snapshot line id** — item codes are stable across recalcs; line ids are not.
+- **Join key is `item_code`, not snapshot line id** — item codes are stable across recalcs; line ids are not. **But the estimate side must be rolled up by `item_code` before joining** — it is NOT one actual per snapshot line. See "The reconciliation view" below; this is the correction that makes the join well-defined.
 - **`description` is denormalised on purpose** so a free-text entry, or an item later recoded in Xero, still displays. Mirrors why snapshot lines carry it.
 - Free-text entries (`item_code` NULL) can't join to an estimate line — correct, they're additions by definition. They also have no 202 price, so they need a manual value *to be invoiced* (the one place a price may have to be typed; prefer picking a real Xero item wherever possible).
-- API: `GET/PUT/DELETE /api/actuals`, same job-scoped shape as `/api/materials`.
+- API: `GET/PUT/DELETE /api/actuals`, job-scoped like `/api/materials` — **but do NOT copy `saveMaterialsSnapshot()`'s save strategy.** It does `apiDelete(whole job)` then re-`PUT`s every line, which is safe only because the snapshot is regenerable from rooms. Actuals are not regenerable — they're the invoice — so a failure between the DELETE and the re-PUTs would destroy them. **PUT one row at a time; never delete-all-then-rewrite.** This is the storage-layer twin of the critical constraint above.
 
 ## The reconciliation view
 
-Left-join the actuals list onto the current snapshot by `item_code`. Row states:
+**A ROW IS A PRODUCT, NOT AN ESTIMATE LINE — DECIDED 2026-07-14.** Roll the snapshot up by `item_code` first, then left-join the actuals onto *that*.
+
+**Why this isn't a cosmetic choice: `item_code` is not unique within the snapshot, so "one actual per snapshot line" and "join by `item_code`" cannot both be true.** Found while scoping Phase 1, by reading `computeRoleGroups()` rather than trusting this document:
+
+- It buckets by `range + band + colourNumber`, so **each colour is its own line** — and **a band is a PRICE band covering many colours**. Two Pastels colours on the same range produce two estimate lines drawing from the same tins, i.e. **the same item codes**. This isn't an edge case; it's the normal shape of a multi-colour job.
+- Same again across roles: wall and ceiling both mapped to one range+band yield one item code on two lines.
+
+Left-joining actuals onto lines by `item_code` would therefore fan one actual out across three lines and compare it against each — triple-counting on screen, and a per-line variance that means nothing.
+
+Rolling up by product resolves it, and matches the two things the view is actually for: **you shop per product** (the merchant doesn't care which room it's for) and **you invoice per product**. Per-colour detail is still worth showing as sub-detail on the row ("Colour 3 · 2 tins, Colour 5 · 1 tin") — it's just not where the actual quantity lives. The cost of the decision, stated plainly: **actuals are not attributable to a colour or a room.** That's accepted — nothing downstream needs it, and Phase 3's calibration is per-job, not per-colour.
+
+Roll-up rules (all real cases in today's data, don't discover them at the keyboard):
+- **Key by `item_code`; free-text/custom lines have none** — key those by description so they stay one row each rather than collapsing into a single blank-coded row.
+- **Sum `quantity`.** Whole-tin rounding already happened per line, so the sum is what to buy. (It can exceed a single optimised buy — three colours × one 10ltr each is genuinely three tins.)
+- **Price collision:** the same code can carry different `unitAmount` if a custom line was priced by hand. Prefer the non-custom line's price and don't silently average.
+- **`isPerLitre` must agree** across lines sharing a code — if it ever doesn't, that's a bug, not a case to merge.
+
+Row states:
 
 | State | Meaning | Use |
 |---|---|---|
@@ -166,11 +191,23 @@ The tin optimiser is **not** at risk — it only reads inside a range you've exp
 
 **Don't just drop every `ml` match** — `Bedec MSP (Gloss, Matt, Satin) - 750ml` is a genuine 750 ml paint tin, and that's exactly why `TIN_SIZE_ML_RE` exists. The tubes are distinguishable by unit-of-sale words in the name (`tube`, `Sealant`, `Caulk`, `Adhesive`), not by size.
 
-**Phase 1 — the log**
-- `material_actuals` table + API.
-- A per-job view listing snapshot lines with a tick and an editable actual quantity, defaulting to the estimated quantity — so the common "used exactly what was quoted" case is one tap.
-- "+ Add material the estimate missed" — reuses `populateAddMaterialProductSelect()` / `addMaterialProductOptions` wholesale, which already picks any real Xero item or free text. Don't build a second product picker. (Depends on Phase 0 to be useful for sundries.)
-- Show outstanding count, and actual total vs estimated total (202 prices, already held — free).
+**Phase 1 — the log — SCOPED 2026-07-14, next build**
+
+Ships whole (table → API → view → add-missing → totals), reached from a **temporary entry point**. The hamburger nav is where this belongs and is decided, but it's nav-wide, tracked separately in FEATURES.md, and this feature doesn't depend on it — so it isn't a prerequisite. Don't let the nav refactor gate the thing it was designed to hold.
+
+**1. `material_actuals` table + API.** DDL and the partial unique index are in "Data model" above. Two constraints repeated because they're the ones that lose the invoice if missed: actuals live in **their own table** (never on snapshot lines — recalc regenerates every line id), and the API **PUTs one row at a time** (never `saveMaterialsSnapshot()`'s delete-all-then-rewrite, which is only safe for regenerable data).
+
+**2. The estimate roll-up.** A new pure function over `materialsSnapshot` — one entry per `item_code` (custom lines keyed by description), carrying summed quantity, description, `unitAmount`, `isPerLitre`, and the per-colour breakdown for sub-detail. Rules and collision cases are in "The reconciliation view". This is the join's left side and the one genuinely new piece of logic in the phase; **unit-test it against a multi-colour job with two colours in one band** — the case that motivated the whole decision.
+
+**3. The view.** One row per product: tick + editable actual quantity, defaulting to the estimated quantity so "used exactly what was quoted" is one tap. Filter to un-ticked → the shopping list.
+
+**4. "+ Add material the estimate missed."** Reuses `populateAddMaterialProductSelect()` / `addMaterialProductOptions` **wholesale** — Phase 0 taught it sundries, so paste and Fibreliner are already in it, and it already handles free text. **Don't build a second product picker** (this repo's recurring failure mode is a second copy of a function silently winning — grep first).
+
+**5. Outstanding count + actual total vs estimated total.** 202 prices are already cached, so both totals are free arithmetic. Show the running actual against the estimate: the client was quoted an estimate, and if actuals run over it that's a conversation to have *during* the job. Client-relations feature, not arithmetic.
+
+*Known gap to close while building #5:* pricing an actual that has **no estimate line** needs a lookup from `item_code` → price, across **both** `materialGroupsCache` and `materialSundriesCache`. **No such index exists today** — `addMaterialProductOptions` is a flat array built for the `<select>` and keyed by option index, not code. Build a proper `Map` and have the picker read from it too, rather than adding a second flattening pass.
+
+*Unit labels:* per the Gotchas, an actual quantity means different things per row — litres (`isPerLitre`), tins (paint), or rolls/tubs/kilos (sundries, where the unit is already in the Xero name). Label from the row; never assume tins. Sundry lines only ever enter the snapshot as custom lines, so if the label needs to distinguish them, carry a flag from the picker rather than re-deriving the `SUN` rule in the frontend — the prefix rule lives in `routes/xero.js` and should stay there.
 
 **Phase 2 — invoicing from actuals (the payoff)**
 
