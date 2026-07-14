@@ -104,9 +104,13 @@ Paint names carry a tin size ("… Tinted 2.5L"), so they survive. **Wallpaper p
 
 | Bucket | Rule | Model |
 |---|---|---|
-| Sundry | code starts `SUN` (see below re: `RPC`) | flat: item + qty + price, no size |
+| Sundry | code starts `SUN` | flat: item + qty + price, no size |
 | Paint | anything else, **and** the name parses | range → band → size, tin-optimised |
-| **Data error** | anything else that **doesn't** parse | surface it; offer it nowhere |
+| **Unmodellable** | anything else that **doesn't** parse | surface it; offer it nowhere |
+
+**Bucket order matters, and it does more work than expected.** The prefix check must run **before** the size parse. Verified 2026-07-14 against the cleaned Xero data: doing it in that order means `SUN013 Quickgrip Adhesive (380ml tube)` and `SUN014 Everbuild Stixall … 290ml` are bucketed as sundries and never reach `parseItemName()` — which **fixes the client-facing description bug for free** (`Quickgrip Adhesive ( 0.38ltr` on a quote) with no regex change. `BED002 Bedec MSP … 750ml` stays in the paint bucket, correctly, as a genuine sub-litre tin.
+
+**Residual ml false positives — accepted, do not fix.** `ISO076`–`ISO079` (Isomat caulks and PU sealants) still parse as 0.28–0.6L "tins". They stay: the optimiser only reads ranges explicitly mapped to a role and nobody maps a caulk as paint, so there's no costing exposure — and they can't be `SUN` either, because caulk is exactly what the sundries % recovers. They clutter the range picker with four fake sub-litre entries. That is the whole cost. Don't invent a fourth category for it.
 
 **Why not "no size = sundry"?** Because "didn't parse" is not a category, it's a bug bucket — and the live data proves it. Of the 28 non-`SUN`/`RPC` items that fail to parse today, most are **not sundries at all**:
 
@@ -114,7 +118,11 @@ Paint names carry a tin size ("… Tinted 2.5L"), so they survive. **Wallpaper p
 - **2 are broken rows** — DUL231 and DUL232 are both `Dulux Heritage VM True White - True White`, duplicated, sizeless. Data to fix, not a product to sell.
 - **2 are tools** — `F&B Roller Frame 9in - Each Each`, `F&B Roller Sleeve 9in - Each Each`.
 
-If size-less items were swept into a flat sundries group, all of that would surface in the picker **as sundries**, and — worse — the LT bug would be permanently masked: the Isomat paint would appear as a pickable sundry rather than as a missing paint range, so nobody would ever notice four ranges are absent. **The parse-failure bucket must stay loud and empty, not become a category.**
+If size-less items were swept into a flat sundries group, all of that would surface in the picker **as sundries**, and — worse — the LT bug would be permanently masked: the Isomat paint would appear as a pickable sundry rather than as a missing paint range, so nobody would ever notice four ranges are absent. **The parse-failure bucket must stay loud, not become a category.**
+
+**~~"loud and empty"~~ — CORRECTED (2026-07-14). It will never be empty, and expecting that defeats the point.** Measured against the cleaned data: 15 items, of which only 4 are true errors (`DUL231`/`DUL232` duplicate rows, `FAR036`/`FAR037` roller tools). The other **11 are legitimate products the app cannot model** — Isomat fillers, primers and renders sold by the **kilo** (`ISO065`–`ISO075`), correctly named, with no litre size to parse because they don't have one. They are permanent residents.
+
+So the bucket's real meaning is **"unmodellable"**, not "error", and the health check is **"has this list changed?"**, not **"is it empty?"**. This matters: an empty-bucket expectation is one that's never met, so it gets ignored, and the next `LT`-class bug hides among eleven expected entries — the exact failure the bucket exists to catch. Either give the kg-sold products a home, or **record the known baseline** (the 15 above) and surface only departures from it.
 
 **Why the code prefix works where a derived rule can't:** it's *declarative*. `SUN002` is a sundry because Nicky says so, not because a parser gave up. It cleanly separates *intentionally* sizeless (a sundry) from *accidentally* sizeless (a bug). It also happens to align exactly with the two data models the picker needs: branded paint has range/band/size and needs the hierarchy; sundries are flat and have no bands, no sizes, no tin optimisation. The prefix isn't a proxy for the distinction — it *is* the distinction.
 
@@ -150,6 +158,9 @@ The tin optimiser is **not** at risk — it only reads inside a range you've exp
 - Show outstanding count, and actual total vs estimated total (202 prices, already held — free).
 
 **Phase 2 — invoicing from actuals (the payoff)**
+
+> **GATE — close the sundries-% overlap BEFORE this ships.** Floor protection and filler are now itemisable `SUN` items (decided 2026-07-14), but the sundries % is still defined as covering "tape, filler, caulk, floor protection, sandpaper, dust sheets" (FEATURES.md) and still charges for them on every job. Today this is latent: tracking doesn't exist, so a `SUN` item only reaches an invoice if it's manually added as a one-off line. **Phase 2 makes it structural** — actuals feed the invoice automatically, so every itemised protection line is billed twice, once inside the % and once on its own. Deferred knowingly, not overlooked. Closing it means removing protection and filler from the %'s remit and recalibrating the % down against real jobs — the same calibration already owed on the exterior assumed areas.
+
 - Produce the materials list for the invoice: actual quantities × 202 prices.
 - **The app has no invoice path today — it only creates Quotes** (`POST /Quotes`, routes/xero.js). Billing actuals means either:
   - **(a) Output a list** Nicky enters/checks in Xero himself — small, no new Xero surface, proves the model on real jobs first. **Recommended start.**
@@ -165,7 +176,7 @@ The tin optimiser is **not** at risk — it only reads inside a range you've exp
 
 - **Purchases can't be pulled.** Scopes are `accounting.contacts accounting.settings.read accounting.invoices` — no `accounting.transactions`, so real bills/receipts can't be read. Logging stays manual. (Not a problem: quantities are what's typed, and prices come from Items.)
 - **The 202 filter is currently lossy.** `allItems.filter(i => i.SalesDetails?.AccountCode === '202')` throws away the purchase side of every item. Phase 3 needs that kept — a small change at the point of grouping, not a new integration. (Verified 2026-07-14: all 1603 inventory items sell on 202, so the filter excludes nothing among them. It may still exclude non-inventory item types, which an inventory export wouldn't show — so keep the filter, just stop discarding `PurchaseDetails`.)
-- **The committed inventory CSV is stale.** `scripts/pricelists/data/InventoryItems-updated_1.csv` no longer matches Xero: 926 names differ (live has `BM Aura Matte - Colours 3.79ltr`, the repo copy still says `… Gallon`) and RepairCare's seven items have moved 311 → 314. The restore has gone further in Xero than the repo records — **pull a fresh export before trusting the committed one for anything.**
+- **Work from a dated export, and re-pull rather than trust an old one.** The previously committed `InventoryItems-updated_1.csv` had drifted badly from Xero (926 names differed) and has been removed, along with `InventoryItems-restored.csv` (regenerable output of `restore_inventory.py`). The current reference is `scripts/pricelists/data/InventoryItems-20260714.csv`. It is already partly out of date by design — the `TIK051` rename, the `RPC` deletions and the 311 → 314 moves all happened in Xero after it was taken — so **re-export before relying on it for anything.** The lesson holds: Xero moves ahead of the repo, and an export is a snapshot, not a source of truth.
 - **Sundry items on 314 are NOT the cost side of the sundries %.** Two different mechanisms that must not be conflated:
   - **The sundries %** (labour × %) covers the **long tail of stock consumables** — caulk, tape, filler, floor protection, dust sheets. Bought across many jobs, need paying for, not worth itemising every time. It stays a percentage. It is **never itemised and never tracked** — it isn't a material, it's a recovery mechanism. Exclude it from the tracking view entirely.
   - **Specific sundry items** are **job-specific consumables the % won't cover** — wallpaper paste, lining paper. They're real Xero items, added as one-off material lines, and tracked exactly like paint.
@@ -183,7 +194,21 @@ The tin optimiser is **not** at risk — it only reads inside a range you've exp
 - **It survives bookkeeping.** If the accountant re-codes accounts, the app doesn't silently change behaviour.
 - **It's visible.** `SUN002` reads as a sundry in the picker, the export and Xero itself. An account code doesn't.
 
-**Open question — `RPC` (RepairCare, 7 items).** Recently moved 311 → 314, so by account they're already sundries; by prefix they're not. Wood repair products are plausibly job-specific and itemisable. **Decide before Phase 1: fold `RPC` into the sundry rule, or re-code those items `SUN`.** Don't leave the two axes disagreeing.
+**~~Open question — `RPC`~~ — DECIDED (2026-07-14): re-code, don't widen the rule.** RepairCare now lives under `SUN001`–`SUN007`; `RPC001`–`RPC007` are to be deleted. The sundry rule stays a single prefix — `SUN` — with no allowlist of secondary prefixes. Xero permits deleting inventory items (verified: the old `SUN` consumables were deleted outright, 1603 → 1597 items), so the earlier worry about item codes being undeletable history keys did not materialise for these.
+
+**Verified against `scripts/pricelists/data/InventoryItems-20260714.csv`, re-exported after cleanup (2026-07-14). The Xero data is now clean: 1589 items bucketing 19 sundry / 1555 paint / 15 unmodellable.** What the first export caught, and how each resolved:
+
+- **RepairCare had been duplicated, not moved** — `RPC001`–`RPC007` were still Active alongside byte-identical `SUN001`–`SUN007`. Both sets would have been pickable, splitting margin and quote history across two codes for one product. **Resolved: `RPC*` deleted.** (Manual — nothing in this repo writes to live Xero; every script is CSV in, CSV out.)
+- **The prune deliberately keeps floor protection** — `SUN010`/`SUN011`/`SUN012` and the `SUN015` filler stay in `SUN` as job-specific and itemisable. `SUN008` (masking paper) was deleted and stays with the %. **This changes what the sundries % is for — see the Phase 2 gate below.**
+- **Lining paper had been missed.** The paste was re-coded but Wallrock Fibreliner was still `WAL001`/`WAL002` — not `SUN`, no parseable size — so it landed in the unmodellable bucket where the picker would never offer it, defeating one of the two products this flow exists to track. **Resolved: re-coded `SUN019`/`SUN020`.**
+- **`TIK051` was a misnamed tin** — `Tikkurila Optiva 3 - Magnolia 1ltr` at £124.20 beside `TIK053` at £17.12 under the identical name. It was the 10ltr: White and Colours each carry 10/3/1, Magnolia had no 10ltr, and £124.20 sits between White 10ltr (£116.91) and Colours 10ltr (£146.07). Not a direct overcharge — `optimizeTinCombo()` minimises cost so it would never pick the £124.20 entry — but the Magnolia band had **no 10ltr available**, so large Magnolia jobs were costed as a stack of 3ltr tins and quoted high. **Resolved: renamed to `Magnolia 10ltr`.**
+
+  **This is the case for the unmodellable bucket, and for actually reading it.** A duplicate name at an absurd price is invisible to the optimiser (which just routes around it) and invisible on the quote (the cheap tin gets picked) — but obvious the instant a parse report lists the range. The bug was silent, live, and cost real money on every Magnolia job.
+- **Duplicate Tikkurila rows at identical prices** — eight Temaprime EE pairs, two Cleaning Agent pairs. Harmless to costing, but they double up in the band picker. Likely an inventory-restore artefact (see `INVENTORY_RESTORE_SPEC.md`).
+- **The data-error bucket is healthy** — 17 items, all genuinely wrong or uncategorised (DUL231/232 duplicates, roller frames, Isomat kilo fillers, the Fibreliner). No paint hiding in it now the `LT` fix has landed.
+- **Archive status: no longer blocking.** Pruning was done by deletion, which works, so the app doesn't need to honour `Status` for the prune to take effect. One archived item (`TIK015`) is still offered by the picker — a real but minor correctness bug, now decoupled from this feature.
+
+**`SUN` is no longer 1:1 with account 314** — as of the export, `SUN016`–`SUN018` sold on 311; Nicky has since moved them to 314. Either way the design is unchanged: **the code prefix stays the flag**, because 314 has its own P&L job. Watch that 314 doesn't drift into meaning "the app's itemisable flag" — if a stock consumable ever needs 314 for accounting reasons, the two meanings collide, which is exactly what "don't let the app's needs reshape the accounts" was guarding against.
 
 **Caveat on re-coding.** If items under other prefixes should be itemisable (`FAR038` paste, `WAL001/2` Fibreliner, the Isomat kilo fillers), making them `SUN` means **changing the Xero item code — the key historical quotes and invoices reference.** Changing an account is routine; changing a code may not be. Check what Xero does to history before mass-recoding. If it's a problem, the sundry rule needs to accept a small set of prefixes (`SUN`, `RPC`, `WAL`…) rather than just one — cheap, and it keeps the codes stable.
 

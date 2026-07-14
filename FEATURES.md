@@ -17,7 +17,7 @@ Reconciled against the code on **2026-07-14**. Most of the original roadmap is n
 **Loose ends on otherwise-shipped features:**
 - Confirm the wallpaper **staircase +25%** doesn't double-count difficulty already in markup/prep — the spec asked for this before shipping and it was never explicitly closed off.
 - Feature wall never got its **own collapsible section** (cosmetic only).
-- **Calibrate the guessed defaults against real jobs:** exterior assumed areas/coverage, and the sundries %.
+- **Calibrate the guessed defaults against real jobs:** exterior assumed areas/coverage, and the sundries %. The sundries % now has a second reason to move: its remit shrank when floor protection and filler became itemisable (see the Phase 2 gate in `MATERIAL_TRACKING_SPEC.md`).
 - **Exterior materials have not been proven against live Xero/Postgres** — built against a static preview with a faked Xero cache. Watch the first real exterior quote.
 
 ## Architecture reminder
@@ -79,6 +79,7 @@ Built before the deposit, as sequenced: the deposit is based on the materials/to
 ### Sundries (% of labour)
 - **A percentage set in Settings** (editable) applied to the **labour total BEFORE markup** — sundries scale with time on the job, not paint cost. Markup then applies to everything including sundries.
 - Covers the general consumables: tape, filler, caulk, floor protection, sandpaper, dust sheets — the long tail Nicky doesn't itemise.
+- **⚠️ This remit is now out of date and knowingly so.** Floor protection and filler became itemisable `SUN` items on 2026-07-14 (material tracking), so the % and the item list both charge for them. Harmless today — nothing itemises them automatically yet — but it must be resolved before material tracking Phase 2 ships, or every invoice double-charges. See the Phase 2 gate in `MATERIAL_TRACKING_SPEC.md`.
 - Anything specific/expensive is still added as its own one-off material line (above), not absorbed into the %.
 - **Shows as a labelled line** — e.g. "Sundries & consumables" or "Protection, masking & materials" (a plain "Sundries" with a big number invites client questions; a descriptive label reads as value). Consider showing it among the materials lines rather than standalone so it looks like a normal part of the job. Start visible; revisit if it draws questions on real quotes.
 - Feeds the materials/total and therefore the deposit; goes onto the Xero quote as its own line.
