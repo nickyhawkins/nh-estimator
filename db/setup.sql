@@ -180,3 +180,26 @@ CREATE TABLE IF NOT EXISTS debt_plan_income_log (
   date VARCHAR NOT NULL,
   created_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Tracks when the current (not-yet-archived) cycle began, so new-cycle can
+-- compute started_at for the debt_plan_cycle_history row it writes.
+ALTER TABLE debt_plan_settings ADD COLUMN IF NOT EXISTS cycle_started_at TIMESTAMP NOT NULL DEFAULT NOW();
+
+-- One row per completed cycle, written by POST /debt/api/new-cycle just
+-- before it clears the income log and tick-list. Nothing is ever deleted
+-- from this table -- it's the source for the History tab and (later) the
+-- annual summary. debts_paid/debt_snapshot come from the client, since the
+-- payoff simulation itself is client-side only (see debt-app-roadmap.md).
+CREATE TABLE IF NOT EXISTS debt_plan_cycle_history (
+  id SERIAL PRIMARY KEY,
+  cycle_number INTEGER NOT NULL,
+  started_at TIMESTAMP,
+  closed_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  total_income NUMERIC NOT NULL DEFAULT 0,
+  total_paid NUMERIC NOT NULL DEFAULT 0,
+  biz_pot_close NUMERIC NOT NULL DEFAULT 0,
+  per_pot_close NUMERIC NOT NULL DEFAULT 0,
+  debts_paid JSONB NOT NULL DEFAULT '[]',
+  debt_snapshot JSONB NOT NULL DEFAULT '[]',
+  notes TEXT
+);

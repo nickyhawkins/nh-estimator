@@ -112,6 +112,7 @@ let savingsPot=0;
 let savingsPct=10;
 let incomeLog=[]; // {id, amount, bizAmt, perAmt, savedAmt, date}
 let paidThisCycle=[]; // array of debt ids paid
+let history=[]; // completed cycles, newest first — from debt_plan_cycle_history
 let view='cashflow';
 let tightThreshold=600;
 let lastMilestone='';
@@ -152,7 +153,21 @@ async function loadState(){
     console.error('Failed to load debt plan state, using defaults',err);
     debts=DEBTS_INITIAL.map(d=>({...d}));
   }
+  await refreshHistory();
   renderAll();
+}
+async function refreshHistory(){
+  try{
+    const res=await fetch('/debt/api/history');
+    history=await res.json();
+  }catch(err){console.error('Failed to load cycle history',err);}
+}
+// Snapshot of what this cycle actually paid, for archiving to history.
+// Read before debts/paidThisCycle/incomeLog are cleared for the new cycle.
+function getCycleArchivePayload(){
+  const cyclePayments=getCyclePayments();
+  const debtsPaid=cyclePayments.filter(p=>paidThisCycle.includes(p.id)).map(p=>({id:p.id,name:p.name,amount:p.amount}));
+  return {debtsPaid,bizPotClose:bizPot,perPotClose:perPot};
 }
 
 const fmt=(n)=>'£'+Math.abs(n).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -262,7 +277,7 @@ function renderAll(){
   const xLabels=chartData.filter((_,i)=>i%4===0||i===chartData.length-1).map(m=>{const i=chartData.indexOf(m);return `<text x="${toX(i)}" y="${cH-4}" text-anchor="middle" font-size="8" fill="#444">${getMonthLabel(m.month,true)}</text>`;}).join('');
   document.getElementById('chart').innerHTML=`<defs><linearGradient id="g2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#5b8def"/><stop offset="100%" stop-color="#5b8def" stop-opacity="0"/></linearGradient></defs>${gridLines}<polygon points="${pad.l},${toY(0)} ${pts} ${toX(chartData.length-1)},${toY(0)}" fill="url(#g2)" opacity="0.2"/><polyline points="${pts}" fill="none" stroke="#5b8def" stroke-width="1.5"/>${xLabels}`;
 
-  const tabs=[['cashflow','Cash Flow'],['whatif','What If?'],['monthly','Schedule'],['milestones','Milestones'],['edit','Edit Debts'],['overview','All Debts']];
+  const tabs=[['cashflow','Cash Flow'],['whatif','What If?'],['monthly','Schedule'],['milestones','Milestones'],['history','History'],['edit','Edit Debts'],['overview','All Debts']];
   document.getElementById('nav').innerHTML=tabs.map(([k,l])=>`<button onclick="setView('${k}')" style="background:${view===k?'#5b8def':'#1a1d2e'};color:${view===k?'#fff':'#7c7f96'}">${l}</button>`).join('');
 
   let html='';
@@ -298,6 +313,13 @@ function renderAll(){
         <button class="btn-primary" style="flex:1" onclick="openLogModal()">+ Log money in</button>
         <button class="btn-ghost" onclick="openPotsModal()">Adjust pots</button>
       </div>
+    </div>`;
+
+    // Debt-free countdown — motivational context, not the primary action, so kept subtle
+    html+=`<div class="card" style="text-align:center;padding:14px;margin-bottom:8px">
+      <div style="font-size:10px;color:#7c7f96;text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px">Debt-free in</div>
+      <div style="font-size:22px;font-weight:800;color:#fff">${totalMonths} month${totalMonths===1?'':'s'}</div>
+      <div style="font-size:12px;color:#555;margin-top:2px">${getMonthLabel(totalMonths,false)}</div>
     </div>`;
 
     // ── Milestone check ──
@@ -624,6 +646,46 @@ function renderAll(){
     html+=`<div class="card card-yellow"><div style="font-weight:600">HMRC — ${fmt(hmrc?.balance??0)}</div><div style="font-size:12px;color:#b5b07c;margin-top:4px">Not in the snowball. Call 0300 200 3835 to agree Time to Pay.</div></div>`;
   }
 
+  // ---------- HISTORY ----------
+  else if(view==='history'){
+    const initialTotal=DEBTS_INITIAL.reduce((s,d)=>s+d.balance,0);
+    const totalPaidAllTime=history.reduce((s,h)=>s+h.totalPaid,0);
+    const latestTotal=history.length?history[0].debtSnapshot.reduce((s,d)=>s+d.balance,0):totalDebt;
+    const totalReduction=initialTotal-latestTotal;
+    html+=`<p class="desc">Every completed cycle, archived automatically — nothing is ever deleted.</p>`;
+    html+=`<div class="total-card">
+      <div class="row" style="margin-bottom:8px"><span style="color:#7c7f96;font-size:12px">Total paid across all cycles</span><strong style="color:#7db87d">${fmt(totalPaidAllTime)}</strong></div>
+      <div class="row"><span style="color:#7c7f96;font-size:12px">Total debt reduction</span><strong style="color:#5b8def">${fmt(totalReduction)}</strong></div>
+    </div>`;
+    if(!history.length){
+      html+=`<div class="card"><div style="font-size:13px;color:#7c7f96">No cycles completed yet — this fills in after your first "Start new cycle".</div></div>`;
+    }
+    history.forEach((h,i)=>{
+      const cycleTotal=h.debtSnapshot.reduce((s,d)=>s+d.balance,0);
+      const prev=history[i+1];
+      const prevTotal=prev?prev.debtSnapshot.reduce((s,d)=>s+d.balance,0):initialTotal;
+      const reduced=prevTotal-cycleTotal;
+      const cleared=h.debtsPaid.filter(p=>{
+        const snap=h.debtSnapshot.find(d=>d.id===p.id);
+        return snap&&snap.balance<=0.005;
+      });
+      const dateRange=`${h.startedAt?new Date(h.startedAt).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'—'} → ${new Date(h.closedAt).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}`;
+      html+=`<div class="card" style="border-radius:12px;margin-bottom:12px">
+        <div class="row" style="margin-bottom:8px">
+          <span style="font-weight:700;font-size:14px">Cycle ${h.cycleNumber}</span>
+          <span style="font-size:11px;color:#555">${dateRange}</span>
+        </div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:#7c7f96;margin-bottom:${reduced>0.005||cleared.length?'8px':'0'}">
+          <span>In: <strong style="color:#e8e8ec">${fmt(h.totalIncome)}</strong></span>
+          <span>Paid: <strong style="color:#7db87d">${fmt(h.totalPaid)}</strong></span>
+          <span>Balance at close: <strong style="color:#e8e8ec">${fmtS(cycleTotal)}</strong></span>
+        </div>
+        ${reduced>0.005?`<div style="background:#0f1117;border-radius:6px;height:5px;overflow:hidden;margin-bottom:6px"><div style="width:${Math.min(100,Math.max(2,(reduced/Math.max(prevTotal,1))*100))}%;height:100%;background:#7db87d"></div></div><div style="font-size:11px;color:#7db87d;${cleared.length?'margin-bottom:6px':''}">${fmt(reduced)} reduced this cycle</div>`:''}
+        ${cleared.length?`<div style="font-size:12px;color:#7db87d">🎉 Cleared: ${cleared.map(c=>c.name).join(', ')}</div>`:''}
+      </div>`;
+    });
+  }
+
   // ---------- EDIT ----------
   else if(view==='edit'){
     html+=`<p class="desc">Update figures as things change. Tap Save to recalculate.</p>`;
@@ -903,6 +965,7 @@ function renderSyncModal(){
     </div>`;
 }
 async function confirmSync(){
+  const archivePayload=getCycleArchivePayload(); // must read before debts/paidThisCycle change
   debts=debts.map(d=>{
     if(syncDraft[d.id]===undefined)return d;
     const nb=parseNum(syncDraft[d.id]);
@@ -917,17 +980,20 @@ async function confirmSync(){
   selectedMonth=1;
   closeModal();renderAll();
   try{
-    await fetch('/debt/api/new-cycle',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify({debts})});
+    await fetch('/debt/api/new-cycle',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify({debts,...archivePayload})});
   }catch(err){console.error('Failed to start new cycle',err);}
   persist();
+  await refreshHistory();renderAll();
 }
 async function confirmNewCycle(){
+  const archivePayload=getCycleArchivePayload(); // must read before paidThisCycle/incomeLog clear
   paidThisCycle=[];
   incomeLog=[];
   closeModal();renderAll();
   try{
-    await fetch('/debt/api/new-cycle',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify({})});
+    await fetch('/debt/api/new-cycle',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify(archivePayload)});
   }catch(err){console.error('Failed to start new cycle',err);}
+  await refreshHistory();renderAll();
 }
 function applySurplus(){
   const target=getCurrentTarget();

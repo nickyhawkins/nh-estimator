@@ -107,20 +107,71 @@ router.delete('/api/income/:id', async (req, res) => {
   }
 });
 
-// Clears the cycle (income log + tick-list) and optionally applies synced
-// balances in one round trip, so a page refresh mid-transition can't leave
-// the cycle half-cleared.
+// Archives the closing cycle to debt_plan_cycle_history, then clears the
+// cycle (income log + tick-list) and optionally applies synced balances,
+// all in one round trip so a page refresh mid-transition can't leave things
+// half-cleared or the history row unwritten. debtsPaid/bizPotClose/
+// perPotClose come from the client because the payoff simulation that
+// produces cycle payment amounts is client-side only.
 router.post('/api/new-cycle', async (req, res) => {
-  const { debts } = req.body;
+  const { debts, debtsPaid, bizPotClose, perPotClose } = req.body;
   try {
-    await db.query('DELETE FROM debt_plan_income_log');
-    await db.query(`UPDATE debt_plan_cashflow SET paid_this_cycle = '[]' WHERE id = 1`);
+    const paidList = Array.isArray(debtsPaid) ? debtsPaid : [];
+    const totalPaid = paidList.reduce((s, p) => s + Number(p.amount || 0), 0);
+
+    const incomeResult = await db.query('SELECT COALESCE(SUM(amount),0) AS total FROM debt_plan_income_log');
+    const totalIncome = Number(incomeResult.rows[0].total);
+
+    const settingsResult = await db.query('SELECT cycle_started_at FROM debt_plan_settings WHERE id = 1');
+    const startedAt = settingsResult.rows[0]?.cycle_started_at || null;
+
     if (Array.isArray(debts)) {
       for (const d of debts) {
         await db.query('UPDATE debt_plan_debts SET balance=$2, arrears=$3 WHERE id=$1', [d.id, d.balance, d.arrears]);
       }
     }
-    res.json({ ok: true });
+
+    const snapshotResult = await db.query('SELECT id, name, balance, arrears FROM debt_plan_debts ORDER BY id');
+    const debtSnapshot = snapshotResult.rows.map(d => ({
+      id: d.id, name: d.name, balance: Number(d.balance), arrears: Number(d.arrears)
+    }));
+
+    const cycleNumResult = await db.query('SELECT COALESCE(MAX(cycle_number),0) + 1 AS next FROM debt_plan_cycle_history');
+    const cycleNumber = cycleNumResult.rows[0].next;
+
+    await db.query(
+      `INSERT INTO debt_plan_cycle_history
+        (cycle_number, started_at, total_income, total_paid, biz_pot_close, per_pot_close, debts_paid, debt_snapshot)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [cycleNumber, startedAt, totalIncome, totalPaid, bizPotClose || 0, perPotClose || 0, JSON.stringify(paidList), JSON.stringify(debtSnapshot)]
+    );
+
+    await db.query('DELETE FROM debt_plan_income_log');
+    await db.query(`UPDATE debt_plan_cashflow SET paid_this_cycle = '[]' WHERE id = 1`);
+    await db.query('UPDATE debt_plan_settings SET cycle_started_at = NOW() WHERE id = 1');
+
+    res.json({ ok: true, cycleNumber });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/api/history', async (req, res) => {
+  try {
+    const result = await db.query('SELECT * FROM debt_plan_cycle_history ORDER BY closed_at DESC');
+    res.json(result.rows.map(r => ({
+      id: r.id,
+      cycleNumber: r.cycle_number,
+      startedAt: r.started_at,
+      closedAt: r.closed_at,
+      totalIncome: Number(r.total_income),
+      totalPaid: Number(r.total_paid),
+      bizPotClose: Number(r.biz_pot_close),
+      perPotClose: Number(r.per_pot_close),
+      debtsPaid: r.debts_paid,
+      debtSnapshot: r.debt_snapshot,
+      notes: r.notes
+    })));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
