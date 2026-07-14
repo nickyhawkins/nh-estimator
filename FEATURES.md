@@ -6,19 +6,24 @@ This document captures planned features for the NH Estimator app, scoped and rea
 
 Reconciled against the code on **2026-07-14**. Most of the original roadmap is now built — keep this index honest as things ship, it had drifted badly once already.
 
-**Shipped:** Automatic materials from Xero Items · Materials editing + sundries · Realistic time estimate · Deposit & staged payments · Colour reference library · Multiple saved jobs · Rename jobs · HSL alignment (both steps) · Exterior alignment · Wallpaper calculator · Wallpaper per-roll labour · Lining + finish on one job · Feature wall paint/wallpaper toggle
+**Shipped:** Automatic materials from Xero Items · Materials editing + sundries · Realistic time estimate · Deposit & staged payments · Colour reference library · Multiple saved jobs · Rename jobs · HSL alignment (both steps) · Exterior alignment · Wallpaper calculator · Wallpaper per-roll labour · Lining + finish on one job · Feature wall paint/wallpaper toggle · **Material tracking Phases 0, 1 and 2(a)** (2026-07-14)
+
+**⚠️ Deploy step outstanding:** material tracking added the `material_actuals` table, and **`db/setup.sql` is not run automatically** (README: `psql $DATABASE_URL -f db/setup.sql`). Until it's run against the live database, the Materials and Invoice screens 500 on a missing relation. Nothing else is affected. `IF NOT EXISTS` throughout, so re-running is safe.
 
 **Still to build:**
 - **Finish/sheen per colour** — the last unbuilt item on the Colours tab (see "Colours tab evolution").
-- **Material tracking (actuals vs estimate)** — not started, but **scoped: see `MATERIAL_TRACKING_SPEC.md`**. The only genuinely NEW territory left; everything else is estimating, this is job management. Load-bearing: materials are quoted as an estimate and **invoiced as used**, so actuals are the invoice's materials list.
-- **Navigation: hamburger for job admin** — decided alongside tracking; bottom bar keeps the measuring tabs, menu takes Jobs/Materials/Settings.
-- **Backup: CSV import + full-data export** — a per-job *summary* export exists on the Summary tab, but it is NOT a backup (see "Backup system").
+- ~~**Material tracking (actuals vs estimate)** — not started~~ **Phases 0, 1 and 2(a) SHIPPED 2026-07-14** (`MATERIAL_TRACKING_SPEC.md`): the three-bucket item picker, the actuals log, and the materials list for the invoice. What remains there:
+  - **Phase 3 — margin / calibration.** Cheap (311/314 purchase prices already ride on the `/Items` call and are thrown away), but **needs history to be worth building** — run Phase 1 on a few real jobs first.
+  - **Phase 2(b) — `POST /Invoices` from the app.** Optional; 2(a) outputs a list to enter in Xero by hand and proves the model first. Needs its scope verified — the app requests `accounting.invoices`, which is not a documented Xero scope name — and probably a re-auth.
+- **Navigation: hamburger for job admin** — decided alongside tracking; bottom bar keeps the measuring tabs, menu takes Jobs/Materials/Settings. **Now has a waiting tenant:** materials tracking sits on a temporary **Materials ›** button on Summary, and its outstanding-count badge (load-bearing, not polish) can't exist until the menu does.
+- **Backup: CSV import + full-data export** — a per-job *summary* export exists on the Summary tab, but it is NOT a backup (see "Backup system"). **Note `material_actuals` is now in scope for this**: it's the only table that regenerates from nothing, so it's the one with most to lose.
 
 **Loose ends on otherwise-shipped features:**
 - Confirm the wallpaper **staircase +25%** doesn't double-count difficulty already in markup/prep — the spec asked for this before shipping and it was never explicitly closed off.
 - Feature wall never got its **own collapsible section** (cosmetic only).
 - **Calibrate the guessed defaults against real jobs:** exterior assumed areas/coverage, and the sundries %. ~~The sundries % now has a second reason to move: its remit shrank when floor protection and filler became itemisable.~~ **Withdrawn 2026-07-14 — the remit never shrank.** The % still covers floor protection at the level a normal job uses it; the itemisable `SUN010`–`SUN012` lines are for the odd job needing extra on top. So the % needs calibrating for the ordinary reason (it was a guess), not for this one.
-- **Exterior materials have not been proven against live Xero/Postgres** — built against a static preview with a faked Xero cache. Watch the first real exterior quote.
+- **Exterior materials have not been proven against live Xero/Postgres** — built against a static preview with a faked Xero cache. Watch the first real exterior quote. **The same caveat applies to material tracking** (Phases 0–2a): verified against the real Xero export, the real routes with a stubbed db, and the real UI against a mock server — but there is no postgres on Nicky's Mac, so the first live job is still the first live job.
+- **One archived Xero item is still offered as a live option** — `TIK015` (`Tikkurila Anti Reflex 2 - Magnolia 3ltr`). `/material-groups` filters on `SalesDetails.AccountCode` and never reads `Status`. Exactly one row out of ~1,576, so it's minor — but before fixing it, **confirm the Items API even exposes `Status`**: this was only ever checked against a CSV export, and the code has never read the live payload. Not a material-tracking dependency (that prune was done by deletion); it's a standalone picker bug.
 
 ## Architecture reminder
 
