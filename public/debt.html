@@ -831,7 +831,7 @@ function togglePaid(id){
   }
   persist();renderAll();
 }
-function deleteIncome(idx){
+async function deleteIncome(idx){
   const e=incomeLog[idx];
   if(!e)return;
   bizPot=Math.max(0,bizPot-(e.bizAmt||0));
@@ -839,6 +839,10 @@ function deleteIncome(idx){
   savingsPot=Math.max(0,savingsPot-(e.savedAmt||0));
   incomeLog.splice(idx,1);
   persist();renderAll();
+  if(e.id!=null){
+    try{ await fetch('/debt/api/income/'+e.id,{method:'DELETE'}); }
+    catch(err){ console.error('Failed to delete income entry',err); }
+  }
 }
 let syncDraft={};
 function startNewCycle(){
@@ -898,7 +902,7 @@ function renderSyncModal(){
       </div>
     </div>`;
 }
-function confirmSync(){
+async function confirmSync(){
   debts=debts.map(d=>{
     if(syncDraft[d.id]===undefined)return d;
     const nb=parseNum(syncDraft[d.id]);
@@ -911,12 +915,19 @@ function confirmSync(){
   incomeLog=[];
   syncDraft={};
   selectedMonth=1;
-  persist();closeModal();renderAll();
+  closeModal();renderAll();
+  try{
+    await fetch('/debt/api/new-cycle',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify({debts})});
+  }catch(err){console.error('Failed to start new cycle',err);}
+  persist();
 }
-function confirmNewCycle(){
+async function confirmNewCycle(){
   paidThisCycle=[];
   incomeLog=[];
-  persist();closeModal();renderAll();
+  closeModal();renderAll();
+  try{
+    await fetch('/debt/api/new-cycle',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify({})});
+  }catch(err){console.error('Failed to start new cycle',err);}
 }
 function applySurplus(){
   const target=getCurrentTarget();
@@ -1028,7 +1039,7 @@ function changeMonth(dir){const months=simulate(debts,budget);selectedMonth=Math
 
 document.getElementById('budgetSlider').addEventListener('input',e=>{budget=parseInt(e.target.value);persist();renderAll();});
 
-renderAll();
+loadState();
 </script>
 </body>
 </html>
