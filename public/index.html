@@ -2646,7 +2646,9 @@ function addCustomMaterialLine() {
   var qty = +document.getElementById('add-mat-qty').value || 0;
   var price = +document.getElementById('add-mat-price').value || 0;
   var itemCode = document.getElementById('add-mat-itemcode').value || undefined;
-  materialsSnapshot.push({ id: uid(), itemCode: itemCode, description: desc, quantity: qty, unitAmount: price, custom: true });
+  var colourVal = document.getElementById('add-mat-colour').value;
+  var colourNumber = colourVal ? +colourVal : null;
+  materialsSnapshot.push({ id: uid(), itemCode: itemCode, description: desc, quantity: qty, unitAmount: price, custom: true, colourNumber: colourNumber });
   saveMaterialsSnapshot();
   renderSummary();
 }
@@ -5449,6 +5451,17 @@ async function renderSummary() {
       '<div class="card-header">Add Material</div>'+
       '<div class="field-row"><div class="field-label">Product<small>optional</small></div><select class="field-input wide" id="add-mat-product" onchange="onAddMaterialProductSelect()"></select></div>'+
       '<div class="field-row"><div class="field-label">Description</div><input type="text" class="field-input wide" id="add-mat-desc" placeholder="e.g. Dust sheets" autocorrect="off"></div>'+
+      // Which colour this line is FOR -- needed whenever a paint product is
+      // added here manually (e.g. replacing a deleted prefilled line with a
+      // different product), since it has no role/room to derive one from the
+      // way an auto-generated row does. Optional: sundries and free text
+      // aren't colour-specific. Stored as colourNumber so it flows through
+      // rollUpEstimateByItem() into Materials tracking's per-colour display
+      // the same way an auto-generated line's colour does.
+      '<div class="field-row"><div class="field-label">Colour<small>optional</small></div><select class="field-input wide" id="add-mat-colour">'+
+        '<option value="">— No colour —</option>'+
+        colours.map(function(c){ return '<option value="'+c.number+'">'+escapeHtml(c.label || ('Colour '+c.number))+'</option>'; }).join('')+
+      '</select></div>'+
       '<div class="field-row"><div class="field-label">Unit price</div><input type="number" class="field-input" id="add-mat-price" value="0" min="0" step="0.01" inputmode="decimal"></div>'+
       '<div class="field-row"><div class="field-label">Quantity</div><input type="number" class="field-input" id="add-mat-qty" value="1" min="0" step="1" inputmode="numeric"></div>'+
       '<input type="hidden" id="add-mat-itemcode">'+
