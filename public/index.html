@@ -2874,13 +2874,18 @@ function renderActuals() {
     // Which colours drove this product's quantity. Informational only —
     // actuals are per product, not per colour (you buy one tin, it doesn't
     // know which room it's for). Absent on lines saved before Recalculate
-    // started carrying colourNumber.
+    // started carrying colourNumber. Shown even for a single colour: the
+    // estimate label itself only gets a colour suffix when a role has more
+    // than one group (see buildRoleRows), so this is the only place a
+    // single-colour job's tins are ever labelled with their colour.
     var parts = (r.parts || []).filter(function(p) { return p.quantity > 0; });
     var detail = parts.length > 1
       ? parts.map(function(p) {
           return 'Colour ' + p.colourNumber + (colourLabels[p.colourNumber] ? ' (' + colourLabels[p.colourNumber] + ')' : '') + ' · ' + (Math.round(p.quantity * 100) / 100);
         }).join('  ·  ')
-      : '';
+      : (parts.length === 1
+          ? 'Colour ' + parts[0].colourNumber + (colourLabels[parts[0].colourNumber] ? ' (' + colourLabels[parts[0].colourNumber] + ')' : '')
+          : '');
 
     var tag = !r.onEstimate
       ? '<span style="font-size:11px;font-weight:600;color:#b00;background:rgba(187,0,0,.08);border-radius:10px;padding:2px 8px;margin-left:6px">not quoted</span>'
