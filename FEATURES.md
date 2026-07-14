@@ -10,7 +10,7 @@ Reconciled against the code on **2026-07-14**. Most of the original roadmap is n
 
 **Still to build:**
 - **Finish/sheen per colour** — the last unbuilt item on the Colours tab (see "Colours tab evolution").
-- **Material tracking (actuals vs estimate)** — not started. The only genuinely NEW territory left; everything else is estimating, this is job management.
+- **Material tracking (actuals vs estimate)** — not started, but **scoped: see `MATERIAL_TRACKING_SPEC.md`**. The only genuinely NEW territory left; everything else is estimating, this is job management.
 - **Backup: CSV import + full-data export** — a per-job *summary* export exists on the Summary tab, but it is NOT a backup (see "Backup system").
 
 **Loose ends on otherwise-shipped features:**
@@ -363,12 +363,18 @@ Extends the feature-wall pricing (input dimensions → price the wall on its own
 
 > **Still outstanding:** the spec called for moving the feature wall into its own collapsible section (collapsed by default). The room form has collapsible sections and the exterior form uses them throughout, but there's no dedicated feature-wall section — cosmetic, not functional.
 
-## FEATURE: Material tracking (actuals vs estimate — job management) ⬜ NOT STARTED
+## FEATURE: Material tracking (actuals vs estimate — job management) ⬜ NOT STARTED, SCOPED
 
 DIFFERENT from everything else so far — everything to date is ESTIMATING (what a job should cost). This is ACTUALS: track what was really used/purchased against a job so nothing's missed at invoicing (forgotten materials = lost money). Turns the app from a quoting tool into a light job-management tool.
-- A place per job to log materials purchased/used, reconciled against the estimate (estimated vs actual, what's outstanding).
-- Bigger conceptual piece than a calculation tweak; depends on Multiple saved jobs (tracking is per-job).
-- Scope carefully when reached — could be as simple as a checklist/log per job, or as involved as full reconciliation. Start simple.
+
+> **NOTE: now specced in `MATERIAL_TRACKING_SPEC.md`, which SUPERSEDES the "scope carefully when reached" note that used to live here.** That doc is authoritative: the quantities-only/derived-money decision, the `material_actuals` data model, the three-phase build order, and the open question of where it lives.
+
+Headlines from the spec:
+- **Quantities only in, money derived out.** Tick lines off and adjust quantities; never type a price. Chargeable value comes from account-202 prices the app already holds.
+- **Actuals must NOT live on materials-snapshot lines.** `recalculateMaterialsSnapshot()` is a full overwrite that regenerates every line id, so actuals stored there would be silently destroyed by a normal mid-job Recalculate. They get their own `material_actuals` table, joined by `itemCode` (stable) rather than line id (not stable).
+- **Margin is Phase 3** — it's the one purpose needing COST prices (account 311 / `PurchaseDetails`), which the app currently filters out. Probably free from the existing `/Items` payload; unverified.
+- **Xero can't supply purchases.** No `accounting.transactions` scope, so logging stays manual.
+- Depends on Multiple saved jobs (tracking is per-job) — now shipped, so this is unblocked.
 
 ## FEATURE: Backup system (CSV export / import) — ⚠️ PARTIAL, NOT YET A BACKUP
 
