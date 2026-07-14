@@ -169,6 +169,62 @@ const TIN_SIZE_RE = /(\d+(?:\.\d+)?)\s*l(?:tr?)?\b/i;
 // Millilitres, for suppliers that haven't been tidied yet (e.g. "750ml").
 const TIN_SIZE_ML_RE = /(\d+(?:\.\d+)?)\s*ml\b/i;
 
+// Tikkurila tins hold 10% less than the size on their label: an "Optiva 5 3ltr"
+// tin reads 2.7L on the pot. Tikkurila publish the convention per size — 1 LTR
+// = 0.9L min, 3 LTR = 2.7L, 10 LTR = 9L, 20 LTR = 18L.
+//
+// This applies to EVERY colour band, White included, and the reason is how the
+// paint is made rather than what's in it. A range ships as two bases — Optiva 5
+// is Base A and Base C — and Xero's three bands are three *prices* over those
+// two *paints*: Base A covers White and Pastels, Base C covers the deep
+// Colours. A "White" tin is a Base A tin. It comes off the same line, filled to
+// the same 2.7L, as the Base A tin that gets tinted into a pastel. Selling it
+// untinted doesn't put the missing 300ml back.
+//
+// So do NOT reinstate a White/Clear exemption on the reasoning that untinted
+// paint needs no headspace for colourant. That argument sounds right, matches
+// the price list's "minimum contents of all TINTED products" wording, and is
+// wrong — it was tried on 2026-07-14 and contradicted by Nicky reading 9L off
+// an Otex Akva White 10ltr. The bands are a pricing artefact, not a fill one.
+//
+// The label is what the tin is sold and invoiced as, so it stays exactly as
+// Xero has it — but every volume-based sum (tin optimisation, cost per litre)
+// must use the real content or it over-estimates coverage and under-estimates
+// cost. Before this existed, every tinted job bought exactly 90% of the paint
+// it quoted for.
+//
+// Scoped to the ranges Nicky specifies. The other ~118 Tikkurila ranges fall
+// through to their labelled size deliberately — a blanket Tikkurila-wide 0.9
+// would be wrong for the thinners and solvents (never tinted, full tins) and
+// for the handful of products whose real contents are documented in
+// tikkurila.json's _irregular_sizes and aren't 10% off at all (Helmi Wood Oil
+// labels a 0.5L tin as "3ltr"; Pontti Floor Oil's "3ltr" is 2.5L).
+const TIK_REDUCED_FILL_RANGES = new Set([
+  'Optiva 3', 'Optiva 5', 'Nova 2', 'Otex Akva',
+  'Helmi 10', 'Helmi 30', 'Helmi 80', 'Luja Matt (7)',
+]);
+
+// Anti Reflex 2 is deliberately absent: Nicky read a full 10L off its 10ltr
+// tin, so it's left at nominal on his instruction ("this rule applies to all
+// of them except Anti Reflex"). By the base logic above that reading should
+// generalise across its bands, which is why no band of it is reduced. If an
+// Anti Reflex 2 Pastels/Magnolia tin ever turns up reading 9L, this is the
+// line to revisit.
+
+const TIK_FILL = 0.9;
+
+// Real content of a tin, given its range and labelled size.
+//
+// Per-litre SKUs are exempt: they sell a litre as a litre, so the fill of the
+// tin they're decanted from doesn't change what the customer receives. That
+// discrepancy belongs in the SKU's rate instead — see the (per litre) section
+// in scripts/pricelists/README.md before touching one.
+function trueFill(range, sizeL, isPerLitre) {
+  if (isPerLitre) return sizeL;
+  if (!TIK_REDUCED_FILL_RANGES.has(range.replace(/^Tikkurila /, ''))) return sizeL;
+  return Math.round(sizeL * TIK_FILL * 1000) / 1000;
+}
+
 // Find a tin size anywhere in a name and return it normalised to litres,
 // along with where the match starts/ends so callers can split off whatever
 // came before it. Prefers a litre match over a millilitre one since "l"
@@ -202,16 +258,20 @@ function parseItemName(name) {
   const isPerLitre = PER_LITRE_RE.test(name);
   if (!size) return { range: name, band: null, sizeL: null, isPerLitre };
   let prefix = name.slice(0, size.start).trim();
+  let range, band;
   if (prefix.endsWith('-')) {
     // "Range - 5ltr" — the dash separates range from size with an empty band.
-    return { range: prefix.slice(0, -1).trim(), band: '', sizeL: size.sizeL, isPerLitre };
+    range = prefix.slice(0, -1).trim();
+    band = '';
+  } else {
+    const sep = prefix.lastIndexOf(' - ');
+    range = sep === -1 ? prefix : prefix.slice(0, sep);
+    band = sep === -1 ? '' : prefix.slice(sep + 3).trim();
   }
-  const sep = prefix.lastIndexOf(' - ');
-  if (sep === -1) return { range: prefix, band: '', sizeL: size.sizeL, isPerLitre };
-  return { range: prefix.slice(0, sep), band: prefix.slice(sep + 3).trim(), sizeL: size.sizeL, isPerLitre };
+  return { range, band, sizeL: size.sizeL, trueL: trueFill(range, size.sizeL, isPerLitre), isPerLitre };
 }
 
-// range -> band -> [{ sizeL, price, itemCode, isPerLitre }, ...] (sizes
+// range -> band -> [{ sizeL, trueL, price, itemCode, isPerLitre }, ...] (sizes
 // ascending). Unbanded products group under band '' (a single implicit
 // band) rather than being dropped — only items with no parseable size at
 // all are skipped, since there's nothing usable to put in the sizes list.
@@ -220,14 +280,22 @@ function parseItemName(name) {
 // optimiser (step 4) should exclude them from tin-combination candidates,
 // and the per-litre roles — ceiling/topcoat/primer (step 5) — should prefer
 // one directly (litres × price, no rounding) over combining tins.
+//
+// sizeL and trueL are both carried because they answer different questions and
+// diverge on every band of TIK_REDUCED_FILL_RANGES. sizeL is what the
+// tin is called —
+// use it for anything a customer reads (invoice line descriptions, Summary
+// detail, the picker). trueL is what's in it — use it for anything that adds
+// up (tin optimisation, cost per litre). They're equal for every range not in
+// that table, which is why mixing them up survives casual testing.
 function groupMaterialItems(items) {
   const groups = {};
   items.forEach(i => {
-    const { range, band, sizeL, isPerLitre } = parseItemName(i.Name);
+    const { range, band, sizeL, trueL, isPerLitre } = parseItemName(i.Name);
     if (sizeL == null) return;
     if (!groups[range]) groups[range] = {};
     if (!groups[range][band]) groups[range][band] = [];
-    groups[range][band].push({ sizeL, price: i.SalesDetails?.UnitPrice ?? null, itemCode: i.Code, isPerLitre });
+    groups[range][band].push({ sizeL, trueL, price: i.SalesDetails?.UnitPrice ?? null, itemCode: i.Code, isPerLitre });
   });
   Object.values(groups).forEach(bands =>
     Object.values(bands).forEach(sizes => sizes.sort((a, b) => a.sizeL - b.sizeL))
@@ -465,3 +533,9 @@ router.post('/create-quote', async (req, res) => {
 
 module.exports = router;
 module.exports.getAccessToken = getAccessToken;
+// Exported for the tin-fill checks in scripts/check_item_parse.py's Node
+// counterpart and for ad-hoc verification against a real Xero export.
+module.exports.parseItemName = parseItemName;
+module.exports.trueFill = trueFill;
+module.exports.groupMaterialItems = groupMaterialItems;
+module.exports.TIK_REDUCED_FILL_RANGES = TIK_REDUCED_FILL_RANGES;

@@ -2070,7 +2070,11 @@ function optimizeTinCombo(sizes, requiredLitres) {
   if (!usable.length || requiredLitres <= 0) return null;
   var GRAN = 10;
   var reqUnits = Math.max(1, Math.ceil(requiredLitres * GRAN - 1e-9));
-  var sizeUnits = usable.map(function(s) { return Math.max(1, Math.round(s.sizeL * GRAN)); });
+  // trueL, not sizeL: the DP is asking "how much paint does this tin put on
+  // the wall", and for the ranges in TIK_TRUE_FILL a 3ltr tin only answers
+  // 2.7. Falls back to sizeL for anything the server didn't stamp a trueL on.
+  // The chosen lines still carry sizeL, so descriptions read "3ltr" as sold.
+  var sizeUnits = usable.map(function(s) { return Math.max(1, Math.round((s.trueL != null ? s.trueL : s.sizeL) * GRAN)); });
   var maxUnit = Math.max.apply(null, sizeUnits);
   var cap = reqUnits + maxUnit;
   var dp = new Array(cap + 1).fill(Infinity);

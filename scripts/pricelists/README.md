@@ -84,6 +84,89 @@ if you're updating it from a fresh Tikkurila PDF, multiply every new price by
 1.05 before entering it (or apply the same % rise Nicky actually used, if it
 changes). This is called out in the JSON's own `_note` field so it isn't lost.
 
+### Tikkurila tins hold 10% less than their label says
+
+An "Optiva 5 3ltr" pot reads **2.7L** on the tin. Tikkurila publish the
+convention per size: 1 LTR = 0.9L min, 3 LTR = 2.7L, 10 LTR = 9L, 20 LTR = 18L.
+
+The label is what the tin is sold and invoiced as, so it stays exactly as Xero
+has it. The correction lives in `TIK_REDUCED_FILL_RANGES` / `trueFill()` in
+[`routes/xero.js`](../../routes/xero.js), which stamps a `trueL` alongside the
+parsed `sizeL` so the tin optimiser sums real litres while every
+customer-facing description still reads "3ltr". **This is not a Xero data
+change; don't try to fix it by editing `ItemName`.** Before it existed, every
+affected job bought exactly 90% of the paint it quoted for.
+
+#### Why it applies to White too
+
+This is the part that catches people out, so it's worth the paragraph.
+
+A range ships as **two bases** — Optiva 5 is Base A and Base C — but Xero
+carries **three bands**. Those three bands are three *prices* over two
+*paints*: Base A covers White and Pastels, Base C covers the deep Colours. A
+"White" tin **is** a Base A tin: same line, same 2.7L fill, as the Base A tin
+that gets tinted into a pastel. Selling it untinted doesn't put the missing
+300ml back.
+
+**Do not reinstate a White/Clear exemption.** The reasoning that untinted paint
+needs no headspace for colourant sounds right, matches the price list's note 4
+wording ("minimum contents of all **tinted** products are the enclosed sizes
+less 10%"), and is wrong. It was implemented on 2026-07-14 and disproved the
+same day: Nicky reads 9L off an Otex Akva **White** 10ltr. The bands are a
+pricing artefact, not a fill one.
+
+#### Scope
+
+Eight ranges: Optiva 3, Optiva 5, Nova 2, Otex Akva, Helmi 10, Helmi 30,
+Helmi 80, Luja Matt (7) — note that last is "Luja 7" in conversation but
+`Luja Matt (7)` in Xero.
+
+**Anti Reflex 2 is deliberately excluded**, on Nicky's instruction and a
+physical reading of a full 10L off its 10ltr tin. By the base logic above that
+reading should generalise across its bands, so none of them is reduced. If an
+Anti Reflex 2 Pastels/Magnolia tin ever turns up at 9L, that's the assumption
+to revisit.
+
+**Don't blanket-apply ×0.9 to the remaining ~118 Tikkurila ranges.** It's wrong
+for the thinners and solvents (never tinted, genuinely full tins), and wrong
+for the products whose real contents are documented in `tikkurila.json`'s
+`_irregular_sizes` and aren't 10% off at all — Helmi Wood Oil labels a 0.5L tin
+"3ltr", Pontti Floor Oil's "3ltr" is 2.5L. Those need their own entries, not a
+factor. A wrong factor is invisible downstream (the label still says 3ltr),
+which is why leaving a range at nominal beats guessing.
+
+### The `(per litre)` SKUs are priced off the *nominal* tin
+
+`TIK012`, `TIK123` and `TIK186` are each priced at their range's 10ltr tin
+÷ 10 — verified exactly. That resolves the old puzzle in this README about
+them matching "no size in the price list": they aren't bespoke rates, they're
+tin ÷ 10.
+
+That divisor is only right when the tin genuinely holds 10L, and per the fill
+rule above two of the three don't:
+
+| SKU | Range | Its 10ltr tin | Rate basis | Status |
+|---|---|---|---|---|
+| `TIK012` | Anti Reflex 2 White | a genuine 10L | `tin ÷ 10` | correct |
+| `TIK123` | Otex Akva White | 9L | `tin ÷ 10` | **underpriced ~11.1%** |
+| `TIK186` | Helmi 30 White | 9L | `tin ÷ 10` | **underpriced ~11.1%** |
+
+`TIK123` and `TIK186` sell a litre for one tenth of a tin that only holds nine.
+Correcting them means `tin ÷ 9`: buy £14.68 → £16.31 and sell £17.61 → £19.57
+for Otex Akva, buy £14.51 → £16.12 and sell £17.41 → £19.34 for Helmi 30, both
+preserving the sell = buy × 1.20 convention. **Nicky is handling this in Xero
+himself** (2026-07-14) — it's noted here so the reasoning survives, not as an
+outstanding task.
+
+Both prices move, not just sales: a litre decanted from a 9L tin has always
+*cost* `tin ÷ 9`, so `PurchasesUnitPrice` was factually wrong. That makes it a
+cost-basis correction, not the margin change section 4 above warns about.
+
+**If you ever add a range to `TIK_REDUCED_FILL_RANGES` that has a `(per litre)`
+SKU, that SKU needs repricing in the same breath** — the code deliberately
+exempts per-litre items from `trueL` (a litre sold is a litre delivered), so
+the discrepancy has nowhere to go except the rate.
+
 Two other things specific to `tikkurila.json`:
 - An `_unverified_sizing` block flags the Fillers/Solvents/Cleaners tail
   section (Presto range, Thinners, Colowood, etc.) — these don't size-match
@@ -94,9 +177,11 @@ Two other things specific to `tikkurila.json`:
   truncated item in that range without checking first.
 - A handful of Xero SKUs (`TIK012`, `TIK123`, `TIK186` — all suffixed
   "(per litre)") price at a rate that doesn't match *any* size in the price
-  list at all. These look like a bespoke small-quantity rate rather than a
-  standard tin size and are simply not resolvable from this PDF — they'll
-  always show up in the flag list if reprocessed, which is correct, not a bug.
+  list at all, so they'll always show up in the flag list if reprocessed —
+  which is correct, not a bug. They were once assumed to be a bespoke
+  small-quantity rate; they aren't. Each is its range's 10ltr tin price
+  divided by the tin's contents — see "The `(per litre)` SKUs are priced off
+  the *nominal* tin" above, which is the section to read before touching them.
 
 ## What's deliberately left alone
 
