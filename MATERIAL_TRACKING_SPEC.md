@@ -300,7 +300,7 @@ Its own destination, reached from a **hamburger menu**, NOT a fifth bottom tab.
 
 The split is by activity, and it's a real distinction rather than a cosmetic one:
 - **Bottom bar = measuring** (Rooms · Exterior · Colours · Summary) — used on site, one-handed, one thumb-tap. Unchanged.
-- **Hamburger = job admin** (Jobs · Materials · Settings) — used at the merchant and at invoicing, not while measuring. Absorbed the "My Job ›" text and the four separate ⚙️ buttons that used to be scattered across the topbars.
+- **Hamburger = job admin** (Jobs · Materials · Settings) — used at the merchant and at invoicing, not while measuring. Absorbed the four separate ⚙️ buttons that used to be scattered across the topbars. ("My Job ›" itself was removed then restored on Home's topbar per Nicky, 2026-07-14 — see FEATURES.md's nav section.)
 
 **The badge is load-bearing, not decoration, and it works.** `updateNavBadge()` shows the outstanding count both as a small badge on the hamburger icon (visible without opening the menu) and as "N to buy" on the menu's Materials row. Loaded eagerly at app start and on job switch, not just when Materials is first opened, so it's correct from the very first paint.
 
