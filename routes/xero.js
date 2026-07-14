@@ -530,15 +530,15 @@ router.post('/create-quote', async (req, res) => {
       // Heading/divider row for the materials block. A leading newline puts a
       // blank line above it so it sits with the same vertical spacing as the
       // other scope-of-work headings (PAINTING, COMPLETION, ...) rather than
-      // butting straight up against the paragraph before it. Quantity and
-      // UnitAmount are set to 0 explicitly so those columns render blank on
-      // the heading row (a 0 qty × 0 price line contributes nothing to the
-      // total). Reads as a plain heading since the API can't apply
-      // bold/shading to one row differently from the others -- every LineItem
-      // renders through the same repeated table row in the DOCX template, so
-      // any real visual distinction (bold, shaded background) has to happen
-      // there, not here.
-      lineItems.push({ Description: '\nMATERIALS ESTIMATE', Quantity: 0, UnitAmount: 0 });
+      // butting straight up against the paragraph before it. No ItemCode,
+      // Quantity or UnitAmount at all (not even zero) — Xero renders a line
+      // item with only a Description as plain narrative text, leaving those
+      // columns empty rather than showing a literal 0. Reads as a plain
+      // heading since the API can't apply bold/shading to one row differently
+      // from the others -- every LineItem renders through the same repeated
+      // table row in the DOCX template, so any real visual distinction (bold,
+      // shaded background) has to happen there, not here.
+      lineItems.push({ Description: '\nMATERIALS ESTIMATE' });
       materials.forEach(m => {
         lineItems.push({
           ItemCode: m.itemCode,
