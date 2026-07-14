@@ -1454,6 +1454,16 @@ async function initApp() {
     } catch (e) {
       console.log('Jobs fetch failed — running from local cache:', e.message);
     }
+    // BUG FIX (2026-07-14): Home's job-name label was left showing the STALE
+    // pre-sync value whenever the active job had zero rooms. Step 1 above
+    // painted it once from localStorage before this jobs fetch ran; the only
+    // other renderHome() in this function sits inside the ROOMS fetch's
+    // `if (serverRooms.length > 0)` guard below, which a fresh or roomless job
+    // never satisfies -- so the label never got the server's corrected name
+    // (e.g. a rename made elsewhere). The hamburger menu's copy never showed
+    // this because it reads activeJob() fresh at open time, always after this
+    // point. Call it unconditionally here so both agree regardless of rooms.
+    renderHome();
     // Isolated (rooms/extitems now require job_id, so a not-yet-migrated
     // DB must not abort the rest of this block — same reasoning as the
     // colours/materials isolation below).
