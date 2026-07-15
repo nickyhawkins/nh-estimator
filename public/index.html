@@ -970,7 +970,7 @@ function clearRooms() {
   // content -- they stay untouched here, only cleared by deleting the job.
   rooms=[]; colours=[]; materialsSnapshot=[];
   localStorage.setItem('pe-rooms','[]');
-  saveRooms(); saveColours(); saveMaterialsSnapshot(); renderHome();
+  saveRooms(); saveColours(); saveMaterialsSnapshot(); markMaterialsSeeded(false); renderHome();
 }
 function clearEverything() {
   if(!confirm('Clear ALL data in this job including exterior? This cannot be undone.'))return;
@@ -980,6 +980,7 @@ function clearEverything() {
   localStorage.setItem('pe-colours','[]');
   localStorage.setItem('pe-materials-snapshot','[]');
   apiDelete('/api/all?job_id='+encodeURIComponent(activeJobId));
+  markMaterialsSeeded(false);
   ['ex-doors','ex-wins','ex-garage'].forEach(function(id){
     var el=document.getElementById(id); if(el) el.value='0';
   });
@@ -1280,7 +1281,7 @@ async function createXeroQuote() {
     // user has edited it down to, not silently whatever rooms compute to
     // right now. Guard mirrors renderSummary()'s lazy auto-populate in case
     // this is somehow reached before the Summary tab has ever rendered.
-    if (materialsSnapshot.length === 0) {
+    if (materialsSnapshot.length === 0 && !(activeJob() && activeJob().materialsSeeded)) {
       var checkMats = computeMaterials();
       if (checkMats.total > 0) recalculateMaterialsSnapshot();
     }
@@ -1766,6 +1767,15 @@ function renameJob(id) {
   renderHome(); renderJobs();
 }
 
+// PUT /api/jobs/:id replaces `data` wholesale (see routes/api.js), so any
+// save here that only sends SOME of the client-known data fields would
+// silently drop whichever ones it left out. Every call site that persists
+// part of job.data must go through this so xeroClient/xeroRef/
+// materialsSeeded always travel together.
+function persistJobData(job) {
+  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, materialsSeeded: job.materialsSeeded }) });
+}
+
 // xero-client/xero-ref live in the active job's data now (persisted, not
 // wiped on clear) instead of being ephemeral DOM-only state.
 function saveJobXeroFields() {
@@ -1774,7 +1784,21 @@ function saveJobXeroFields() {
   job.xeroClient = document.getElementById('xero-client').value.trim();
   job.xeroRef = document.getElementById('xero-ref').value.trim();
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
-  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef }) });
+  persistJobData(job);
+}
+
+// Whether this job's materials snapshot has EVER been populated (auto-seed
+// or an explicit Recalculate) -- persisted per-job, separate from whether
+// materialsSnapshot happens to be empty right now. Without this, the
+// lazy auto-populate in renderSummary/createXeroQuote can't tell "never
+// seeded" apart from "user deleted every line", and silently undoes a
+// deliberate delete-to-empty on the very next render (BUG FIX 2026-07-15).
+function markMaterialsSeeded(seeded) {
+  var job = activeJob();
+  if (!job) return;
+  job.materialsSeeded = seeded;
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
 }
 
 function renderJobs() {
@@ -2557,6 +2581,7 @@ function recalculateMaterialsSnapshot() {
     }));
   }, []);
   saveMaterialsSnapshot();
+  markMaterialsSeeded(true);
 }
 
 function materialsSnapshotTotal() {
@@ -3314,8 +3339,16 @@ function renderColours() {
     if (masonryItems.length) sub += '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Masonry (ext)</span><span class="breakdown-sub-value">'+escapeHtml(masonryItems.join(', '))+'</span></div>';
     if (extWoodItems.length) sub += '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Woodwork (ext)</span><span class="breakdown-sub-value">'+escapeHtml(extWoodItems.join(', '))+'</span></div>';
     matRows.forEach(function(r){ sub += r.html; });
-    var brandChip = c.brand ? '<div class="chip" style="white-space:nowrap">'+escapeHtml(c.brand)+(c.code ? ' · No. '+escapeHtml(c.code) : '')+'</div>' : '';
-    return '<div class="field-row">'+
+    // Row wraps on mobile (flex-wrap, scoped to this row only -- .field-row
+    // elsewhere stays single-line) instead of the chips fighting for shrink
+    // space: a long product tag like "Dulux Heritage · No. 1780058" was
+    // forced nowrap with no min-width:0, so it just spilled off the card's
+    // right edge on narrow screens ($colours-cards is overflow:visible, so
+    // it wasn't even clipped -- see that rule). Letting the row drop the
+    // chips to their own line keeps the full tag readable instead of
+    // truncating it (BUG FIX 2026-07-15).
+    var brandChip = c.brand ? '<div class="chip" style="min-width:0;white-space:normal;word-break:break-word">'+escapeHtml(c.brand)+(c.code ? ' · No. '+escapeHtml(c.code) : '')+'</div>' : '';
+    return '<div class="field-row" style="flex-wrap:wrap">'+
       '<div class="room-icon" style="font-size:16px;font-weight:700">'+c.number+'</div>'+
       '<div style="position:relative">'+
         '<input type="text" class="field-input wide" id="c-label-'+c.number+'" placeholder="Name this colour (optional)" autocorrect="off" autocomplete="off" value="'+escapeHtml(c.label||'')+'" oninput="onColourLabelInput('+c.number+',this.value)" onfocus="onColourLabelInput('+c.number+',this.value)" onchange="renameColour('+c.number+',this.value)">'+
@@ -5318,7 +5351,14 @@ async function renderSummary() {
   // seed one automatically so a brand-new quote shows real numbers without
   // an extra manual step -- after this, nothing touches the snapshot except
   // explicit edits or the Recalculate button (see recalculateMaterialsSnapshot).
-  if (materialsSnapshot.length === 0 && mats.total > 0) {
+  if (materialsSnapshot.length > 0 && activeJob() && !activeJob().materialsSeeded) {
+    // Adopts a pre-existing, already-populated snapshot as "seeded" the
+    // first time it's viewed after this fix ships -- jobs saved before
+    // markMaterialsSeeded() existed would otherwise have no flag set, and
+    // the guard below would wrongly treat their first delete-to-empty as
+    // "never seeded" and silently repopulate it.
+    markMaterialsSeeded(true);
+  } else if (materialsSnapshot.length === 0 && mats.total > 0 && !(activeJob() && activeJob().materialsSeeded)) {
     recalculateMaterialsSnapshot();
   }
   var materialsTotal = materialsSnapshotTotal();
