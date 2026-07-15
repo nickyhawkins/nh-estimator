@@ -129,6 +129,10 @@ let cashflowUpdatedAt=null;
 let conflictBanner='';
 let cycleStatus={daysSinceStart:0,promptReset:false};
 let cycleResetDismissed=false;
+let borrowedActive=[]; // loaded from GET /debt/api/borrowed on init
+let borrowedRepaid=[];
+let repaidLogExpanded=false;
+let loanIsSavings=false;
 
 const JSON_HEADERS={'Content-Type':'application/json'};
 let persistTimer=null;
@@ -203,6 +207,7 @@ async function loadState(){
   }
   await refreshHistory();
   await refreshCycleStatus();
+  await refreshBorrowed();
   renderAll();
 }
 async function refreshHistory(){
@@ -216,6 +221,20 @@ async function refreshCycleStatus(){
     const res=await fetch('/debt/api/cycle-status');
     cycleStatus=await res.json();
   }catch(err){console.error('Failed to load cycle status',err);}
+}
+// Borrowed money tab — fully standalone from the rest of the app's state.
+// See Debt Management App/debt-app-borrowed-money.md.
+async function refreshBorrowed(){
+  try{
+    const res=await fetch('/debt/api/borrowed');
+    const data=await res.json();
+    borrowedActive=data.active||[];
+    borrowedRepaid=data.repaid||[];
+  }catch(err){console.error('Failed to load borrowed money data',err);}
+}
+function formatBorrowedDate(d){
+  if(!d)return '—';
+  return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short'});
 }
 // Snapshot of what this cycle actually paid, for archiving to history.
 // Read before debts/paidThisCycle/incomeLog are cleared for the new cycle.
@@ -316,7 +335,6 @@ function renderAll(){
     {label:'Total Debt',value:fmtS(totalDebt),color:'#7c7f96',border:'#2a2d3e'},
     {label:'In Arrears',value:fmt(totalArrears),color:'#e05c5c',border:'#4a2020'},
     {label:'Arrears Cleared',value:phaseSwitch?getMonthLabel(phaseSwitch.month,true):'—',color:'#7db87d',border:'#1e3a1e'},
-    {label:'Debt-Free',value:getMonthLabel(totalMonths,true),color:'#fff',border:'#2a2d3e'},
   ];
   document.getElementById('statGrid').innerHTML=stats.map(s=>`<div class="stat-card" style="border:1px solid ${s.border}"><div class="stat-label" style="color:${s.color}">${s.label}</div><div class="stat-val" style="color:${s.color}">${s.value}</div></div>`).join('');
 
@@ -332,7 +350,7 @@ function renderAll(){
   const xLabels=chartData.filter((_,i)=>i%4===0||i===chartData.length-1).map(m=>{const i=chartData.indexOf(m);return `<text x="${toX(i)}" y="${cH-4}" text-anchor="middle" font-size="8" fill="#444">${getMonthLabel(m.month,true)}</text>`;}).join('');
   document.getElementById('chart').innerHTML=`<defs><linearGradient id="g2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#5b8def"/><stop offset="100%" stop-color="#5b8def" stop-opacity="0"/></linearGradient></defs>${gridLines}<polygon points="${pad.l},${toY(0)} ${pts} ${toX(chartData.length-1)},${toY(0)}" fill="url(#g2)" opacity="0.2"/><polyline points="${pts}" fill="none" stroke="#5b8def" stroke-width="1.5"/>${xLabels}`;
 
-  const tabs=[['cashflow','Cash Flow'],['whatif','What If?'],['monthly','Schedule'],['milestones','Milestones'],['history','History'],['edit','Edit Debts'],['overview','All Debts']];
+  const tabs=[['cashflow','Cash Flow'],['whatif','What If?'],['monthly','Schedule'],['milestones','Milestones'],['history','History'],['borrowed','Borrowed'],['edit','Edit Debts'],['overview','All Debts']];
   document.getElementById('nav').innerHTML=tabs.map(([k,l])=>`<button onclick="setView('${k}')" style="background:${view===k?'#5b8def':'#1a1d2e'};color:${view===k?'#fff':'#7c7f96'}">${l}</button>`).join('');
 
   let html='';
@@ -378,6 +396,17 @@ function renderAll(){
         <button class="btn-ghost" onclick="openPotsModal()">Adjust pots</button>
       </div>
     </div>`;
+
+    // Borrowed-money nudge — informational only, no interaction with pots/cashflow.
+    const savingsLoans=borrowedActive.filter(b=>b.is_savings);
+    if(savingsLoans.length>0){
+      const savingsTotal=savingsLoans.reduce((s,b)=>s+b.amount,0);
+      const savingsSources=[...new Set(savingsLoans.map(b=>b.source_name))];
+      const nudgeText=savingsSources.length===1
+        ? `⚠ ${fmt(savingsTotal)} borrowed from ${savingsSources[0]} — repay when you can`
+        : `⚠ ${fmt(savingsTotal)} borrowed from savings pots (${savingsSources.join(', ')})`;
+      html+=`<div style="background:#2a1a0a;border:1px solid #4a3a1a;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#e0923b;line-height:1.5">${nudgeText}</div>`;
+    }
 
     // Debt-free countdown — motivational context, not the primary action, so kept subtle
     html+=`<div class="card" style="text-align:center;padding:14px;margin-bottom:8px">
@@ -803,6 +832,84 @@ function renderAll(){
     });
   }
 
+  // ---------- BORROWED ----------
+  // Standalone notes tab: no read/write of any other app state or calculation.
+  else if(view==='borrowed'){
+    html+=`<p class="desc">Track informal short-term borrowing — from people or from your own savings pots. Purely for notes; nothing here affects the debt plan.</p>`;
+    const grandTotal=borrowedActive.reduce((s,b)=>s+b.amount,0);
+    const sourceCount=new Set(borrowedActive.map(b=>b.source_name)).size;
+    if(grandTotal<=0.005){
+      html+=`<div class="card card-green" style="text-align:center;padding:20px;border-radius:12px;margin-bottom:16px">
+        <div style="font-size:16px;font-weight:700;color:#7db87d">Nothing outstanding ✓</div>
+        <div style="font-size:12px;color:#7c9f7c;margin-top:4px">Keep it that way.</div>
+      </div>`;
+    }else{
+      html+=`<div class="total-card" style="background:linear-gradient(135deg,#1a2535,#141a2e);margin-bottom:16px">
+        <div style="font-size:10px;color:#7c9fb5;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Total borrowed</div>
+        <div style="font-size:32px;font-weight:800;color:#fff">${fmt(grandTotal)}</div>
+        <div style="font-size:12px;color:#7c7f96;margin-top:4px">${borrowedActive.length} active loan${borrowedActive.length===1?'':'s'} across ${sourceCount} source${sourceCount===1?'':'s'}</div>
+      </div>`;
+    }
+
+    // Group active loans by source: savings-flagged first, then alphabetical.
+    const groups={};
+    borrowedActive.forEach(b=>{
+      const key=b.source_name+'|'+b.is_savings;
+      if(!groups[key])groups[key]={source_name:b.source_name,is_savings:b.is_savings,items:[],total:0};
+      groups[key].items.push(b);
+      groups[key].total+=b.amount;
+    });
+    const groupList=Object.values(groups).sort((a,b)=>{
+      if(a.is_savings!==b.is_savings)return a.is_savings?-1:1;
+      return a.source_name.localeCompare(b.source_name);
+    });
+
+    groupList.forEach(g=>{
+      html+=`<div class="card" style="border-radius:12px;margin-bottom:12px">
+        <div class="row" style="margin-bottom:8px;align-items:center">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div class="dot" style="background:${g.is_savings?'#7db87d':'#5b8def'};margin-top:0"></div>
+            <span style="font-weight:700;font-size:15px">${g.source_name}</span>
+            <span class="badge" style="background:${g.is_savings?'#0d1a0d':'#0a1228'};color:${g.is_savings?'#7db87d':'#5b8def'}">${g.is_savings?'SAVINGS':'PERSON'}</span>
+          </div>
+          <strong style="color:#e8e8ec">${fmt(g.total)} total</strong>
+        </div>`;
+      g.items.forEach((b,i)=>{
+        html+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;${i<g.items.length-1?'border-bottom:1px solid #2a2d3e':''}">
+          <div>
+            <div style="font-size:13px;color:${b.note?'#e8e8ec':'#555'}">${b.note||'No note'}</div>
+            <div style="font-size:11px;color:#555;margin-top:1px">${formatBorrowedDate(b.borrowed_at)}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <strong>${fmt(b.amount)}</strong>
+            <button onclick="openRepayModal(${b.id})" style="padding:5px 10px;border-radius:6px;border:1px solid #2a4a2a;background:transparent;color:#7db87d;font-size:11px;font-weight:600">Repaid ✓</button>
+          </div>
+        </div>`;
+      });
+      html+=`</div>`;
+    });
+
+    html+=`<div style="${borrowedActive.length?'':'text-align:center'};margin-bottom:16px"><button class="btn-primary" ${borrowedActive.length?'style="width:100%"':'style="padding:12px 24px"'} onclick="openAddLoanModal()">+ Log a loan</button></div>`;
+
+    html+=`<div class="card" style="border-radius:12px">
+      <button onclick="repaidLogExpanded=!repaidLogExpanded;renderAll()" style="width:100%;background:none;border:none;color:#7c7f96;font-size:13px;font-weight:600;text-align:left;padding:0;cursor:pointer">${repaidLogExpanded?'▼':'▶'} Repaid (${borrowedRepaid.length})</button>`;
+    if(repaidLogExpanded){
+      borrowedRepaid.forEach((b,i)=>{
+        html+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;${i<borrowedRepaid.length-1?'border-bottom:1px solid #2a2d3e':''};margin-top:${i===0?'12px':'0'}">
+          <div>
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="font-size:13px;color:#555">${b.source_name}</span>
+              <span style="font-size:9px;color:#555;text-transform:uppercase;letter-spacing:.06em">${b.is_savings?'savings':'person'}</span>
+            </div>
+            <div style="font-size:11px;color:#555;margin-top:1px">${b.note||'No note'} · ${formatBorrowedDate(b.borrowed_at)} → ${formatBorrowedDate(b.repaid_at)}</div>
+          </div>
+          <strong style="color:#555;text-decoration:line-through">${fmt(b.amount)}</strong>
+        </div>`;
+      });
+    }
+    html+=`</div>`;
+  }
+
   document.getElementById('tabContent').innerHTML=html;
 }
 
@@ -1205,6 +1312,86 @@ function resetDebts(){
     </div>`;
 }
 function confirmReset(){debts=DEBTS_INITIAL.map(d=>({...d}));editDraft={};selectedMonth=1;persist();closeModal();renderAll();}
+
+// ---------- Borrowed money actions ----------
+function openRepayModal(id){
+  const b=borrowedActive.find(x=>x.id===id);
+  if(!b)return;
+  document.getElementById('modalRoot').innerHTML=`
+    <div class="modal-bg" onclick="if(event.target===this)closeModal()">
+      <div class="modal">
+        <h2 style="font-size:18px;margin-bottom:12px">Mark as repaid?</h2>
+        <div style="font-size:13px;color:#7c7f96;margin-bottom:18px;line-height:1.5">
+          <strong style="color:#e8e8ec">${fmt(b.amount)}</strong> borrowed from ${b.source_name}<br>
+          ${b.note||'No note'} · ${formatBorrowedDate(b.borrowed_at)}
+        </div>
+        <div style="display:flex;gap:10px">
+          <button class="btn-primary" style="flex:1;background:#7db87d" onclick="confirmRepay(${id})">Yes, mark repaid</button>
+          <button class="btn-ghost" onclick="closeModal()">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+}
+async function confirmRepay(id){
+  closeModal();
+  try{ await fetch('/debt/api/borrowed/'+id+'/repay',{method:'POST'}); }
+  catch(err){ console.error('Failed to mark loan repaid',err); }
+  await refreshBorrowed();renderAll();
+}
+function openAddLoanModal(){
+  loanIsSavings=false;
+  document.getElementById('modalRoot').innerHTML=`
+    <div class="modal-bg" onclick="if(event.target===this)closeModal()">
+      <div class="modal">
+        <h2 style="font-size:18px;margin-bottom:16px">Log a loan</h2>
+        <div class="field-label">Source name</div>
+        <input id="loanSource" class="field-input" type="text" placeholder="e.g. Dave, Tax, Emergency fund" style="margin-bottom:14px">
+        <div class="field-label">Type</div>
+        <div style="display:flex;gap:8px;margin-bottom:14px">
+          <button id="loanTypePerson" onclick="setLoanType(false)" style="flex:1;padding:10px;border-radius:6px;border:1px solid #5b8def;background:#141a2e;color:#5b8def;font-size:13px;font-weight:600">Person</button>
+          <button id="loanTypeSavings" onclick="setLoanType(true)" style="flex:1;padding:10px;border-radius:6px;border:1px solid #2a2d3e;background:#1a1d2e;color:#7c7f96;font-size:13px;font-weight:600">Savings pot</button>
+        </div>
+        <div class="field-label">Amount (£)</div>
+        <input id="loanAmount" class="field-input" type="number" inputmode="decimal" step="0.01" min="0" style="font-size:18px;padding:12px;margin-bottom:14px">
+        <div class="field-label">What was it for? (optional)</div>
+        <input id="loanNote" class="field-input" type="text" style="margin-bottom:14px">
+        <div class="field-label">Date borrowed</div>
+        <input id="loanDate" class="field-input" type="date" value="${new Date().toISOString().slice(0,10)}" style="margin-bottom:14px">
+        <div id="loanError" style="display:none;color:#e05c5c;font-size:12px;margin-bottom:12px"></div>
+        <div style="display:flex;gap:10px">
+          <button class="btn-primary" style="flex:1" onclick="confirmAddLoan()">Save</button>
+          <button class="btn-ghost" onclick="closeModal()">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+  setTimeout(()=>document.getElementById('loanSource').focus(),100);
+}
+function setLoanType(isSavings){
+  loanIsSavings=isSavings;
+  const p=document.getElementById('loanTypePerson');
+  const s=document.getElementById('loanTypeSavings');
+  if(isSavings){
+    s.style.borderColor='#7db87d';s.style.background='#0d1a0d';s.style.color='#7db87d';
+    p.style.borderColor='#2a2d3e';p.style.background='#1a1d2e';p.style.color='#7c7f96';
+  }else{
+    p.style.borderColor='#5b8def';p.style.background='#141a2e';p.style.color='#5b8def';
+    s.style.borderColor='#2a2d3e';s.style.background='#1a1d2e';s.style.color='#7c7f96';
+  }
+}
+async function confirmAddLoan(){
+  const source=document.getElementById('loanSource').value.trim();
+  const amount=parseNum(document.getElementById('loanAmount').value);
+  const note=document.getElementById('loanNote').value.trim();
+  const date=document.getElementById('loanDate').value;
+  const errEl=document.getElementById('loanError');
+  if(!source){errEl.textContent='Source name is required';errEl.style.display='block';return;}
+  if(!amount||amount<=0){errEl.textContent='Amount must be greater than 0';errEl.style.display='block';return;}
+  try{
+    await fetch('/debt/api/borrowed',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify({source_name:source,is_savings:loanIsSavings,amount,note:note||null,borrowed_at:date||null})});
+  }catch(err){console.error('Failed to save loan',err);}
+  closeModal();
+  await refreshBorrowed();renderAll();
+}
 
 function setView(v){view=v;editDraft={};renderAll();}
 function changeMonth(dir){const months=simulate(debts,budget);selectedMonth=Math.max(1,Math.min(months.length,selectedMonth+dir));renderAll();}

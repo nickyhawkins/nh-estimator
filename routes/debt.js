@@ -270,4 +270,77 @@ router.get('/api/cycle-status', async (req, res) => {
   }
 });
 
+// Borrowed money tab -- see Debt Management App/debt-app-borrowed-money.md.
+// Fully standalone: no read/write of debt_plan_cashflow, debt_plan_settings,
+// debt_plan_debts, or the income log.
+function titleCase(str) {
+  return str.trim().replace(/\s+/g, ' ').replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+}
+
+router.get('/api/borrowed', async (req, res) => {
+  try {
+    const result = await db.query('SELECT * FROM debt_plan_borrowed ORDER BY borrowed_at DESC, id DESC');
+    const active = [];
+    const repaid = [];
+    for (const r of result.rows) {
+      const row = {
+        id: r.id, source_name: r.source_name, is_savings: r.is_savings,
+        amount: Number(r.amount), note: r.note, borrowed_at: r.borrowed_at,
+        repaid_at: r.repaid_at
+      };
+      (r.repaid ? repaid : active).push(row);
+    }
+    res.json({ active, repaid });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/api/borrowed', async (req, res) => {
+  const { source_name, is_savings, amount, note, borrowed_at } = req.body;
+  if (!source_name || !source_name.trim()) return res.status(400).json({ error: 'source_name is required' });
+  const amt = Number(amount);
+  if (!amt || amt <= 0) return res.status(400).json({ error: 'amount must be greater than 0' });
+  try {
+    const result = await db.query(
+      `INSERT INTO debt_plan_borrowed (source_name, is_savings, amount, note, borrowed_at)
+       VALUES ($1,$2,$3,$4,COALESCE($5, CURRENT_DATE)) RETURNING *`,
+      [titleCase(source_name), !!is_savings, amt, note || null, borrowed_at || null]
+    );
+    const r = result.rows[0];
+    res.json({
+      id: r.id, source_name: r.source_name, is_savings: r.is_savings,
+      amount: Number(r.amount), note: r.note, borrowed_at: r.borrowed_at
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/api/borrowed/:id/repay', async (req, res) => {
+  try {
+    const result = await db.query(
+      `UPDATE debt_plan_borrowed SET repaid = true, repaid_at = NOW() WHERE id = $1 RETURNING *`,
+      [req.params.id]
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: 'not found' });
+    const r = result.rows[0];
+    res.json({
+      id: r.id, source_name: r.source_name, is_savings: r.is_savings,
+      amount: Number(r.amount), note: r.note, borrowed_at: r.borrowed_at, repaid_at: r.repaid_at
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/api/borrowed/:id', async (req, res) => {
+  try {
+    await db.query('DELETE FROM debt_plan_borrowed WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

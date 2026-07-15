@@ -280,3 +280,24 @@ CREATE TABLE IF NOT EXISTS debt_plan_cycle_history (
   debt_snapshot JSONB NOT NULL DEFAULT '[]',
   notes TEXT
 );
+
+-- Standalone notes tab for informal short-term borrowing (people or named
+-- savings pots). Purely informational -- no other table or endpoint reads
+-- from this one. See Debt Management App/debt-app-borrowed-money.md.
+CREATE TABLE IF NOT EXISTS debt_plan_borrowed (
+  id SERIAL PRIMARY KEY,
+  source_name TEXT NOT NULL,
+  is_savings BOOLEAN NOT NULL DEFAULT FALSE,
+  amount NUMERIC NOT NULL,
+  note TEXT,
+  borrowed_at DATE NOT NULL DEFAULT CURRENT_DATE,
+  repaid BOOLEAN NOT NULL DEFAULT FALSE,
+  repaid_at TIMESTAMP,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+DROP TRIGGER IF EXISTS debt_plan_borrowed_updated_at ON debt_plan_borrowed;
+CREATE TRIGGER debt_plan_borrowed_updated_at
+  BEFORE UPDATE ON debt_plan_borrowed
+  FOR EACH ROW EXECUTE FUNCTION debt_plan_set_updated_at();
