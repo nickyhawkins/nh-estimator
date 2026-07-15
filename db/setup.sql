@@ -230,6 +230,38 @@ CREATE TABLE IF NOT EXISTS debt_plan_income_log (
 -- compute started_at for the debt_plan_cycle_history row it writes.
 ALTER TABLE debt_plan_settings ADD COLUMN IF NOT EXISTS cycle_started_at TIMESTAMP NOT NULL DEFAULT NOW();
 
+-- Due-date push notifications (ntfy.sh) and the 28-day cycle-reset nudge,
+-- both driven by the same daily cron job -- see lib/debtNotify.js.
+ALTER TABLE debt_plan_settings ADD COLUMN IF NOT EXISTS notify_days_before INTEGER NOT NULL DEFAULT 3;
+ALTER TABLE debt_plan_settings ADD COLUMN IF NOT EXISTS notifications_enabled BOOLEAN NOT NULL DEFAULT true;
+
+-- Multi-device conflict detection: each write endpoint compares the
+-- client's last-known updated_at against the current value before writing,
+-- and 409s (with the fresh row) if another device wrote in between.
+ALTER TABLE debt_plan_debts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW();
+ALTER TABLE debt_plan_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW();
+ALTER TABLE debt_plan_cashflow ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW();
+
+CREATE OR REPLACE FUNCTION debt_plan_set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN NEW.updated_at = NOW(); RETURN NEW; END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS debt_plan_debts_updated_at ON debt_plan_debts;
+CREATE TRIGGER debt_plan_debts_updated_at
+  BEFORE UPDATE ON debt_plan_debts
+  FOR EACH ROW EXECUTE FUNCTION debt_plan_set_updated_at();
+
+DROP TRIGGER IF EXISTS debt_plan_settings_updated_at ON debt_plan_settings;
+CREATE TRIGGER debt_plan_settings_updated_at
+  BEFORE UPDATE ON debt_plan_settings
+  FOR EACH ROW EXECUTE FUNCTION debt_plan_set_updated_at();
+
+DROP TRIGGER IF EXISTS debt_plan_cashflow_updated_at ON debt_plan_cashflow;
+CREATE TRIGGER debt_plan_cashflow_updated_at
+  BEFORE UPDATE ON debt_plan_cashflow
+  FOR EACH ROW EXECUTE FUNCTION debt_plan_set_updated_at();
+
 -- One row per completed cycle, written by POST /debt/api/new-cycle just
 -- before it clears the income log and tick-list. Nothing is ever deleted
 -- from this table -- it's the source for the History tab and (later) the

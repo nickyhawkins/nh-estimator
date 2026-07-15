@@ -118,6 +118,17 @@ let tightThreshold=600;
 let lastMilestone='';
 let selectedMonth=1;
 let editDraft={};
+let notifyDaysBefore=3;
+let notificationsEnabled=true;
+let notifyTestStatus='';
+// Last-known updated_at per table, echoed back on writes so the server can
+// detect a stale save from another device (409) instead of overwriting.
+let debtsUpdatedAt=null;
+let settingsUpdatedAt=null;
+let cashflowUpdatedAt=null;
+let conflictBanner='';
+let cycleStatus={daysSinceStart:0,promptReset:false};
+let cycleResetDismissed=false;
 
 const JSON_HEADERS={'Content-Type':'application/json'};
 let persistTimer=null;
@@ -127,12 +138,44 @@ function persist(){
 }
 async function persistNow(){
   try{
-    await Promise.all([
-      fetch('/debt/api/debts',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify({debts})}),
-      fetch('/debt/api/settings',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify({budget,sweepPct,savingsPct,tightThreshold,lastMilestone})}),
-      fetch('/debt/api/cashflow',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify({bizPot,perPot,savingsPot,paidThisCycle})})
+    const [debtsRes,settingsRes,cashflowRes]=await Promise.all([
+      fetch('/debt/api/debts',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify({debts,clientUpdatedAt:debtsUpdatedAt})}),
+      fetch('/debt/api/settings',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify({budget,sweepPct,savingsPct,tightThreshold,lastMilestone,notifyDaysBefore,notificationsEnabled,clientUpdatedAt:settingsUpdatedAt})}),
+      fetch('/debt/api/cashflow',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify({bizPot,perPot,savingsPot,paidThisCycle,clientUpdatedAt:cashflowUpdatedAt})})
     ]);
+    await handleWriteResponse(debtsRes,'debts');
+    await handleWriteResponse(settingsRes,'settings');
+    await handleWriteResponse(cashflowRes,'cashflow');
   }catch(err){console.error('Failed to save debt plan state',err);}
+}
+// Applies a write's outcome: on 409, another device saved more recently, so
+// hydrate from the fresh copy the server sends back instead of overwriting
+// it, and surface the conflict banner. Otherwise just track the new
+// updated_at so the next save can be compared correctly.
+async function handleWriteResponse(res,kind){
+  if(res.status===409){
+    const body=await res.json().catch(()=>null);
+    if(!body)return;
+    if(kind==='debts'){debts=body.current;debtsUpdatedAt=body.updatedAt;}
+    else if(kind==='settings'){
+      budget=body.current.budget;sweepPct=body.current.sweepPct;savingsPct=body.current.savingsPct;
+      tightThreshold=body.current.tightThreshold;lastMilestone=body.current.lastMilestone;
+      notifyDaysBefore=body.current.notifyDaysBefore;notificationsEnabled=body.current.notificationsEnabled;
+      settingsUpdatedAt=body.updatedAt;
+    }else if(kind==='cashflow'){
+      bizPot=body.current.bizPot;perPot=body.current.perPot;savingsPot=body.current.savingsPot;
+      paidThisCycle=body.current.paidThisCycle;cashflowUpdatedAt=body.updatedAt;
+    }
+    conflictBanner="Updated on another device — your changes weren't saved. Refreshed to latest.";
+    renderAll();
+    return;
+  }
+  if(!res.ok)return;
+  const body=await res.json().catch(()=>null);
+  if(!body)return;
+  if(kind==='debts')debtsUpdatedAt=body.updatedAt;
+  else if(kind==='settings')settingsUpdatedAt=body.updatedAt;
+  else if(kind==='cashflow')cashflowUpdatedAt=body.updatedAt;
 }
 async function loadState(){
   try{
@@ -144,16 +187,22 @@ async function loadState(){
     savingsPct=s.settings.savingsPct;
     tightThreshold=s.settings.tightThreshold;
     lastMilestone=s.settings.lastMilestone;
+    notifyDaysBefore=s.settings.notifyDaysBefore??3;
+    notificationsEnabled=s.settings.notificationsEnabled??true;
     bizPot=s.cashflow.bizPot;
     perPot=s.cashflow.perPot;
     savingsPot=s.cashflow.savingsPot;
     paidThisCycle=s.cashflow.paidThisCycle;
     incomeLog=s.incomeLog;
+    debtsUpdatedAt=s.meta?.debtsUpdatedAt||null;
+    settingsUpdatedAt=s.meta?.settingsUpdatedAt||null;
+    cashflowUpdatedAt=s.meta?.cashflowUpdatedAt||null;
   }catch(err){
     console.error('Failed to load debt plan state, using defaults',err);
     debts=DEBTS_INITIAL.map(d=>({...d}));
   }
   await refreshHistory();
+  await refreshCycleStatus();
   renderAll();
 }
 async function refreshHistory(){
@@ -161,6 +210,12 @@ async function refreshHistory(){
     const res=await fetch('/debt/api/history');
     history=await res.json();
   }catch(err){console.error('Failed to load cycle history',err);}
+}
+async function refreshCycleStatus(){
+  try{
+    const res=await fetch('/debt/api/cycle-status');
+    cycleStatus=await res.json();
+  }catch(err){console.error('Failed to load cycle status',err);}
 }
 // Snapshot of what this cycle actually paid, for archiving to history.
 // Read before debts/paidThisCycle/incomeLog are cleared for the new cycle.
@@ -282,6 +337,15 @@ function renderAll(){
 
   let html='';
 
+  if(conflictBanner){
+    html+=`<div class="card" style="border:1px solid #6a3a1a;background:#1a0f08;border-radius:10px;margin-bottom:8px">
+      <div class="row" style="align-items:flex-start">
+        <div style="font-size:13px;color:#e0923b">⚠ ${conflictBanner}</div>
+        <button onclick="conflictBanner='';renderAll()" style="background:none;border:none;color:#7c7f96;font-size:16px;padding:0 0 0 8px;flex-shrink:0">×</button>
+      </div>
+    </div>`;
+  }
+
   // ---------- CASH FLOW (home) ----------
   if(view==='cashflow'){
     const cyclePayments=getCyclePayments();
@@ -386,6 +450,18 @@ function renderAll(){
           <button class="btn-primary" style="width:100%;background:#7db87d" onclick="applySurplus()">Send ${fmt(surplus)} to ${target.name}</button>
         </div>`;
       }
+    }
+
+    // Cycle-reset nudge — same 28-day check as the daily push notification,
+    // shown once per page load (dismissing doesn't persist server-side).
+    if(cycleStatus.promptReset && !cycleResetDismissed){
+      html+=`<div class="card" style="border:1px solid #6a5a1a;background:#1a1608;border-radius:10px;margin-bottom:8px">
+        <div class="row" style="align-items:flex-start">
+          <div style="font-size:13px;color:#e0c060">📅 Your cycle is ${cycleStatus.daysSinceStart} days old — ready to start a new one?</div>
+          <button onclick="cycleResetDismissed=true;renderAll()" style="background:none;border:none;color:#7c7f96;font-size:16px;padding:0 0 0 8px;flex-shrink:0">×</button>
+        </div>
+        <button class="btn-ghost" style="width:100%;margin-top:10px" onclick="startNewCycle()">Start new cycle</button>
+      </div>`;
     }
 
     // Progress bar of cycle
@@ -530,6 +606,24 @@ function renderAll(){
     <input type="range" min="20" max="80" step="5" value="${sweepPct}" oninput="setSweep(this.value)" style="width:100%;margin-top:10px;accent-color:#5b8def">
     <div class="slider-ends"><span>20%</span><span>80%</span></div>
     </div>`;
+
+    // Notification settings
+    html+=`<div class="card">
+      <div class="row" style="align-items:center;margin-bottom:${notificationsEnabled?'10px':'0'}">
+        <div><div style="font-size:13px;font-weight:600">Notifications</div><div style="font-size:12px;color:#7c7f96;margin-top:2px">Push reminders for upcoming due dates</div></div>
+        <button onclick="toggleNotifications()" style="width:44px;height:24px;border-radius:12px;border:none;background:${notificationsEnabled?'#5b8def':'#2a2d3e'};position:relative;flex-shrink:0;padding:0">
+          <div style="width:18px;height:18px;border-radius:50%;background:#fff;position:absolute;top:3px;left:${notificationsEnabled?'23px':'3px'};transition:left .15s"></div>
+        </button>
+      </div>`;
+    if(notificationsEnabled){
+      html+=`<div style="font-size:11px;color:#555;margin-bottom:6px">Notify this many days before a due date</div>
+      <div style="display:flex;gap:6px;margin-bottom:12px">
+        ${[1,2,3].map(n=>`<button onclick="setNotifyDays(${n})" style="flex:1;padding:8px;border-radius:6px;border:1px solid ${notifyDaysBefore===n?'#5b8def':'#2a2d3e'};background:${notifyDaysBefore===n?'#141a2e':'#0f1117'};color:${notifyDaysBefore===n?'#5b8def':'#7c7f96'};font-size:13px;font-weight:600">${n} day${n===1?'':'s'}</button>`).join('')}
+      </div>
+      <button class="btn-ghost" style="width:100%" onclick="sendTestNotification()">Send test notification</button>
+      ${notifyTestStatus?`<div style="font-size:11px;color:#7c7f96;margin-top:8px;text-align:center">${notifyTestStatus}</div>`:''}`;
+    }
+    html+=`</div>`;
   }
 
   // ---------- WHAT IF ----------
@@ -1028,6 +1122,18 @@ function confirmSurplus(){
 }
 function setSweep(v){sweepPct=parseInt(v);persist();renderAll();}
 function setTightThreshold(v){tightThreshold=parseInt(v);persist();renderAll();}
+function toggleNotifications(){notificationsEnabled=!notificationsEnabled;persist();renderAll();}
+function setNotifyDays(n){notifyDaysBefore=n;persist();renderAll();}
+async function sendTestNotification(){
+  notifyTestStatus='Sending…';renderAll();
+  try{
+    const res=await fetch('/debt/api/notify-test',{method:'POST'});
+    if(res.ok){notifyTestStatus='Sent — check your phone.';}
+    else{const body=await res.json().catch(()=>({}));notifyTestStatus=body.error||'Failed to send.';}
+  }catch(err){notifyTestStatus='Failed to send.';}
+  renderAll();
+  setTimeout(()=>{notifyTestStatus='';renderAll();},5000);
+}
 function calcLump(){
   const extra=parseNum(document.getElementById('lumpInput').value);
   const result=document.getElementById('lumpResult');
