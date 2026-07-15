@@ -1035,13 +1035,13 @@ var materialSundriesCache = [];
 // itemCode -> { itemCode, description, price, isSundry, isPerLitre }, over BOTH
 // caches. The single flattening of "every pickable Xero item", built once when
 // the caches change and shared by everything that needs one:
-//   - the one-off product select (which used to flatten them itself);
+//   - the one-off product search picker (onMaterialProductInput), filtered
+//     in-memory as the user types;
 //   - materials tracking, which must price an actual that has no estimate line
-//     and so needs a lookup BY CODE -- addMaterialProductOptions can't serve
-//     that, it's keyed by <option> index, not by item code.
+//     and so needs a lookup BY CODE.
 // Item codes are unique across both buckets (one Xero item, one code, one
-// parse), so a Map keyed on code is safe. Insertion-ordered sundries-first to
-// match the picker's display order -- see populateAddMaterialProductSelect.
+// parse), so a Map keyed on code is safe. Insertion-ordered sundries-first,
+// which the picker's un-filtered (empty query) state would otherwise lack.
 var materialItemIndex = new Map();
 
 function rebuildMaterialItemIndex() {
@@ -1084,10 +1084,10 @@ async function refreshXeroItems() {
   btn.textContent = 'Refreshing…'; btn.disabled = true;
   try {
     applyMaterialGroupsResponse(await apiGet('/auth/material-groups'));
+    // materialItemIndex is rebuilt inside applyMaterialGroupsResponse, and the
+    // one-off product search picker reads it live on every keystroke -- no
+    // separate list to refresh here.
     populateMaterialSelects();
-    // The one-off product select is built from both caches, so it has to be
-    // rebuilt when they change — otherwise a Refresh leaves it on the old list.
-    populateAddMaterialProductSelect();
   } catch (e) {
     alert('Could not fetch Xero items: ' + e.message);
   } finally {
@@ -2658,67 +2658,84 @@ function deleteMaterialLine(id) {
 }
 
 // ── Add a one-off material line ─────────────────────────────────────────
-// The product select picks any real Xero item -- paint (flattened
+// The product picker searches every real Xero item -- paint (flattened
 // range/band/size out of materialGroupsCache) OR a sundry (flat, out of
 // materialSundriesCache) -- not just the five default role products, since a
 // one-off might be a specialist product outside the usual roles entirely. It
-// autofills description + price, still editable; "— Free text —" leaves both
-// blank for a manual entry with no itemCode, which Xero renders the same way
-// the labour lines already do (Description/Quantity/UnitAmount, no ItemCode).
-// addMaterialProductOptions is a parallel lookup array rather than encoding
-// data into option values directly, to avoid attribute-escaping a JSON blob --
-// it stays flat and index-addressed across both optgroups, so the optgroups
-// are presentation only and onAddMaterialProductSelect() is unaffected.
+// autofills description + price, still editable; leaving it untouched keeps
+// whatever's typed directly into Description as a manual entry with no
+// itemCode, which Xero renders the same way the labour lines already do
+// (Description/Quantity/UnitAmount, no ItemCode).
 //
-// This is the ONLY picker that offers sundries, and per MATERIAL_TRACKING_SPEC
-// Phase 1 it's the one the materials-tracking "+ Add material the estimate
-// missed" flow reuses wholesale. Don't build a second product picker.
-var addMaterialProductOptions = [];
+// A type-to-filter search box over materialItemIndex, not a <select> --
+// ~1550 paint tins plus ~19 sundries in one scrollable list meant "bottom of
+// the list is the same as absent" (BUG FIX 2026-07-15, see estimating-app-
+// edits.md #4). Same in-memory-filter pattern as the colour-library and Xero
+// -contact autocompletes elsewhere in this file.
+//
+// idPrefix ('add-mat' on Summary, 'act-add' on materials tracking) mounts the
+// SAME picker on both screens' *-product / *-product-dd / *-desc / *-price /
+// *-itemcode elements, rather than growing a second one -- the repo's
+// recurring failure mode is a duplicate picker surviving alongside the
+// original. This is the ONLY picker that offers sundries, and per
+// MATERIAL_TRACKING_SPEC Phase 1 the materials-tracking "+ Add material the
+// estimate missed" flow reuses it wholesale. Don't build a second one.
+var materialPickerMatches = {};
 
-// selId lets a second screen (materials tracking) mount the SAME picker rather
-// than growing a second one -- the repo's recurring failure mode is a duplicate
-// function surviving alongside the original, later definition silently winning.
-// addMaterialProductOptions stays a single shared array: both selects are built
-// from materialItemIndex in the same order, so an option index means the same
-// thing in either, and onAddMaterialProductSelect() works for both.
-function populateAddMaterialProductSelect(selId) {
-  var sel = document.getElementById(selId || 'add-mat-product');
-  if (!sel) return;
-  addMaterialProductOptions = [];
-  var opts = '<option value="-1">— Free text —</option>';
-  var all = Array.from(materialItemIndex.values());
-
-  function group(label, list) {
-    if (!list.length) return '';
-    var s = '<optgroup label="'+escapeHtml(label)+'">';
-    list.forEach(function(item) {
-      var idx = addMaterialProductOptions.length;
-      addMaterialProductOptions.push({ itemCode: item.itemCode, description: item.description, unitAmount: item.price });
-      s += '<option value="'+idx+'">'+escapeHtml(item.description)+' — '+fmt(item.price)+'</option>';
-    });
-    return s + '</optgroup>';
-  }
-
-  // Sundries first: they're the whole reason a one-off line usually gets added
-  // (wallpaper paste, lining paper), and there are ~19 of them against ~1550
-  // paint tins — bottom of a 1500-long list is the same as absent. Sold by
-  // roll, sachet, tub or kilo, so quantity means "how many of that", not litres
-  // or tins — the unit is already in the Xero name.
-  opts += group('Sundries (paste, lining paper, adhesives)', all.filter(function(i) { return i.isSundry; }));
-  opts += group('Paint', all.filter(function(i) { return !i.isSundry; }));
-  sel.innerHTML = opts;
+function onMaterialProductInput(idPrefix) {
+  document.getElementById(idPrefix+'-itemcode').value = '';
+  // Actuals lock the price field to the picked item's live 202 price (see
+  // selectMaterialProduct) -- typing again to search for something else
+  // invalidates that selection, so re-open it for a possible free-text price.
+  // No-op on Summary's picker, whose price field is never disabled.
+  var priceEl = document.getElementById(idPrefix+'-price');
+  if (priceEl) priceEl.disabled = false;
+  var q = document.getElementById(idPrefix+'-product').value.trim().toLowerCase();
+  var dd = document.getElementById(idPrefix+'-product-dd');
+  if (!dd) return;
+  if (!q) { dd.style.display = 'none'; return; }
+  var matches = [];
+  materialItemIndex.forEach(function(item) {
+    if (matches.length < 30 && item.description.toLowerCase().indexOf(q) !== -1) matches.push(item);
+  });
+  materialPickerMatches[idPrefix] = matches;
+  var html = matches.map(function(item, i) {
+    return '<div style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:14px" onmousedown="event.preventDefault()" onclick="selectMaterialProduct(\''+idPrefix+'\','+i+')">'
+      + '<div style="font-weight:600;color:var(--text)">' + escapeHtml(item.description) + '</div>'
+      + '<div style="font-size:12px;color:var(--text2)">' + (item.isSundry ? 'Sundry · ' : '') + fmt(item.price) + (item.isPerLitre ? '/ltr' : ' each') + '</div>'
+      + '</div>';
+  }).join('') || '<div style="padding:10px 12px;color:var(--text2);font-size:13px">No matching Xero items — type the Description below for a manual entry</div>';
+  dd.innerHTML = html;
+  dd.style.display = 'block';
 }
 
-function onAddMaterialProductSelect() {
-  var idx = +document.getElementById('add-mat-product').value;
-  document.getElementById('add-mat-itemcode').value = '';
-  if (idx < 0) return;
-  var opt = addMaterialProductOptions[idx];
-  if (!opt) return;
-  document.getElementById('add-mat-desc').value = opt.description;
-  document.getElementById('add-mat-price').value = opt.unitAmount;
-  document.getElementById('add-mat-itemcode').value = opt.itemCode;
+function selectMaterialProduct(idPrefix, i) {
+  var item = (materialPickerMatches[idPrefix]||[])[i];
+  if (!item) return;
+  document.getElementById(idPrefix+'-product').value = item.description;
+  document.getElementById(idPrefix+'-desc').value = item.description;
+  document.getElementById(idPrefix+'-itemcode').value = item.itemCode;
+  var priceEl = document.getElementById(idPrefix+'-price');
+  priceEl.value = item.price;
+  // Actuals price strictly from live Xero data; Summary's estimate price
+  // stays editable -- same divergence the old onActualsProductSelect had.
+  if (idPrefix === 'act-add') priceEl.disabled = true;
+  hideMaterialProductDropdown(idPrefix);
 }
+
+function hideMaterialProductDropdown(idPrefix) {
+  var dd = document.getElementById(idPrefix+'-product-dd');
+  if (dd) dd.style.display = 'none';
+}
+
+document.addEventListener('click', function(e){
+  ['add-mat','act-add'].forEach(function(idPrefix){
+    var input = document.getElementById(idPrefix+'-product');
+    var dd = document.getElementById(idPrefix+'-product-dd');
+    if (!input || !dd) return;
+    if (e.target !== input && !dd.contains(e.target)) dd.style.display = 'none';
+  });
+});
 
 function addCustomMaterialLine() {
   var desc = document.getElementById('add-mat-desc').value.trim();
@@ -2999,7 +3016,10 @@ function renderActuals() {
   var add =
     '<div class="section-title" style="margin:16px 0 8px">Add material the estimate missed</div>'
     + '<div class="card">'
-      + '<div class="field-row"><div class="field-label">Product</div><select class="field-input wide" id="act-add-product" onchange="onActualsProductSelect()"></select></div>'
+      + '<div class="field-row"><div class="field-label">Product<small>optional, type to search</small></div>'
+        + '<div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="act-add-product" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onMaterialProductInput(\'act-add\')" onfocus="onMaterialProductInput(\'act-add\')">'
+        + '<div id="act-add-product-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:280px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div>'
+        + '</div></div>'
       + '<div class="field-row"><div class="field-label">Description</div><input type="text" class="field-input wide" id="act-add-desc" placeholder="e.g. Extra roller sleeves" autocorrect="off"></div>'
       + '<div class="field-row"><div class="field-label">Unit price<small>free text only</small></div><input type="number" class="field-input" id="act-add-price" value="0" min="0" step="0.01" inputmode="decimal"></div>'
       + '<div class="field-row"><div class="field-label">Quantity</div><input type="number" class="field-input" id="act-add-qty" value="1" min="0" step="1" inputmode="decimal"></div>'
@@ -3008,9 +3028,8 @@ function renderActuals() {
     + '<button onclick="addActualFromPicker()" style="background:var(--accent);color:#fff;border:none;border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%;margin-top:8px">Add Material</button>';
 
   el.innerHTML = head + rowsHtml + add;
-  // Reuses the Summary picker wholesale — same function, same shared options
-  // array, just mounted on this screen's select.
-  populateAddMaterialProductSelect('act-add-product');
+  // Reuses the Summary picker wholesale -- same onMaterialProductInput
+  // function, same materialItemIndex, just mounted with the 'act-add' prefix.
   // Single hook point for every actuals mutation: setActualQuantity,
   // toggleActualBought, removeActual and addActualFromPicker all end by
   // calling renderActuals(), so the hamburger badge stays correct after each
@@ -3165,21 +3184,6 @@ async function removeActual(key) {
   }
   materialActuals = materialActuals.filter(function(x) { return x.id !== row.actual.id; });
   renderActuals();
-}
-
-function onActualsProductSelect() {
-  var idx = +document.getElementById('act-add-product').value;
-  var priceEl = document.getElementById('act-add-price');
-  document.getElementById('act-add-itemcode').value = '';
-  if (idx < 0) { priceEl.disabled = false; return; }
-  var opt = addMaterialProductOptions[idx];
-  if (!opt) return;
-  document.getElementById('act-add-desc').value = opt.description;
-  document.getElementById('act-add-itemcode').value = opt.itemCode;
-  // A real Xero item always prices from live 202 data, so the field is shown
-  // for information only. Typing a price is reserved for free text.
-  priceEl.value = opt.unitAmount;
-  priceEl.disabled = true;
 }
 
 async function addActualFromPicker() {
@@ -5564,7 +5568,10 @@ async function renderSummary() {
     '<button onclick="recalculateMaterialsSnapshot();renderSummary();" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%;margin-top:8px">Recalculate from rooms &amp; exterior</button>'+
     '<div class="card" style="margin-top:8px">'+
       '<div class="card-header">Add Material</div>'+
-      '<div class="field-row"><div class="field-label">Product<small>optional</small></div><select class="field-input wide" id="add-mat-product" onchange="onAddMaterialProductSelect()"></select></div>'+
+      '<div class="field-row"><div class="field-label">Product<small>optional, type to search</small></div>'+
+        '<div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="add-mat-product" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onMaterialProductInput(\'add-mat\')" onfocus="onMaterialProductInput(\'add-mat\')">'+
+        '<div id="add-mat-product-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:280px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div>'+
+        '</div></div>'+
       '<div class="field-row"><div class="field-label">Description</div><input type="text" class="field-input wide" id="add-mat-desc" placeholder="e.g. Dust sheets" autocorrect="off"></div>'+
       // Which colour this line is FOR -- needed whenever a paint product is
       // added here manually (e.g. replacing a deleted prefilled line with a
@@ -5584,7 +5591,6 @@ async function renderSummary() {
     '<button onclick="addCustomMaterialLine()" style="background:var(--accent);color:#fff;border:none;border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%;margin-top:8px">Add Material</button>'+
     '</div>'+
     (scheduleRows?'<div><div class="section-title" style="margin-bottom:8px">Colour Schedule</div><div class="card">'+scheduleRows+'</div></div>':'');
-  populateAddMaterialProductSelect();
 }
 
 // ── Export CSV ─────────────────────────────────────────────────────────────
