@@ -1324,7 +1324,7 @@ async function createXeroQuote() {
         exterior: { cost: extTotal, items: exteriorData },
         materials: materials,
         settings: settings,
-        markup: settings.mu,
+        markup: effectiveMarkup(),
         paymentTerms: paymentTerms,
         paymentSummary: paymentSummary,
         contactId: xeroSelectedContactId,
@@ -1773,7 +1773,35 @@ function renameJob(id) {
 // part of job.data must go through this so xeroClient/xeroRef/
 // materialsSeeded always travel together.
 function persistJobData(job) {
-  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, materialsSeeded: job.materialsSeeded }) });
+  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride }) });
+}
+
+// This job's markup if it's been overridden on the Summary page, else the
+// live global default from Settings -- the single read every markup
+// calculation/display goes through (computeDepositPlan, Xero quote,
+// Home/Exterior header chips, Summary itself), so overriding one quote's
+// markup can never touch settings.mu and every view of the same job agrees.
+function effectiveMarkup() {
+  var job = activeJob();
+  return (job && job.markupOverride != null) ? job.markupOverride : settings.mu;
+}
+
+function setJobMarkup(value) {
+  var job = activeJob();
+  if (!job) return;
+  job.markupOverride = Math.max(0, +value || 0);
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  renderSummary(); renderHome(); renderExterior();
+}
+
+function resetJobMarkup() {
+  var job = activeJob();
+  if (!job) return;
+  job.markupOverride = null;
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  renderSummary(); renderHome(); renderExterior();
 }
 
 // xero-client/xero-ref live in the active job's data now (persisted, not
@@ -2180,7 +2208,7 @@ function realisticDays(workingDays) {
 function computeDepositPlan(tcS, materialsTotal, onSiteDays) {
   var sundriesPct = (settings.sundriesPct||0)/100;
   var sundries = tcS * sundriesPct;
-  var labourTotal = (tcS+sundries)*(1+settings.mu/100);
+  var labourTotal = (tcS+sundries)*(1+effectiveMarkup()/100);
   var total = labourTotal + materialsTotal;
 
   // Deposit: Nicky's actual Terms of Business read "25% of quotation or cost
@@ -4030,7 +4058,7 @@ function _renderExteriorInner() {
       '<div class="room-cost">'+fmt(c.total)+'</div>'+
       '<div style="color:var(--text3);font-size:16px">›</div></div>';
   }).join('');
-  var marked = total*(1+settings.mu/100);
+  var marked = total*(1+effectiveMarkup()/100);
   chip.style.display='flex'; chip.textContent=fmt(marked);
   if(clr) clr.style.display='block';
   var sub=document.getElementById('ext-sub');
@@ -4063,7 +4091,7 @@ function renderHome() {
       '<div class="room-cost">'+fmt(c.total)+'</div>'+
       '<div style="color:var(--text3);font-size:16px">›</div></div>';
   }).join('');
-  var marked = total*(1+settings.mu/100);
+  var marked = total*(1+effectiveMarkup()/100);
   sub.textContent=rooms.length+' room'+(rooms.length===1?'':'s');
   chip.style.display='flex'; chip.textContent=fmt(marked);
   clr.style.display='block';
@@ -5269,7 +5297,7 @@ async function renderSummary() {
   if(rooms.length===0&&extItems.length===0){empty.style.display='flex';data.style.display='none';return;}
   empty.style.display='none'; data.style.display='block';
   var tc=0,tt=0;
-  var mu=settings.mu/100;
+  var mu=effectiveMarkup()/100;
   var rows=rooms.map(function(r,ri){
     var c=calcRoom(r); tc+=c.total; tt+=c.time;
     // Per-element costs with markup
@@ -5344,7 +5372,6 @@ async function renderSummary() {
   extItems.forEach(function(item){var c=calcExtItem(item);extTotal+=c.total;extTimeTotal+=c.time;});
   var tcS=tc+extTotal; var ttS=tt+extTimeTotal;
   var onSiteDays = realisticDays(ttS);
-  var mu=settings.mu/100;
 
   var mats = computeMaterials();
   // First time this job has real materials and no snapshot's been taken yet,
@@ -5401,12 +5428,20 @@ async function renderSummary() {
     '<div class="hero">'+
       '<div class="hero-label">Total Quote</div>'+
       '<div class="hero-amount">'+fmt(total)+'</div>'+
-      '<div class="hero-sub">'+ttS.toFixed(1)+' days · '+settings.mu+'% markup</div>'+
+      '<div class="hero-sub">'+ttS.toFixed(1)+' days · '+effectiveMarkup()+'% markup</div>'+
     '</div>'+
     '<div class="stat-grid">'+
       '<div class="stat-card"><div class="stat-label">Labour</div><div class="stat-value ac">'+fmt(tcS)+'</div></div>'+
       '<div class="stat-card"><div class="stat-label">On Site</div><div class="stat-value bl">'+fmtD(onSiteDays)+'</div>'+
         '<small style="display:block;font-weight:400;color:var(--text2);margin-top:2px">'+ttS.toFixed(1)+'d working</small></div>'+
+    '</div>'+
+    '<div class="card" style="margin-top:16px">'+
+      '<div class="card-header">Markup</div>'+
+      '<div class="field-row"><div class="field-label">This quote<small>'+(activeJob()&&activeJob().markupOverride!=null?'overridden, default is '+settings.mu+'%':'default, from Settings')+'</small></div>'+
+        '<div style="display:flex;align-items:center;gap:10px">'+
+        (activeJob()&&activeJob().markupOverride!=null?'<div onclick="resetJobMarkup()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;text-decoration:underline">Reset</div>':'')+
+        '<input type="number" class="field-input" style="width:70px" value="'+effectiveMarkup()+'" min="0" max="100" step="1" inputmode="numeric" onchange="setJobMarkup(this.value)">'+
+        '</div></div>'+
     '</div>'+
     '<div class="card" style="margin-top:16px">'+
       '<div class="card-header">Payment</div>'+
@@ -5476,7 +5511,7 @@ async function renderSummary() {
       '<span class="breakdown-label">Sundries &amp; Consumables<small style="display:block;font-weight:400;color:var(--text2)">'+settings.sundriesPct+'% of labour</small></span>'+
       '<span class="breakdown-value">'+fmt(sundries)+'</span></div>':'')+
     '<div class="breakdown-row">'+
-      '<span class="breakdown-label" style="font-weight:600;color:var(--text)">+ '+settings.mu+'% markup<small style="display:block;font-weight:400;color:var(--text2)">on labour + sundries</small></span>'+
+      '<span class="breakdown-label" style="font-weight:600;color:var(--text)">+ '+effectiveMarkup()+'% markup<small style="display:block;font-weight:400;color:var(--text2)">on labour + sundries</small></span>'+
       '<span class="breakdown-value" style="color:var(--accent)">'+fmt(labourTotal)+'</span></div>'+
     '</div></div>'+
     '<div><div class="section-title" style="margin-bottom:8px">Materials</div>'+
