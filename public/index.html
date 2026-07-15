@@ -690,6 +690,16 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">— Colour band<small>&nbsp;</small></div><select class="field-input" id="mat-extPrimer-band" onchange="onBandSelect('extPrimer')" disabled></select></div>
       <div class="settings-note" id="materials-note">Connect Xero above, then tap Refresh to choose a default product range and colour band for each role (e.g. "Tikkurila Optiva 5" / "White"). These are job-wide defaults — override per room on the room screen if a room needs a different product or colour. Until a range is picked, the Summary shows an estimated litres/tins figure instead of a real price.</div>
     </div>
+    <div class="card">
+      <div class="card-header">Backup</div>
+      <div class="settings-note">Everything lives on the server with no automatic backup behind it. Export regularly, especially before anything risky. See BACKUP_SPEC.md.</div>
+      <div style="padding:0 16px 14px;display:flex;flex-direction:column;gap:10px">
+        <button id="backup-export-btn" onclick="exportBackup()" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:12px;padding:12px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;width:100%">Export everything</button>
+        <input type="file" id="backup-import-file" accept="application/json" style="display:none" onchange="onBackupFileSelected(this.files[0])">
+        <button onclick="document.getElementById('backup-import-file').click()" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:12px;padding:12px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;width:100%">Import backup</button>
+      </div>
+      <div id="backup-preview" style="display:none;padding:0 16px 14px"></div>
+    </div>
   </div>
 </div>
 
@@ -6163,6 +6173,114 @@ function exportCSV() {
   a.href=url; a.download='NH-Estimate-'+date+'.csv';
   document.body.appendChild(a); a.click();
   document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
+// ── Backup (export-all / import) ──────────────────────────────────────────
+// See BACKUP_SPEC.md. Export is a plain GET + client-side Blob download,
+// same pattern as exportCSV() above. Import is a two-step flow: pick a
+// file -> parse + validate it locally and show what it WOULD do (preview,
+// never applied yet) -> explicit confirm actually POSTs. The server is the
+// real authority on validation/safety (see routes/api.js), but failing
+// fast on an obviously-wrong file here saves a round trip.
+async function exportBackup() {
+  var btn = document.getElementById('backup-export-btn');
+  var original = btn.textContent;
+  btn.textContent = 'Exporting…'; btn.disabled = true;
+  try {
+    var backup = await apiGet('/api/backup/export');
+    var blob = new Blob([JSON.stringify(backup, null, 2)], {type: 'application/json'});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    var date = new Date().toISOString().slice(0, 10);
+    a.href = url; a.download = 'nh-estimator-backup-' + date + '.json';
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+  } catch (e) {
+    alert('Export failed: ' + e.message);
+  } finally {
+    btn.textContent = original; btn.disabled = false;
+  }
+}
+
+var pendingBackupImport = null;
+var backupRestoreSettings = false;
+
+function onBackupFileSelected(file) {
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function() {
+    var parsed;
+    try { parsed = JSON.parse(reader.result); }
+    catch (e) { alert('That file is not valid JSON.'); return; }
+    // Same fail-closed check the server repeats -- catches an obviously
+    // wrong file before even offering a preview.
+    if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.jobs)) {
+      alert('That does not look like a recognised backup file.');
+      return;
+    }
+    pendingBackupImport = parsed;
+    backupRestoreSettings = false;
+    renderBackupPreview(parsed);
+  };
+  reader.onerror = function() { alert('Could not read that file.'); };
+  reader.readAsText(file);
+}
+
+function renderBackupPreview(backup) {
+  var el = document.getElementById('backup-preview');
+  var jobNames = backup.jobs.map(function(j) { return (j.job && j.job.name) || 'Unnamed job'; });
+  var libCount = (backup.colourLibrary || []).length;
+  var n = backup.jobs.length;
+  el.innerHTML =
+    '<div class="settings-note">This will ADD ' + n + ' job' + (n === 1 ? '' : 's') +
+      (jobNames.length ? ': ' + jobNames.map(escapeHtml).join(', ') : '') +
+      ' and ' + libCount + ' colour library entr' + (libCount === 1 ? 'y' : 'ies') +
+      '. Nothing already saved is deleted or changed.</div>' +
+    '<div class="toggle-row"><div class="toggle-label">Also restore settings from this file<small>Overwrites your current rates, markup and defaults — off by default</small></div>' +
+      '<div class="toggle" id="backup-restore-settings-toggle" onclick="toggleBackupRestoreSettings()"></div></div>' +
+    '<button onclick="confirmBackupImport()" style="background:var(--accent);color:#fff;border:none;border-radius:12px;padding:12px;font-size:14px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%;margin-top:10px">Import ' + n + ' job' + (n === 1 ? '' : 's') + '</button>' +
+    '<div onclick="cancelBackupImport()" style="text-align:center;color:var(--text2);font-size:13px;font-weight:600;padding:10px;cursor:pointer">Cancel</div>';
+  el.style.display = 'block';
+}
+
+function toggleBackupRestoreSettings() {
+  backupRestoreSettings = !backupRestoreSettings;
+  document.getElementById('backup-restore-settings-toggle').classList.toggle('on', backupRestoreSettings);
+}
+
+function cancelBackupImport() {
+  pendingBackupImport = null;
+  backupRestoreSettings = false;
+  var el = document.getElementById('backup-preview');
+  el.style.display = 'none'; el.innerHTML = '';
+  document.getElementById('backup-import-file').value = '';
+}
+
+async function confirmBackupImport() {
+  if (!pendingBackupImport) return;
+  if (!confirm('Import ' + pendingBackupImport.jobs.length + ' job(s) now? This adds to what is already saved and does not delete anything.')) return;
+  try {
+    var resp = await fetch('/api/backup/import', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ backup: pendingBackupImport, restoreSettings: backupRestoreSettings })
+    });
+    var result = await resp.json();
+    if (!resp.ok) throw new Error(result.error || 'Import failed');
+    var settingsRestored = result.settingsRestored;
+    cancelBackupImport();
+    // Jobs list needs a fresh fetch to show the newly-imported jobs; a full
+    // reload is simplest and safest for settings specifically, since
+    // reapplying the init-time defaults/migration logic outside initApp()
+    // would duplicate it rather than reuse it.
+    var jobsData = await apiGet('/api/jobs');
+    if (jobsData) { jobs = jobsData; localStorage.setItem('pe-jobs', JSON.stringify(jobs)); }
+    if (typeof renderJobs === 'function') renderJobs();
+    alert('Imported ' + result.jobsImported + ' job(s) and ' + result.colourLibraryEntriesAdded + ' colour library entries' + (settingsRestored ? '. Settings were also restored — reloading.' : '.'));
+    if (settingsRestored) window.location.reload();
+  } catch (e) {
+    alert('Import failed: ' + e.message);
+  }
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────

@@ -403,6 +403,8 @@ Headlines from the spec:
 
 ## FEATURE: Backup system (CSV export / import) — ⚠️ PARTIAL, NOT YET A BACKUP
 
+> **NOTE: now specced in `BACKUP_SPEC.md`, scoped 2026-07-15, which SUPERSEDES the "CSV export/import" framing in this section's title.** That doc changes the format decision (JSON, not CSV — CSV can't round-trip 7 relational tables cleanly) and settles the import-safety question: additive only, fresh ids on every re-imported job, never deletes or overwrites existing data. Settings/colour library needed their own rule since neither is per-job data — see that doc for the reasoning. Not yet built.
+
 The app holds real job data on Render Postgres — a DB problem would lose everything with no backup. Still true.
 
 **What exists:** an `exportCSV()` button on the Summary tab. It is a **human-readable summary of the ACTIVE job only** — settings header, a room-by-room table (dimensions, coats, counts, colour labels, cost, time), a single lumped Exterior row, and the totals. Useful, and it shares its colour-label builder with the Colour Schedule.

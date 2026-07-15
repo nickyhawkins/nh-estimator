@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const db = require('../db');
 const router = express.Router();
 
@@ -444,6 +445,167 @@ router.delete('/all', async (req, res) => {
     // destroying the estimate must never destroy the invoice.
     await db.query('DELETE FROM material_actuals WHERE job_id = $1', [jobId]);
     res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Backup (export-all / import) ────────────────────────────────────────
+// See BACKUP_SPEC.md for the full design/reasoning. Two properties that
+// matter for both routes below:
+//   - Export is a plain read across every job, not per-job -- one query per
+//     TABLE (grouped by job_id in memory), not one query per table per job.
+//   - Import is ADDITIVE ONLY: every re-imported job (and everything under
+//     it) gets a brand-new id, so nothing from a backup file can ever
+//     collide with or overwrite a row already in the database. Worst case
+//     of importing the same file twice is a duplicate-looking job, never
+//     lost data. No transaction wraps the import loop (matches this file's
+//     existing convention -- see DELETE /jobs/:id's comment on why; the
+//     blast radius here is even smaller than that route's, since a partial
+//     failure mid-import can only leave an incomplete NEW job behind, never
+//     touch anything that already existed).
+
+router.get('/backup/export', async (req, res) => {
+  try {
+    const settingsResult = await db.query('SELECT data FROM settings WHERE id = 1');
+    const libraryResult = await db.query('SELECT name, brand, code FROM colour_library ORDER BY name ASC');
+    const jobsResult = await db.query('SELECT id, name, data FROM jobs ORDER BY updated_at DESC');
+    const roomsResult = await db.query('SELECT id, job_id, name, data FROM rooms ORDER BY created_at ASC');
+    const extResult = await db.query('SELECT id, job_id, label, data FROM exterior_items ORDER BY created_at ASC');
+    const coloursResult = await db.query('SELECT job_id, number, label, brand, code FROM colours ORDER BY job_id ASC, number ASC');
+    const materialsResult = await db.query('SELECT id, job_id, data FROM materials_snapshot ORDER BY created_at ASC');
+    const actualsResult = await db.query(
+      `SELECT id, job_id, item_code, description, actual_quantity, unit_amount, bought
+         FROM material_actuals ORDER BY created_at ASC`
+    );
+
+    // One pass per table to bucket rows by job_id, rather than filtering
+    // each job's rows out of the full result N times.
+    const byJob = (rows) => rows.reduce((acc, r) => {
+      (acc[r.job_id] = acc[r.job_id] || []).push(r);
+      return acc;
+    }, {});
+    const roomsByJob = byJob(roomsResult.rows);
+    const extByJob = byJob(extResult.rows);
+    const coloursByJob = byJob(coloursResult.rows);
+    const materialsByJob = byJob(materialsResult.rows);
+    const actualsByJob = byJob(actualsResult.rows);
+
+    const jobs = jobsResult.rows.map(j => ({
+      job: { id: j.id, name: j.name, data: j.data || {} },
+      rooms: (roomsByJob[j.id] || []).map(r => ({ id: r.id, name: r.name, data: r.data })),
+      exteriorItems: (extByJob[j.id] || []).map(r => ({ id: r.id, label: r.label, data: r.data })),
+      colours: (coloursByJob[j.id] || []).map(r => ({ number: r.number, label: r.label, brand: r.brand, code: r.code })),
+      materialsSnapshot: (materialsByJob[j.id] || []).map(r => ({ id: r.id, data: r.data })),
+      materialActuals: (actualsByJob[j.id] || []).map(r => ({
+        id: r.id,
+        itemCode: r.item_code,
+        description: r.description,
+        // Numerics come back from pg as strings -- cast at the boundary,
+        // same as GET /actuals does.
+        actualQuantity: r.actual_quantity == null ? 0 : +r.actual_quantity,
+        unitAmount: r.unit_amount == null ? null : +r.unit_amount,
+        bought: r.bought,
+      })),
+    }));
+
+    res.json({
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      settings: settingsResult.rows[0]?.data || {},
+      colourLibrary: libraryResult.rows,
+      jobs,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/backup/import', async (req, res) => {
+  const { backup, restoreSettings } = req.body || {};
+  // Fail closed: reject anything that doesn't look like a v1 backup BEFORE
+  // writing a single row. A half-applied import of a malformed or foreign
+  // file is worse than refusing it outright.
+  if (!backup || backup.version !== 1 || !Array.isArray(backup.jobs)) {
+    return res.status(400).json({ error: 'Not a recognised backup file (missing or unsupported version).' });
+  }
+  try {
+    // Existing job names, so a re-imported job that collides gets suffixed
+    // rather than silently reading as the same job it isn't (ids never
+    // collide either way -- this is purely so two same-named jobs in the
+    // list are visibly distinguishable). Grown as we go, so two jobs of the
+    // same name WITHIN one backup file also get suffixed against each other.
+    const existingNamesResult = await db.query('SELECT name FROM jobs');
+    const existingNames = new Set(existingNamesResult.rows.map(r => r.name));
+
+    let jobsImported = 0;
+    for (const entry of backup.jobs) {
+      const srcJob = entry.job || {};
+      const newJobId = crypto.randomUUID();
+      let name = srcJob.name || 'Imported Job';
+      if (existingNames.has(name)) name = `${name} (imported)`;
+      existingNames.add(name);
+
+      await db.query('INSERT INTO jobs (id, name, data) VALUES ($1, $2, $3)', [newJobId, name, srcJob.data || {}]);
+
+      for (const r of (entry.rooms || [])) {
+        await db.query(
+          'INSERT INTO rooms (id, job_id, name, data) VALUES ($1, $2, $3, $4)',
+          [crypto.randomUUID(), newJobId, r.name || 'Room', r.data || {}]
+        );
+      }
+      for (const it of (entry.exteriorItems || [])) {
+        await db.query(
+          'INSERT INTO exterior_items (id, job_id, label, data) VALUES ($1, $2, $3, $4)',
+          [crypto.randomUUID(), newJobId, it.label || 'Exterior', it.data || {}]
+        );
+      }
+      for (const c of (entry.colours || [])) {
+        await db.query(
+          'INSERT INTO colours (number, job_id, label, brand, code) VALUES ($1, $2, $3, $4, $5)',
+          [c.number, newJobId, c.label || '', c.brand || '', c.code || '']
+        );
+      }
+      for (const m of (entry.materialsSnapshot || [])) {
+        await db.query(
+          'INSERT INTO materials_snapshot (id, job_id, data) VALUES ($1, $2, $3)',
+          [crypto.randomUUID(), newJobId, m.data || {}]
+        );
+      }
+      for (const a of (entry.materialActuals || [])) {
+        await db.query(
+          `INSERT INTO material_actuals (id, job_id, item_code, description, actual_quantity, unit_amount, bought)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [crypto.randomUUID(), newJobId, a.itemCode || null, a.description || '', +a.actualQuantity || 0,
+            a.unitAmount == null ? null : +a.unitAmount, !!a.bought]
+        );
+      }
+      jobsImported++;
+    }
+
+    // Colour library: upsert by (name, brand), same as POST /colour-library
+    // above -- additive reference list, never deleted, never overwritten
+    // wholesale.
+    let colourLibraryEntriesAdded = 0;
+    for (const c of (backup.colourLibrary || [])) {
+      if (!c.name || !c.brand) continue;
+      await db.query(
+        `INSERT INTO colour_library (name, brand, code) VALUES ($1, $2, $3)
+         ON CONFLICT (name, brand) DO UPDATE SET code = $3`,
+        [c.name, c.brand, c.code || '']
+      );
+      colourLibraryEntriesAdded++;
+    }
+
+    // The one place this import genuinely can overwrite something -- opt-in
+    // only (see BACKUP_SPEC.md: overwriting live business rates/markup
+    // silently is a worse surprise than a duplicate job).
+    const settingsRestored = !!(restoreSettings && backup.settings);
+    if (settingsRestored) {
+      await db.query('UPDATE settings SET data = $1, updated_at = NOW() WHERE id = 1', [backup.settings]);
+    }
+
+    res.json({ ok: true, jobsImported, colourLibraryEntriesAdded, settingsRestored });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
