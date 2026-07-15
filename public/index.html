@@ -13,7 +13,7 @@
 <style>
 :root {
   --bg:#f4f6f9; --surface:#fff; --surface2:#eef1f5; --border:#dde2ea;
-  --accent:#1a5276; --accent2:#2980b9; --warn:#e67e22; --danger:#c0392b;
+  --accent:#1a5276; --accent2:#2980b9; --warn:#e67e22; --danger:#c0392b; --success:#2e7d46;
   --text:#1a1f2e; --text2:#5a6270; --text3:#9aa0ad;
   --r:16px; --rs:10px;
   --st:env(safe-area-inset-top,0px); --sb:env(safe-area-inset-bottom,20px);
@@ -1773,7 +1773,34 @@ function renameJob(id) {
 // part of job.data must go through this so xeroClient/xeroRef/
 // materialsSeeded always travel together.
 function persistJobData(job) {
-  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride }) });
+  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, status: job.status, acceptedAt: job.acceptedAt }) });
+}
+
+// A job's status is just a label + timestamp on top of what already exists
+// -- the materials-tracking screen (Materials, reached from the hamburger)
+// already reuses materialsSnapshot as its estimate side and lets actual
+// products/quantities be logged against it, so "promoting" an accepted
+// quote into a tracked job needs no new plumbing, only this marker so it's
+// visible in the Jobs list and on Summary.
+function acceptJob() {
+  var job = activeJob();
+  if (!job) return;
+  job.status = 'accepted';
+  job.acceptedAt = new Date().toISOString();
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  renderSummary(); renderJobs();
+}
+
+function unacceptJob() {
+  var job = activeJob();
+  if (!job) return;
+  if (!confirm('Move this job back to Draft?')) return;
+  job.status = null;
+  job.acceptedAt = null;
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  renderSummary(); renderJobs();
 }
 
 // This job's markup if it's been overridden on the Summary page, else the
@@ -1836,7 +1863,7 @@ function renderJobs() {
     var isActive = j.id === activeJobId;
     return '<div class="field-row" style="cursor:pointer" onclick="switchJob(\''+j.id+'\')">'+
       '<div style="flex:1">'+
-        '<div style="font-weight:600;color:var(--text)">'+escapeHtml(j.name)+(isActive ? ' <span style="color:var(--accent);font-size:12px;font-weight:700">· CURRENT</span>' : '')+'</div>'+
+        '<div style="font-weight:600;color:var(--text)">'+escapeHtml(j.name)+(j.status==='accepted' ? ' <span style="color:var(--success);font-size:12px;font-weight:700">· ACCEPTED</span>' : '')+(isActive ? ' <span style="color:var(--accent);font-size:12px;font-weight:700">· CURRENT</span>' : '')+'</div>'+
         (j.xeroClient ? '<div style="font-size:12px;color:var(--text2)">'+escapeHtml(j.xeroClient)+'</div>' : '')+
         (j.updatedAt ? '<div style="font-size:12px;color:var(--text2)">'+new Date(j.updatedAt).toLocaleDateString()+'</div>' : '')+
       '</div>'+
@@ -5424,8 +5451,21 @@ async function renderSummary() {
       deposit = plan.deposit, depositBasis = plan.depositBasis, balance = plan.balance,
       paymentType = plan.paymentType, paymentWeeks = plan.paymentWeeks, weeklyRows = plan.weeklyRows;
 
+  var statusJob = activeJob();
+  var isAccepted = statusJob && statusJob.status === 'accepted';
+
   data.innerHTML=
-    '<div class="hero">'+
+    '<div class="card">'+
+      '<div class="field-row">'+
+        (isAccepted
+          ? '<div class="field-label" style="color:var(--success)">✓ Accepted<small>'+(statusJob.acceptedAt ? new Date(statusJob.acceptedAt).toLocaleDateString() : '')+' · tracked in Materials ›</small></div>'+
+            '<div onclick="unacceptJob()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Move to Draft</div>'
+          : '<div class="field-label">Draft quote<small>Mark accepted once the client confirms</small></div>'+
+            '<button onclick="acceptJob()" style="background:var(--success);color:white;border:none;border-radius:var(--rs);padding:10px 16px;font-size:14px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;white-space:nowrap">Mark Accepted</button>'
+        )+
+      '</div>'+
+    '</div>'+
+    '<div class="hero" style="margin-top:16px">'+
       '<div class="hero-label">Total Quote</div>'+
       '<div class="hero-amount">'+fmt(total)+'</div>'+
       '<div class="hero-sub">'+ttS.toFixed(1)+' days · '+effectiveMarkup()+'% markup</div>'+
