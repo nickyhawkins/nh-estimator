@@ -383,6 +383,30 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       </div>
     </div>
     <div class="card">
+      <div class="card-header sec-toggle" onclick="toggleFormSection('panelling')"><span>Panelling</span><span class="sec-chev" id="sec-chev-panelling">›</span></div>
+      <div class="card-body" id="sec-panelling">
+        <div class="subsection-label">Panelling<small>each wall as its own width × height, up to 4 coats; leave empty to skip</small></div>
+        <div id="panel-walls-list"></div>
+        <div class="field-row" style="cursor:pointer" onclick="addPanelWall()"><div class="field-label" style="color:var(--accent);font-weight:600">+ Add panelling wall</div></div>
+        <div class="field-row" style="border-top:1px solid var(--border)">
+          <div class="field-label">Prep level<small>independent of the room's own prep</small></div>
+          <div class="seg" id="seg-panel-prep" style="flex:1.5">
+            <button class="seg-btn active" onclick="setPanelPrep(10)">Minimal</button>
+            <button class="seg-btn" onclick="setPanelPrep(25)">Standard</button>
+            <button class="seg-btn" onclick="setPanelPrep(40)">Heavy</button>
+            <button class="seg-btn" onclick="setPanelPrep(-1)">Custom</button>
+          </div>
+        </div>
+        <div class="field-row" id="panel-prep-custom-row" style="display:none;border-top:1px solid var(--border)">
+          <div class="field-label">Custom prep %<small>uplift on panelling cost only</small></div>
+          <input type="number" class="field-input" id="r-panel-prep-custom" value="0" min="0" max="100" step="5" inputmode="numeric" oninput="previewRoom()">
+        </div>
+        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Colour<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-panel" style="flex-wrap:wrap"></div></div>
+        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Product<small>no default — choose explicitly</small></div><select class="field-input" id="r-panel-range" onchange="onRoomOverrideRangeSelect('panel')"></select></div>
+        <div class="field-row" id="r-panel-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-panel-band" onchange="onRoomOverrideBandSelect('panel')"></select></div>
+      </div>
+    </div>
+    <div class="card">
       <div class="card-header sec-toggle" onclick="toggleFormSection('wallpaper')"><span>Wallpaper</span><span class="sec-chev" id="sec-chev-wallpaper">›</span></div>
       <div class="card-body" id="sec-wallpaper">
         <div class="field-row">
@@ -558,6 +582,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Ceiling Emulsion<small>m² per litre</small></div><input type="number" class="field-input" id="s-cc" value="13" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Gloss / Satinwood<small>m² per litre</small></div><input type="number" class="field-input" id="s-cg" value="7" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Mist Coat<small>m² per litre — thinned product</small></div><input type="number" class="field-input" id="s-cmist" value="15" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Panelling<small>m² per litre per coat — draft default, check against your usual product</small></div><input type="number" class="field-input" id="s-cpanel" value="8" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
     </div>
     <div class="card">
       <div class="card-header">Time Rates</div>
@@ -569,6 +594,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Windows<small>mins/m² total</small></div><input type="number" class="field-input" id="s-rwin" value="35" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Radiators<small>mins/m² total</small></div><input type="number" class="field-input" id="s-rrad" value="15" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Mist coat<small>mins/m²</small></div><input type="number" class="field-input" id="s-rmist" value="2" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Panelling<small>mins/m² per coat — draft default, adjust to taste</small></div><input type="number" class="field-input" id="s-rpanel" value="6" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
     </div>
     <div class="card">
       <div class="card-header">Wallpaper Rates</div>
@@ -904,6 +930,7 @@ function saveSettings() {
     cc:      +document.getElementById('s-cc').value,
     cg:      +document.getElementById('s-cg').value,
     cMist:   +document.getElementById('s-cmist').value,
+    cPanel:  +document.getElementById('s-cpanel').value,
     rWall:   +document.getElementById('s-rwall').value,
     rCeil:   +document.getElementById('s-rceil').value,
     rSkirt:  +document.getElementById('s-rskirt').value,
@@ -912,6 +939,7 @@ function saveSettings() {
     rWin:    +document.getElementById('s-rwin').value,
     rRad:    +document.getElementById('s-rrad').value,
     rMist:   +document.getElementById('s-rmist').value,
+    rPanel:  +document.getElementById('s-rpanel').value,
     wpLiningRate:  +document.getElementById('s-wplining-rate').value,
     wpFinishRate:  +document.getElementById('s-wpfinish-rate').value,
     wpCeilMultPct: +document.getElementById('s-wpceil-mult').value,
@@ -1358,11 +1386,12 @@ async function initApp() {
       overheadMins: rawSettings.overheadMins!=null ? rawSettings.overheadMins : 45,
       bufferPct: rawSettings.bufferPct!=null ? rawSettings.bufferPct : 0,
       cw: rawSettings.cw||13, cc: rawSettings.cc||13, cg: rawSettings.cg||7,
-      cMist: rawSettings.cMist||15,
+      cMist: rawSettings.cMist||15, cPanel: rawSettings.cPanel||8,
       rWall: rawSettings.rWall||3, rCeil: rawSettings.rCeil||5,
       rSkirt: rawSettings.rSkirt||4,
       rDoorPrep: rawSettings.rDoorPrep||10, rDoorCoat: rawSettings.rDoorCoat||10,
       rWin: rawSettings.rWin||35, rRad: rawSettings.rRad||15, rMist: rawSettings.rMist||2,
+      rPanel: rawSettings.rPanel||6,
       wpLiningRate: rawSettings.wpLiningRate!=null ? rawSettings.wpLiningRate : 30,
       wpFinishRate: rawSettings.wpFinishRate!=null ? rawSettings.wpFinishRate : 40,
       wpCeilMultPct: rawSettings.wpCeilMultPct!=null ? rawSettings.wpCeilMultPct : 15,
@@ -1416,10 +1445,11 @@ async function initApp() {
         overheadMins: s.overheadMins!=null ? s.overheadMins : 45,
         bufferPct: s.bufferPct!=null ? s.bufferPct : 0,
         cw: s.cw||13, cc: s.cc||13, cg: s.cg||7,
-        cMist: s.cMist||15,
+        cMist: s.cMist||15, cPanel: s.cPanel||8,
         rWall: s.rWall||3, rCeil: s.rCeil||5, rSkirt: s.rSkirt||4,
         rDoorPrep: s.rDoorPrep||10, rDoorCoat: s.rDoorCoat||10,
         rWin: s.rWin||35, rRad: s.rRad||15, rMist: s.rMist||2,
+        rPanel: s.rPanel||6,
         wpLiningRate: s.wpLiningRate!=null ? s.wpLiningRate : 30,
         wpFinishRate: s.wpFinishRate!=null ? s.wpFinishRate : 40,
         wpCeilMultPct: s.wpCeilMultPct!=null ? s.wpCeilMultPct : 15,
@@ -1616,6 +1646,7 @@ var settings = {
   cc:      _raw.cc      != null ? _raw.cc      : (_raw.covCeil  != null ? _raw.covCeil  : 13),
   cg:      _raw.cg      != null ? _raw.cg      : (_raw.covGloss != null ? _raw.covGloss : 7),
   cMist:   _raw.cMist   != null ? _raw.cMist   : 15,
+  cPanel:  _raw.cPanel  != null ? _raw.cPanel  : 8,
   rWall:   _raw.rWall   != null ? _raw.rWall   : 3,
   rCeil:   _raw.rCeil   != null ? _raw.rCeil   : 5,
   rSkirt:  _raw.rSkirt  != null ? _raw.rSkirt  : 4,
@@ -1624,6 +1655,7 @@ var settings = {
   rWin:    _raw.rWin    != null ? _raw.rWin    : 35,
   rRad:    _raw.rRad    != null ? _raw.rRad    : 15,
   rMist:   _raw.rMist   != null ? _raw.rMist   : 2,
+  rPanel:  _raw.rPanel  != null ? _raw.rPanel  : 6,
   wpLiningRate:   _raw.wpLiningRate   != null ? _raw.wpLiningRate   : 30,
   wpFinishRate:   _raw.wpFinishRate   != null ? _raw.wpFinishRate   : 40,
   wpCeilMultPct:  _raw.wpCeilMultPct  != null ? _raw.wpCeilMultPct  : 15,
@@ -1661,6 +1693,14 @@ var wpSpareRoll = false;
 var featureWallMode = 'paint';
 var fwWpLining = false, fwWpFinish = false;
 var prepPct  = 10; // 10 (Minimal, default), 25 (Standard), 40 (Heavy), or -1 for custom
+// Panelling: independent of the room's own prep (prepPct above) and coats
+// (coats.wc) -- prepPct/prepCustom precedent, same 10/25/40/-1 vals, just a
+// second copy scoped to the panelling section only. panelItemsForm is an
+// array of {id,width,height,coats} form-local rows, same "edit in a form-
+// local array, only written into the saved room object on Save" lifecycle
+// as extFormWindows below -- see addPanelWall()/renderPanelWallsList().
+var panelPrepPct = 10;
+var panelItemsForm = [];
 var swCoats  = 2;
 var curTab   = 'home';
 var inSub    = null; // 'room' | 'stair' | null
@@ -1983,17 +2023,23 @@ function goScreen(name) {
     document.querySelectorAll('#seg-hsl-s1-walls .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===0);});
     document.querySelectorAll('#seg-hsl-s2-walls .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===0);});
     document.querySelectorAll('#seg-hsl-swc .seg-btn').forEach(function(b,i){b.classList.toggle('active',i+1===2);});
-    roomColourNumbers = { wall:1, ceiling:1, woodwork:1, featurewall:1 };
-    ['wall','ceiling','woodwork','featurewall'].forEach(populateRoomColourChips);
+    roomColourNumbers = { wall:1, ceiling:1, woodwork:1, featurewall:1, panel:1 };
+    ['wall','ceiling','woodwork','featurewall','panel'].forEach(populateRoomColourChips);
     roomOverrides = {
       wall: { range:'', band:'' }, ceiling: { range:'', band:'' },
       topcoat: { range:'', band:'' }, primer: { range:'', band:'', none:false },
-      mist: { range:'', band:'' }, featurewall: { range:'', band:'' }
+      mist: { range:'', band:'' }, featurewall: { range:'', band:'' }, panel: { range:'', band:'' }
     };
+    panelItemsForm = [];
+    renderPanelWallsList();
+    panelPrepPct = 10;
+    document.querySelectorAll('#seg-panel-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===0);});
+    document.getElementById('panel-prep-custom-row').style.display = 'none';
+    document.getElementById('r-panel-prep-custom').value = '0';
     document.getElementById('r-mist-area').value = '0';
     document.getElementById('r-featurewall-width').value = '0';
     document.getElementById('r-featurewall-height').value = '0';
-    ['wall','ceiling','topcoat','primer','mist','featurewall'].forEach(populateRoomOverridePicker);
+    ['wall','ceiling','topcoat','primer','mist','featurewall','panel'].forEach(populateRoomOverridePicker);
     document.getElementById('room-title').textContent='Add Room';
     document.getElementById('r-name').value='';
     document.getElementById('r-l').value='0';
@@ -2060,6 +2106,7 @@ function loadSettings() {
   document.getElementById('s-cc').value      = settings.cc;
   document.getElementById('s-cg').value      = settings.cg;
   document.getElementById('s-cmist').value   = settings.cMist;
+  document.getElementById('s-cpanel').value  = settings.cPanel||8;
   document.getElementById('s-rwall').value        = settings.rWall||3;
   document.getElementById('s-rceil').value        = settings.rCeil||5;
   document.getElementById('s-rskirt').value       = settings.rSkirt||4;
@@ -2068,6 +2115,7 @@ function loadSettings() {
   document.getElementById('s-rwin').value         = settings.rWin||35;
   document.getElementById('s-rrad').value         = settings.rRad||15;
   document.getElementById('s-rmist').value        = settings.rMist||2;
+  document.getElementById('s-rpanel').value       = settings.rPanel||6;
   document.getElementById('s-wplining-rate').value = settings.wpLiningRate!=null ? settings.wpLiningRate : 30;
   document.getElementById('s-wpfinish-rate').value = settings.wpFinishRate!=null ? settings.wpFinishRate : 40;
   document.getElementById('s-wpceil-mult').value   = settings.wpCeilMultPct!=null ? settings.wpCeilMultPct : 15;
@@ -2169,12 +2217,39 @@ function calcRoom(r) {
     function(t){ return { rolls: featureWallWallpaperRolls(r, t) }; }) : { cost: 0, parts: [] };
   var featureWallWpCost  = featureWallWpResult.cost;
   var featureWallWpRolls = featureWallWpResult.parts.reduce(function(sum,p){ return sum + p.rolls; }, 0);
+  // Panelling: an array of independently-measured walls (own width/height
+  // and coat count each -- up to 4 coats is common), never folded into
+  // wallArea/wallCost/baseTotal above. It needs its OWN prep multiplier
+  // (panelPrepUp), kept deliberately separate from the room's prepUp, and
+  // per-wall coats mean it can't reuse wallMins()/wc either. See
+  // estimating-app-edits.md #7.
+  var panelItems = r.panelItems || [];
+  var panelArea = 0, panelAreaCoats = 0, panelMinsCost = 0;
+  panelItems.forEach(function(p) {
+    var pw = Math.max(+p.width || 0, 0), ph = Math.max(+p.height || 0, 0);
+    var pc = Math.max(+p.coats || 0, 0);
+    var area = pw * ph;
+    panelArea += area;
+    panelAreaCoats += area * pc;
+    panelMinsCost += area * pc * settings.rPanel * r2;
+  });
+  var panelPrepUp = r.panelPrepPct >= 0 ? r.panelPrepPct : (+r.panelPrepCustom||0);
+  var panelCost = panelMinsCost * (1 + panelPrepUp/100);
+  var panelL = panelAreaCoats>0 ? Math.ceil(panelAreaCoats/settings.cPanel*2)/2 : 0;
+
   var baseTotal = wallCost+ceilCost+winCost+woodCost+radCost+featureWallOwnCost+mistWCost+mistCCost+wpwCost+wpcCost+featureWallWpCost;
   var prepUp  = r.prepPct >= 0 ? r.prepPct : (+r.prepCustom||0);
   var makingGood = +r.makingGood||0;
-  var total   = r.totalOverride != null
+  // panelCost already carries its own prep multiplier (panelPrepUp above)
+  // and is added AFTER the room's own prep/totalOverride branch, not
+  // inside baseTotal -- otherwise the room's regular prepUp would apply a
+  // SECOND time on top of panelling's independent one. Additive in both
+  // branches (not just the non-override one) so an HSL/staircase room's
+  // totalOverride can still carry panelling, e.g. wainscoting under stairs.
+  var roomBaseTotal = r.totalOverride != null
     ? +r.totalOverride
     : baseTotal * (1 + prepUp/100) + makingGood;
+  var total = roomBaseTotal + panelCost;
   var time     = total / r2 / 60 / hpd;
   var cL  = cc>0 ? Math.ceil(ceilArea*cc/settings.cc*2)/2 : 0;
   // woodAreaOverride: same pattern as wallAreaOverride/ceilAreaOverride above
@@ -2194,7 +2269,8 @@ function calcRoom(r) {
   return {total:total, time:time, wallArea:wallArea, ceilArea:ceilArea,
            wallL:wL, ceilL:cL, glossL:gL, mistL:mL, featureWallL:fwL,
            wpwCost:wpwCost, wpcCost:wpcCost, wpwRolls:wpwRolls, wpcRolls:wpcRolls,
-           featureWallMode:featureWallMode, featureWallWpCost:featureWallWpCost, featureWallWpRolls:featureWallWpRolls};
+           featureWallMode:featureWallMode, featureWallWpCost:featureWallWpCost, featureWallWpRolls:featureWallWpRolls,
+           panelCost:panelCost, panelL:panelL, panelArea:panelArea, panelRawCost:panelMinsCost};
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -2347,7 +2423,7 @@ function tin(l) {
 // logic as interior topcoat/primer sharing the woodwork colour). Exterior
 // items have no per-item range/band overrides, so they always fall to the
 // Settings default mapping.
-var ROLE_COLOUR_FIELD = { wall: 'colourNumber', ceiling: 'ceilingColourNumber', topcoat: 'woodworkColourNumber', primer: 'woodworkColourNumber', mist: 'colourNumber', featurewall: 'featureWallColourNumber', masonry: 'masonryColourNumber', extTopcoat: 'extWoodworkColourNumber', extPrimer: 'extWoodworkColourNumber' };
+var ROLE_COLOUR_FIELD = { wall: 'colourNumber', ceiling: 'ceilingColourNumber', topcoat: 'woodworkColourNumber', primer: 'woodworkColourNumber', mist: 'colourNumber', featurewall: 'featureWallColourNumber', panel: 'panelColourNumber', masonry: 'masonryColourNumber', extTopcoat: 'extWoodworkColourNumber', extPrimer: 'extWoodworkColourNumber' };
 // Roles charged by whole tin (tin-optimised) rather than per litre. Masonry
 // mirrors interior walls -- bought and charged in whole tins.
 var TIN_ROLES = { wall: true, masonry: true };
@@ -2542,6 +2618,9 @@ function computeMaterials() {
   // coat -- most rooms have none. Its own colour group per room (per
   // featureWallColourNumber), never pooled with the room's main wall colour.
   var featureWallRows = buildRoleRows('Feature Wall', 'featurewall', function(r) { return calcRoom(r).featureWallL; }, function(r) { return calcRoom(r).featureWallL <= 0; });
+  // Panelling: same "skip zero" pattern, own colour per room (panelColourNumber),
+  // never pooled with the room's wall/woodwork colours -- see estimating-app-edits.md #7.
+  var panelRows = buildRoleRows('Panelling', 'panel', function(r) { return calcRoom(r).panelL; }, function(r) { return calcRoom(r).panelL <= 0; });
 
   // ── Exterior roles: same engine, sourced from extItems ──────────────────
   // Masonry (tin-based) has its own colour; exterior woodwork topcoat + primer
@@ -2554,9 +2633,9 @@ function computeMaterials() {
   var extTopcoatRows= buildRoleRows('Exterior Woodwork', 'extTopcoat', function(it) { return extWoodworkLitres(it); }, function(it) { return extWoodworkLitres(it) <= 0; }, extItems);
   var extPrimerRows = buildRoleRows('Exterior Primer', 'extPrimer', function(it) { return extWoodworkLitres(it) * 0.8; }, function(it) { return extWoodworkLitres(it) <= 0; }, extItems);
 
-  var allRows = wallRows.concat(ceilingRows, topcoatRows, primerRows, mistRows, featureWallRows, masonryRows, extTopcoatRows, extPrimerRows);
+  var allRows = wallRows.concat(ceilingRows, topcoatRows, primerRows, mistRows, featureWallRows, panelRows, masonryRows, extTopcoatRows, extPrimerRows);
   var total = allRows.reduce(function(sum, r) { return sum + r.cost; }, 0);
-  return { wallRows: wallRows, ceilingRows: ceilingRows, topcoatRows: topcoatRows, primerRows: primerRows, mistRows: mistRows, featureWallRows: featureWallRows, masonryRows: masonryRows, extTopcoatRows: extTopcoatRows, extPrimerRows: extPrimerRows, total: total };
+  return { wallRows: wallRows, ceilingRows: ceilingRows, topcoatRows: topcoatRows, primerRows: primerRows, mistRows: mistRows, featureWallRows: featureWallRows, panelRows: panelRows, masonryRows: masonryRows, extTopcoatRows: extTopcoatRows, extPrimerRows: extPrimerRows, total: total };
 }
 
 // Exterior paint-litre estimation. Exterior items only capture counts and
@@ -2620,7 +2699,7 @@ function saveMaterialsSnapshot() {
 // deletion, and custom line -- a full overwrite, not a merge, by design.
 function recalculateMaterialsSnapshot() {
   var mats = computeMaterials();
-  var allRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows, mats.featureWallRows, mats.masonryRows, mats.extTopcoatRows, mats.extPrimerRows);
+  var allRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows, mats.featureWallRows, mats.panelRows, mats.masonryRows, mats.extTopcoatRows, mats.extPrimerRows);
   materialsSnapshot = allRows.reduce(function(acc, row) {
     return acc.concat(row.lineItems.map(function(li) {
       // colourNumber/role are additive, carried from the row (buildRoleRows
@@ -3357,16 +3436,18 @@ function roomColourSchedule(r) {
 // the breakdown, so a feature-wall colour (Walls only) reads differently
 // at a glance from a whole-room one (All surfaces) without the user having
 // to maintain a separate tag that could drift from the real assignments.
-function surfaceSummary(hasWalls, hasCeiling, hasWood, hasFeatureWall) {
+function surfaceSummary(hasWalls, hasCeiling, hasWood, hasFeatureWall, hasPanel) {
   var parts = [];
   if (hasWalls) parts.push('Walls');
   if (hasCeiling) parts.push('Ceiling');
   if (hasWood) parts.push('Woodwork');
   var summary = parts.length === 3 ? 'All surfaces' : parts.join(' + ');
-  // Feature wall is a carve-out of Walls, not a whole-room surface of its
-  // own -- append it rather than folding it into the "All surfaces"
-  // collapse, so a feature-wall-only colour still reads distinctly.
+  // Feature wall and Panelling are carve-outs/additions, not whole-room
+  // surfaces of their own -- append rather than fold into the "All
+  // surfaces" collapse, so a feature-wall/panelling-only colour still
+  // reads distinctly.
   if (hasFeatureWall) summary = summary ? summary + ' + Feature wall' : 'Feature wall';
+  if (hasPanel) summary = summary ? summary + ' + Panelling' : 'Panelling';
   return summary;
 }
 
@@ -3377,24 +3458,26 @@ function renderColours() {
   var cards = document.getElementById('colours-cards');
   empty.style.display = 'none'; list.style.display = 'block';
   var mats = computeMaterials();
-  var allMatRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows, mats.featureWallRows, mats.masonryRows, mats.extTopcoatRows, mats.extPrimerRows);
+  var allMatRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows, mats.featureWallRows, mats.panelRows, mats.masonryRows, mats.extTopcoatRows, mats.extPrimerRows);
   cards.innerHTML = colours.slice().sort(function(a, b){ return a.number - b.number; }).map(function(c) {
     var bdId = 'colour-bd-' + c.number;
     var wallRooms = rooms.filter(function(r){ return (r.colourNumber||1)===c.number && +r.wc>0; }).map(function(r){ return r.name; });
     var ceilRooms = rooms.filter(function(r){ return (r.ceilingColourNumber||1)===c.number && +r.cc>0; }).map(function(r){ return r.name; });
     var woodRooms = rooms.filter(function(r){ return (r.woodworkColourNumber||1)===c.number && +r.xc>0; }).map(function(r){ return r.name; });
     var featureWallRooms = rooms.filter(function(r){ return (r.featureWallColourNumber||1)===c.number && +r.featureWallArea>0 && (r.featureWallMode||'paint')==='paint'; }).map(function(r){ return r.name; });
+    var panelRooms = rooms.filter(function(r){ return (r.panelColourNumber||1)===c.number && (r.panelItems||[]).length>0; }).map(function(r){ return r.name; });
     // Exterior items assigned to this colour (masonry vs exterior woodwork).
     var masonryItems = extItems.filter(function(it){ return (it.masonryColourNumber||1)===c.number && extMasonryLitres(it)>0; }).map(function(it){ return it.label; });
     var extWoodItems = extItems.filter(function(it){ return (it.extWoodworkColourNumber||1)===c.number && extWoodworkLitres(it)>0; }).map(function(it){ return it.label; });
     var matRows = allMatRows.filter(function(r){ return r.colourNumber===c.number; });
-    var hasBreakdown = wallRooms.length || ceilRooms.length || woodRooms.length || featureWallRooms.length || masonryItems.length || extWoodItems.length || matRows.length;
-    var surfaces = surfaceSummary(wallRooms.length>0, ceilRooms.length>0, woodRooms.length>0, featureWallRooms.length>0);
+    var hasBreakdown = wallRooms.length || ceilRooms.length || woodRooms.length || featureWallRooms.length || panelRooms.length || masonryItems.length || extWoodItems.length || matRows.length;
+    var surfaces = surfaceSummary(wallRooms.length>0, ceilRooms.length>0, woodRooms.length>0, featureWallRooms.length>0, panelRooms.length>0);
     var sub = '';
     if (wallRooms.length) sub += '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Walls</span><span class="breakdown-sub-value">'+escapeHtml(wallRooms.join(', '))+'</span></div>';
     if (ceilRooms.length) sub += '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ceiling</span><span class="breakdown-sub-value">'+escapeHtml(ceilRooms.join(', '))+'</span></div>';
     if (woodRooms.length) sub += '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Woodwork</span><span class="breakdown-sub-value">'+escapeHtml(woodRooms.join(', '))+'</span></div>';
     if (featureWallRooms.length) sub += '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Feature wall</span><span class="breakdown-sub-value">'+escapeHtml(featureWallRooms.join(', '))+'</span></div>';
+    if (panelRooms.length) sub += '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Panelling</span><span class="breakdown-sub-value">'+escapeHtml(panelRooms.join(', '))+'</span></div>';
     if (masonryItems.length) sub += '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Masonry (ext)</span><span class="breakdown-sub-value">'+escapeHtml(masonryItems.join(', '))+'</span></div>';
     if (extWoodItems.length) sub += '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Woodwork (ext)</span><span class="breakdown-sub-value">'+escapeHtml(extWoodItems.join(', '))+'</span></div>';
     matRows.forEach(function(r){ sub += r.html; });
@@ -3625,7 +3708,7 @@ function deleteColour(number) {
 // wall's colour grouping. Temp editing state, same lifecycle as coats/
 // mistWall/prepPct — read into the room object by saveRoom(), set by
 // goScreen('room')/editRoom().
-var roomColourNumbers = { wall: 1, ceiling: 1, woodwork: 1, featurewall: 1 };
+var roomColourNumbers = { wall: 1, ceiling: 1, woodwork: 1, featurewall: 1, panel: 1 };
 
 function populateRoomColourChips(role) {
   var seg = document.getElementById('seg-colour-'+role);
@@ -3653,7 +3736,7 @@ function addRoomColourInline(role) {
   roomColourNumbers[role] = nextNumber;
   // The new colour is now available to the other pickers too, even
   // though only this one's selection actually changed.
-  ['wall','ceiling','woodwork','featurewall'].forEach(populateRoomColourChips);
+  ['wall','ceiling','woodwork','featurewall','panel'].forEach(populateRoomColourChips);
 }
 
 // ── Exterior item colour chips ──────────────────────────────────────────────
@@ -3706,7 +3789,8 @@ var roomOverrides = {
   topcoat: { range: '', band: '' },
   primer:  { range: '', band: '', none: false },
   mist:    { range: '', band: '' },
-  featurewall: { range: '', band: '' }
+  featurewall: { range: '', band: '' },
+  panel: { range: '', band: '' }
 };
 
 function populateRoomOverridePicker(role) {
@@ -3714,10 +3798,11 @@ function populateRoomOverridePicker(role) {
   if (!rangeSel) return;
   var state = roomOverrides[role];
   var ranges = Object.keys(materialGroupsCache).sort();
-  // Feature wall has no job-wide Settings default to fall back to -- it's
-  // inherently a per-room, per-instance product decision -- so the blank
-  // option reads as "not chosen" rather than implying a default exists.
-  var opts = role === 'featurewall'
+  // Feature wall and Panelling have no job-wide Settings default to fall
+  // back to -- both are inherently a per-room, per-instance product
+  // decision -- so the blank option reads as "not chosen" rather than
+  // implying a default exists.
+  var opts = (role === 'featurewall' || role === 'panel')
     ? '<option value="">— none chosen —</option>'
     : '<option value="">Use default (Settings)</option>';
   if (role === 'primer') {
@@ -4480,6 +4565,60 @@ function setPrep(val) {
   previewRoom();
 }
 
+// Panelling's own prep control -- same 10/25/40/-1 scale and same
+// prep-custom-row show/hide idiom as setPrep() above, deliberately a
+// separate variable (panelPrepPct) so it can never be confused with the
+// room's own prepPct.
+function setPanelPrep(val) {
+  panelPrepPct = val;
+  var vals = [10, 25, 40, -1];
+  document.querySelectorAll('#seg-panel-prep .seg-btn').forEach(function(b,i){
+    b.classList.toggle('active', vals[i]===val);
+  });
+  document.getElementById('panel-prep-custom-row').style.display = val===-1 ? 'flex' : 'none';
+  previewRoom();
+}
+
+// Panelling wall list -- one row per measured wall (own width/height/coats),
+// same "form-local array, rebuilt on every add/remove, only written into the
+// saved room object on Save" lifecycle as extFormWindows (see addExtWindow()
+// et al.), just a richer row template (3 inputs, not 1).
+function renderPanelWallsList() {
+  var el = document.getElementById('panel-walls-list');
+  if (!el) return;
+  el.innerHTML = panelItemsForm.map(function(p, i) {
+    return '<div class="field-row">'+
+      '<div class="field-label">Wall '+(i+1)+'</div>'+
+      '<div style="display:flex;align-items:center;gap:6px">'+
+        '<input type="number" class="field-input" style="width:56px" value="'+p.width+'" min="0" step="0.1" inputmode="decimal" placeholder="W" onchange="setPanelWallField('+i+',\'width\',this.value)">'+
+        '<span style="color:var(--text3)">×</span>'+
+        '<input type="number" class="field-input" style="width:56px" value="'+p.height+'" min="0" step="0.1" inputmode="decimal" placeholder="H" onchange="setPanelWallField('+i+',\'height\',this.value)">'+
+        '<input type="number" class="field-input" style="width:44px" value="'+p.coats+'" min="1" max="4" step="1" inputmode="numeric" title="Coats" onchange="setPanelWallField('+i+',\'coats\',this.value)">'+
+        '<div onclick="removePanelWall('+i+')" style="color:var(--danger);font-size:22px;padding:0 4px;cursor:pointer">×</div>'+
+      '</div>'+
+    '</div>';
+  }).join('');
+}
+
+function addPanelWall() {
+  panelItemsForm.push({ id: uid(), width: 0, height: 0, coats: 2 });
+  renderPanelWallsList();
+  previewRoom();
+}
+
+function removePanelWall(idx) {
+  panelItemsForm.splice(idx, 1);
+  renderPanelWallsList();
+  previewRoom();
+}
+
+function setPanelWallField(idx, field, value) {
+  var p = panelItemsForm[idx];
+  if (!p) return;
+  p[field] = field === 'coats' ? Math.max(1, Math.min(4, +value || 1)) : Math.max(0, +value || 0);
+  previewRoom();
+}
+
 function toggleMist(key) {
   if(key==='mw') { mistWall=!mistWall; document.getElementById('tog-mw').classList.toggle('on',mistWall); }
   if(key==='mc') { mistCeil=!mistCeil; document.getElementById('tog-mc').classList.toggle('on',mistCeil); }
@@ -4514,7 +4653,9 @@ function previewRoom() {
     featureWallWidth:+document.getElementById('r-featurewall-width').value||undefined,
     featureWallHeight:+document.getElementById('r-featurewall-height').value||undefined,
     featureWallArea:(+document.getElementById('r-featurewall-width').value||0)*(+document.getElementById('r-featurewall-height').value||0)||undefined,
-    featureWallMode:featureWallMode, fwWpLining:fwWpLining, fwWpFinish:fwWpFinish};
+    featureWallMode:featureWallMode, fwWpLining:fwWpLining, fwWpFinish:fwWpFinish,
+    panelItems:panelItemsForm, panelPrepPct:panelPrepPct,
+    panelPrepCustom:+document.getElementById('r-panel-prep-custom').value};
   var c=calcRoom(r);
   document.getElementById('room-preview').style.display='block';
   document.getElementById('prev-wall').textContent=fmtM(c.wallArea);
@@ -4631,8 +4772,8 @@ function editRoom(id) {
   if(!r)return;
   resetFormSections();
   editId=id; coats={wc:+r.wc,cc:+r.cc,xc:+r.xc};
-  roomColourNumbers = { wall: r.colourNumber || 1, ceiling: r.ceilingColourNumber || 1, woodwork: r.woodworkColourNumber || 1, featurewall: r.featureWallColourNumber || 1 };
-  ['wall','ceiling','woodwork','featurewall'].forEach(populateRoomColourChips);
+  roomColourNumbers = { wall: r.colourNumber || 1, ceiling: r.ceilingColourNumber || 1, woodwork: r.woodworkColourNumber || 1, featurewall: r.featureWallColourNumber || 1, panel: r.panelColourNumber || 1 };
+  ['wall','ceiling','woodwork','featurewall','panel'].forEach(populateRoomColourChips);
   roomOverrides = {
     // wallBandOverride is the current field name; bandOverride is read too
     // for backward compatibility with rooms saved before this rename.
@@ -4641,10 +4782,17 @@ function editRoom(id) {
     topcoat: { range: r.topcoatRangeOverride || '', band: r.topcoatBandOverride || '' },
     primer:  { range: r.primerRangeOverride || '', band: r.primerBandOverride || '', none: !!r.primerNone },
     mist:    { range: r.mistRangeOverride || '', band: r.mistBandOverride || '' },
-    featurewall: { range: r.featurewallRangeOverride || '', band: r.featurewallBandOverride || '' }
+    featurewall: { range: r.featurewallRangeOverride || '', band: r.featurewallBandOverride || '' },
+    panel: { range: r.panelRangeOverride || '', band: r.panelBandOverride || '' }
   };
-  ['wall','ceiling','topcoat','primer','mist','featurewall'].forEach(populateRoomOverridePicker);
+  ['wall','ceiling','topcoat','primer','mist','featurewall','panel'].forEach(populateRoomOverridePicker);
   document.getElementById('r-mist-area').value = r.mistAreaOverride || '0';
+  panelItemsForm = (r.panelItems || []).map(function(p){ return { id: p.id||uid(), width: +p.width||0, height: +p.height||0, coats: +p.coats||2 }; });
+  renderPanelWallsList();
+  panelPrepPct = r.panelPrepPct != null ? r.panelPrepPct : 10;
+  document.querySelectorAll('#seg-panel-prep .seg-btn').forEach(function(b,i){ b.classList.toggle('active', [10,25,40,-1][i]===panelPrepPct); });
+  document.getElementById('r-panel-prep-custom').value = r.panelPrepCustom||0;
+  document.getElementById('panel-prep-custom-row').style.display = panelPrepPct===-1?'flex':'none';
   // Older saved rooms only have featureWallArea (a plain m² guess, no
   // width/height) -- fall back to width=area/height=1 so the SAME area
   // is preserved on re-save even if the user doesn't touch these fields,
@@ -4742,7 +4890,7 @@ function saveRoom() {
   // Band changes the price and doubles as the finish/sheen pick, so an
   // override with a range chosen must also have an explicit band -- never
   // silently saved as White. See MATERIALS_SPEC.md "Refinements".
-  var overrideRoleLabels = [['wall','Wall paint'],['ceiling','Ceiling paint'],['topcoat','Woodwork topcoat'],['primer','Woodwork primer'],['mist','Mist coat'],['featurewall','Feature wall']];
+  var overrideRoleLabels = [['wall','Wall paint'],['ceiling','Ceiling paint'],['topcoat','Woodwork topcoat'],['primer','Woodwork primer'],['mist','Mist coat'],['featurewall','Feature wall'],['panel','Panelling']];
   for (var i = 0; i < overrideRoleLabels.length; i++) {
     var role = overrideRoleLabels[i][0], label = overrideRoleLabels[i][1];
     var ov = roomOverrides[role];
@@ -4777,6 +4925,14 @@ function saveRoom() {
     featureWallHeight:+document.getElementById('r-featurewall-height').value||undefined,
     featureWallArea:(+document.getElementById('r-featurewall-width').value||0)*(+document.getElementById('r-featurewall-height').value||0)||undefined,
     featureWallMode:featureWallMode, fwWpLining:fwWpLining, fwWpFinish:fwWpFinish,
+    panelColourNumber:roomColourNumbers.panel,
+    panelRangeOverride:roomOverrides.panel.range||undefined, panelBandOverride:roomOverrides.panel.band||undefined,
+    panelPrepPct:panelPrepPct,
+    panelPrepCustom:+document.getElementById('r-panel-prep-custom').value,
+    // Rows with no width/height are empty placeholders the user hasn't
+    // filled in yet (or removed) -- skip them, same "0 to skip" rule as
+    // feature wall's width/height above.
+    panelItems:panelItemsForm.filter(function(p){ return (+p.width>0 && +p.height>0); }).map(function(p){ return { id:p.id, width:+p.width, height:+p.height, coats:+p.coats||2 }; }),
     l:+document.getElementById('r-l').value, w:+document.getElementById('r-w').value, h:+document.getElementById('r-h').value,
     wc:coats.wc, cc:coats.cc, xc:coats.xc,
     win:+document.getElementById('r-win').value, doors:+document.getElementById('r-doors').value, rads:+document.getElementById('r-rads').value,
@@ -5369,6 +5525,12 @@ async function renderSummary() {
     if(r.mistWall) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Mist coat (walls)</span><span class="breakdown-sub-value">'+fmt(mwC*mk)+'</span></div>';
     if(wpwC>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Wallpaper (walls)</span><span class="breakdown-sub-value">'+fmt(wpwC*mk)+'</span></div>';
     if(c.featureWallWpCost>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Feature wall wallpaper</span><span class="breakdown-sub-value">'+fmt(c.featureWallWpCost*mk)+'</span></div>';
+    if(c.panelCost>0) {
+      var panelPrepUp2 = r.panelPrepPct >= 0 ? r.panelPrepPct : (+r.panelPrepCustom||0);
+      var panelPrepLabel = panelPrepUp2===10?'Minimal':panelPrepUp2===25?'Standard Prep':panelPrepUp2===40?'Heavy Prep':'Custom '+panelPrepUp2+'%';
+      subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Panelling</span><span class="breakdown-sub-value">'+fmt(c.panelRawCost*mk)+'</span></div>';
+      if(panelPrepUp2>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Panelling prep ('+panelPrepLabel+')</span><span class="breakdown-sub-value">'+fmt((c.panelCost-c.panelRawCost)*mk)+'</span></div>';
+    }
     if(cc>0)  subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ceiling</span><span class="breakdown-sub-value">'+fmt(dispCeilCost*mk)+'</span></div>';
     if(r.mistCeil) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Mist coat (ceiling)</span><span class="breakdown-sub-value">'+fmt(mcC*mk)+'</span></div>';
     if(wpcC>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Wallpaper (ceiling)</span><span class="breakdown-sub-value">'+fmt(wpcC*mk)+'</span></div>';
@@ -5420,7 +5582,7 @@ async function renderSummary() {
     recalculateMaterialsSnapshot();
   }
   var materialsTotal = materialsSnapshotTotal();
-  var allMatRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows, mats.featureWallRows, mats.masonryRows, mats.extTopcoatRows, mats.extPrimerRows);
+  var allMatRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows, mats.featureWallRows, mats.panelRows, mats.masonryRows, mats.extTopcoatRows, mats.extPrimerRows);
   // Unmapped roles (no Xero product picked) have no real quantity/price to
   // make editable -- they stay exactly as before, a read-only litres/tin-
   // guess estimate contributing nothing to the total. Only rows that
