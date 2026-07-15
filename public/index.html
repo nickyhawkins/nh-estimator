@@ -627,6 +627,37 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Area per garage door<small>m² paintable</small></div><input type="number" class="field-input" id="s-extareagarage" value="6" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Fascia developed width<small>m, to convert linear m → m²</small></div><input type="number" class="field-input" id="s-extfasciawidth" value="0.35" min="0" step="0.05" inputmode="decimal" onchange="saveSettings()"></div>
     </div>
+    <div class="card">
+      <div class="card-header">Kitchen Rates</div>
+      <div class="settings-note">Draft starting figures — check against your own kitchen-respray pricing before relying on them. Base = prep + 1st coat; +Coat = £ added per additional coat, up to the coat count set on the Kitchen tab.</div>
+      <div style="overflow-x:auto;padding:0 16px 12px">
+        <table style="border-collapse:collapse;width:100%">
+          <thead>
+            <tr style="text-align:left">
+              <th></th>
+              <th colspan="2" style="padding:4px 2px;font-size:11px;font-weight:600;color:var(--text2)">Small</th>
+              <th colspan="2" style="padding:4px 2px;font-size:11px;font-weight:600;color:var(--text2)">Medium</th>
+              <th colspan="2" style="padding:4px 2px;font-size:11px;font-weight:600;color:var(--text2)">Large</th>
+              <th colspan="2" style="padding:4px 2px;font-size:11px;font-weight:600;color:var(--text2)">X-Large</th>
+            </tr>
+            <tr style="text-align:left">
+              <th></th>
+              <th style="padding:0 2px 4px;font-size:10px;font-weight:500;color:var(--text3)">Base</th><th style="padding:0 2px 4px;font-size:10px;font-weight:500;color:var(--text3)">+Coat</th>
+              <th style="padding:0 2px 4px;font-size:10px;font-weight:500;color:var(--text3)">Base</th><th style="padding:0 2px 4px;font-size:10px;font-weight:500;color:var(--text3)">+Coat</th>
+              <th style="padding:0 2px 4px;font-size:10px;font-weight:500;color:var(--text3)">Base</th><th style="padding:0 2px 4px;font-size:10px;font-weight:500;color:var(--text3)">+Coat</th>
+              <th style="padding:0 2px 4px;font-size:10px;font-weight:500;color:var(--text3)">Base</th><th style="padding:0 2px 4px;font-size:10px;font-weight:500;color:var(--text3)">+Coat</th>
+            </tr>
+          </thead>
+          <tbody id="kitchen-rates-body"></tbody>
+        </table>
+      </div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Cornices<small>£ per metre (base / +coat)</small></div>
+        <div style="display:flex;gap:6px"><input type="number" class="field-input" style="width:60px" id="s-kr-cornice-base" value="25" min="0" step="1" inputmode="numeric" onchange="saveSettings()"><input type="number" class="field-input" style="width:50px" id="s-kr-cornice-coat" value="4" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Plinths<small>£ per metre (base / +coat)</small></div>
+        <div style="display:flex;gap:6px"><input type="number" class="field-input" style="width:60px" id="s-kr-plinth-base" value="18" min="0" step="1" inputmode="numeric" onchange="saveSettings()"><input type="number" class="field-input" style="width:50px" id="s-kr-plinth-coat" value="3" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Glazed / Curved surcharge<small>% on the matching item/size base price</small></div><input type="number" class="field-input" id="s-kglazedpct" value="50" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Carcass spraying<small>% uplift on doors + drawers + end panels</small></div><input type="number" class="field-input" id="s-kcarcasspct" value="30" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+    </div>
     <button class="btn btn-danger" onclick="clearEverything()">Clear Everything</button>
     <div class="card">
       <div class="card-header">Xero Integration</div>
@@ -683,6 +714,48 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     </div>
   </div>
   <button class="fab" onclick="showAddExterior()">+</button>
+</div>
+
+<!-- ══ KITCHEN CABINET SPRAY CALCULATOR ══
+     Job-level, single config (job.kitchen), not a list of items like Rooms/
+     Exterior -- no add/edit sub-screen, this tab IS the form, edited in
+     place and auto-saved on every change (same "no Save button" pattern as
+     Settings/xeroClient, not the room/ext-item "edit in isolation, commit
+     on Save" pattern), since there's nothing to cancel out of. -->
+<div id="screen-kitchen" class="screen">
+  <div class="topbar">
+    <div class="topbar-title">Kitchen</div>
+    <div class="chip" id="k-chip" style="display:none">£0</div>
+    <button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
+  </div>
+  <div class="content">
+    <div class="card">
+      <div class="card-header">Coats<small style="text-transform:none;letter-spacing:normal;font-weight:400"> — applies to every item below</small></div>
+      <div class="field-row"><div class="field-label">Coat count</div><div class="seg" id="seg-k-coats">
+        <button class="seg-btn" onclick="setKitchenCoats(1)">1</button>
+        <button class="seg-btn active" onclick="setKitchenCoats(2)">2</button>
+        <button class="seg-btn" onclick="setKitchenCoats(3)">3</button>
+        <button class="seg-btn" onclick="setKitchenCoats(4)">4</button>
+      </div></div>
+    </div>
+    <div id="kitchen-items-container"></div>
+    <div class="card">
+      <div class="card-header">Linear Items<small style="text-transform:none;letter-spacing:normal;font-weight:400"> — priced per metre, not per piece</small></div>
+      <div class="field-row"><div class="field-label">Cornices<small>metres</small></div><input type="number" class="field-input" id="k-cornices-m" value="0" min="0" step="0.1" inputmode="decimal" onchange="onKitchenLinearChange('cornicesM',this.value)"></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Plinths<small>metres</small></div><input type="number" class="field-input" id="k-plinths-m" value="0" min="0" step="0.1" inputmode="decimal" onchange="onKitchenLinearChange('plinthsM',this.value)"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Carcass Spraying</div>
+      <div class="toggle-row">
+        <div class="toggle-label">Spray carcasses<small>% uplift on doors + drawers + end panels — see Settings to tune the %</small></div>
+        <div class="toggle" id="k-carcass-toggle" onclick="toggleKitchenCarcass()"></div>
+      </div>
+    </div>
+    <div class="card" id="kitchen-breakdown-card" style="display:none">
+      <div class="card-header">Breakdown</div>
+      <div id="kitchen-breakdown"></div>
+    </div>
+  </div>
 </div>
 
 <!-- ══ COLOURS ══ -->
@@ -812,6 +885,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 <nav class="navbar">
   <button class="nav-item active" id="nav-home" onclick="goTab('home')"><span class="nav-icon">🏠</span><span class="nav-label">Rooms</span></button>
   <button class="nav-item" id="nav-exterior" onclick="goTab('exterior')"><span class="nav-icon">🏡</span><span class="nav-label">Exterior</span></button>
+  <button class="nav-item" id="nav-kitchen" onclick="goTab('kitchen')"><span class="nav-icon">🍳</span><span class="nav-label">Kitchen</span></button>
   <button class="nav-item" id="nav-colours" onclick="goTab('colours')"><span class="nav-icon">🎨</span><span class="nav-label">Colours</span></button>
   <button class="nav-item" id="nav-summary" onclick="goTab('summary')"><span class="nav-icon">📋</span><span class="nav-label">Summary</span></button>
 </nav>
@@ -917,6 +991,58 @@ function saveRooms() {
     return Promise.all(rooms.map(function(r) { return apiPut('/api/rooms/'+r.id, Object.assign({}, r, {jobId: activeJobId})); }));
   });
 }
+// Kitchen Cabinet Spray Calculator -- rate table shape. Draft v1 figures
+// (BUG estimating-app-edits.md #8): base = prep + 1st coat, coat = £ added
+// per additional coat. Kept as ONE nested settings.kitchenRates object
+// (not 32 flat scalar keys like rWall/cw etc) since it's read/written as a
+// single unit every time (see readKitchenRates()/populateKitchenRatesTable())
+// -- settings itself is a JSONB blob server-side, so nesting costs nothing.
+var KITCHEN_ITEM_TYPES = [['doors','Doors'],['drawers','Drawer Fronts'],['endpanels','End Panels'],['fillers','Fillers']];
+var KITCHEN_SIZES = [['small','Small'],['medium','Medium'],['large','Large'],['xlarge','X-Large']];
+var KITCHEN_RATE_DEFAULTS = {
+  doors:     { small:{base:45,coat:8},  medium:{base:60,coat:10}, large:{base:80,coat:13}, xlarge:{base:100,coat:16} },
+  drawers:   { small:{base:20,coat:4},  medium:{base:28,coat:5},  large:{base:35,coat:6},  xlarge:{base:45,coat:8}  },
+  endpanels: { small:{base:40,coat:7},  medium:{base:55,coat:9},  large:{base:75,coat:12}, xlarge:{base:95,coat:15} },
+  fillers:   { small:{base:10,coat:2},  medium:{base:15,coat:3},  large:{base:20,coat:4},  xlarge:{base:25,coat:5}  },
+  cornice: {base:25, coat:4}, plinth: {base:18, coat:3}
+};
+
+function populateKitchenRatesTable() {
+  var body = document.getElementById('kitchen-rates-body');
+  if (!body) return;
+  var rates = settings.kitchenRates || KITCHEN_RATE_DEFAULTS;
+  body.innerHTML = KITCHEN_ITEM_TYPES.map(function(t) {
+    var key = t[0], label = t[1];
+    var row = rates[key] || {};
+    return '<tr><td style="padding:4px 4px 4px 0;font-weight:600;font-size:13px;white-space:nowrap">'+label+'</td>' +
+      KITCHEN_SIZES.map(function(s) {
+        var cell = row[s[0]] || {base:0,coat:0};
+        return '<td style="padding:2px"><input type="number" class="field-input" style="width:42px;padding:4px;font-size:12px;text-align:center" id="s-kr-'+key+'-'+s[0]+'-base" value="'+cell.base+'" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></td>'+
+               '<td style="padding:2px"><input type="number" class="field-input" style="width:34px;padding:4px;font-size:12px;text-align:center" id="s-kr-'+key+'-'+s[0]+'-coat" value="'+cell.coat+'" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></td>';
+      }).join('') +
+    '</tr>';
+  }).join('');
+}
+
+function kNum(id, fallback) {
+  var el = document.getElementById(id);
+  return el ? (+el.value || 0) : fallback;
+}
+
+function readKitchenRates() {
+  var rates = {};
+  KITCHEN_ITEM_TYPES.forEach(function(t) {
+    var key = t[0];
+    rates[key] = {};
+    KITCHEN_SIZES.forEach(function(s) {
+      rates[key][s[0]] = { base: kNum('s-kr-'+key+'-'+s[0]+'-base', 0), coat: kNum('s-kr-'+key+'-'+s[0]+'-coat', 0) };
+    });
+  });
+  rates.cornice = { base: kNum('s-kr-cornice-base', 0), coat: kNum('s-kr-cornice-coat', 0) };
+  rates.plinth  = { base: kNum('s-kr-plinth-base', 0),  coat: kNum('s-kr-plinth-coat', 0) };
+  return rates;
+}
+
 function saveSettings() {
   settings = {
     dr:      +document.getElementById('s-dr').value,
@@ -961,6 +1087,9 @@ function saveSettings() {
     extAreaDoor:    +document.getElementById('s-extareadoor').value,
     extAreaGarage:  +document.getElementById('s-extareagarage').value,
     extFasciaWidth: +document.getElementById('s-extfasciawidth').value,
+    kitchenRates: readKitchenRates(),
+    kitchenGlazedPct: +document.getElementById('s-kglazedpct').value,
+    kitchenCarcassPct: +document.getElementById('s-kcarcasspct').value,
     materials:    settings.materials || {},
     // No Settings-screen field for these two -- they're set from the
     // Summary tab's Payment card (setPaymentType/setPaymentWeeks), so carry
@@ -1008,6 +1137,8 @@ function clearEverything() {
   localStorage.setItem('pe-colours','[]');
   localStorage.setItem('pe-materials-snapshot','[]');
   apiDelete('/api/all?job_id='+encodeURIComponent(activeJobId));
+  var clearedJob = activeJob();
+  if (clearedJob) clearedJob.kitchen = null;
   markMaterialsSeeded(false);
   ['ex-doors','ex-wins','ex-garage'].forEach(function(id){
     var el=document.getElementById(id); if(el) el.value='0';
@@ -1302,6 +1433,10 @@ async function createXeroQuote() {
     // (mirroring rooms), not a single lump total -- while still summing
     // extTotal/extTimeTotal for the job total and realistic-time figures.
     var exteriorData = extItems.map(function(item){ var c = calcExtItem(item); extTotal += c.total; extTimeTotal += c.time; return { label: item.label, total: c.total }; });
+    // Kitchen: a single per-job config, not a list -- one lump cost/time,
+    // matching how routes/xero.js turns it into one Xero line item.
+    var kitchenXeroCalc = calcKitchen(activeJob() && activeJob().kitchen);
+    var kitchenTotal = kitchenXeroCalc.total, kitchenTimeTotal = kitchenXeroCalc.time;
 
     // Materials sent to Xero come from the editable snapshot, not a fresh
     // live calculation -- that's the whole point of the snapshot (see
@@ -1323,8 +1458,8 @@ async function createXeroQuote() {
     // paymentSummary is the same figures again, compact -- see
     // buildPaymentSummaryText() -- sent to the API's separate Summary
     // property so the template can bold just the numbers.
-    tcS += extTotal;
-    ttS += extTimeTotal;
+    tcS += extTotal + kitchenTotal;
+    ttS += extTimeTotal + kitchenTimeTotal;
     var onSiteDays = realisticDays(ttS);
     var depositPlan = computeDepositPlan(tcS, materialsTotal, onSiteDays);
     var paymentTerms = buildPaymentTermsText(depositPlan);
@@ -1350,6 +1485,7 @@ async function createXeroQuote() {
         xeroRef: xeroRef,
         rooms: roomData,
         exterior: { cost: extTotal, items: exteriorData },
+        kitchen: { cost: kitchenTotal },
         materials: materials,
         settings: settings,
         markup: effectiveMarkup(),
@@ -1411,6 +1547,9 @@ async function initApp() {
       extAreaDoor: rawSettings.extAreaDoor!=null ? rawSettings.extAreaDoor : 2,
       extAreaGarage: rawSettings.extAreaGarage!=null ? rawSettings.extAreaGarage : 6,
       extFasciaWidth: rawSettings.extFasciaWidth!=null ? rawSettings.extFasciaWidth : 0.35,
+      kitchenRates: rawSettings.kitchenRates || KITCHEN_RATE_DEFAULTS,
+      kitchenGlazedPct: rawSettings.kitchenGlazedPct!=null ? rawSettings.kitchenGlazedPct : 50,
+      kitchenCarcassPct: rawSettings.kitchenCarcassPct!=null ? rawSettings.kitchenCarcassPct : 30,
       materials: rawSettings.materials||{}
     };
   }
@@ -1454,7 +1593,10 @@ async function initApp() {
         wpFinishRate: s.wpFinishRate!=null ? s.wpFinishRate : 40,
         wpCeilMultPct: s.wpCeilMultPct!=null ? s.wpCeilMultPct : 15,
         wpStairMultPct: s.wpStairMultPct!=null ? s.wpStairMultPct : 25,
-        wpTrimCm: s.wpTrimCm!=null ? s.wpTrimCm : 10
+        wpTrimCm: s.wpTrimCm!=null ? s.wpTrimCm : 10,
+        kitchenRates: s.kitchenRates || KITCHEN_RATE_DEFAULTS,
+        kitchenGlazedPct: s.kitchenGlazedPct!=null ? s.kitchenGlazedPct : 50,
+        kitchenCarcassPct: s.kitchenCarcassPct!=null ? s.kitchenCarcassPct : 30
       };
       localStorage.setItem('pe-settings', JSON.stringify(settings));
       loadSettings();
@@ -1669,7 +1811,10 @@ var settings = {
   rExtGarage:   _raw.rExtGarage   != null ? _raw.rExtGarage   : 150,
   rSashMultiplierPct: _raw.rSashMultiplierPct != null ? _raw.rSashMultiplierPct : 20,
   rResin:       _raw.rResin       != null ? _raw.rResin       : 22,
-  rReglaze:     _raw.rReglaze     != null ? _raw.rReglaze     : 15
+  rReglaze:     _raw.rReglaze     != null ? _raw.rReglaze     : 15,
+  kitchenRates: _raw.kitchenRates || KITCHEN_RATE_DEFAULTS,
+  kitchenGlazedPct: _raw.kitchenGlazedPct != null ? _raw.kitchenGlazedPct : 50,
+  kitchenCarcassPct: _raw.kitchenCarcassPct != null ? _raw.kitchenCarcassPct : 30
 };
 var editId   = null;
 
@@ -1811,9 +1956,9 @@ function renameJob(id) {
 // save here that only sends SOME of the client-known data fields would
 // silently drop whichever ones it left out. Every call site that persists
 // part of job.data must go through this so xeroClient/xeroRef/
-// materialsSeeded always travel together.
+// materialsSeeded/kitchen always travel together.
 function persistJobData(job) {
-  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, status: job.status, acceptedAt: job.acceptedAt }) });
+  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, status: job.status, acceptedAt: job.acceptedAt, kitchen: job.kitchen }) });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -1923,12 +2068,13 @@ function goTab(tab) {
   curTab = tab; inSub = null;
   document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active');});
   document.getElementById('screen-'+tab).classList.add('active');
-  ['home','exterior','colours','summary'].forEach(function(t){
+  ['home','exterior','kitchen','colours','summary'].forEach(function(t){
     var el=document.getElementById('nav-'+t);
     if(el) el.classList.toggle('active', t===tab);
   });
   if (tab==='summary') renderSummary();
   if (tab==='exterior') renderExterior();
+  if (tab==='kitchen') renderKitchen();
   if (tab==='colours') renderColours();
   if (tab==='jobs') renderJobs();
   // NB no renderActuals() here — actuals live only on the server, so the
@@ -2137,6 +2283,13 @@ function loadSettings() {
   document.getElementById('s-extareadoor').value    = settings.extAreaDoor!=null ? settings.extAreaDoor : 2;
   document.getElementById('s-extareagarage').value  = settings.extAreaGarage!=null ? settings.extAreaGarage : 6;
   document.getElementById('s-extfasciawidth').value = settings.extFasciaWidth!=null ? settings.extFasciaWidth : 0.35;
+  populateKitchenRatesTable();
+  document.getElementById('s-kr-cornice-base').value = (settings.kitchenRates && settings.kitchenRates.cornice) ? settings.kitchenRates.cornice.base : 25;
+  document.getElementById('s-kr-cornice-coat').value = (settings.kitchenRates && settings.kitchenRates.cornice) ? settings.kitchenRates.cornice.coat : 4;
+  document.getElementById('s-kr-plinth-base').value  = (settings.kitchenRates && settings.kitchenRates.plinth) ? settings.kitchenRates.plinth.base : 18;
+  document.getElementById('s-kr-plinth-coat').value  = (settings.kitchenRates && settings.kitchenRates.plinth) ? settings.kitchenRates.plinth.coat : 3;
+  document.getElementById('s-kglazedpct').value  = settings.kitchenGlazedPct!=null ? settings.kitchenGlazedPct : 50;
+  document.getElementById('s-kcarcasspct').value = settings.kitchenCarcassPct!=null ? settings.kitchenCarcassPct : 30;
   renderMaterialsSettings();
 }
 
@@ -3987,6 +4140,185 @@ function calcExtItem(item) {
   return { total: total, time: time, winCost: winCost, sashCost: sashCost };
 }
 
+// ── Kitchen Cabinet Spray Calculator ────────────────────────────────────
+// Job-level, single object (job.kitchen) -- one kitchen per job, not a list
+// of items like rooms/extItems. Unlike every other cost function in this
+// file, kitchen items are priced FLAT per piece/metre (base + per-coat
+// increment), not derived from a mins-per-m² labour rate -- "Base price =
+// prep + 1st coat" per estimating-app-edits.md #8, so there is no separate
+// prep multiplier for doors/drawers/end panels/fillers (prep is already
+// baked into each tier's base price). Carcass spraying is the one place
+// that DOES get an uplift, applied as a % on top of doors+drawers+end
+// panels only (excludes fillers/linear items) -- see its own comment below.
+function calcKitchen(k) {
+  k = k || {};
+  var rates = settings.kitchenRates || KITCHEN_RATE_DEFAULTS;
+  var coats = Math.max(1, Math.min(4, +k.coats || 2));
+  var glazedMult = 1 + (settings.kitchenGlazedPct||0)/100;
+  var sizes = ['small','medium','large','xlarge'];
+
+  function typeTotal(typeKey) {
+    var typeItems = (k.items||{})[typeKey] || {};
+    var typeRates = rates[typeKey] || {};
+    var total = 0;
+    sizes.forEach(function(size) {
+      var cell = typeItems[size] || {};
+      var qty = Math.max(0, +cell.qty || 0);
+      // glazedQty is a SUBSET of qty ("of these N, how many are glazed"),
+      // not an additional count -- clamped so a stale/edited-down qty can
+      // never leave more glazed than total pieces.
+      var glazedQty = Math.min(qty, Math.max(0, +cell.glazedQty || 0));
+      var stdQty = qty - glazedQty;
+      var r = typeRates[size] || {base:0, coat:0};
+      var unitPrice = (+r.base||0) + (coats-1)*(+r.coat||0);
+      total += stdQty*unitPrice + glazedQty*unitPrice*glazedMult;
+    });
+    return total;
+  }
+
+  var doorsTotal = typeTotal('doors');
+  var drawersTotal = typeTotal('drawers');
+  var endpanelsTotal = typeTotal('endpanels');
+  var fillersTotal = typeTotal('fillers');
+
+  var cm = Math.max(0, +k.cornicesM || 0), pm = Math.max(0, +k.plinthsM || 0);
+  var cr = rates.cornice || {}, pr = rates.plinth || {};
+  var corniceTotal = cm * ((+cr.base||0) + (coats-1)*(+cr.coat||0));
+  var plinthTotal  = pm * ((+pr.base||0) + (coats-1)*(+pr.coat||0));
+
+  // Carcass: % uplift on doors+drawers+end-panels specifically -- carcasses
+  // are the fixed frames BEHIND those three, not behind fillers or linear
+  // trim, per the doc's own pricing note.
+  var carcassBase = doorsTotal + drawersTotal + endpanelsTotal;
+  var carcassTotal = k.carcass ? carcassBase * ((settings.kitchenCarcassPct||0)/100) : 0;
+
+  var total = doorsTotal + drawersTotal + endpanelsTotal + fillersTotal + corniceTotal + plinthTotal + carcassTotal;
+  // No minutes-based labour rate exists for kitchen items (they're priced
+  // flat, not mins x rpm() like every other module) -- approximate a
+  // scheduling estimate as day-rate-equivalents, so kitchen still
+  // contributes sensibly to realisticDays()/on-site day counts alongside
+  // rooms and exterior, which ARE minutes-based.
+  var time = total / (settings.dr || 300);
+
+  return { total: total, time: time, doorsTotal: doorsTotal, drawersTotal: drawersTotal,
+           endpanelsTotal: endpanelsTotal, fillersTotal: fillersTotal,
+           corniceTotal: corniceTotal, plinthTotal: plinthTotal, carcassTotal: carcassTotal };
+}
+
+// ── Kitchen screen UI ────────────────────────────────────────────────────
+// Fills in any missing item-type/size cells with {qty:0,glazedQty:0} so the
+// render/edit functions below always have something to read -- calcKitchen()
+// itself is defensive and doesn't strictly need this (missing cells default
+// to zero cost), but the FORM needs every input to have a real value.
+function ensureKitchenShape(job) {
+  if (!job.kitchen) job.kitchen = { coats: 2, items: {}, cornicesM: 0, plinthsM: 0, carcass: false };
+  var k = job.kitchen;
+  if (!k.items) k.items = {};
+  KITCHEN_ITEM_TYPES.forEach(function(t) {
+    if (!k.items[t[0]]) k.items[t[0]] = {};
+    KITCHEN_SIZES.forEach(function(s) {
+      if (!k.items[t[0]][s[0]]) k.items[t[0]][s[0]] = { qty: 0, glazedQty: 0 };
+    });
+  });
+  return k;
+}
+
+function renderKitchen() {
+  var job = activeJob();
+  if (!job) return;
+  var k = ensureKitchenShape(job);
+  document.getElementById('kitchen-items-container').innerHTML = KITCHEN_ITEM_TYPES.map(function(t) {
+    var typeKey = t[0], typeLabel = t[1];
+    var rows = KITCHEN_SIZES.map(function(s) {
+      var cell = k.items[typeKey][s[0]];
+      return '<div class="field-row" style="'+(s[0]!=='small'?'border-top:1px solid var(--border)':'')+'">'+
+        '<div class="field-label">'+s[1]+'</div>'+
+        '<div style="display:flex;align-items:center;gap:6px">'+
+          '<input type="number" class="field-input" style="width:56px" value="'+cell.qty+'" min="0" step="1" inputmode="numeric" onchange="onKitchenQtyChange(\''+typeKey+'\',\''+s[0]+'\',\'qty\',this.value)">'+
+          '<span style="font-size:11px;color:var(--text3);white-space:nowrap">glazed/curved</span>'+
+          '<input type="number" class="field-input" style="width:44px" value="'+cell.glazedQty+'" min="0" step="1" inputmode="numeric" onchange="onKitchenQtyChange(\''+typeKey+'\',\''+s[0]+'\',\'glazedQty\',this.value)">'+
+        '</div></div>';
+    }).join('');
+    return '<div class="card">'+
+      '<div class="card-header sec-toggle" onclick="toggleFormSection(\'k-'+typeKey+'\')"><span>'+typeLabel+'</span><span class="sec-chev" id="sec-chev-k-'+typeKey+'">›</span></div>'+
+      '<div class="card-body" id="sec-k-'+typeKey+'">'+rows+'</div>'+
+    '</div>';
+  }).join('');
+  document.getElementById('k-cornices-m').value = k.cornicesM || 0;
+  document.getElementById('k-plinths-m').value = k.plinthsM || 0;
+  document.getElementById('k-carcass-toggle').classList.toggle('on', !!k.carcass);
+  document.querySelectorAll('#seg-k-coats .seg-btn').forEach(function(b,i){ b.classList.toggle('active', i+1===k.coats); });
+  updateKitchenTotals();
+}
+
+// No Save button (see the screen's own comment) -- every change writes
+// straight to job.kitchen and persists immediately, same as xeroClient/
+// markupOverride elsewhere. persistJobData() PUTs job.data wholesale, so
+// it (not a one-off fetch here) is what actually carries `kitchen` along
+// with every other job.data field -- see its own comment.
+function saveKitchenJob() {
+  var job = activeJob();
+  if (!job) return;
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  updateKitchenTotals();
+}
+
+function onKitchenQtyChange(typeKey, size, field, value) {
+  var job = activeJob(); if (!job) return;
+  var k = ensureKitchenShape(job);
+  k.items[typeKey][size][field] = Math.max(0, +value || 0);
+  saveKitchenJob();
+}
+
+function setKitchenCoats(n) {
+  var job = activeJob(); if (!job) return;
+  var k = ensureKitchenShape(job);
+  k.coats = Math.max(1, Math.min(4, n));
+  document.querySelectorAll('#seg-k-coats .seg-btn').forEach(function(b,i){ b.classList.toggle('active', i+1===k.coats); });
+  saveKitchenJob();
+}
+
+function onKitchenLinearChange(field, value) {
+  var job = activeJob(); if (!job) return;
+  var k = ensureKitchenShape(job);
+  k[field] = Math.max(0, +value || 0);
+  saveKitchenJob();
+}
+
+function toggleKitchenCarcass() {
+  var job = activeJob(); if (!job) return;
+  var k = ensureKitchenShape(job);
+  k.carcass = !k.carcass;
+  document.getElementById('k-carcass-toggle').classList.toggle('on', k.carcass);
+  saveKitchenJob();
+}
+
+function updateKitchenTotals() {
+  var job = activeJob(); if (!job || !job.kitchen) return;
+  var c = calcKitchen(job.kitchen);
+  var chip = document.getElementById('k-chip');
+  if (chip) {
+    var marked = c.total * (1 + effectiveMarkup()/100);
+    chip.style.display = c.total>0 ? 'flex' : 'none';
+    chip.textContent = fmt(marked);
+  }
+  var card = document.getElementById('kitchen-breakdown-card');
+  var body = document.getElementById('kitchen-breakdown');
+  if (!card || !body) return;
+  var rows = [
+    ['Doors', c.doorsTotal], ['Drawer Fronts', c.drawersTotal], ['End Panels', c.endpanelsTotal],
+    ['Fillers', c.fillersTotal], ['Cornices', c.corniceTotal], ['Plinths', c.plinthTotal],
+    ['Carcass spraying', c.carcassTotal]
+  ].filter(function(r){ return r[1]>0; });
+  if (!rows.length) { card.style.display='none'; return; }
+  card.style.display='block';
+  body.innerHTML = rows.map(function(r) {
+    return '<div class="breakdown-row"><span class="breakdown-label">'+r[0]+'</span><span class="breakdown-value">'+fmt(r[1])+'</span></div>';
+  }).join('') +
+  '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Kitchen total</span><span class="breakdown-value" style="color:var(--accent)">'+fmt(c.total)+'</span></div>';
+}
+
 function setExtSeg(key, val) {
   extItemCoats[key] = val;
   document.querySelectorAll('#seg-'+key+' .seg-btn').forEach(function(b,i){b.classList.toggle('active',i+1===val);});
@@ -5481,7 +5813,12 @@ async function renderSummary() {
   } catch(e) {}
   var empty=document.getElementById('sum-empty');
   var data=document.getElementById('sum-data');
-  if(rooms.length===0&&extItems.length===0){empty.style.display='flex';data.style.display='none';return;}
+  // A kitchen-only job (no rooms, no exterior) still has a real total to
+  // show -- computed here, ahead of its re-use further down, purely so this
+  // guard can see it (BUG FIX: a kitchen-only job used to fall through to
+  // the "no rooms yet" empty state and never render its own total at all).
+  var kitchenCalc = calcKitchen(activeJob() && activeJob().kitchen);
+  if(rooms.length===0&&extItems.length===0&&kitchenCalc.total<=0){empty.style.display='flex';data.style.display='none';return;}
   empty.style.display='none'; data.style.display='block';
   var tc=0,tt=0;
   var mu=effectiveMarkup()/100;
@@ -5563,7 +5900,10 @@ async function renderSummary() {
   // Always reload extItems fresh from localStorage
   var extTotal=0; var extTimeTotal=0;
   extItems.forEach(function(item){var c=calcExtItem(item);extTotal+=c.total;extTimeTotal+=c.time;});
-  var tcS=tc+extTotal; var ttS=tt+extTimeTotal;
+  // kitchenCalc computed above (ahead of the empty-state guard) -- reused
+  // here rather than calling calcKitchen() a second time.
+  var kitchenTotal = kitchenCalc.total, kitchenTimeTotal = kitchenCalc.time;
+  var tcS=tc+extTotal+kitchenTotal; var ttS=tt+extTimeTotal+kitchenTimeTotal;
   var onSiteDays = realisticDays(ttS);
 
   var mats = computeMaterials();
@@ -5711,6 +6051,26 @@ async function renderSummary() {
       '<div class="room-breakdown" id="'+eid+'">'+sub+'</div>'+
       '<div style="height:1px;background:var(--border)"></div>';
     }).join(''):'')+
+    (kitchenTotal>0?(function(){
+      var mk = 1+mu;
+      var ksub = [
+        ['Doors', kitchenCalc.doorsTotal], ['Drawer Fronts', kitchenCalc.drawersTotal],
+        ['End Panels', kitchenCalc.endpanelsTotal], ['Fillers', kitchenCalc.fillersTotal],
+        ['Cornices', kitchenCalc.corniceTotal], ['Plinths', kitchenCalc.plinthTotal],
+        ['Carcass spraying', kitchenCalc.carcassTotal]
+      ].filter(function(r){ return r[1]>0; }).map(function(r){
+        return '<div class="breakdown-sub-row"><span class="breakdown-sub-label">'+r[0]+'</span><span class="breakdown-sub-value">'+fmt(r[1]*mk)+'</span></div>';
+      }).join('');
+      return '<div class="room-item room-item-tap" onclick="toggleRoomBd(this.dataset.id)" data-id="kitchen-bd" style="border-bottom:none">'+
+        '<div class="room-icon">🍳</div>'+
+        '<div class="room-info"><div class="room-name">Kitchen</div>'+
+        '<div class="room-meta">'+fmtD(kitchenCalc.time)+'</div></div>'+
+        '<div class="room-cost">'+fmt(kitchenTotal*mk)+'</div>'+
+        '<div class="room-chevron-icon" id="chev-kitchen-bd">›</div>'+
+      '</div>'+
+      '<div class="room-breakdown" id="kitchen-bd">'+ksub+'</div>'+
+      '<div style="height:1px;background:var(--border)"></div>';
+    })():'')+
     '<div class="breakdown-row" style="border-top:1px solid var(--border)">'+
       '<span class="breakdown-label" style="font-weight:600;color:var(--text)">Labour subtotal</span>'+
       '<span class="breakdown-value" style="color:var(--accent)">'+fmt(tcS)+'</span></div>'+
@@ -5758,7 +6118,11 @@ async function renderSummary() {
 
 // ── Export CSV ─────────────────────────────────────────────────────────────
 function exportCSV() {
-  if(rooms.length===0){alert('No rooms to export.');return;}
+  // BUG FIX: this only ever checked rooms.length, so an exterior-only or
+  // kitchen-only job (both legitimate -- neither requires a single room)
+  // couldn't export a CSV at all. Checks all three sources, same as
+  // renderSummary()'s empty-state guard.
+  if(rooms.length===0 && extItems.length===0 && calcKitchen(activeJob() && activeJob().kitchen).total<=0){alert('Nothing to export yet.');return;}
   var s=settings; var q=function(v){return '"'+String(v).replace(/"/g,'""')+'"';};
   var lines=[];
   lines.push([q('Nicky Hawkins Estimator')].join(','));
@@ -5784,8 +6148,11 @@ function exportCSV() {
   var extTotal=0, extTimeTotal=0;
   extItems.forEach(function(item){var c=calcExtItem(item); extTotal+=c.total; extTimeTotal+=c.time;});
   if(extTotal>0){lines.push([q('Exterior'),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(extTotal.toFixed(2)),q(extTimeTotal.toFixed(2))].join(','));}
+  var kitchenCsvCalc = calcKitchen(activeJob() && activeJob().kitchen);
+  var kitchenTotal = kitchenCsvCalc.total, kitchenTimeTotal = kitchenCsvCalc.time;
+  if(kitchenTotal>0){lines.push([q('Kitchen'),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(kitchenTotal.toFixed(2)),q(kitchenTimeTotal.toFixed(2))].join(','));}
   lines.push('');
-  var tcS=tc+extTotal; var total=tcS*(1+s.mu/100);
+  var tcS=tc+extTotal+kitchenTotal; var total=tcS*(1+s.mu/100);
   lines.push([q('Labour subtotal'),q(tcS.toFixed(2))].join(','));
   lines.push([q('Total quote (inc markup)'),q(total.toFixed(2))].join(','));
   var csv=lines.join('\n');

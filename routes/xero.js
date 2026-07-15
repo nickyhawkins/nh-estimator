@@ -426,7 +426,7 @@ router.get('/material-groups', async (req, res) => {
 
 // Create quote in Xero
 router.post('/create-quote', async (req, res) => {
-  const { clientName, jobName, xeroRef, rooms, exterior, materials, settings, markup, paymentTerms, paymentSummary, contactId, newContact } = req.body;
+  const { clientName, jobName, xeroRef, rooms, exterior, kitchen, materials, settings, markup, paymentTerms, paymentSummary, contactId, newContact } = req.body;
 
   try {
     const accessToken = await getAccessToken();
@@ -513,6 +513,21 @@ router.post('/create-quote', async (req, res) => {
       });
     }
 
+    // Kitchen Cabinet Spray Calculator -- one lump line, unlike rooms/
+    // exterior's per-item breakdown, since a kitchen is a single per-job
+    // config (job.kitchen) rather than a list of separately-labelled
+    // things. The door/drawer/end-panel/filler/cornice/plinth/carcass
+    // split is visible on the app's own Kitchen tab and Summary breakdown;
+    // the Xero quote only needs the one billable total.
+    if (kitchen && kitchen.cost > 0) {
+      lineItems.push({
+        Description: 'Kitchen Cabinet Spraying',
+        Quantity: 1,
+        UnitAmount: fmt(kitchen.cost * mu),
+        AccountCode: '201'
+      });
+    }
+
     // Staircase/HSL entries are now just rooms (see the room-alignment work
     // in public/index.html) -- their woodwork cost is already baked into
     // room.total via the rooms.forEach loop above, pushed as that room's own
@@ -560,6 +575,7 @@ router.post('/create-quote', async (req, res) => {
       let labourSubtotal = 0;
       if (rooms) rooms.forEach(r => { labourSubtotal += r.total; });
       if (exterior && exterior.cost > 0) labourSubtotal += exterior.cost;
+      if (kitchen && kitchen.cost > 0) labourSubtotal += kitchen.cost;
       const sundriesAmount = labourSubtotal * (sundriesPct / 100);
       if (sundriesAmount > 0) {
         lineItems.push({
