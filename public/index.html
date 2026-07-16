@@ -769,8 +769,8 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     <div class="card searchable-card">
       <div class="card-header">Colour &amp; Product</div>
       <div class="field-row"><div class="field-label">Colour<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-kitchen" style="flex-wrap:wrap"></div></div>
-      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Product<small>no default — choose explicitly</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="k-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onKitchenRangeSearchInput()" onfocus="onKitchenRangeSearchInput()"><div id="k-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
-      <div class="field-row" id="k-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="k-band" onchange="onKitchenBandSelect()"></select></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Product<small>no default — choose explicitly</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="k-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('kitchen')" onfocus="onRoomRangeSearchInput('kitchen')"><div id="k-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
+      <div class="field-row" id="k-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="k-band" onchange="onRoomOverrideBandSelect('kitchen')"></select></div>
     </div>
     <div class="card" id="kitchen-breakdown-card" style="display:none">
       <div class="card-header">Breakdown</div>
@@ -2446,25 +2446,17 @@ function calcRoom(r) {
     function(t){ return { rolls: featureWallWallpaperRolls(r, t) }; }) : { cost: 0, parts: [] };
   var featureWallWpCost  = featureWallWpResult.cost;
   var featureWallWpRolls = featureWallWpResult.parts.reduce(function(sum,p){ return sum + p.rolls; }, 0);
-  // Panelling: an array of independently-measured walls (own width/height
-  // and coat count each -- up to 4 coats is common), never folded into
-  // wallArea/wallCost/baseTotal above. It needs its OWN prep multiplier
-  // (panelPrepUp), kept deliberately separate from the room's prepUp, and
-  // per-wall coats mean it can't reuse wallMins()/wc either. See
-  // estimating-app-edits.md #7.
-  var panelItems = r.panelItems || [];
-  var panelArea = 0, panelAreaCoats = 0, panelMinsCost = 0;
-  panelItems.forEach(function(p) {
-    var pw = Math.max(+p.width || 0, 0), ph = Math.max(+p.height || 0, 0);
-    var pc = Math.max(+p.coats || 0, 0);
-    var area = pw * ph;
-    panelArea += area;
-    panelAreaCoats += area * pc;
-    panelMinsCost += area * pc * settings.rPanel * r2;
-  });
-  var panelPrepUp = r.panelPrepPct >= 0 ? r.panelPrepPct : (+r.panelPrepCustom||0);
-  var panelCost = panelMinsCost * (1 + panelPrepUp/100);
-  var panelL = panelAreaCoats>0 ? Math.ceil(panelAreaCoats/settings.cPanel*2)/2 : 0;
+  // Panelling: an array of independently-measured walls, never folded into
+  // wallArea/wallCost/baseTotal above -- it needs its OWN prep multiplier,
+  // kept deliberately separate from the room's prepUp, and per-wall coats
+  // mean it can't reuse wallMins()/wc either. Its own function (see
+  // calcPanel() below), mirroring calcKitchen()/calcExtItem()'s shape,
+  // rather than living inline here alongside everything else this function
+  // already juggles. See estimating-app-edits.md #7.
+  var panelResult = calcPanel(r.panelItems, r.panelPrepPct, r.panelPrepCustom, r2);
+  var panelCost = panelResult.panelCost, panelL = panelResult.panelL,
+      panelArea = panelResult.panelArea, panelMinsCost = panelResult.panelRawCost,
+      panelPrepUp = panelResult.panelPrepUp;
 
   var baseTotal = wallCost+ceilCost+winCost+woodCost+radCost+featureWallOwnCost+mistWCost+mistCCost+wpwCost+wpcCost+featureWallWpCost;
   var prepUp  = r.prepPct >= 0 ? r.prepPct : (+r.prepCustom||0);
@@ -2511,10 +2503,44 @@ function calcRoom(r) {
            wpwCost:wpwCost, wpcCost:wpcCost, wpwRolls:wpwRolls, wpcRolls:wpcRolls,
            featureWallMode:featureWallMode, featureWallWpCost:featureWallWpCost, featureWallWpRolls:featureWallWpRolls,
            panelCost:panelCost, panelL:panelL, panelArea:panelArea, panelRawCost:panelMinsCost,
-           wpMinTopUp:wpMinTopUp};
+           wpMinTopUp:wpMinTopUp, prepUp:prepUp, panelPrepUp:panelPrepUp};
+}
+
+// Panelling's own calculation -- pulled out of calcRoom() so it has the
+// same shape/independence as calcKitchen()/calcExtItem() rather than being
+// welded into calcRoom()'s body alongside walls/ceiling/woodwork/windows/
+// radiators/mist/feature-wall-paint/feature-wall-wallpaper/room-wallpaper.
+// Per-wall coats are clamped to the same 1-4 range calcKitchen() clamps its
+// own coats to -- the <input max="4"> on the form is not a guarantee
+// against a bad import or hand-edited job JSON (estimating-app-edits.md
+// review, #4). Floor stays at 0 (unchanged from before): a wall explicitly
+// entered with 0 coats is a deliberate "measured but not priced yet" state,
+// not an error to correct.
+function calcPanel(panelItems, panelPrepPct, panelPrepCustom, r2) {
+  panelItems = panelItems || [];
+  var panelArea = 0, panelAreaCoats = 0, panelMinsCost = 0;
+  panelItems.forEach(function(p) {
+    var pw = Math.max(+p.width || 0, 0), ph = Math.max(+p.height || 0, 0);
+    var pc = Math.min(4, Math.max(+p.coats || 0, 0));
+    var area = pw * ph;
+    panelArea += area;
+    panelAreaCoats += area * pc;
+    panelMinsCost += area * pc * settings.rPanel * r2;
+  });
+  var panelPrepUp = panelPrepPct >= 0 ? panelPrepPct : (+panelPrepCustom||0);
+  var panelCost = panelMinsCost * (1 + panelPrepUp/100);
+  var panelL = panelAreaCoats>0 ? Math.ceil(panelAreaCoats/settings.cPanel*2)/2 : 0;
+  return { panelCost:panelCost, panelL:panelL, panelArea:panelArea, panelRawCost:panelMinsCost, panelPrepUp:panelPrepUp };
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+// Shared by room prep and panel prep -- same 10/25/40/custom scale and label
+// wording for both. Exterior's prep uses a different 0/10/25 scale with its
+// own labels (Standard/Light Prep/Full Prep), so it stays a separate inline
+// ternary rather than being forced through this.
+function prepLabelFor(pct) {
+  return pct===10?'Minimal':pct===25?'Standard Prep':pct===40?'Heavy Prep':'Custom '+pct+'%';
+}
 function fmt(n)     { return '£'+n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,','); }
 function fmtD(d)    { return d<0.1?'<0.1d':d.toFixed(1)+'d'; }
 function fmtM(n)    { return n.toFixed(2)+' m²'; }
@@ -3969,21 +3995,47 @@ function deleteColour(number) {
 // goScreen('room')/editRoom().
 var roomColourNumbers = { wall: 1, ceiling: 1, woodwork: 1, featurewall: 1, panel: 1 };
 
+// Kitchen's colour selection isn't temp/form-local like the room roles above
+// -- it writes straight to job.kitchen.colourNumber and persists immediately
+// (no Save button on the Kitchen screen -- see saveKitchenJob()'s comment).
+// These two accessors let populateRoomColourChips/setRoomColour/
+// addRoomColourInline below treat 'kitchen' as just one more role instead of
+// needing their own hand-copied twin, which is what Kitchen used to have
+// (populateKitchenColourChips/setKitchenColour/addKitchenColourInline).
+function colourNumberOf(role) {
+  if (role === 'kitchen') {
+    var job = activeJob();
+    return job ? ensureKitchenShape(job).colourNumber : 1;
+  }
+  return roomColourNumbers[role];
+}
+function setColourNumberOf(role, number) {
+  if (role === 'kitchen') {
+    var job = activeJob();
+    if (!job) return;
+    ensureKitchenShape(job).colourNumber = number;
+    saveKitchenJob();
+    return;
+  }
+  roomColourNumbers[role] = number;
+}
+
 function populateRoomColourChips(role) {
   var seg = document.getElementById('seg-colour-'+role);
   if (!seg) return;
   ensureDefaultColour();
   var list = colours.slice().sort(function(a,b){ return a.number - b.number; });
+  var current = colourNumberOf(role);
   var html = list.map(function(c) {
     var label = c.label ? c.label : ('Colour '+c.number);
-    return '<button type="button" class="seg-btn'+(c.number===roomColourNumbers[role]?' active':'')+'" onclick="setRoomColour(\''+role+'\','+c.number+')">'+escapeHtml(label)+'</button>';
+    return '<button type="button" class="seg-btn'+(c.number===current?' active':'')+'" onclick="setRoomColour(\''+role+'\','+c.number+')">'+escapeHtml(label)+'</button>';
   }).join('');
   html += '<button type="button" class="seg-btn" onclick="addRoomColourInline(\''+role+'\')">+</button>';
   seg.innerHTML = html;
 }
 
 function setRoomColour(role, number) {
-  roomColourNumbers[role] = number;
+  setColourNumberOf(role, number);
   populateRoomColourChips(role);
 }
 
@@ -3992,10 +4044,10 @@ function addRoomColourInline(role) {
   var nextNumber = Math.max.apply(null, colours.map(function(c){ return c.number; })) + 1;
   colours.push({ number: nextNumber, label: '' });
   saveColours();
-  roomColourNumbers[role] = nextNumber;
+  setColourNumberOf(role, nextNumber);
   // The new colour is now available to the other pickers too, even
   // though only this one's selection actually changed.
-  ['wall','ceiling','woodwork','featurewall','panel'].forEach(populateRoomColourChips);
+  ['wall','ceiling','woodwork','featurewall','panel','kitchen'].forEach(populateRoomColourChips);
 }
 
 // ── Exterior item colour chips ──────────────────────────────────────────────
@@ -4052,15 +4104,36 @@ var roomOverrides = {
   panel: { range: '', band: '' }
 };
 
+// Kitchen's product/band state isn't temp/form-local like the room roles
+// above either -- job.kitchen.range/band, not roomOverrides['kitchen'] --
+// same story as colourNumberOf() just above. These three accessors let
+// populateRoomOverridePicker/onRoomRangeSearchInput/selectRoomRange/
+// populateRoomOverrideBandPicker/onRoomOverrideBandSelect below treat
+// 'kitchen' as just one more role instead of needing their own hand-copied
+// twin, which is what Kitchen used to have (populateKitchenRangePicker/
+// onKitchenRangeSearchInput/selectKitchenRange/populateKitchenBandPicker/
+// onKitchenBandSelect).
+function overrideIdPrefix(role) { return role === 'kitchen' ? 'k' : 'r-'+role; }
+function overrideState(role) {
+  if (role === 'kitchen') {
+    var job = activeJob();
+    return job ? ensureKitchenShape(job) : { range: '', band: null };
+  }
+  return roomOverrides[role];
+}
+function persistOverrideChange(role) {
+  if (role === 'kitchen') saveKitchenJob();
+}
+
 function populateRoomOverridePicker(role) {
-  var rangeInput = document.getElementById('r-'+role+'-range');
+  var rangeInput = document.getElementById(overrideIdPrefix(role)+'-range');
   if (!rangeInput) return;
-  var state = roomOverrides[role];
-  // Feature wall and Panelling have no job-wide Settings default to fall
-  // back to -- both are inherently a per-room, per-instance product
-  // decision -- so the empty placeholder reads as "not chosen" rather than
-  // implying a default exists.
-  rangeInput.placeholder = (role === 'featurewall' || role === 'panel') ? '— none chosen —' : 'Use default (Settings)';
+  var state = overrideState(role);
+  // Feature wall, Panelling and Kitchen have no job-wide Settings default to
+  // fall back to -- all three are inherently a per-room/per-job, per-instance
+  // product decision -- so the empty placeholder reads as "not chosen"
+  // rather than implying a default exists.
+  rangeInput.placeholder = (role === 'featurewall' || role === 'panel' || role === 'kitchen') ? '— none chosen —' : 'Use default (Settings)';
   rangeInput.value = state.none ? 'None' : (state.range || '');
   populateRoomOverrideBandPicker(role);
 }
@@ -4075,13 +4148,13 @@ function populateRoomOverridePicker(role) {
 var rangeSearchMatches = {};
 
 function roomRangeSearchOptions(role) {
-  var options = [{ type: 'default', label: (role === 'featurewall' || role === 'panel') ? '— none chosen —' : 'Use default (Settings)' }];
+  var options = [{ type: 'default', label: (role === 'featurewall' || role === 'panel' || role === 'kitchen') ? '— none chosen —' : 'Use default (Settings)' }];
   if (role === 'primer') options.push({ type: 'none', label: 'None' });
   return options.concat(Object.keys(materialGroupsCache).sort().map(function(r) { return { type: 'range', label: r }; }));
 }
 
 function onRoomRangeSearchInput(role) {
-  var idPrefix = 'r-'+role;
+  var idPrefix = overrideIdPrefix(role);
   var input = document.getElementById(idPrefix+'-range');
   var dd = document.getElementById(idPrefix+'-range-dd');
   if (!input || !dd) return;
@@ -4097,14 +4170,15 @@ function onRoomRangeSearchInput(role) {
 }
 
 function selectRoomRange(role, i) {
-  var idPrefix = 'r-'+role;
+  var idPrefix = overrideIdPrefix(role);
   var option = (rangeSearchMatches[idPrefix]||[])[i];
   if (!option) return;
-  var state = roomOverrides[role];
+  var state = overrideState(role);
   if (option.type === 'none') { state.none = true; state.range = ''; }
   else if (option.type === 'default') { state.none = false; state.range = ''; }
   else { state.none = false; state.range = option.label; }
   hideRangeSearchDropdown(idPrefix);
+  persistOverrideChange(role);
   populateRoomOverridePicker(role);
 }
 
@@ -4123,10 +4197,11 @@ document.addEventListener('click', function(e) {
 });
 
 function populateRoomOverrideBandPicker(role) {
-  var bandRow = document.getElementById('r-'+role+'-band-row');
-  var bandSel = document.getElementById('r-'+role+'-band');
+  var idPrefix = overrideIdPrefix(role);
+  var bandRow = document.getElementById(idPrefix+'-band-row');
+  var bandSel = document.getElementById(idPrefix+'-band');
   if (!bandRow || !bandSel) return;
-  var state = roomOverrides[role];
+  var state = overrideState(role);
   if (!state.range || state.none) {
     bandRow.style.display = 'none';
     state.band = null;
@@ -4160,8 +4235,9 @@ function populateRoomOverrideBandPicker(role) {
 }
 
 function onRoomOverrideBandSelect(role) {
-  var val = document.getElementById('r-'+role+'-band').value;
-  roomOverrides[role].band = val === '__unset__' ? null : val;
+  var val = document.getElementById(overrideIdPrefix(role)+'-band').value;
+  overrideState(role).band = val === '__unset__' ? null : val;
+  persistOverrideChange(role);
 }
 
 // ── Exterior items (room-style list) ──────────────────────────────────────────
@@ -4393,8 +4469,8 @@ function renderKitchen() {
   document.getElementById('k-plinths-m').value = k.plinthsM || 0;
   document.getElementById('k-carcass-toggle').classList.toggle('on', !!k.carcass);
   document.querySelectorAll('#seg-k-coats .seg-btn').forEach(function(b,i){ b.classList.toggle('active', i+1===k.coats); });
-  populateKitchenColourChips();
-  populateKitchenRangePicker();
+  populateRoomColourChips('kitchen');
+  populateRoomOverridePicker('kitchen');
   updateKitchenTotals();
 }
 
@@ -4441,131 +4517,13 @@ function toggleKitchenCarcass() {
   saveKitchenJob();
 }
 
-// ── Kitchen colour + product pickers ────────────────────────────────────
-// Same chip/dropdown UI as the room/exterior pickers (see populateRoomColourChips/
-// populateRoomOverridePicker), but writing straight to job.kitchen and saving
-// immediately -- there's no form-then-Save step for Kitchen (see the screen's
-// own comment), so these read/write job.kitchen directly instead of going
-// through a temp state object.
-function populateKitchenColourChips() {
-  var seg = document.getElementById('seg-colour-kitchen');
-  var job = activeJob();
-  if (!seg || !job) return;
-  var k = ensureKitchenShape(job);
-  ensureDefaultColour();
-  var list = colours.slice().sort(function(a,b){ return a.number - b.number; });
-  var html = list.map(function(c) {
-    var label = c.label ? c.label : ('Colour '+c.number);
-    return '<button type="button" class="seg-btn'+(c.number===k.colourNumber?' active':'')+'" onclick="setKitchenColour('+c.number+')">'+escapeHtml(label)+'</button>';
-  }).join('');
-  html += '<button type="button" class="seg-btn" onclick="addKitchenColourInline()">+</button>';
-  seg.innerHTML = html;
-}
-
-function setKitchenColour(number) {
-  var job = activeJob(); if (!job) return;
-  var k = ensureKitchenShape(job);
-  k.colourNumber = number;
-  saveKitchenJob();
-  populateKitchenColourChips();
-}
-
-function addKitchenColourInline() {
-  var job = activeJob(); if (!job) return;
-  ensureDefaultColour();
-  var nextNumber = Math.max.apply(null, colours.map(function(c){ return c.number; })) + 1;
-  colours.push({ number: nextNumber, label: '' });
-  saveColours();
-  var k = ensureKitchenShape(job);
-  k.colourNumber = nextNumber;
-  saveKitchenJob();
-  populateKitchenColourChips();
-}
-
-function populateKitchenRangePicker() {
-  var rangeInput = document.getElementById('k-range');
-  var job = activeJob();
-  if (!rangeInput || !job) return;
-  var k = ensureKitchenShape(job);
-  // No job-wide Settings default for Kitchen product, same reasoning as
-  // Feature Wall/Panelling -- the empty placeholder reads as "not chosen".
-  rangeInput.placeholder = '— none chosen —';
-  rangeInput.value = k.range || '';
-  populateKitchenBandPicker();
-}
-
-// Search-as-you-type replacement for the old range <select> -- same
-// pattern as onRoomRangeSearchInput/selectRoomRange, just writing straight
-// to job.kitchen instead of roomOverrides. Kitchen has no "Use default
-// (Settings)" pinned option (see populateKitchenRangePicker's comment).
-function onKitchenRangeSearchInput() {
-  var input = document.getElementById('k-range');
-  var dd = document.getElementById('k-range-dd');
-  if (!input || !dd) return;
-  var q = input.value.trim().toLowerCase();
-  var all = Object.keys(materialGroupsCache).sort().map(function(r) { return { type: 'range', label: r }; });
-  var pinned = [{ type: 'default', label: '— none chosen —' }];
-  var options = pinned.concat(all);
-  var matches = q ? options.filter(function(o) { return o.label.toLowerCase().indexOf(q) !== -1; }) : options;
-  rangeSearchMatches['k'] = matches;
-  dd.innerHTML = matches.map(function(o, i) {
-    var pinnedStyle = o.type === 'range' ? 'color:var(--text)' : 'color:var(--text2);font-style:italic';
-    return '<div style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:14px;'+pinnedStyle+'" onmousedown="event.preventDefault()" onclick="selectKitchenRange('+i+')">'+escapeHtml(o.label)+'</div>';
-  }).join('') || '<div style="padding:10px 12px;color:var(--text2);font-size:13px">No matching product ranges</div>';
-  dd.style.display = 'block';
-}
-
-function selectKitchenRange(i) {
-  var job = activeJob(); if (!job) return;
-  var option = (rangeSearchMatches['k']||[])[i];
-  if (!option) return;
-  var k = ensureKitchenShape(job);
-  k.range = option.type === 'default' ? '' : option.label;
-  hideRangeSearchDropdown('k');
-  saveKitchenJob();
-  populateKitchenRangePicker();
-}
-
-function populateKitchenBandPicker() {
-  var bandRow = document.getElementById('k-band-row');
-  var bandSel = document.getElementById('k-band');
-  var job = activeJob();
-  if (!bandRow || !bandSel || !job) return;
-  var k = ensureKitchenShape(job);
-  if (!k.range) {
-    bandRow.style.display = 'none';
-    k.band = null;
-    return;
-  }
-  bandRow.style.display = 'flex';
-  var bands = Object.keys(materialGroupsCache[k.range] || {}).sort();
-  if (bands.length === 0) {
-    bandSel.innerHTML = '<option value="'+escapeHtml(k.band||'')+'">'+escapeHtml(k.band || '(bands unknown — refresh?)')+'</option>';
-    return;
-  }
-  if (bands.length === 1) {
-    // Only one possible band -- not a real choice, nothing to get wrong.
-    k.band = bands[0];
-  } else if (k.band == null || bands.indexOf(k.band) === -1) {
-    k.band = null;
-  }
-  var opts = bands.map(function(b) {
-    var label = b === '' ? '(no band)' : b;
-    return '<option value="'+escapeHtml(b)+'"'+(b===k.band?' selected':'')+'>'+escapeHtml(label)+'</option>';
-  }).join('');
-  if (k.band == null) {
-    opts = '<option value="__unset__" selected disabled>Select colour band…</option>' + opts;
-  }
-  bandSel.innerHTML = opts;
-}
-
-function onKitchenBandSelect() {
-  var job = activeJob(); if (!job) return;
-  var k = ensureKitchenShape(job);
-  var val = document.getElementById('k-band').value;
-  k.band = val === '__unset__' ? null : val;
-  saveKitchenJob();
-}
+// Kitchen's colour + product/band pickers used to be a hand-copied twin of
+// populateRoomColourChips/populateRoomOverridePicker (and friends) here --
+// they're gone now. Kitchen is just role 'kitchen' through the generic
+// versions (see colourNumberOf/overrideState's comments for how they read
+// and write job.kitchen instead of the room's temp-state objects), called
+// from renderKitchen() above and the k-range/k-band elements' inline
+// handlers in the HTML.
 
 function updateKitchenTotals() {
   var job = activeJob(); if (!job || !job.kitchen) return;
@@ -6123,8 +6081,8 @@ async function renderSummary() {
     var id='room-bd-'+ri;
     var subRows='';
     var woodTotal = (woodCost + winCost + radCost) * mk;
-    var prepUp2 = r.prepPct >= 0 ? r.prepPct : (+r.prepCustom||0);
-    var prepLabel = prepUp2===10?'Minimal':prepUp2===25?'Standard Prep':prepUp2===40?'Heavy Prep':'Custom '+prepUp2+'%';
+    var prepUp2 = c.prepUp;
+    var prepLabel = prepLabelFor(prepUp2);
     // c.wpMinTopUp is subtracted first -- it's added to c.total AFTER the
     // room's prep multiplier (see calcRoom()'s wpMinTopUp), so leaving it in
     // would corrupt this reverse-derivation (total / (1+prepUp%) back to the
@@ -6149,8 +6107,8 @@ async function renderSummary() {
     if(wpwC>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Wallpaper (walls)</span><span class="breakdown-sub-value">'+fmt(wpwC*mk)+'</span></div>';
     if(c.featureWallWpCost>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Feature wall wallpaper</span><span class="breakdown-sub-value">'+fmt(c.featureWallWpCost*mk)+'</span></div>';
     if(c.panelCost>0) {
-      var panelPrepUp2 = r.panelPrepPct >= 0 ? r.panelPrepPct : (+r.panelPrepCustom||0);
-      var panelPrepLabel = panelPrepUp2===10?'Minimal':panelPrepUp2===25?'Standard Prep':panelPrepUp2===40?'Heavy Prep':'Custom '+panelPrepUp2+'%';
+      var panelPrepUp2 = c.panelPrepUp;
+      var panelPrepLabel = prepLabelFor(panelPrepUp2);
       subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Panelling</span><span class="breakdown-sub-value">'+fmt(c.panelRawCost*mk)+'</span></div>';
       if(panelPrepUp2>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Panelling prep ('+panelPrepLabel+')</span><span class="breakdown-sub-value">'+fmt((c.panelCost-c.panelRawCost)*mk)+'</span></div>';
     }
