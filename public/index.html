@@ -607,6 +607,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Ceiling multiplier<small>% uplift on labour</small></div><input type="number" class="field-input" id="s-wpceil-mult" value="15" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Staircase multiplier<small>% uplift on labour</small></div><input type="number" class="field-input" id="s-wpstair-mult" value="25" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Trim allowance<small>cm added per drop, top+bottom</small></div><input type="number" class="field-input" id="s-wptrim" value="10" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Minimum price<small>£ floor per room's wallpaper labour</small></div><input type="number" class="field-input" id="s-wpmin-price" value="200" min="0" step="10" inputmode="numeric" onchange="saveSettings()"></div>
     </div>
     <div class="card">
       <div class="card-header">Exterior Rates</div>
@@ -1091,6 +1092,7 @@ function saveSettings() {
     wpCeilMultPct: +document.getElementById('s-wpceil-mult').value,
     wpStairMultPct:+document.getElementById('s-wpstair-mult').value,
     wpTrimCm:     +document.getElementById('s-wptrim').value,
+    wpMinPrice:   +document.getElementById('s-wpmin-price').value,
     rExtMasonry:  +document.getElementById('s-rextmasonry').value,
     rExtFascia:   +document.getElementById('s-rextfascia').value,
     rExtWinBase:      +document.getElementById('s-rextwinbase').value,
@@ -1555,6 +1557,7 @@ async function initApp() {
       wpCeilMultPct: rawSettings.wpCeilMultPct!=null ? rawSettings.wpCeilMultPct : 15,
       wpStairMultPct: rawSettings.wpStairMultPct!=null ? rawSettings.wpStairMultPct : 25,
       wpTrimCm: rawSettings.wpTrimCm!=null ? rawSettings.wpTrimCm : 10,
+      wpMinPrice: rawSettings.wpMinPrice!=null ? rawSettings.wpMinPrice : 200,
       rExtMasonry: rawSettings.rExtMasonry||5, rExtFascia: rawSettings.rExtFascia||8,
       rExtWinBase: rawSettings.rExtWinBase!=null ? rawSettings.rExtWinBase : 25,
       rExtWinPerPane: rawSettings.rExtWinPerPane!=null ? rawSettings.rExtWinPerPane : 2,
@@ -1616,6 +1619,7 @@ async function initApp() {
         wpCeilMultPct: s.wpCeilMultPct!=null ? s.wpCeilMultPct : 15,
         wpStairMultPct: s.wpStairMultPct!=null ? s.wpStairMultPct : 25,
         wpTrimCm: s.wpTrimCm!=null ? s.wpTrimCm : 10,
+        wpMinPrice: s.wpMinPrice!=null ? s.wpMinPrice : 200,
         kitchenRates: s.kitchenRates || KITCHEN_RATE_DEFAULTS,
         kitchenGlazedPct: s.kitchenGlazedPct!=null ? s.kitchenGlazedPct : 50,
         kitchenCarcassPct: s.kitchenCarcassPct!=null ? s.kitchenCarcassPct : 30
@@ -1825,6 +1829,7 @@ var settings = {
   wpCeilMultPct:  _raw.wpCeilMultPct  != null ? _raw.wpCeilMultPct  : 15,
   wpStairMultPct: _raw.wpStairMultPct != null ? _raw.wpStairMultPct : 25,
   wpTrimCm:     _raw.wpTrimCm     != null ? _raw.wpTrimCm     : 10,
+  wpMinPrice:   _raw.wpMinPrice   != null ? _raw.wpMinPrice   : 200,
   rExtMasonry:  _raw.rExtMasonry  != null ? _raw.rExtMasonry  : 5,
   rExtFascia:   _raw.rExtFascia   != null ? _raw.rExtFascia   : 8,
   rExtWinBase:  _raw.rExtWinBase  != null ? _raw.rExtWinBase  : 25,
@@ -1980,7 +1985,7 @@ function renameJob(id) {
 // part of job.data must go through this so xeroClient/xeroRef/
 // materialsSeeded/kitchen always travel together.
 function persistJobData(job) {
-  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, status: job.status, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, kitchen: job.kitchen }) });
+  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, status: job.status, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, kitchen: job.kitchen }) });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -1990,23 +1995,35 @@ function persistJobData(job) {
 // quote into a tracked job needs no new plumbing, only this marker so it's
 // visible in the Jobs list and on Summary.
 //
-// Three states share one field (status: 'accepted' | 'declined' | null/
-// draft) rather than two independent booleans, so a job can never be both
-// accepted AND declined at once -- setJobStatus() always clears whichever
-// timestamp doesn't apply to the new state.
-function setJobStatus(newStatus, confirmMsg) {
-  var job = activeJob();
+// Four states share one field (status: 'accepted' | 'completed' | 'declined'
+// | null/draft) rather than independent booleans, so a job can never be both
+// accepted AND declined at once -- setJobStatusById() always clears whichever
+// timestamp doesn't apply to the new state. 'completed' is reached only from
+// 'accepted' (a finished job was, by definition, accepted first), so it keeps
+// job.acceptedAt intact rather than clearing it like the other transitions --
+// the Jobs list and Summary can then show both "accepted on X" and
+// "completed on Y" (see estimating-app-edits.md #9).
+function setJobStatusById(jobId, newStatus, confirmMsg) {
+  var job = jobs.find(function(j) { return j.id === jobId; });
   if (!job) return;
   if (confirmMsg && !confirm(confirmMsg)) return;
   job.status = newStatus || null;
   var now = new Date().toISOString();
-  job.acceptedAt = newStatus === 'accepted' ? now : null;
+  job.acceptedAt = newStatus === 'accepted' ? now : (newStatus === 'completed' ? job.acceptedAt : null);
   job.declinedAt = newStatus === 'declined' ? now : null;
+  job.completedAt = newStatus === 'completed' ? now : null;
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   persistJobData(job);
   renderSummary(); renderJobs();
 }
+function setJobStatus(newStatus, confirmMsg) {
+  var job = activeJob();
+  if (!job) return;
+  setJobStatusById(job.id, newStatus, confirmMsg);
+}
 function acceptJob() { setJobStatus('accepted'); }
+function completeJob() { setJobStatus('completed', 'Mark this job as Completed?'); }
+function completeJobFromList(jobId) { setJobStatusById(jobId, 'completed', 'Mark this job as Completed?'); }
 function declineJob() { setJobStatus('declined', 'Mark this quote as Declined?'); }
 function moveJobToDraft() { setJobStatus(null, 'Move this job back to Draft?'); }
 
@@ -2063,40 +2080,47 @@ function markMaterialsSeeded(seeded) {
   persistJobData(job);
 }
 
-// One row's markup -- shared by all three grouped sections below rather
-// than duplicated per group. Declined rows are dimmed (opacity on the
-// whole row) plus a strikethrough on the name specifically (not the status
-// badges -- text-decoration:none on each span stops it inheriting the
+// One row's markup -- shared by all four grouped sections below rather
+// than duplicated per group. Declined AND Completed rows are dimmed (opacity
+// on the whole row) plus a strikethrough on the name specifically (not the
+// status badges -- text-decoration:none on each span stops it inheriting the
 // strikethrough, which would otherwise read oddly on "· DECLINED" itself).
 function renderJobRow(j) {
   var isActive = j.id === activeJobId;
   var isAccepted = j.status === 'accepted';
+  var isCompleted = j.status === 'completed';
   var isDeclined = j.status === 'declined';
-  var nameColor = isDeclined ? 'var(--text3)' : 'var(--text)';
-  return '<div class="field-row" style="cursor:pointer'+(isDeclined ? ';opacity:.6' : '')+'" onclick="switchJob(\''+j.id+'\')">'+
+  var isDimmed = isDeclined || isCompleted;
+  var nameColor = isDimmed ? 'var(--text3)' : 'var(--text)';
+  return '<div class="field-row" style="cursor:pointer'+(isDimmed ? ';opacity:.6' : '')+'" onclick="switchJob(\''+j.id+'\')">'+
     '<div style="flex:1">'+
-      '<div style="font-weight:600;color:'+nameColor+(isDeclined ? ';text-decoration:line-through' : '')+'">'+escapeHtml(j.name)+
+      '<div style="font-weight:600;color:'+nameColor+(isDimmed ? ';text-decoration:line-through' : '')+'">'+escapeHtml(j.name)+
         (isAccepted ? ' <span style="color:var(--success);font-size:12px;font-weight:700;text-decoration:none">· ACCEPTED</span>' : '')+
+        (isCompleted ? ' <span style="color:var(--text3);font-size:12px;font-weight:700;text-decoration:none">· COMPLETED</span>' : '')+
         (isDeclined ? ' <span style="color:var(--danger);font-size:12px;font-weight:700;text-decoration:none">· DECLINED</span>' : '')+
         (isActive ? ' <span style="color:var(--accent);font-size:12px;font-weight:700;text-decoration:none">· CURRENT</span>' : '')+
       '</div>'+
       (j.xeroClient ? '<div style="font-size:12px;color:var(--text2)">'+escapeHtml(j.xeroClient)+'</div>' : '')+
       (j.updatedAt ? '<div style="font-size:12px;color:var(--text2)">'+new Date(j.updatedAt).toLocaleDateString()+'</div>' : '')+
     '</div>'+
+    (isAccepted ? '<div onclick="event.stopPropagation();completeJobFromList(\''+j.id+'\')" title="Mark Completed" style="color:var(--success);font-size:18px;font-weight:700;padding:0 8px;cursor:pointer">✓</div>' : '')+
     '<div onclick="event.stopPropagation();renameJob(\''+j.id+'\')" style="color:var(--text2);font-size:16px;padding:0 8px;cursor:pointer">✎</div>'+
     '<div onclick="event.stopPropagation();deleteJob(\''+j.id+'\')" style="color:var(--danger);font-size:22px;padding:0 4px;cursor:pointer">×</div>'+
   '</div>';
 }
 
-// Grouped by status -- Accepted first, Pending (draft) in the middle,
-// Declined last and visibly de-emphasised (see renderJobRow). A group with
-// no jobs in it is skipped entirely rather than showing an empty heading.
+// Grouped by status -- Accepted first, Pending (draft) next, then Completed,
+// then Declined last (both Completed and Declined are visibly de-emphasised,
+// see renderJobRow, but Completed sits above Declined per estimating-app-
+// edits.md #9). A group with no jobs in it is skipped entirely rather than
+// showing an empty heading.
 function renderJobs() {
   var container = document.getElementById('jobs-cards');
   if (!container) return;
   var accepted = jobs.filter(function(j) { return j.status === 'accepted'; });
+  var completed = jobs.filter(function(j) { return j.status === 'completed'; });
   var declined = jobs.filter(function(j) { return j.status === 'declined'; });
-  var pending  = jobs.filter(function(j) { return j.status !== 'accepted' && j.status !== 'declined'; });
+  var pending  = jobs.filter(function(j) { return j.status !== 'accepted' && j.status !== 'completed' && j.status !== 'declined'; });
 
   function section(title, list) {
     if (!list.length) return '';
@@ -2106,7 +2130,7 @@ function renderJobs() {
     '</div>';
   }
 
-  container.innerHTML = section('Accepted', accepted) + section('Pending', pending) + section('Declined', declined);
+  container.innerHTML = section('Accepted', accepted) + section('Pending', pending) + section('Completed', completed) + section('Declined', declined);
 }
 
 function promptNewJob() {
@@ -2318,6 +2342,7 @@ function loadSettings() {
   document.getElementById('s-wpceil-mult').value   = settings.wpCeilMultPct!=null ? settings.wpCeilMultPct : 15;
   document.getElementById('s-wpstair-mult').value  = settings.wpStairMultPct!=null ? settings.wpStairMultPct : 25;
   document.getElementById('s-wptrim').value       = settings.wpTrimCm!=null ? settings.wpTrimCm : 10;
+  document.getElementById('s-wpmin-price').value  = settings.wpMinPrice!=null ? settings.wpMinPrice : 200;
   document.getElementById('s-rextmasonry').value = settings.rExtMasonry||5;
   document.getElementById('s-rextfascia').value  = settings.rExtFascia||8;
   document.getElementById('s-rextwinbase').value     = settings.rExtWinBase!=null ? settings.rExtWinBase : 25;
@@ -2453,8 +2478,19 @@ function calcRoom(r) {
   var roomBaseTotal = r.totalOverride != null
     ? +r.totalOverride
     : baseTotal * (1 + prepUp/100) + makingGood;
-  var total = roomBaseTotal + panelCost;
-  var time     = total / r2 / 60 / hpd;
+  var preFloorTotal = roomBaseTotal + panelCost;
+  var time     = preFloorTotal / r2 / 60 / hpd;
+  // Wallpaper minimum charge (estimating-app-edits.md #11) -- a small
+  // wallpapering job (a single feature wall, say) shouldn't invoice below a
+  // minimum call-out price. Tops up the £ TOTAL only, never `time` above --
+  // the room doesn't take any longer to hang, it just isn't worth pricing
+  // under the floor. Raw (pre-prep, pre-markup) wallpaper cost is what's
+  // compared against the floor: wpwCost/wpcCost/featureWallWpCost are each
+  // already exposed unprepped/unmarked-up below for the same reason.
+  var wpRawCost = wpwCost + wpcCost + featureWallWpCost;
+  var wpMinFloor = settings.wpMinPrice!=null ? settings.wpMinPrice : 200;
+  var wpMinTopUp = (wpRawCost > 0 && wpRawCost < wpMinFloor) ? (wpMinFloor - wpRawCost) : 0;
+  var total = preFloorTotal + wpMinTopUp;
   var cL  = cc>0 ? Math.ceil(ceilArea*cc/settings.cc*2)/2 : 0;
   // woodAreaOverride: same pattern as wallAreaOverride/ceilAreaOverride above
   // -- staircase/HSL rooms set this to the REAL skirting+door+spindle+newel
@@ -2474,7 +2510,8 @@ function calcRoom(r) {
            wallL:wL, ceilL:cL, glossL:gL, mistL:mL, featureWallL:fwL,
            wpwCost:wpwCost, wpcCost:wpcCost, wpwRolls:wpwRolls, wpcRolls:wpcRolls,
            featureWallMode:featureWallMode, featureWallWpCost:featureWallWpCost, featureWallWpRolls:featureWallWpRolls,
-           panelCost:panelCost, panelL:panelL, panelArea:panelArea, panelRawCost:panelMinsCost};
+           panelCost:panelCost, panelL:panelL, panelArea:panelArea, panelRawCost:panelMinsCost,
+           wpMinTopUp:wpMinTopUp};
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -5202,7 +5239,14 @@ function previewRoom() {
   var L=+document.getElementById('r-l').value;
   var W=+document.getElementById('r-w').value;
   var H=+document.getElementById('r-h').value;
-  if(L<=0||W<=0||H<=0) { document.getElementById('room-preview').style.display='none'; return; }
+  // A feature-wall-only job (see the Feature Wall hint text) deliberately
+  // leaves L/W/H at 0 -- only bail out here if there's ALSO no feature wall
+  // to preview, otherwise a feature-wall-only wallpaper job would never
+  // reach the fwwpOn block below and its roll calc would silently never show
+  // (estimating-app-edits.md #10).
+  var fwWidthVal=+document.getElementById('r-featurewall-width').value||0;
+  var fwHeightVal=+document.getElementById('r-featurewall-height').value||0;
+  if((L<=0||W<=0||H<=0) && !(fwWidthVal>0 && fwHeightVal>0)) { document.getElementById('room-preview').style.display='none'; return; }
   var r={l:L,w:W,h:H,wc:coats.wc,cc:coats.cc,xc:coats.xc,
     doors:+document.getElementById('r-doors').value,
     win:+document.getElementById('r-win').value,
@@ -6081,7 +6125,13 @@ async function renderSummary() {
     var woodTotal = (woodCost + winCost + radCost) * mk;
     var prepUp2 = r.prepPct >= 0 ? r.prepPct : (+r.prepCustom||0);
     var prepLabel = prepUp2===10?'Minimal':prepUp2===25?'Standard Prep':prepUp2===40?'Heavy Prep':'Custom '+prepUp2+'%';
-    if(prepUp2>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Prep ('+prepLabel+')</span><span class="breakdown-sub-value">'+fmt(c.total*mk - (c.total/(1+prepUp2/100))*mk)+'</span></div>';
+    // c.wpMinTopUp is subtracted first -- it's added to c.total AFTER the
+    // room's prep multiplier (see calcRoom()'s wpMinTopUp), so leaving it in
+    // would corrupt this reverse-derivation (total / (1+prepUp%) back to the
+    // pre-prep raw figure) and wrongly attribute the wallpaper minimum
+    // charge's £ to "Prep" instead of its own row below.
+    var prepBaseTotal2 = c.total - (c.wpMinTopUp||0);
+    if(prepUp2>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Prep ('+prepLabel+')</span><span class="breakdown-sub-value">'+fmt(prepBaseTotal2*mk - (prepBaseTotal2/(1+prepUp2/100))*mk)+'</span></div>';
     if(+r.makingGood>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Making Good</span><span class="breakdown-sub-value">'+fmt(+r.makingGood)+'</span></div>';
     var dispWallCost = r.wallCostStore != null ? +r.wallCostStore : wallCost;
     var dispCeilCost = r.ceilCostStore != null ? +r.ceilCostStore : ceilCost;
@@ -6107,6 +6157,7 @@ async function renderSummary() {
     if(cc>0)  subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ceiling</span><span class="breakdown-sub-value">'+fmt(dispCeilCost*mk)+'</span></div>';
     if(r.mistCeil) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Mist coat (ceiling)</span><span class="breakdown-sub-value">'+fmt(mcC*mk)+'</span></div>';
     if(wpcC>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Wallpaper (ceiling)</span><span class="breakdown-sub-value">'+fmt(wpcC*mk)+'</span></div>';
+    if(c.wpMinTopUp>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Wallpaper minimum charge</span><span class="breakdown-sub-value">'+fmt(c.wpMinTopUp*mk)+'</span></div>';
     var dispWoodTotal = r.woodCostStore != null ? +r.woodCostStore*mk : woodTotal;
     if(r.woodCostStore != null) {
       // HSL room — show doors/skirtings and stair woodwork separately.
@@ -6209,6 +6260,12 @@ async function renderSummary() {
       '<div class="field-row">'+
         (jobStatus === 'accepted'
           ? '<div class="field-label" style="color:var(--success)">✓ Accepted<small>'+(statusJob.acceptedAt ? new Date(statusJob.acceptedAt).toLocaleDateString() : '')+' · tracked in Materials ›</small></div>'+
+            '<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">'+
+              '<button onclick="completeJob()" style="background:var(--text2);color:white;border:none;border-radius:var(--rs);padding:10px 16px;font-size:14px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;white-space:nowrap">Mark Completed</button>'+
+              '<div onclick="moveJobToDraft()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Move to Draft</div>'+
+            '</div>'
+        : jobStatus === 'completed'
+          ? '<div class="field-label" style="color:var(--text3);text-decoration:line-through">✓ Completed<small style="text-decoration:none">'+(statusJob.completedAt ? new Date(statusJob.completedAt).toLocaleDateString() : '')+'</small></div>'+
             '<div onclick="moveJobToDraft()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Move to Draft</div>'
         : jobStatus === 'declined'
           ? '<div class="field-label" style="color:var(--danger)">✗ Declined<small>'+(statusJob.declinedAt ? new Date(statusJob.declinedAt).toLocaleDateString() : '')+'</small></div>'+
