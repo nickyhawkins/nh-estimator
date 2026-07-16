@@ -36,6 +36,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 /* Cards */
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
 #colours-cards{overflow:visible} /* colour-library autocomplete dropdown must escape the card's rounded-corner clipping */
+.searchable-card{overflow:visible} /* same reason -- hosts a range-search dropdown that must escape the card's clipping */
 .card-header{padding:14px 16px;font-size:11px;font-weight:600;letter-spacing:.8px;color:var(--text2);text-transform:uppercase;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
 .field-row{display:flex;align-items:center;padding:14px 16px;border-bottom:1px solid var(--border);gap:12px}
 .field-row:last-child{border-bottom:none}
@@ -327,7 +328,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Manual area override<small>m² — for when only part is new plaster; blank uses the selected surface(s) above</small></div><input type="number" class="field-input" id="r-mist-area" value="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
       </div>
     </div>
-    <div class="card">
+    <div class="card searchable-card">
       <div class="card-header sec-toggle" onclick="toggleFormSection('paint')"><span>Paint &amp; Colour</span><span class="sec-chev" id="sec-chev-paint">›</span></div>
       <div class="card-body" id="sec-paint">
         <div class="subsection-label">Colour</div>
@@ -335,23 +336,23 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Ceiling<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-ceiling" style="flex-wrap:wrap"></div></div>
         <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Woodwork<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-woodwork" style="flex-wrap:wrap"></div></div>
         <div class="subsection-label">Wall Paint</div>
-        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><select class="field-input" id="r-wall-range" onchange="onRoomOverrideRangeSelect('wall')"></select></div>
+        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-wall-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('wall')" onfocus="onRoomRangeSearchInput('wall')"><div id="r-wall-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
         <div class="field-row" id="r-wall-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-wall-band" onchange="onRoomOverrideBandSelect('wall')"></select></div>
         <div class="subsection-label">Ceiling Paint</div>
-        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><select class="field-input" id="r-ceiling-range" onchange="onRoomOverrideRangeSelect('ceiling')"></select></div>
+        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-ceiling-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('ceiling')" onfocus="onRoomRangeSearchInput('ceiling')"><div id="r-ceiling-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
         <div class="field-row" id="r-ceiling-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-ceiling-band" onchange="onRoomOverrideBandSelect('ceiling')"></select></div>
         <div class="subsection-label">Woodwork Topcoat</div>
-        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><select class="field-input" id="r-topcoat-range" onchange="onRoomOverrideRangeSelect('topcoat')"></select></div>
+        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-topcoat-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('topcoat')" onfocus="onRoomRangeSearchInput('topcoat')"><div id="r-topcoat-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
         <div class="field-row" id="r-topcoat-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-topcoat-band" onchange="onRoomOverrideBandSelect('topcoat')"></select></div>
         <div class="subsection-label">Woodwork Primer</div>
-        <div class="field-row"><div class="field-label">Product<small>defaults to Settings, or None</small></div><select class="field-input" id="r-primer-range" onchange="onRoomOverrideRangeSelect('primer')"></select></div>
+        <div class="field-row"><div class="field-label">Product<small>defaults to Settings, or None</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-primer-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('primer')" onfocus="onRoomRangeSearchInput('primer')"><div id="r-primer-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
         <div class="field-row" id="r-primer-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-primer-band" onchange="onRoomOverrideBandSelect('primer')"></select></div>
         <div class="subsection-label">Mist Coat</div>
-        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><select class="field-input" id="r-mist-range" onchange="onRoomOverrideRangeSelect('mist')"></select></div>
+        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-mist-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('mist')" onfocus="onRoomRangeSearchInput('mist')"><div id="r-mist-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
         <div class="field-row" id="r-mist-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-mist-band" onchange="onRoomOverrideBandSelect('mist')"></select></div>
       </div>
     </div>
-    <div class="card">
+    <div class="card searchable-card">
       <div class="card-header sec-toggle" onclick="toggleFormSection('featurewall')"><span>Feature Wall</span><span class="sec-chev" id="sec-chev-featurewall">›</span></div>
       <div class="card-body" id="sec-featurewall">
         <div class="subsection-label">Feature Wall<small>leave width/height at 0 to skip, or to price a feature-wall-only job</small></div>
@@ -366,7 +367,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         </div>
         <div id="fw-paint-fields">
           <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Colour<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-featurewall" style="flex-wrap:wrap"></div></div>
-          <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Product<small>no default — choose explicitly</small></div><select class="field-input" id="r-featurewall-range" onchange="onRoomOverrideRangeSelect('featurewall')"></select></div>
+          <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Product<small>no default — choose explicitly</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-featurewall-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('featurewall')" onfocus="onRoomRangeSearchInput('featurewall')"><div id="r-featurewall-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
           <div class="field-row" id="r-featurewall-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-featurewall-band" onchange="onRoomOverrideBandSelect('featurewall')"></select></div>
         </div>
         <div id="fw-wp-fields" style="display:none">
@@ -385,7 +386,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         </div>
       </div>
     </div>
-    <div class="card">
+    <div class="card searchable-card">
       <div class="card-header sec-toggle" onclick="toggleFormSection('panelling')"><span>Panelling</span><span class="sec-chev" id="sec-chev-panelling">›</span></div>
       <div class="card-body" id="sec-panelling">
         <div class="subsection-label">Panelling<small>each wall as its own width × height, up to 4 coats; leave empty to skip</small></div>
@@ -405,7 +406,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
           <input type="number" class="field-input" id="r-panel-prep-custom" value="0" min="0" max="100" step="5" inputmode="numeric" oninput="previewRoom()">
         </div>
         <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Colour<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-panel" style="flex-wrap:wrap"></div></div>
-        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Product<small>no default — choose explicitly</small></div><select class="field-input" id="r-panel-range" onchange="onRoomOverrideRangeSelect('panel')"></select></div>
+        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Product<small>no default — choose explicitly</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-panel-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('panel')" onfocus="onRoomRangeSearchInput('panel')"><div id="r-panel-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
         <div class="field-row" id="r-panel-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-panel-band" onchange="onRoomOverrideBandSelect('panel')"></select></div>
       </div>
     </div>
@@ -764,10 +765,10 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         <div class="toggle" id="k-carcass-toggle" onclick="toggleKitchenCarcass()"></div>
       </div>
     </div>
-    <div class="card">
+    <div class="card searchable-card">
       <div class="card-header">Colour &amp; Product</div>
       <div class="field-row"><div class="field-label">Colour<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-kitchen" style="flex-wrap:wrap"></div></div>
-      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Product<small>no default — choose explicitly</small></div><select class="field-input" id="k-range" onchange="onKitchenRangeSelect()"></select></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Product<small>no default — choose explicitly</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="k-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onKitchenRangeSearchInput()" onfocus="onKitchenRangeSearchInput()"><div id="k-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
       <div class="field-row" id="k-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="k-band" onchange="onKitchenBandSelect()"></select></div>
     </div>
     <div class="card" id="kitchen-breakdown-card" style="display:none">
@@ -4015,29 +4016,74 @@ var roomOverrides = {
 };
 
 function populateRoomOverridePicker(role) {
-  var rangeSel = document.getElementById('r-'+role+'-range');
-  if (!rangeSel) return;
+  var rangeInput = document.getElementById('r-'+role+'-range');
+  if (!rangeInput) return;
   var state = roomOverrides[role];
-  var ranges = Object.keys(materialGroupsCache).sort();
   // Feature wall and Panelling have no job-wide Settings default to fall
   // back to -- both are inherently a per-room, per-instance product
-  // decision -- so the blank option reads as "not chosen" rather than
+  // decision -- so the empty placeholder reads as "not chosen" rather than
   // implying a default exists.
-  var opts = (role === 'featurewall' || role === 'panel')
-    ? '<option value="">— none chosen —</option>'
-    : '<option value="">Use default (Settings)</option>';
-  if (role === 'primer') {
-    opts += '<option value="__none__"'+(state.none?' selected':'')+'>None</option>';
-  }
-  ranges.forEach(function(r) {
-    opts += '<option value="'+escapeHtml(r)+'"'+((!state.none && r===state.range)?' selected':'')+'>'+escapeHtml(r)+'</option>';
-  });
-  if (!state.none && state.range && ranges.indexOf(state.range) === -1) {
-    opts += '<option value="'+escapeHtml(state.range)+'" selected>'+escapeHtml(state.range)+' (not found — refresh?)</option>';
-  }
-  rangeSel.innerHTML = opts;
+  rangeInput.placeholder = (role === 'featurewall' || role === 'panel') ? '— none chosen —' : 'Use default (Settings)';
+  rangeInput.value = state.none ? 'None' : (state.range || '');
   populateRoomOverrideBandPicker(role);
 }
+
+// Search-as-you-type replacement for the old range <select> -- see
+// onMaterialProductInput/selectMaterialProduct (the Add Material picker)
+// for the sibling pattern this mirrors. Searches range NAMES only
+// (Object.keys(materialGroupsCache), the same list the old <select> built
+// its options from) -- the Colour Band picker right below stays a plain
+// <select>, untouched, since band lists are short and already force an
+// explicit pick where needed.
+var rangeSearchMatches = {};
+
+function roomRangeSearchOptions(role) {
+  var options = [{ type: 'default', label: (role === 'featurewall' || role === 'panel') ? '— none chosen —' : 'Use default (Settings)' }];
+  if (role === 'primer') options.push({ type: 'none', label: 'None' });
+  return options.concat(Object.keys(materialGroupsCache).sort().map(function(r) { return { type: 'range', label: r }; }));
+}
+
+function onRoomRangeSearchInput(role) {
+  var idPrefix = 'r-'+role;
+  var input = document.getElementById(idPrefix+'-range');
+  var dd = document.getElementById(idPrefix+'-range-dd');
+  if (!input || !dd) return;
+  var q = input.value.trim().toLowerCase();
+  var all = roomRangeSearchOptions(role);
+  var matches = q ? all.filter(function(o) { return o.label.toLowerCase().indexOf(q) !== -1; }) : all;
+  rangeSearchMatches[idPrefix] = matches;
+  dd.innerHTML = matches.map(function(o, i) {
+    var pinnedStyle = o.type === 'range' ? 'color:var(--text)' : 'color:var(--text2);font-style:italic';
+    return '<div style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:14px;'+pinnedStyle+'" onmousedown="event.preventDefault()" onclick="selectRoomRange(\''+role+'\','+i+')">'+escapeHtml(o.label)+'</div>';
+  }).join('') || '<div style="padding:10px 12px;color:var(--text2);font-size:13px">No matching product ranges</div>';
+  dd.style.display = 'block';
+}
+
+function selectRoomRange(role, i) {
+  var idPrefix = 'r-'+role;
+  var option = (rangeSearchMatches[idPrefix]||[])[i];
+  if (!option) return;
+  var state = roomOverrides[role];
+  if (option.type === 'none') { state.none = true; state.range = ''; }
+  else if (option.type === 'default') { state.none = false; state.range = ''; }
+  else { state.none = false; state.range = option.label; }
+  hideRangeSearchDropdown(idPrefix);
+  populateRoomOverridePicker(role);
+}
+
+function hideRangeSearchDropdown(idPrefix) {
+  var dd = document.getElementById(idPrefix+'-range-dd');
+  if (dd) dd.style.display = 'none';
+}
+
+document.addEventListener('click', function(e) {
+  ['r-wall','r-ceiling','r-topcoat','r-primer','r-mist','r-featurewall','r-panel','k'].forEach(function(idPrefix) {
+    var input = document.getElementById(idPrefix+'-range');
+    var dd = document.getElementById(idPrefix+'-range-dd');
+    if (!input || !dd) return;
+    if (e.target !== input && !dd.contains(e.target)) dd.style.display = 'none';
+  });
+});
 
 function populateRoomOverrideBandPicker(role) {
   var bandRow = document.getElementById('r-'+role+'-band-row');
@@ -4074,14 +4120,6 @@ function populateRoomOverrideBandPicker(role) {
     opts = '<option value="__unset__" selected disabled>Select colour band…</option>' + opts;
   }
   bandSel.innerHTML = opts;
-}
-
-function onRoomOverrideRangeSelect(role) {
-  var val = document.getElementById('r-'+role+'-range').value;
-  var state = roomOverrides[role];
-  if (val === '__none__') { state.none = true; state.range = ''; }
-  else { state.none = false; state.range = val; }
-  populateRoomOverrideBandPicker(role);
 }
 
 function onRoomOverrideBandSelect(role) {
@@ -4408,22 +4446,47 @@ function addKitchenColourInline() {
 }
 
 function populateKitchenRangePicker() {
-  var rangeSel = document.getElementById('k-range');
+  var rangeInput = document.getElementById('k-range');
   var job = activeJob();
-  if (!rangeSel || !job) return;
+  if (!rangeInput || !job) return;
   var k = ensureKitchenShape(job);
-  var ranges = Object.keys(materialGroupsCache).sort();
   // No job-wide Settings default for Kitchen product, same reasoning as
-  // Feature Wall/Panelling -- the blank option reads as "not chosen".
-  var opts = '<option value="">— none chosen —</option>';
-  ranges.forEach(function(r) {
-    opts += '<option value="'+escapeHtml(r)+'"'+(r===k.range?' selected':'')+'>'+escapeHtml(r)+'</option>';
-  });
-  if (k.range && ranges.indexOf(k.range) === -1) {
-    opts += '<option value="'+escapeHtml(k.range)+'" selected>'+escapeHtml(k.range)+' (not found — refresh?)</option>';
-  }
-  rangeSel.innerHTML = opts;
+  // Feature Wall/Panelling -- the empty placeholder reads as "not chosen".
+  rangeInput.placeholder = '— none chosen —';
+  rangeInput.value = k.range || '';
   populateKitchenBandPicker();
+}
+
+// Search-as-you-type replacement for the old range <select> -- same
+// pattern as onRoomRangeSearchInput/selectRoomRange, just writing straight
+// to job.kitchen instead of roomOverrides. Kitchen has no "Use default
+// (Settings)" pinned option (see populateKitchenRangePicker's comment).
+function onKitchenRangeSearchInput() {
+  var input = document.getElementById('k-range');
+  var dd = document.getElementById('k-range-dd');
+  if (!input || !dd) return;
+  var q = input.value.trim().toLowerCase();
+  var all = Object.keys(materialGroupsCache).sort().map(function(r) { return { type: 'range', label: r }; });
+  var pinned = [{ type: 'default', label: '— none chosen —' }];
+  var options = pinned.concat(all);
+  var matches = q ? options.filter(function(o) { return o.label.toLowerCase().indexOf(q) !== -1; }) : options;
+  rangeSearchMatches['k'] = matches;
+  dd.innerHTML = matches.map(function(o, i) {
+    var pinnedStyle = o.type === 'range' ? 'color:var(--text)' : 'color:var(--text2);font-style:italic';
+    return '<div style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:14px;'+pinnedStyle+'" onmousedown="event.preventDefault()" onclick="selectKitchenRange('+i+')">'+escapeHtml(o.label)+'</div>';
+  }).join('') || '<div style="padding:10px 12px;color:var(--text2);font-size:13px">No matching product ranges</div>';
+  dd.style.display = 'block';
+}
+
+function selectKitchenRange(i) {
+  var job = activeJob(); if (!job) return;
+  var option = (rangeSearchMatches['k']||[])[i];
+  if (!option) return;
+  var k = ensureKitchenShape(job);
+  k.range = option.type === 'default' ? '' : option.label;
+  hideRangeSearchDropdown('k');
+  saveKitchenJob();
+  populateKitchenRangePicker();
 }
 
 function populateKitchenBandPicker() {
@@ -4457,14 +4520,6 @@ function populateKitchenBandPicker() {
     opts = '<option value="__unset__" selected disabled>Select colour band…</option>' + opts;
   }
   bandSel.innerHTML = opts;
-}
-
-function onKitchenRangeSelect() {
-  var job = activeJob(); if (!job) return;
-  var k = ensureKitchenShape(job);
-  k.range = document.getElementById('k-range').value;
-  populateKitchenBandPicker();
-  saveKitchenJob();
 }
 
 function onKitchenBandSelect() {
