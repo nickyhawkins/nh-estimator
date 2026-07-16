@@ -4178,8 +4178,14 @@ function selectRoomRange(role, i) {
   else if (option.type === 'default') { state.none = false; state.range = ''; }
   else { state.none = false; state.range = option.label; }
   hideRangeSearchDropdown(idPrefix);
-  persistOverrideChange(role);
+  // Resolve the band BEFORE persisting, not after -- populateRoomOverridePicker
+  // (via populateRoomOverrideBandPicker) auto-fills state.band for a
+  // single-band range or nulls it for a fresh multi-band choice. Saving
+  // first (the order this used to be in, inherited from the old Kitchen-only
+  // selectKitchenRange()) persists whatever band was left over from the
+  // PREVIOUS range, one save behind the truth, until the next save fires.
   populateRoomOverridePicker(role);
+  persistOverrideChange(role);
 }
 
 function hideRangeSearchDropdown(idPrefix) {
