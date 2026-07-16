@@ -102,6 +102,8 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 .mat-label{font-size:14px}
 .mat-detail{font-size:12px;color:var(--text2);margin-top:2px}
 .mat-val{font-family:'DM Mono',monospace;font-size:14px;font-weight:500;color:var(--accent2)}
+.mat-chargeable-tag{display:inline-block;margin-top:6px;padding:3px 8px;font-size:11px;font-weight:600;border-radius:10px;cursor:pointer;background:var(--surface2);color:var(--text2);border:1px solid var(--border)}
+.mat-chargeable-tag.on{background:rgba(26,82,118,.12);color:var(--accent);border-color:transparent}
 
 /* Navbar */
 .navbar{position:sticky;bottom:0;z-index:100;background:rgba(244,246,249,.97);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:1px solid var(--border);display:flex;padding:8px 0 calc(var(--sb))}
@@ -1465,7 +1467,9 @@ async function createXeroQuote() {
       var checkMats = computeMaterials();
       if (checkMats.total > 0) recalculateMaterialsSnapshot();
     }
-    var materials = materialsSnapshot.map(function(l) {
+    // Non-chargeable (tracking-only) lines never reach Xero -- they're
+    // internal shopping-list entries, not client-facing quote content.
+    var materials = materialsSnapshot.filter(function(l) { return l.chargeable !== false; }).map(function(l) {
       return { itemCode: l.itemCode, description: l.description, quantity: l.quantity, unitAmount: l.unitAmount };
     });
     var materialsTotal = materials.reduce(function(sum, m) { return sum + (+m.quantity||0)*(+m.unitAmount||0); }, 0);
@@ -2910,15 +2914,18 @@ function recalculateMaterialsSnapshot() {
       // unitAmount) rather than spreading the line, so extra keys never reach
       // Xero. Lines saved before this existed simply have neither, and the
       // breakdown is skipped for them until the next Recalculate.
-      return { id: uid(), itemCode: li.itemCode, description: li.description, quantity: li.quantity, unitAmount: li.unitAmount, custom: false, isPerLitre: !!li.isPerLitre, colourNumber: row.colourNumber, role: row.role };
+      return { id: uid(), itemCode: li.itemCode, description: li.description, quantity: li.quantity, unitAmount: li.unitAmount, custom: false, chargeable: true, isPerLitre: !!li.isPerLitre, colourNumber: row.colourNumber, role: row.role };
     }));
   }, []);
   saveMaterialsSnapshot();
   markMaterialsSeeded(true);
 }
 
+// Non-chargeable (tracking-only, chargeable===false) lines don't count --
+// missing chargeable (undefined, on lines saved before this existed) is
+// treated as chargeable so old jobs' totals don't silently drop.
 function materialsSnapshotTotal() {
-  return materialsSnapshot.reduce(function(sum, l) { return sum + (+l.quantity||0) * (+l.unitAmount||0); }, 0);
+  return materialsSnapshot.reduce(function(sum, l) { return l.chargeable === false ? sum : sum + (+l.quantity||0) * (+l.unitAmount||0); }, 0);
 }
 
 function setMaterialLineQuantity(id, value) {
@@ -2931,6 +2938,16 @@ function setMaterialLineQuantity(id, value) {
 
 function deleteMaterialLine(id) {
   materialsSnapshot = materialsSnapshot.filter(function(l) { return l.id !== id; });
+  saveMaterialsSnapshot();
+  renderSummary();
+}
+
+// Chargeable only makes sense on a manually-added line -- auto-calculated
+// rows are always real, priced quote lines and never show this control.
+function toggleMaterialChargeable(id) {
+  var line = materialsSnapshot.find(function(l) { return l.id === id; });
+  if (!line || !line.custom) return;
+  line.chargeable = line.chargeable === false;
   saveMaterialsSnapshot();
   renderSummary();
 }
@@ -3023,9 +3040,14 @@ function addCustomMaterialLine() {
   var itemCode = document.getElementById('add-mat-itemcode').value || undefined;
   var colourVal = document.getElementById('add-mat-colour').value;
   var colourNumber = colourVal ? +colourVal : null;
-  materialsSnapshot.push({ id: uid(), itemCode: itemCode, description: desc, quantity: qty, unitAmount: price, custom: true, colourNumber: colourNumber });
+  var chargeable = document.getElementById('add-mat-chargeable').classList.contains('on');
+  materialsSnapshot.push({ id: uid(), itemCode: itemCode, description: desc, quantity: qty, unitAmount: price, custom: true, chargeable: chargeable, colourNumber: colourNumber });
   saveMaterialsSnapshot();
   renderSummary();
+}
+
+function toggleAddMatChargeable() {
+  document.getElementById('add-mat-chargeable').classList.toggle('on');
 }
 
 // ── Materials tracking: actuals (what was really BOUGHT) ──────────────────
@@ -6093,8 +6115,16 @@ async function renderSummary() {
     // total width is constant row to row -- otherwise a longer price on one
     // row pushes everything after it, and the qty column visibly "jumps"
     // between rows even though the input itself has a fixed width.
+    // Chargeable is only a real choice on a manually-added line -- auto rows
+    // are always chargeable (see recalculateMaterialsSnapshot), so they never
+    // show the tag. Missing chargeable (lines saved before this existed)
+    // reads as chargeable, matching materialsSnapshotTotal()'s same rule.
+    var isChargeable = l.chargeable !== false;
+    var chargeableTag = l.custom
+      ? '<div class="mat-chargeable-tag'+(isChargeable?' on':'')+'" onclick="toggleMaterialChargeable(\''+l.id+'\')">'+(isChargeable?'Chargeable':'Tracking only')+'</div>'
+      : '';
     return '<div class="mat-row"><div><div class="mat-label">'+escapeHtml(l.description)+'</div>'+
-      '<div class="mat-detail">'+fmt(+l.unitAmount||0)+(l.isPerLitre?'/ltr':' each')+'</div></div>'+
+      '<div class="mat-detail">'+fmt(+l.unitAmount||0)+(l.isPerLitre?'/ltr':' each')+'</div>'+chargeableTag+'</div>'+
       '<div style="display:flex;align-items:center;gap:10px">'+
         '<input type="number" class="field-input" style="width:60px;padding:6px 8px;text-align:center" value="'+l.quantity+'" min="0" step="1" onchange="setMaterialLineQuantity(\''+l.id+'\',this.value)">'+
         '<div class="mat-val" style="width:72px;text-align:right">'+fmt(cost)+'</div>'+
@@ -6274,6 +6304,10 @@ async function renderSummary() {
       '</select></div>'+
       '<div class="field-row"><div class="field-label">Unit price</div><input type="number" class="field-input" id="add-mat-price" value="0" min="0" step="0.01" inputmode="decimal"></div>'+
       '<div class="field-row"><div class="field-label">Quantity</div><input type="number" class="field-input" id="add-mat-qty" value="1" min="0" step="1" inputmode="numeric"></div>'+
+      '<div class="toggle-row" style="border-top:1px solid var(--border)">'+
+        '<div class="toggle-label">Chargeable<small>off = shows on the list for tracking only, doesn\'t affect the total</small></div>'+
+        '<div class="toggle" id="add-mat-chargeable" onclick="toggleAddMatChargeable()"></div>'+
+      '</div>'+
       '<input type="hidden" id="add-mat-itemcode">'+
     '</div>'+
     '<button onclick="addCustomMaterialLine()" style="background:var(--accent);color:#fff;border:none;border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%;margin-top:8px">Add Material</button>'+

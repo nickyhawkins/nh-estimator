@@ -13,6 +13,12 @@ Deleting materials from the summary page fails when trying to clear the entire l
 - Reuse the existing quote materials list as the starting point for job management.
 - Once colours/products are finalised, allow updating the materials list (products, quantities, costs) so it reflects real purchases.
 - This running materials list should track actual spend against the original estimate, ready to inform final invoicing.
+- **Manually added materials**: allow adding extra materials to a job's materials list beyond what's auto-calculated from Rooms/Exterior/Kitchen/Panelling (e.g. sundries, top-up tins, extra consumables bought on the day).
+  - Each manually added item has a **"Chargeable" tickbox, defaulting to OFF**.
+  - When OFF: item shows on the materials/shopping list for tracking purposes only — does NOT affect the job/quote total.
+  - When ON: item's cost is added to the job's chargeable total, same as calculated items.
+  - This keeps the existing calculated pricing logic (Rooms/Kitchen/Panelling) untouched — manually added items are purely additive and never alter or recalculate the existing price breakdown.
+  - Goal: materials list works as a genuine shopping/usage list regardless of chargeable status, without complicating the underlying calculations.
 
 ## 4. Searchable materials dropdown
 - Replace the current long scrollable materials dropdown with a searchable/type-to-filter input.
