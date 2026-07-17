@@ -426,7 +426,7 @@ router.get('/material-groups', async (req, res) => {
 
 // Create quote in Xero
 router.post('/create-quote', async (req, res) => {
-  const { clientName, jobName, xeroRef, rooms, exterior, kitchen, materials, settings, markup, paymentTerms, paymentSummary, contactId, newContact } = req.body;
+  const { clientName, jobName, xeroRef, rooms, exterior, kitchen, materials, settings, markup, markupType, paymentTerms, paymentSummary, contactId, newContact } = req.body;
 
   try {
     const accessToken = await getAccessToken();
@@ -472,7 +472,18 @@ router.post('/create-quote', async (req, res) => {
 
     // Build line items from rooms
     const lineItems = [];
-    const mu = 1 + (markup / 100);
+    // A flat £ markup/discount (markupType: 'fixed') is expressed as a ratio
+    // of the raw labour subtotal, same as markupRatio()/mk in the client's
+    // Summary breakdown -- so it distributes proportionally across the
+    // per-room/exterior/kitchen lines below and still nets out to exactly
+    // rawLabourSubtotal + markup once every line is summed.
+    let rawLabourSubtotal = 0;
+    if (rooms) rooms.forEach(r => { rawLabourSubtotal += r.total; });
+    if (exterior && exterior.cost > 0) rawLabourSubtotal += exterior.cost;
+    if (kitchen && kitchen.cost > 0) rawLabourSubtotal += kitchen.cost;
+    const mu = markupType === 'fixed'
+      ? 1 + (rawLabourSubtotal > 0 ? markup / rawLabourSubtotal : 0)
+      : 1 + (markup / 100);
 
     // Helper to format currency
     const fmt = (n) => Math.round(n * 100) / 100;
@@ -572,11 +583,7 @@ router.post('/create-quote', async (req, res) => {
     // See MATERIALS_SPEC.md's Materials editing section.
     const sundriesPct = (settings && settings.sundriesPct) || 0;
     if (sundriesPct > 0) {
-      let labourSubtotal = 0;
-      if (rooms) rooms.forEach(r => { labourSubtotal += r.total; });
-      if (exterior && exterior.cost > 0) labourSubtotal += exterior.cost;
-      if (kitchen && kitchen.cost > 0) labourSubtotal += kitchen.cost;
-      const sundriesAmount = labourSubtotal * (sundriesPct / 100);
+      const sundriesAmount = rawLabourSubtotal * (sundriesPct / 100);
       if (sundriesAmount > 0) {
         lineItems.push({
           Description: 'Sundries & Consumables',

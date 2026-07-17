@@ -1513,6 +1513,7 @@ async function createXeroQuote() {
         materials: materials,
         settings: settings,
         markup: effectiveMarkup(),
+        markupType: effectiveMarkupType(),
         paymentTerms: paymentTerms,
         paymentSummary: paymentSummary,
         contactId: xeroSelectedContactId,
@@ -1985,7 +1986,7 @@ function renameJob(id) {
 // part of job.data must go through this so xeroClient/xeroRef/
 // materialsSeeded/kitchen always travel together.
 function persistJobData(job) {
-  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, status: job.status, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, kitchen: job.kitchen }) });
+  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, status: job.status, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, kitchen: job.kitchen }) });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -2037,10 +2038,53 @@ function effectiveMarkup() {
   return (job && job.markupOverride != null) ? job.markupOverride : settings.mu;
 }
 
+// Settings only ever stores a percentage -- 'fixed' (a flat £ amount) is a
+// per-job choice made on the Summary page, so it only exists as job.markupType
+// and defaults back to 'percent' the moment there's no override in play.
+function effectiveMarkupType() {
+  var job = activeJob();
+  return (job && job.markupType === 'fixed') ? 'fixed' : 'percent';
+}
+
+// Expresses the effective markup/discount as a ratio of `base`, whether it
+// was entered as a percentage (ratio is just value/100, base-independent) or
+// as a flat £ amount (ratio is value/base, so mk=1+ratio still distributes it
+// proportionally across whatever per-room/per-item lines multiply by it, and
+// base*(1+ratio) still comes out to exactly base+value). A negative value
+// (discount) flows through the same formula unchanged.
+function markupRatio(base) {
+  var v = effectiveMarkup();
+  if (effectiveMarkupType() === 'fixed') return base > 0 ? v / base : 0;
+  return v / 100;
+}
+
+function applyMarkupAmount(base) {
+  return base * (1 + markupRatio(base));
+}
+
+// "+ 20% markup" / "− £50 discount" -- shared by the Total Quote strap-line
+// and the Labour breakdown row so both read the sign the same way.
+function markupSummaryLabel() {
+  var v = effectiveMarkup();
+  var amount = effectiveMarkupType() === 'fixed' ? fmt(Math.abs(v)) : (Math.abs(v)+'%');
+  return (v < 0 ? '− ' : '+ ') + amount + ' ' + (v < 0 ? 'discount' : 'markup');
+}
+
 function setJobMarkup(value) {
   var job = activeJob();
   if (!job) return;
-  job.markupOverride = Math.max(0, +value || 0);
+  // Unclamped (unlike the old Math.max(0,...) floor) -- a negative value is
+  // a discount, valid in both percent and fixed mode.
+  job.markupOverride = +value || 0;
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  renderSummary(); renderHome(); renderExterior();
+}
+
+function setJobMarkupType(type) {
+  var job = activeJob();
+  if (!job) return;
+  job.markupType = (type === 'fixed') ? 'fixed' : 'percent';
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   persistJobData(job);
   renderSummary(); renderHome(); renderExterior();
@@ -2050,6 +2094,7 @@ function resetJobMarkup() {
   var job = activeJob();
   if (!job) return;
   job.markupOverride = null;
+  job.markupType = null;
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   persistJobData(job);
   renderSummary(); renderHome(); renderExterior();
@@ -2578,7 +2623,7 @@ function realisticDays(workingDays) {
 function computeDepositPlan(tcS, materialsTotal, onSiteDays) {
   var sundriesPct = (settings.sundriesPct||0)/100;
   var sundries = tcS * sundriesPct;
-  var labourTotal = (tcS+sundries)*(1+effectiveMarkup()/100);
+  var labourTotal = applyMarkupAmount(tcS+sundries);
   var total = labourTotal + materialsTotal;
 
   // Deposit: Nicky's actual Terms of Business read "25% of quotation or cost
@@ -4536,7 +4581,7 @@ function updateKitchenTotals() {
   var c = calcKitchen(job.kitchen);
   var chip = document.getElementById('k-chip');
   if (chip) {
-    var marked = c.total * (1 + effectiveMarkup()/100);
+    var marked = applyMarkupAmount(c.total);
     chip.style.display = c.total>0 ? 'flex' : 'none';
     chip.textContent = fmt(marked);
   }
@@ -4743,7 +4788,7 @@ function _renderExteriorInner() {
       '<div class="room-cost">'+fmt(c.total)+'</div>'+
       '<div style="color:var(--text3);font-size:16px">›</div></div>';
   }).join('');
-  var marked = total*(1+effectiveMarkup()/100);
+  var marked = applyMarkupAmount(total);
   chip.style.display='flex'; chip.textContent=fmt(marked);
   if(clr) clr.style.display='block';
   var sub=document.getElementById('ext-sub');
@@ -4776,7 +4821,7 @@ function renderHome() {
       '<div class="room-cost">'+fmt(c.total)+'</div>'+
       '<div style="color:var(--text3);font-size:16px">›</div></div>';
   }).join('');
-  var marked = total*(1+effectiveMarkup()/100);
+  var marked = applyMarkupAmount(total);
   sub.textContent=rooms.length+' room'+(rooms.length===1?'':'s');
   chip.style.display='flex'; chip.textContent=fmt(marked);
   clr.style.display='block';
@@ -6065,7 +6110,13 @@ async function renderSummary() {
   if(rooms.length===0&&extItems.length===0&&kitchenCalc.total<=0){empty.style.display='flex';data.style.display='none';return;}
   empty.style.display='none'; data.style.display='block';
   var tc=0,tt=0;
-  var mu=effectiveMarkup()/100;
+  // A flat £ markup/discount needs a base to express as a per-line ratio
+  // (see markupRatio()) -- computed here, ahead of the rows/ext/kitchen
+  // breakdown below, purely so every "* mk" in that breakdown distributes
+  // the flat amount proportionally instead of only working for percentages.
+  var rawRoomsTotal = rooms.reduce(function(s,r){ return s + calcRoom(r).total; }, 0);
+  var rawExtTotal = extItems.reduce(function(s,it){ return s + calcExtItem(it).total; }, 0);
+  var mu = markupRatio(rawRoomsTotal + rawExtTotal + kitchenCalc.total);
   var rows=rooms.map(function(r,ri){
     var c=calcRoom(r); tc+=c.total; tt+=c.time;
     // Per-element costs with markup
@@ -6245,7 +6296,7 @@ async function renderSummary() {
     '<div class="hero" style="margin-top:16px">'+
       '<div class="hero-label">Total Quote</div>'+
       '<div class="hero-amount">'+fmt(total)+'</div>'+
-      '<div class="hero-sub">'+ttS.toFixed(1)+' days · '+effectiveMarkup()+'% markup</div>'+
+      '<div class="hero-sub">'+ttS.toFixed(1)+' days · '+markupSummaryLabel()+'</div>'+
     '</div>'+
     '<div class="stat-grid">'+
       '<div class="stat-card"><div class="stat-label">Labour</div><div class="stat-value ac">'+fmt(tcS)+'</div></div>'+
@@ -6253,12 +6304,17 @@ async function renderSummary() {
         '<small style="display:block;font-weight:400;color:var(--text2);margin-top:2px">'+ttS.toFixed(1)+'d working</small></div>'+
     '</div>'+
     '<div class="card" style="margin-top:16px">'+
-      '<div class="card-header">Markup</div>'+
+      '<div class="card-header">Markup / Discount</div>'+
       '<div class="field-row"><div class="field-label">This quote<small>'+(activeJob()&&activeJob().markupOverride!=null?'overridden, default is '+settings.mu+'%':'default, from Settings')+'</small></div>'+
         '<div style="display:flex;align-items:center;gap:10px">'+
         (activeJob()&&activeJob().markupOverride!=null?'<div onclick="resetJobMarkup()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;text-decoration:underline">Reset</div>':'')+
-        '<input type="number" class="field-input" style="width:70px" value="'+effectiveMarkup()+'" min="0" max="100" step="1" inputmode="numeric" onchange="setJobMarkup(this.value)">'+
+        '<div class="seg" style="width:76px">'+
+          '<button type="button" class="seg-btn'+(effectiveMarkupType()==='percent'?' active':'')+'" onclick="setJobMarkupType(\'percent\')">%</button>'+
+          '<button type="button" class="seg-btn'+(effectiveMarkupType()==='fixed'?' active':'')+'" onclick="setJobMarkupType(\'fixed\')">£</button>'+
+        '</div>'+
+        '<input type="number" class="field-input" style="width:70px" value="'+effectiveMarkup()+'" step="1" inputmode="'+(effectiveMarkupType()==='fixed'?'decimal':'numeric')+'" onchange="setJobMarkup(this.value)">'+
         '</div></div>'+
+      '<div style="padding:0 16px 12px;font-size:12px;color:var(--text2)">Enter a negative number for a discount.</div>'+
     '</div>'+
     '<div class="card" style="margin-top:16px">'+
       '<div class="card-header">Payment</div>'+
@@ -6349,7 +6405,7 @@ async function renderSummary() {
       '<span class="breakdown-label">Sundries &amp; Consumables<small style="display:block;font-weight:400;color:var(--text2)">'+settings.sundriesPct+'% of labour</small></span>'+
       '<span class="breakdown-value">'+fmt(sundries)+'</span></div>':'')+
     '<div class="breakdown-row">'+
-      '<span class="breakdown-label" style="font-weight:600;color:var(--text)">+ '+effectiveMarkup()+'% markup<small style="display:block;font-weight:400;color:var(--text2)">on labour + sundries</small></span>'+
+      '<span class="breakdown-label" style="font-weight:600;color:var(--text)">'+markupSummaryLabel()+'<small style="display:block;font-weight:400;color:var(--text2)">on labour + sundries</small></span>'+
       '<span class="breakdown-value" style="color:var(--accent)">'+fmt(labourTotal)+'</span></div>'+
     '</div></div>'+
     '<div><div class="section-title" style="margin-bottom:8px">Materials</div>'+
@@ -6427,8 +6483,9 @@ function exportCSV() {
   var kitchenTotal = kitchenCsvCalc.total, kitchenTimeTotal = kitchenCsvCalc.time;
   if(kitchenTotal>0){lines.push([q('Kitchen'),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(kitchenTotal.toFixed(2)),q(kitchenTimeTotal.toFixed(2))].join(','));}
   lines.push('');
-  var tcS=tc+extTotal+kitchenTotal; var total=tcS*(1+s.mu/100);
+  var tcS=tc+extTotal+kitchenTotal; var total=applyMarkupAmount(tcS);
   lines.push([q('Labour subtotal'),q(tcS.toFixed(2))].join(','));
+  lines.push([q(effectiveMarkupType()==='fixed'?'Markup/Discount (£, this quote)':'Markup/Discount (%, this quote)'),q(effectiveMarkup())].join(','));
   lines.push([q('Total quote (inc markup)'),q(total.toFixed(2))].join(','));
   var csv=lines.join('\n');
   var blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
