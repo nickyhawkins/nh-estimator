@@ -8,6 +8,49 @@ const XERO_TOKEN_URL = 'https://identity.xero.com/connect/token';
 const XERO_API_URL = 'https://api.xero.com/api.xro/2.0';
 const SCOPES = 'openid profile email offline_access accounting.contacts accounting.settings.read accounting.invoices';
 
+// Builds the {Contacts:[...]} entry for a Xero contact create/update PUT.
+// Fields left blank are OMITTED (undefined keys never reach JSON.stringify),
+// not sent as empty strings -- so updating an existing ContactID with only
+// some fields filled in never clobbers real Xero data (e.g. a phone number
+// already on file) with a blank the app just hasn't been given.
+function buildContactPayload({ contactId, name, email, phone, street, town, postcode }) {
+  const hasAddress = street || town || postcode;
+  const payload = {
+    Name: name || undefined,
+    EmailAddress: email || undefined,
+    Phones: phone ? [{ PhoneType: 'DEFAULT', PhoneNumber: phone }] : undefined,
+    Addresses: hasAddress ? [{
+      AddressType: 'STREET',
+      AddressLine1: street || '',
+      City: town || '',
+      PostalCode: postcode || ''
+    }] : undefined
+  };
+  if (contactId) payload.ContactID = contactId;
+  return payload;
+}
+
+// Shared by /create-quote's inline contact creation and /sync-contact --
+// PUT /Contacts creates a new contact when no ContactID is present in the
+// payload, or updates the existing one when it is.
+async function putXeroContact(accessToken, tenantId, payload) {
+  const contactRes = await axios.put(
+    `${XERO_API_URL}/Contacts`,
+    { Contacts: [payload] },
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Xero-Tenant-Id': tenantId,
+        'Content-Type': 'application/json',
+        Accept: 'application/json'
+      }
+    }
+  );
+  const saved = contactRes.data.Contacts && contactRes.data.Contacts[0];
+  if (!saved || !saved.ContactID) throw new Error('Xero did not return a contact');
+  return saved;
+}
+
 // Step 1: Redirect to Xero login
 router.get('/connect', (req, res) => {
   const params = new URLSearchParams({
@@ -154,6 +197,32 @@ router.get('/contacts', async (req, res) => {
   } catch (err) {
     console.error('Contacts search error:', err.response?.data || err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Manually push a job's locally-saved contact details to Xero, independent
+// of creating a quote -- lets a client's name/phone/email/address be typed
+// in and kept per-job (see saveJobContactFields() in public/index.html)
+// long before there's a quote ready to send. With no contactId this creates
+// a new Xero contact; with one, it updates that existing contact instead
+// (see buildContactPayload()/putXeroContact() above).
+router.post('/sync-contact', async (req, res) => {
+  const { contactId, name, email, phone, street, town, postcode } = req.body;
+  if (!name && !contactId) {
+    return res.status(400).json({ error: 'A name is required to create a Xero contact' });
+  }
+  try {
+    const accessToken = await getAccessToken();
+    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    const tenantId = result.rows[0]?.xero_tenant_id;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
+    }
+    const saved = await putXeroContact(accessToken, tenantId, buildContactPayload({ contactId, name, email, phone, street, town, postcode }));
+    res.json({ ok: true, contactId: saved.ContactID });
+  } catch (err) {
+    console.error('Sync contact error:', err.response?.data || err.message);
+    res.status(500).json({ error: err.response?.data?.Message || err.message });
   }
 });
 
@@ -438,32 +507,14 @@ router.post('/create-quote', async (req, res) => {
     }
 
     // Resolve the quote's contact: create a new Xero contact, use a selected
-    // existing one, or fall back to a bare name (Xero will match/create it)
+    // existing one, or fall back to a bare name (Xero will match/create it).
+    // newContact only reaches here when the client has no persisted/linked
+    // Xero contact yet -- see saveJobContactFields()/syncContactToXero() in
+    // public/index.html, which is the normal way contact details now travel.
     let contact;
     if (newContact && newContact.name) {
-      const hasAddress = newContact.street || newContact.town || newContact.postcode;
-      const contactRes = await axios.put(
-        `${XERO_API_URL}/Contacts`,
-        { Contacts: [{
-          Name: newContact.name,
-          EmailAddress: newContact.email || undefined,
-          Addresses: hasAddress ? [{
-            AddressType: 'STREET',
-            AddressLine1: newContact.street || '',
-            City: newContact.town || '',
-            PostalCode: newContact.postcode || ''
-          }] : undefined
-        }] },
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Xero-Tenant-Id': tenantId,
-            'Content-Type': 'application/json',
-            Accept: 'application/json'
-          }
-        }
-      );
-      contact = { ContactID: contactRes.data.Contacts[0].ContactID };
+      const saved = await putXeroContact(accessToken, tenantId, buildContactPayload(newContact));
+      contact = { ContactID: saved.ContactID };
     } else if (contactId) {
       contact = { ContactID: contactId };
     } else {
@@ -630,7 +681,13 @@ router.post('/create-quote', async (req, res) => {
 
     const quote = quoteRes.data.Quotes ? quoteRes.data.Quotes[0] : quoteRes.data;
     console.log('Quote response:', JSON.stringify(quoteRes.data).slice(0, 500));
-    res.json({ ok: true, quoteId: quote?.QuoteID, quoteNumber: quote?.QuoteNumber || 'created' });
+    // Resolved contact ID, whichever of the three paths above produced it --
+    // including the bare-name fallback, where Xero itself matches/creates
+    // the contact and reports it back on the quote. The client persists this
+    // onto the job so a second quote/sync for the same client reuses the
+    // same Xero contact instead of creating a duplicate.
+    const resolvedContactId = contact.ContactID || quote?.Contact?.ContactID || null;
+    res.json({ ok: true, quoteId: quote?.QuoteID, quoteNumber: quote?.QuoteNumber || 'created', contactId: resolvedContactId });
 
   } catch (err) {
     console.error('Create quote error:', err.response?.data || err.message);

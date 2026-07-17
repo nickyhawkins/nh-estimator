@@ -539,16 +539,21 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       </div>
       <input type="text" id="xero-ref" placeholder="Reference" autocorrect="off" onchange="saveJobXeroFields()" style="flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:15px;border-radius:var(--rs);padding:8px 12px;outline:none">
     </div>
-    <div id="xero-new-contact-form" style="display:none;flex-direction:column;gap:8px;background:var(--surface2);border-radius:var(--rs);padding:10px">
+    <div id="xero-contact-details" style="display:flex;flex-direction:column;gap:8px;background:var(--surface2);border-radius:var(--rs);padding:10px">
       <div style="display:flex;align-items:center;justify-content:space-between">
-        <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.6px">New Xero contact</div>
-        <div style="font-size:13px;color:var(--accent);font-weight:600;cursor:pointer" onclick="hideNewXeroContactForm()">Cancel</div>
+        <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.6px">Client details<small style="display:block;font-weight:400;text-transform:none;letter-spacing:normal;margin-top:2px" id="xero-contact-link-note"></small></div>
+        <div id="xero-contact-unlink" style="display:none;font-size:13px;color:var(--accent);font-weight:600;cursor:pointer" onclick="clearXeroContactLink()">Unlink</div>
       </div>
-      <input type="email" id="xero-new-email" placeholder="Email" autocorrect="off" style="background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none">
-      <input type="text" id="xero-new-street" placeholder="Street address" autocorrect="off" style="background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none">
+      <input type="tel" id="xero-contact-phone" placeholder="Phone" autocorrect="off" onchange="saveJobContactFields()" style="background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none">
+      <input type="email" id="xero-contact-email" placeholder="Email" autocorrect="off" onchange="saveJobContactFields()" style="background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none">
+      <input type="text" id="xero-contact-street" placeholder="Street address" autocorrect="off" onchange="saveJobContactFields()" style="background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none">
       <div style="display:flex;gap:8px">
-        <input type="text" id="xero-new-town" placeholder="Town" autocorrect="off" style="flex:1;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none">
-        <input type="text" id="xero-new-postcode" placeholder="Postcode" autocorrect="off" style="flex:1;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none">
+        <input type="text" id="xero-contact-town" placeholder="Town" autocorrect="off" onchange="saveJobContactFields()" style="flex:1;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none">
+        <input type="text" id="xero-contact-postcode" placeholder="Postcode" autocorrect="off" onchange="saveJobContactFields()" style="flex:1;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none">
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:2px">
+        <div id="xero-contact-sync-status" style="font-size:12px;color:var(--text2)">Not yet synced to Xero</div>
+        <button id="xero-contact-sync-btn" onclick="syncContactToXero()" style="background:transparent;border:1px solid var(--border);color:var(--accent);border-radius:var(--rs);padding:8px 12px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;white-space:nowrap;flex:none">Sync to Xero</button>
       </div>
     </div>
     <button id="xero-quote-btn" onclick="createXeroQuote()" style="background:var(--accent);color:white;border:none;border-radius:var(--rs);padding:12px;font-size:15px;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer;width:100%">Send to Xero</button>
@@ -1393,20 +1398,35 @@ function renderXeroContactDropdown(items, q) {
       + (c.email ? '<div style="font-size:12px;color:var(--text2)">' + escapeHtml(c.email) + '</div>' : '')
       + '</div>';
   }).join('');
-  html += '<div style="padding:10px 12px;cursor:pointer;color:var(--accent);font-weight:600;font-size:14px" onclick="showNewXeroContactForm()">'
-    + '+ Add new contact' + (q ? ' “' + escapeHtml(q) + '”' : '') + '</div>';
+  html += '<div style="padding:10px 12px;cursor:pointer;color:var(--accent);font-weight:600;font-size:14px" onclick="clearXeroContactLink()">'
+    + '+ New contact' + (q ? ' “' + escapeHtml(q) + '”' : '') + '</div>';
   dd.innerHTML = html;
   dd.style.display = 'block';
 }
 
+// Links this job to an EXISTING Xero contact -- the client-details fields
+// below stay exactly as typed (an existing contact's real info already
+// lives in Xero; this only records which one to reuse), and only the link
+// itself is persisted onto the job. Pre-fills email if the search result
+// had one and the field is still blank, never overwriting something typed.
 function selectXeroContact(i) {
   var c = xeroContactResults[i];
   if (!c) return;
   document.getElementById('xero-client').value = c.name;
   xeroSelectedContactId = c.contactId;
+  var job = activeJob();
+  if (job) {
+    job.xeroContactId = c.contactId;
+    var emailEl = document.getElementById('xero-contact-email');
+    if (emailEl && !emailEl.value && c.email) { emailEl.value = c.email; }
+    job.contact = job.contact || {};
+    if (c.email && !job.contact.email) job.contact.email = c.email;
+    localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+    persistJobData(job);
+  }
   saveJobXeroFields(); // programmatic .value set doesn't fire onchange
   hideXeroDropdown();
-  hideNewXeroContactForm();
+  updateXeroContactSyncStatus();
 }
 
 function hideXeroDropdown() {
@@ -1414,19 +1434,22 @@ function hideXeroDropdown() {
   if (dd) dd.style.display = 'none';
 }
 
-function showNewXeroContactForm() {
+// Drops the link to whichever existing Xero contact this job was matched
+// to (via search-select, a prior sync, or a prior "Send to Xero"), so the
+// NEXT sync/quote creates a brand new Xero contact from the local details
+// instead of updating the one it was previously linked to. The local
+// client-details fields (phone/email/address) are untouched -- this only
+// changes what "Sync to Xero" targets.
+function clearXeroContactLink() {
   xeroSelectedContactId = null;
+  var job = activeJob();
+  if (job) {
+    job.xeroContactId = null;
+    localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+    persistJobData(job);
+  }
   hideXeroDropdown();
-  document.getElementById('xero-new-contact-form').style.display = 'flex';
-}
-
-function hideNewXeroContactForm() {
-  var form = document.getElementById('xero-new-contact-form');
-  form.style.display = 'none';
-  document.getElementById('xero-new-email').value = '';
-  document.getElementById('xero-new-street').value = '';
-  document.getElementById('xero-new-town').value = '';
-  document.getElementById('xero-new-postcode').value = '';
+  updateXeroContactSyncStatus();
 }
 
 document.addEventListener('click', function(e){
@@ -1489,16 +1512,21 @@ async function createXeroQuote() {
     var paymentTerms = buildPaymentTermsText(depositPlan);
     var paymentSummary = buildPaymentSummaryText(depositPlan);
 
-    var newContact = null;
-    if (document.getElementById('xero-new-contact-form').style.display !== 'none') {
-      newContact = {
-        name: clientName,
-        email: document.getElementById('xero-new-email').value.trim(),
-        street: document.getElementById('xero-new-street').value.trim(),
-        town: document.getElementById('xero-new-town').value.trim(),
-        postcode: document.getElementById('xero-new-postcode').value.trim()
-      };
-    }
+    // Contact resolution now reads the job's PERSISTED link/details (see
+    // saveJobContactFields()/syncContactToXero()) rather than a live DOM
+    // form's visibility -- a job already linked or already synced reuses
+    // that Xero contact; only an as-yet-unlinked job sends newContact.
+    var quoteJob = activeJob();
+    var linkedContactId = (quoteJob && quoteJob.xeroContactId) || xeroSelectedContactId || null;
+    var jobContact = (quoteJob && quoteJob.contact) || {};
+    var newContact = linkedContactId ? null : {
+      name: clientName,
+      email: jobContact.email || '',
+      phone: jobContact.phone || '',
+      street: jobContact.street || '',
+      town: jobContact.town || '',
+      postcode: jobContact.postcode || ''
+    };
 
     var resp = await fetch('/auth/create-quote', {
       method: 'POST',
@@ -1516,15 +1544,22 @@ async function createXeroQuote() {
         markupType: effectiveMarkupType(),
         paymentTerms: paymentTerms,
         paymentSummary: paymentSummary,
-        contactId: xeroSelectedContactId,
+        contactId: linkedContactId,
         newContact: newContact
       })
     });
     var result = await resp.json();
     if (result.ok) {
       btn.textContent = '✓ Quote created — ' + (result.quoteNumber || 'check Xero');
-      xeroSelectedContactId = null;
-      hideNewXeroContactForm();
+      // Keep (don't wipe) the resolved contact link -- a second quote for
+      // the same job should reuse this Xero contact, not create a duplicate.
+      if (result.contactId && quoteJob) {
+        quoteJob.xeroContactId = result.contactId;
+        localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+        persistJobData(quoteJob);
+        xeroSelectedContactId = result.contactId;
+        updateXeroContactSyncStatus();
+      }
       setTimeout(function(){ btn.textContent = 'Send to Xero'; btn.disabled = false; }, 4000);
     } else { throw new Error(result.error); }
   } catch(err) {
@@ -1918,8 +1953,21 @@ async function loadActiveJobData() {
   try { materialActuals = (await apiGet('/api/actuals?job_id='+encodeURIComponent(activeJobId))) || []; }
   catch (e) { materialActuals = []; }
   ensureDefaultColour();
-  var xc = document.getElementById('xero-client'); if (xc) xc.value = (activeJob() && activeJob().xeroClient) || '';
-  var xr = document.getElementById('xero-ref'); if (xr) xr.value = (activeJob() && activeJob().xeroRef) || '';
+  var loadedJob = activeJob();
+  var xc = document.getElementById('xero-client'); if (xc) xc.value = (loadedJob && loadedJob.xeroClient) || '';
+  var xr = document.getElementById('xero-ref'); if (xr) xr.value = (loadedJob && loadedJob.xeroRef) || '';
+  // Contact details/link are per-job (see saveJobContactFields()) -- restore
+  // the DOM fields and the linked-contact state on every switch, same as
+  // xeroClient/xeroRef above, so nothing bleeds from the PREVIOUS job's
+  // fields into this one.
+  var loadedContact = (loadedJob && loadedJob.contact) || {};
+  var xp = document.getElementById('xero-contact-phone'); if (xp) xp.value = loadedContact.phone || '';
+  var xe = document.getElementById('xero-contact-email'); if (xe) xe.value = loadedContact.email || '';
+  var xs = document.getElementById('xero-contact-street'); if (xs) xs.value = loadedContact.street || '';
+  var xt = document.getElementById('xero-contact-town'); if (xt) xt.value = loadedContact.town || '';
+  var xpc = document.getElementById('xero-contact-postcode'); if (xpc) xpc.value = loadedContact.postcode || '';
+  xeroSelectedContactId = (loadedJob && loadedJob.xeroContactId) || null;
+  updateXeroContactSyncStatus();
   renderHome(); renderExterior(); renderColours(); renderSummary();
   updateNavBadge();
 }
@@ -1983,10 +2031,10 @@ function renameJob(id) {
 // PUT /api/jobs/:id replaces `data` wholesale (see routes/api.js), so any
 // save here that only sends SOME of the client-known data fields would
 // silently drop whichever ones it left out. Every call site that persists
-// part of job.data must go through this so xeroClient/xeroRef/
-// materialsSeeded/kitchen always travel together.
+// part of job.data must go through this so xeroClient/xeroRef/contact/
+// xeroContactId/contactSyncedAt/materialsSeeded/kitchen always travel together.
 function persistJobData(job) {
-  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, status: job.status, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, kitchen: job.kitchen }) });
+  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, status: job.status, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, kitchen: job.kitchen }) });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -2109,6 +2157,90 @@ function saveJobXeroFields() {
   job.xeroRef = document.getElementById('xero-ref').value.trim();
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   persistJobData(job);
+}
+
+// Client phone/email/address -- saved locally per job the moment they're
+// typed, same "persisted, not wiped" pattern as xeroClient/xeroRef above.
+// This is what makes contact details survive switching jobs (or the app
+// being closed) long before there's a quote ready to send to Xero.
+function saveJobContactFields() {
+  var job = activeJob();
+  if (!job) return;
+  job.contact = {
+    phone: document.getElementById('xero-contact-phone').value.trim(),
+    email: document.getElementById('xero-contact-email').value.trim(),
+    street: document.getElementById('xero-contact-street').value.trim(),
+    town: document.getElementById('xero-contact-town').value.trim(),
+    postcode: document.getElementById('xero-contact-postcode').value.trim()
+  };
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+}
+
+// Reflects this job's link/sync state under the client-details fields --
+// call after anything that can change job.xeroContactId/contactSyncedAt
+// (job switch, search-select, unlink, sync, quote creation).
+function updateXeroContactSyncStatus() {
+  var job = activeJob();
+  var statusEl = document.getElementById('xero-contact-sync-status');
+  var noteEl = document.getElementById('xero-contact-link-note');
+  var unlinkEl = document.getElementById('xero-contact-unlink');
+  if (!statusEl) return;
+  var linked = job && job.xeroContactId;
+  if (job && job.contactSyncedAt) {
+    statusEl.textContent = 'Synced to Xero · ' + new Date(job.contactSyncedAt).toLocaleDateString('en-GB');
+  } else if (linked) {
+    statusEl.textContent = 'Linked to an existing Xero contact';
+  } else {
+    statusEl.textContent = 'Not yet synced to Xero';
+  }
+  if (noteEl) noteEl.textContent = linked ? 'Linked to an existing Xero contact' : '';
+  if (unlinkEl) unlinkEl.style.display = linked ? 'block' : 'none';
+}
+
+// Manually pushes this job's saved contact details to Xero -- creates a new
+// Xero contact if this job isn't linked to one yet, or updates the linked
+// one if it is (see buildContactPayload()/putXeroContact() server-side, and
+// the ContactID-omitted-means-create / ContactID-present-means-update
+// convention that rests on). Independent of "Send to Xero": lets contact
+// info be kept current in Xero well before a quote is ready.
+async function syncContactToXero() {
+  var job = activeJob();
+  if (!job) return;
+  var name = document.getElementById('xero-client').value.trim();
+  if (!name) { alert('Enter a client name before syncing to Xero.'); return; }
+  var contact = job.contact || {};
+  var btn = document.getElementById('xero-contact-sync-btn');
+  var originalLabel = btn.textContent;
+  btn.textContent = 'Syncing…'; btn.disabled = true;
+  try {
+    var resp = await fetch('/auth/sync-contact', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        contactId: job.xeroContactId || null,
+        name: name,
+        email: contact.email || '',
+        phone: contact.phone || '',
+        street: contact.street || '',
+        town: contact.town || '',
+        postcode: contact.postcode || ''
+      })
+    });
+    var result = await resp.json();
+    if (!result.ok) throw new Error(result.error || 'Sync failed');
+    job.xeroContactId = result.contactId;
+    job.contactSyncedAt = new Date().toISOString();
+    xeroSelectedContactId = result.contactId;
+    localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+    persistJobData(job);
+    updateXeroContactSyncStatus();
+    btn.textContent = 'Synced ✓';
+    setTimeout(function(){ btn.textContent = originalLabel; btn.disabled = false; }, 2500);
+  } catch (err) {
+    alert('Could not sync contact to Xero: ' + err.message);
+    btn.textContent = originalLabel; btn.disabled = false;
+  }
 }
 
 // Whether this job's materials snapshot has EVER been populated (auto-seed
