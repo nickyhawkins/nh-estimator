@@ -7,6 +7,8 @@ Deleting materials from the summary page fails when trying to clear the entire l
 - Markup should be editable directly on the summary page, allowing a per-quote override.
 - The default markup percentage should remain configurable in the Settings page.
 - Changing markup on the summary page for one quote should NOT change the global default in Settings.
+- The markup field should also work as a discount: allow negative values (e.g. -10%) to apply a discount instead of a markup, using the same field rather than a separate one.
+- User should be able to choose whether the value entered is a % or a fixed £ amount (toggle between the two), applying to both positive (markup) and negative (discount) values.
 
 ## 3. Accepted job tracking
 - Add ability to mark a quote as "Accepted" and convert/promote it into a tracked job.
@@ -98,3 +100,14 @@ Notes on the draft:
 - Drawer fronts are typically priced lower than doors — reflected as roughly 45–60% of the equivalent door tier.
 - Plinths and cornices are commonly quoted as a lump sum per run rather than per-piece — the per-metre figures above are a starting estimate and should be checked against Nicky's own typical run lengths.
 - These numbers do NOT include VAT, travel, or job-level prep multiplier — they're per-item/per-metre spray costs only. Carcass spraying is priced entirely separately and excluded from the door/drawer/panel totals.
+
+## 9. Job status: Mark as Completed
+- Add ability to mark an accepted job as "Completed" from the Jobs list.
+- Completed jobs should move to their own "Completed" section/heading, positioned above "Declined".
+- Completed jobs should display greyed out with strikethrough text to visually distinguish them from active/accepted jobs.
+
+## 10. Bug: Wallpaper roll calculation missing for feature wall only
+When a job includes wallpaper for a feature wall only (not the whole room), the roll calculation isn't showing/calculating. Needs fix so feature-wall-only wallpaper jobs still trigger the roll quantity calculation.
+
+## 11. Wallpaper minimum price
+Wallpaper jobs should have a minimum price floor of £200 — if the calculated cost comes out below this, the quote should default to charging £200 instead.
