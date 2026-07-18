@@ -447,8 +447,12 @@ router.post('/create-quote', async (req, res) => {
         { Contacts: [{
           Name: newContact.name,
           EmailAddress: newContact.email || undefined,
+          // AddressType 'STREET' renders as the Delivery address on a Xero
+          // quote/invoice; 'POBOX' is what New Invoicing shows as the Billing
+          // address. The saved job address is the client's billing address,
+          // not a separate delivery address, so it must go on as POBOX.
           Addresses: hasAddress ? [{
-            AddressType: 'STREET',
+            AddressType: 'POBOX',
             AddressLine1: newContact.street || '',
             City: newContact.town || '',
             PostalCode: newContact.postcode || ''
