@@ -623,8 +623,14 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Ext Door incl frame<small>mins total (2 coats)</small></div><input type="number" class="field-input" id="s-rextdoor" value="150" min="1" step="5" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Garage Door<small>mins total (2 coats)</small></div><input type="number" class="field-input" id="s-rextgarage" value="150" min="1" step="5" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Sash multiplier<small>% on top of window rate, for sash complexity</small></div><input type="number" class="field-input" id="s-rsashmultiplier" value="20" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Resin repair<small>mins per patch</small></div><input type="number" class="field-input" id="s-rresin" value="22" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Access — 1st floor<small>% uplift, ladder work</small></div><input type="number" class="field-input" id="s-raccessfirst" value="10" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Access — ladder/tower<small>% uplift, upper floors/scaffold</small></div><input type="number" class="field-input" id="s-raccessladder" value="25" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Resin repair<small>mins per patch</small></div><input type="number" class="field-input" id="s-rresin" value="22" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Reglaze<small>mins per pane</small></div><input type="number" class="field-input" id="s-rreglaze" value="15" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Draught-proofing strip<small>mins per window</small></div><input type="number" class="field-input" id="s-rdraught" value="20" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Sash cords<small>mins per box, sash only</small></div><input type="number" class="field-input" id="s-rsashcords" value="40" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Staff beads<small>mins per box, sash only</small></div><input type="number" class="field-input" id="s-rstaffbeads" value="25" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Parting beads<small>mins per box, sash only</small></div><input type="number" class="field-input" id="s-rpartingbeads" value="35" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
     </div>
     <div class="card">
       <div class="card-header">Exterior Paint Coverage &amp; Areas</div>
@@ -833,7 +839,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       </div>
     </div>
     <div class="card">
-      <div class="card-header sec-toggle" onclick="toggleFormSection('ext-windows')"><span>Exterior Windows<small>casement — each window has its own pane count, since a 2-pane window is far less work than a 16-pane one</small></span><span class="sec-chev open" id="sec-chev-ext-windows">›</span></div>
+      <div class="card-header sec-toggle" onclick="toggleFormSection('ext-windows')"><span>Exterior Windows<small>casement — panes, access &amp; repairs are set per window</small></span><span class="sec-chev open" id="sec-chev-ext-windows">›</span></div>
       <div class="card-body open" id="sec-ext-windows">
       <div id="ex-windows-list"></div>
       <div class="field-row" style="cursor:pointer" onclick="addExtWindow('windows')"><div class="field-label" style="color:var(--accent);font-weight:600">+ Add window</div></div>
@@ -861,12 +867,10 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       </div>
     </div>
     <div class="card">
-      <div class="card-header sec-toggle" onclick="toggleFormSection('ext-sash')"><span>Sash Window Restoration<small>qty for prime &amp; paint — each window has its own pane count</small></span><span class="sec-chev open" id="sec-chev-ext-sash">›</span></div>
+      <div class="card-header sec-toggle" onclick="toggleFormSection('ext-sash')"><span>Sash Window Restoration<small>qty for prime &amp; paint — access &amp; repairs per window, tap Repairs on each row</small></span><span class="sec-chev open" id="sec-chev-ext-sash">›</span></div>
       <div class="card-body open" id="sec-ext-sash">
       <div id="ex-sash-list"></div>
       <div class="field-row" style="cursor:pointer" onclick="addExtWindow('sashWindows')"><div class="field-label" style="color:var(--accent);font-weight:600">+ Add sash window</div></div>
-      <div class="field-row"><div class="field-label">Resin repairs<small>patches</small></div><input type="number" class="field-input" id="ex-resin" placeholder="0" min="0" step="1" inputmode="numeric" oninput="previewExterior()"></div>
-      <div class="field-row"><div class="field-label">Reglaze<small>panes</small></div><input type="number" class="field-input" id="ex-reglaze" placeholder="0" min="0" step="1" inputmode="numeric" oninput="previewExterior()"></div>
       </div>
     </div>
     <div class="card">
@@ -1105,8 +1109,14 @@ function saveSettings() {
     rExtDoor:     +document.getElementById('s-rextdoor').value,
     rExtGarage:   +document.getElementById('s-rextgarage').value,
     rSashMultiplierPct: +document.getElementById('s-rsashmultiplier').value,
+    rAccessFirstPct: +document.getElementById('s-raccessfirst').value,
+    rAccessLadderPct: +document.getElementById('s-raccessladder').value,
     rResin:       +document.getElementById('s-rresin').value,
     rReglaze:     +document.getElementById('s-rreglaze').value,
+    rDraught:     +document.getElementById('s-rdraught').value,
+    rSashCords:   +document.getElementById('s-rsashcords').value,
+    rStaffBeads:  +document.getElementById('s-rstaffbeads').value,
+    rPartingBeads:+document.getElementById('s-rpartingbeads').value,
     extMasonryCov:  +document.getElementById('s-extmasonrycov').value,
     extWoodCov:     +document.getElementById('s-extwoodcov').value,
     extAreaWindow:  +document.getElementById('s-extareawindow').value,
@@ -1600,7 +1610,13 @@ async function initApp() {
       rExtDoor: rawSettings.rExtDoor||150,
       rExtGarage: rawSettings.rExtGarage||150,
       rSashMultiplierPct: rawSettings.rSashMultiplierPct!=null ? rawSettings.rSashMultiplierPct : 20,
+      rAccessFirstPct: rawSettings.rAccessFirstPct!=null ? rawSettings.rAccessFirstPct : 10,
+      rAccessLadderPct: rawSettings.rAccessLadderPct!=null ? rawSettings.rAccessLadderPct : 25,
       rResin: rawSettings.rResin||22, rReglaze: rawSettings.rReglaze||15,
+      rDraught: rawSettings.rDraught!=null ? rawSettings.rDraught : 20,
+      rSashCords: rawSettings.rSashCords!=null ? rawSettings.rSashCords : 40,
+      rStaffBeads: rawSettings.rStaffBeads!=null ? rawSettings.rStaffBeads : 25,
+      rPartingBeads: rawSettings.rPartingBeads!=null ? rawSettings.rPartingBeads : 35,
       extMasonryCov: rawSettings.extMasonryCov!=null ? rawSettings.extMasonryCov : 6,
       extWoodCov: rawSettings.extWoodCov!=null ? rawSettings.extWoodCov : 12,
       extAreaWindow: rawSettings.extAreaWindow!=null ? rawSettings.extAreaWindow : 1.5,
@@ -1778,7 +1794,10 @@ async function initApp() {
       settings.rExtWinBase = s.rExtWinBase; settings.rExtWinPerPane = s.rExtWinPerPane;
       settings.rExtDoor = s.rExtDoor;
       settings.rExtGarage = s.rExtGarage; settings.rSashMultiplierPct = s.rSashMultiplierPct;
+      settings.rAccessFirstPct = s.rAccessFirstPct; settings.rAccessLadderPct = s.rAccessLadderPct;
       settings.rResin = s.rResin; settings.rReglaze = s.rReglaze;
+      settings.rDraught = s.rDraught; settings.rSashCords = s.rSashCords;
+      settings.rStaffBeads = s.rStaffBeads; settings.rPartingBeads = s.rPartingBeads;
     }
     // Exterior paint estimation params (coverage + assumed areas) -- separate
     // guard from rExt* above since older server rows predate these; fall back
@@ -1873,8 +1892,14 @@ var settings = {
   rExtDoor:     _raw.rExtDoor     != null ? _raw.rExtDoor     : 150,
   rExtGarage:   _raw.rExtGarage   != null ? _raw.rExtGarage   : 150,
   rSashMultiplierPct: _raw.rSashMultiplierPct != null ? _raw.rSashMultiplierPct : 20,
+  rAccessFirstPct: _raw.rAccessFirstPct != null ? _raw.rAccessFirstPct : 10,
+  rAccessLadderPct: _raw.rAccessLadderPct != null ? _raw.rAccessLadderPct : 25,
   rResin:       _raw.rResin       != null ? _raw.rResin       : 22,
   rReglaze:     _raw.rReglaze     != null ? _raw.rReglaze     : 15,
+  rDraught:     _raw.rDraught     != null ? _raw.rDraught     : 20,
+  rSashCords:   _raw.rSashCords   != null ? _raw.rSashCords   : 40,
+  rStaffBeads:  _raw.rStaffBeads  != null ? _raw.rStaffBeads  : 25,
+  rPartingBeads:_raw.rPartingBeads!= null ? _raw.rPartingBeads: 35,
   kitchenRates: _raw.kitchenRates || KITCHEN_RATE_DEFAULTS,
   kitchenGlazedPct: _raw.kitchenGlazedPct != null ? _raw.kitchenGlazedPct : 50,
   kitchenCarcassPct: _raw.kitchenCarcassPct != null ? _raw.kitchenCarcassPct : 30
@@ -2527,8 +2552,14 @@ function loadSettings() {
   document.getElementById('s-rextdoor').value    = settings.rExtDoor||150;
   document.getElementById('s-rextgarage').value  = settings.rExtGarage||150;
   document.getElementById('s-rsashmultiplier').value = settings.rSashMultiplierPct!=null ? settings.rSashMultiplierPct : 20;
+  document.getElementById('s-raccessfirst').value  = settings.rAccessFirstPct!=null ? settings.rAccessFirstPct : 10;
+  document.getElementById('s-raccessladder').value = settings.rAccessLadderPct!=null ? settings.rAccessLadderPct : 25;
   document.getElementById('s-rresin').value      = settings.rResin||22;
   document.getElementById('s-rreglaze').value    = settings.rReglaze||15;
+  document.getElementById('s-rdraught').value    = settings.rDraught!=null ? settings.rDraught : 20;
+  document.getElementById('s-rsashcords').value  = settings.rSashCords!=null ? settings.rSashCords : 40;
+  document.getElementById('s-rstaffbeads').value = settings.rStaffBeads!=null ? settings.rStaffBeads : 25;
+  document.getElementById('s-rpartingbeads').value = settings.rPartingBeads!=null ? settings.rPartingBeads : 35;
   document.getElementById('s-extmasonrycov').value  = settings.extMasonryCov!=null ? settings.extMasonryCov : 6;
   document.getElementById('s-extwoodcov').value     = settings.extWoodCov!=null ? settings.extWoodCov : 12;
   document.getElementById('s-extareawindow').value  = settings.extAreaWindow!=null ? settings.extAreaWindow : 1.5;
@@ -4439,21 +4470,53 @@ var extFormSashWindows = [];
 function extWindowListKey(key) { return key === 'sashWindows' ? 'ex-sash-list' : 'ex-windows-list'; }
 function extWindowFormArray(key) { return key === 'sashWindows' ? extFormSashWindows : extFormWindows; }
 
+// Repairs (resin/reglaze/draught-proofing, plus sash-only cords/beads) are
+// shown collapsed by default per window row, with a "Repairs" toggle to
+// expand -- avoids cluttering the row for the common case (no repairs) while
+// keeping them tied to the specific window they're on, per window not item.
+function extWindowHasRepairs(w) {
+  return !!(w.resin || w.reglaze || w.draught || w.cords || w.staffBeads || w.partingBeads);
+}
+
 function renderExtWindowList(key) {
   var list = extWindowFormArray(key);
   var el = document.getElementById(extWindowListKey(key));
   if (!el) return;
+  var isSash = key === 'sashWindows';
   el.innerHTML = list.map(function(w, i) {
-    return '<div class="field-row">'+
-      '<div class="field-label">'+(key==='sashWindows'?'Sash window':'Window')+' '+(i+1)+'<small>panes</small></div>'+
-      '<input type="number" class="field-input" value="'+(w.panes!=null?w.panes:2)+'" min="1" step="1" inputmode="numeric" onchange="setExtWindowPanes(\''+key+'\','+i+',this.value)">'+
+    var accessOpts = [['ground','Grd'],['firstFloor','1st'],['ladderTower','Ladder']];
+    var accessBtns = accessOpts.map(function(o) {
+      return '<button type="button" class="seg-btn'+((w.access||'ground')===o[0]?' active':'')+'" onclick="setExtWindowField(\''+key+'\','+i+',\'access\',\''+o[0]+'\')">'+o[1]+'</button>';
+    }).join('');
+    var chips = [['draught','Draught strip']];
+    if (isSash) chips.push(['cords','Cords'],['staffBeads','Staff beads'],['partingBeads','Parting beads']);
+    var chipsHtml = chips.map(function(c) {
+      return '<button type="button" class="seg-btn'+(w[c[0]]?' active':'')+'" style="flex:none;padding:6px 10px" onclick="toggleExtWindowFlag(\''+key+'\','+i+',\''+c[0]+'\')">'+c[1]+'</button>';
+    }).join('');
+    var repairsBody = w._open ?
+      '<div class="field-row" style="background:var(--surface2);border-radius:8px;margin:2px 0 6px;flex-wrap:wrap;gap:8px">'+
+        '<div style="width:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+
+          '<div class="field-label" style="flex:none;font-size:12px">Resin<small>patches</small></div>'+
+          '<input type="number" class="field-input" style="max-width:56px" value="'+(w.resin||'')+'" min="0" step="1" inputmode="numeric" placeholder="0" onchange="setExtWindowField(\''+key+'\','+i+',\'resin\',this.value)">'+
+          '<div class="field-label" style="flex:none;font-size:12px">Reglaze<small>panes</small></div>'+
+          '<input type="number" class="field-input" style="max-width:56px" value="'+(w.reglaze||'')+'" min="0" step="1" inputmode="numeric" placeholder="0" onchange="setExtWindowField(\''+key+'\','+i+',\'reglaze\',this.value)">'+
+        '</div>'+
+        '<div style="display:flex;gap:6px;flex-wrap:wrap">'+chipsHtml+'</div>'+
+      '</div>' : '';
+    return '<div class="field-row" style="flex-wrap:wrap">'+
+      '<div class="field-label">'+(isSash?'Sash window':'Window')+' '+(i+1)+'<small>panes</small></div>'+
+      '<input type="number" class="field-input" style="max-width:50px" value="'+(w.panes!=null?w.panes:2)+'" min="1" step="1" inputmode="numeric" onchange="setExtWindowField(\''+key+'\','+i+',\'panes\',this.value)">'+
+      '<div class="seg" style="flex:none">'+accessBtns+'</div>'+
       '<div onclick="removeExtWindow(\''+key+'\','+i+')" style="color:var(--danger);font-size:22px;padding:0 4px;cursor:pointer">×</div>'+
-    '</div>';
+      '<div style="width:100%;font-size:12px;color:var(--accent);font-weight:600;cursor:pointer;padding-top:2px" onclick="toggleExtWindowRepairsOpen(\''+key+'\','+i+')">'+
+        (w._open?'Repairs ▴':'Repairs ▾'+(extWindowHasRepairs(w)?' (set)':''))+
+      '</div>'+
+    '</div>' + repairsBody;
   }).join('');
 }
 
 function addExtWindow(key) {
-  extWindowFormArray(key).push({ panes: 2 });
+  extWindowFormArray(key).push({ panes: 2, access: 'ground' });
   renderExtWindowList(key);
   previewExterior();
 }
@@ -4464,38 +4527,78 @@ function removeExtWindow(key, idx) {
   previewExterior();
 }
 
-function setExtWindowPanes(key, idx, value) {
+function setExtWindowField(key, idx, field, value) {
   var arr = extWindowFormArray(key);
   if (!arr[idx]) return;
-  arr[idx].panes = Math.max(1, +value || 1);
+  if (field === 'panes') arr[idx].panes = Math.max(1, +value || 1);
+  else if (field === 'resin' || field === 'reglaze') arr[idx][field] = Math.max(0, +value || 0);
+  else arr[idx][field] = value;
   previewExterior();
+}
+
+function toggleExtWindowFlag(key, idx, field) {
+  var arr = extWindowFormArray(key);
+  if (!arr[idx]) return;
+  arr[idx][field] = !arr[idx][field];
+  renderExtWindowList(key);
+  previewExterior();
+}
+
+function toggleExtWindowRepairsOpen(key, idx) {
+  var arr = extWindowFormArray(key);
+  if (!arr[idx]) return;
+  arr[idx]._open = !arr[idx]._open;
+  renderExtWindowList(key);
 }
 
 // Exterior rate functions
 function extMasonryMins(c) { return c * (settings.rExtMasonry||5); }
 function extFasciaMins(c)  { return c * (settings.rExtFascia||8); }
+// Access multiplier: ground floor is baseline: first-floor/ladder work and
+// tower-scaffold work both take longer than reaching a window from the
+// ground, so they get a % uplift on top of the paint-time formula rather
+// than a separate flat "access fee" -- keeps everything inside the one
+// mins × day-rate model the rest of the app uses.
+function extAccessMult(access) {
+  if (access === 'firstFloor')  return 1 + (settings.rAccessFirstPct!=null ? settings.rAccessFirstPct : 10)/100;
+  if (access === 'ladderTower') return 1 + (settings.rAccessLadderPct!=null ? settings.rAccessLadderPct : 25)/100;
+  return 1;
+}
 // Total minutes for ONE window across all its coats: a base time (at a
 // 2-pane baseline) plus an addition for each pane beyond 2, then × coat
-// count. Unlike the old flat per-unit rate, this scales with both window
-// complexity (panes) and coats -- previously coats were ignored entirely
-// for windows/doors/garage, unlike masonry/fascia which already scaled.
-function extWindowMins(panes, coats) {
+// count, then × its own access multiplier. Unlike the old flat per-unit
+// rate, this scales with window complexity (panes), coats, and access --
+// previously coats were ignored entirely for windows/doors/garage, unlike
+// masonry/fascia which already scaled, and access wasn't captured at all.
+function extWindowMins(w, coats) {
   var base = settings.rExtWinBase!=null ? settings.rExtWinBase : 25;
   var perPane = settings.rExtWinPerPane!=null ? settings.rExtWinPerPane : 2;
-  var extraPanes = Math.max(0, (+panes||2) - 2);
+  var extraPanes = Math.max(0, (+w.panes||2) - 2);
   var perCoat = base + extraPanes * perPane;
-  return perCoat * (+coats||2);
+  return perCoat * (+coats||2) * extAccessMult(w.access);
 }
 // Sash windows: same base formula, then a multiplier on top for the
 // added complexity (sash cords/weights, frame + sash painted separately).
-function extSashWindowMins(panes, coats) {
+function extSashWindowMins(w, coats) {
   var mult = 1 + (settings.rSashMultiplierPct!=null ? settings.rSashMultiplierPct : 20)/100;
-  return extWindowMins(panes, coats) * mult;
+  return extWindowMins(w, coats) * mult;
 }
 function extDoorMins2(c)   { return settings.rExtDoor||150; }
 function extGarageMins2(c) { return settings.rExtGarage||150; }
-function extResinMins()    { return settings.rResin||22; }
-function extReglazeMins()  { return settings.rReglaze||15; }
+// Repair/restoration minutes for ONE window entry. Resin, reglaze and
+// draught-proofing can apply to any window (casement or sash); cords and
+// beads are sash-box hardware that doesn't exist on a casement, so those
+// three only fire when isSash is true.
+function extWindowRepairMins(w, isSash) {
+  var mins = (+w.resin||0) * (settings.rResin||22) + (+w.reglaze||0) * (settings.rReglaze||15);
+  if (w.draught) mins += settings.rDraught!=null ? settings.rDraught : 20;
+  if (isSash) {
+    if (w.cords)        mins += settings.rSashCords!=null ? settings.rSashCords : 40;
+    if (w.staffBeads)   mins += settings.rStaffBeads!=null ? settings.rStaffBeads : 25;
+    if (w.partingBeads) mins += settings.rPartingBeads!=null ? settings.rPartingBeads : 35;
+  }
+  return mins;
+}
 
 // Windows/sash used to be a flat qty number with no per-window pane
 // data. Old saved items may still only have item.wins/item.sash (a
@@ -4515,31 +4618,43 @@ function calcExtItem(item) {
   var sashWindows = item.sashWindows || legacyWindowList(item.sash);
   var doors = +item.doors||0, garage = +item.garage||0;
   var porch = +item.porch||0;
-  var resin = +item.resin||0, reglaze = +item.reglaze||0;
   var mc = item.coats||{};
 
   var masonryCost = masonry > 0 ? masonry * extMasonryMins(mc['ex-masonry']||2) * r2 : 0;
   var fasciaCost  = fascia  > 0 ? fascia  * extFasciaMins(mc['ex-fascia']||2)   * r2 : 0;
   var winCoats = mc['ex-wins']||2;
-  var winMins  = windows.reduce(function(sum,w){ return sum + extWindowMins(w.panes, winCoats); }, 0);
-  var winCost  = winMins * r2;
+  // Repairs (resin/reglaze/draught-proofing, plus sash-only cords/beads) are
+  // now per-window fields rather than one flat qty for the whole item, since
+  // a repair belongs to the specific window it's on. Paint and repair mins
+  // are tracked separately so repairsCost can be broken out for the Summary
+  // breakdown, but both fold into winCost/sashCost for the total.
+  var winPaintMins  = windows.reduce(function(sum,w){ return sum + extWindowMins(w, winCoats); }, 0);
+  var winRepairMins = windows.reduce(function(sum,w){ return sum + extWindowRepairMins(w, false); }, 0);
+  var winCost  = (winPaintMins + winRepairMins) * r2;
   var doorCost    = doors   > 0 ? doors   * extDoorMins2()                       * r2 : 0;
   var garageCost  = garage  > 0 ? garage  * extGarageMins2()                     * r2 : 0;
   var porchCost   = porch   > 0 ? porch   * settings.dr                               : 0;
   // Sash restoration has no coats toggle of its own -- "prime & paint" is
   // inherently a fixed 2-pass process, so coats is hardcoded here rather
   // than adding a UI control for it.
-  var sashMins = sashWindows.reduce(function(sum,w){ return sum + extSashWindowMins(w.panes, 2); }, 0);
-  var sashCost = sashMins * r2;
-  var resinCost   = resin   > 0 ? resin   * extResinMins()                       * r2 : 0;
-  var reglazeCost = reglaze > 0 ? reglaze * extReglazeMins()                     * r2 : 0;
+  var sashPaintMins  = sashWindows.reduce(function(sum,w){ return sum + extSashWindowMins(w, 2); }, 0);
+  var sashRepairMins = sashWindows.reduce(function(sum,w){ return sum + extWindowRepairMins(w, true); }, 0);
+  var sashCost = (sashPaintMins + sashRepairMins) * r2;
+  // Legacy fallback: jobs saved before repairs moved to per-window fields
+  // still carry a flat item.resin/item.reglaze qty. Once the item is
+  // re-saved the new form no longer writes these, so this only applies to
+  // untouched old data -- same graceful-degradation approach as
+  // legacyWindowList() above.
+  var legacyResinCost   = item.resin   > 0 ? (+item.resin)   * (settings.rResin||22)   * r2 : 0;
+  var legacyReglazeCost = item.reglaze > 0 ? (+item.reglaze) * (settings.rReglaze||15) * r2 : 0;
+  var repairsCost = (winRepairMins + sashRepairMins) * r2 + legacyResinCost + legacyReglazeCost;
   var mg = +item.makingGood||0;
 
   var prepUp = item.prepPct >= 0 ? item.prepPct : (+item.prepCustom||0);
-  var base = masonryCost+fasciaCost+winCost+doorCost+garageCost+sashCost+resinCost+reglazeCost;
+  var base = masonryCost+fasciaCost+winCost+doorCost+garageCost+sashCost+legacyResinCost+legacyReglazeCost;
   var total = base*(1+prepUp/100) + porchCost + mg;
   var time  = total / r2 / 60 / hpd;
-  return { total: total, time: time, winCost: winCost, sashCost: sashCost };
+  return { total: total, time: time, winCost: winCost, sashCost: sashCost, repairsCost: repairsCost };
 }
 
 // ── Kitchen Cabinet Spray Calculator ────────────────────────────────────
@@ -4761,7 +4876,7 @@ function resetExtForm() {
   document.getElementById('extform-title').textContent = 'Add Exterior';
   document.getElementById('ex-label').value = '';
   ['ex-masonry','ex-fascia','ex-doors','ex-garage','ex-porch',
-   'ex-resin','ex-reglaze','ex-making-good'].forEach(function(id){
+   'ex-making-good'].forEach(function(id){
     var el=document.getElementById(id); if(el) el.value='';
   });
   document.getElementById('ex-prep-custom').value='';
@@ -4787,22 +4902,31 @@ function previewExterior() {
   }
 }
 
+// Strips the UI-only _open (repairs-expanded) flag before a window list is
+// persisted -- harmless to save, but no reason to carry render state into
+// storage/the DB.
+function cleanWindowList(arr) {
+  return arr.map(function(w) {
+    var c = Object.assign({}, w);
+    delete c._open;
+    return c;
+  });
+}
+
 function getExtFormData() {
   return {
     label: document.getElementById('ex-label').value.trim()||'Exterior',
     masonry: +document.getElementById('ex-masonry').value||0,
     fascia:  +document.getElementById('ex-fascia').value||0,
-    windows: extFormWindows.slice(),
+    windows: cleanWindowList(extFormWindows),
     // wins/sash counts kept alongside the arrays -- harmless, and covers
     // anything (CSV, older code) that still just wants a qty.
     wins:    extFormWindows.length,
     doors:   +document.getElementById('ex-doors').value||0,
     garage:  +document.getElementById('ex-garage').value||0,
     porch:   +document.getElementById('ex-porch').value||0,
-    sashWindows: extFormSashWindows.slice(),
+    sashWindows: cleanWindowList(extFormSashWindows),
     sash:    extFormSashWindows.length,
-    resin:   +document.getElementById('ex-resin').value||0,
-    reglaze: +document.getElementById('ex-reglaze').value||0,
     coats:   Object.assign({}, extItemCoats),
     masonryColourNumber: extColourNumbers['ext-masonry'],
     extWoodworkColourNumber: extColourNumbers['ext-woodwork'],
@@ -4833,15 +4957,13 @@ function editExtItem(id) {
   document.getElementById('ex-label').value = item.label||'';
   document.getElementById('ex-masonry').value = item.masonry||'';
   document.getElementById('ex-fascia').value  = item.fascia||'';
-  extFormWindows = (item.windows || legacyWindowList(item.wins)).map(function(w){ return { panes: w.panes||2 }; });
-  extFormSashWindows = (item.sashWindows || legacyWindowList(item.sash)).map(function(w){ return { panes: w.panes||2 }; });
+  extFormWindows = (item.windows || legacyWindowList(item.wins)).map(function(w){ return Object.assign({ panes: w.panes||2, access: 'ground' }, w); });
+  extFormSashWindows = (item.sashWindows || legacyWindowList(item.sash)).map(function(w){ return Object.assign({ panes: w.panes||2, access: 'ground' }, w); });
   renderExtWindowList('windows');
   renderExtWindowList('sashWindows');
   document.getElementById('ex-doors').value   = item.doors||'';
   document.getElementById('ex-garage').value  = item.garage||'';
   document.getElementById('ex-porch').value   = item.porch||'';
-  document.getElementById('ex-resin').value   = item.resin||'';
-  document.getElementById('ex-reglaze').value = item.reglaze||'';
   document.getElementById('ex-making-good').value = item.makingGood||'';
   ['ex-masonry','ex-fascia','ex-wins','ex-doors','ex-garage'].forEach(function(k){
     var v=extItemCoats[k]||2;
@@ -6485,11 +6607,15 @@ async function renderSummary() {
       var garageCost  = +item.garage>0 ? +item.garage*extGarageMins2()*r2 : 0;
       var porchCost   = +item.porch>0 ? +item.porch*settings.dr : 0;
       var sashCost    = c.sashCost||0;
-      var resinCost   = +item.resin>0 ? +item.resin*extResinMins()*r2 : 0;
-      var reglazeCost = +item.reglaze>0 ? +item.reglaze*extReglazeMins()*r2 : 0;
+      var repairsCost = c.repairsCost||0;
       var prepUp = item.prepPct >= 0 ? item.prepPct : (+item.prepCustom||0);
       var prepLabel = prepUp===0?'Standard':prepUp===10?'Light Prep':prepUp===25?'Full Prep':'Custom '+prepUp+'%';
-      if(prepUp>0){var base=masonryCost+fasciaCost+winCost+doorCost+garageCost+sashCost+resinCost+reglazeCost;sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Prep ('+prepLabel+')</span><span class="breakdown-sub-value">'+fmt(base*(prepUp/100)*mk)+'</span></div>';}
+      // Legacy resin/reglaze (pre-per-window jobs not yet re-saved) still
+      // count toward prep%, same as calcExtItem()'s own base -- see the
+      // legacy fallback comment there.
+      var legacyResinCost   = +item.resin>0   ? +item.resin*(settings.rResin||22)*r2     : 0;
+      var legacyReglazeCost = +item.reglaze>0 ? +item.reglaze*(settings.rReglaze||15)*r2 : 0;
+      if(prepUp>0){var base=masonryCost+fasciaCost+winCost+doorCost+garageCost+sashCost+legacyResinCost+legacyReglazeCost;sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Prep ('+prepLabel+')</span><span class="breakdown-sub-value">'+fmt(base*(prepUp/100)*mk)+'</span></div>';}
       if(masonryCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Masonry / Render</span><span class="breakdown-sub-value">'+fmt(masonryCost*mk)+'</span></div>';
       if(fasciaCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Fascias &amp; Soffits</span><span class="breakdown-sub-value">'+fmt(fasciaCost*mk)+'</span></div>';
       if(winCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ext Windows</span><span class="breakdown-sub-value">'+fmt(winCost*mk)+'</span></div>';
@@ -6497,8 +6623,7 @@ async function renderSummary() {
       if(garageCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Garage Doors</span><span class="breakdown-sub-value">'+fmt(garageCost*mk)+'</span></div>';
       if(porchCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Porch / Feature Door</span><span class="breakdown-sub-value">'+fmt(porchCost*mk)+'</span></div>';
       if(sashCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Sash prime &amp; paint</span><span class="breakdown-sub-value">'+fmt(sashCost*mk)+'</span></div>';
-      if(resinCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Resin repairs</span><span class="breakdown-sub-value">'+fmt(resinCost*mk)+'</span></div>';
-      if(reglazeCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Reglaze</span><span class="breakdown-sub-value">'+fmt(reglazeCost*mk)+'</span></div>';
+      if(repairsCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Window repairs</span><span class="breakdown-sub-value">'+fmt(repairsCost*mk)+'</span></div>';
       if(+item.makingGood>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Making Good</span><span class="breakdown-sub-value">'+fmt(+item.makingGood)+'</span></div>';
       return '<div class="room-item room-item-tap" onclick="toggleRoomBd(this.dataset.id)" data-id="'+eid+'" style="border-bottom:none">'+
         '<div class="room-icon">🏡</div>'+
