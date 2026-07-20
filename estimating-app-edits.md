@@ -34,7 +34,7 @@ Add a note (with asterisk) below the remaining balance total on the summary/invo
 ## 6. Bug: Colour note/product tag clipping on mobile
 On the Colours page, the product note pill (e.g. brand/colour code, such as "Dulux Heritage · No. 1780058") overflows off the right edge of the card on mobile instead of wrapping or truncating cleanly. Needs responsive fix — either wrap onto a second line, shrink font, or truncate with ellipsis so it stays within the card bounds.
 
-## 7. Future feature: Panelling quoting
+## 7. Panelling quoting — BUILT
 Panelling is a popular request and needs its own quoting option within a room:
 - Input per wall as Width x Height (W×H).
 - Ability to add multiple walls of panelling within the same room.
@@ -42,7 +42,7 @@ Panelling is a popular request and needs its own quoting option within a room:
 - Panelling needs its own prep multiplier, independent of the room's overall prep level — it should NOT be affected by or included in the regular job prep multiplier.
 - Panelling needs its own material/colour selector, separate from the rest of the room, since panelling is often finished in a different colour or product.
 
-## 8. Future feature: Kitchen Cabinet Spray Calculator
+## 8. Kitchen Cabinet Spray Calculator — BUILT
 
 **Structure**
 - New dedicated "Kitchen" module/tab, separate from Rooms/Exterior/Panelling.
@@ -101,13 +101,23 @@ Notes on the draft:
 - Plinths and cornices are commonly quoted as a lump sum per run rather than per-piece — the per-metre figures above are a starting estimate and should be checked against Nicky's own typical run lengths.
 - These numbers do NOT include VAT, travel, or job-level prep multiplier — they're per-item/per-metre spray costs only. Carcass spraying is priced entirely separately and excluded from the door/drawer/panel totals.
 
-## 9. Job status: Mark as Completed
+## 9. Job status: Mark as Completed — BUILT
 - Add ability to mark an accepted job as "Completed" from the Jobs list.
 - Completed jobs should move to their own "Completed" section/heading, positioned above "Declined".
 - Completed jobs should display greyed out with strikethrough text to visually distinguish them from active/accepted jobs.
 
-## 10. Bug: Wallpaper roll calculation missing for feature wall only
+## 10. Bug: Wallpaper roll calculation missing for feature wall only — FIXED
 When a job includes wallpaper for a feature wall only (not the whole room), the roll calculation isn't showing/calculating. Needs fix so feature-wall-only wallpaper jobs still trigger the roll quantity calculation.
 
-## 11. Wallpaper minimum price
+## 11. Wallpaper minimum price — BUILT
 Wallpaper jobs should have a minimum price floor of £200 — if the calculated cost comes out below this, the quote should default to charging £200 instead.
+
+## 13. Commercial wallpaper types: Wide Vinyl and Mural — BUILT
+
+Feature-wall-only, per [wallpaper-vinyl-mural-spec.md](wallpaper-vinyl-mural-spec.md) (Nicky confirmed that scope 2026-07-20). "Wallpaper Type" selector (Standard/Wide Vinyl/Mural) on the feature wall; Wide Vinyl priced by linear metre (roll width editable, 137cm default), Mural priced per m² or flat fee. New Settings rates all default to £0, pending Nicky's real numbers.
+
+## 12. Retain contact data locally before pushing to Xero — BUILT
+- Contact data entered into the app (client name, address, phone, email etc.) should be saved and retained within the app itself, independent of Xero.
+- This data should NOT be lost when switching between jobs — currently entered/in-progress contact details need to persist per job even if not yet sent to Xero.
+- Add ability to manually push/sync saved contact data to Xero later, rather than requiring it to be entered directly in Xero or lost if the job is switched away from before syncing.
+- When syncing, the saved address must populate Xero's **billing address** field, NOT the delivery address field.

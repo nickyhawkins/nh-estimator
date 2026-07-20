@@ -372,17 +372,46 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         </div>
         <div id="fw-wp-fields" style="display:none">
           <div class="field-row" style="border-top:1px solid var(--border)">
-            <div class="field-label">Paper<small>both can be on — e.g. line out then finish</small></div>
-            <div class="seg" id="seg-fwwp" style="flex:1.5">
-              <button class="seg-btn" onclick="toggleFWWP('lining')">Lining</button>
-              <button class="seg-btn" onclick="toggleFWWP('finish')">Finish</button>
+            <div class="field-label">Wallpaper Type</div>
+            <div class="seg" id="seg-fwwp-type" style="flex:1.5">
+              <button class="seg-btn active" onclick="setFWWPType('none')">Standard</button>
+              <button class="seg-btn" onclick="setFWWPType('wideVinyl')">Wide Vinyl</button>
+              <button class="seg-btn" onclick="setFWWPType('mural')">Mural</button>
             </div>
           </div>
-          <div class="breakdown-row" id="fwwp-r-labour-row" style="display:none"><span class="breakdown-label">Feature wall wallpaper labour</span><span class="breakdown-value" id="fwwp-r-labour">—</span></div>
-          <div class="breakdown-row" id="fwwp-r-droplen-row" style="display:none"><span class="breakdown-label">Drop length</span><span class="breakdown-value" id="fwwp-r-droplen">—</span></div>
-          <div class="breakdown-row" id="fwwp-r-drops-row" style="display:none"><span class="breakdown-label">Drops per roll / needed</span><span class="breakdown-value" id="fwwp-r-drops">—</span></div>
-          <div class="breakdown-row" id="fwwp-r-rolls-row" style="display:none;background:rgba(26,82,118,.06)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Rolls to order</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="fwwp-r-rolls">—</span></div>
-          <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label" style="color:var(--text2)">Roll length/width, match &amp; spare<small>set in the Wallpaper section below — shared paper spec</small></div></div>
+          <div id="fw-wp-standard-fields">
+            <div class="field-row" style="border-top:1px solid var(--border)">
+              <div class="field-label">Paper<small>both can be on — e.g. line out then finish</small></div>
+              <div class="seg" id="seg-fwwp" style="flex:1.5">
+                <button class="seg-btn" onclick="toggleFWWP('lining')">Lining</button>
+                <button class="seg-btn" onclick="toggleFWWP('finish')">Finish</button>
+              </div>
+            </div>
+            <div class="breakdown-row" id="fwwp-r-labour-row" style="display:none"><span class="breakdown-label">Feature wall wallpaper labour</span><span class="breakdown-value" id="fwwp-r-labour">—</span></div>
+            <div class="breakdown-row" id="fwwp-r-droplen-row" style="display:none"><span class="breakdown-label">Drop length</span><span class="breakdown-value" id="fwwp-r-droplen">—</span></div>
+            <div class="breakdown-row" id="fwwp-r-drops-row" style="display:none"><span class="breakdown-label">Drops per roll / needed</span><span class="breakdown-value" id="fwwp-r-drops">—</span></div>
+            <div class="breakdown-row" id="fwwp-r-rolls-row" style="display:none;background:rgba(26,82,118,.06)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Rolls to order</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="fwwp-r-rolls">—</span></div>
+            <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label" style="color:var(--text2)">Roll length/width, match &amp; spare<small>set in the Wallpaper section below — shared paper spec</small></div></div>
+          </div>
+          <div id="fw-wp-vinyl-fields" style="display:none">
+            <div class="field-row" style="border-top:1px solid var(--border)">
+              <div class="field-label">Roll width<small>cm — 137 is standard commercial vinyl, check the supplier spec</small></div>
+              <input type="number" class="field-input" id="r-fw-vinyl-rollwidth" value="137" min="50" step="1" inputmode="numeric" oninput="previewRoom()">
+            </div>
+            <div class="breakdown-row" id="fwwp-r-vinyl-metres-row" style="display:none"><span class="breakdown-label">Linear metres needed</span><span class="breakdown-value" id="fwwp-r-vinyl-metres">—</span></div>
+            <div class="breakdown-row" id="fwwp-r-vinyl-cost-row" style="display:none;background:rgba(26,82,118,.06)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Wide vinyl cost</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="fwwp-r-vinyl-cost">—</span></div>
+          </div>
+          <div id="fw-wp-mural-fields" style="display:none">
+            <div class="field-row" style="border-top:1px solid var(--border)">
+              <div class="field-label">Pricing</div>
+              <div class="seg" id="seg-fw-mural-mode" style="flex:1.5">
+                <button class="seg-btn active" onclick="setFWMuralPriceMode('perArea')">Per m²</button>
+                <button class="seg-btn" onclick="setFWMuralPriceMode('flat')">Flat fee</button>
+              </div>
+            </div>
+            <div class="breakdown-row" id="fwwp-r-mural-area-row" style="display:none"><span class="breakdown-label">Area</span><span class="breakdown-value" id="fwwp-r-mural-area">—</span></div>
+            <div class="breakdown-row" id="fwwp-r-mural-cost-row" style="display:none;background:rgba(26,82,118,.06)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Mural cost</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="fwwp-r-mural-cost">—</span></div>
+          </div>
         </div>
       </div>
     </div>
@@ -613,6 +642,11 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Staircase multiplier<small>% uplift on labour</small></div><input type="number" class="field-input" id="s-wpstair-mult" value="25" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Trim allowance<small>cm added per drop, top+bottom</small></div><input type="number" class="field-input" id="s-wptrim" value="10" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Minimum price<small>£ floor per room's wallpaper labour</small></div><input type="number" class="field-input" id="s-wpmin-price" value="200" min="0" step="10" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Wide vinyl labour<small>£ per linear metre — feature wall only</small></div><input type="number" class="field-input" id="s-wpvinyl-labour-rate" value="0" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Wide vinyl material<small>£ per linear metre</small></div><input type="number" class="field-input" id="s-wpvinyl-material-rate" value="0" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Mural labour<small>£ per m² — feature wall only</small></div><input type="number" class="field-input" id="s-wpmural-labour-rate" value="0" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Mural material<small>£ per m²</small></div><input type="number" class="field-input" id="s-wpmural-material-rate" value="0" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Mural flat fee<small>£ — used when priced as a one-off instead of per m²</small></div><input type="number" class="field-input" id="s-wpmural-flat-fee" value="0" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
     </div>
     <div class="card">
       <div class="card-header">Exterior Rates</div>
@@ -1102,6 +1136,11 @@ function saveSettings() {
     wpStairMultPct:+document.getElementById('s-wpstair-mult').value,
     wpTrimCm:     +document.getElementById('s-wptrim').value,
     wpMinPrice:   +document.getElementById('s-wpmin-price').value,
+    wpVinylLabourRatePerM:   +document.getElementById('s-wpvinyl-labour-rate').value,
+    wpVinylMaterialRatePerM: +document.getElementById('s-wpvinyl-material-rate').value,
+    wpMuralLabourRatePerM2:  +document.getElementById('s-wpmural-labour-rate').value,
+    wpMuralMaterialRatePerM2:+document.getElementById('s-wpmural-material-rate').value,
+    wpMuralFlatFee:          +document.getElementById('s-wpmural-flat-fee').value,
     rExtMasonry:  +document.getElementById('s-rextmasonry').value,
     rExtFascia:   +document.getElementById('s-rextfascia').value,
     rExtWinBase:      +document.getElementById('s-rextwinbase').value,
@@ -1604,6 +1643,11 @@ async function initApp() {
       wpStairMultPct: rawSettings.wpStairMultPct!=null ? rawSettings.wpStairMultPct : 25,
       wpTrimCm: rawSettings.wpTrimCm!=null ? rawSettings.wpTrimCm : 10,
       wpMinPrice: rawSettings.wpMinPrice!=null ? rawSettings.wpMinPrice : 200,
+      wpVinylLabourRatePerM: rawSettings.wpVinylLabourRatePerM!=null ? rawSettings.wpVinylLabourRatePerM : 0,
+      wpVinylMaterialRatePerM: rawSettings.wpVinylMaterialRatePerM!=null ? rawSettings.wpVinylMaterialRatePerM : 0,
+      wpMuralLabourRatePerM2: rawSettings.wpMuralLabourRatePerM2!=null ? rawSettings.wpMuralLabourRatePerM2 : 0,
+      wpMuralMaterialRatePerM2: rawSettings.wpMuralMaterialRatePerM2!=null ? rawSettings.wpMuralMaterialRatePerM2 : 0,
+      wpMuralFlatFee: rawSettings.wpMuralFlatFee!=null ? rawSettings.wpMuralFlatFee : 0,
       rExtMasonry: rawSettings.rExtMasonry||5, rExtFascia: rawSettings.rExtFascia||8,
       rExtWinBase: rawSettings.rExtWinBase!=null ? rawSettings.rExtWinBase : 25,
       rExtWinPerPane: rawSettings.rExtWinPerPane!=null ? rawSettings.rExtWinPerPane : 2,
@@ -1672,6 +1716,11 @@ async function initApp() {
         wpStairMultPct: s.wpStairMultPct!=null ? s.wpStairMultPct : 25,
         wpTrimCm: s.wpTrimCm!=null ? s.wpTrimCm : 10,
         wpMinPrice: s.wpMinPrice!=null ? s.wpMinPrice : 200,
+        wpVinylLabourRatePerM: s.wpVinylLabourRatePerM!=null ? s.wpVinylLabourRatePerM : 0,
+        wpVinylMaterialRatePerM: s.wpVinylMaterialRatePerM!=null ? s.wpVinylMaterialRatePerM : 0,
+        wpMuralLabourRatePerM2: s.wpMuralLabourRatePerM2!=null ? s.wpMuralLabourRatePerM2 : 0,
+        wpMuralMaterialRatePerM2: s.wpMuralMaterialRatePerM2!=null ? s.wpMuralMaterialRatePerM2 : 0,
+        wpMuralFlatFee: s.wpMuralFlatFee!=null ? s.wpMuralFlatFee : 0,
         kitchenRates: s.kitchenRates || KITCHEN_RATE_DEFAULTS,
         kitchenGlazedPct: s.kitchenGlazedPct!=null ? s.kitchenGlazedPct : 50,
         kitchenCarcassPct: s.kitchenCarcassPct!=null ? s.kitchenCarcassPct : 30
@@ -1885,6 +1934,11 @@ var settings = {
   wpStairMultPct: _raw.wpStairMultPct != null ? _raw.wpStairMultPct : 25,
   wpTrimCm:     _raw.wpTrimCm     != null ? _raw.wpTrimCm     : 10,
   wpMinPrice:   _raw.wpMinPrice   != null ? _raw.wpMinPrice   : 200,
+  wpVinylLabourRatePerM:   _raw.wpVinylLabourRatePerM   != null ? _raw.wpVinylLabourRatePerM   : 0,
+  wpVinylMaterialRatePerM: _raw.wpVinylMaterialRatePerM != null ? _raw.wpVinylMaterialRatePerM : 0,
+  wpMuralLabourRatePerM2:  _raw.wpMuralLabourRatePerM2  != null ? _raw.wpMuralLabourRatePerM2  : 0,
+  wpMuralMaterialRatePerM2:_raw.wpMuralMaterialRatePerM2!= null ? _raw.wpMuralMaterialRatePerM2: 0,
+  wpMuralFlatFee:          _raw.wpMuralFlatFee          != null ? _raw.wpMuralFlatFee          : 0,
   rExtMasonry:  _raw.rExtMasonry  != null ? _raw.rExtMasonry  : 5,
   rExtFascia:   _raw.rExtFascia   != null ? _raw.rExtFascia   : 8,
   rExtWinBase:  _raw.rExtWinBase  != null ? _raw.rExtWinBase  : 25,
@@ -1925,6 +1979,14 @@ var wpSpareRoll = false;
 // width/match/repeat/spare) rather than duplicating those inputs.
 var featureWallMode = 'paint';
 var fwWpLining = false, fwWpFinish = false;
+// Wide Vinyl / Mural (estimating-app-edits.md #13) -- feature-wall-only
+// alternates to the lining/finish roll model above, selected via
+// fwWpCommercialType ('none'/'wideVinyl'/'mural'). fwMuralPriceMode picks
+// per-m² vs flat-fee pricing when a mural is selected. See setFWWPType()/
+// setFWMuralPriceMode() and calcRoom()'s featureWallVinylResult/
+// featureWallMuralResult branch.
+var fwWpCommercialType = 'none';
+var fwMuralPriceMode = 'perArea';
 var prepPct  = 10; // 10 (Minimal, default), 25 (Standard), 40 (Heavy), or -1 for custom
 // Panelling: independent of the room's own prep (prepPct above) and coats
 // (coats.wc) -- prepPct/prepCustom precedent, same 10/25/40/-1 vals, just a
@@ -2488,11 +2550,18 @@ function goScreen(name) {
       var el=document.getElementById(id); if(el) el.style.display='none';
     });
     featureWallMode='paint'; fwWpLining=false; fwWpFinish=false;
+    fwWpCommercialType='none'; fwMuralPriceMode='perArea';
     document.querySelectorAll('#seg-featurewall-mode .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===0);});
     document.getElementById('fw-paint-fields').style.display='block';
     document.getElementById('fw-wp-fields').style.display='none';
     document.querySelectorAll('#seg-fwwp .seg-btn').forEach(function(b){b.classList.remove('active');});
-    ['fwwp-r-labour-row','fwwp-r-droplen-row','fwwp-r-drops-row','fwwp-r-rolls-row'].forEach(function(id){
+    document.querySelectorAll('#seg-fwwp-type .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===0);});
+    document.querySelectorAll('#seg-fw-mural-mode .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===0);});
+    document.getElementById('fw-wp-standard-fields').style.display='block';
+    document.getElementById('fw-wp-vinyl-fields').style.display='none';
+    document.getElementById('fw-wp-mural-fields').style.display='none';
+    document.getElementById('r-fw-vinyl-rollwidth').value='137';
+    ['fwwp-r-labour-row','fwwp-r-droplen-row','fwwp-r-drops-row','fwwp-r-rolls-row','fwwp-r-vinyl-metres-row','fwwp-r-vinyl-cost-row','fwwp-r-mural-area-row','fwwp-r-mural-cost-row'].forEach(function(id){
       var el=document.getElementById(id); if(el) el.style.display='none';
     });
     document.getElementById('prep-custom-row').style.display='none';
@@ -2545,6 +2614,11 @@ function loadSettings() {
   document.getElementById('s-wpstair-mult').value  = settings.wpStairMultPct!=null ? settings.wpStairMultPct : 25;
   document.getElementById('s-wptrim').value       = settings.wpTrimCm!=null ? settings.wpTrimCm : 10;
   document.getElementById('s-wpmin-price').value  = settings.wpMinPrice!=null ? settings.wpMinPrice : 200;
+  document.getElementById('s-wpvinyl-labour-rate').value   = settings.wpVinylLabourRatePerM!=null ? settings.wpVinylLabourRatePerM : 0;
+  document.getElementById('s-wpvinyl-material-rate').value = settings.wpVinylMaterialRatePerM!=null ? settings.wpVinylMaterialRatePerM : 0;
+  document.getElementById('s-wpmural-labour-rate').value    = settings.wpMuralLabourRatePerM2!=null ? settings.wpMuralLabourRatePerM2 : 0;
+  document.getElementById('s-wpmural-material-rate').value  = settings.wpMuralMaterialRatePerM2!=null ? settings.wpMuralMaterialRatePerM2 : 0;
+  document.getElementById('s-wpmural-flat-fee').value       = settings.wpMuralFlatFee!=null ? settings.wpMuralFlatFee : 0;
   document.getElementById('s-rextmasonry').value = settings.rExtMasonry||5;
   document.getElementById('s-rextfascia').value  = settings.rExtFascia||8;
   document.getElementById('s-rextwinbase').value     = settings.rExtWinBase!=null ? settings.rExtWinBase : 25;
@@ -2650,9 +2724,19 @@ function calcRoom(r) {
   // Always additive on its own (unlike featureWallOwnCost for paint) since
   // wallpaper labour never overlaps wallCost regardless of whether the room
   // has any general wall area.
-  var featureWallWpResult = fwWallpaper ? wpSurfaceResult(r.fwWpLining, r.fwWpFinish, false, !!r.isHSL,
+  // Commercial types (Wide Vinyl / Mural, estimating-app-edits.md #13) are
+  // feature-wall-only and mutually exclusive with the lining/finish roll
+  // model above -- fwWpCommercialType picks vinylCost()/muralCost() instead
+  // of wpSurfaceResult() entirely. No roll count for either, so
+  // featureWallWpRolls stays 0 in that case.
+  var fwCommercialType = fwWallpaper ? (r.fwWpCommercialType || 'none') : 'none';
+  var featureWallVinylResult = fwCommercialType==='wideVinyl' ? vinylCost(r) : null;
+  var featureWallMuralResult = fwCommercialType==='mural'     ? muralCost(r) : null;
+  var featureWallWpResult = (fwWallpaper && fwCommercialType==='none') ? wpSurfaceResult(r.fwWpLining, r.fwWpFinish, false, !!r.isHSL,
     function(t){ return { rolls: featureWallWallpaperRolls(r, t) }; }) : { cost: 0, parts: [] };
-  var featureWallWpCost  = featureWallWpResult.cost;
+  var featureWallWpCost  = featureWallVinylResult ? featureWallVinylResult.cost
+                          : featureWallMuralResult ? featureWallMuralResult.cost
+                          : featureWallWpResult.cost;
   var featureWallWpRolls = featureWallWpResult.parts.reduce(function(sum,p){ return sum + p.rolls; }, 0);
   // Panelling: an array of independently-measured walls, never folded into
   // wallArea/wallCost/baseTotal above -- it needs its OWN prep multiplier,
@@ -2710,6 +2794,8 @@ function calcRoom(r) {
            wallL:wL, ceilL:cL, glossL:gL, mistL:mL, featureWallL:fwL,
            wpwCost:wpwCost, wpcCost:wpcCost, wpwRolls:wpwRolls, wpcRolls:wpcRolls,
            featureWallMode:featureWallMode, featureWallWpCost:featureWallWpCost, featureWallWpRolls:featureWallWpRolls,
+           fwCommercialType:fwCommercialType, featureWallVinylMetres:featureWallVinylResult?featureWallVinylResult.metres:0,
+           featureWallMuralArea:featureWallMuralResult?featureWallMuralResult.area:0,
            panelCost:panelCost, panelL:panelL, panelArea:panelArea, panelRawCost:panelMinsCost,
            wpMinTopUp:wpMinTopUp, prepUp:prepUp, panelPrepUp:panelPrepUp};
 }
@@ -5196,6 +5282,42 @@ function featureWallWallpaperRolls(r, type) {
   return calc ? calc.rolls : 0;
 }
 
+// Wide Vinyl and Mural -- commercial coverings for the feature wall only
+// (estimating-app-edits.md #13, see wallpaper-vinyl-mural-spec.md). Neither
+// fits the domestic roll-count model above: vinyl is priced by the linear
+// metre off a wide (~137cm) continuous roll, not by roll count, and a mural
+// is a one-piece print costed by area (or a flat fee) with no roll/pattern-
+// match math at all. Both are mutually exclusive with the normal
+// fwWpLining/fwWpFinish roll path -- selected via r.fwWpCommercialType,
+// branched in calcRoom() where featureWallWpResult is built.
+function featureWallVinylMetres(r) {
+  var w = +r.featureWallWidth || 0, h = +r.featureWallHeight || 0;
+  if (w<=0 || h<=0) return 0;
+  var rollWidthM = (+r.fwVinylRollWidthCm || 137) / 100;
+  var drops = Math.ceil(w / rollWidthM);
+  return drops * h;
+}
+function vinylCost(r) {
+  var metres = featureWallVinylMetres(r);
+  var labour   = metres * (settings.wpVinylLabourRatePerM   || 0);
+  var material = metres * (settings.wpVinylMaterialRatePerM || 0);
+  return { metres: metres, labour: labour, material: material, cost: labour + material };
+}
+function featureWallMuralArea(r) {
+  var w = +r.featureWallWidth || 0, h = +r.featureWallHeight || 0;
+  return w * h;
+}
+function muralCost(r) {
+  var area = featureWallMuralArea(r);
+  if (area<=0) return { area: 0, labour: 0, material: 0, cost: 0 };
+  if (r.fwMuralPriceMode === 'flat') {
+    return { area: area, labour: 0, material: 0, cost: settings.wpMuralFlatFee || 0 };
+  }
+  var labour   = area * (settings.wpMuralLabourRatePerM2   || 0);
+  var material = area * (settings.wpMuralMaterialRatePerM2 || 0);
+  return { area: area, labour: labour, material: material, cost: labour + material };
+}
+
 // Pattern repeat is entered in CM (that's what's printed on a UK wallpaper
 // label), but every roll calc below and r.wpRepeatMm on a saved room work in
 // MM -- this is the one conversion point so every live-preview/save call site
@@ -5256,6 +5378,39 @@ function toggleFWWP(type) {
     b.classList.toggle('active', i===0 ? fwWpLining : fwWpFinish);
   });
   updateWPRollSpecVisibility();
+  previewRoom();
+}
+
+// Wallpaper Type selector (Standard/Wide Vinyl/Mural, estimating-app-edits.md
+// #13) -- mutually exclusive with the lining/finish roll model, so switching
+// to a commercial type clears fwWpLining/fwWpFinish (both false, seg
+// deactivated) rather than leaving them set-but-unused. That matters beyond
+// tidiness: updateWPRollSpecVisibility()'s rollsOn check and setWPMatch()'s
+// isTopPaper check both read fwWpFinish directly, and would otherwise keep
+// showing the shared room-level roll-spec/pattern-match rows for a feature
+// wall that no longer uses rolls at all.
+function setFWWPType(type) {
+  fwWpCommercialType = type;
+  document.querySelectorAll('#seg-fwwp-type .seg-btn').forEach(function(b,i){
+    var vals = ['none','wideVinyl','mural'];
+    b.classList.toggle('active', vals[i]===type);
+  });
+  if (type !== 'none') {
+    fwWpLining = false; fwWpFinish = false;
+    document.querySelectorAll('#seg-fwwp .seg-btn').forEach(function(b){ b.classList.remove('active'); });
+  }
+  document.getElementById('fw-wp-standard-fields').style.display = type==='none' ? 'block' : 'none';
+  document.getElementById('fw-wp-vinyl-fields').style.display = type==='wideVinyl' ? 'block' : 'none';
+  document.getElementById('fw-wp-mural-fields').style.display = type==='mural' ? 'block' : 'none';
+  updateWPRollSpecVisibility();
+  previewRoom();
+}
+
+function setFWMuralPriceMode(mode) {
+  fwMuralPriceMode = mode;
+  document.querySelectorAll('#seg-fw-mural-mode .seg-btn').forEach(function(b,i){
+    b.classList.toggle('active', (i===0) === (mode==='perArea'));
+  });
   previewRoom();
 }
 
@@ -5530,6 +5685,8 @@ function previewRoom() {
     featureWallHeight:+document.getElementById('r-featurewall-height').value||undefined,
     featureWallArea:(+document.getElementById('r-featurewall-width').value||0)*(+document.getElementById('r-featurewall-height').value||0)||undefined,
     featureWallMode:featureWallMode, fwWpLining:fwWpLining, fwWpFinish:fwWpFinish,
+    fwWpCommercialType:fwWpCommercialType, fwMuralPriceMode:fwMuralPriceMode,
+    fwVinylRollWidthCm:+document.getElementById('r-fw-vinyl-rollwidth').value||137,
     panelItems:panelItemsForm, panelPrepPct:panelPrepPct,
     panelPrepCustom:+document.getElementById('r-panel-prep-custom').value};
   var c=calcRoom(r);
@@ -5613,7 +5770,7 @@ function previewRoom() {
   // ceiling blocks above.
   var fwWidth = +document.getElementById('r-featurewall-width').value||0;
   var fwHeight = +document.getElementById('r-featurewall-height').value||0;
-  var fwwpOn = featureWallMode==='wallpaper' && fwWidth>0 && fwHeight>0 && (fwWpLining || fwWpFinish);
+  var fwwpOn = featureWallMode==='wallpaper' && fwWpCommercialType==='none' && fwWidth>0 && fwHeight>0 && (fwWpLining || fwWpFinish);
   document.getElementById('fwwp-r-labour-row').style.display = fwwpOn ? 'flex' : 'none';
   if (fwwpOn) document.getElementById('fwwp-r-labour').textContent = fmt(c.featureWallWpCost);
   if (fwwpOn) {
@@ -5633,6 +5790,27 @@ function previewRoom() {
     ['fwwp-r-droplen-row','fwwp-r-drops-row','fwwp-r-rolls-row'].forEach(function(id){
       document.getElementById(id).style.display = 'none';
     });
+  }
+
+  // Wide Vinyl / Mural live preview -- reuses c.featureWallWpCost (already
+  // routed through vinylCost()/muralCost() inside calcRoom() when
+  // fwWpCommercialType is set) for the cost figure, single source of truth
+  // same as the standard path above. Metres/area shown here are recomputed
+  // directly rather than round-tripped through c, same pattern as the
+  // standard block's fwwpRollResult -- purely a display convenience.
+  var fwVinylOn = featureWallMode==='wallpaper' && fwWpCommercialType==='wideVinyl' && fwWidth>0 && fwHeight>0;
+  document.getElementById('fwwp-r-vinyl-metres-row').style.display = fwVinylOn ? 'flex' : 'none';
+  document.getElementById('fwwp-r-vinyl-cost-row').style.display = fwVinylOn ? 'flex' : 'none';
+  if (fwVinylOn) {
+    document.getElementById('fwwp-r-vinyl-metres').textContent = featureWallVinylMetres(r).toFixed(2)+' m';
+    document.getElementById('fwwp-r-vinyl-cost').textContent = fmt(c.featureWallWpCost);
+  }
+  var fwMuralOn = featureWallMode==='wallpaper' && fwWpCommercialType==='mural' && fwWidth>0 && fwHeight>0;
+  document.getElementById('fwwp-r-mural-area-row').style.display = fwMuralOn ? 'flex' : 'none';
+  document.getElementById('fwwp-r-mural-cost-row').style.display = fwMuralOn ? 'flex' : 'none';
+  if (fwMuralOn) {
+    document.getElementById('fwwp-r-mural-area').textContent = fmtM(featureWallMuralArea(r));
+    document.getElementById('fwwp-r-mural-cost').textContent = fmt(c.featureWallWpCost);
   }
 }
 
@@ -5689,6 +5867,18 @@ function editRoom(id) {
   document.getElementById('fw-wp-fields').style.display = featureWallMode==='wallpaper' ? 'block' : 'none';
   fwWpLining = !!r.fwWpLining; fwWpFinish = !!r.fwWpFinish;
   document.querySelectorAll('#seg-fwwp .seg-btn').forEach(function(b,i){b.classList.toggle('active', i===0?fwWpLining:fwWpFinish);});
+  fwWpCommercialType = r.fwWpCommercialType || 'none';
+  fwMuralPriceMode = r.fwMuralPriceMode || 'perArea';
+  document.querySelectorAll('#seg-fwwp-type .seg-btn').forEach(function(b,i){
+    b.classList.toggle('active', ['none','wideVinyl','mural'][i]===fwWpCommercialType);
+  });
+  document.querySelectorAll('#seg-fw-mural-mode .seg-btn').forEach(function(b,i){
+    b.classList.toggle('active', (i===0) === (fwMuralPriceMode==='perArea'));
+  });
+  document.getElementById('fw-wp-standard-fields').style.display = fwWpCommercialType==='none' ? 'block' : 'none';
+  document.getElementById('fw-wp-vinyl-fields').style.display = fwWpCommercialType==='wideVinyl' ? 'block' : 'none';
+  document.getElementById('fw-wp-mural-fields').style.display = fwWpCommercialType==='mural' ? 'block' : 'none';
+  document.getElementById('r-fw-vinyl-rollwidth').value = r.fwVinylRollWidthCm || 137;
   document.getElementById('room-title').textContent='Edit Room';
   document.getElementById('r-name').value=r.name||'';
   document.getElementById('r-l').value=r.l||'';
@@ -5801,6 +5991,8 @@ function saveRoom() {
     featureWallHeight:+document.getElementById('r-featurewall-height').value||undefined,
     featureWallArea:(+document.getElementById('r-featurewall-width').value||0)*(+document.getElementById('r-featurewall-height').value||0)||undefined,
     featureWallMode:featureWallMode, fwWpLining:fwWpLining, fwWpFinish:fwWpFinish,
+    fwWpCommercialType:fwWpCommercialType, fwMuralPriceMode:fwMuralPriceMode,
+    fwVinylRollWidthCm:+document.getElementById('r-fw-vinyl-rollwidth').value||137,
     panelColourNumber:roomColourNumbers.panel,
     panelRangeOverride:roomOverrides.panel.range||undefined, panelBandOverride:roomOverrides.panel.band||undefined,
     panelPrepPct:panelPrepPct,
@@ -6417,7 +6609,12 @@ async function renderSummary() {
     var wpcC = c.wpcCost;
     if(r.mistWall) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Mist coat (walls)</span><span class="breakdown-sub-value">'+fmt(mwC*mk)+'</span></div>';
     if(wpwC>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Wallpaper (walls)</span><span class="breakdown-sub-value">'+fmt(wpwC*mk)+'</span></div>';
-    if(c.featureWallWpCost>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Feature wall wallpaper</span><span class="breakdown-sub-value">'+fmt(c.featureWallWpCost*mk)+'</span></div>';
+    if(c.featureWallWpCost>0) {
+      var fwWpLabel = c.fwCommercialType==='wideVinyl' ? 'Feature wall (Wide Vinyl)'
+                    : c.fwCommercialType==='mural'     ? 'Feature wall (Mural)'
+                    : 'Feature wall wallpaper';
+      subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">'+fwWpLabel+'</span><span class="breakdown-sub-value">'+fmt(c.featureWallWpCost*mk)+'</span></div>';
+    }
     if(c.panelCost>0) {
       var panelPrepUp2 = c.panelPrepUp;
       var panelPrepLabel = prepLabelFor(panelPrepUp2);
