@@ -1,6 +1,6 @@
 # Wallpaper — Wide Vinyl & Mural Types — Feature Spec (v1)
 
-**Status: BUILT** (2026-07-20, feature-wall-only per section 2's recommendation, confirmed by Nicky). Matches [estimating-app-edits.md](estimating-app-edits.md) item 13. Verified end-to-end in the static preview: linear-metre/area calc, £0-default Settings rates, £200 minimum floor still applies on top, save/edit round-trip all confirmed working.
+**Status: BUILT & COMMITTED** (2026-07-20, commit `a8e105d`, feature-wall-only per section 2's recommendation, confirmed by Nicky). Matches [estimating-app-edits.md](estimating-app-edits.md) item 13. Verified end-to-end in the static preview: linear-metre/area calc, £0-default Settings rates, £200 minimum floor still applies on top, save/edit round-trip all confirmed working.
 
 **For:** Nicky Hawkins Painter & Decorator estimating app
 **Feature:** Commercial wallpaper types (Wide Vinyl, Mural) alongside the existing domestic roll-based wallpaper calculator.
