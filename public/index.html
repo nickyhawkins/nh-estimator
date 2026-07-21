@@ -1049,11 +1049,20 @@ async function apiDeleteStrict(path) {
 // switchJob() can await a full flush of the OLD job before reassigning
 // activeJobId -- existing call sites that don't need to wait just don't
 // consume the return value, unaffected.
+//
+// pendingSaves records each collection's latest in-flight flush. Every edit
+// path already calls its save*() the moment data changes, so by switch time
+// the server is up to date -- switchJob() awaits these recorded promises
+// (preserving the DELETE/PUT-vs-activeJobId race guarantee) instead of
+// re-uploading all four collections wholesale on every switch.
+var pendingSaves = { rooms: null, colours: null, extItems: null, materials: null };
+
 function saveRooms() {
   localStorage.setItem('pe-rooms', JSON.stringify(rooms));
-  return apiDelete('/api/rooms?job_id='+encodeURIComponent(activeJobId)).then(function() {
+  pendingSaves.rooms = apiDelete('/api/rooms?job_id='+encodeURIComponent(activeJobId)).then(function() {
     return Promise.all(rooms.map(function(r) { return apiPut('/api/rooms/'+r.id, Object.assign({}, r, {jobId: activeJobId})); }));
   });
+  return pendingSaves.rooms;
 }
 // Kitchen Cabinet Spray Calculator -- rate table shape. Draft v1 figures
 // (BUG estimating-app-edits.md #8): base = prep + 1st coat, coat = £ added
@@ -1764,79 +1773,6 @@ async function initApp() {
     // this because it reads activeJob() fresh at open time, always after this
     // point. Call it unconditionally here so both agree regardless of rooms.
     renderHome();
-    // Isolated (rooms/extitems now require job_id, so a not-yet-migrated
-    // DB must not abort the rest of this block — same reasoning as the
-    // colours/materials isolation below).
-    try {
-      var serverRooms = await apiGet('/api/rooms?job_id='+encodeURIComponent(activeJobId));
-      if (serverRooms && serverRooms.length > 0) {
-        rooms = serverRooms;
-        localStorage.setItem('pe-rooms', JSON.stringify(rooms));
-        renderHome();
-      }
-    } catch (e) {
-      console.log('Rooms fetch failed — running from local cache:', e.message);
-    }
-    try {
-      var extData = await apiGet('/api/extitems?job_id='+encodeURIComponent(activeJobId));
-      if (extData && extData.length > 0) {
-        extItems = extData;
-        localStorage.setItem('pe-extitems', JSON.stringify(extItems));
-        renderExterior();
-        renderSummary();
-      }
-    } catch (e) {
-      console.log('Exterior items fetch failed — running from local cache:', e.message);
-    }
-    // Isolated try/catch — a failure here (e.g. the colours table not existing
-    // yet on a database that hasn't had db/setup.sql re-run) must not abort
-    // the rest of this block, which still needs to reach the Xero status
-    // check below. ensureDefaultColour()/renderColours() run either way so
-    // colour 1 is ready immediately rather than only lazily on next render.
-    try {
-      var colourData = await apiGet('/api/colours?job_id='+encodeURIComponent(activeJobId));
-      if (colourData && colourData.length > 0) {
-        colours = colourData;
-        localStorage.setItem('pe-colours', JSON.stringify(colours));
-      }
-    } catch (e) {
-      console.log('Colours fetch failed — running from local cache:', e.message);
-    }
-    // Same isolated try/catch reasoning as colours above -- colour_library
-    // is a new table too. It's global/permanent (not job-scoped), so unlike
-    // rooms/colours there's no "clear if empty" case to worry about, just
-    // refresh the cache whenever the fetch succeeds.
-    try {
-      var libData = await apiGet('/api/colour-library');
-      if (libData && libData.length > 0) {
-        colourLibrary = libData;
-        localStorage.setItem('pe-colour-library', JSON.stringify(colourLibrary));
-      }
-    } catch (e) {
-      console.log('Colour library fetch failed — running from local cache:', e.message);
-    }
-    ensureDefaultColour();
-    renderColours();
-    // Isolated for the same reason as colours above -- the materials_snapshot
-    // table is new too, so a database that hasn't had db/setup.sql re-run
-    // yet must not abort the rest of this block.
-    try {
-      var materialsData = await apiGet('/api/materials?job_id='+encodeURIComponent(activeJobId));
-      if (materialsData && materialsData.length > 0) {
-        materialsSnapshot = materialsData;
-        localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot));
-      }
-    } catch (e) {
-      console.log('Materials snapshot fetch failed — running from local cache:', e.message);
-    }
-    // Same isolation, and the same reason -- material_actuals is newer still.
-    // Loaded eagerly (not just when Materials is opened) so the hamburger
-    // menu's outstanding-count badge is correct from the very first paint.
-    try {
-      await loadMaterialActuals();
-    } catch (e) {
-      console.log('Material actuals fetch failed — badge will show as clear until Materials is opened:', e.message);
-    }
     // Update server settings with exterior rates
     if (s && s.rExtMasonry != null) {
       settings.rExtMasonry = s.rExtMasonry; settings.rExtFascia = s.rExtFascia;
@@ -1870,21 +1806,97 @@ async function initApp() {
     // before these, so without this the local cache would miss them until
     // something else calls saveSettings().
     localStorage.setItem('pe-settings', JSON.stringify(settings));
-    var xeroStatus = await apiGet('/auth/status');
-    updateXeroButton(xeroStatus.connected);
-    if (xeroStatus.connected) {
-      // Populate materialGroupsCache at startup, not just on a manual Settings
-      // "Refresh from Xero" — computeMaterials() needs it wherever it runs
-      // (Summary, Send to Xero), which may happen without visiting Settings
-      // first in this session. Isolated try/catch so a failure here doesn't
-      // mark the whole sync as failed.
-      try {
-        applyMaterialGroupsResponse(await apiGet('/auth/material-groups'));
-        renderMaterialsSettings();
-      } catch (e) {
-        console.log('Material groups fetch failed — Settings materials will show as unmapped until Refresh is used');
-      }
-    }
+
+    // Everything below is independent of everything else -- only settings
+    // (patched above, so the Xero branch's renderMaterialsSettings() sees
+    // the mapped materials) and jobs (activeJobId must be resolved before
+    // any job-scoped fetch) had to come first. Run the lot concurrently:
+    // this used to be ~7 more serialized round trips, which on mobile
+    // latency is the difference between an instant app and seconds of
+    // stale UI. Each branch keeps its own isolated catch, same as before,
+    // so a missing table on a not-yet-migrated DB (or one flaky request)
+    // only loses that one fetch, never the rest.
+    var syncJobId = activeJobId;
+    await Promise.all([
+      // Rooms
+      apiGet('/api/rooms?job_id='+encodeURIComponent(syncJobId)).then(function(serverRooms) {
+        if (serverRooms && serverRooms.length > 0) {
+          rooms = serverRooms;
+          localStorage.setItem('pe-rooms', JSON.stringify(rooms));
+          renderHome();
+        }
+      }).catch(function(e) {
+        console.log('Rooms fetch failed — running from local cache:', e.message);
+      }),
+      // Exterior items
+      apiGet('/api/extitems?job_id='+encodeURIComponent(syncJobId)).then(function(extData) {
+        if (extData && extData.length > 0) {
+          extItems = extData;
+          localStorage.setItem('pe-extitems', JSON.stringify(extItems));
+          renderExterior();
+          renderSummary();
+        }
+      }).catch(function(e) {
+        console.log('Exterior items fetch failed — running from local cache:', e.message);
+      }),
+      // Colours + colour library -- ensureDefaultColour()/renderColours()
+      // must run after BOTH (and run either way, so colour 1 is ready
+      // immediately rather than only lazily on next render), hence the
+      // nested pair.
+      Promise.all([
+        apiGet('/api/colours?job_id='+encodeURIComponent(syncJobId)).then(function(colourData) {
+          if (colourData && colourData.length > 0) {
+            colours = colourData;
+            localStorage.setItem('pe-colours', JSON.stringify(colours));
+          }
+        }).catch(function(e) {
+          console.log('Colours fetch failed — running from local cache:', e.message);
+        }),
+        // colour_library is global/permanent (not job-scoped), so unlike
+        // rooms/colours there's no "clear if empty" case to worry about,
+        // just refresh the cache whenever the fetch succeeds.
+        apiGet('/api/colour-library').then(function(libData) {
+          if (libData && libData.length > 0) {
+            colourLibrary = libData;
+            localStorage.setItem('pe-colour-library', JSON.stringify(colourLibrary));
+          }
+        }).catch(function(e) {
+          console.log('Colour library fetch failed — running from local cache:', e.message);
+        })
+      ]).then(function() {
+        ensureDefaultColour();
+        renderColours();
+      }),
+      // Materials snapshot
+      apiGet('/api/materials?job_id='+encodeURIComponent(syncJobId)).then(function(materialsData) {
+        if (materialsData && materialsData.length > 0) {
+          materialsSnapshot = materialsData;
+          localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot));
+        }
+      }).catch(function(e) {
+        console.log('Materials snapshot fetch failed — running from local cache:', e.message);
+      }),
+      // Material actuals -- loaded eagerly (not just when Materials is
+      // opened) so the hamburger badge is correct from the very first paint.
+      loadMaterialActuals().catch(function(e) {
+        console.log('Material actuals fetch failed — badge will show as clear until Materials is opened:', e.message);
+      }),
+      // Xero status, then (if connected) the material-groups cache --
+      // populated at startup, not just on a manual Settings "Refresh from
+      // Xero", since computeMaterials() needs it wherever it runs. The
+      // status fetch itself deliberately has no catch: like before, its
+      // failure falls through to the outer catch and marks the sync failed.
+      apiGet('/auth/status').then(function(xeroStatus) {
+        updateXeroButton(xeroStatus.connected);
+        if (!xeroStatus.connected) return;
+        return apiGet('/auth/material-groups').then(function(resp) {
+          applyMaterialGroupsResponse(resp);
+          renderMaterialsSettings();
+        }).catch(function(e) {
+          console.log('Material groups fetch failed — Settings materials will show as unmapped until Refresh is used');
+        });
+      })
+    ]);
     updateNavBadge();
     serverAvailable = true;
   } catch(err) {
@@ -2013,32 +2025,35 @@ function activeJob() {
 // memory from the server and re-renders. Same shape as the corresponding
 // isolated try/catch blocks in initApp(), reused on every job switch.
 async function loadActiveJobData() {
-  try {
-    var serverRooms = await apiGet('/api/rooms?job_id='+encodeURIComponent(activeJobId));
-    rooms = serverRooms || [];
-    localStorage.setItem('pe-rooms', JSON.stringify(rooms));
-  } catch (e) { rooms = []; }
-  try {
-    var extData = await apiGet('/api/extitems?job_id='+encodeURIComponent(activeJobId));
-    extItems = extData || [];
-    localStorage.setItem('pe-extitems', JSON.stringify(extItems));
-  } catch (e) { extItems = []; }
-  try {
-    var colourData = await apiGet('/api/colours?job_id='+encodeURIComponent(activeJobId));
-    colours = colourData || [];
-    localStorage.setItem('pe-colours', JSON.stringify(colours));
-  } catch (e) { colours = []; }
-  try {
-    var materialsData = await apiGet('/api/materials?job_id='+encodeURIComponent(activeJobId));
-    materialsSnapshot = materialsData || [];
-    localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot));
-  } catch (e) { materialsSnapshot = []; }
-  // Actuals are job-scoped too, and don't live in localStorage (see the "no
-  // localStorage mirror" note in MATERIAL_TRACKING_SPEC.md) -- load them here
-  // as well, so switching jobs updates the hamburger badge to the NEW job's
-  // outstanding count rather than leaving the old job's number on screen.
-  try { materialActuals = (await apiGet('/api/actuals?job_id='+encodeURIComponent(activeJobId))) || []; }
-  catch (e) { materialActuals = []; }
+  // The five fetches are independent of one another -- run them
+  // concurrently (one round trip of latency per switch instead of five).
+  // Each keeps its own isolated failure handling, same as before.
+  var jobId = activeJobId;
+  await Promise.all([
+    apiGet('/api/rooms?job_id='+encodeURIComponent(jobId)).then(function(d) {
+      rooms = d || [];
+      localStorage.setItem('pe-rooms', JSON.stringify(rooms));
+    }).catch(function() { rooms = []; }),
+    apiGet('/api/extitems?job_id='+encodeURIComponent(jobId)).then(function(d) {
+      extItems = d || [];
+      localStorage.setItem('pe-extitems', JSON.stringify(extItems));
+    }).catch(function() { extItems = []; }),
+    apiGet('/api/colours?job_id='+encodeURIComponent(jobId)).then(function(d) {
+      colours = d || [];
+      localStorage.setItem('pe-colours', JSON.stringify(colours));
+    }).catch(function() { colours = []; }),
+    apiGet('/api/materials?job_id='+encodeURIComponent(jobId)).then(function(d) {
+      materialsSnapshot = d || [];
+      localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot));
+    }).catch(function() { materialsSnapshot = []; }),
+    // Actuals are job-scoped too, and don't live in localStorage (see the "no
+    // localStorage mirror" note in MATERIAL_TRACKING_SPEC.md) -- load them here
+    // as well, so switching jobs updates the hamburger badge to the NEW job's
+    // outstanding count rather than leaving the old job's number on screen.
+    apiGet('/api/actuals?job_id='+encodeURIComponent(jobId)).then(function(d) {
+      materialActuals = d || [];
+    }).catch(function() { materialActuals = []; })
+  ]);
   ensureDefaultColour();
   var loadedJob = activeJob();
   var xc = document.getElementById('xero-client'); if (xc) xc.value = (loadedJob && loadedJob.xeroClient) || '';
@@ -2067,7 +2082,19 @@ async function loadActiveJobData() {
 // then loads the new job's data.
 async function switchJob(id) {
   if (id === activeJobId) return;
-  await Promise.all([saveRooms(), saveColours(), saveExtItems(), saveMaterialsSnapshot()]);
+  if (serverAvailable) {
+    // Every edit path already flushed via its save*() as the edit happened,
+    // so the server is current -- awaiting the recorded in-flight promises
+    // keeps the race guarantee without re-uploading all four collections
+    // (previously: 4 DELETEs + one PUT per row of unchanged data, per switch).
+    await Promise.all([pendingSaves.rooms, pendingSaves.colours, pendingSaves.extItems, pendingSaves.materials]);
+  } else {
+    // A save is known to have failed since the last successful request --
+    // this full re-flush is the retry that gets the old job's local edits
+    // onto the server before its localStorage mirror is overwritten by the
+    // new job's data below.
+    await Promise.all([saveRooms(), saveColours(), saveExtItems(), saveMaterialsSnapshot()]);
+  }
   activeJobId = id;
   localStorage.setItem('pe-active-job-id', activeJobId);
   await loadActiveJobData();
@@ -3266,9 +3293,10 @@ var materialsSnapshot = [];
 
 function saveMaterialsSnapshot() {
   localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot));
-  return apiDelete('/api/materials?job_id='+encodeURIComponent(activeJobId)).then(function() {
+  pendingSaves.materials = apiDelete('/api/materials?job_id='+encodeURIComponent(activeJobId)).then(function() {
     return Promise.all(materialsSnapshot.map(function(l) { return apiPut('/api/materials/'+l.id, Object.assign({}, l, {jobId: activeJobId})); }));
   });
+  return pendingSaves.materials;
 }
 
 // Rebuilds the snapshot from scratch out of whatever computeMaterials()
@@ -3965,9 +3993,10 @@ var colourLibrary = [];
 
 function saveColours() {
   localStorage.setItem('pe-colours', JSON.stringify(colours));
-  return apiDelete('/api/colours?job_id='+encodeURIComponent(activeJobId)).then(function() {
+  pendingSaves.colours = apiDelete('/api/colours?job_id='+encodeURIComponent(activeJobId)).then(function() {
     return Promise.all(colours.map(function(c) { return apiPut('/api/colours/'+c.number, { label: c.label, brand: c.brand||'', code: c.code||'', jobId: activeJobId }); }));
   });
+  return pendingSaves.colours;
 }
 
 // Colour 1 is the implicit default every room falls back to (unset
@@ -5121,9 +5150,11 @@ function clearExteriorItems() {
 }
 
 function saveExtItems() {
-  return apiDelete('/api/extitems?job_id='+encodeURIComponent(activeJobId)).then(function() {
+  localStorage.setItem('pe-extitems', JSON.stringify(extItems));
+  pendingSaves.extItems = apiDelete('/api/extitems?job_id='+encodeURIComponent(activeJobId)).then(function() {
     return Promise.all(extItems.map(function(item) { return apiPut('/api/extitems/'+item.id, Object.assign({}, item, {jobId: activeJobId})); }));
   });
+  return pendingSaves.extItems;
 }
 
 function renderExterior() {
