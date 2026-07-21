@@ -1059,9 +1059,11 @@ var pendingSaves = { rooms: null, colours: null, extItems: null, materials: null
 
 function saveRooms() {
   localStorage.setItem('pe-rooms', JSON.stringify(rooms));
-  pendingSaves.rooms = apiDelete('/api/rooms?job_id='+encodeURIComponent(activeJobId)).then(function() {
-    return Promise.all(rooms.map(function(r) { return apiPut('/api/rooms/'+r.id, Object.assign({}, r, {jobId: activeJobId})); }));
-  });
+  // One transactional replace-all request (see PUT /rooms in routes/api.js)
+  // -- previously a DELETE followed by one PUT per room, which was O(rooms)
+  // round trips per edit and could leave the server's copy empty if a PUT
+  // dropped after the DELETE landed. Same for the other three save*() below.
+  pendingSaves.rooms = apiPut('/api/rooms?job_id='+encodeURIComponent(activeJobId), { rooms: rooms });
   return pendingSaves.rooms;
 }
 // Kitchen Cabinet Spray Calculator -- rate table shape. Draft v1 figures
@@ -3293,9 +3295,7 @@ var materialsSnapshot = [];
 
 function saveMaterialsSnapshot() {
   localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot));
-  pendingSaves.materials = apiDelete('/api/materials?job_id='+encodeURIComponent(activeJobId)).then(function() {
-    return Promise.all(materialsSnapshot.map(function(l) { return apiPut('/api/materials/'+l.id, Object.assign({}, l, {jobId: activeJobId})); }));
-  });
+  pendingSaves.materials = apiPut('/api/materials?job_id='+encodeURIComponent(activeJobId), { lines: materialsSnapshot });
   return pendingSaves.materials;
 }
 
@@ -3993,8 +3993,8 @@ var colourLibrary = [];
 
 function saveColours() {
   localStorage.setItem('pe-colours', JSON.stringify(colours));
-  pendingSaves.colours = apiDelete('/api/colours?job_id='+encodeURIComponent(activeJobId)).then(function() {
-    return Promise.all(colours.map(function(c) { return apiPut('/api/colours/'+c.number, { label: c.label, brand: c.brand||'', code: c.code||'', jobId: activeJobId }); }));
+  pendingSaves.colours = apiPut('/api/colours?job_id='+encodeURIComponent(activeJobId), {
+    colours: colours.map(function(c) { return { number: c.number, label: c.label, brand: c.brand||'', code: c.code||'' }; })
   });
   return pendingSaves.colours;
 }
@@ -5151,9 +5151,7 @@ function clearExteriorItems() {
 
 function saveExtItems() {
   localStorage.setItem('pe-extitems', JSON.stringify(extItems));
-  pendingSaves.extItems = apiDelete('/api/extitems?job_id='+encodeURIComponent(activeJobId)).then(function() {
-    return Promise.all(extItems.map(function(item) { return apiPut('/api/extitems/'+item.id, Object.assign({}, item, {jobId: activeJobId})); }));
-  });
+  pendingSaves.extItems = apiPut('/api/extitems?job_id='+encodeURIComponent(activeJobId), { items: extItems });
   return pendingSaves.extItems;
 }
 

@@ -17,6 +17,40 @@ function requireJobId(req, res) {
   return jobId;
 }
 
+// Transactional replace-all, shared by the four bulk PUT collection routes
+// below (rooms / extitems / colours / materials). The client's save*()
+// functions used to DELETE the whole collection then PUT each row as
+// separate requests — O(rows) round trips per edit, and a PUT dropping
+// after the DELETE landed left the server's copy empty until the next full
+// save (the localStorage mirror was the only recovery). Here the whole new
+// set lands or nothing changes.
+//
+// created_at is set to clock_timestamp() per row, NOT the default NOW():
+// NOW() is the transaction timestamp, identical for every row in the loop,
+// and the GET routes order by created_at ASC — all-tied timestamps would
+// make list order nondeterministic. clock_timestamp() advances within the
+// transaction, so the client's array order is preserved exactly.
+//
+// NB material_actuals is deliberately NOT given a bulk replace-all route —
+// see the save-strategy comment on the actuals section below; a
+// transaction would make it safe, but one-row-per-PUT keeps the invoice's
+// blast radius at a single row and there's no N-row save path to speed up.
+async function replaceAllRows(res, jobId, table, rows, insertRow) {
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`DELETE FROM ${table} WHERE job_id = $1`, [jobId]);
+    for (const row of rows) await insertRow(client, row);
+    await client.query('COMMIT');
+    res.json({ ok: true });
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (e) {}
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+}
+
 // ── Jobs ───────────────────────────────────────────────────────────────────
 // Global list of jobs. Fully separate — no duplicate-as-template. Each job
 // owns its own rooms/exterior_items/colours/materials_snapshot rows below.
@@ -106,6 +140,20 @@ router.put('/rooms/:id', async (req, res) => {
   }
 });
 
+// Replace a job's entire room list in one transaction (see replaceAllRows)
+router.put('/rooms', async (req, res) => {
+  const jobId = requireJobId(req, res); if (!jobId) return;
+  const rows = req.body && req.body.rooms;
+  if (!Array.isArray(rows)) return res.status(400).json({ error: 'rooms array is required' });
+  await replaceAllRows(res, jobId, 'rooms', rows, (client, room) => {
+    const { id, name, jobId: _drop, ...data } = room;
+    return client.query(
+      'INSERT INTO rooms (id, job_id, name, data, created_at, updated_at) VALUES ($1, $2, $3, $4, clock_timestamp(), NOW())',
+      [id, jobId, name || 'Room', data]
+    );
+  });
+});
+
 // Delete a room (id is already globally unique, no job_id needed)
 router.delete('/rooms/:id', async (req, res) => {
   try {
@@ -158,6 +206,20 @@ router.put('/extitems/:id', async (req, res) => {
   }
 });
 
+// Replace a job's entire exterior-item list in one transaction (see replaceAllRows)
+router.put('/extitems', async (req, res) => {
+  const jobId = requireJobId(req, res); if (!jobId) return;
+  const rows = req.body && req.body.items;
+  if (!Array.isArray(rows)) return res.status(400).json({ error: 'items array is required' });
+  await replaceAllRows(res, jobId, 'exterior_items', rows, (client, item) => {
+    const { id, label, jobId: _drop, ...data } = item;
+    return client.query(
+      'INSERT INTO exterior_items (id, job_id, label, data, created_at, updated_at) VALUES ($1, $2, $3, $4, clock_timestamp(), NOW())',
+      [id, jobId, label || 'Exterior', data]
+    );
+  });
+});
+
 router.delete('/extitems/:id', async (req, res) => {
   try {
     await db.query('DELETE FROM exterior_items WHERE id = $1', [req.params.id]);
@@ -207,6 +269,20 @@ router.put('/colours/:number', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Replace a job's entire colour list in one transaction (see replaceAllRows).
+// No created_at handling needed here — colours order by number, not date.
+router.put('/colours', async (req, res) => {
+  const jobId = requireJobId(req, res); if (!jobId) return;
+  const rows = req.body && req.body.colours;
+  if (!Array.isArray(rows)) return res.status(400).json({ error: 'colours array is required' });
+  await replaceAllRows(res, jobId, 'colours', rows, (client, c) => {
+    return client.query(
+      'INSERT INTO colours (number, job_id, label, brand, code, updated_at) VALUES ($1, $2, $3, $4, $5, NOW())',
+      [+c.number, jobId, c.label || '', c.brand || '', c.code || '']
+    );
+  });
 });
 
 router.delete('/colours/:number', async (req, res) => {
@@ -289,6 +365,20 @@ router.put('/materials/:id', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Replace a job's entire materials snapshot in one transaction (see replaceAllRows)
+router.put('/materials', async (req, res) => {
+  const jobId = requireJobId(req, res); if (!jobId) return;
+  const rows = req.body && req.body.lines;
+  if (!Array.isArray(rows)) return res.status(400).json({ error: 'lines array is required' });
+  await replaceAllRows(res, jobId, 'materials_snapshot', rows, (client, line) => {
+    const { id, jobId: _drop, ...data } = line;
+    return client.query(
+      'INSERT INTO materials_snapshot (id, job_id, data, created_at, updated_at) VALUES ($1, $2, $3, clock_timestamp(), NOW())',
+      [id, jobId, data]
+    );
+  });
 });
 
 router.delete('/materials/:id', async (req, res) => {
