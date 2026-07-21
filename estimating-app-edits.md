@@ -1,7 +1,18 @@
 # Estimating App — Edit Requests
 
-## 1. Bug: Cannot delete all materials from summary
+## 1. Bug: Cannot delete all materials from summary — FIXED
 Deleting materials from the summary page fails when trying to clear the entire list (removing the last remaining item, or all items at once, doesn't work as expected). Needs investigation and fix.
+
+Root cause (reproduced with an automated two-browser-context test): initApp()'s
+server sync only accepted the server's materials list when it was NON-empty, so
+any browser context with a stale localStorage copy (a second device, or iOS
+Safari vs the installed home-screen app — separate storage) resurrected the
+deleted lines on screen and re-saved them to the server on the next edit. The
+same guard existed for rooms/exterior items/colours. Fixed by treating a
+successful server response as authoritative even when empty (matching what
+loadActiveJobData() already did on every job switch); a FAILED fetch still
+falls back to the local cache. The delete → re-render → reload path itself was
+already sound via the materialsSeeded flag (2026-07-15 fix).
 
 ## 2. Editable markup on summary page
 - Markup should be editable directly on the summary page, allowing a per-quote override.

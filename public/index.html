@@ -1899,25 +1899,34 @@ async function initApp() {
     // so a missing table on a not-yet-migrated DB (or one flaky request)
     // only loses that one fetch, never the rest.
     var syncJobId = activeJobId;
+    // For the four job-scoped collections below, a SUCCESSFUL response is
+    // authoritative even when it's empty -- "the server has no rows" is
+    // real data (the user deleted them, possibly in another browser
+    // context: a second device, or iOS Safari vs the installed
+    // home-screen app, which keep separate localStorage). The old
+    // `length > 0` guards kept the local cache in that case, silently
+    // resurrecting deleted rows on screen and then re-saving them on the
+    // next edit -- the "can't delete all materials" bug
+    // (estimating-app-edits.md #1). The catch paths still fall back to
+    // the local cache on a FAILED fetch (offline, or a table missing on
+    // a not-yet-migrated DB), which is the case those guards were
+    // actually for. loadActiveJobData() has always behaved this way on
+    // every job switch; this makes startup match it.
     await Promise.all([
       // Rooms
       apiGet('/api/rooms?job_id='+encodeURIComponent(syncJobId)).then(function(serverRooms) {
-        if (serverRooms && serverRooms.length > 0) {
-          rooms = serverRooms;
-          localStorage.setItem('pe-rooms', JSON.stringify(rooms));
-          renderHome();
-        }
+        rooms = serverRooms || [];
+        localStorage.setItem('pe-rooms', JSON.stringify(rooms));
+        renderHome();
       }).catch(function(e) {
         console.log('Rooms fetch failed — running from local cache:', e.message);
       }),
       // Exterior items
       apiGet('/api/extitems?job_id='+encodeURIComponent(syncJobId)).then(function(extData) {
-        if (extData && extData.length > 0) {
-          extItems = extData;
-          localStorage.setItem('pe-extitems', JSON.stringify(extItems));
-          renderExterior();
-          renderSummary();
-        }
+        extItems = extData || [];
+        localStorage.setItem('pe-extitems', JSON.stringify(extItems));
+        renderExterior();
+        renderSummary();
       }).catch(function(e) {
         console.log('Exterior items fetch failed — running from local cache:', e.message);
       }),
@@ -1927,10 +1936,8 @@ async function initApp() {
       // nested pair.
       Promise.all([
         apiGet('/api/colours?job_id='+encodeURIComponent(syncJobId)).then(function(colourData) {
-          if (colourData && colourData.length > 0) {
-            colours = colourData;
-            localStorage.setItem('pe-colours', JSON.stringify(colours));
-          }
+          colours = colourData || [];
+          localStorage.setItem('pe-colours', JSON.stringify(colours));
         }).catch(function(e) {
           console.log('Colours fetch failed — running from local cache:', e.message);
         }),
@@ -1951,10 +1958,8 @@ async function initApp() {
       }),
       // Materials snapshot
       apiGet('/api/materials?job_id='+encodeURIComponent(syncJobId)).then(function(materialsData) {
-        if (materialsData && materialsData.length > 0) {
-          materialsSnapshot = materialsData;
-          localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot));
-        }
+        materialsSnapshot = materialsData || [];
+        localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot));
       }).catch(function(e) {
         console.log('Materials snapshot fetch failed — running from local cache:', e.message);
       }),
