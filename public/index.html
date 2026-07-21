@@ -669,8 +669,8 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Ext Door incl frame<small>mins total (2 coats)</small></div><input type="number" class="field-input" id="s-rextdoor" value="150" min="1" step="5" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Garage Door<small>mins total (2 coats)</small></div><input type="number" class="field-input" id="s-rextgarage" value="150" min="1" step="5" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Sash multiplier<small>% on top of window rate, for sash complexity</small></div><input type="number" class="field-input" id="s-rsashmultiplier" value="20" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Access — 1st floor<small>% uplift, ladder work</small></div><input type="number" class="field-input" id="s-raccessfirst" value="10" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Access — ladder/tower<small>% uplift, upper floors/scaffold</small></div><input type="number" class="field-input" id="s-raccessladder" value="25" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Access — 1st floor<small>% uplift, ladder from ground</small></div><input type="number" class="field-input" id="s-raccessfirst" value="10" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Access — 2nd floor +<small>% uplift, tower/scaffold</small></div><input type="number" class="field-input" id="s-raccessladder" value="25" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Resin repair<small>mins per patch</small></div><input type="number" class="field-input" id="s-rresin" value="22" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Reglaze<small>mins per pane</small></div><input type="number" class="field-input" id="s-rreglaze" value="15" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Draught-proofing strip<small>mins per window</small></div><input type="number" class="field-input" id="s-rdraught" value="20" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
@@ -885,7 +885,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       </div>
     </div>
     <div class="card">
-      <div class="card-header sec-toggle" onclick="toggleFormSection('ext-windows')"><span>Exterior Windows<small>casement — panes, access &amp; repairs are set per window</small></span><span class="sec-chev open" id="sec-chev-ext-windows">›</span></div>
+      <div class="card-header sec-toggle" onclick="toggleFormSection('ext-windows')"><span>Exterior Windows<small>casement — one row per matching group</small></span><span class="sec-chev open" id="sec-chev-ext-windows">›</span></div>
       <div class="card-body open" id="sec-ext-windows">
       <div id="ex-windows-list"></div>
       <div class="field-row" style="cursor:pointer" onclick="addExtWindow('windows')"><div class="field-label" style="color:var(--accent);font-weight:600">+ Add window</div></div>
@@ -913,7 +913,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       </div>
     </div>
     <div class="card">
-      <div class="card-header sec-toggle" onclick="toggleFormSection('ext-sash')"><span>Sash Window Restoration<small>qty for prime &amp; paint — access &amp; repairs per window, tap Repairs on each row</small></span><span class="sec-chev open" id="sec-chev-ext-sash">›</span></div>
+      <div class="card-header sec-toggle" onclick="toggleFormSection('ext-sash')"><span>Sash Window Restoration<small>prime &amp; paint — one row per matching group</small></span><span class="sec-chev open" id="sec-chev-ext-sash">›</span></div>
       <div class="card-body open" id="sec-ext-sash">
       <div id="ex-sash-list"></div>
       <div class="field-row" style="cursor:pointer" onclick="addExtWindow('sashWindows')"><div class="field-label" style="color:var(--accent);font-weight:600">+ Add sash window</div></div>
@@ -3195,8 +3195,8 @@ function extWoodworkLitres(item) {
   var aGar  = settings.extAreaGarage!=null ? settings.extAreaGarage : 6;
   var fasciaW = settings.extFasciaWidth!=null ? settings.extFasciaWidth : 0.35;
   var areaCoats = 0;
-  areaCoats += windows.length      * aWin  * (mc['ex-wins']  || 2);
-  areaCoats += sashWindows.length   * aSash * 2;                       // sash prime & paint = fixed 2 passes
+  areaCoats += extWindowCount(windows)     * aWin  * (mc['ex-wins']  || 2);
+  areaCoats += extWindowCount(sashWindows) * aSash * 2;                // sash prime & paint = fixed 2 passes
   areaCoats += (+item.doors  || 0)  * aDoor * (mc['ex-doors'] || 2);
   areaCoats += (+item.garage || 0)  * aGar  * (mc['ex-garage']|| 2);
   areaCoats += (+item.fascia || 0)  * fasciaW * (mc['ex-fascia'] || 2);
@@ -4558,10 +4558,13 @@ var editExtId = null;
 var extItemCoats = {'ex-masonry':2,'ex-fascia':2,'ex-wins':2,'ex-doors':2,'ex-garage':2};
 var exPrepPct = 0;
 // Form-local window lists (not the saved item's own arrays until Save is
-// tapped) -- each window/sash window is its own {panes} record, since a
-// 2-pane window is far less work than a 16-pane one and a flat qty can't
-// capture that. Mirrors the materials-list add/remove idiom
-// (addCustomMaterialLine/deleteMaterialLine), not a new UI pattern.
+// tapped) -- each row is a {qty, panes, access, ...repairs} record describing
+// a GROUP of identical windows, since a 2-pane window is far less work than a
+// 16-pane one and a flat count can't capture that. qty (default 1) exists so
+// "8 matching casements" is one row, not eight -- everything on the row,
+// repairs included, applies to EACH window in the group; a window needing
+// different repairs gets its own row. Mirrors the materials-list add/remove
+// idiom (addCustomMaterialLine/deleteMaterialLine), not a new UI pattern.
 var extFormWindows = [];
 var extFormSashWindows = [];
 
@@ -4572,8 +4575,17 @@ function extWindowFormArray(key) { return key === 'sashWindows' ? extFormSashWin
 // shown collapsed by default per window row, with a "Repairs" toggle to
 // expand -- avoids cluttering the row for the common case (no repairs) while
 // keeping them tied to the specific window they're on, per window not item.
-function extWindowHasRepairs(w) {
-  return !!(w.resin || w.reglaze || w.draught || w.cords || w.staffBeads || w.partingBeads);
+// The summary echoes what's set so a quote can be sanity-checked without
+// expanding every row.
+function extWindowRepairSummary(w) {
+  var parts = [];
+  if (+w.resin)   parts.push('resin '+(+w.resin));
+  if (+w.reglaze) parts.push('reglaze '+(+w.reglaze));
+  if (w.draught)      parts.push('draught');
+  if (w.cords)        parts.push('cords');
+  if (w.staffBeads)   parts.push('staff beads');
+  if (w.partingBeads) parts.push('parting beads');
+  return parts.join(', ');
 }
 
 function renderExtWindowList(key) {
@@ -4582,7 +4594,10 @@ function renderExtWindowList(key) {
   if (!el) return;
   var isSash = key === 'sashWindows';
   el.innerHTML = list.map(function(w, i) {
-    var accessOpts = [['ground','Grd'],['firstFloor','1st'],['ladderTower','Ladder']];
+    var qty = extWindowQty(w);
+    // "2nd+" = anything above first-floor ladder reach (tower/scaffold);
+    // labels match the two access-uplift settings, keys stay as saved.
+    var accessOpts = [['ground','Grd'],['firstFloor','1st'],['ladderTower','2nd+']];
     var accessBtns = accessOpts.map(function(o) {
       return '<button type="button" class="seg-btn'+((w.access||'ground')===o[0]?' active':'')+'" onclick="setExtWindowField(\''+key+'\','+i+',\'access\',\''+o[0]+'\')">'+o[1]+'</button>';
     }).join('');
@@ -4593,6 +4608,7 @@ function renderExtWindowList(key) {
     }).join('');
     var repairsBody = w._open ?
       '<div class="field-row" style="background:var(--surface2);border-radius:8px;margin:2px 0 6px;flex-wrap:wrap;gap:8px">'+
+        (qty>1?'<div style="width:100%;font-size:11px;color:var(--text3)">Applies to each of the '+qty+' windows in this row</div>':'')+
         '<div style="width:100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+
           '<div class="field-label" style="flex:none;font-size:12px">Resin<small>patches</small></div>'+
           '<input type="number" class="field-input" style="max-width:56px" value="'+(w.resin||'')+'" min="0" step="1" inputmode="numeric" placeholder="0" onchange="setExtWindowField(\''+key+'\','+i+',\'resin\',this.value)">'+
@@ -4601,20 +4617,29 @@ function renderExtWindowList(key) {
         '</div>'+
         '<div style="display:flex;gap:6px;flex-wrap:wrap">'+chipsHtml+'</div>'+
       '</div>' : '';
+    var repSummary = extWindowRepairSummary(w);
     return '<div class="field-row" style="flex-wrap:wrap">'+
-      '<div class="field-label">'+(isSash?'Sash window':'Window')+' '+(i+1)+'<small>panes</small></div>'+
-      '<input type="number" class="field-input" style="max-width:50px" value="'+(w.panes!=null?w.panes:2)+'" min="1" step="1" inputmode="numeric" onchange="setExtWindowField(\''+key+'\','+i+',\'panes\',this.value)">'+
+      '<div class="field-label">'+(isSash?'Sash':'Window')+' '+(i+1)+'<small>qty × panes</small></div>'+
+      '<input type="number" class="field-input" style="max-width:44px" value="'+qty+'" min="1" step="1" inputmode="numeric" onchange="setExtWindowField(\''+key+'\','+i+',\'qty\',this.value)">'+
+      '<div style="color:var(--text3);flex:none">×</div>'+
+      '<input type="number" class="field-input" style="max-width:44px" value="'+(w.panes!=null?w.panes:2)+'" min="1" step="1" inputmode="numeric" onchange="setExtWindowField(\''+key+'\','+i+',\'panes\',this.value)">'+
       '<div class="seg" style="flex:none">'+accessBtns+'</div>'+
       '<div onclick="removeExtWindow(\''+key+'\','+i+')" style="color:var(--danger);font-size:22px;padding:0 4px;cursor:pointer">×</div>'+
       '<div style="width:100%;font-size:12px;color:var(--accent);font-weight:600;cursor:pointer;padding-top:2px" onclick="toggleExtWindowRepairsOpen(\''+key+'\','+i+')">'+
-        (w._open?'Repairs ▴':'Repairs ▾'+(extWindowHasRepairs(w)?' (set)':''))+
+        (w._open?'Repairs ▴':'Repairs ▾'+(repSummary?' · '+repSummary:''))+
       '</div>'+
     '</div>' + repairsBody;
   }).join('');
 }
 
 function addExtWindow(key) {
-  extWindowFormArray(key).push({ panes: 2, access: 'ground' });
+  var arr = extWindowFormArray(key);
+  // New rows copy the previous row's panes/access (consecutive windows on a
+  // house are usually alike) but start at qty 1 -- if the new window matched
+  // the last row completely you'd bump that row's qty, not add a row.
+  var last = arr[arr.length - 1];
+  arr.push(last ? { qty: 1, panes: last.panes || 2, access: last.access || 'ground' }
+                : { qty: 1, panes: 2, access: 'ground' });
   renderExtWindowList(key);
   previewExterior();
 }
@@ -4628,7 +4653,7 @@ function removeExtWindow(key, idx) {
 function setExtWindowField(key, idx, field, value) {
   var arr = extWindowFormArray(key);
   if (!arr[idx]) return;
-  if (field === 'panes') arr[idx].panes = Math.max(1, +value || 1);
+  if (field === 'panes' || field === 'qty') arr[idx][field] = Math.max(1, +value || 1);
   else if (field === 'resin' || field === 'reglaze') arr[idx][field] = Math.max(0, +value || 0);
   else arr[idx][field] = value;
   // Access is a seg-btn group (needs its active class moved on click), so
@@ -4703,15 +4728,23 @@ function extWindowRepairMins(w, isSash) {
   return mins;
 }
 
+// Each row is a group of identical windows; rows saved before the qty field
+// existed have no qty and count as 1, so old jobs cost out unchanged.
+function extWindowQty(w) { return Math.max(1, +w.qty || 1); }
+// Total window count across a list of rows (sum of qtys, not row count) --
+// feeds the materials litre estimate and the wins/sash convenience counts.
+function extWindowCount(list) {
+  return list.reduce(function(sum, w) { return sum + extWindowQty(w); }, 0);
+}
+
 // Windows/sash used to be a flat qty number with no per-window pane
 // data. Old saved items may still only have item.wins/item.sash (a
-// number) rather than item.windows/item.sashWindows (an array) -- treat
-// each as a baseline 2-pane window so existing jobs keep costing out the
-// same as before until re-saved, rather than silently losing windows.
+// number) rather than item.windows/item.sashWindows (an array) -- map
+// that count onto one baseline 2-pane row with qty = count so existing
+// jobs keep costing out the same as before until re-saved, rather than
+// silently losing windows.
 function legacyWindowList(qty) {
-  var list = [];
-  for (var i = 0; i < (+qty||0); i++) list.push({ panes: 2 });
-  return list;
+  return (+qty||0) > 0 ? [{ panes: 2, qty: +qty }] : [];
 }
 
 function calcExtItem(item) {
@@ -4731,8 +4764,8 @@ function calcExtItem(item) {
   // a repair belongs to the specific window it's on. Paint and repair mins
   // are tracked separately so repairsCost can be broken out for the Summary
   // breakdown, but both fold into winCost/sashCost for the total.
-  var winPaintMins  = windows.reduce(function(sum,w){ return sum + extWindowMins(w, winCoats); }, 0);
-  var winRepairMins = windows.reduce(function(sum,w){ return sum + extWindowRepairMins(w, false); }, 0);
+  var winPaintMins  = windows.reduce(function(sum,w){ return sum + extWindowQty(w) * extWindowMins(w, winCoats); }, 0);
+  var winRepairMins = windows.reduce(function(sum,w){ return sum + extWindowQty(w) * extWindowRepairMins(w, false); }, 0);
   var winCost  = (winPaintMins + winRepairMins) * r2;
   var doorCost    = doors   > 0 ? doors   * extDoorMins2()                       * r2 : 0;
   var garageCost  = garage  > 0 ? garage  * extGarageMins2()                     * r2 : 0;
@@ -4740,8 +4773,8 @@ function calcExtItem(item) {
   // Sash restoration has no coats toggle of its own -- "prime & paint" is
   // inherently a fixed 2-pass process, so coats is hardcoded here rather
   // than adding a UI control for it.
-  var sashPaintMins  = sashWindows.reduce(function(sum,w){ return sum + extSashWindowMins(w, 2); }, 0);
-  var sashRepairMins = sashWindows.reduce(function(sum,w){ return sum + extWindowRepairMins(w, true); }, 0);
+  var sashPaintMins  = sashWindows.reduce(function(sum,w){ return sum + extWindowQty(w) * extSashWindowMins(w, 2); }, 0);
+  var sashRepairMins = sashWindows.reduce(function(sum,w){ return sum + extWindowQty(w) * extWindowRepairMins(w, true); }, 0);
   var sashCost = (sashPaintMins + sashRepairMins) * r2;
   // Legacy fallback: jobs saved before repairs moved to per-window fields
   // still carry a flat item.resin/item.reglaze qty. Once the item is
@@ -5030,13 +5063,14 @@ function getExtFormData() {
     fascia:  +document.getElementById('ex-fascia').value||0,
     windows: cleanWindowList(extFormWindows),
     // wins/sash counts kept alongside the arrays -- harmless, and covers
-    // anything (CSV, older code) that still just wants a qty.
-    wins:    extFormWindows.length,
+    // anything (CSV, older code) that still just wants a qty. Sum of row
+    // qtys, not row count, since a row can hold several identical windows.
+    wins:    extWindowCount(extFormWindows),
     doors:   +document.getElementById('ex-doors').value||0,
     garage:  +document.getElementById('ex-garage').value||0,
     porch:   +document.getElementById('ex-porch').value||0,
     sashWindows: cleanWindowList(extFormSashWindows),
-    sash:    extFormSashWindows.length,
+    sash:    extWindowCount(extFormSashWindows),
     coats:   Object.assign({}, extItemCoats),
     masonryColourNumber: extColourNumbers['ext-masonry'],
     extWoodworkColourNumber: extColourNumbers['ext-woodwork'],
@@ -5067,8 +5101,8 @@ function editExtItem(id) {
   document.getElementById('ex-label').value = item.label||'';
   document.getElementById('ex-masonry').value = item.masonry||'';
   document.getElementById('ex-fascia').value  = item.fascia||'';
-  extFormWindows = (item.windows || legacyWindowList(item.wins)).map(function(w){ return Object.assign({ panes: w.panes||2, access: 'ground' }, w); });
-  extFormSashWindows = (item.sashWindows || legacyWindowList(item.sash)).map(function(w){ return Object.assign({ panes: w.panes||2, access: 'ground' }, w); });
+  extFormWindows = (item.windows || legacyWindowList(item.wins)).map(function(w){ return Object.assign({ qty: extWindowQty(w), panes: w.panes||2, access: 'ground' }, w); });
+  extFormSashWindows = (item.sashWindows || legacyWindowList(item.sash)).map(function(w){ return Object.assign({ qty: extWindowQty(w), panes: w.panes||2, access: 'ground' }, w); });
   renderExtWindowList('windows');
   renderExtWindowList('sashWindows');
   document.getElementById('ex-doors').value   = item.doors||'';
