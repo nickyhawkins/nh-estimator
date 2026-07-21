@@ -359,6 +359,15 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Manual area override<small>m² — for when only part is new plaster; blank uses the selected surface(s) above</small></div><input type="number" class="field-input" id="r-mist-area" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
       </div>
     </div>
+    <div class="card">
+      <div class="card-header sec-toggle" onclick="toggleFormSection('spray')"><span>Spray Application</span><span class="sec-chev" id="sec-chev-spray">›</span></div>
+      <div class="card-body" id="sec-spray">
+        <div class="toggle-row">
+          <div class="toggle-label">Spray walls<small>Wall litres use the sprayed coverage rate, and this room's labour picks up the spray sundries bump. Labour time is unchanged</small></div>
+          <div class="toggle" id="tog-spray" onclick="toggleSprayWalls()"></div>
+        </div>
+      </div>
+    </div>
     <div class="card searchable-card">
       <div class="card-header sec-toggle" onclick="toggleFormSection('paint')"><span>Paint &amp; Colour</span><span class="sec-chev" id="sec-chev-paint">›</span></div>
       <div class="card-body" id="sec-paint">
@@ -638,6 +647,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Hours Per Day</div><input type="number" class="field-input" id="s-hpd" value="7" min="1" max="12" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Markup<small>%</small></div><input type="number" class="field-input" id="s-mu" value="20" min="0" max="100" step="5" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Sundries &amp; Consumables<small>% of labour, before markup</small></div><input type="number" class="field-input" id="s-sundries" value="5" min="0" max="100" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Spray sundries bump<small>extra % on sprayed rooms' labour — masking film, tape &amp; paper</small></div><input type="number" class="field-input" id="s-sundriesspray" value="3" min="0" max="100" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Deposit<small>% of quote — or materials+sundries cost, whichever greater</small></div><input type="number" class="field-input" id="s-deposit-pct" value="25" min="0" max="100" step="5" inputmode="numeric" onchange="saveSettings()"></div>
     </div>
     <div class="card">
@@ -647,7 +657,8 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     </div>
     <div class="card">
       <div class="card-header">Coverage Rates</div>
-      <div class="field-row"><div class="field-label">Wall Emulsion<small>m² per litre</small></div><input type="number" class="field-input" id="s-cw" value="13" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Wall Emulsion<small>m² per litre — rolled</small></div><input type="number" class="field-input" id="s-cw" value="13" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Wall Emulsion — Sprayed<small>m² per litre — used when a room's Spray walls toggle is on</small></div><input type="number" class="field-input" id="s-cwspray" value="9" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Ceiling Emulsion<small>m² per litre</small></div><input type="number" class="field-input" id="s-cc" value="13" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Gloss / Satinwood<small>m² per litre</small></div><input type="number" class="field-input" id="s-cg" value="7" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Mist Coat<small>m² per litre — thinned product</small></div><input type="number" class="field-input" id="s-cmist" value="15" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
@@ -1574,10 +1585,10 @@ async function createXeroQuote() {
   btn.textContent = 'Creating...';
   btn.disabled = true;
   try {
-    var tcS = 0, ttS = 0;
+    var tcS = 0, ttS = 0, sprayLabourS = 0;
     var roomData = rooms.map(function(r) {
       var c = calcRoom(r);
-      tcS += c.total; ttS += c.time;
+      tcS += c.total; ttS += c.time; sprayLabourS += c.sprayLabour || 0;
       return { name: r.name, total: c.total };
     });
     var clientName = document.getElementById('xero-client').value.trim() || 'Client';
@@ -1618,7 +1629,7 @@ async function createXeroQuote() {
     tcS += extTotal + kitchenTotal;
     ttS += extTimeTotal + kitchenTimeTotal;
     var onSiteDays = realisticDays(ttS);
-    var depositPlan = computeDepositPlan(tcS, materialsTotal, onSiteDays);
+    var depositPlan = computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabourS);
     var paymentTerms = buildPaymentTermsText(depositPlan);
     var paymentSummary = buildPaymentSummaryText(depositPlan);
 
@@ -1870,10 +1881,12 @@ var SETTINGS_FIELDS = [
   ['hpd',          's-hpd',           7],
   ['mu',           's-mu',            20,  'markup'],
   ['sundriesPct',  's-sundries',      5],
+  ['sundriesSprayPct', 's-sundriesspray', 3],
   ['depositPct',   's-deposit-pct',   25],
   ['overheadMins', 's-overhead-mins', 45],
   ['bufferPct',    's-buffer-pct',    0],
   ['cw',           's-cw',            13,  'covWall'],
+  ['cwSpray',      's-cwspray',       9],
   ['cc',           's-cc',            13,  'covCeil'],
   ['cg',           's-cg',            7,   'covGloss'],
   ['cMist',        's-cmist',         15],
@@ -1968,6 +1981,7 @@ var editId   = null;
 var coats    = {wc:2, cc:2, xc:2};
 var mistWall = false;
 var mistCeil = false;
+var sprayWalls = false;
 // Lining and finish are independently toggleable per surface now (not a
 // single none/lining/finish choice) -- covers lining a wall then hanging
 // finish paper over it, both genuinely billable on the same area. See
@@ -2632,7 +2646,7 @@ function goScreen(name) {
   document.getElementById('screen-'+name).classList.add('active');
   if (name==='room') {
     resetFormSections();
-    editId=null; coats={wc:2,cc:2,xc:2}; mistWall=false; mistCeil=false; prepPct=10;
+    editId=null; coats={wc:2,cc:2,xc:2}; mistWall=false; mistCeil=false; sprayWalls=false; prepPct=10;
     roomIsStaircase=false; hslFloors=1; hslStairWalls={1:1,2:1}; hslCoats={swc:2};
     [['hsl-h1-l',''],['hsl-h1-w',''],['hsl-h1-h','2.4'],
      ['hsl-s1-steps','13'],['hsl-s1-w','0.9'],['hsl-s1-wallh','2.4'],['hsl-s1-riser','0.22'],['hsl-s1-tread','0.22'],['hsl-s1-topstep',''],
@@ -2673,6 +2687,7 @@ function goScreen(name) {
 
     document.getElementById('tog-mw').classList.remove('on');
     document.getElementById('tog-mc').classList.remove('on');
+    document.getElementById('tog-spray').classList.remove('on');
     wpWallLining=false; wpWallFinish=false; wpCeilLining=false; wpCeilFinish=false;
     ['wpw','wpc'].forEach(function(k){
       document.querySelectorAll('#seg-'+k+' .seg-btn').forEach(function(b){b.classList.remove('active');});
@@ -2787,8 +2802,15 @@ function calcRoom(r) {
   var woodCost = r.woodCostOverride != null ? +r.woodCostOverride :
                  (xc>0 ? (perim*skirtMins(xc) + doors*doorMins(xc))*r2 : 0);
   var radCost  = rads>0 ? rads*radMins()*r2 : 0;
-  var wL  = wc>0 ? Math.ceil(mainWallPaintArea*wc/settings.cw*2)/2 : 0;
-  var fwL = (!fwWallpaper && featureWallArea>0 && wc>0) ? Math.ceil(featureWallArea*wc/settings.cw*2)/2 : 0;
+  // Spray walls toggle: a MATERIALS-ONLY switch. Sprayed walls burn through
+  // paint faster (overspray, heavier film build), so litres divide by the
+  // sprayed coverage rate instead of the rolled one. Labour deliberately
+  // stays on wallMins() -- spraying's application speed vs masking time is
+  // treated as a wash. Ceiling/woodwork/mist coverage rates already assume
+  // spraying (that's how they were calibrated), so ONLY the wall rate forks.
+  var wallCov = r.sprayWalls ? (settings.cwSpray || settings.cw) : settings.cw;
+  var wL  = wc>0 ? Math.ceil(mainWallPaintArea*wc/wallCov*2)/2 : 0;
+  var fwL = (!fwWallpaper && featureWallArea>0 && wc>0) ? Math.ceil(featureWallArea*wc/wallCov*2)/2 : 0;
   // Normally painting the feature wall is already covered by wallCost
   // above, since that's costed on the FULL wallArea regardless of the
   // colour carve-out -- no extra labour needed for a real room. But a
@@ -2895,6 +2917,13 @@ function calcRoom(r) {
            fwCommercialType:fwCommercialType, featureWallVinylMetres:featureWallVinylResult?featureWallVinylResult.metres:0,
            featureWallMuralArea:featureWallMuralResult?featureWallMuralResult.area:0,
            panelCost:panelCost, panelL:panelL, panelArea:panelArea, panelRawCost:panelMinsCost,
+           // Sprayed rooms use extra masking consumables, so their labour
+           // carries the spray sundries bump on top of the job-wide sundries
+           // % -- see computeDepositPlan(). Exposed as this room's labour
+           // contribution to that bump's basis (0 for rolled rooms) so both
+           // Summary and createXeroQuote() sum the SAME figure instead of
+           // re-deriving which rooms are sprayed (the usual drift risk).
+           sprayLabour: r.sprayWalls ? total : 0,
            wpMinTopUp:wpMinTopUp, prepUp:prepUp, panelPrepUp:panelPrepUp};
 }
 
@@ -2967,9 +2996,14 @@ function realisticDays(workingDays) {
 // multi-week derivation) through to deposit/balance/weekly instalments --
 // used by renderSummary() AND createXeroQuote() (for the quote's Terms
 // text) so the two can never show different figures for the same job.
-function computeDepositPlan(tcS, materialsTotal, onSiteDays) {
+function computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabour) {
   var sundriesPct = (settings.sundriesPct||0)/100;
-  var sundries = tcS * sundriesPct;
+  // sprayLabour: summed labour of just the spray-toggled rooms (each room's
+  // calcRoom().sprayLabour) -- masking film/tape/paper on top of normal
+  // consumables, charged as an extra % on those rooms' labour only, not the
+  // whole job's.
+  var spraySundries = (sprayLabour||0) * (settings.sundriesSprayPct||0)/100;
+  var sundries = tcS * sundriesPct + spraySundries;
   var labourTotal = applyMarkupAmount(tcS+sundries);
   var total = labourTotal + materialsTotal;
 
@@ -3009,7 +3043,7 @@ function computeDepositPlan(tcS, materialsTotal, onSiteDays) {
     }
   }
 
-  return { sundries:sundries, labourTotal:labourTotal, total:total, deposit:deposit,
+  return { sundries:sundries, spraySundries:spraySundries, labourTotal:labourTotal, total:total, deposit:deposit,
            depositBasis:depositBasis, balance:balance, paymentType:paymentType,
            paymentWeeks:paymentWeeks, weeklyRows:weeklyRows };
 }
@@ -5921,6 +5955,10 @@ function toggleMist(key) {
   if(key==='mc') { mistCeil=!mistCeil; document.getElementById('tog-mc').classList.toggle('on',mistCeil); }
   previewRoom();
 }
+function toggleSprayWalls() {
+  sprayWalls=!sprayWalls; document.getElementById('tog-spray').classList.toggle('on',sprayWalls);
+  previewRoom();
+}
 function previewRoomNow() {
   // Shared fields (prep, making good, mist, wallpaper, windows/doors/
   // radiators) live on both room types now and all call previewRoom() on
@@ -5945,7 +5983,7 @@ function previewRoomNow() {
     doors:+document.getElementById('r-doors').value,
     win:+document.getElementById('r-win').value,
     rads:+document.getElementById('r-rads').value,
-    mistWall:mistWall, mistCeil:mistCeil,
+    mistWall:mistWall, mistCeil:mistCeil, sprayWalls:sprayWalls,
     wpWallLining:wpWallLining, wpWallFinish:wpWallFinish,
     wpCeilLining:wpCeilLining, wpCeilFinish:wpCeilFinish,
     wpRollLen:+document.getElementById('r-wp-roll-len').value||10.05,
@@ -6166,6 +6204,8 @@ function editRoom(id) {
   mistWall=!!r.mistWall; mistCeil=!!r.mistCeil;
   document.getElementById('tog-mw').classList.toggle('on',mistWall);
   document.getElementById('tog-mc').classList.toggle('on',mistCeil);
+  sprayWalls=!!r.sprayWalls;
+  document.getElementById('tog-spray').classList.toggle('on',sprayWalls);
   prepPct = r.prepPct != null ? r.prepPct : 10;
   var prepVals=[10,25,40,-1];
   document.querySelectorAll('#seg-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',prepVals[i]===prepPct);});
@@ -6291,7 +6331,7 @@ function buildRoomFromForm() {
     l:+document.getElementById('r-l').value, w:+document.getElementById('r-w').value, h:+document.getElementById('r-h').value,
     wc:coats.wc, cc:coats.cc, xc:coats.xc,
     win:+document.getElementById('r-win').value, doors:+document.getElementById('r-doors').value, rads:+document.getElementById('r-rads').value,
-    mistWall:mistWall, mistCeil:mistCeil,
+    mistWall:mistWall, mistCeil:mistCeil, sprayWalls:sprayWalls,
     wpWallLining:wpWallLining, wpWallFinish:wpWallFinish,
     wpCeilLining:wpCeilLining, wpCeilFinish:wpCeilFinish,
     wpRollLen:+document.getElementById('r-wp-roll-len').value||10.05,
@@ -6910,7 +6950,7 @@ function renderSummary() {
   var kitchenCalc = calcKitchen(activeJob() && activeJob().kitchen);
   if(rooms.length===0&&extItems.length===0&&kitchenCalc.total<=0){empty.style.display='flex';data.style.display='none';return;}
   empty.style.display='none'; data.style.display='block';
-  var tc=0,tt=0;
+  var tc=0,tt=0,sprayLabourS=0;
   // One calcRoom()/calcExtItem() evaluation per room/item for the whole
   // render -- the raw-total pass here and the per-row breakdowns below all
   // read from these arrays (each used to re-run the full calc, 2-3× per
@@ -6925,7 +6965,7 @@ function renderSummary() {
   var rawExtTotal = extCalcs.reduce(function(s,c){ return s + c.total; }, 0);
   var mu = markupRatio(rawRoomsTotal + rawExtTotal + kitchenCalc.total);
   var rows=rooms.map(function(r,ri){
-    var c=roomCalcs[ri]; tc+=c.total; tt+=c.time;
+    var c=roomCalcs[ri]; tc+=c.total; tt+=c.time; sprayLabourS+=c.sprayLabour||0;
     // Per-element costs, read straight from calcRoom()'s return (the same
     // figures c.total is built from) instead of re-implementing the
     // formulas inline -- keeping the two copies in sync by hand was this
@@ -6950,7 +6990,7 @@ function renderSummary() {
     var dispWallCost = r.wallCostStore != null ? +r.wallCostStore : wallCost;
     var dispCeilCost = r.ceilCostStore != null ? +r.ceilCostStore : ceilCost;
     var dispWoodCost = r.woodCostStore != null ? +r.woodCostStore : woodCost;
-    if(wc>0)  subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Walls</span><span class="breakdown-sub-value">'+fmt(dispWallCost*mk)+'</span></div>';
+    if(wc>0)  subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Walls'+(r.sprayWalls?' — sprayed':'')+'</span><span class="breakdown-sub-value">'+fmt(dispWallCost*mk)+'</span></div>';
     var mwC = c.mistWCost;
     var mcC = c.mistCCost;
     // Wallpaper labour -- reads c.wpwCost/c.wpcCost straight from
@@ -7065,7 +7105,7 @@ function renderSummary() {
   // computeDepositPlan() -- see its own comment for the formula. Shared with
   // createXeroQuote() so the quote's Terms text can never drift from what
   // Summary actually shows.
-  var plan = computeDepositPlan(tcS, materialsTotal, onSiteDays);
+  var plan = computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabourS);
   var sundries = plan.sundries, labourTotal = plan.labourTotal, total = plan.total,
       deposit = plan.deposit, depositBasis = plan.depositBasis, balance = plan.balance,
       paymentType = plan.paymentType, paymentWeeks = plan.paymentWeeks, weeklyRows = plan.weeklyRows;
@@ -7207,7 +7247,7 @@ function renderSummary() {
       '<span class="breakdown-label" style="font-weight:600;color:var(--text)">Labour subtotal</span>'+
       '<span class="breakdown-value" style="color:var(--accent)">'+fmt(tcS)+'</span></div>'+
     (sundries>0?'<div class="breakdown-row">'+
-      '<span class="breakdown-label">Sundries &amp; Consumables<small style="display:block;font-weight:400;color:var(--text2)">'+settings.sundriesPct+'% of labour</small></span>'+
+      '<span class="breakdown-label">Sundries &amp; Consumables<small style="display:block;font-weight:400;color:var(--text2)">'+settings.sundriesPct+'% of labour'+(plan.spraySundries>0?' + '+settings.sundriesSprayPct+'% spray masking on sprayed rooms':'')+'</small></span>'+
       '<span class="breakdown-value">'+fmt(sundries)+'</span></div>':'')+
     '<div class="breakdown-row">'+
       '<span class="breakdown-label" style="font-weight:600;color:var(--text)">'+markupSummaryLabel()+'<small style="display:block;font-weight:400;color:var(--text2)">on labour + sundries</small></span>'+
