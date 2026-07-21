@@ -125,12 +125,53 @@ When a job includes wallpaper for a feature wall only (not the whole room), the 
 ## 11. Wallpaper minimum price — BUILT
 Wallpaper jobs should have a minimum price floor of £200 — if the calculated cost comes out below this, the quote should default to charging £200 instead.
 
-## 13. Commercial wallpaper types: Wide Vinyl and Mural — BUILT
-
-Feature-wall-only, per [wallpaper-vinyl-mural-spec.md](wallpaper-vinyl-mural-spec.md) (Nicky confirmed that scope 2026-07-20). "Wallpaper Type" selector (Standard/Wide Vinyl/Mural) on the feature wall; Wide Vinyl priced by linear metre (roll width editable, 137cm default), Mural priced per m² or flat fee. New Settings rates all default to £0, pending Nicky's real numbers.
-
 ## 12. Retain contact data locally before pushing to Xero — BUILT
 - Contact data entered into the app (client name, address, phone, email etc.) should be saved and retained within the app itself, independent of Xero.
 - This data should NOT be lost when switching between jobs — currently entered/in-progress contact details need to persist per job even if not yet sent to Xero.
 - Add ability to manually push/sync saved contact data to Xero later, rather than requiring it to be entered directly in Xero or lost if the job is switched away from before syncing.
 - When syncing, the saved address must populate Xero's **billing address** field, NOT the delivery address field.
+
+## 13. Commercial wallpaper types: Wide Vinyl and Mural
+
+Add a "Wallpaper Type" selector to the wallpaper section: Standard Roll (existing calculation) / Wide Vinyl / Mural. Each type needs its own calculation logic — they don't fit the existing domestic roll-count model.
+
+Wide Vinyl
+
+Standard commercial vinyl width is 137cm (54"), versus ~53cm for standard domestic rolls — using the domestic roll-width assumption would badly under- or over-order material.
+Input: wall Width × Height (area in m²) rather than linear roll metres — the sourced UK trade rate (below) prices wide vinyl per m² of wall area for supply & hang, so area-based input matches how it's actually priced and keeps this consistent with the Mural input method.
+Small areas (0.5m² or under) are priced per item (Nr) rather than per m², reflecting a fixed minimum setup cost for small patches — the app should switch to a flat per-item rate below this threshold rather than scaling the m² rate down.
+Material is heavier/stiffer to hang than standard paper — reflected in the higher £/m² rate below versus standard lining paper.
+
+Mural (one-piece / digitally printed)
+
+No roll or pattern-repeat calculation needed — it's printed to the exact wall dimensions.
+Input: wall Width × Height only → calculates area in m².
+Priced per m² (or as a flat one-off, if preferred) rather than by roll/linear metre.
+No pattern-matching waste allowance needed, since it's printed to fit exactly.
+Install time is typically closer to fixed per mural (a few hours) rather than scaling directly with size the way multi-drop pattern-matched paper does — worth a flatter labour model than linear-with-area.
+
+Sourced pricing (from constructionrates.co.uk UK trade rate book — real data, not a placeholder)
+
+Wide Vinyl — Supply & Hang, PC Sum £4.00/m² material:
+
+Walls/columns, area over 0.5m²: £17.60/m² all-in (≈£13.60/m² labour once £4.00/m² material PC is stripped out)
+Walls/columns, area 0.5m² or under: £12.90 per item (Nr) — priced per small section rather than per m², reflecting the fixed setup cost of a small patch
+Ceilings/beams, area over 0.5m²: £18.90/m² all-in (≈£14.90/m² labour)
+Ceilings/beams, area 0.5m² or under: £13.50 per item (Nr)
+General surfaces of plasterboard (prep/sizing only, before hanging): £2.80/m²
+
+For comparison — standard lining paper and woodchip prep rates from the same source, useful context for where wide vinyl sits relative to standard prep:
+
+Medium grade lining paper, walls >0.5m²: £6.80/m² — woodchip: £7.90/m²
+Medium grade lining paper, ceilings >0.5m²: £7.50/m² — woodchip: £8.50/m²
+Lining paper material PC: £2.00 per standard roll
+
+Decorative paper-backed vinyl wallpaper (standard domestic-style, supply & hang, PC £12.50/roll):
+
+Plaster walls/columns over 300mm girth: £5.00/m²
+
+These are generic UK trade book rates rather than Nicky's own pricing, so should be used as a sense-check/starting benchmark — Nicky's actual rate may sit above or below these depending on region, complexity, and material choice, but this replaces guesswork with a real published reference point.
+
+Mural — still needs real data: No equivalent trade-book rate found for one-piece printed murals specifically (they're a newer product category than standard wallcovering, so most trade rate books don't cover them yet). Budget a largely fixed install time (e.g. 3–5 hours for a typical single feature wall mural) rather than scaling linearly with m², and get pricing from timing 1–2 real jobs.
+
+

@@ -1197,72 +1197,19 @@ function readKitchenRates() {
 }
 
 function saveSettings() {
-  settings = {
-    dr:      +document.getElementById('s-dr').value,
-    hpd:     +document.getElementById('s-hpd').value,
-    mu:      +document.getElementById('s-mu').value,
-    sundriesPct: +document.getElementById('s-sundries').value,
-    depositPct: +document.getElementById('s-deposit-pct').value,
-    overheadMins: +document.getElementById('s-overhead-mins').value,
-    bufferPct:    +document.getElementById('s-buffer-pct').value,
-    cw:      +document.getElementById('s-cw').value,
-    cc:      +document.getElementById('s-cc').value,
-    cg:      +document.getElementById('s-cg').value,
-    cMist:   +document.getElementById('s-cmist').value,
-    cPanel:  +document.getElementById('s-cpanel').value,
-    rWall:   +document.getElementById('s-rwall').value,
-    rCeil:   +document.getElementById('s-rceil').value,
-    rSkirt:  +document.getElementById('s-rskirt').value,
-    rDoorPrep: +document.getElementById('s-rdoorprep').value,
-    rDoorCoat: +document.getElementById('s-rdoorcoat').value,
-    rWin:    +document.getElementById('s-rwin').value,
-    rRad:    +document.getElementById('s-rrad').value,
-    rMist:   +document.getElementById('s-rmist').value,
-    rPanel:  +document.getElementById('s-rpanel').value,
-    wpLiningRate:  +document.getElementById('s-wplining-rate').value,
-    wpFinishRate:  +document.getElementById('s-wpfinish-rate').value,
-    wpCeilMultPct: +document.getElementById('s-wpceil-mult').value,
-    wpStairMultPct:+document.getElementById('s-wpstair-mult').value,
-    wpTrimCm:     +document.getElementById('s-wptrim').value,
-    wpMinPrice:   +document.getElementById('s-wpmin-price').value,
-    wpVinylLabourRatePerM:   +document.getElementById('s-wpvinyl-labour-rate').value,
-    wpVinylMaterialRatePerM: +document.getElementById('s-wpvinyl-material-rate').value,
-    wpMuralLabourRatePerM2:  +document.getElementById('s-wpmural-labour-rate').value,
-    wpMuralMaterialRatePerM2:+document.getElementById('s-wpmural-material-rate').value,
-    wpMuralFlatFee:          +document.getElementById('s-wpmural-flat-fee').value,
-    rExtMasonry:  +document.getElementById('s-rextmasonry').value,
-    rExtFascia:   +document.getElementById('s-rextfascia').value,
-    rExtWinBase:      +document.getElementById('s-rextwinbase').value,
-    rExtWinPerPane:   +document.getElementById('s-rextwinperpane').value,
-    rExtDoor:     +document.getElementById('s-rextdoor').value,
-    rExtGarage:   +document.getElementById('s-rextgarage').value,
-    rSashMultiplierPct: +document.getElementById('s-rsashmultiplier').value,
-    rAccessFirstPct: +document.getElementById('s-raccessfirst').value,
-    rAccessLadderPct: +document.getElementById('s-raccessladder').value,
-    rResin:       +document.getElementById('s-rresin').value,
-    rReglaze:     +document.getElementById('s-rreglaze').value,
-    rDraught:     +document.getElementById('s-rdraught').value,
-    rSashCords:   +document.getElementById('s-rsashcords').value,
-    rStaffBeads:  +document.getElementById('s-rstaffbeads').value,
-    rPartingBeads:+document.getElementById('s-rpartingbeads').value,
-    extMasonryCov:  +document.getElementById('s-extmasonrycov').value,
-    extWoodCov:     +document.getElementById('s-extwoodcov').value,
-    extAreaWindow:  +document.getElementById('s-extareawindow').value,
-    extAreaSash:    +document.getElementById('s-extareasash').value,
-    extAreaDoor:    +document.getElementById('s-extareadoor').value,
-    extAreaGarage:  +document.getElementById('s-extareagarage').value,
-    extFasciaWidth: +document.getElementById('s-extfasciawidth').value,
-    kitchenRates: readKitchenRates(),
-    kitchenGlazedPct: +document.getElementById('s-kglazedpct').value,
-    kitchenCarcassPct: +document.getElementById('s-kcarcasspct').value,
-    materials:    settings.materials || {},
-    // No Settings-screen field for these two -- they're set from the
-    // Summary tab's Payment card (setPaymentType/setPaymentWeeks), so carry
-    // forward whatever's already in memory rather than reading a DOM field
-    // that doesn't exist. Same pattern as materials above.
-    paymentType:  settings.paymentType || 'single',
-    paymentWeeks: settings.paymentWeeks || null
-  };
+  var next = {};
+  SETTINGS_FIELDS.forEach(function(f) {
+    next[f[0]] = +document.getElementById(f[1]).value;
+  });
+  next.kitchenRates = readKitchenRates();
+  next.materials = settings.materials || {};
+  // No Settings-screen field for these two -- they're set from the
+  // Summary tab's Payment card (setPaymentType/setPaymentWeeks), so carry
+  // forward whatever's already in memory rather than reading a DOM field
+  // that doesn't exist. Same pattern as materials above.
+  next.paymentType = settings.paymentType || 'single';
+  next.paymentWeeks = settings.paymentWeeks || null;
+  settings = next;
   localStorage.setItem('pe-settings', JSON.stringify(settings));
   apiPut('/api/settings', settings);
 }
@@ -1711,60 +1658,8 @@ async function createXeroQuote() {
 // Load from localStorage immediately, then sync from server in background
 async function initApp() {
   // ── Step 1: Load from localStorage instantly (works offline) ──
-  var rawSettings = JSON.parse(localStorage.getItem('pe-settings') || 'null') || {};
-  if (Object.keys(rawSettings).length > 0) {
-    settings = {
-      dr: rawSettings.dr||300, hpd: rawSettings.hpd||7, mu: rawSettings.mu||20,
-      sundriesPct: rawSettings.sundriesPct!=null ? rawSettings.sundriesPct : 5,
-      depositPct: rawSettings.depositPct!=null ? rawSettings.depositPct : 25,
-      paymentType: rawSettings.paymentType || 'single',
-      paymentWeeks: rawSettings.paymentWeeks || null,
-      overheadMins: rawSettings.overheadMins!=null ? rawSettings.overheadMins : 45,
-      bufferPct: rawSettings.bufferPct!=null ? rawSettings.bufferPct : 0,
-      cw: rawSettings.cw||13, cc: rawSettings.cc||13, cg: rawSettings.cg||7,
-      cMist: rawSettings.cMist||15, cPanel: rawSettings.cPanel||8,
-      rWall: rawSettings.rWall||3, rCeil: rawSettings.rCeil||5,
-      rSkirt: rawSettings.rSkirt||4,
-      rDoorPrep: rawSettings.rDoorPrep||10, rDoorCoat: rawSettings.rDoorCoat||10,
-      rWin: rawSettings.rWin||35, rRad: rawSettings.rRad||15, rMist: rawSettings.rMist||2,
-      rPanel: rawSettings.rPanel||6,
-      wpLiningRate: rawSettings.wpLiningRate!=null ? rawSettings.wpLiningRate : 30,
-      wpFinishRate: rawSettings.wpFinishRate!=null ? rawSettings.wpFinishRate : 40,
-      wpCeilMultPct: rawSettings.wpCeilMultPct!=null ? rawSettings.wpCeilMultPct : 15,
-      wpStairMultPct: rawSettings.wpStairMultPct!=null ? rawSettings.wpStairMultPct : 25,
-      wpTrimCm: rawSettings.wpTrimCm!=null ? rawSettings.wpTrimCm : 10,
-      wpMinPrice: rawSettings.wpMinPrice!=null ? rawSettings.wpMinPrice : 200,
-      wpVinylLabourRatePerM: rawSettings.wpVinylLabourRatePerM!=null ? rawSettings.wpVinylLabourRatePerM : 0,
-      wpVinylMaterialRatePerM: rawSettings.wpVinylMaterialRatePerM!=null ? rawSettings.wpVinylMaterialRatePerM : 0,
-      wpMuralLabourRatePerM2: rawSettings.wpMuralLabourRatePerM2!=null ? rawSettings.wpMuralLabourRatePerM2 : 0,
-      wpMuralMaterialRatePerM2: rawSettings.wpMuralMaterialRatePerM2!=null ? rawSettings.wpMuralMaterialRatePerM2 : 0,
-      wpMuralFlatFee: rawSettings.wpMuralFlatFee!=null ? rawSettings.wpMuralFlatFee : 0,
-      rExtMasonry: rawSettings.rExtMasonry||5, rExtFascia: rawSettings.rExtFascia||8,
-      rExtWinBase: rawSettings.rExtWinBase!=null ? rawSettings.rExtWinBase : 25,
-      rExtWinPerPane: rawSettings.rExtWinPerPane!=null ? rawSettings.rExtWinPerPane : 2,
-      rExtDoor: rawSettings.rExtDoor||150,
-      rExtGarage: rawSettings.rExtGarage||150,
-      rSashMultiplierPct: rawSettings.rSashMultiplierPct!=null ? rawSettings.rSashMultiplierPct : 20,
-      rAccessFirstPct: rawSettings.rAccessFirstPct!=null ? rawSettings.rAccessFirstPct : 10,
-      rAccessLadderPct: rawSettings.rAccessLadderPct!=null ? rawSettings.rAccessLadderPct : 25,
-      rResin: rawSettings.rResin||22, rReglaze: rawSettings.rReglaze||15,
-      rDraught: rawSettings.rDraught!=null ? rawSettings.rDraught : 20,
-      rSashCords: rawSettings.rSashCords!=null ? rawSettings.rSashCords : 40,
-      rStaffBeads: rawSettings.rStaffBeads!=null ? rawSettings.rStaffBeads : 25,
-      rPartingBeads: rawSettings.rPartingBeads!=null ? rawSettings.rPartingBeads : 35,
-      extMasonryCov: rawSettings.extMasonryCov!=null ? rawSettings.extMasonryCov : 6,
-      extWoodCov: rawSettings.extWoodCov!=null ? rawSettings.extWoodCov : 12,
-      extAreaWindow: rawSettings.extAreaWindow!=null ? rawSettings.extAreaWindow : 1.5,
-      extAreaSash: rawSettings.extAreaSash!=null ? rawSettings.extAreaSash : 2.5,
-      extAreaDoor: rawSettings.extAreaDoor!=null ? rawSettings.extAreaDoor : 2,
-      extAreaGarage: rawSettings.extAreaGarage!=null ? rawSettings.extAreaGarage : 6,
-      extFasciaWidth: rawSettings.extFasciaWidth!=null ? rawSettings.extFasciaWidth : 0.35,
-      kitchenRates: rawSettings.kitchenRates || KITCHEN_RATE_DEFAULTS,
-      kitchenGlazedPct: rawSettings.kitchenGlazedPct!=null ? rawSettings.kitchenGlazedPct : 50,
-      kitchenCarcassPct: rawSettings.kitchenCarcassPct!=null ? rawSettings.kitchenCarcassPct : 30,
-      materials: rawSettings.materials||{}
-    };
-  }
+  // settings itself needs no work here: the module-level init already built
+  // it from the same pe-settings blob via mergeSettings(). Just paint it.
   loadSettings();
 
   rooms = JSON.parse(localStorage.getItem('pe-rooms') || '[]');
@@ -1787,35 +1682,13 @@ async function initApp() {
   try {
     var s = await apiGet('/api/settings');
     if (s && Object.keys(s).length > 0) {
-      settings = {
-        dr: s.dr||300, hpd: s.hpd||7, mu: s.mu||20,
-        sundriesPct: s.sundriesPct!=null ? s.sundriesPct : 5,
-        depositPct: s.depositPct!=null ? s.depositPct : 25,
-        paymentType: s.paymentType || 'single',
-        paymentWeeks: s.paymentWeeks || null,
-        overheadMins: s.overheadMins!=null ? s.overheadMins : 45,
-        bufferPct: s.bufferPct!=null ? s.bufferPct : 0,
-        cw: s.cw||13, cc: s.cc||13, cg: s.cg||7,
-        cMist: s.cMist||15, cPanel: s.cPanel||8,
-        rWall: s.rWall||3, rCeil: s.rCeil||5, rSkirt: s.rSkirt||4,
-        rDoorPrep: s.rDoorPrep||10, rDoorCoat: s.rDoorCoat||10,
-        rWin: s.rWin||35, rRad: s.rRad||15, rMist: s.rMist||2,
-        rPanel: s.rPanel||6,
-        wpLiningRate: s.wpLiningRate!=null ? s.wpLiningRate : 30,
-        wpFinishRate: s.wpFinishRate!=null ? s.wpFinishRate : 40,
-        wpCeilMultPct: s.wpCeilMultPct!=null ? s.wpCeilMultPct : 15,
-        wpStairMultPct: s.wpStairMultPct!=null ? s.wpStairMultPct : 25,
-        wpTrimCm: s.wpTrimCm!=null ? s.wpTrimCm : 10,
-        wpMinPrice: s.wpMinPrice!=null ? s.wpMinPrice : 200,
-        wpVinylLabourRatePerM: s.wpVinylLabourRatePerM!=null ? s.wpVinylLabourRatePerM : 0,
-        wpVinylMaterialRatePerM: s.wpVinylMaterialRatePerM!=null ? s.wpVinylMaterialRatePerM : 0,
-        wpMuralLabourRatePerM2: s.wpMuralLabourRatePerM2!=null ? s.wpMuralLabourRatePerM2 : 0,
-        wpMuralMaterialRatePerM2: s.wpMuralMaterialRatePerM2!=null ? s.wpMuralMaterialRatePerM2 : 0,
-        wpMuralFlatFee: s.wpMuralFlatFee!=null ? s.wpMuralFlatFee : 0,
-        kitchenRates: s.kitchenRates || KITCHEN_RATE_DEFAULTS,
-        kitchenGlazedPct: s.kitchenGlazedPct!=null ? s.kitchenGlazedPct : 50,
-        kitchenCarcassPct: s.kitchenCarcassPct!=null ? s.kitchenCarcassPct : 30
-      };
+      // Same mergeSettings as the module init — the server row wins
+      // wholesale (it's the source of truth once reachable), with schema
+      // defaults filling anything an older row predates. This replaces the
+      // old hand-written copy of the field list, which had drifted (it
+      // omitted the rExt*/ext* fields and needed patch blocks after the
+      // jobs fetch to put them back).
+      settings = mergeSettings(s);
       localStorage.setItem('pe-settings', JSON.stringify(settings));
       loadSettings();
     }
@@ -1855,42 +1728,9 @@ async function initApp() {
     // this because it reads activeJob() fresh at open time, always after this
     // point. Call it unconditionally here so both agree regardless of rooms.
     renderHome();
-    // Update server settings with exterior rates
-    if (s && s.rExtMasonry != null) {
-      settings.rExtMasonry = s.rExtMasonry; settings.rExtFascia = s.rExtFascia;
-      settings.rExtWinBase = s.rExtWinBase; settings.rExtWinPerPane = s.rExtWinPerPane;
-      settings.rExtDoor = s.rExtDoor;
-      settings.rExtGarage = s.rExtGarage; settings.rSashMultiplierPct = s.rSashMultiplierPct;
-      settings.rAccessFirstPct = s.rAccessFirstPct; settings.rAccessLadderPct = s.rAccessLadderPct;
-      settings.rResin = s.rResin; settings.rReglaze = s.rReglaze;
-      settings.rDraught = s.rDraught; settings.rSashCords = s.rSashCords;
-      settings.rStaffBeads = s.rStaffBeads; settings.rPartingBeads = s.rPartingBeads;
-    }
-    // Exterior paint estimation params (coverage + assumed areas) -- separate
-    // guard from rExt* above since older server rows predate these; fall back
-    // to the same defaults loadSettings() uses when a field is absent.
-    if (s) {
-      settings.extMasonryCov = s.extMasonryCov!=null ? s.extMasonryCov : (settings.extMasonryCov!=null ? settings.extMasonryCov : 6);
-      settings.extWoodCov = s.extWoodCov!=null ? s.extWoodCov : (settings.extWoodCov!=null ? settings.extWoodCov : 12);
-      settings.extAreaWindow = s.extAreaWindow!=null ? s.extAreaWindow : (settings.extAreaWindow!=null ? settings.extAreaWindow : 1.5);
-      settings.extAreaSash = s.extAreaSash!=null ? s.extAreaSash : (settings.extAreaSash!=null ? settings.extAreaSash : 2.5);
-      settings.extAreaDoor = s.extAreaDoor!=null ? s.extAreaDoor : (settings.extAreaDoor!=null ? settings.extAreaDoor : 2);
-      settings.extAreaGarage = s.extAreaGarage!=null ? s.extAreaGarage : (settings.extAreaGarage!=null ? settings.extAreaGarage : 6);
-      settings.extFasciaWidth = s.extFasciaWidth!=null ? s.extFasciaWidth : (settings.extFasciaWidth!=null ? settings.extFasciaWidth : 0.35);
-      loadSettings();
-    }
-    if (s && s.materials) {
-      settings.materials = s.materials;
-      renderMaterialsSettings();
-    }
-    // Re-persist settings now that the patches above (rExt* / materials) have
-    // been applied — the earlier localStorage.setItem for pe-settings ran
-    // before these, so without this the local cache would miss them until
-    // something else calls saveSettings().
-    localStorage.setItem('pe-settings', JSON.stringify(settings));
 
     // Everything below is independent of everything else -- only settings
-    // (patched above, so the Xero branch's renderMaterialsSettings() sees
+    // (merged above, so the Xero branch's renderMaterialsSettings() sees
     // the mapped materials) and jobs (activeJobId must be resolved before
     // any job-scoped fetch) had to come first. Run the lot concurrently:
     // this used to be ~7 more serialized round trips, which on mobile
@@ -1995,6 +1835,93 @@ async function initApp() {
 }
 
 
+// ── Settings schema ────────────────────────────────────────────────────────
+// The single source of truth for every scalar settings field: its key, the
+// Settings-screen input that edits it, its default, and (where one exists)
+// the legacy key older saved blobs used. mergeSettings/loadSettings/
+// saveSettings are all driven from this table, so adding a setting means
+// one row here plus its <input> in the HTML — nowhere else.
+// [key, inputId, default, legacyKey?]
+var SETTINGS_FIELDS = [
+  ['dr',           's-dr',            300, 'dayRate'],
+  ['hpd',          's-hpd',           7],
+  ['mu',           's-mu',            20,  'markup'],
+  ['sundriesPct',  's-sundries',      5],
+  ['depositPct',   's-deposit-pct',   25],
+  ['overheadMins', 's-overhead-mins', 45],
+  ['bufferPct',    's-buffer-pct',    0],
+  ['cw',           's-cw',            13,  'covWall'],
+  ['cc',           's-cc',            13,  'covCeil'],
+  ['cg',           's-cg',            7,   'covGloss'],
+  ['cMist',        's-cmist',         15],
+  ['cPanel',       's-cpanel',        8],
+  ['rWall',        's-rwall',         3],
+  ['rCeil',        's-rceil',         5],
+  ['rSkirt',       's-rskirt',        4],
+  ['rDoorPrep',    's-rdoorprep',     10],
+  ['rDoorCoat',    's-rdoorcoat',     10],
+  ['rWin',         's-rwin',          35],
+  ['rRad',         's-rrad',          15],
+  ['rMist',        's-rmist',         2],
+  ['rPanel',       's-rpanel',        6],
+  ['wpLiningRate',   's-wplining-rate', 30],
+  ['wpFinishRate',   's-wpfinish-rate', 40],
+  ['wpCeilMultPct',  's-wpceil-mult',   15],
+  ['wpStairMultPct', 's-wpstair-mult',  25],
+  ['wpTrimCm',       's-wptrim',        10],
+  ['wpMinPrice',     's-wpmin-price',   200],
+  ['wpVinylLabourRatePerM',    's-wpvinyl-labour-rate',    0],
+  ['wpVinylMaterialRatePerM',  's-wpvinyl-material-rate',  0],
+  ['wpMuralLabourRatePerM2',   's-wpmural-labour-rate',    0],
+  ['wpMuralMaterialRatePerM2', 's-wpmural-material-rate',  0],
+  ['wpMuralFlatFee',           's-wpmural-flat-fee',       0],
+  ['rExtMasonry',    's-rextmasonry',    5],
+  ['rExtFascia',     's-rextfascia',     8],
+  ['rExtWinBase',    's-rextwinbase',    25],
+  ['rExtWinPerPane', 's-rextwinperpane', 2],
+  ['rExtDoor',       's-rextdoor',       150],
+  ['rExtGarage',     's-rextgarage',     150],
+  ['rSashMultiplierPct', 's-rsashmultiplier', 20],
+  ['rAccessFirstPct',    's-raccessfirst',    10],
+  ['rAccessLadderPct',   's-raccessladder',   25],
+  ['rResin',        's-rresin',        22],
+  ['rReglaze',      's-rreglaze',      15],
+  ['rDraught',      's-rdraught',      20],
+  ['rSashCords',    's-rsashcords',    40],
+  ['rStaffBeads',   's-rstaffbeads',   25],
+  ['rPartingBeads', 's-rpartingbeads', 35],
+  ['extMasonryCov',  's-extmasonrycov',  6],
+  ['extWoodCov',     's-extwoodcov',     12],
+  ['extAreaWindow',  's-extareawindow',  1.5],
+  ['extAreaSash',    's-extareasash',    2.5],
+  ['extAreaDoor',    's-extareadoor',    2],
+  ['extAreaGarage',  's-extareagarage',  6],
+  ['extFasciaWidth', 's-extfasciawidth', 0.35],
+  ['kitchenGlazedPct',  's-kglazedpct',  50],
+  ['kitchenCarcassPct', 's-kcarcasspct', 30]
+];
+
+// Build a complete settings object from a raw blob (localStorage or the
+// server row), falling back per field to the legacy key then the default.
+// `!= null` throughout: a saved 0 is a real value, never reset to default.
+// The non-scalar / no-input fields (kitchenRates, materials, payment*) are
+// handled explicitly at the bottom — same semantics each merge site used.
+function mergeSettings(raw) {
+  raw = raw || {};
+  var out = {};
+  SETTINGS_FIELDS.forEach(function(f) {
+    var key = f[0], dflt = f[2], legacy = f[3];
+    out[key] = raw[key] != null ? raw[key]
+             : (legacy != null && raw[legacy] != null) ? raw[legacy]
+             : dflt;
+  });
+  out.kitchenRates = raw.kitchenRates || KITCHEN_RATE_DEFAULTS;
+  out.materials    = raw.materials || {};
+  out.paymentType  = raw.paymentType || 'single';
+  out.paymentWeeks = raw.paymentWeeks || null;
+  return out;
+}
+
 // ── State ──────────────────────────────────────────────────────────────────
 // activeJobId is which job's rooms/exterior items/colours/materials are
 // currently loaded into memory. Falls back to 'default', matching the
@@ -2004,61 +1931,7 @@ async function initApp() {
 var activeJobId = localStorage.getItem('pe-active-job-id') || 'default';
 var jobs = JSON.parse(localStorage.getItem('pe-jobs') || '[]');
 var rooms    = JSON.parse(localStorage.getItem('pe-rooms') || '[]');
-var _raw = JSON.parse(localStorage.getItem('pe-settings') || 'null') || {};
-var settings = {
-  dr:      _raw.dr      != null ? _raw.dr      : (_raw.dayRate  != null ? _raw.dayRate  : 300),
-  hpd:     _raw.hpd     != null ? _raw.hpd     : 7,
-  mu:      _raw.mu      != null ? _raw.mu      : (_raw.markup   != null ? _raw.markup   : 20),
-  sundriesPct: _raw.sundriesPct != null ? _raw.sundriesPct : 5,
-  depositPct:  _raw.depositPct  != null ? _raw.depositPct  : 25,
-  paymentType: _raw.paymentType || 'single',
-  paymentWeeks: _raw.paymentWeeks || null,
-  overheadMins: _raw.overheadMins != null ? _raw.overheadMins : 45,
-  bufferPct:    _raw.bufferPct    != null ? _raw.bufferPct    : 0,
-  cw:      _raw.cw      != null ? _raw.cw      : (_raw.covWall  != null ? _raw.covWall  : 13),
-  cc:      _raw.cc      != null ? _raw.cc      : (_raw.covCeil  != null ? _raw.covCeil  : 13),
-  cg:      _raw.cg      != null ? _raw.cg      : (_raw.covGloss != null ? _raw.covGloss : 7),
-  cMist:   _raw.cMist   != null ? _raw.cMist   : 15,
-  cPanel:  _raw.cPanel  != null ? _raw.cPanel  : 8,
-  rWall:   _raw.rWall   != null ? _raw.rWall   : 3,
-  rCeil:   _raw.rCeil   != null ? _raw.rCeil   : 5,
-  rSkirt:  _raw.rSkirt  != null ? _raw.rSkirt  : 4,
-  rDoorPrep: _raw.rDoorPrep != null ? _raw.rDoorPrep : 10,
-  rDoorCoat: _raw.rDoorCoat != null ? _raw.rDoorCoat : 10,
-  rWin:    _raw.rWin    != null ? _raw.rWin    : 35,
-  rRad:    _raw.rRad    != null ? _raw.rRad    : 15,
-  rMist:   _raw.rMist   != null ? _raw.rMist   : 2,
-  rPanel:  _raw.rPanel  != null ? _raw.rPanel  : 6,
-  wpLiningRate:   _raw.wpLiningRate   != null ? _raw.wpLiningRate   : 30,
-  wpFinishRate:   _raw.wpFinishRate   != null ? _raw.wpFinishRate   : 40,
-  wpCeilMultPct:  _raw.wpCeilMultPct  != null ? _raw.wpCeilMultPct  : 15,
-  wpStairMultPct: _raw.wpStairMultPct != null ? _raw.wpStairMultPct : 25,
-  wpTrimCm:     _raw.wpTrimCm     != null ? _raw.wpTrimCm     : 10,
-  wpMinPrice:   _raw.wpMinPrice   != null ? _raw.wpMinPrice   : 200,
-  wpVinylLabourRatePerM:   _raw.wpVinylLabourRatePerM   != null ? _raw.wpVinylLabourRatePerM   : 0,
-  wpVinylMaterialRatePerM: _raw.wpVinylMaterialRatePerM != null ? _raw.wpVinylMaterialRatePerM : 0,
-  wpMuralLabourRatePerM2:  _raw.wpMuralLabourRatePerM2  != null ? _raw.wpMuralLabourRatePerM2  : 0,
-  wpMuralMaterialRatePerM2:_raw.wpMuralMaterialRatePerM2!= null ? _raw.wpMuralMaterialRatePerM2: 0,
-  wpMuralFlatFee:          _raw.wpMuralFlatFee          != null ? _raw.wpMuralFlatFee          : 0,
-  rExtMasonry:  _raw.rExtMasonry  != null ? _raw.rExtMasonry  : 5,
-  rExtFascia:   _raw.rExtFascia   != null ? _raw.rExtFascia   : 8,
-  rExtWinBase:  _raw.rExtWinBase  != null ? _raw.rExtWinBase  : 25,
-  rExtWinPerPane: _raw.rExtWinPerPane != null ? _raw.rExtWinPerPane : 2,
-  rExtDoor:     _raw.rExtDoor     != null ? _raw.rExtDoor     : 150,
-  rExtGarage:   _raw.rExtGarage   != null ? _raw.rExtGarage   : 150,
-  rSashMultiplierPct: _raw.rSashMultiplierPct != null ? _raw.rSashMultiplierPct : 20,
-  rAccessFirstPct: _raw.rAccessFirstPct != null ? _raw.rAccessFirstPct : 10,
-  rAccessLadderPct: _raw.rAccessLadderPct != null ? _raw.rAccessLadderPct : 25,
-  rResin:       _raw.rResin       != null ? _raw.rResin       : 22,
-  rReglaze:     _raw.rReglaze     != null ? _raw.rReglaze     : 15,
-  rDraught:     _raw.rDraught     != null ? _raw.rDraught     : 20,
-  rSashCords:   _raw.rSashCords   != null ? _raw.rSashCords   : 40,
-  rStaffBeads:  _raw.rStaffBeads  != null ? _raw.rStaffBeads  : 25,
-  rPartingBeads:_raw.rPartingBeads!= null ? _raw.rPartingBeads: 35,
-  kitchenRates: _raw.kitchenRates || KITCHEN_RATE_DEFAULTS,
-  kitchenGlazedPct: _raw.kitchenGlazedPct != null ? _raw.kitchenGlazedPct : 50,
-  kitchenCarcassPct: _raw.kitchenCarcassPct != null ? _raw.kitchenCarcassPct : 30
-};
+var settings = mergeSettings(JSON.parse(localStorage.getItem('pe-settings') || 'null'));
 var editId   = null;
 
 var coats    = {wc:2, cc:2, xc:2};
@@ -2709,67 +2582,16 @@ function goBack() {
 // ── Settings ───────────────────────────────────────────────────────────────
 
 function loadSettings() {
-  document.getElementById('s-dr').value      = settings.dr;
-  document.getElementById('s-hpd').value     = settings.hpd;
-  document.getElementById('s-mu').value      = settings.mu;
-  document.getElementById('s-sundries').value = settings.sundriesPct;
-  document.getElementById('s-deposit-pct').value = settings.depositPct;
-  document.getElementById('s-overhead-mins').value = settings.overheadMins;
-  document.getElementById('s-buffer-pct').value    = settings.bufferPct;
-  document.getElementById('s-cw').value      = settings.cw;
-  document.getElementById('s-cc').value      = settings.cc;
-  document.getElementById('s-cg').value      = settings.cg;
-  document.getElementById('s-cmist').value   = settings.cMist;
-  document.getElementById('s-cpanel').value  = settings.cPanel||8;
-  document.getElementById('s-rwall').value        = settings.rWall||3;
-  document.getElementById('s-rceil').value        = settings.rCeil||5;
-  document.getElementById('s-rskirt').value       = settings.rSkirt||4;
-  document.getElementById('s-rdoorprep').value    = settings.rDoorPrep||10;
-  document.getElementById('s-rdoorcoat').value    = settings.rDoorCoat||10;
-  document.getElementById('s-rwin').value         = settings.rWin||35;
-  document.getElementById('s-rrad').value         = settings.rRad||15;
-  document.getElementById('s-rmist').value        = settings.rMist||2;
-  document.getElementById('s-rpanel').value       = settings.rPanel||6;
-  document.getElementById('s-wplining-rate').value = settings.wpLiningRate!=null ? settings.wpLiningRate : 30;
-  document.getElementById('s-wpfinish-rate').value = settings.wpFinishRate!=null ? settings.wpFinishRate : 40;
-  document.getElementById('s-wpceil-mult').value   = settings.wpCeilMultPct!=null ? settings.wpCeilMultPct : 15;
-  document.getElementById('s-wpstair-mult').value  = settings.wpStairMultPct!=null ? settings.wpStairMultPct : 25;
-  document.getElementById('s-wptrim').value       = settings.wpTrimCm!=null ? settings.wpTrimCm : 10;
-  document.getElementById('s-wpmin-price').value  = settings.wpMinPrice!=null ? settings.wpMinPrice : 200;
-  document.getElementById('s-wpvinyl-labour-rate').value   = settings.wpVinylLabourRatePerM!=null ? settings.wpVinylLabourRatePerM : 0;
-  document.getElementById('s-wpvinyl-material-rate').value = settings.wpVinylMaterialRatePerM!=null ? settings.wpVinylMaterialRatePerM : 0;
-  document.getElementById('s-wpmural-labour-rate').value    = settings.wpMuralLabourRatePerM2!=null ? settings.wpMuralLabourRatePerM2 : 0;
-  document.getElementById('s-wpmural-material-rate').value  = settings.wpMuralMaterialRatePerM2!=null ? settings.wpMuralMaterialRatePerM2 : 0;
-  document.getElementById('s-wpmural-flat-fee').value       = settings.wpMuralFlatFee!=null ? settings.wpMuralFlatFee : 0;
-  document.getElementById('s-rextmasonry').value = settings.rExtMasonry||5;
-  document.getElementById('s-rextfascia').value  = settings.rExtFascia||8;
-  document.getElementById('s-rextwinbase').value     = settings.rExtWinBase!=null ? settings.rExtWinBase : 25;
-  document.getElementById('s-rextwinperpane').value  = settings.rExtWinPerPane!=null ? settings.rExtWinPerPane : 2;
-  document.getElementById('s-rextdoor').value    = settings.rExtDoor||150;
-  document.getElementById('s-rextgarage').value  = settings.rExtGarage||150;
-  document.getElementById('s-rsashmultiplier').value = settings.rSashMultiplierPct!=null ? settings.rSashMultiplierPct : 20;
-  document.getElementById('s-raccessfirst').value  = settings.rAccessFirstPct!=null ? settings.rAccessFirstPct : 10;
-  document.getElementById('s-raccessladder').value = settings.rAccessLadderPct!=null ? settings.rAccessLadderPct : 25;
-  document.getElementById('s-rresin').value      = settings.rResin||22;
-  document.getElementById('s-rreglaze').value    = settings.rReglaze||15;
-  document.getElementById('s-rdraught').value    = settings.rDraught!=null ? settings.rDraught : 20;
-  document.getElementById('s-rsashcords').value  = settings.rSashCords!=null ? settings.rSashCords : 40;
-  document.getElementById('s-rstaffbeads').value = settings.rStaffBeads!=null ? settings.rStaffBeads : 25;
-  document.getElementById('s-rpartingbeads').value = settings.rPartingBeads!=null ? settings.rPartingBeads : 35;
-  document.getElementById('s-extmasonrycov').value  = settings.extMasonryCov!=null ? settings.extMasonryCov : 6;
-  document.getElementById('s-extwoodcov').value     = settings.extWoodCov!=null ? settings.extWoodCov : 12;
-  document.getElementById('s-extareawindow').value  = settings.extAreaWindow!=null ? settings.extAreaWindow : 1.5;
-  document.getElementById('s-extareasash').value    = settings.extAreaSash!=null ? settings.extAreaSash : 2.5;
-  document.getElementById('s-extareadoor').value    = settings.extAreaDoor!=null ? settings.extAreaDoor : 2;
-  document.getElementById('s-extareagarage').value  = settings.extAreaGarage!=null ? settings.extAreaGarage : 6;
-  document.getElementById('s-extfasciawidth').value = settings.extFasciaWidth!=null ? settings.extFasciaWidth : 0.35;
+  // settings is always a complete mergeSettings() product, so no per-field
+  // fallbacks needed here — every schema key is present.
+  SETTINGS_FIELDS.forEach(function(f) {
+    document.getElementById(f[1]).value = settings[f[0]];
+  });
   populateKitchenRatesTable();
   document.getElementById('s-kr-cornice-base').value = (settings.kitchenRates && settings.kitchenRates.cornice) ? settings.kitchenRates.cornice.base : 25;
   document.getElementById('s-kr-cornice-coat').value = (settings.kitchenRates && settings.kitchenRates.cornice) ? settings.kitchenRates.cornice.coat : 4;
   document.getElementById('s-kr-plinth-base').value  = (settings.kitchenRates && settings.kitchenRates.plinth) ? settings.kitchenRates.plinth.base : 18;
   document.getElementById('s-kr-plinth-coat').value  = (settings.kitchenRates && settings.kitchenRates.plinth) ? settings.kitchenRates.plinth.coat : 3;
-  document.getElementById('s-kglazedpct').value  = settings.kitchenGlazedPct!=null ? settings.kitchenGlazedPct : 50;
-  document.getElementById('s-kcarcasspct').value = settings.kitchenCarcassPct!=null ? settings.kitchenCarcassPct : 30;
   renderMaterialsSettings();
 }
 

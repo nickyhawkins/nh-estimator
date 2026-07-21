@@ -11,7 +11,17 @@
 > offline shell (A), sync status dot + menu row (B), duplicate room (C),
 > room-form draft protection (D), and Quick add capture-first entry (E).
 > Part 2 G (searchable Settings materials dropdown, colour pill clipping)
-> stays with the existing edits list.
+> stays with the existing edits list — both verified already built.
+>
+> **Finding 8 is APPLIED too** (`SETTINGS_FIELDS` schema + `mergeSettings()`,
+> landed on main separately and merged into this branch). Merge semantics
+> unified on the module init's `!= null` rule — a saved 0 is a real value —
+> with the legacy `dayRate`/`covWall`-family aliases kept. Only the
+> `getAccessToken` tidy remains skipped (churn > benefit).
+>
+> Edits-list bug #1 (delete-all materials resurrecting) is FIXED on this
+> branch — root cause and the two-browser-context repro are written up in
+> estimating-app-edits.md #1.
 
 Full read-through of the estimator: `server.js`, `routes/api.js`, `routes/xero.js`,
 `routes/debt.js`, `db/setup.sql`, and all 7,070 lines of `public/index.html`.
