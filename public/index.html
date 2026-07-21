@@ -1986,6 +1986,7 @@ async function initApp() {
     serverAvailable = false;
   }
   updateSyncStatus();
+  offerRoomDraftRestore();
 }
 
 
@@ -2514,6 +2515,7 @@ function promptNewJob() {
 
 // ── Navigation ─────────────────────────────────────────────────────────────
 function goTab(tab) {
+  if (inSub === 'room') clearRoomDraft();  // deliberate exit, same as goBack()
   curTab = tab; inSub = null;
   document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active');});
   document.getElementById('screen-'+tab).classList.add('active');
@@ -2688,6 +2690,10 @@ function goScreen(name) {
 }
 
 function goBack() {
+  // Leaving the room form deliberately (Back, or the save/delete paths that
+  // route through here) discards any hidden-tab draft of it -- see
+  // captureRoomDraft().
+  if (inSub === 'room') clearRoomDraft();
   inSub = null;
   document.querySelectorAll('.screen').forEach(function(s) { s.classList.remove('active'); });
   document.getElementById('screen-'+curTab).classList.add('active');
@@ -6200,6 +6206,18 @@ function saveRoom() {
       return;
     }
   }
+  var room = buildRoomFromForm();
+  if(editId){var idx=rooms.findIndex(function(r){return r.id===editId;});rooms[idx]=room;}
+  else rooms.push(room);
+  clearRoomDraft();
+  saveRooms(); goBack();
+}
+
+// Builds the room object from the form's current state -- everything
+// saveRoom() persists, extracted so the draft-capture path
+// (captureRoomDraft below) can snapshot a half-finished form with the
+// exact same code a real save uses.
+function buildRoomFromForm() {
   var name=document.getElementById('r-name').value.trim()||(roomIsStaircase?'Hall, Stairs & Landing':'Room');
   var room={
     id:editId||uid(), name:name,
@@ -6263,13 +6281,66 @@ function saveRoom() {
     var hslOverrides = computeHSLOverrides();
     Object.keys(hslOverrides).forEach(function(k){ room[k] = hslOverrides[k]; });
   }
-  if(editId){var idx=rooms.findIndex(function(r){return r.id===editId;});rooms[idx]=room;}
-  else rooms.push(room);
-  saveRooms(); goBack();
+  return room;
 }
 function deleteRoom() {
   if(!editId)return;
-  rooms=rooms.filter(function(r){return r.id!==editId;}); saveRooms(); goBack();
+  rooms=rooms.filter(function(r){return r.id!==editId;});
+  clearRoomDraft();
+  saveRooms(); goBack();
+}
+
+// ── Room form draft protection ─────────────────────────────────────────────
+// The room form is explicit-save: a phone call mid-measure that gets the
+// browser tab killed used to lose ~20 typed fields. When the page is being
+// hidden/unloaded with the room form open, snapshot the form as a room
+// object (via buildRoomFromForm -- the same code a real save runs) into
+// localStorage; on the next app start, offer to restore it as a saved
+// room, which the user can then reopen via its edit form (editRoom
+// restores every field, staircase mode included). Any DELIBERATE exit from
+// the form -- Save, Delete, Back, a tab switch -- clears the draft, so the
+// offer only ever appears when the form genuinely died mid-entry.
+function captureRoomDraft() {
+  if (inSub !== 'room') return;
+  try {
+    // An untouched Add Room form isn't worth a restore prompt.
+    var meaningful = document.getElementById('r-name').value.trim() ||
+      +document.getElementById('r-l').value > 0 ||
+      +document.getElementById('r-w').value > 0 ||
+      roomIsStaircase || editId;
+    if (!meaningful) return;
+    localStorage.setItem('pe-room-draft', JSON.stringify({
+      jobId: activeJobId, editId: editId, room: buildRoomFromForm(), at: Date.now()
+    }));
+  } catch (e) { /* a draft is best-effort -- never let it break unload */ }
+}
+function clearRoomDraft() {
+  localStorage.removeItem('pe-room-draft');
+}
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'hidden') captureRoomDraft();
+});
+window.addEventListener('pagehide', captureRoomDraft);
+
+// Called at the end of initApp(), after the server sync (so a restored
+// room can't be overwritten by the rooms fetch that follows it).
+function offerRoomDraftRestore() {
+  var raw = localStorage.getItem('pe-room-draft');
+  if (!raw) return;
+  clearRoomDraft();
+  var draft;
+  try { draft = JSON.parse(raw); } catch (e) { return; }
+  if (!draft || !draft.room || draft.jobId !== activeJobId) return;
+  if (!confirm('You had an unsaved room ("' + (draft.room.name || 'Room') + '") when the app last closed. Restore it?')) return;
+  if (draft.editId) {
+    var idx = rooms.findIndex(function(r) { return r.id === draft.editId; });
+    if (idx !== -1) { draft.room.id = draft.editId; rooms[idx] = draft.room; }
+    else rooms.push(draft.room);
+  } else {
+    rooms.push(draft.room);
+  }
+  saveRooms();
+  renderHome();
 }
 
 // ── Clear ──────────────────────────────────────────────────────────────────
