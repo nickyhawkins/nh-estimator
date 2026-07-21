@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const compression = require('compression');
 const session = require('express-session');
 const pgSession = require('connect-pg-simple')(session);
 const path = require('path');
@@ -9,6 +10,10 @@ const { sendDueNotifications, checkCycleReset, ntfyConfigured } = require('./lib
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Gzip responses — index.html is ~450KB of highly compressible text and is
+// served on every route, so this is the single biggest transfer saving.
+app.use(compression());
 
 // Body parsing
 app.use(express.json());
@@ -26,8 +31,16 @@ app.use(session({
   }
 }));
 
-// Static files
-app.use(express.static(path.join(__dirname, 'public')));
+// Static files. Images get a long cache lifetime (they change rarely and the
+// filename can be bumped if they ever do); HTML stays no-cache so a deploy
+// shows up on the next load — no-cache still allows ETag revalidation, so an
+// unchanged index.html is a cheap 304, not a full re-download.
+app.use(express.static(path.join(__dirname, 'public'), {
+  maxAge: '30d',
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+  }
+}));
 
 // Routes
 app.use('/auth', require('./routes/xero'));

@@ -452,8 +452,21 @@ function groupMaterialItems(items) {
 // frontend unwraps .paint into materialGroupsCache. Callers that treat the
 // whole body as ranges will show "paint"/"sundries"/"unmodellable" as three
 // fake ranges.
+// Short in-memory cache: this endpoint is on the app's startup critical
+// path (initApp populates materialGroupsCache from it on every load), and
+// the upstream Xero Items fetch is by far the slowest call the server
+// makes. Prices change when the price-update script runs, not minute to
+// minute, so a few minutes of staleness is free speed on every app open.
+// The Settings "Refresh from Xero" button sends ?fresh=1 to bypass, so a
+// deliberate refresh is always a real fetch.
+let materialGroupsCache = null;      // { at: epoch-ms, body: buckets }
+const MATERIAL_GROUPS_TTL_MS = 5 * 60 * 1000;
+
 router.get('/material-groups', async (req, res) => {
   try {
+    if (!req.query.fresh && materialGroupsCache && Date.now() - materialGroupsCache.at < MATERIAL_GROUPS_TTL_MS) {
+      return res.json(materialGroupsCache.body);
+    }
     const accessToken = await getAccessToken();
     const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
     const tenantId = result.rows[0]?.xero_tenant_id;
@@ -490,6 +503,7 @@ router.get('/material-groups', async (req, res) => {
     if (buckets.unmodellable.length) {
       console.log('  unmodellable: ' + buckets.unmodellable.map(u => u.itemCode).join(', '));
     }
+    materialGroupsCache = { at: Date.now(), body: buckets };
     res.json(buckets);
   } catch (err) {
     console.error('Material groups fetch error:', err.response?.data || err.message);
