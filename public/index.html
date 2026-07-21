@@ -114,8 +114,12 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 .swipe-wrap.swipe-active,.swipe-wrap.swipe-open{overflow:hidden}
 .swipe-wrap>.swipe-del-btn{display:none;position:absolute;top:0;right:0;bottom:0;width:84px;background:var(--danger);color:#fff;align-items:center;justify-content:center;font-size:14px;font-weight:700;cursor:pointer}
 .swipe-wrap.swipe-active>.swipe-del-btn,.swipe-wrap.swipe-open>.swipe-del-btn{display:flex}
-.swipe-wrap>*:last-child{position:relative;background:var(--surface);transition:transform .18s ease}
+.swipe-wrap>*:last-child{position:relative;transition:transform .18s ease}
 .swipe-wrap.swipe-active>*:last-child{transition:none}
+/* Row background only while sliding/open (the button behind is display:none
+   when idle) -- an unconditional background would override .room-item:active's
+   tap-highlight, which sits earlier in this sheet at equal specificity. */
+.swipe-wrap.swipe-active>*:last-child,.swipe-wrap.swipe-open>*:last-child{background:var(--surface)}
 .mat-label{font-size:14px}
 .mat-detail{font-size:12px;color:var(--text2);margin-top:2px}
 .mat-val{font-family:'DM Mono',monospace;font-size:14px;font-weight:500;color:var(--accent2)}
@@ -1010,7 +1014,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
   <!-- Build marker: bump the label when verifying a deploy actually reached
        the phone -- the PWA plus Render's deploy lag makes "which version am
        I on?" otherwise unanswerable from the device. -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: swipe v2 · 21 Jul</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: swipe v3 · 21 Jul</div>
 </div>
 </div>
 
@@ -5283,6 +5287,17 @@ function deleteExteriorItem() {
   goBack();
 }
 
+// Swipe-to-delete path for the exterior list -- deleteExteriorItem() above
+// only knows the item open in the editor (editExtId), so list rows need
+// their own by-id entry point. Confirmed because, unlike the editor's
+// Delete button, a swipe can be released on the button semi-accidentally.
+function deleteExtItemFromList(id) {
+  if (!confirm('Delete this exterior item?')) return;
+  extItems = extItems.filter(function(x){ return x.id !== id; });
+  saveExtItems();
+  renderExterior();
+}
+
 function clearExteriorItems() {
   if(!confirm('Clear all exterior items?')) return;
   extItems=[];
@@ -5318,18 +5333,29 @@ function _renderExteriorInner() {
   var total=0;
   cards.innerHTML = extItems.map(function(item) {
     var c=calcExtItem(item); total+=c.total;
-    return '<div class="room-item" onclick="editExtItem(this.dataset.id)" data-id="'+item.id+'">'+
+    return swipeDeleteWrap('deleteExtItemFromList', item.id,
+      '<div class="room-item" onclick="editExtItem(this.dataset.id)" data-id="'+item.id+'">'+
       '<div class="room-icon">'+item.emoji+'</div>'+
       '<div class="room-info"><div class="room-name">'+item.label+'</div>'+
       '<div class="room-meta">'+fmtD(c.time)+'</div></div>'+
       '<div class="room-cost">'+fmt(c.total)+'</div>'+
-      '<div style="color:var(--text3);font-size:16px">›</div></div>';
+      '<div style="color:var(--text3);font-size:16px">›</div></div>');
   }).join('');
   var marked = applyMarkupAmount(total);
   chip.style.display='flex'; chip.textContent=fmt(marked);
   if(clr) clr.style.display='block';
   var sub=document.getElementById('ext-sub');
   if(sub) sub.textContent=extItems.length+' item'+(extItems.length===1?'':'s');
+}
+
+// Swipe-to-delete path for the home room list -- deleteRoom() (room editor)
+// only knows the room being edited (editId), so list rows need a by-id
+// entry point. Same confirm rationale as deleteExtItemFromList.
+function deleteRoomFromList(id) {
+  if (!confirm('Delete this room?')) return;
+  rooms = rooms.filter(function(r){ return r.id !== id; });
+  saveRooms();
+  renderHome();
 }
 
 // ── Home ───────────────────────────────────────────────────────────────────
@@ -5351,13 +5377,14 @@ function renderHome() {
   var total=0;
   cards.innerHTML = rooms.map(function(r) {
     var c=calcRoom(r); total+=c.total;
-    return '<div class="room-item" onclick="editRoom(this.dataset.id)" data-id="'+r.id+'">'+
+    return swipeDeleteWrap('deleteRoomFromList', r.id,
+      '<div class="room-item" onclick="editRoom(this.dataset.id)" data-id="'+r.id+'">'+
       '<div class="room-icon">'+r.emoji+'</div>'+
       '<div class="room-info"><div class="room-name">'+r.name+'</div>'+
       '<div class="room-meta">'+r.l+'×'+r.w+'×'+r.h+'m · '+fmtD(c.time)+'</div></div>'+
       '<div class="room-cost">'+fmt(c.total)+'</div>'+
       '<button class="room-dup-btn" title="Duplicate room" onclick="event.stopPropagation();duplicateRoom(this.dataset.id)" data-id="'+r.id+'">⧉</button>'+
-      '<div style="color:var(--text3);font-size:16px">›</div></div>';
+      '<div style="color:var(--text3);font-size:16px">›</div></div>');
   }).join('');
   var marked = applyMarkupAmount(total);
   sub.textContent=rooms.length+' room'+(rooms.length===1?'':'s');
