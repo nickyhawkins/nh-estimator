@@ -7,8 +7,11 @@
 > server-branch copy is currently compensated by the patch blocks (now moved
 > next to the settings fetch they belong to). Of the smaller items, the
 > `getAccessToken` two-query tidy was also skipped (churn > benefit).
-> Part 2 (workflow features: PWA, sync indicator, duplicate room, room-form
-> drafts, capture-first entry) remains proposal-only.
+> Part 2 is now BUILT as well (five commits on this branch): PWA install +
+> offline shell (A), sync status dot + menu row (B), duplicate room (C),
+> room-form draft protection (D), and Quick add capture-first entry (E).
+> Part 2 G (searchable Settings materials dropdown, colour pill clipping)
+> stays with the existing edits list.
 
 Full read-through of the estimator: `server.js`, `routes/api.js`, `routes/xero.js`,
 `routes/debt.js`, `db/setup.sql`, and all 7,070 lines of `public/index.html`.
