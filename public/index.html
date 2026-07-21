@@ -2441,6 +2441,13 @@ document.addEventListener('touchstart', function(e) {
                 base: wrap === swipeOpenWrap ? -swipeBtnWidth(wrap) : 0, dir: null, offset: 0 };
 }, {passive:true});
 
+// NOT passive, unlike the rest: iOS Safari doesn't reliably honour
+// touch-action:pan-y on a page that can scroll vertically -- it claims the
+// drag as a scroll and fires touchcancel, killing the swipe mid-gesture
+// (this is why swipe worked on the short Colours list but not the
+// scrollable Jobs/Summary screens). Once a drag is locked horizontal we
+// preventDefault() every move so Safari can't steal it; before the lock we
+// never preventDefault, so vertical scrolling is untouched.
 document.addEventListener('touchmove', function(e) {
   if (!swipeDrag) return;
   var t = e.touches[0];
@@ -2451,10 +2458,11 @@ document.addEventListener('touchmove', function(e) {
     if (swipeDrag.dir === 'h') swipeDrag.wrap.classList.add('swipe-active');
   }
   if (swipeDrag.dir !== 'h') return;
+  if (e.cancelable) e.preventDefault();
   var w = swipeBtnWidth(swipeDrag.wrap);
   swipeDrag.offset = Math.max(-w, Math.min(0, swipeDrag.base + dx));
   swipeDrag.row.style.transform = 'translateX(' + swipeDrag.offset + 'px)';
-}, {passive:true});
+}, {passive:false});
 
 function swipeDragEnd() {
   if (!swipeDrag) return;
