@@ -101,6 +101,21 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 .breakdown-value{font-family:'DM Mono',monospace;font-size:14px;font-weight:500}
 .mat-row{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border)}
 .mat-row:last-child{border-bottom:none}
+/* Swipe-to-delete (touch): swipeDeleteWrap() slides its row left to reveal a
+   Delete button underneath; the × icons stay for mouse users. The wrap carries
+   the between-row border because a wrapped row is always its wrap's
+   :last-child, so the .field-row/.mat-row :last-child rules always strip the
+   row's own border. overflow only clamps mid-swipe or while held open -- idle
+   it stays visible so the colour autocomplete dropdown can escape the row
+   (see #colours-cards). The button is display:none until a swipe starts so it
+   can't show through dimmed (opacity<1) declined/completed job rows. */
+.swipe-wrap{position:relative;touch-action:pan-y;border-bottom:1px solid var(--border)}
+.swipe-wrap:last-child{border-bottom:none}
+.swipe-wrap.swipe-active,.swipe-wrap.swipe-open{overflow:hidden}
+.swipe-wrap>.swipe-del-btn{display:none;position:absolute;top:0;right:0;bottom:0;width:84px;background:var(--danger);color:#fff;align-items:center;justify-content:center;font-size:14px;font-weight:700;cursor:pointer}
+.swipe-wrap.swipe-active>.swipe-del-btn,.swipe-wrap.swipe-open>.swipe-del-btn{display:flex}
+.swipe-wrap>*:last-child{position:relative;background:var(--surface);transition:transform .18s ease}
+.swipe-wrap.swipe-active>*:last-child{transition:none}
 .mat-label{font-size:14px}
 .mat-detail{font-size:12px;color:var(--text2);margin-top:2px}
 .mat-val{font-family:'DM Mono',monospace;font-size:14px;font-weight:500;color:var(--accent2)}
@@ -2345,7 +2360,8 @@ function renderJobRow(j) {
   var isDeclined = j.status === 'declined';
   var isDimmed = isDeclined || isCompleted;
   var nameColor = isDimmed ? 'var(--text3)' : 'var(--text)';
-  return '<div class="field-row" style="cursor:pointer'+(isDimmed ? ';opacity:.6' : '')+'" onclick="switchJob(\''+j.id+'\')">'+
+  return swipeDeleteWrap('deleteJob', j.id,
+    '<div class="field-row" style="cursor:pointer'+(isDimmed ? ';opacity:.6' : '')+'" onclick="switchJob(\''+j.id+'\')">'+
     '<div style="flex:1">'+
       '<div style="font-weight:600;color:'+nameColor+(isDimmed ? ';text-decoration:line-through' : '')+'">'+escapeHtml(j.name)+
         (isAccepted ? ' <span style="color:var(--success);font-size:12px;font-weight:700;text-decoration:none">· ACCEPTED</span>' : '')+
@@ -2359,7 +2375,7 @@ function renderJobRow(j) {
     (isAccepted ? '<div onclick="event.stopPropagation();completeJobFromList(\''+j.id+'\')" title="Mark Completed" style="color:var(--success);font-size:18px;font-weight:700;padding:0 8px;cursor:pointer">✓</div>' : '')+
     '<div onclick="event.stopPropagation();renameJob(\''+j.id+'\')" style="color:var(--text2);font-size:16px;padding:0 8px;cursor:pointer">✎</div>'+
     '<div onclick="event.stopPropagation();deleteJob(\''+j.id+'\')" style="color:var(--danger);font-size:22px;padding:0 4px;cursor:pointer">×</div>'+
-  '</div>';
+  '</div>');
 }
 
 // Grouped by status -- Accepted first, Pending (draft) next, then Completed,
@@ -2385,6 +2401,110 @@ function renderJobs() {
 
   container.innerHTML = section('Accepted', accepted) + section('Pending', pending) + section('Completed', completed) + section('Declined', declined);
 }
+
+// ── Swipe-to-delete (touch devices) ─────────────────────────────────────────
+// Left-swiping a wrapped list row (jobs, colours, summary material lines)
+// reveals a Delete button behind it; tapping that dispatches to the same
+// delete function as the row's × icon, which stays for mouse users. All
+// listeners are document-level delegation because these lists are rebuilt
+// with innerHTML on every render. Listeners stay passive -- touch-action:
+// pan-y on the wrap lets the browser keep vertical scrolling, and we only
+// take over once a drag is clearly horizontal.
+function swipeDeleteWrap(fn, arg, rowHtml) {
+  return '<div class="swipe-wrap" data-swipe-fn="'+fn+'" data-swipe-arg="'+escapeHtml(String(arg))+'">'+
+    '<div class="swipe-del-btn">Delete</div>'+rowHtml+'</div>';
+}
+
+var swipeDrag = null;          // in-flight touch: {wrap,row,x,y,base,dir,offset}
+var swipeOpenWrap = null;      // the one row currently held open, if any
+var swipeSwallowClick = false; // eat the click a just-finished swipe fires
+
+function swipeBtnWidth(wrap) { return wrap.firstElementChild.offsetWidth || 84; }
+
+function swipeClose() {
+  if (!swipeOpenWrap) return;
+  if (document.contains(swipeOpenWrap)) {
+    swipeOpenWrap.classList.remove('swipe-open');
+    swipeOpenWrap.lastElementChild.style.transform = '';
+  }
+  swipeOpenWrap = null;
+}
+
+document.addEventListener('touchstart', function(e) {
+  swipeSwallowClick = false;
+  var el = e.target instanceof Element ? e.target : null;
+  var wrap = el ? el.closest('.swipe-wrap') : null;
+  if (swipeOpenWrap && wrap !== swipeOpenWrap) swipeClose();
+  if (!wrap) return;
+  var t = e.touches[0];
+  swipeDrag = { wrap: wrap, row: wrap.lastElementChild, x: t.clientX, y: t.clientY,
+                base: wrap === swipeOpenWrap ? -swipeBtnWidth(wrap) : 0, dir: null, offset: 0 };
+}, {passive:true});
+
+document.addEventListener('touchmove', function(e) {
+  if (!swipeDrag) return;
+  var t = e.touches[0];
+  var dx = t.clientX - swipeDrag.x, dy = t.clientY - swipeDrag.y;
+  if (!swipeDrag.dir) {
+    if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return; // not committed either way yet
+    swipeDrag.dir = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
+    if (swipeDrag.dir === 'h') swipeDrag.wrap.classList.add('swipe-active');
+  }
+  if (swipeDrag.dir !== 'h') return;
+  var w = swipeBtnWidth(swipeDrag.wrap);
+  swipeDrag.offset = Math.max(-w, Math.min(0, swipeDrag.base + dx));
+  swipeDrag.row.style.transform = 'translateX(' + swipeDrag.offset + 'px)';
+}, {passive:true});
+
+function swipeDragEnd() {
+  if (!swipeDrag) return;
+  var d = swipeDrag; swipeDrag = null;
+  if (d.dir !== 'h') return;
+  d.wrap.classList.remove('swipe-active');
+  var w = swipeBtnWidth(d.wrap);
+  if (d.offset < -w / 2) { // past halfway -- hold open
+    d.row.style.transform = 'translateX(-' + w + 'px)';
+    d.wrap.classList.add('swipe-open');
+    swipeOpenWrap = d.wrap;
+  } else {
+    d.row.style.transform = '';
+    d.wrap.classList.remove('swipe-open');
+    if (swipeOpenWrap === d.wrap) swipeOpenWrap = null;
+  }
+  swipeSwallowClick = true; // a drag must not also fire the row's own onclick
+}
+document.addEventListener('touchend', swipeDragEnd, {passive:true});
+document.addEventListener('touchcancel', swipeDragEnd, {passive:true});
+
+// Capture phase, for two reasons: a swipe's ghost click must never reach the
+// rows' inline onclick handlers (switchJob would fire off the back of a
+// swipe), and the Delete button needs delegation to survive re-renders.
+document.addEventListener('click', function(e) {
+  if (swipeSwallowClick) {
+    swipeSwallowClick = false;
+    e.stopPropagation(); e.preventDefault();
+    return;
+  }
+  var el = e.target instanceof Element ? e.target : null;
+  var btn = el ? el.closest('.swipe-del-btn') : null;
+  // Tapping anywhere on an open row (except its Delete button) closes it
+  // instead of activating the row -- same as iOS Mail.
+  if (swipeOpenWrap && !btn && el && swipeOpenWrap.contains(el)) {
+    swipeClose();
+    e.stopPropagation(); e.preventDefault();
+    return;
+  }
+  if (!btn) return;
+  e.stopPropagation();
+  var wrap = btn.parentElement;
+  var fn = wrap.getAttribute('data-swipe-fn');
+  var arg = wrap.getAttribute('data-swipe-arg');
+  swipeClose();
+  // deleteColour filters with === against the numeric c.number, so its arg
+  // must go back to a number; the other delete fns take string ids.
+  if (fn === 'deleteColour') deleteColour(parseInt(arg, 10));
+  else if (typeof window[fn] === 'function') window[fn](arg);
+}, true);
 
 function promptNewJob() {
   var name = prompt('Job name (e.g. client / address):');
@@ -4081,7 +4201,7 @@ function renderColours() {
     // chips to their own line keeps the full tag readable instead of
     // truncating it (BUG FIX 2026-07-15).
     var brandChip = c.brand ? '<div class="chip" style="min-width:0;white-space:normal;word-break:break-word">'+escapeHtml(c.brand)+(c.code ? ' · No. '+escapeHtml(c.code) : '')+'</div>' : '';
-    return '<div class="field-row" style="flex-wrap:wrap">'+
+    var rowHtml = '<div class="field-row" style="flex-wrap:wrap">'+
       '<div class="room-icon" style="font-size:16px;font-weight:700">'+c.number+'</div>'+
       '<div style="position:relative">'+
         '<input type="text" class="field-input wide" id="c-label-'+c.number+'" placeholder="Name this colour (optional)" autocorrect="off" autocomplete="off" value="'+escapeHtml(c.label||'')+'" oninput="onColourLabelInput('+c.number+',this.value)" onfocus="onColourLabelInput('+c.number+',this.value)" onchange="renameColour('+c.number+',this.value)">'+
@@ -4091,7 +4211,11 @@ function renderColours() {
       (surfaces ? '<div class="chip">'+surfaces+'</div>' : '')+
       (c.number===1 ? '' : '<div onclick="deleteColour('+c.number+')" style="color:var(--danger);font-size:22px;padding:0 4px;cursor:pointer">×</div>')+
       (hasBreakdown ? '<div class="room-chevron-icon" id="chev-'+bdId+'" onclick="toggleRoomBd(\''+bdId+'\')" style="cursor:pointer">›</div>' : '')+
-    '</div>'+
+    '</div>';
+    // Colour 1 is the undeletable default (see deleteColour), so it gets no
+    // swipe wrap -- matching its missing × above. The breakdown stays a
+    // SIBLING of the wrap, not inside it, so only the row itself slides.
+    return (c.number===1 ? rowHtml : swipeDeleteWrap('deleteColour', c.number, rowHtml))+
     (hasBreakdown ? '<div class="room-breakdown" id="'+bdId+'">'+sub+'</div>' : '');
   }).join('');
 }
@@ -6873,13 +6997,14 @@ function renderSummary() {
     var chargeableTag = l.custom
       ? '<div class="mat-chargeable-tag'+(isChargeable?' on':'')+'" onclick="toggleMaterialChargeable(\''+l.id+'\')">'+(isChargeable?'Chargeable':'Tracking only')+'</div>'
       : '';
-    return '<div class="mat-row"><div><div class="mat-label">'+escapeHtml(l.description)+'</div>'+
+    return swipeDeleteWrap('deleteMaterialLine', l.id,
+      '<div class="mat-row"><div><div class="mat-label">'+escapeHtml(l.description)+'</div>'+
       '<div class="mat-detail">'+fmt(+l.unitAmount||0)+(l.isPerLitre?'/ltr':' each')+'</div>'+chargeableTag+'</div>'+
       '<div style="display:flex;align-items:center;gap:10px">'+
         '<input type="number" class="field-input" style="width:60px;padding:6px 8px;text-align:center" value="'+l.quantity+'" min="0" step="1" onchange="setMaterialLineQuantity(\''+l.id+'\',this.value)">'+
         '<div class="mat-val" style="width:72px;text-align:right">'+fmt(cost)+'</div>'+
         '<div onclick="deleteMaterialLine(\''+l.id+'\')" style="color:var(--text3);font-size:18px;cursor:pointer;padding:8px;margin-left:4px">×</div>'+
-      '</div></div>';
+      '</div></div>');
   }).join('');
 
   var scheduleRows = rooms.map(function(r){
