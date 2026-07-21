@@ -673,8 +673,8 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Staircase multiplier<small>% uplift on labour</small></div><input type="number" class="field-input" id="s-wpstair-mult" value="25" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Trim allowance<small>cm added per drop, top+bottom</small></div><input type="number" class="field-input" id="s-wptrim" value="10" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Minimum price<small>£ floor per room's wallpaper labour</small></div><input type="number" class="field-input" id="s-wpmin-price" value="200" min="0" step="10" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Wide vinyl labour<small>£ per linear metre — feature wall only</small></div><input type="number" class="field-input" id="s-wpvinyl-labour-rate" value="0" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Wide vinyl material<small>£ per linear metre</small></div><input type="number" class="field-input" id="s-wpvinyl-material-rate" value="0" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Wide vinyl labour<small>£ per linear metre — feature wall only</small></div><input type="number" class="field-input" id="s-wpvinyl-labour-rate" value="18.6" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Wide vinyl material<small>£ per linear metre</small></div><input type="number" class="field-input" id="s-wpvinyl-material-rate" value="0" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Mural labour<small>£ per m² — feature wall only</small></div><input type="number" class="field-input" id="s-wpmural-labour-rate" value="0" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Mural material<small>£ per m²</small></div><input type="number" class="field-input" id="s-wpmural-material-rate" value="0" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Mural flat fee<small>£ — used when priced as a one-off instead of per m²</small></div><input type="number" class="field-input" id="s-wpmural-flat-fee" value="0" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
@@ -1893,7 +1893,7 @@ var SETTINGS_FIELDS = [
   ['wpStairMultPct', 's-wpstair-mult',  25],
   ['wpTrimCm',       's-wptrim',        10],
   ['wpMinPrice',     's-wpmin-price',   200],
-  ['wpVinylLabourRatePerM',    's-wpvinyl-labour-rate',    0],
+  ['wpVinylLabourRatePerM',    's-wpvinyl-labour-rate',    18.6],
   ['wpVinylMaterialRatePerM',  's-wpvinyl-material-rate',  0],
   ['wpMuralLabourRatePerM2',   's-wpmural-labour-rate',    0],
   ['wpMuralMaterialRatePerM2', 's-wpmural-material-rate',  0],
@@ -1938,6 +1938,14 @@ function mergeSettings(raw) {
              : (legacy != null && raw[legacy] != null) ? raw[legacy]
              : dflt;
   });
+  // Wide vinyl labour shipped defaulting to £0 before a real rate existed,
+  // so live saved blobs carry 0 -- which would win over the seeded default
+  // above forever. A £0 labour rate is never a real price (it quotes the
+  // hang as free), so treat saved 0 as "never calibrated" and adopt the
+  // default. Value must match this field's SETTINGS_FIELDS row. Vinyl
+  // material and the mural rates are NOT seeded -- Nicky doesn't charge a
+  // per-metre vinyl material rate, and no mural trade data exists yet.
+  if (!out.wpVinylLabourRatePerM) out.wpVinylLabourRatePerM = 18.6;
   out.kitchenRates = raw.kitchenRates || KITCHEN_RATE_DEFAULTS;
   out.materials    = raw.materials || {};
   out.paymentType  = raw.paymentType || 'single';

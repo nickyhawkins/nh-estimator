@@ -131,7 +131,7 @@ Wallpaper jobs should have a minimum price floor of £200 — if the calculated 
 - Add ability to manually push/sync saved contact data to Xero later, rather than requiring it to be entered directly in Xero or lost if the job is switched away from before syncing.
 - When syncing, the saved address must populate Xero's **billing address** field, NOT the delivery address field.
 
-## 13. Commercial wallpaper types: Wide Vinyl and Mural
+## 13. Commercial wallpaper types: Wide Vinyl and Mural — BUILT
 
 Add a "Wallpaper Type" selector to the wallpaper section: Standard Roll (existing calculation) / Wide Vinyl / Mural. Each type needs its own calculation logic — they don't fit the existing domestic roll-count model.
 

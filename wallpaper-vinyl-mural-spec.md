@@ -2,6 +2,8 @@
 
 **Status: BUILT & COMMITTED** (2026-07-20, commit `a8e105d`, feature-wall-only per section 2's recommendation, confirmed by Nicky). Matches [estimating-app-edits.md](estimating-app-edits.md) item 13. Verified end-to-end in the static preview: linear-metre/area calc, £0-default Settings rates, £200 minimum floor still applies on top, save/edit round-trip all confirmed working.
 
+**Update 2026-07-21:** Wide vinyl **labour** rate seeded per Nicky — **£18.60/linear m** (the constructionrates.co.uk £13.60/m² labour trade rate × 1.37m roll width; see section 6). `mergeSettings()` treats a saved £0 as "never calibrated" for this field so live installs pick the seed up too; a hand-entered non-zero rate always wins. Vinyl **material** stays £0 — Nicky said material rates aren't needed. Mural rates also remain £0 — he's still looking for a real rate for large digitally printed one-piece murals.
+
 **For:** Nicky Hawkins Painter & Decorator estimating app
 **Feature:** Commercial wallpaper types (Wide Vinyl, Mural) alongside the existing domestic roll-based wallpaper calculator.
 
