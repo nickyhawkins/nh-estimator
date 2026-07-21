@@ -9,6 +9,13 @@
 > `getAccessToken` two-query tidy was also skipped (churn > benefit).
 > Part 2 (workflow features: PWA, sync indicator, duplicate room, room-form
 > drafts, capture-first entry) remains proposal-only.
+>
+> **Status update (2026-07-21, post-merge):** finding 8 is now APPLIED too
+> (`SETTINGS_FIELDS` schema + `mergeSettings()`, commit after the branch
+> merge). Merge semantics unified on the module init's `!= null` rule — a
+> saved 0 is a real value — with the legacy `dayRate`/`covWall`-family
+> aliases kept. Only the `getAccessToken` tidy remains skipped; Part 2 is
+> still proposal-only.
 
 Full read-through of the estimator: `server.js`, `routes/api.js`, `routes/xero.js`,
 `routes/debt.js`, `db/setup.sql`, and all 7,070 lines of `public/index.html`.
