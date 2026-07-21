@@ -8,6 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="NH Estimator">
 <title>NH Estimator</title>
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#1a5276">
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -7203,6 +7204,16 @@ async function confirmBackupImport() {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 initApp();
+
+// Service worker: offline app shell + installability (see public/sw.js).
+// Registered after load so it never competes with the startup fetches.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('/sw.js').catch(function(e) {
+      console.log('Service worker registration failed:', e.message);
+    });
+  });
+}
 </script>
 </body>
 </html>
