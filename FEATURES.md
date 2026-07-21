@@ -6,7 +6,7 @@ This document captures planned features for the NH Estimator app, scoped and rea
 
 Reconciled against the code on **2026-07-14**. Most of the original roadmap is now built — keep this index honest as things ship, it had drifted badly once already.
 
-**Shipped:** Automatic materials from Xero Items · Materials editing + sundries · Realistic time estimate · Deposit & staged payments · Colour reference library · Multiple saved jobs · Rename jobs · HSL alignment (both steps) · Exterior alignment · Wallpaper calculator · Wallpaper per-roll labour · Lining + finish on one job · Feature wall paint/wallpaper toggle · Colours tab evolution (paint/ordering view) · **Material tracking Phases 0, 1 and 2(a)** · **Navigation: hamburger for job admin** (2026-07-14)
+**Shipped:** Automatic materials from Xero Items · Materials editing + sundries · Realistic time estimate · Deposit & staged payments · Colour reference library · Multiple saved jobs · Rename jobs · HSL alignment (both steps) · Exterior alignment · Wallpaper calculator · Wallpaper per-roll labour · Lining + finish on one job · Feature wall paint/wallpaper toggle · Colours tab evolution (paint/ordering view) · **Material tracking Phases 0, 1 and 2(a)** · **Navigation: hamburger for job admin** (2026-07-14) · **Spray walls toggle** (2026-07-21)
 
 **⚠️ Deploy step outstanding:** material tracking added the `material_actuals` table, and **`db/setup.sql` is not run automatically** (README: `psql $DATABASE_URL -f db/setup.sql`). Until it's run against the live database, the Materials and Invoice screens 500 on a missing relation. Nothing else is affected. `IF NOT EXISTS` throughout, so re-running is safe.
 
@@ -370,6 +370,15 @@ Extends the feature-wall pricing (input dimensions → price the wall on its own
 </details>
 
 > **Still outstanding:** the spec called for moving the feature wall into its own collapsible section (collapsed by default). The room form has collapsible sections and the exterior form uses them throughout, but there's no dedicated feature-wall section — cosmetic, not functional.
+
+## FEATURE: Spray walls toggle ✅ SHIPPED (2026-07-21)
+
+Per-room "Spray walls" toggle (its own collapsible card on the room form, after Mist Coat). **Materials-only** — labour deliberately stays on `wallMins()`, on the working assumption that spray application speed vs masking time is a wash on the rooms you'd actually choose to spray.
+
+- **Only the wall rate forks.** Ceiling, woodwork and mist coverage rates were already calibrated assuming spraying, so they're untouched. A second coverage setting, **Wall Emulsion — Sprayed** (`cwSpray`, default 9 m²/L vs rolled 13), sits next to the rolled rate in Coverage Rates; `calcRoom()` picks one per room for `wallL` and `featureWallL`. Calibrate it against real sprayed jobs like the other rates — the default is a guess.
+- **Spray sundries bump** (`sundriesSprayPct`, default 3%): sprayed rooms use extra masking film/tape/paper, so their labour carries an extra sundries % on top of the job-wide rate — sprayed rooms' labour only, not the whole job's. `calcRoom()` exposes `sprayLabour` per room and `computeDepositPlan()` takes the summed figure, so Summary and the Xero quote share one number (the usual drift-bug guard). This default is also a guess — calibrate.
+- Room flag `sprayWalls` rides the standard lifecycle (temp var, `buildRoomFromForm()`, `editRoom()` restore, draft capture) and defaults off, so old rooms and quick-added rooms stay rolled. HSL rooms get it generically like mist.
+- Litres flow into the existing tin optimiser/Xero pipeline unchanged — the toggle just changes the input litres.
 
 ## FEATURE: Navigation — hamburger for job admin ✅ SHIPPED (2026-07-14)
 
