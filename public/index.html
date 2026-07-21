@@ -120,6 +120,12 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
    the "My Job ›" text + ⚙️ gear that used to be scattered, inconsistently,
    across the topbars — see FEATURES.md "Navigation: hamburger for job admin". */
 .nav-ham-btn{position:relative;background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;padding:4px;margin-left:4px;line-height:1}
+.sync-dot{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block;margin-left:6px;background:#27ae60;transition:background .3s}
+.sync-dot.saving{background:#f39c12}
+.sync-dot.offline{background:#c0392b}
+.nav-menu-sync{padding:10px 14px;font-size:12px;border-top:1px solid var(--border);color:#27ae60}
+.nav-menu-sync.saving{color:#f39c12}
+.nav-menu-sync.offline{color:#c0392b}
 .nav-ham-badge{display:none;position:absolute;top:-2px;right:-4px;min-width:16px;height:16px;padding:0 4px;background:var(--danger,#c0392b);color:#fff;font-size:10px;font-weight:700;line-height:16px;text-align:center;border-radius:9px;font-family:'DM Sans',sans-serif}
 .nav-menu-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:300}
 .nav-menu-backdrop.open{display:block}
@@ -172,7 +178,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     <div class="topbar-sub" id="home-sub"></div>
     <div class="chip" id="home-chip" style="display:none">£0</div>
     <button id="clear-btn" onclick="clearRooms()" style="display:none;background:rgba(192,57,43,.1);border:1px solid rgba(192,57,43,.3);color:var(--danger);border-radius:20px;padding:5px 12px;font-size:12px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;margin-left:6px">Clear</button>
-    <button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
   </div>
   <div class="content">
     <div class="empty" id="home-empty">
@@ -559,7 +565,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
          now reached from there on every measuring screen, so this one is
          retired rather than left as a second, redundant path in. -->
     <button onclick="exportCSV()" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:20px;padding:6px 14px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Export ↓</button>
-    <button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
   </div>
   <div id="xero-quote-panel" style="display:none;padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--border);flex-direction:column;gap:8px">
     <div style="display:flex;gap:8px">
@@ -762,7 +768,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     <div class="topbar-sub" id="ext-sub"></div>
     <div class="chip" id="ext-chip" style="display:none">£0</div>
     <button id="ext-clear-btn" onclick="clearExteriorItems()" style="display:none;background:rgba(192,57,43,.1);border:1px solid rgba(192,57,43,.3);color:var(--danger);border-radius:20px;padding:5px 12px;font-size:12px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;margin-left:6px">Clear</button>
-    <button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
   </div>
   <div class="content">
     <div class="empty" id="ext-empty">
@@ -787,7 +793,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
   <div class="topbar">
     <div class="topbar-title">Kitchen</div>
     <div class="chip" id="k-chip" style="display:none">£0</div>
-    <button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
   </div>
   <div class="content">
     <div class="card">
@@ -829,7 +835,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 <div id="screen-colours" class="screen">
   <div class="topbar">
     <div class="topbar-title">Colours</div>
-    <button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
   </div>
   <div class="content">
     <div class="empty" id="colours-empty">
@@ -977,6 +983,10 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     <div>Settings</div>
     <span class="nav-menu-arrow">›</span>
   </div>
+  <!-- Sync status in words (the topbar dot is the at-a-glance version).
+       The question that matters on site is "did today's measurements reach
+       the server before I drive off?" — this row answers it explicitly. -->
+  <div class="nav-menu-sync" id="nav-menu-sync"></div>
 </div>
 </div>
 
@@ -1011,7 +1021,36 @@ async function apiGet(path) {
   if (!r.ok) throw new Error('API error: ' + path);
   return r.json();
 }
+// In-flight write count, driving the sync indicator (the topbar .sync-dot
+// on every screen + the hamburger menu's text row). Wrapped around all four
+// write helpers below so no save path can slip past it.
+var pendingWrites = 0;
+function beginWrite() { pendingWrites++; updateSyncStatus(); }
+function endWrite() { pendingWrites = Math.max(0, pendingWrites - 1); updateSyncStatus(); }
+
+// synced (green) / saving (amber) / offline (red). "Offline" means the last
+// write failed OR the browser knows it has no connection -- either way the
+// data is safe in localStorage, which is what the menu row's wording says.
+function updateSyncStatus() {
+  var state = (!navigator.onLine || !serverAvailable) ? 'offline'
+            : (pendingWrites > 0 ? 'saving' : 'synced');
+  document.querySelectorAll('.sync-dot').forEach(function(el) {
+    el.classList.toggle('saving', state === 'saving');
+    el.classList.toggle('offline', state === 'offline');
+  });
+  var row = document.getElementById('nav-menu-sync');
+  if (row) {
+    row.textContent = state === 'offline' ? 'Offline — changes saved on this phone'
+                    : state === 'saving' ? 'Saving…' : 'All changes synced ✓';
+    row.className = 'nav-menu-sync' + (state === 'synced' ? '' : ' ' + state);
+  }
+}
+// Optimistic reset on reconnect: the next real write settles the truth.
+window.addEventListener('online', function() { serverAvailable = true; updateSyncStatus(); });
+window.addEventListener('offline', updateSyncStatus);
+
 async function apiPut(path, data) {
+  beginWrite();
   try {
     await fetch(path, {
       method: 'PUT',
@@ -1021,14 +1060,19 @@ async function apiPut(path, data) {
     serverAvailable = true;
   } catch(e) {
     serverAvailable = false;
+  } finally {
+    endWrite();
   }
 }
 async function apiDelete(path) {
+  beginWrite();
   try {
     await fetch(path, { method: 'DELETE' });
     serverAvailable = true;
   } catch(e) {
     serverAvailable = false;
+  } finally {
+    endWrite();
   }
 }
 
@@ -1044,23 +1088,33 @@ async function apiDelete(path) {
 // prevent. These throw on a network error AND on a non-2xx, and hand back the
 // parsed body so the caller can adopt the id the server actually stored.
 async function apiPutStrict(path, data) {
-  const r = await fetch(path, {
-    method: 'PUT',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify(data)
-  });
-  if (!r.ok) {
-    let msg = 'HTTP ' + r.status;
-    try { const b = await r.json(); if (b && b.error) msg = b.error; } catch (e) {}
-    throw new Error(msg);
+  beginWrite();
+  try {
+    const r = await fetch(path, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(data)
+    });
+    if (!r.ok) {
+      let msg = 'HTTP ' + r.status;
+      try { const b = await r.json(); if (b && b.error) msg = b.error; } catch (e) {}
+      throw new Error(msg);
+    }
+    return await r.json();
+  } finally {
+    endWrite();
   }
-  return r.json();
 }
 
 async function apiDeleteStrict(path) {
-  const r = await fetch(path, { method: 'DELETE' });
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  return r.json();
+  beginWrite();
+  try {
+    const r = await fetch(path, { method: 'DELETE' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return await r.json();
+  } finally {
+    endWrite();
+  }
 }
 
 // Save to localStorage AND server
@@ -1926,6 +1980,7 @@ async function initApp() {
     console.log('Server sync failed — running from local cache');
     serverAvailable = false;
   }
+  updateSyncStatus();
 }
 
 
@@ -2485,6 +2540,7 @@ function openNavMenu() {
   var nameEl = document.getElementById('nav-menu-jobname');
   if (nameEl) nameEl.textContent = (activeJob() && activeJob().name) || 'My Job';
   updateNavBadge();
+  updateSyncStatus();
   document.getElementById('nav-menu-backdrop').classList.add('open');
   document.getElementById('nav-menu-panel').style.display = 'block';
 }
