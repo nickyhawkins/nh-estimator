@@ -987,6 +987,24 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 
 var serverAvailable = true;
 
+// Trailing debounce -- used by the live room/staircase previews, whose
+// oninput handlers otherwise run a full calcRoom()/wallpaper-roll pass on
+// every keystroke (measurable jank on older phones with wallpaper +
+// staircase active). Display-only callers, so deferring by a frame or two
+// is invisible.
+function debounce(fn, ms) {
+  var t;
+  return function() {
+    var self = this, args = arguments;
+    clearTimeout(t);
+    t = setTimeout(function() { fn.apply(self, args); }, ms);
+  };
+}
+// The names every oninput handler (and JS toggle) calls -- the real bodies
+// are previewRoomNow()/calcHSLNow(), hoisted from further down the file.
+var previewRoom = debounce(previewRoomNow, 80);
+var calcHSL = debounce(calcHSLNow, 80);
+
 async function apiGet(path) {
   const r = await fetch(path);
   if (!r.ok) throw new Error('API error: ' + path);
@@ -1329,7 +1347,9 @@ async function refreshXeroItems() {
   var btn = document.getElementById('materials-refresh-btn');
   btn.textContent = 'Refreshing…'; btn.disabled = true;
   try {
-    applyMaterialGroupsResponse(await apiGet('/auth/material-groups'));
+    // fresh=1 bypasses the server's short material-groups cache -- a manual
+    // Refresh must always hit Xero for real (e.g. right after a price update).
+    applyMaterialGroupsResponse(await apiGet('/auth/material-groups?fresh=1'));
     // materialItemIndex is rebuilt inside applyMaterialGroupsResponse, and the
     // one-off product search picker reads it live on every keystroke -- no
     // separate list to refresh here.
@@ -3457,11 +3477,49 @@ function addCustomMaterialLine() {
   var chargeable = document.getElementById('add-mat-chargeable').classList.contains('on');
   materialsSnapshot.push({ id: uid(), itemCode: itemCode, description: desc, quantity: qty, unitAmount: price, custom: true, chargeable: chargeable, colourNumber: colourNumber });
   saveMaterialsSnapshot();
+  clearFormFields(ADD_MAT_FIELD_IDS);
   renderSummary();
 }
 
 function toggleAddMatChargeable() {
   document.getElementById('add-mat-chargeable').classList.toggle('on');
+}
+
+// The Add Material forms (Summary's add-mat-*, Materials tracking's
+// act-add-*) live inside the innerHTML their render functions rebuild, so a
+// re-render mid-entry (ticking a bought checkbox, editing another line's
+// quantity) used to wipe anything half-typed into them. Snapshot the fields
+// before the rebuild and restore them after. Keyboard focus can't survive an
+// innerHTML rebuild, but the typed content now does. The 'on' class carries
+// the Chargeable toggle's state, which lives only in the DOM.
+function snapshotFields(ids) {
+  var vals = {};
+  ids.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) vals[id] = { value: el.value, on: el.classList.contains('on') };
+  });
+  return vals;
+}
+function restoreFields(vals) {
+  Object.keys(vals).forEach(function(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (vals[id].value != null && vals[id].value !== '') el.value = vals[id].value;
+    if (vals[id].on) el.classList.add('on');
+  });
+}
+var ADD_MAT_FIELD_IDS = ['add-mat-product','add-mat-desc','add-mat-colour','add-mat-price','add-mat-qty','add-mat-itemcode','add-mat-chargeable'];
+var ACT_ADD_FIELD_IDS = ['act-add-product','act-add-desc','act-add-price','act-add-qty','act-add-itemcode'];
+// Called by the add functions after a SUCCESSFUL add, so the re-render's
+// restore doesn't hand the just-added values back to the form (the rebuild
+// alone used to be what cleared it).
+function clearFormFields(ids) {
+  ids.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (el.value != null) el.value = '';
+    el.classList.remove('on');
+  });
 }
 
 // ── Materials tracking: actuals (what was really BOUGHT) ──────────────────
@@ -3741,7 +3799,9 @@ function renderActuals() {
     + '</div>'
     + '<button onclick="addActualFromPicker()" style="background:var(--accent);color:#fff;border:none;border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%;margin-top:8px">Add Material</button>';
 
+  var pendingAdd = snapshotFields(ACT_ADD_FIELD_IDS);
   el.innerHTML = head + rowsHtml + add;
+  restoreFields(pendingAdd);
   // Reuses the Summary picker wholesale -- same onMaterialProductInput
   // function, same materialItemIndex, just mounted with the 'act-add' prefix.
   // Single hook point for every actuals mutation: setActualQuantity,
@@ -3914,14 +3974,14 @@ async function addActualFromPicker() {
   var existing = materialActuals.filter(function(a) { return materialKey(a) === key; })[0];
   if (existing) {
     existing.actualQuantity = (+existing.actualQuantity || 0) + qty;
-    if (await persistActual(existing)) { renderActuals(); }
+    if (await persistActual(existing)) { clearFormFields(ACT_ADD_FIELD_IDS); renderActuals(); }
     return;
   }
   var row = findActualsRow(key);
   if (row) {
     var a = ensureActual(row);
     a.actualQuantity = qty;
-    if (await persistActual(a)) renderActuals();
+    if (await persistActual(a)) { clearFormFields(ACT_ADD_FIELD_IDS); renderActuals(); }
     return;
   }
   var fresh = {
@@ -3929,7 +3989,7 @@ async function addActualFromPicker() {
     unitAmount: itemCode ? null : price, bought: false
   };
   materialActuals.push(fresh);
-  if (await persistActual(fresh)) renderActuals();
+  if (await persistActual(fresh)) { clearFormFields(ACT_ADD_FIELD_IDS); renderActuals(); }
 }
 
 // ── Phase 2(a): the materials list for the invoice ────────────────────────
@@ -5717,13 +5777,15 @@ function toggleMist(key) {
   if(key==='mc') { mistCeil=!mistCeil; document.getElementById('tog-mc').classList.toggle('on',mistCeil); }
   previewRoom();
 }
-function previewRoom() {
+function previewRoomNow() {
   // Shared fields (prep, making good, mist, wallpaper, windows/doors/
   // radiators) live on both room types now and all call previewRoom() on
   // input -- redirect to the staircase live preview here so a single choke
   // point covers every one of them, rather than special-casing each field's
-  // oninput handler individually.
-  if (roomIsStaircase) { calcHSL(); return; }
+  // oninput handler individually. calcHSLNow directly (not the debounced
+  // calcHSL wrapper): this call is already on the far side of previewRoom's
+  // own debounce, so a second delay would just stack.
+  if (roomIsStaircase) { calcHSLNow(); return; }
   var L=+document.getElementById('r-l').value;
   var W=+document.getElementById('r-w').value;
   var H=+document.getElementById('r-h').value;
@@ -6228,7 +6290,7 @@ function roomCeilArea(l, w) { return l*w; }
 // itself (hall/stairs/landings) and the spindle/newel woodwork are unique to
 // a staircase. Mirrors computeHSLOverrides()'s math exactly so the preview
 // never drifts from what actually gets saved.
-function calcHSL() {
+function calcHSLNow() {
   var r2  = rpm();
   var hpd = settings.hpd;
   var wc  = coats.wc, cc = coats.cc, xc = coats.xc;
@@ -6801,6 +6863,7 @@ function renderSummary() {
   var statusJob = activeJob();
   var jobStatus = statusJob ? statusJob.status : null;
 
+  var pendingAddMat = snapshotFields(ADD_MAT_FIELD_IDS);
   data.innerHTML=
     '<div class="card">'+
       '<div class="field-row">'+
@@ -6977,6 +7040,7 @@ function renderSummary() {
     '<button onclick="addCustomMaterialLine()" style="background:var(--accent);color:#fff;border:none;border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%;margin-top:8px">Add Material</button>'+
     '</div>'+
     (scheduleRows?'<div><div class="section-title" style="margin-bottom:8px">Colour Schedule</div><div class="card">'+scheduleRows+'</div></div>':'');
+  restoreFields(pendingAddMat);
 }
 
 // ── Export CSV ─────────────────────────────────────────────────────────────

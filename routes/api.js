@@ -95,11 +95,16 @@ router.put('/jobs/:id', async (req, res) => {
 router.delete('/jobs/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    await db.query('DELETE FROM rooms WHERE job_id = $1', [id]);
-    await db.query('DELETE FROM exterior_items WHERE job_id = $1', [id]);
-    await db.query('DELETE FROM colours WHERE job_id = $1', [id]);
-    await db.query('DELETE FROM materials_snapshot WHERE job_id = $1', [id]);
-    await db.query('DELETE FROM material_actuals WHERE job_id = $1', [id]);
+    // Child tables concurrently (no FKs, fully independent), then the job
+    // row itself last so a failure part-way never leaves an orphaned job id
+    // pointing at half-deleted children.
+    await Promise.all([
+      db.query('DELETE FROM rooms WHERE job_id = $1', [id]),
+      db.query('DELETE FROM exterior_items WHERE job_id = $1', [id]),
+      db.query('DELETE FROM colours WHERE job_id = $1', [id]),
+      db.query('DELETE FROM materials_snapshot WHERE job_id = $1', [id]),
+      db.query('DELETE FROM material_actuals WHERE job_id = $1', [id]),
+    ]);
     await db.query('DELETE FROM jobs WHERE id = $1', [id]);
     res.json({ ok: true });
   } catch (err) {
@@ -523,17 +528,19 @@ router.put('/settings', async (req, res) => {
 router.delete('/all', async (req, res) => {
   const jobId = requireJobId(req, res); if (!jobId) return;
   try {
-    await db.query('DELETE FROM rooms WHERE job_id = $1', [jobId]);
-    await db.query('DELETE FROM exterior_items WHERE job_id = $1', [jobId]);
-    await db.query('DELETE FROM colours WHERE job_id = $1', [jobId]);
-    await db.query('DELETE FROM materials_snapshot WHERE job_id = $1', [jobId]);
     // Actuals go too: this is "clear ALL data in this job", the user has
     // confirmed "cannot be undone", and leaving them would strand an invoice
     // log against an estimate that no longer exists. NB this is the ONLY route
     // that clears actuals wholesale, and it's user-confirmed. clearJob()
     // (rooms/colours/snapshot only) deliberately leaves them alone —
     // destroying the estimate must never destroy the invoice.
-    await db.query('DELETE FROM material_actuals WHERE job_id = $1', [jobId]);
+    await Promise.all([
+      db.query('DELETE FROM rooms WHERE job_id = $1', [jobId]),
+      db.query('DELETE FROM exterior_items WHERE job_id = $1', [jobId]),
+      db.query('DELETE FROM colours WHERE job_id = $1', [jobId]),
+      db.query('DELETE FROM materials_snapshot WHERE job_id = $1', [jobId]),
+      db.query('DELETE FROM material_actuals WHERE job_id = $1', [jobId]),
+    ]);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

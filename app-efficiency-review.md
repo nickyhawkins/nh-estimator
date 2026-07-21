@@ -1,5 +1,15 @@
 # App Efficiency & On-Site Workflow Review — 2026-07-21
 
+> **Status update (same day):** every Part 1 finding is now APPLIED on this
+> branch except finding 8 (the five parallel settings lists) — deferred
+> deliberately: it's a maintainability refactor with per-field zero-vs-null
+> merge semantics that deserves its own careful change, and the drifted
+> server-branch copy is currently compensated by the patch blocks (now moved
+> next to the settings fetch they belong to). Of the smaller items, the
+> `getAccessToken` two-query tidy was also skipped (churn > benefit).
+> Part 2 (workflow features: PWA, sync indicator, duplicate room, room-form
+> drafts, capture-first entry) remains proposal-only.
+
 Full read-through of the estimator: `server.js`, `routes/api.js`, `routes/xero.js`,
 `routes/debt.js`, `db/setup.sql`, and all 7,070 lines of `public/index.html`.
 No code was changed — this is the findings list, ranked, with the safe fix for
