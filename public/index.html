@@ -120,6 +120,8 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
    the "My Job ›" text + ⚙️ gear that used to be scattered, inconsistently,
    across the topbars — see FEATURES.md "Navigation: hamburger for job admin". */
 .nav-ham-btn{position:relative;background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;padding:4px;margin-left:4px;line-height:1}
+.room-dup-btn{background:none;border:none;color:var(--text3);font-size:15px;cursor:pointer;padding:6px 8px;line-height:1;flex:none}
+.room-dup-btn:active{color:var(--accent)}
 .sync-dot{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block;margin-left:6px;background:#27ae60;transition:background .3s}
 .sync-dot.saving{background:#f39c12}
 .sync-dot.offline{background:#c0392b}
@@ -5346,12 +5348,32 @@ function renderHome() {
       '<div class="room-info"><div class="room-name">'+r.name+'</div>'+
       '<div class="room-meta">'+r.l+'×'+r.w+'×'+r.h+'m · '+fmtD(c.time)+'</div></div>'+
       '<div class="room-cost">'+fmt(c.total)+'</div>'+
+      '<button class="room-dup-btn" title="Duplicate room" onclick="event.stopPropagation();duplicateRoom(this.dataset.id)" data-id="'+r.id+'">⧉</button>'+
       '<div style="color:var(--text3);font-size:16px">›</div></div>';
   }).join('');
   var marked = applyMarkupAmount(total);
   sub.textContent=rooms.length+' room'+(rooms.length===1?'':'s');
   chip.style.display='flex'; chip.textContent=fmt(marked);
   clr.style.display='block';
+}
+
+// Duplicate a room -- bedrooms 2/3/4 are usually the same room with
+// different dimensions, so measure one, duplicate, tweak two numbers.
+// Deep clone via JSON (room objects are plain data), fresh id, "(copy)"
+// suffix, inserted straight after the original so related rooms stay
+// together (the bulk save preserves array order server-side).
+function duplicateRoom(id) {
+  var idx = rooms.findIndex(function(r) { return r.id === id; });
+  if (idx === -1) return;
+  var copy = JSON.parse(JSON.stringify(rooms[idx]));
+  copy.id = uid();
+  copy.name = rooms[idx].name + ' (copy)';
+  // Panelling rows carry their own ids -- refresh them so the copy never
+  // shares row ids with the original.
+  (copy.panelItems || []).forEach(function(p) { p.id = uid(); });
+  rooms.splice(idx + 1, 0, copy);
+  saveRooms();
+  renderHome();
 }
 
 // ── Room form ──────────────────────────────────────────────────────────────
