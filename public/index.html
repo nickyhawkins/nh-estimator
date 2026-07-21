@@ -2411,7 +2411,7 @@ function goTab(tab) {
     var el=document.getElementById('nav-'+t);
     if(el) el.classList.toggle('active', t===tab);
   });
-  if (tab==='summary') renderSummary();
+  if (tab==='summary') refreshSummaryTab();
   if (tab==='exterior') renderExterior();
   if (tab==='kitchen') renderKitchen();
   if (tab==='colours') renderColours();
@@ -3162,26 +3162,44 @@ function buildRoleRows(label, role, litresPerRoom, skipRoom, items) {
 }
 
 function computeMaterials() {
-  var wallRows    = buildRoleRows('Wall Emulsion', 'wall', function(r) { return calcRoom(r).wallL; });
-  var ceilingRows = buildRoleRows('Ceiling Emulsion', 'ceiling', function(r) { return calcRoom(r).ceilL; });
-  var topcoatRows = buildRoleRows('Woodwork Topcoat', 'topcoat', function(r) { return calcRoom(r).glossL; });
+  // calcRoom() is the expensive part of every role below (it runs the full
+  // wallpaper-roll machinery), and between the litres and skip callbacks it
+  // used to run ~10× per room per call. One evaluation per room, held for
+  // this call only -- keyed on the room object itself, so there's nothing to
+  // invalidate: the next computeMaterials() call starts a fresh map.
+  var roomCalcs = new Map();
+  var cr = function(r) {
+    var c = roomCalcs.get(r);
+    if (!c) { c = calcRoom(r); roomCalcs.set(r, c); }
+    return c;
+  };
+  // Same for extWoodworkLitres(), read by two roles × two callbacks each.
+  var extWoodCalcs = new Map();
+  var ew = function(it) {
+    var l = extWoodCalcs.get(it);
+    if (l == null) { l = extWoodworkLitres(it); extWoodCalcs.set(it, l); }
+    return l;
+  };
+  var wallRows    = buildRoleRows('Wall Emulsion', 'wall', function(r) { return cr(r).wallL; });
+  var ceilingRows = buildRoleRows('Ceiling Emulsion', 'ceiling', function(r) { return cr(r).ceilL; });
+  var topcoatRows = buildRoleRows('Woodwork Topcoat', 'topcoat', function(r) { return cr(r).glossL; });
   // Primer litres = that room's own topcoat litres × 0.8 (not job-wide,
   // since topcoat itself can now vary room to room) -- always this formula
   // now, mapped or not, since it's a material-quantity rule, not a pricing
   // assumption. Rooms with primerNone are excluded entirely: no row, no cost.
-  var primerRows  = buildRoleRows('Woodwork Primer', 'primer', function(r) { return calcRoom(r).glossL * 0.8; }, function(r) { return !!r.primerNone; });
+  var primerRows  = buildRoleRows('Woodwork Primer', 'primer', function(r) { return cr(r).glossL * 0.8; }, function(r) { return !!r.primerNone; });
   // Mist coat is opt-in per room (off by default), so most jobs have no
   // rooms using it at all -- skip any room contributing zero mist litres
   // rather than let it join a "0.0L" group, so an unused product never
   // renders a row (matches primerNone's "no row at all" behaviour).
-  var mistRows    = buildRoleRows('Mist Coat', 'mist', function(r) { return calcRoom(r).mistL; }, function(r) { return calcRoom(r).mistL <= 0; });
+  var mistRows    = buildRoleRows('Mist Coat', 'mist', function(r) { return cr(r).mistL; }, function(r) { return cr(r).mistL <= 0; });
   // Feature wall: opt-in manual carve-out, same "skip zero" pattern as mist
   // coat -- most rooms have none. Its own colour group per room (per
   // featureWallColourNumber), never pooled with the room's main wall colour.
-  var featureWallRows = buildRoleRows('Feature Wall', 'featurewall', function(r) { return calcRoom(r).featureWallL; }, function(r) { return calcRoom(r).featureWallL <= 0; });
+  var featureWallRows = buildRoleRows('Feature Wall', 'featurewall', function(r) { return cr(r).featureWallL; }, function(r) { return cr(r).featureWallL <= 0; });
   // Panelling: same "skip zero" pattern, own colour per room (panelColourNumber),
   // never pooled with the room's wall/woodwork colours -- see estimating-app-edits.md #7.
-  var panelRows = buildRoleRows('Panelling', 'panel', function(r) { return calcRoom(r).panelL; }, function(r) { return calcRoom(r).panelL <= 0; });
+  var panelRows = buildRoleRows('Panelling', 'panel', function(r) { return cr(r).panelL; }, function(r) { return cr(r).panelL <= 0; });
 
   // ── Exterior roles: same engine, sourced from extItems ──────────────────
   // Masonry (tin-based) has its own colour; exterior woodwork topcoat + primer
@@ -3191,8 +3209,8 @@ function computeMaterials() {
   // same rule as interior; skip an item entirely when it has no exterior
   // woodwork surfaces (matches primerNone's "no row at all").
   var masonryRows   = buildRoleRows('Masonry / Render', 'masonry', function(it) { return extMasonryLitres(it); }, function(it) { return extMasonryLitres(it) <= 0; }, extItems);
-  var extTopcoatRows= buildRoleRows('Exterior Woodwork', 'extTopcoat', function(it) { return extWoodworkLitres(it); }, function(it) { return extWoodworkLitres(it) <= 0; }, extItems);
-  var extPrimerRows = buildRoleRows('Exterior Primer', 'extPrimer', function(it) { return extWoodworkLitres(it) * 0.8; }, function(it) { return extWoodworkLitres(it) <= 0; }, extItems);
+  var extTopcoatRows= buildRoleRows('Exterior Woodwork', 'extTopcoat', function(it) { return ew(it); }, function(it) { return ew(it) <= 0; }, extItems);
+  var extPrimerRows = buildRoleRows('Exterior Primer', 'extPrimer', function(it) { return ew(it) * 0.8; }, function(it) { return ew(it) <= 0; }, extItems);
 
   var allRows = wallRows.concat(ceilingRows, topcoatRows, primerRows, mistRows, featureWallRows, panelRows, masonryRows, extTopcoatRows, extPrimerRows);
   var total = allRows.reduce(function(sum, r) { return sum + r.cost; }, 0);
@@ -3258,8 +3276,10 @@ function saveMaterialsSnapshot() {
 // never the unmapped litres-guess fallback, since there's no real
 // quantity/price to make editable there. Discards every prior edit,
 // deletion, and custom line -- a full overwrite, not a merge, by design.
-function recalculateMaterialsSnapshot() {
-  var mats = computeMaterials();
+function recalculateMaterialsSnapshot(precomputedMats) {
+  // renderSummary()'s auto-seed passes in the mats it already computed for
+  // this render; every other caller omits it and computes fresh.
+  var mats = precomputedMats || computeMaterials();
   var allRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows, mats.featureWallRows, mats.panelRows, mats.masonryRows, mats.extTopcoatRows, mats.extPrimerRows);
   materialsSnapshot = allRows.reduce(function(acc, row) {
     return acc.concat(row.lineItems.map(function(li) {
@@ -6546,12 +6566,26 @@ function toggleRoomBd(id) {
   if(chev) chev.classList.toggle('open',open);
 }
 
-async function renderSummary() {
-  // Always fetch exterior items fresh from server before rendering
-  try {
-    var freshExt = await apiGet('/api/extitems?job_id='+encodeURIComponent(activeJobId));
-    if(freshExt) extItems = freshExt;
-  } catch(e) {}
+// Entering the Summary tab: paint immediately from in-memory state, then
+// refresh exterior items from the server in the background (another device
+// may have edited them) and repaint only if they actually changed.
+// renderSummary() itself used to await this fetch unconditionally — with ~20
+// call sites (every materials edit, markup change, payment tweak...) that
+// meant a network round trip per keystroke-commit, a blocked first paint
+// when offline, and the rebuilt DOM wiping in-progress Add Material input.
+// The fetch belongs to tab ENTRY, not to rendering.
+function refreshSummaryTab() {
+  renderSummary();
+  var jobIdAtFetch = activeJobId;
+  apiGet('/api/extitems?job_id='+encodeURIComponent(jobIdAtFetch)).then(function(freshExt) {
+    if (!freshExt || activeJobId !== jobIdAtFetch) return;
+    if (JSON.stringify(freshExt) === JSON.stringify(extItems)) return;
+    extItems = freshExt;
+    if (curTab === 'summary') renderSummary();
+  }).catch(function(){});
+}
+
+function renderSummary() {
   var empty=document.getElementById('sum-empty');
   var data=document.getElementById('sum-data');
   // A kitchen-only job (no rooms, no exterior) still has a real total to
@@ -6562,15 +6596,21 @@ async function renderSummary() {
   if(rooms.length===0&&extItems.length===0&&kitchenCalc.total<=0){empty.style.display='flex';data.style.display='none';return;}
   empty.style.display='none'; data.style.display='block';
   var tc=0,tt=0;
+  // One calcRoom()/calcExtItem() evaluation per room/item for the whole
+  // render -- the raw-total pass here and the per-row breakdowns below all
+  // read from these arrays (each used to re-run the full calc, 2-3× per
+  // room/item per render).
+  var roomCalcs = rooms.map(function(r){ return calcRoom(r); });
+  var extCalcs = extItems.map(function(it){ return calcExtItem(it); });
   // A flat £ markup/discount needs a base to express as a per-line ratio
   // (see markupRatio()) -- computed here, ahead of the rows/ext/kitchen
   // breakdown below, purely so every "* mk" in that breakdown distributes
   // the flat amount proportionally instead of only working for percentages.
-  var rawRoomsTotal = rooms.reduce(function(s,r){ return s + calcRoom(r).total; }, 0);
-  var rawExtTotal = extItems.reduce(function(s,it){ return s + calcExtItem(it).total; }, 0);
+  var rawRoomsTotal = roomCalcs.reduce(function(s,c){ return s + c.total; }, 0);
+  var rawExtTotal = extCalcs.reduce(function(s,c){ return s + c.total; }, 0);
   var mu = markupRatio(rawRoomsTotal + rawExtTotal + kitchenCalc.total);
   var rows=rooms.map(function(r,ri){
-    var c=calcRoom(r); tc+=c.total; tt+=c.time;
+    var c=roomCalcs[ri]; tc+=c.total; tt+=c.time;
     // Per-element costs with markup
     var r2=rpm(); var hpd=settings.hpd;
     var wc=+r.wc,cc=+r.cc,xc=+r.xc;
@@ -6656,9 +6696,8 @@ async function renderSummary() {
     '<div class="room-breakdown" id="'+id+'">'+subRows+'</div>'+
     '<div style="height:1px;background:var(--border)"></div>';
   }).join('');
-  // Always reload extItems fresh from localStorage
   var extTotal=0; var extTimeTotal=0;
-  extItems.forEach(function(item){var c=calcExtItem(item);extTotal+=c.total;extTimeTotal+=c.time;});
+  extCalcs.forEach(function(c){extTotal+=c.total;extTimeTotal+=c.time;});
   // kitchenCalc computed above (ahead of the empty-state guard) -- reused
   // here rather than calling calcKitchen() a second time.
   var kitchenTotal = kitchenCalc.total, kitchenTimeTotal = kitchenCalc.time;
@@ -6678,7 +6717,7 @@ async function renderSummary() {
     // "never seeded" and silently repopulate it.
     markMaterialsSeeded(true);
   } else if (materialsSnapshot.length === 0 && mats.total > 0 && !(activeJob() && activeJob().materialsSeeded)) {
-    recalculateMaterialsSnapshot();
+    recalculateMaterialsSnapshot(mats);
   }
   var materialsTotal = materialsSnapshotTotal();
   var allMatRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows, mats.featureWallRows, mats.panelRows, mats.masonryRows, mats.extTopcoatRows, mats.extPrimerRows);
@@ -6794,7 +6833,7 @@ async function renderSummary() {
     '<div><div class="section-title" style="margin-bottom:8px">Room Breakdown</div>'+
     '<div class="card">'+rows+
     (extItems.length>0?extItems.map(function(item,ei){
-      var c=calcExtItem(item); var mk=1+mu; var r2=rpm();
+      var c=extCalcs[ei]; var mk=1+mu; var r2=rpm();
       var eid='ext-bd-'+ei;
       var sub='';
       var mc=item.coats||{};
