@@ -2820,6 +2820,14 @@ function calcRoom(r) {
   var mistArea = (r.mistAreaOverride && +r.mistAreaOverride > 0) ? +r.mistAreaOverride : ((mistW?wallArea:0) + (mistC?ceilArea:0));
   var mL  = mistArea>0 ? Math.ceil(mistArea/settings.cMist*2)/2 : 0;
   return {total:total, time:time, wallArea:wallArea, ceilArea:ceilArea,
+           // Per-element labour costs, exposed so renderSummary()'s breakdown
+           // reads the SAME figures the total is built from instead of
+           // re-implementing these formulas inline (the recurring drift bug
+           // this file's history keeps hitting -- see NOTES.md's extCost
+           // gotcha). Raw (pre-prep, pre-markup), like wpwCost/wpcCost below.
+           wallCost:wallCost, ceilCost:ceilCost, woodCost:woodCost,
+           winCost:winCost, radCost:radCost,
+           mistWCost:mistWCost, mistCCost:mistCCost,
            wallL:wL, ceilL:cL, glossL:gL, mistL:mL, featureWallL:fwL,
            wpwCost:wpwCost, wpcCost:wpcCost, wpwRolls:wpwRolls, wpcRolls:wpcRolls,
            featureWallMode:featureWallMode, featureWallWpCost:featureWallWpCost, featureWallWpRolls:featureWallWpRolls,
@@ -4794,7 +4802,14 @@ function calcExtItem(item) {
   var base = masonryCost+fasciaCost+winCost+doorCost+garageCost+sashCost+legacyResinCost+legacyReglazeCost;
   var total = base*(1+prepUp/100) + porchCost + mg;
   var time  = total / r2 / 60 / hpd;
-  return { total: total, time: time, winCost: winCost, sashCost: sashCost, repairsCost: repairsCost };
+  // Every per-element cost exposed, not just the window ones -- so
+  // renderSummary()'s exterior breakdown reads the SAME figures the total
+  // is built from instead of re-implementing masonry/fascia/door/garage/
+  // porch/legacy-repair formulas inline (the drift bug NOTES.md documents).
+  return { total: total, time: time, winCost: winCost, sashCost: sashCost, repairsCost: repairsCost,
+           masonryCost: masonryCost, fasciaCost: fasciaCost, doorCost: doorCost,
+           garageCost: garageCost, porchCost: porchCost,
+           legacyResinCost: legacyResinCost, legacyReglazeCost: legacyReglazeCost };
 }
 
 // ── Kitchen Cabinet Spray Calculator ────────────────────────────────────
@@ -6640,21 +6655,13 @@ function renderSummary() {
   var mu = markupRatio(rawRoomsTotal + rawExtTotal + kitchenCalc.total);
   var rows=rooms.map(function(r,ri){
     var c=roomCalcs[ri]; tc+=c.total; tt+=c.time;
-    // Per-element costs with markup
-    var r2=rpm(); var hpd=settings.hpd;
+    // Per-element costs, read straight from calcRoom()'s return (the same
+    // figures c.total is built from) instead of re-implementing the
+    // formulas inline -- keeping the two copies in sync by hand was this
+    // file's recurring drift bug (see NOTES.md's extCost gotcha).
     var wc=+r.wc,cc=+r.cc,xc=+r.xc;
-    // Mirrors calcRoom()'s wallCost basis: a wallpapered feature wall is
-    // excluded from paint labour time, not just relabelled -- see
-    // fwWallpaper in calcRoom() for the source of truth this must stay
-    // in sync with.
-    var featureWallAreaDisp = Math.max(+r.featureWallArea || 0, 0);
-    var fwWallpaperDisp = (r.featureWallMode||'paint')==='wallpaper' && featureWallAreaDisp > 0;
-    var wallCost  = wc>0  ? (fwWallpaperDisp ? Math.max(c.wallArea-featureWallAreaDisp,0) : c.wallArea)*wallMins(wc)*r2  : 0;
-    var ceilCost  = cc>0  ? c.ceilArea*ceilMins(cc)*r2 : 0;
-    var perim=(+r.l + +r.w)*2;
-    var woodCost  = xc>0  ? (perim*skirtMins(xc)+(+r.doors)*doorMins(xc))*r2 : 0;
-    var winCost   = +r.win>0  ? +r.win*winMins()*r2  : 0;
-    var radCost   = +r.rads>0 ? +r.rads*radMins()*r2 : 0;
+    var wallCost=c.wallCost, ceilCost=c.ceilCost, woodCost=c.woodCost;
+    var winCost=c.winCost, radCost=c.radCost;
     var mk=1+mu;
     var id='room-bd-'+ri;
     var subRows='';
@@ -6673,9 +6680,8 @@ function renderSummary() {
     var dispCeilCost = r.ceilCostStore != null ? +r.ceilCostStore : ceilCost;
     var dispWoodCost = r.woodCostStore != null ? +r.woodCostStore : woodCost;
     if(wc>0)  subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Walls</span><span class="breakdown-sub-value">'+fmt(dispWallCost*mk)+'</span></div>';
-    var r2s = rpm();
-    var mwC = r.mistWall ? c.wallArea*settings.rMist*r2s : 0;
-    var mcC = r.mistCeil ? c.ceilArea*settings.rMist*r2s : 0;
+    var mwC = c.mistWCost;
+    var mcC = c.mistCCost;
     // Wallpaper labour -- reads c.wpwCost/c.wpcCost straight from
     // calcRoom() (same rolls x rate x multiplier figure the total already
     // includes), rather than recomputing via the old area x mins/m2 path.
@@ -6862,20 +6868,19 @@ function renderSummary() {
     '<div><div class="section-title" style="margin-bottom:8px">Room Breakdown</div>'+
     '<div class="card">'+rows+
     (extItems.length>0?extItems.map(function(item,ei){
-      var c=extCalcs[ei]; var mk=1+mu; var r2=rpm();
+      var c=extCalcs[ei]; var mk=1+mu;
       var eid='ext-bd-'+ei;
       var sub='';
-      var mc=item.coats||{};
-      var masonryCost = +item.masonry>0 ? +item.masonry*extMasonryMins(mc['ex-masonry']||2)*r2 : 0;
-      var fasciaCost  = +item.fascia>0 ? +item.fascia*extFasciaMins(mc['ex-fascia']||2)*r2 : 0;
-      // winCost/sashCost come straight from calcExtItem() (c, above) rather
-      // than being recomputed here -- avoids a second, driftable copy of
-      // the per-window/pane formula (this file's recurring gotcha: old
-      // calc logic surviving alongside new).
+      // Every per-element cost comes straight from calcExtItem() (c, above)
+      // rather than being recomputed here -- avoids a second, driftable
+      // copy of the formulas (this file's recurring gotcha: old calc logic
+      // surviving alongside new).
+      var masonryCost = c.masonryCost||0;
+      var fasciaCost  = c.fasciaCost||0;
       var winCost     = c.winCost||0;
-      var doorCost    = +item.doors>0 ? +item.doors*extDoorMins2()*r2 : 0;
-      var garageCost  = +item.garage>0 ? +item.garage*extGarageMins2()*r2 : 0;
-      var porchCost   = +item.porch>0 ? +item.porch*settings.dr : 0;
+      var doorCost    = c.doorCost||0;
+      var garageCost  = c.garageCost||0;
+      var porchCost   = c.porchCost||0;
       var sashCost    = c.sashCost||0;
       var repairsCost = c.repairsCost||0;
       var prepUp = item.prepPct >= 0 ? item.prepPct : (+item.prepCustom||0);
@@ -6883,8 +6888,8 @@ function renderSummary() {
       // Legacy resin/reglaze (pre-per-window jobs not yet re-saved) still
       // count toward prep%, same as calcExtItem()'s own base -- see the
       // legacy fallback comment there.
-      var legacyResinCost   = +item.resin>0   ? +item.resin*(settings.rResin||22)*r2     : 0;
-      var legacyReglazeCost = +item.reglaze>0 ? +item.reglaze*(settings.rReglaze||15)*r2 : 0;
+      var legacyResinCost   = c.legacyResinCost||0;
+      var legacyReglazeCost = c.legacyReglazeCost||0;
       if(prepUp>0){var base=masonryCost+fasciaCost+winCost+doorCost+garageCost+sashCost+legacyResinCost+legacyReglazeCost;sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Prep ('+prepLabel+')</span><span class="breakdown-sub-value">'+fmt(base*(prepUp/100)*mk)+'</span></div>';}
       if(masonryCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Masonry / Render</span><span class="breakdown-sub-value">'+fmt(masonryCost*mk)+'</span></div>';
       if(fasciaCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Fascias &amp; Soffits</span><span class="breakdown-sub-value">'+fmt(fasciaCost*mk)+'</span></div>';
