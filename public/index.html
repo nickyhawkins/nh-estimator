@@ -8,6 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="NH Estimator">
 <title>NH Estimator</title>
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#1a5276">
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -119,6 +120,14 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
    the "My Job ›" text + ⚙️ gear that used to be scattered, inconsistently,
    across the topbars — see FEATURES.md "Navigation: hamburger for job admin". */
 .nav-ham-btn{position:relative;background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;padding:4px;margin-left:4px;line-height:1}
+.room-dup-btn{background:none;border:none;color:var(--text3);font-size:15px;cursor:pointer;padding:6px 8px;line-height:1;flex:none}
+.room-dup-btn:active{color:var(--accent)}
+.sync-dot{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block;margin-left:6px;background:#27ae60;transition:background .3s}
+.sync-dot.saving{background:#f39c12}
+.sync-dot.offline{background:#c0392b}
+.nav-menu-sync{padding:10px 14px;font-size:12px;border-top:1px solid var(--border);color:#27ae60}
+.nav-menu-sync.saving{color:#f39c12}
+.nav-menu-sync.offline{color:#c0392b}
 .nav-ham-badge{display:none;position:absolute;top:-2px;right:-4px;min-width:16px;height:16px;padding:0 4px;background:var(--danger,#c0392b);color:#fff;font-size:10px;font-weight:700;line-height:16px;text-align:center;border-radius:9px;font-family:'DM Sans',sans-serif}
 .nav-menu-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:300}
 .nav-menu-backdrop.open{display:block}
@@ -134,6 +143,8 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 .chip{display:inline-flex;align-items:center;gap:4px;background:rgba(26,82,118,.10);color:var(--accent);border:1px solid rgba(26,82,118,.25);border-radius:20px;padding:4px 10px;font-size:12px;font-weight:600}
 .fab{position:fixed;bottom:calc(var(--sb) + 80px);right:20px;width:56px;height:56px;border-radius:50%;background:var(--accent);border:none;color:#fff;font-size:28px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(26,82,118,.4);cursor:pointer;z-index:50;transition:all .15s}
 .fab:active{transform:scale(.92)}
+.fab-quick{position:fixed;bottom:calc(var(--sb) + 92px);right:88px;height:36px;padding:0 14px;border-radius:18px;background:var(--surface);border:1px solid var(--border);color:var(--accent);font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;box-shadow:0 2px 12px rgba(0,0,0,.12);cursor:pointer;z-index:50;transition:all .15s}
+.fab-quick:active{transform:scale(.95)}
 .note-card{background:rgba(245,166,35,.06);border:1px solid rgba(245,166,35,.25);border-radius:var(--r);overflow:hidden}
 .note-card .card-header{color:var(--warn)}
 .note-text{padding:14px 16px;font-size:13px;color:var(--text2);line-height:1.6}
@@ -171,18 +182,19 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     <div class="topbar-sub" id="home-sub"></div>
     <div class="chip" id="home-chip" style="display:none">£0</div>
     <button id="clear-btn" onclick="clearRooms()" style="display:none;background:rgba(192,57,43,.1);border:1px solid rgba(192,57,43,.3);color:var(--danger);border-radius:20px;padding:5px 12px;font-size:12px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;margin-left:6px">Clear</button>
-    <button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
   </div>
   <div class="content">
     <div class="empty" id="home-empty">
       <div class="empty-icon">🏠</div>
       <div class="empty-title">No rooms yet</div>
-      <div class="empty-sub">Tap + to add rooms as you walk round. Toggle Staircase / HSL on the room form for halls, stairs &amp; landings.</div>
+      <div class="empty-sub">Tap + to add rooms as you walk round, or Quick add to name every room first and measure on a second pass. Toggle Staircase / HSL on the room form for halls, stairs &amp; landings.</div>
     </div>
     <div id="room-list" style="display:none">
       <div class="card" id="room-cards"></div>
     </div>
   </div>
+  <button class="fab-quick" onclick="quickAddRooms()">Quick add</button>
   <button class="fab" onclick="goScreen('room')">+</button>
 </div>
 
@@ -558,7 +570,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
          now reached from there on every measuring screen, so this one is
          retired rather than left as a second, redundant path in. -->
     <button onclick="exportCSV()" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:20px;padding:6px 14px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Export ↓</button>
-    <button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
   </div>
   <div id="xero-quote-panel" style="display:none;padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--border);flex-direction:column;gap:8px">
     <div style="display:flex;gap:8px">
@@ -761,7 +773,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     <div class="topbar-sub" id="ext-sub"></div>
     <div class="chip" id="ext-chip" style="display:none">£0</div>
     <button id="ext-clear-btn" onclick="clearExteriorItems()" style="display:none;background:rgba(192,57,43,.1);border:1px solid rgba(192,57,43,.3);color:var(--danger);border-radius:20px;padding:5px 12px;font-size:12px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;margin-left:6px">Clear</button>
-    <button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
   </div>
   <div class="content">
     <div class="empty" id="ext-empty">
@@ -786,7 +798,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
   <div class="topbar">
     <div class="topbar-title">Kitchen</div>
     <div class="chip" id="k-chip" style="display:none">£0</div>
-    <button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
   </div>
   <div class="content">
     <div class="card">
@@ -828,7 +840,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 <div id="screen-colours" class="screen">
   <div class="topbar">
     <div class="topbar-title">Colours</div>
-    <button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
   </div>
   <div class="content">
     <div class="empty" id="colours-empty">
@@ -976,6 +988,10 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     <div>Settings</div>
     <span class="nav-menu-arrow">›</span>
   </div>
+  <!-- Sync status in words (the topbar dot is the at-a-glance version).
+       The question that matters on site is "did today's measurements reach
+       the server before I drive off?" — this row answers it explicitly. -->
+  <div class="nav-menu-sync" id="nav-menu-sync"></div>
 </div>
 </div>
 
@@ -1010,7 +1026,36 @@ async function apiGet(path) {
   if (!r.ok) throw new Error('API error: ' + path);
   return r.json();
 }
+// In-flight write count, driving the sync indicator (the topbar .sync-dot
+// on every screen + the hamburger menu's text row). Wrapped around all four
+// write helpers below so no save path can slip past it.
+var pendingWrites = 0;
+function beginWrite() { pendingWrites++; updateSyncStatus(); }
+function endWrite() { pendingWrites = Math.max(0, pendingWrites - 1); updateSyncStatus(); }
+
+// synced (green) / saving (amber) / offline (red). "Offline" means the last
+// write failed OR the browser knows it has no connection -- either way the
+// data is safe in localStorage, which is what the menu row's wording says.
+function updateSyncStatus() {
+  var state = (!navigator.onLine || !serverAvailable) ? 'offline'
+            : (pendingWrites > 0 ? 'saving' : 'synced');
+  document.querySelectorAll('.sync-dot').forEach(function(el) {
+    el.classList.toggle('saving', state === 'saving');
+    el.classList.toggle('offline', state === 'offline');
+  });
+  var row = document.getElementById('nav-menu-sync');
+  if (row) {
+    row.textContent = state === 'offline' ? 'Offline — changes saved on this phone'
+                    : state === 'saving' ? 'Saving…' : 'All changes synced ✓';
+    row.className = 'nav-menu-sync' + (state === 'synced' ? '' : ' ' + state);
+  }
+}
+// Optimistic reset on reconnect: the next real write settles the truth.
+window.addEventListener('online', function() { serverAvailable = true; updateSyncStatus(); });
+window.addEventListener('offline', updateSyncStatus);
+
 async function apiPut(path, data) {
+  beginWrite();
   try {
     await fetch(path, {
       method: 'PUT',
@@ -1020,14 +1065,19 @@ async function apiPut(path, data) {
     serverAvailable = true;
   } catch(e) {
     serverAvailable = false;
+  } finally {
+    endWrite();
   }
 }
 async function apiDelete(path) {
+  beginWrite();
   try {
     await fetch(path, { method: 'DELETE' });
     serverAvailable = true;
   } catch(e) {
     serverAvailable = false;
+  } finally {
+    endWrite();
   }
 }
 
@@ -1043,23 +1093,33 @@ async function apiDelete(path) {
 // prevent. These throw on a network error AND on a non-2xx, and hand back the
 // parsed body so the caller can adopt the id the server actually stored.
 async function apiPutStrict(path, data) {
-  const r = await fetch(path, {
-    method: 'PUT',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify(data)
-  });
-  if (!r.ok) {
-    let msg = 'HTTP ' + r.status;
-    try { const b = await r.json(); if (b && b.error) msg = b.error; } catch (e) {}
-    throw new Error(msg);
+  beginWrite();
+  try {
+    const r = await fetch(path, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(data)
+    });
+    if (!r.ok) {
+      let msg = 'HTTP ' + r.status;
+      try { const b = await r.json(); if (b && b.error) msg = b.error; } catch (e) {}
+      throw new Error(msg);
+    }
+    return await r.json();
+  } finally {
+    endWrite();
   }
-  return r.json();
 }
 
 async function apiDeleteStrict(path) {
-  const r = await fetch(path, { method: 'DELETE' });
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  return r.json();
+  beginWrite();
+  try {
+    const r = await fetch(path, { method: 'DELETE' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return await r.json();
+  } finally {
+    endWrite();
+  }
 }
 
 // Save to localStorage AND server
@@ -1679,25 +1739,34 @@ async function initApp() {
     // so a missing table on a not-yet-migrated DB (or one flaky request)
     // only loses that one fetch, never the rest.
     var syncJobId = activeJobId;
+    // For the four job-scoped collections below, a SUCCESSFUL response is
+    // authoritative even when it's empty -- "the server has no rows" is
+    // real data (the user deleted them, possibly in another browser
+    // context: a second device, or iOS Safari vs the installed
+    // home-screen app, which keep separate localStorage). The old
+    // `length > 0` guards kept the local cache in that case, silently
+    // resurrecting deleted rows on screen and then re-saving them on the
+    // next edit -- the "can't delete all materials" bug
+    // (estimating-app-edits.md #1). The catch paths still fall back to
+    // the local cache on a FAILED fetch (offline, or a table missing on
+    // a not-yet-migrated DB), which is the case those guards were
+    // actually for. loadActiveJobData() has always behaved this way on
+    // every job switch; this makes startup match it.
     await Promise.all([
       // Rooms
       apiGet('/api/rooms?job_id='+encodeURIComponent(syncJobId)).then(function(serverRooms) {
-        if (serverRooms && serverRooms.length > 0) {
-          rooms = serverRooms;
-          localStorage.setItem('pe-rooms', JSON.stringify(rooms));
-          renderHome();
-        }
+        rooms = serverRooms || [];
+        localStorage.setItem('pe-rooms', JSON.stringify(rooms));
+        renderHome();
       }).catch(function(e) {
         console.log('Rooms fetch failed — running from local cache:', e.message);
       }),
       // Exterior items
       apiGet('/api/extitems?job_id='+encodeURIComponent(syncJobId)).then(function(extData) {
-        if (extData && extData.length > 0) {
-          extItems = extData;
-          localStorage.setItem('pe-extitems', JSON.stringify(extItems));
-          renderExterior();
-          renderSummary();
-        }
+        extItems = extData || [];
+        localStorage.setItem('pe-extitems', JSON.stringify(extItems));
+        renderExterior();
+        renderSummary();
       }).catch(function(e) {
         console.log('Exterior items fetch failed — running from local cache:', e.message);
       }),
@@ -1707,10 +1776,8 @@ async function initApp() {
       // nested pair.
       Promise.all([
         apiGet('/api/colours?job_id='+encodeURIComponent(syncJobId)).then(function(colourData) {
-          if (colourData && colourData.length > 0) {
-            colours = colourData;
-            localStorage.setItem('pe-colours', JSON.stringify(colours));
-          }
+          colours = colourData || [];
+          localStorage.setItem('pe-colours', JSON.stringify(colours));
         }).catch(function(e) {
           console.log('Colours fetch failed — running from local cache:', e.message);
         }),
@@ -1731,10 +1798,8 @@ async function initApp() {
       }),
       // Materials snapshot
       apiGet('/api/materials?job_id='+encodeURIComponent(syncJobId)).then(function(materialsData) {
-        if (materialsData && materialsData.length > 0) {
-          materialsSnapshot = materialsData;
-          localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot));
-        }
+        materialsSnapshot = materialsData || [];
+        localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot));
       }).catch(function(e) {
         console.log('Materials snapshot fetch failed — running from local cache:', e.message);
       }),
@@ -1765,6 +1830,8 @@ async function initApp() {
     console.log('Server sync failed — running from local cache');
     serverAvailable = false;
   }
+  updateSyncStatus();
+  offerRoomDraftRestore();
 }
 
 
@@ -2326,6 +2393,7 @@ function promptNewJob() {
 
 // ── Navigation ─────────────────────────────────────────────────────────────
 function goTab(tab) {
+  if (inSub === 'room') clearRoomDraft();  // deliberate exit, same as goBack()
   curTab = tab; inSub = null;
   document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active');});
   document.getElementById('screen-'+tab).classList.add('active');
@@ -2357,6 +2425,7 @@ function openNavMenu() {
   var nameEl = document.getElementById('nav-menu-jobname');
   if (nameEl) nameEl.textContent = (activeJob() && activeJob().name) || 'My Job';
   updateNavBadge();
+  updateSyncStatus();
   document.getElementById('nav-menu-backdrop').classList.add('open');
   document.getElementById('nav-menu-panel').style.display = 'block';
 }
@@ -2499,6 +2568,10 @@ function goScreen(name) {
 }
 
 function goBack() {
+  // Leaving the room form deliberately (Back, or the save/delete paths that
+  // route through here) discards any hidden-tab draft of it -- see
+  // captureRoomDraft().
+  if (inSub === 'room') clearRoomDraft();
   inSub = null;
   document.querySelectorAll('.screen').forEach(function(s) { s.classList.remove('active'); });
   document.getElementById('screen-'+curTab).classList.add('active');
@@ -5111,12 +5184,54 @@ function renderHome() {
       '<div class="room-info"><div class="room-name">'+r.name+'</div>'+
       '<div class="room-meta">'+r.l+'×'+r.w+'×'+r.h+'m · '+fmtD(c.time)+'</div></div>'+
       '<div class="room-cost">'+fmt(c.total)+'</div>'+
+      '<button class="room-dup-btn" title="Duplicate room" onclick="event.stopPropagation();duplicateRoom(this.dataset.id)" data-id="'+r.id+'">⧉</button>'+
       '<div style="color:var(--text3);font-size:16px">›</div></div>';
   }).join('');
   var marked = applyMarkupAmount(total);
   sub.textContent=rooms.length+' room'+(rooms.length===1?'':'s');
   chip.style.display='flex'; chip.textContent=fmt(marked);
   clr.style.display='block';
+}
+
+// Capture-first entry: walk the house once naming rooms ("Hall, Lounge,
+// Bed 1, Bed 2"), then go round again with the laser measure filling in
+// dimensions via each room's edit form. Creates minimal £0 rooms with the
+// same defaults a fresh room form would save (coats 2/2/2, h 2.4, light
+// prep) -- editRoom() already tolerates rooms with absent newer fields
+// (old saved rooms predate them), so nothing else needs setting here.
+function quickAddRooms() {
+  var input = prompt('Room names, separated by commas:\ne.g. Hall, Lounge, Bed 1, Bed 2');
+  if (!input) return;
+  var names = input.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+  if (!names.length) return;
+  names.forEach(function(name) {
+    rooms.push({
+      id: uid(), name: name, l: 0, w: 0, h: 2.4, wc: 2, cc: 2, xc: 2,
+      win: 0, doors: 0, rads: 0, mistWall: false, mistCeil: false,
+      prepPct: 10, prepCustom: 0, makingGood: 0, emoji: roomEmoji(name)
+    });
+  });
+  saveRooms();
+  renderHome();
+}
+
+// Duplicate a room -- bedrooms 2/3/4 are usually the same room with
+// different dimensions, so measure one, duplicate, tweak two numbers.
+// Deep clone via JSON (room objects are plain data), fresh id, "(copy)"
+// suffix, inserted straight after the original so related rooms stay
+// together (the bulk save preserves array order server-side).
+function duplicateRoom(id) {
+  var idx = rooms.findIndex(function(r) { return r.id === id; });
+  if (idx === -1) return;
+  var copy = JSON.parse(JSON.stringify(rooms[idx]));
+  copy.id = uid();
+  copy.name = rooms[idx].name + ' (copy)';
+  // Panelling rows carry their own ids -- refresh them so the copy never
+  // shares row ids with the original.
+  (copy.panelItems || []).forEach(function(p) { p.id = uid(); });
+  rooms.splice(idx + 1, 0, copy);
+  saveRooms();
+  renderHome();
 }
 
 // ── Room form ──────────────────────────────────────────────────────────────
@@ -5918,6 +6033,18 @@ function saveRoom() {
       return;
     }
   }
+  var room = buildRoomFromForm();
+  if(editId){var idx=rooms.findIndex(function(r){return r.id===editId;});rooms[idx]=room;}
+  else rooms.push(room);
+  clearRoomDraft();
+  saveRooms(); goBack();
+}
+
+// Builds the room object from the form's current state -- everything
+// saveRoom() persists, extracted so the draft-capture path
+// (captureRoomDraft below) can snapshot a half-finished form with the
+// exact same code a real save uses.
+function buildRoomFromForm() {
   var name=document.getElementById('r-name').value.trim()||(roomIsStaircase?'Hall, Stairs & Landing':'Room');
   var room={
     id:editId||uid(), name:name,
@@ -5981,13 +6108,66 @@ function saveRoom() {
     var hslOverrides = computeHSLOverrides();
     Object.keys(hslOverrides).forEach(function(k){ room[k] = hslOverrides[k]; });
   }
-  if(editId){var idx=rooms.findIndex(function(r){return r.id===editId;});rooms[idx]=room;}
-  else rooms.push(room);
-  saveRooms(); goBack();
+  return room;
 }
 function deleteRoom() {
   if(!editId)return;
-  rooms=rooms.filter(function(r){return r.id!==editId;}); saveRooms(); goBack();
+  rooms=rooms.filter(function(r){return r.id!==editId;});
+  clearRoomDraft();
+  saveRooms(); goBack();
+}
+
+// ── Room form draft protection ─────────────────────────────────────────────
+// The room form is explicit-save: a phone call mid-measure that gets the
+// browser tab killed used to lose ~20 typed fields. When the page is being
+// hidden/unloaded with the room form open, snapshot the form as a room
+// object (via buildRoomFromForm -- the same code a real save runs) into
+// localStorage; on the next app start, offer to restore it as a saved
+// room, which the user can then reopen via its edit form (editRoom
+// restores every field, staircase mode included). Any DELIBERATE exit from
+// the form -- Save, Delete, Back, a tab switch -- clears the draft, so the
+// offer only ever appears when the form genuinely died mid-entry.
+function captureRoomDraft() {
+  if (inSub !== 'room') return;
+  try {
+    // An untouched Add Room form isn't worth a restore prompt.
+    var meaningful = document.getElementById('r-name').value.trim() ||
+      +document.getElementById('r-l').value > 0 ||
+      +document.getElementById('r-w').value > 0 ||
+      roomIsStaircase || editId;
+    if (!meaningful) return;
+    localStorage.setItem('pe-room-draft', JSON.stringify({
+      jobId: activeJobId, editId: editId, room: buildRoomFromForm(), at: Date.now()
+    }));
+  } catch (e) { /* a draft is best-effort -- never let it break unload */ }
+}
+function clearRoomDraft() {
+  localStorage.removeItem('pe-room-draft');
+}
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'hidden') captureRoomDraft();
+});
+window.addEventListener('pagehide', captureRoomDraft);
+
+// Called at the end of initApp(), after the server sync (so a restored
+// room can't be overwritten by the rooms fetch that follows it).
+function offerRoomDraftRestore() {
+  var raw = localStorage.getItem('pe-room-draft');
+  if (!raw) return;
+  clearRoomDraft();
+  var draft;
+  try { draft = JSON.parse(raw); } catch (e) { return; }
+  if (!draft || !draft.room || draft.jobId !== activeJobId) return;
+  if (!confirm('You had an unsaved room ("' + (draft.room.name || 'Room') + '") when the app last closed. Restore it?')) return;
+  if (draft.editId) {
+    var idx = rooms.findIndex(function(r) { return r.id === draft.editId; });
+    if (idx !== -1) { draft.room.id = draft.editId; rooms[idx] = draft.room; }
+    else rooms.push(draft.room);
+  } else {
+    rooms.push(draft.room);
+  }
+  saveRooms();
+  renderHome();
 }
 
 // ── Clear ──────────────────────────────────────────────────────────────────
@@ -7025,6 +7205,16 @@ async function confirmBackupImport() {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 initApp();
+
+// Service worker: offline app shell + installability (see public/sw.js).
+// Registered after load so it never competes with the startup fetches.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('/sw.js').catch(function(e) {
+      console.log('Service worker registration failed:', e.message);
+    });
+  });
+}
 </script>
 </body>
 </html>

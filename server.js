@@ -38,7 +38,9 @@ app.use(session({
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: '30d',
   setHeaders: (res, filePath) => {
-    if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+    // sw.js must revalidate every load too — a long-cached service worker
+    // would pin users to an old app shell long after a deploy.
+    if (filePath.endsWith('.html') || filePath.endsWith('sw.js')) res.setHeader('Cache-Control', 'no-cache');
   }
 }));
 

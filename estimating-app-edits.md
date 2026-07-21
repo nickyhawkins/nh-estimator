@@ -1,7 +1,18 @@
 # Estimating App — Edit Requests
 
-## 1. Bug: Cannot delete all materials from summary
+## 1. Bug: Cannot delete all materials from summary — FIXED
 Deleting materials from the summary page fails when trying to clear the entire list (removing the last remaining item, or all items at once, doesn't work as expected). Needs investigation and fix.
+
+Root cause (reproduced with an automated two-browser-context test): initApp()'s
+server sync only accepted the server's materials list when it was NON-empty, so
+any browser context with a stale localStorage copy (a second device, or iOS
+Safari vs the installed home-screen app — separate storage) resurrected the
+deleted lines on screen and re-saved them to the server on the next edit. The
+same guard existed for rooms/exterior items/colours. Fixed by treating a
+successful server response as authoritative even when empty (matching what
+loadActiveJobData() already did on every job switch); a FAILED fetch still
+falls back to the local cache. The delete → re-render → reload path itself was
+already sound via the materialsSeeded flag (2026-07-15 fix).
 
 ## 2. Editable markup on summary page
 - Markup should be editable directly on the summary page, allowing a per-quote override.
@@ -22,17 +33,19 @@ Deleting materials from the summary page fails when trying to clear the entire l
   - This keeps the existing calculated pricing logic (Rooms/Kitchen/Panelling) untouched — manually added items are purely additive and never alter or recalculate the existing price breakdown.
   - Goal: materials list works as a genuine shopping/usage list regardless of chargeable status, without complicating the underlying calculations.
 
-## 4. Searchable materials dropdown
+## 4. Searchable materials dropdown — BUILT
 - Replace the current long scrollable materials dropdown with a searchable/type-to-filter input.
 - Should filter results as the user types, rather than requiring scrolling through the full list.
+- Built everywhere it's used on site: room-form product overrides (all seven roles), the Kitchen range picker, and both Add Material pickers (Summary + Materials tracking) are search-as-you-type. Deliberately still plain selects: colour band pickers (short lists, explicit pick forced on purpose) and the Settings role-mapping dropdowns (set-once config, not an on-site surface).
 
 ## 5. Remaining balance disclaimer note
 Add a note (with asterisk) below the remaining balance total on the summary/invoice view:
 
 > *Material costs are estimated and may vary based on final colour and product selection. Any adjustments will be reflected in your final invoice. Significant changes in cost will always be discussed and agreed with you in advance.
 
-## 6. Bug: Colour note/product tag clipping on mobile
+## 6. Bug: Colour note/product tag clipping on mobile — FIXED
 On the Colours page, the product note pill (e.g. brand/colour code, such as "Dulux Heritage · No. 1780058") overflows off the right edge of the card on mobile instead of wrapping or truncating cleanly. Needs responsive fix — either wrap onto a second line, shrink font, or truncate with ellipsis so it stays within the card bounds.
+Fixed in renderColours(): the brand chip renders with min-width:0 / white-space:normal / word-break:break-word, so long pills wrap inside the card instead of spilling off the right edge.
 
 ## 7. Panelling quoting — BUILT
 Panelling is a popular request and needs its own quoting option within a room:
