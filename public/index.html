@@ -1007,6 +1007,10 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        The question that matters on site is "did today's measurements reach
        the server before I drive off?" — this row answers it explicitly. -->
   <div class="nav-menu-sync" id="nav-menu-sync"></div>
+  <!-- Build marker: bump the label when verifying a deploy actually reached
+       the phone -- the PWA plus Render's deploy lag makes "which version am
+       I on?" otherwise unanswerable from the device. -->
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: swipe v2 · 21 Jul</div>
 </div>
 </div>
 
@@ -2453,7 +2457,9 @@ document.addEventListener('touchmove', function(e) {
   var t = e.touches[0];
   var dx = t.clientX - swipeDrag.x, dy = t.clientY - swipeDrag.y;
   if (!swipeDrag.dir) {
-    if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return; // not committed either way yet
+    // 6px, not more: iOS Safari commits a scrollable page to scrolling
+    // within the first few px, so the horizontal lock must win that race.
+    if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return; // not committed either way yet
     swipeDrag.dir = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
     if (swipeDrag.dir === 'h') swipeDrag.wrap.classList.add('swipe-active');
   }
