@@ -586,6 +586,82 @@ router.put('/settings', async (req, res) => {
   }
 });
 
+// ── Schedule ICS feed (SCHEDULING_SPEC.md) ─────────────────────────────────
+// One all-day multi-day VEVENT per scheduled accepted job, so jobs land in
+// the phone's real calendar via a subscribed-calendar URL instead of the
+// app growing calendar UI. iOS calendar subscriptions can't carry the
+// app's session cookie, so the URL's ?key token (generated client-side
+// when the Settings toggle is first enabled) IS the auth — and the whole
+// endpoint 404s until icsEnabled, so nothing is exposed by default.
+//
+// Server-side twin of the client's working-day walk (isWorkingDay/
+// workingDaySpan in public/index.html) — the two MUST agree on which days
+// a job occupies: Sundays never count, Saturdays only when workSaturdays
+// (job-level override wins over the setting).
+function icsWorkingDaySpan(startIso, n, workSat) {
+  const out = [];
+  const p = startIso.split('-');
+  const d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2], 12));
+  let guard = 0;
+  while (out.length < n && guard++ < 800) {
+    const day = d.getUTCDay();
+    if ((day >= 1 && day <= 5) || (workSat && day === 6)) {
+      out.push(d.toISOString().slice(0, 10));
+    }
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return out;
+}
+const icsEscape = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+const icsDate = (iso) => iso.replace(/-/g, '');
+
+router.get('/schedule.ics', async (req, res) => {
+  try {
+    const settingsResult = await db.query('SELECT data FROM settings WHERE id = 1');
+    const s = settingsResult.rows[0]?.data || {};
+    // 404 (not 401/403) on any auth failure: an unauthenticated probe
+    // learns nothing about whether the feed exists.
+    if (!s.icsEnabled || !s.icsKey || req.query.key !== s.icsKey) return res.status(404).end();
+
+    const jobsResult = await db.query('SELECT id, name, data FROM jobs');
+    const events = [];
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+    for (const row of jobsResult.rows) {
+      const d = row.data || {};
+      if (d.status !== 'accepted' || !d.startDate || !(+d.scheduledDays > 0)) continue;
+      const workSat = d.workSaturdays != null ? !!d.workSaturdays : !!s.workSaturdays;
+      const span = icsWorkingDaySpan(d.startDate, Math.ceil(+d.scheduledDays), workSat);
+      if (!span.length) continue;
+      // DTEND is exclusive per RFC 5545: the day after the last booked day.
+      const p = span[span.length - 1].split('-');
+      const end = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2], 12));
+      end.setUTCDate(end.getUTCDate() + 1);
+      const summary = row.name + (d.xeroClient ? ' — ' + d.xeroClient : '');
+      events.push(
+        'BEGIN:VEVENT',
+        `UID:${row.id}@nh-estimator`,
+        `DTSTAMP:${stamp}`,
+        `DTSTART;VALUE=DATE:${icsDate(span[0])}`,
+        `DTEND;VALUE=DATE:${icsDate(end.toISOString().slice(0, 10))}`,
+        `SUMMARY:${icsEscape(summary)}`,
+        'END:VEVENT'
+      );
+    }
+    const lines = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//NH Estimator//Schedule//EN',
+      'X-WR-CALNAME:NH Jobs',
+      ...events,
+      'END:VCALENDAR'
+    ];
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.send(lines.join('\r\n') + '\r\n');
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Clear all (within a job) ────────────────────────────────────────────────
 
 router.delete('/all', async (req, res) => {
