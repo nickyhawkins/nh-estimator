@@ -614,6 +614,20 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
   </div>
 </div>
 
+<!-- ══ FINAL INVOICE BUILDER (FINAL_INVOICE_SPEC.md) ══
+     Assembles labour-as-quoted + variations + actuals-based materials −
+     deductions into one reviewable list, then writes a DRAFT invoice to
+     Xero. The 2(a) Invoice list above stays as the permanent fallback. -->
+<div id="screen-finalinvoice" class="screen">
+  <div class="topbar">
+    <button class="back-btn" onclick="goTab('summary')">←</button>
+    <div class="topbar-title">Final Invoice</div>
+  </div>
+  <div class="content">
+    <div id="finalinvoice-body"></div>
+  </div>
+</div>
+
 <div id="screen-summary" class="screen">
   <div class="topbar">
     <div class="topbar-title">Summary</div>
@@ -1084,7 +1098,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.9.1</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.10.0</div>
 </div>
 </div>
 
@@ -2279,7 +2293,7 @@ function renameJob(id) {
 // part of job.data must go through this so xeroClient/xeroRef/contact/
 // xeroContactId/contactSyncedAt/materialsSeeded/kitchen always travel together.
 function persistJobData(job) {
-  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, freeVariations: job.freeVariations, variationCount: job.variationCount, kitchen: job.kitchen }) });
+  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, freeVariations: job.freeVariations, variationCount: job.variationCount, kitchen: job.kitchen }) });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -4961,6 +4975,276 @@ function invoiceListAsText() {
   });
   rows.push(['', 'MATERIALS TOTAL', '', '', inv.total.toFixed(2)].join('\t'));
   return rows.join('\n');
+}
+
+// ── Final invoice builder (FINAL_INVOICE_SPEC.md) ──────────────────────────
+// Assembles the whole final-invoice story from the app's own figures:
+// labour AS QUOTED (same maths as createXeroQuote, filtered to original
+// scope), variations at their agreed prices, materials AS USED (the 2(a)
+// list's bought-confirmed lines), sundries as quoted, minus typed
+// deductions. The review screen is editable-lightly (drop a line, correct
+// the deducted figures) and ends at ONE DRAFT invoice in Xero.
+var finalInvState = null;
+
+async function openFinalInvoice() {
+  var job = activeJob();
+  if (!job) return;
+  goTab('finalinvoice');
+  var el = document.getElementById('finalinvoice-body');
+  el.innerHTML = '<div class="card" style="padding:16px;color:var(--text2)">Loading actuals…</div>';
+  try {
+    await loadMaterialActuals();
+  } catch (e) {
+    el.innerHTML = '<div class="card" style="padding:16px;color:var(--danger,#b00)">Could not load the materials actuals: '
+      + escapeHtml(e.message) + '<div style="color:var(--text2);margin-top:6px;font-size:13px">Nothing was changed — go back and retry.</div></div>';
+    return;
+  }
+  finalInvState = buildFinalInvoiceModel();
+  renderFinalInvoice();
+}
+
+function buildFinalInvoiceModel() {
+  var job = activeJob();
+  var roomCalcs = rooms.map(function(r){ return calcRoom(r); });
+  var extCalcs = extItems.map(function(it){ return calcExtItem(it); });
+  var kitchenCalc = calcKitchen(job && job.kitchen);
+  var kitchenIsVar = !!(job && job.kitchen && job.kitchen.isVariation) && kitchenCalc.total > 0.005;
+
+  // Original-scope raw labour — the same base createXeroQuote sends, so the
+  // invoice's labour lines reproduce the quote's exactly (incl. fixed-£
+  // markup distributing over the ORIGINAL base only).
+  var rawOrig = 0, ttOrig = 0, sprayOrig = 0;
+  var labour = [];
+  rooms.forEach(function(r, i) {
+    if (r.isVariation) return;
+    var c = roomCalcs[i];
+    ttOrig += c.time; sprayOrig += c.sprayLabour || 0;
+    if (c.total > 0.005) { rawOrig += c.total; labour.push({ id: 'r' + i, desc: r.name, raw: c.total }); }
+  });
+  extItems.forEach(function(it, i) {
+    if (it.isVariation) return;
+    var c = extCalcs[i];
+    ttOrig += c.time; sprayOrig += c.sprayLabour || 0;
+    if (c.total > 0.005) { rawOrig += c.total; labour.push({ id: 'e' + i, desc: it.label || 'Exterior', raw: c.total }); }
+  });
+  if (job && job.kitchen && !kitchenIsVar && kitchenCalc.total > 0.005) {
+    rawOrig += kitchenCalc.total; ttOrig += kitchenCalc.time;
+    labour.push({ id: 'k', desc: 'Kitchen Cabinet Spraying', raw: kitchenCalc.total });
+  }
+  var muVal = effectiveMarkup();
+  var fixed = effectiveMarkupType() === 'fixed';
+  var muInv = fixed ? 1 + (rawOrig > 0 ? muVal / rawOrig : 0) : 1 + muVal / 100;
+  labour.forEach(function(l) { l.amount = l.raw * muInv; l.dropped = false; });
+  // As the quote bills it: % of raw original labour, marked up. (The quote
+  // line has never included the spray-sundries bump — mirrored, not fixed
+  // here: labour and sundries go out AS QUOTED.)
+  var sundries = rawOrig * (settings.sundriesPct || 0) / 100 * muInv;
+
+  // Variations — same figures the Summary card shows.
+  var varMk = fixed ? 1 : 1 + muVal / 100;
+  var variations = [], varRaw = 0, varSpray = 0;
+  rooms.forEach(function(r, i) {
+    if (!r.isVariation) return;
+    var c = roomCalcs[i];
+    varRaw += c.total; varSpray += c.sprayLabour || 0;
+    variations.push({ id: 'vr' + i, desc: 'Variation: ' + r.name, amount: c.total * varMk, dropped: false });
+  });
+  extItems.forEach(function(it, i) {
+    if (!it.isVariation) return;
+    var c = extCalcs[i];
+    varRaw += c.total; varSpray += c.sprayLabour || 0;
+    variations.push({ id: 've' + i, desc: 'Variation: ' + (it.label || 'Exterior'), amount: c.total * varMk, dropped: false });
+  });
+  if (kitchenIsVar) {
+    varRaw += kitchenCalc.total;
+    variations.push({ id: 'vk', desc: 'Variation: Kitchen Cabinet Spraying', amount: kitchenCalc.total * varMk, dropped: false });
+  }
+  var hourlyRate = (settings.dr || 0) / (settings.hpd || 7);
+  var freeHoursRaw = 0;
+  ((job && job.freeVariations) || []).forEach(function(v) {
+    if (v.mode === 'flat') {
+      variations.push({ id: 'vf' + v.id, desc: 'Variation: ' + v.label, amount: +v.amount || 0, dropped: false });
+    } else {
+      var raw = (+v.hours || 0) * hourlyRate;
+      freeHoursRaw += raw;
+      variations.push({ id: 'vf' + v.id, desc: 'Variation: ' + v.label, amount: raw * varMk, dropped: false });
+    }
+  });
+  var varSundries = ((varRaw + freeHoursRaw) * (settings.sundriesPct || 0) / 100 + varSpray * (settings.sundriesSprayPct || 0) / 100) * varMk;
+
+  // Materials AS USED: the 2(a) list's bought-confirmed lines. A line with
+  // no price (free-text never priced, or an item Xero no longer prices) is
+  // BLOCKED red — a silent £0 on a real invoice is exactly the lost money
+  // this app exists to prevent.
+  var inv = buildInvoiceList();
+  var materials = inv.billed.map(function(l, i) {
+    return { id: 'm' + i, desc: l.description, itemCode: l.itemCode, qty: l.quantity,
+      unitAmount: l.unitAmount, amount: l.lineTotal, dropped: false,
+      blocked: l.quantity > 0 && l.unitAmount <= 0.005 };
+  });
+
+  // Deduction prefills from the plan: what SHOULD have been invoiced.
+  // Nicky corrects against what actually was — Xero knows the truth, and
+  // reading it back is deliberate later-scope (spec).
+  var plan = computeDepositPlan(rawOrig, materialsSnapshotTotal(), realisticDays(ttOrig), sprayOrig);
+  return {
+    labour: labour, sundries: { amount: sundries, dropped: false },
+    variations: variations, varSundries: { amount: varSundries, dropped: false },
+    materials: materials, unconfirmedCount: inv.unconfirmed.length,
+    deposit: Math.round(plan.deposit * 100) / 100, instalments: 0,
+    planWeekly: plan.weeklyRows
+  };
+}
+
+function finalInvTotals() {
+  var s = finalInvState;
+  var sum = 0;
+  s.labour.forEach(function(l) { if (!l.dropped) sum += l.amount; });
+  if (!s.sundries.dropped) sum += s.sundries.amount;
+  s.variations.forEach(function(l) { if (!l.dropped) sum += l.amount; });
+  if (s.variations.some(function(l) { return !l.dropped; }) && !s.varSundries.dropped) sum += s.varSundries.amount;
+  s.materials.forEach(function(l) { if (!l.dropped) sum += l.amount; });
+  var deductions = (+s.deposit || 0) + (+s.instalments || 0);
+  return { gross: sum, deductions: deductions, balance: sum - deductions };
+}
+
+function toggleFinalInvLine(section, id) {
+  var list = finalInvState[section];
+  if (Array.isArray(list)) {
+    var line = list.find(function(l) { return l.id === id; });
+    if (line) line.dropped = !line.dropped;
+  } else if (list) {
+    list.dropped = !list.dropped;
+  }
+  renderFinalInvoice();
+}
+
+function setFinalInvDeduction(field, value) {
+  finalInvState[field] = Math.max(0, parseFloat(value) || 0);
+  var t = finalInvTotals();
+  var el = function(id) { return document.getElementById(id); };
+  if (el('fi-deductions')) el('fi-deductions').textContent = '− ' + fmt(t.deductions);
+  if (el('fi-balance')) el('fi-balance').textContent = fmt(t.balance);
+}
+
+function renderFinalInvoice() {
+  var el = document.getElementById('finalinvoice-body');
+  if (!el || !finalInvState) return;
+  var s = finalInvState;
+  var t = finalInvTotals();
+  var blockedLive = s.materials.some(function(l) { return l.blocked && !l.dropped; });
+
+  function lineRow(section, l, detail) {
+    var struck = l.dropped ? ';opacity:.45;text-decoration:line-through' : '';
+    return '<div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">'+
+      '<div style="flex:1;min-width:0'+struck+'">'+
+        '<div style="font-size:14px;font-weight:600;color:'+(l.blocked && !l.dropped ? 'var(--danger)' : 'var(--text)')+'">'+escapeHtml(l.desc)+'</div>'+
+        (detail ? '<div style="font-size:12px;color:'+(l.blocked && !l.dropped ? 'var(--danger)' : 'var(--text2)')+';margin-top:1px">'+detail+'</div>' : '')+
+      '</div>'+
+      '<div style="font-size:14px;font-weight:600;white-space:nowrap'+struck+'">'+fmt(l.amount)+'</div>'+
+      '<div onclick="toggleFinalInvLine(\''+section+'\',\''+l.id+'\')" style="color:'+(l.dropped ? 'var(--accent)' : 'var(--text3)')+';font-size:16px;cursor:pointer;padding:4px">'+(l.dropped ? '↩' : '×')+'</div>'+
+    '</div>';
+  }
+  function section(title, html) {
+    return '<div class="card" style="padding:12px 14px;margin-bottom:12px">'+
+      '<div class="card-header" style="padding:0 0 4px">'+title+'</div>'+html+'</div>';
+  }
+
+  var labourHtml = s.labour.map(function(l) { return lineRow('labour', l, 'as quoted'); }).join('')
+    + (s.sundries.amount > 0.005 ? lineRow('sundries', Object.assign({ desc: 'Sundries & Consumables' }, s.sundries), '% of labour, as quoted') : '');
+
+  var varHtml = s.variations.length
+    ? s.variations.map(function(l) { return lineRow('variations', l, 'agreed extra'); }).join('')
+      + (s.varSundries.amount > 0.005 ? lineRow('varSundries', Object.assign({ desc: 'Sundries — variations' }, s.varSundries), '') : '')
+    : '<div style="font-size:13px;color:var(--text2);padding:4px 0">No variations on this job.</div>';
+
+  var matHtml = s.materials.length
+    ? s.materials.map(function(l) {
+        var detail = (l.itemCode ? escapeHtml(l.itemCode) + ' · ' : '') + l.qty + ' × ' + fmt(l.unitAmount)
+          + (l.blocked && !l.dropped ? ' · NO PRICE — set a price on the Materials screen or drop this line' : '');
+        return lineRow('materials', l, detail);
+      }).join('')
+    : '<div style="font-size:13px;color:var(--danger)">⚠ No materials were ticked as bought — this invoice bills labour only. If that\'s wrong, log actuals on the Materials screen first.</div>';
+  var unconfirmedNote = s.unconfirmedCount > 0
+    ? '<div style="font-size:12px;color:var(--text2);padding-top:8px">'+s.unconfirmedCount+' item'+(s.unconfirmedCount===1?'':'s')+' never ticked as bought — not included (see the Invoice list).</div>'
+    : '';
+
+  var planHint = s.planWeekly && s.planWeekly.length
+    ? 'plan was ' + s.planWeekly.length + ' × ' + fmt(s.planWeekly[0])
+    : 'none planned';
+
+  el.innerHTML =
+    '<div style="font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.5">Labour as quoted · materials as used · variations at agreed prices. Drop lines with ×, correct the deductions against what was really invoiced, then create the draft.</div>'+
+    section('Labour — as quoted', labourHtml)+
+    section('Variations', varHtml)+
+    section('Materials — as used', matHtml + unconfirmedNote)+
+    '<div class="card" style="padding:12px 14px;margin-bottom:12px">'+
+      '<div class="card-header" style="padding:0 0 4px">Less: already invoiced</div>'+
+      '<div class="field-row" style="padding:8px 0"><div class="field-label">Deposit received<small>prefilled from the plan — correct to what was really invoiced</small></div>'+
+        '<input type="number" class="field-input" style="width:90px;text-align:right" value="'+s.deposit+'" min="0" step="0.01" inputmode="decimal" oninput="setFinalInvDeduction(\'deposit\',this.value)"></div>'+
+      '<div class="field-row" style="padding:8px 0;border-top:1px solid var(--border)"><div class="field-label">Instalments invoiced<small>'+planHint+'</small></div>'+
+        '<input type="number" class="field-input" style="width:90px;text-align:right" value="'+s.instalments+'" min="0" step="0.01" inputmode="decimal" oninput="setFinalInvDeduction(\'instalments\',this.value)"></div>'+
+    '</div>'+
+    '<div class="card" style="padding:12px 14px;margin-bottom:16px">'+
+      '<div style="display:flex;justify-content:space-between;padding:4px 0"><span style="color:var(--text2)">Invoice lines</span><span>'+fmt(t.gross)+'</span></div>'+
+      '<div style="display:flex;justify-content:space-between;padding:4px 0"><span style="color:var(--text2)">Less already invoiced</span><span id="fi-deductions">− '+fmt(t.deductions)+'</span></div>'+
+      '<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border)"><span style="font-weight:700">Balance due</span><span id="fi-balance" style="font-weight:700;font-size:18px">'+fmt(t.balance)+'</span></div>'+
+    '</div>'+
+    (blockedLive ? '<div style="font-size:13px;color:var(--danger);margin-bottom:12px">⚠ Unpriced lines in red must be priced or dropped before the invoice can be created.</div>' : '')+
+    '<button id="fi-create-btn" onclick="createFinalInvoice()" '+(blockedLive ? 'disabled' : '')+' style="width:100%;background:'+(blockedLive ? 'var(--surface2)' : 'var(--accent)')+';color:'+(blockedLive ? 'var(--text3)' : '#fff')+';border:none;border-radius:var(--rs);padding:14px;font-size:15px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer">Create draft invoice in Xero</button>'+
+    '<div style="font-size:12px;color:var(--text2);text-align:center;margin-top:8px">Created as a DRAFT — review in Xero before sending.</div>';
+}
+
+async function createFinalInvoice() {
+  var job = activeJob();
+  if (!job || !finalInvState) return;
+  var s = finalInvState;
+  var t = finalInvTotals();
+  if (!confirm('Create a draft invoice in Xero for ' + fmt(t.balance) + '?\n\nYou\'ll review and send it from Xero.')) return;
+  var btn = document.getElementById('fi-create-btn');
+  btn.disabled = true; btn.textContent = 'Creating…';
+
+  var lines = [];
+  s.labour.forEach(function(l) { if (!l.dropped) lines.push({ description: l.desc, quantity: 1, unitAmount: l.amount, accountCode: '201' }); });
+  if (!s.sundries.dropped && s.sundries.amount > 0.005) lines.push({ description: 'Sundries & Consumables', quantity: 1, unitAmount: s.sundries.amount, accountCode: '202' });
+  s.variations.forEach(function(l) { if (!l.dropped) lines.push({ description: l.desc, quantity: 1, unitAmount: l.amount, accountCode: '201' }); });
+  if (s.variations.some(function(l) { return !l.dropped; }) && !s.varSundries.dropped && s.varSundries.amount > 0.005) {
+    lines.push({ description: 'Sundries — variations', quantity: 1, unitAmount: s.varSundries.amount, accountCode: '202' });
+  }
+  var mats = s.materials.filter(function(l) { return !l.dropped; });
+  if (mats.length) {
+    lines.push({ description: 'MATERIALS' });
+    mats.forEach(function(l) {
+      lines.push({ description: l.desc, itemCode: l.itemCode || undefined, quantity: l.qty, unitAmount: l.unitAmount, accountCode: '202' });
+    });
+  }
+  if (+s.deposit > 0) lines.push({ description: 'Less: deposit received', quantity: -1, unitAmount: +s.deposit, accountCode: '201' });
+  if (+s.instalments > 0) lines.push({ description: 'Less: instalments already invoiced', quantity: -1, unitAmount: +s.instalments, accountCode: '201' });
+
+  try {
+    var resp = await fetch('/auth/create-invoice', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        contactId: job.xeroContactId || null,
+        clientName: job.xeroClient || job.name,
+        reference: job.xeroRef || job.name,
+        lineItems: lines
+      })
+    });
+    var result = await resp.json();
+    if (!result.ok) throw new Error(result.error || 'Xero invoice failed');
+    // Re-link semantics on rebuild: newest draft wins, same as re-sending
+    // a quote.
+    job.xeroInvoiceId = result.invoiceId || null;
+    job.xeroInvoiceNumber = result.invoiceNumber || null;
+    setJobStatusById(job.id, 'invoiced'); // persists + pipeline hook
+    alert('Invoice ' + (result.invoiceNumber || '') + ' created as a DRAFT in Xero ✓\n\nReview it there before sending.');
+    goTab('summary');
+  } catch (err) {
+    alert('Could not create the invoice: ' + err.message + '\n\nNothing was changed — the Invoice list (Materials → Invoice) is the copy-by-hand fallback.');
+    btn.disabled = false; btn.textContent = 'Create draft invoice in Xero';
+  }
 }
 
 // ── Colours (job-scoped list, same lifecycle as rooms/extItems) ────────────
@@ -8269,11 +8553,12 @@ function renderSummary() {
         : jobStatus === 'completed'
           ? '<div class="field-label" style="color:var(--text3);text-decoration:line-through">✓ Completed<small style="text-decoration:none">'+(statusJob.completedAt ? new Date(statusJob.completedAt).toLocaleDateString() : '')+'</small></div>'+
             '<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">'+
-              '<button onclick="invoiceJob()" style="background:var(--accent);color:white;border:none;border-radius:var(--rs);padding:10px 16px;font-size:14px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;white-space:nowrap">Mark Invoiced</button>'+
+              '<button onclick="openFinalInvoice()" style="background:var(--accent);color:white;border:none;border-radius:var(--rs);padding:10px 16px;font-size:14px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;white-space:nowrap">Build final invoice ›</button>'+
+              '<div onclick="invoiceJob()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Mark Invoiced (done elsewhere)</div>'+
               '<div onclick="moveJobToDraft()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Move to Draft</div>'+
             '</div>'
         : jobStatus === 'invoiced'
-          ? '<div class="field-label" style="color:var(--success)">£ Invoiced<small>'+(statusJob.invoicedAt ? new Date(statusJob.invoicedAt).toLocaleDateString() : '')+'</small></div>'+
+          ? '<div class="field-label" style="color:var(--success)">£ Invoiced<small>'+(statusJob.invoicedAt ? new Date(statusJob.invoicedAt).toLocaleDateString() : '')+(statusJob.xeroInvoiceNumber ? ' · '+escapeHtml(statusJob.xeroInvoiceNumber)+' (draft in Xero)' : '')+'</small></div>'+
             '<div onclick="uninvoiceJob()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Back to Completed</div>'
         : jobStatus === 'declined'
           ? '<div class="field-label" style="color:var(--danger)">✗ Declined<small>'+(statusJob.declinedAt ? new Date(statusJob.declinedAt).toLocaleDateString() : '')+(statusJob.xeroQuoteStatus === 'DECLINED' ? ' · Xero ✓' : '')+'</small></div>'+

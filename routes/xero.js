@@ -6,7 +6,14 @@ const router = express.Router();
 const XERO_AUTH_URL = 'https://login.xero.com/identity/connect/authorize';
 const XERO_TOKEN_URL = 'https://identity.xero.com/connect/token';
 const XERO_API_URL = 'https://api.xero.com/api.xro/2.0';
-const SCOPES = 'openid profile email offline_access accounting.contacts accounting.settings.read accounting.invoices';
+// accounting.transactions added 2026-07-22 for the final-invoice builder
+// (FINAL_INVOICE_SPEC.md Step 0): it's the DOCUMENTED scope covering
+// invoices AND quotes -- accounting.invoices (kept for continuity, quotes
+// have worked against it) is not a documented scope name. NB scopes apply
+// at AUTH time: the running token keeps its old grants until Xero is
+// reconnected once from Settings, so POST /Invoices may 403 until then --
+// the builder's error message says so.
+const SCOPES = 'openid profile email offline_access accounting.contacts accounting.settings.read accounting.invoices accounting.transactions';
 
 // Builds the {Contacts:[...]} entry for a Xero contact create/update PUT.
 // Fields left blank are OMITTED (undefined keys never reach JSON.stringify),
@@ -787,6 +794,87 @@ router.post('/update-quote-status', async (req, res) => {
     const xeroMsg = err.response?.data?.Elements?.[0]?.ValidationErrors?.[0]?.Message
       || err.response?.data?.Message;
     res.status(500).json({ error: xeroMsg || err.message });
+  }
+});
+
+// Final-invoice builder (FINAL_INVOICE_SPEC.md): writes the assembled
+// invoice the client-side review screen produced. The CLIENT is the source
+// of truth for the assembly (labour as quoted, variations, actuals-based
+// materials, negative-quantity deduction lines) -- this route just maps
+// lines to Xero's shape and writes ONE DRAFT ACCREC invoice. Always DRAFT,
+// never AUTHORISED: Nicky reviews and sends from Xero, and any bug's blast
+// radius stays "a deletable draft". Mirrors /create-quote's conventions:
+// LineAmountTypes NoTax, description-only rows as dividers, 202 for
+// materials/sundries and 201 for labour.
+router.post('/create-invoice', async (req, res) => {
+  const { contactId, clientName, reference, lineItems } = req.body;
+  if (!Array.isArray(lineItems) || !lineItems.length) {
+    return res.status(400).json({ error: 'lineItems required' });
+  }
+
+  try {
+    const accessToken = await getAccessToken();
+    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    const tenantId = result.rows[0]?.xero_tenant_id;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
+    }
+
+    const contact = contactId ? { ContactID: contactId } : { Name: clientName || 'Client' };
+    const fmt2 = (n) => Math.round(n * 100) / 100;
+    const xeroLines = lineItems.map(l => {
+      // Description-only divider (the MATERIALS heading) -- no columns at
+      // all, same convention as the quote path.
+      if (l.quantity == null && l.unitAmount == null && !l.itemCode) {
+        return { Description: l.description };
+      }
+      const line = {
+        Description: l.description,
+        Quantity: +l.quantity || 0,
+        UnitAmount: fmt2(+l.unitAmount || 0),
+        AccountCode: l.accountCode || (l.itemCode ? '202' : '201')
+      };
+      if (l.itemCode) line.ItemCode = l.itemCode;
+      return line;
+    });
+
+    const invRes = await axios.put(
+      `${XERO_API_URL}/Invoices`,
+      {
+        Invoices: [{
+          Type: 'ACCREC',
+          Contact: contact,
+          Date: new Date().toISOString().split('T')[0],
+          Status: 'DRAFT',
+          LineAmountTypes: 'NoTax',
+          Reference: reference || '',
+          LineItems: xeroLines
+        }]
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Xero-Tenant-Id': tenantId,
+          'Content-Type': 'application/json',
+          Accept: 'application/json'
+        }
+      }
+    );
+    const invoice = invRes.data.Invoices && invRes.data.Invoices[0];
+    if (!invoice || !invoice.InvoiceID) throw new Error('Xero did not return an invoice');
+    res.json({ ok: true, invoiceId: invoice.InvoiceID, invoiceNumber: invoice.InvoiceNumber || 'created' });
+  } catch (err) {
+    console.error('Create invoice error:', err.response?.data || err.message);
+    const status = err.response?.status;
+    const xeroMsg = err.response?.data?.Elements?.[0]?.ValidationErrors?.[0]?.Message
+      || err.response?.data?.Message;
+    // The known scope gap (FEATURES.md): tokens granted before
+    // accounting.transactions joined SCOPES can't write invoices until
+    // Xero is reconnected once. Say so instead of a bare 403.
+    const hint = (status === 401 || status === 403)
+      ? ' — this can mean Xero needs reconnecting once to grant invoice permission (Summary → Connect Xero)'
+      : '';
+    res.status(500).json({ error: (xeroMsg || err.message) + hint });
   }
 });
 
