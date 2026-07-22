@@ -1,8 +1,30 @@
 # Variations — Spec (mid-job extras, priced properly)
 
-**Status: SCOPED 2026-07-22, not built.** Idea #4 in `FEATURES_2.0_IDEAS.md`.
-Depends on `JOB_PIPELINE_SPEC.md` Part 1 (needs "accepted" to mean something).
-Feeds `FINAL_INVOICE_SPEC.md` and `CALIBRATION_SPEC.md`.
+**Status: BUILT 2026-07-22 (same day as scoping), all four build-order items.**
+Idea #4 in `FEATURES_2.0_IDEAS.md`. Depends on `JOB_PIPELINE_SPEC.md` Part 1 (needs
+"accepted" to mean something). Feeds `FINAL_INVOICE_SPEC.md` and `CALIBRATION_SPEC.md`.
+
+**As built:** `isVariation` rides the full room AND exterior-item lifecycle (form
+toggle-row auto-on for new items while accepted+, hidden pre-acceptance, restored on
+edit, carried by the room-draft path via `buildRoomFromForm()`). Summary computes the
+split exactly per the gotcha table: deposit/payment-plan/hero/Labour-stat read
+original-only figures, live On-Site days and the scheduling drift-nudge include
+variations, materials/colours/tins stay blind. The Variations card lists flagged items
+and free lines with subtotal + "Job total incl. variations", and renders (with just the
+add button) on any accepted+ job so the entry point exists the moment it's meaningful.
+Free lines: 'hours' at day-rate/hours-per-day with markup+sundries, 'flat' verbatim.
+`createXeroQuote()` filters flagged items out — a re-send can never absorb variations.
+Badges: VARIATION chip on Home/Exterior rows, "+N" on Jobs-list rows (via a persisted
+`variationCount` snapshot — other jobs' rooms aren't loaded, same reasoning as
+`scheduledDays`). Deliberate deviations: (1) **the kitchen flag is manual** — kitchen is
+one persistent per-job form, not an added list item, so there is no clean "added while
+accepted" moment to auto-flag on; a toggle on the Kitchen tab covers it; (2) **fixed-£
+markup mode adds NO markup to variations** — the fixed amount was the adjustment agreed
+on the original quote, and spreading it thinner would silently change that quote's
+total (percent mode marks variations up normally); (3) Home/Exterior list totals and
+the CSV export stay blind to the flag (they're live working views). Verified in the
+40-check Chromium smoke run: auto-flag default, original-scope Labour invariance,
+quote-resend exclusion, free-line CRUD/persistence, chips, pre-acceptance hiding.
 
 ## Purpose
 
