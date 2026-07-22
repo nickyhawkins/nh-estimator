@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const db = require('../db');
 const { sendNtfy, ntfyConfigured } = require('../lib/debtNotify');
+const debtPush = require('../lib/debtPush');
 const router = express.Router();
 
 // Multi-device conflict guard shared by the debts/settings/cashflow write
@@ -241,19 +242,68 @@ router.get('/api/history', async (req, res) => {
   }
 });
 
-// Lets the user confirm ntfy is wired up correctly before relying on the
-// daily cron to ever fire. 400s (not 500) when NTFY_TOPIC isn't set, since
-// that's a config gap, not a server error.
-router.post('/api/notify-test', async (req, res) => {
-  if (!ntfyConfigured()) {
-    return res.status(400).json({ error: 'NTFY_TOPIC is not configured on the server' });
-  }
+// Web Push (Feature 4 extension) -- subscription plumbing for push to the
+// installed PWA itself. The VAPID public key is what the browser needs to
+// mint a subscription; the private half never leaves the server.
+router.get('/api/push/public-key', async (req, res) => {
   try {
-    await sendNtfy('Test notification from your debt plan app ✓', { title: 'Debt Plan — test', priority: 'default' });
+    res.json({ publicKey: await debtPush.getPublicKey() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/api/push/subscribe', async (req, res) => {
+  try {
+    await debtPush.saveSubscription(req.body && req.body.subscription, req.get('user-agent'));
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err.badRequest ? 400 : 500).json({ error: err.message });
+  }
+});
+
+router.post('/api/push/unsubscribe', async (req, res) => {
+  const endpoint = req.body && req.body.endpoint;
+  if (!endpoint) return res.status(400).json({ error: 'endpoint required' });
+  try {
+    await debtPush.removeSubscription(endpoint);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Lets the user confirm delivery is wired up correctly before relying on
+// the daily cron to ever fire. Tries every transport and 400s (not 500)
+// only when NONE is set up, since that's a config gap, not a server error.
+router.post('/api/notify-test', async (req, res) => {
+  const result = { ntfy: false, webPushSent: 0 };
+  const errors = [];
+  if (ntfyConfigured()) {
+    try {
+      await sendNtfy('Test notification from your debt plan app ✓', { title: 'Debt Plan — test', priority: 'default' });
+      result.ntfy = true;
+    } catch (err) {
+      errors.push(`ntfy: ${err.message}`);
+    }
+  }
+  try {
+    const pushResult = await debtPush.sendToAll({
+      title: 'Debt Plan — test',
+      body: 'Test notification from your debt plan app ✓',
+      tag: 'debt-test',
+      url: '/debt'
+    });
+    result.webPushSent = pushResult.sent;
+  } catch (err) {
+    errors.push(`web push: ${err.message}`);
+  }
+  if (!result.ntfy && result.webPushSent === 0) {
+    const detail = errors.length ? errors.join('; ')
+      : 'No delivery set up — enable push on this device below, or set NTFY_TOPIC on the server';
+    return res.status(errors.length ? 500 : 400).json({ error: detail });
+  }
+  res.json({ ok: true, ...result });
 });
 
 // Backs the in-app amber banner (Feature 5) -- the push version of the same

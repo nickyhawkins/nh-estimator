@@ -472,3 +472,14 @@ NTFY_BASE_URL=https://ntfy.sh
 - Mobile-first: any new UI must work on iPhone Safari in standalone PWA mode
 - Existing colour palette: bg `#0f1117`, cards `#1a1d2e`, blue `#5b8def`, green `#7db87d`, orange `#e0923b`, red `#e05c5c`
 - When in doubt, match the existing UI patterns exactly rather than introducing new components
+
+---
+
+## Feature 4b — Web Push to the installed PWA (extension of Feature 4) — BUILT
+
+Native Web Push (iOS 16.4+ Home Screen web apps, plus desktop/Android browsers) as a second delivery transport alongside ntfy. No third-party app or relay needed — notifications go straight to the installed debt app, encrypted to the device, and tapping one opens the app.
+
+- **Server:** `lib/debtPush.js` — VAPID keypair auto-generated on first use and persisted in `debt_push_vapid` (env `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` override if ever needed — no Render config required otherwise). Subscriptions live in `debt_push_subscriptions`, one row per device, upserted by endpoint; dead subscriptions (404/410 from the push service) are pruned on send. Both tables are created lazily, so no manual `psql` run is needed before this works.
+- **Delivery:** `lib/debtNotify.js`'s `broadcast()` fans each message out to ntfy (if `NTFY_TOPIC` is set) and every Web Push subscription; a failure in one transport never blocks the other. Due-date pushes carry a stable per-debt `tag` so the daily re-reminder replaces yesterday's banner instead of stacking. The 8am cron is now always scheduled (subscriptions appear at runtime, so there's no startup env check that can rule notifications out).
+- **Frontend:** `public/debt-sw.js` (push-only service worker, scope `/debt` — deliberately no fetch handler, so online behaviour is unchanged) + `public/debt-manifest.json`. The Notifications card gains a "Push to this device" row: Enable asks permission → subscribes → saves; states cover enabled/disabled/blocked, and an iOS Safari tab shows "add to Home Screen first" since Apple only exposes push to installed web apps. "Send test notification" now exercises both transports and only errors if neither is set up.
+- **iOS setup:** the app must be added to the Home Screen (it already is, in Nicky's case — but push must be ENABLED from inside the installed app, not from a Safari tab). If the home-screen copy predates this feature, remove and re-add it once so it picks up the service worker.
