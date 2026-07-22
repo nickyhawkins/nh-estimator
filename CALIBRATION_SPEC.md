@@ -1,8 +1,23 @@
 # Calibration Loop — Spec (labour actuals + estimate-vs-actual + settings suggestions)
 
-**Status: SCOPED 2026-07-22, not built.** Idea #1 in `FEATURES_2.0_IDEAS.md`. This spec ABSORBS
-material tracking Phase 3 (`MATERIAL_TRACKING_SPEC.md`'s margin/calibration phase, parked
-"needs history") — when this ships, Phase 3 is done and should be marked so there.
+**Status: Phase A BUILT 2026-07-22 (same day as scoping); Phases B and C not started.**
+Idea #1 in `FEATURES_2.0_IDEAS.md`. This spec ABSORBS material tracking Phase 3
+(`MATERIAL_TRACKING_SPEC.md`'s margin/calibration phase, parked "needs history") — when
+B/C ship, Phase 3 is done and should be marked so there.
+
+**Phase A as built:** `labour_log` table in `db/setup.sql` (**needs the manual
+`psql … -f db/setup.sql` deploy step, same as `material_actuals` did**),
+`GET/PUT/DELETE /api/labour` in `routes/api.js` (PUT upserts on `(job_id, work_date)`
+with the same id-adoption contract as `/actuals`), backup export/import coverage
+(`jobs[].labourLog`, additive on the v1 shape — old files stay importable), and a
+"Time on site" card at the top of the Materials screen: per-day rows with editable
+person-days, "+ Log today (full day)" one-tap (disabled once today is logged), and a
+"Log a different day" date-picker row. Strict write helpers (`apiPutStrict`) per the
+design principle — a failed save alerts, never silently drops a day. The shared
+`acceptedSnapshot` stamp (build-order item 2) also shipped — see `JOB_PIPELINE_SPEC.md`'s
+status note — so the card shows "N days logged · estimated ~M on site" for jobs accepted
+from now on. Verified against the real routes with a stubbed db and the real UI against
+a mock server (repo convention); the first live job is still the first live job.
 
 ## Purpose
 

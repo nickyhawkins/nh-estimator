@@ -1,6 +1,26 @@
 # Job Pipeline — Spec (lifecycle statuses + attention strip + inward Xero sync)
 
-**Status: SCOPED 2026-07-22, not built.** Idea #2 in `FEATURES_2.0_IDEAS.md`.
+**Status: Part 1 BUILT 2026-07-22 (same day as scoping); Parts 2 and 3 not started.**
+Idea #2 in `FEATURES_2.0_IDEAS.md`.
+
+**Part 1 as built:** `setJobStatusById()` extended with `quoted` (auto-set by a successful
+Send to Xero; re-send refreshes `quotedAt`; never moves an answered job backwards) and
+`invoiced` (manual: a £ control on completed Jobs-list rows + a Mark Invoiced button on
+Summary, with "Back to Completed" as the undo). Timestamp keep/clear rules per this spec —
+`quotedAt` is kept forever as history; `invoiced` keeps `acceptedAt`/`completedAt`;
+moving to draft or quoted reverts a synced Xero ACCEPTED/DECLINED to SENT, exactly as
+before. The Jobs list groups Accepted · Quoted · Draft (was "Pending") · Completed ·
+Invoiced · Declined; quoted rows show "Quote sent {date}". **The
+`acceptedSnapshot` stamp shipped here too** (shared piece for calibration/scheduling/
+variations): `renderSummary()` stashes its freshest figures (`estWorkingDays`,
+`estOnSiteDays`, `estLabourTotal`, `estMaterialsTotal`, `estQuoteTotal`) and Mark
+Accepted freezes them onto `job.acceptedSnapshot`; un-answering clears it,
+completed/invoiced keep it. `persistJobData()` carries all new fields (the
+wholesale-replace gotcha below was the reason to be careful here). Deliberate v1
+deviation: Invoiced/Declined groups are NOT default-collapsed — the section helper has
+no collapse mechanism and empty groups already vanish; revisit if the archive gets long.
+Verified against the real UI on a mock server; the Xero status-walk itself is unchanged
+code, but watch the first real send that auto-advances a job to Quoted.
 
 ## What already exists — build on it, don't replace it
 

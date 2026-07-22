@@ -15,8 +15,8 @@ committed roadmap: building one starts by reading its spec, then it moves into `
 
 | # | Idea | Spec |
 |---|---|---|
-| 1 | Calibration loop | `CALIBRATION_SPEC.md` (absorbs material tracking Phase 3) |
-| 2 | Job pipeline | `JOB_PIPELINE_SPEC.md` |
+| 1 | Calibration loop | `CALIBRATION_SPEC.md` (absorbs material tracking Phase 3) — **Phase A built 2026-07-22** |
+| 2 | Job pipeline | `JOB_PIPELINE_SPEC.md` — **Part 1 built 2026-07-22** (incl. the shared `acceptedSnapshot` stamp) |
 | 3 | Scheduling | `SCHEDULING_SPEC.md` |
 | 4 | Variations | `VARIATIONS_SPEC.md` |
 | 5 | Final invoice builder | `FINAL_INVOICE_SPEC.md` (material tracking Phase 2(b)) |

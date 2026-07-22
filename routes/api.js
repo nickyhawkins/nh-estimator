@@ -104,6 +104,7 @@ router.delete('/jobs/:id', async (req, res) => {
       db.query('DELETE FROM colours WHERE job_id = $1', [id]),
       db.query('DELETE FROM materials_snapshot WHERE job_id = $1', [id]),
       db.query('DELETE FROM material_actuals WHERE job_id = $1', [id]),
+      db.query('DELETE FROM labour_log WHERE job_id = $1', [id]),
     ]);
     await db.query('DELETE FROM jobs WHERE id = $1', [id]);
     res.json({ ok: true });
@@ -499,6 +500,68 @@ router.delete('/actuals/:id', async (req, res) => {
   }
 });
 
+// ── Labour log ────────────────────────────────────────────────────────────
+// Job-scoped, one row per DATE on site (days = person-days). The labour
+// half of actuals -- see CALIBRATION_SPEC.md Phase A. Same save strategy as
+// material_actuals and for the same reason: this is history that regenerates
+// from nothing, so no collection-level replace-all, one row per PUT, and the
+// PUT upserts on (job_id, work_date) so re-logging a day edits it rather
+// than double-counting it.
+
+router.get('/labour', async (req, res) => {
+  const jobId = requireJobId(req, res); if (!jobId) return;
+  try {
+    // to_char, not the raw DATE: pg hands DATE back as a JS Date at server-
+    // local midnight, and serialising that through JSON/toISOString can
+    // shift it a day depending on the server's timezone. The string can't.
+    const result = await db.query(
+      `SELECT id, to_char(work_date, 'YYYY-MM-DD') AS work_date, days, note
+         FROM labour_log WHERE job_id = $1 ORDER BY work_date ASC`,
+      [jobId]
+    );
+    res.json(result.rows.map(r => ({
+      id: r.id,
+      workDate: r.work_date,
+      days: r.days == null ? 0 : +r.days,
+      note: r.note || '',
+    })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/labour/:id', async (req, res) => {
+  const { id } = req.params;
+  const jobId = requireJobId(req, res); if (!jobId) return;
+  const { workDate, days, note } = req.body;
+  if (!workDate || !/^\d{4}-\d{2}-\d{2}$/.test(workDate)) {
+    return res.status(400).json({ error: 'workDate (YYYY-MM-DD) is required' });
+  }
+  try {
+    const result = await db.query(`
+      INSERT INTO labour_log (id, job_id, work_date, days, note, updated_at)
+      VALUES ($1, $2, $3, $4, $5, NOW())
+      ON CONFLICT (job_id, work_date)
+      DO UPDATE SET days = $4, note = $5, updated_at = NOW()
+      RETURNING id
+    `, [id, jobId, workDate, +days || 0, note || '']);
+    // Same id-adoption contract as /actuals: on conflict the server keeps
+    // the row that already holds this date, and the client adopts its id.
+    res.json({ ok: true, id: result.rows[0].id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/labour/:id', async (req, res) => {
+  try {
+    await db.query('DELETE FROM labour_log WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Settings ───────────────────────────────────────────────────────────────
 // Global — not job-scoped.
 
@@ -540,6 +603,7 @@ router.delete('/all', async (req, res) => {
       db.query('DELETE FROM colours WHERE job_id = $1', [jobId]),
       db.query('DELETE FROM materials_snapshot WHERE job_id = $1', [jobId]),
       db.query('DELETE FROM material_actuals WHERE job_id = $1', [jobId]),
+      db.query('DELETE FROM labour_log WHERE job_id = $1', [jobId]),
     ]);
     res.json({ ok: true });
   } catch (err) {
@@ -575,6 +639,13 @@ router.get('/backup/export', async (req, res) => {
       `SELECT id, job_id, item_code, description, actual_quantity, unit_amount, bought
          FROM material_actuals ORDER BY created_at ASC`
     );
+    // Additive field on the v1 shape (jobs[].labourLog) -- import tolerates
+    // its absence, so pre-labour-log backup files stay importable and the
+    // version stays 1. to_char for the same timezone reason as GET /labour.
+    const labourResult = await db.query(
+      `SELECT id, job_id, to_char(work_date, 'YYYY-MM-DD') AS work_date, days, note
+         FROM labour_log ORDER BY work_date ASC`
+    );
 
     // One pass per table to bucket rows by job_id, rather than filtering
     // each job's rows out of the full result N times.
@@ -587,6 +658,7 @@ router.get('/backup/export', async (req, res) => {
     const coloursByJob = byJob(coloursResult.rows);
     const materialsByJob = byJob(materialsResult.rows);
     const actualsByJob = byJob(actualsResult.rows);
+    const labourByJob = byJob(labourResult.rows);
 
     const jobs = jobsResult.rows.map(j => ({
       job: { id: j.id, name: j.name, data: j.data || {} },
@@ -603,6 +675,12 @@ router.get('/backup/export', async (req, res) => {
         actualQuantity: r.actual_quantity == null ? 0 : +r.actual_quantity,
         unitAmount: r.unit_amount == null ? null : +r.unit_amount,
         bought: r.bought,
+      })),
+      labourLog: (labourByJob[j.id] || []).map(r => ({
+        id: r.id,
+        workDate: r.work_date,
+        days: r.days == null ? 0 : +r.days,
+        note: r.note || '',
       })),
     }));
 
@@ -675,6 +753,14 @@ router.post('/backup/import', async (req, res) => {
            VALUES ($1, $2, $3, $4, $5, $6, $7)`,
           [crypto.randomUUID(), newJobId, a.itemCode || null, a.description || '', +a.actualQuantity || 0,
             a.unitAmount == null ? null : +a.unitAmount, !!a.bought]
+        );
+      }
+      for (const l of (entry.labourLog || [])) {
+        if (!l.workDate || !/^\d{4}-\d{2}-\d{2}$/.test(l.workDate)) continue;
+        await db.query(
+          `INSERT INTO labour_log (id, job_id, work_date, days, note) VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (job_id, work_date) DO NOTHING`,
+          [crypto.randomUUID(), newJobId, l.workDate, +l.days || 0, l.note || '']
         );
       }
       jobsImported++;
