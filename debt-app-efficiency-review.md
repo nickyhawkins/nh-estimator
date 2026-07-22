@@ -24,6 +24,14 @@
 >   never saw), triggering a false conflict banner on every balance sync.
 >   `new-cycle` now returns the fresh timestamps and the client adopts
 >   them.
+>
+> **Part 2 B is BUILT** (read-only scope, as agreed): `debt-sw.js` now
+> caches the app shell (navigations network-first, cached shell as the
+> no-signal fallback; API calls never intercepted), and `debt.html` keeps a
+> localStorage snapshot of the last synced state — offline, the app opens
+> showing real data with a "last synced" banner, saving disabled. The
+> worker also registers where push isn't supported, so a plain Safari tab
+> gets the offline shell too.
 
 Full read-through of the debt app: `routes/debt.js`, `lib/debtNotify.js`,
 `lib/debtPush.js`, `public/debt.html` (all 1,508 lines), `public/debt-sw.js`,
