@@ -1,5 +1,7 @@
 # Backup System — Spec (export-all / import)
 
+**Status: BUILT & LIVE** — shipped 2026-07-15 (commit `1b55df0`), same day as scoping. `GET /api/backup/export` + `POST /api/backup/import` in `routes/api.js`, Export/Import buttons in Settings → Backup. All seven paint-app tables covered including `material_actuals`; settings restore is opt-in per this spec. (`hsl_state` is deliberately absent — confirmed 2026-07-22 it has no references anywhere in the app; it's a dead legacy table, not a gap.)
+
 Scoped 2026-07-15, against `FEATURES.md`'s "Backup system (CSV export / import)" entry — that entry is titled CSV but this doc changes the format decision (see below); it supersedes the "CSV" framing there.
 
 ## What this is, and why the existing export doesn't cover it

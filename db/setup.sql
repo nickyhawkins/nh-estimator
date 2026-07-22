@@ -166,6 +166,29 @@ CREATE UNIQUE INDEX IF NOT EXISTS material_actuals_job_item
   ON material_actuals (job_id, item_code) WHERE item_code IS NOT NULL;
 CREATE INDEX IF NOT EXISTS material_actuals_job ON material_actuals (job_id);
 
+-- Labour log (job-scoped, one row per DATE on site) -- the labour half of
+-- actuals, alongside material_actuals' materials half. See
+-- CALIBRATION_SPEC.md Phase A. Columns not JSONB for the same reason as
+-- material_actuals: Phase C aggregates days across jobs, which over JSONB
+-- means casts and no usable index. Don't "fix" the inconsistency.
+--
+-- days is PERSON-days at the one day-rate: 1 = a full day, 0.5 = a half
+-- day, 2 = two people all day. Matches how settings.dr prices labour.
+CREATE TABLE IF NOT EXISTS labour_log (
+  id VARCHAR PRIMARY KEY,
+  job_id VARCHAR NOT NULL,
+  work_date DATE NOT NULL,
+  days NUMERIC NOT NULL DEFAULT 1,
+  note VARCHAR NOT NULL DEFAULT '',
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+-- ONE row per job per date: tapping "+ Log today" twice must edit the
+-- existing day, never create a duplicate that double-counts it. The PUT
+-- upserts on this index, same pattern as material_actuals_job_item.
+CREATE UNIQUE INDEX IF NOT EXISTS labour_log_job_date ON labour_log (job_id, work_date);
+CREATE INDEX IF NOT EXISTS labour_log_job ON labour_log (job_id);
+
 -- ── Debt Management App ─────────────────────────────────────────────────
 -- Fully separate personal debt-tracking tool, served from /debt, sharing
 -- only this Postgres instance with the paint app. Tables are namespaced

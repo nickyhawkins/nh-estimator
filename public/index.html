@@ -1043,7 +1043,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.5.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.6.0</div>
 </div>
 </div>
 
@@ -1707,6 +1707,17 @@ async function createXeroQuote() {
           quoteJob.xeroContactId = result.contactId;
           xeroSelectedContactId = result.contactId;
         }
+        // Pipeline (JOB_PIPELINE_SPEC.md Part 1): a successful send means a
+        // quote now exists, so a Draft job advances to Quoted automatically;
+        // a re-send just refreshes quotedAt. Jobs already answered
+        // (accepted/declined) or beyond keep their state -- the pipeline
+        // never moves BACKWARDS on a send; a corrected quote doesn't
+        // un-accept a job.
+        if (!quoteJob.status || quoteJob.status === 'quoted') {
+          quoteJob.status = 'quoted';
+          quoteJob.quotedAt = new Date().toISOString();
+          renderJobs();
+        }
         localStorage.setItem('pe-jobs', JSON.stringify(jobs));
         persistJobData(quoteJob);
         updateXeroContactSyncStatus();
@@ -2194,7 +2205,7 @@ function renameJob(id) {
 // part of job.data must go through this so xeroClient/xeroRef/contact/
 // xeroContactId/contactSyncedAt/materialsSeeded/kitchen always travel together.
 function persistJobData(job) {
-  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, status: job.status, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, kitchen: job.kitchen }) });
+  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, acceptedSnapshot: job.acceptedSnapshot, kitchen: job.kitchen }) });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -2207,36 +2218,65 @@ function persistJobData(job) {
 // Four states share one field (status: 'accepted' | 'completed' | 'declined'
 // | null/draft) rather than independent booleans, so a job can never be both
 // accepted AND declined at once -- setJobStatusById() always clears whichever
-// timestamp doesn't apply to the new state. 'completed' is reached only from
-// 'accepted' (a finished job was, by definition, accepted first), so it keeps
-// job.acceptedAt intact rather than clearing it like the other transitions --
-// the Jobs list and Summary can then show both "accepted on X" and
-// "completed on Y" (see estimating-app-edits.md #9).
+// timestamp doesn't apply to the new state.
+//
+// The full pipeline (JOB_PIPELINE_SPEC.md Part 1):
+//   draft(null) -> quoted -> accepted -> completed -> invoiced
+//                     └----> declined
+// 'quoted' is set automatically by a successful Send to Xero (see
+// createXeroQuote), 'invoiced' manually until the final-invoice builder
+// ships. Forward transitions each keep the history behind them: 'completed'
+// is reached only from 'accepted' so it keeps acceptedAt; 'invoiced' only
+// from 'completed' so it keeps both. quotedAt is set on entering 'quoted'
+// and then KEPT through every later transition including back to draft --
+// it's the record that a quote was sent, and the chase logic (Part 2) keys
+// on status === 'quoted', not on the timestamp existing.
+//
+// acceptedSnapshot freezes the estimate figures (working days, on-site
+// days, totals) at the moment of acceptance -- the comparison baseline for
+// the labour log (CALIBRATION_SPEC.md) and later scheduling/variations. It
+// can only be stamped when accepting the ACTIVE job from a rendered
+// Summary (lastSummaryTotals), which is the only place Mark Accepted
+// exists; anything else tolerates its absence.
+var lastSummaryTotals = null; // set by renderSummary() every render
+
 function setJobStatusById(jobId, newStatus, confirmMsg) {
   var job = jobs.find(function(j) { return j.id === jobId; });
   if (!job) return;
   if (confirmMsg && !confirm(confirmMsg)) return;
   job.status = newStatus || null;
   var now = new Date().toISOString();
-  job.acceptedAt = newStatus === 'accepted' ? now : (newStatus === 'completed' ? job.acceptedAt : null);
+  var keepsAccepted = newStatus === 'completed' || newStatus === 'invoiced';
+  job.acceptedAt = newStatus === 'accepted' ? now : (keepsAccepted ? job.acceptedAt : null);
   job.declinedAt = newStatus === 'declined' ? now : null;
-  job.completedAt = newStatus === 'completed' ? now : null;
+  job.completedAt = newStatus === 'completed' ? now : (newStatus === 'invoiced' ? job.completedAt : null);
+  job.invoicedAt = newStatus === 'invoiced' ? now : null;
+  if (newStatus === 'quoted') job.quotedAt = now;
+  if (newStatus === 'accepted') {
+    if (jobId === activeJobId && lastSummaryTotals) {
+      job.acceptedSnapshot = Object.assign({ at: now }, lastSummaryTotals);
+    }
+  } else if (!keepsAccepted) {
+    // Un-answering (draft/quoted/declined) withdraws the acceptance, so the
+    // frozen estimate goes with it -- a later re-accept re-stamps fresh.
+    job.acceptedSnapshot = null;
+  }
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   persistJobData(job);
   renderSummary(); renderJobs();
 
   // Mirror the client's answer onto the Xero quote this job created, if
-  // there is one. 'completed' is deliberately absent: Xero has no such
-  // quote status and the quote is already ACCEPTED (completed is only
-  // reachable from accepted). Moving back to Draft reverts a previously
-  // synced ACCEPTED/DECLINED to SENT so the Xero copy doesn't stay stuck
-  // on an answer the app has withdrawn -- but never touches a quote whose
-  // status was never synced (server-side, SENT also never advances a
-  // still-DRAFT quote).
+  // there is one. 'completed'/'invoiced' are deliberately absent: Xero has
+  // no such quote statuses and the quote is already ACCEPTED (both are only
+  // reachable through accepted). Moving back to Draft OR Quoted reverts a
+  // previously synced ACCEPTED/DECLINED to SENT so the Xero copy doesn't
+  // stay stuck on an answer the app has withdrawn -- but never touches a
+  // quote whose status was never synced (server-side, SENT also never
+  // advances a still-DRAFT quote).
   if (job.xeroQuoteId) {
     var xeroTarget = newStatus === 'accepted' ? 'ACCEPTED'
       : newStatus === 'declined' ? 'DECLINED'
-      : (!newStatus && (job.xeroQuoteStatus === 'ACCEPTED' || job.xeroQuoteStatus === 'DECLINED')) ? 'SENT'
+      : ((!newStatus || newStatus === 'quoted') && (job.xeroQuoteStatus === 'ACCEPTED' || job.xeroQuoteStatus === 'DECLINED')) ? 'SENT'
       : null;
     if (xeroTarget && xeroTarget !== job.xeroQuoteStatus) syncQuoteStatusToXero(job, xeroTarget);
   }
@@ -2278,6 +2318,11 @@ function completeJob() { setJobStatus('completed', 'Mark this job as Completed?'
 function completeJobFromList(jobId) { setJobStatusById(jobId, 'completed', 'Mark this job as Completed?'); }
 function declineJob() { setJobStatus('declined', 'Mark this quote as Declined?'); }
 function moveJobToDraft() { setJobStatus(null, 'Move this job back to Draft?'); }
+function invoiceJob() { setJobStatus('invoiced', 'Mark this job as Invoiced?'); }
+function invoiceJobFromList(jobId) { setJobStatusById(jobId, 'invoiced', 'Mark this job as Invoiced?'); }
+// Undo for a mis-tap on Mark Invoiced. NB re-entering 'completed' refreshes
+// completedAt to now -- acceptable for an undo taken moments later.
+function uninvoiceJob() { setJobStatus('completed', 'Move this job back to Completed?'); }
 
 // This job's markup if it's been overridden on the Summary page, else the
 // live global default from Settings -- the single read every markup
@@ -2467,41 +2512,52 @@ function markMaterialsSeeded(seeded) {
 // strikethrough, which would otherwise read oddly on "· DECLINED" itself).
 function renderJobRow(j) {
   var isActive = j.id === activeJobId;
+  var isQuoted = j.status === 'quoted';
   var isAccepted = j.status === 'accepted';
   var isCompleted = j.status === 'completed';
+  var isInvoiced = j.status === 'invoiced';
   var isDeclined = j.status === 'declined';
-  var isDimmed = isDeclined || isCompleted;
+  var isDimmed = isDeclined || isCompleted || isInvoiced;
   var nameColor = isDimmed ? 'var(--text3)' : 'var(--text)';
   return swipeDeleteWrap('deleteJob', j.id,
     '<div class="field-row" style="cursor:pointer'+(isDimmed ? ';opacity:.6' : '')+'" onclick="switchJob(\''+j.id+'\')">'+
     '<div style="flex:1">'+
       '<div style="font-weight:600;color:'+nameColor+(isDimmed ? ';text-decoration:line-through' : '')+'">'+escapeHtml(j.name)+
+        (isQuoted ? ' <span style="color:var(--accent);font-size:12px;font-weight:700;text-decoration:none">· QUOTED</span>' : '')+
         (isAccepted ? ' <span style="color:var(--success);font-size:12px;font-weight:700;text-decoration:none">· ACCEPTED</span>' : '')+
         (isCompleted ? ' <span style="color:var(--text3);font-size:12px;font-weight:700;text-decoration:none">· COMPLETED</span>' : '')+
+        (isInvoiced ? ' <span style="color:var(--success);font-size:12px;font-weight:700;text-decoration:none">· INVOICED</span>' : '')+
         (isDeclined ? ' <span style="color:var(--danger);font-size:12px;font-weight:700;text-decoration:none">· DECLINED</span>' : '')+
         (isActive ? ' <span style="color:var(--accent);font-size:12px;font-weight:700;text-decoration:none">· CURRENT</span>' : '')+
       '</div>'+
       (j.xeroClient ? '<div style="font-size:12px;color:var(--text2)">'+escapeHtml(j.xeroClient)+'</div>' : '')+
-      (j.updatedAt ? '<div style="font-size:12px;color:var(--text2)">'+new Date(j.updatedAt).toLocaleDateString()+'</div>' : '')+
+      (isQuoted && j.quotedAt ? '<div style="font-size:12px;color:var(--text2)">Quote sent '+new Date(j.quotedAt).toLocaleDateString()+'</div>'
+        : (j.updatedAt ? '<div style="font-size:12px;color:var(--text2)">'+new Date(j.updatedAt).toLocaleDateString()+'</div>' : ''))+
     '</div>'+
     (isAccepted ? '<div onclick="event.stopPropagation();completeJobFromList(\''+j.id+'\')" title="Mark Completed" style="color:var(--success);font-size:18px;font-weight:700;padding:0 8px;cursor:pointer">✓</div>' : '')+
+    (isCompleted ? '<div onclick="event.stopPropagation();invoiceJobFromList(\''+j.id+'\')" title="Mark Invoiced" style="color:var(--accent);font-size:15px;font-weight:700;padding:0 8px;cursor:pointer;text-decoration:none">£</div>' : '')+
     '<div onclick="event.stopPropagation();renameJob(\''+j.id+'\')" style="color:var(--text2);font-size:16px;padding:0 8px;cursor:pointer">✎</div>'+
     '<div onclick="event.stopPropagation();deleteJob(\''+j.id+'\')" style="color:var(--danger);font-size:22px;padding:0 4px;cursor:pointer">×</div>'+
   '</div>');
 }
 
-// Grouped by status -- Accepted first, Pending (draft) next, then Completed,
-// then Declined last (both Completed and Declined are visibly de-emphasised,
-// see renderJobRow, but Completed sits above Declined per estimating-app-
-// edits.md #9). A group with no jobs in it is skipped entirely rather than
-// showing an empty heading.
+// Grouped by pipeline status (JOB_PIPELINE_SPEC.md): live work first
+// (Accepted = in progress, then Quoted awaiting an answer, then Draft),
+// archive after (Completed above Invoiced above Declined -- Completed sits
+// above Declined per estimating-app-edits.md #9, and Invoiced/Declined are
+// the most-finished states so they sink to the bottom). The old "Pending"
+// heading became "Draft" to match Summary's "Draft quote" language when
+// 'quoted' split out of it. A group with no jobs in it is skipped entirely
+// rather than showing an empty heading.
 function renderJobs() {
   var container = document.getElementById('jobs-cards');
   if (!container) return;
   var accepted = jobs.filter(function(j) { return j.status === 'accepted'; });
+  var quoted   = jobs.filter(function(j) { return j.status === 'quoted'; });
   var completed = jobs.filter(function(j) { return j.status === 'completed'; });
+  var invoiced = jobs.filter(function(j) { return j.status === 'invoiced'; });
   var declined = jobs.filter(function(j) { return j.status === 'declined'; });
-  var pending  = jobs.filter(function(j) { return j.status !== 'accepted' && j.status !== 'completed' && j.status !== 'declined'; });
+  var drafts   = jobs.filter(function(j) { return ['accepted','quoted','completed','invoiced','declined'].indexOf(j.status) === -1; });
 
   function section(title, list) {
     if (!list.length) return '';
@@ -2511,7 +2567,8 @@ function renderJobs() {
     '</div>';
   }
 
-  container.innerHTML = section('Accepted', accepted) + section('Pending', pending) + section('Completed', completed) + section('Declined', declined);
+  container.innerHTML = section('Accepted', accepted) + section('Quoted', quoted) + section('Draft', drafts)
+    + section('Completed', completed) + section('Invoiced', invoiced) + section('Declined', declined);
 }
 
 // ── Swipe-to-delete (touch devices) ─────────────────────────────────────────
@@ -3825,6 +3882,145 @@ async function saveMaterialActual(row) {
   return row;
 }
 
+// ── Time on site (labour log) ──────────────────────────────────────────────
+// CALIBRATION_SPEC.md Phase A: the labour half of actuals, shown as a card
+// on this same Materials screen. One row per DATE; `days` is PERSON-days
+// (1 full day, 0.5 half day, 2 = two people all day -- matches how
+// settings.dr prices labour). Same strictness rules as material actuals and
+// for the same reason: no localStorage mirror, no bulk replace, and a
+// failed write alerts rather than silently dropping a day that calibration
+// counts on. Loaded fresh by openActuals(), never rendered stale.
+var labourLog = [];
+
+async function loadLabourLog() {
+  labourLog = await apiGet('/api/labour?job_id=' + encodeURIComponent(activeJobId));
+}
+
+function labourLoggedTotal() {
+  return labourLog.reduce(function(s, l) { return s + (+l.days || 0); }, 0);
+}
+
+// Local date, NOT toISOString().slice(0,10): late evening on a UK summer
+// day is already "tomorrow" in UTC, which would log the day against the
+// wrong date exactly at the end-of-day moment this button is for.
+function localISODate(d) {
+  d = d || new Date();
+  return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+}
+
+function labourDateLabel(iso) {
+  var d = new Date(iso + 'T12:00:00'); // noon dodges DST edge cases
+  return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+async function saveLabourEntry(entry) {
+  try {
+    var res = await apiPutStrict('/api/labour/' + entry.id, {
+      jobId: activeJobId, workDate: entry.workDate, days: entry.days, note: entry.note || ''
+    });
+    // Same id-adoption as saveActualRow: the upsert may keep the row that
+    // already holds this date, so track the id the server reports.
+    if (res && res.id) entry.id = res.id;
+  } catch (e) {
+    alert('Could not save that day: ' + e.message + '\n\nCheck the connection and tap again.');
+    try { await loadLabourLog(); } catch (e2) {}
+  }
+  renderActuals();
+}
+
+function logToday() {
+  var today = localISODate();
+  if (labourLog.some(function(l) { return l.workDate === today; })) return; // button disabled when logged; belt and braces
+  var entry = { id: uid(), workDate: today, days: 1, note: '' };
+  labourLog.push(entry);
+  saveLabourEntry(entry);
+}
+
+function logOtherDay() {
+  var el = document.getElementById('labour-other-date');
+  var v = el && el.value;
+  if (!v) { alert('Pick a date first.'); return; }
+  if (labourLog.some(function(l) { return l.workDate === v; })) {
+    alert('That day is already logged — edit its row instead.');
+    return;
+  }
+  var entry = { id: uid(), workDate: v, days: 1, note: '' };
+  labourLog.push(entry);
+  labourLog.sort(function(a, b) { return a.workDate < b.workDate ? -1 : 1; });
+  saveLabourEntry(entry);
+}
+
+function setLabourDays(id, value) {
+  var entry = labourLog.find(function(l) { return l.id === id; });
+  if (!entry) return;
+  entry.days = Math.max(0, +value || 0);
+  saveLabourEntry(entry);
+}
+
+async function deleteLabourEntry(id) {
+  if (!labourLog.some(function(l) { return l.id === id; })) return;
+  if (!confirm('Remove this day from the log?')) return;
+  labourLog = labourLog.filter(function(l) { return l.id !== id; });
+  try {
+    await apiDeleteStrict('/api/labour/' + id);
+  } catch (e) {
+    alert('Could not remove the day: ' + e.message);
+    try { await loadLabourLog(); } catch (e2) {}
+  }
+  renderActuals();
+}
+
+function toggleLabourOtherRow() {
+  var row = document.getElementById('labour-other-row');
+  if (row) row.style.display = row.style.display === 'none' ? 'flex' : 'none';
+}
+
+function renderTimeOnSiteCard() {
+  var total = labourLoggedTotal();
+  var job = activeJob();
+  // The comparison figure comes from acceptedSnapshot (stamped when the job
+  // was marked Accepted) -- jobs accepted before that shipped simply show
+  // the logged count with no "of ~N", per CALIBRATION_SPEC.md.
+  var est = job && job.acceptedSnapshot && +job.acceptedSnapshot.estOnSiteDays > 0
+    ? +job.acceptedSnapshot.estOnSiteDays : null;
+  var today = localISODate();
+  var todayLogged = labourLog.some(function(l) { return l.workDate === today; });
+
+  var rows = labourLog.map(function(l) {
+    return '<div class="field-row">'
+      + '<div class="field-label">' + labourDateLabel(l.workDate) + '</div>'
+      + '<div style="display:flex;align-items:center;gap:8px">'
+        + '<input type="number" class="field-input" style="width:60px;padding:6px 8px;text-align:center" value="' + (+l.days || 0) + '" min="0" step="0.5" inputmode="decimal" onchange="setLabourDays(\'' + l.id + '\', this.value)">'
+        + '<span style="font-size:13px;color:var(--text2)">day' + (+l.days === 1 ? '' : 's') + '</span>'
+        + '<div onclick="deleteLabourEntry(\'' + l.id + '\')" style="color:var(--text3);font-size:18px;cursor:pointer;padding:0 4px">×</div>'
+      + '</div>'
+    + '</div>';
+  }).join('');
+
+  var roundedTotal = Math.round(total * 10) / 10;
+  var summaryLine = (total > 0
+    ? roundedTotal + ' day' + (roundedTotal === 1 ? '' : 's') + ' logged'
+    : 'No days logged yet')
+    + (est ? ' · estimated ~' + est + ' on site' : '');
+
+  return '<div class="section-title" style="margin:16px 0 8px">Time on site</div>'
+    + '<div class="card">'
+    + rows
+    + '<div style="padding:12px 16px' + (rows ? ';border-top:1px solid var(--border)' : '') + '">'
+      + '<div style="font-size:13px;color:var(--text2);margin-bottom:10px">' + summaryLine + '</div>'
+      + '<button onclick="logToday()"' + (todayLogged ? ' disabled' : '')
+        + ' style="background:' + (todayLogged ? 'var(--surface2)' : 'var(--accent)') + ';color:' + (todayLogged ? 'var(--text2)' : '#fff')
+        + ';border:none;border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%">'
+        + (todayLogged ? 'Today logged ✓ — edit above' : '+ Log today (full day)') + '</button>'
+      + '<div id="labour-other-row" style="display:none;margin-top:8px;gap:8px;align-items:center">'
+        + '<input type="date" class="field-input" id="labour-other-date" style="flex:1;text-align:left" max="' + today + '">'
+        + '<button onclick="logOtherDay()" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:12px;padding:9px 14px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer">Add</button>'
+      + '</div>'
+      + '<div onclick="toggleLabourOtherRow()" style="text-align:center;color:var(--text2);font-size:12px;font-weight:600;padding:8px 0 0;cursor:pointer">Log a different day</div>'
+    + '</div>'
+    + '</div>';
+}
+
 // The reconciliation: estimate (rolled up) LEFT JOIN actuals, plus any actual
 // with no estimate line -- the case that loses money if it's missed, since it's
 // something bought for the job that was never quoted.
@@ -3882,7 +4078,14 @@ async function openActuals() {
   var el = document.getElementById('actuals-body');
   if (el) el.innerHTML = '<div class="card" style="padding:16px;color:var(--text2)">Loading…</div>';
   try {
-    await loadMaterialActuals();
+    // Labour load is tolerant where the materials load is not: a DB that has
+    // material_actuals but not yet labour_log (partial migration) should
+    // still show the materials screen -- writes to the missing table will
+    // alert via the strict helpers, same story as any un-migrated table.
+    await Promise.all([
+      loadMaterialActuals(),
+      loadLabourLog().catch(function() { labourLog = []; })
+    ]);
   } catch (e) {
     if (el) el.innerHTML = '<div class="card" style="padding:16px;color:var(--danger,#b00)">Could not load actuals: '
       + escapeHtml(e.message) + '<div style="color:var(--text2);margin-top:6px;font-size:13px">Nothing has been saved or lost — reopen to retry.</div></div>';
@@ -3985,7 +4188,9 @@ function renderActuals() {
     + '<button onclick="addActualFromPicker()" style="background:var(--accent);color:#fff;border:none;border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%;margin-top:8px">Add Material</button>';
 
   var pendingAdd = snapshotFields(ACT_ADD_FIELD_IDS);
-  el.innerHTML = head + rowsHtml + add;
+  el.innerHTML = head + renderTimeOnSiteCard()
+    + '<div class="section-title" style="margin:16px 0 8px">Materials</div>'
+    + rowsHtml + add;
   restoreFields(pendingAdd);
   // Reuses the Summary picker wholesale -- same onMaterialProductInput
   // function, same materialItemIndex, just mounted with the 'act-add' prefix.
@@ -7168,7 +7373,10 @@ function renderSummary() {
   // guard can see it (BUG FIX: a kitchen-only job used to fall through to
   // the "no rooms yet" empty state and never render its own total at all).
   var kitchenCalc = calcKitchen(activeJob() && activeJob().kitchen);
-  if(rooms.length===0&&extItems.length===0&&kitchenCalc.total<=0){empty.style.display='flex';data.style.display='none';return;}
+  // lastSummaryTotals cleared on the empty path: an empty job renders no
+  // Mark Accepted button so nothing can stamp from it, but a stale stash
+  // from the PREVIOUS job must not linger either.
+  if(rooms.length===0&&extItems.length===0&&kitchenCalc.total<=0){empty.style.display='flex';data.style.display='none';lastSummaryTotals=null;return;}
   empty.style.display='none'; data.style.display='block';
   var tc=0,tt=0,sprayLabourS=0;
   // One calcRoom()/calcExtItem() evaluation per room/item for the whole
@@ -7330,6 +7538,18 @@ function renderSummary() {
       deposit = plan.deposit, depositBasis = plan.depositBasis, balance = plan.balance,
       paymentType = plan.paymentType, paymentWeeks = plan.paymentWeeks, weeklyRows = plan.weeklyRows;
 
+  // Stamp-source for acceptedSnapshot (see setJobStatusById): the freshest
+  // Summary figures, captured on every render. Mark Accepted only exists
+  // inside this render's own HTML, so by the time it can be tapped these
+  // are current for the active job by construction.
+  lastSummaryTotals = {
+    estWorkingDays: Math.round(ttS * 100) / 100,
+    estOnSiteDays: Math.round(onSiteDays * 10) / 10,
+    estLabourTotal: Math.round(labourTotal * 100) / 100,
+    estMaterialsTotal: Math.round(materialsTotal * 100) / 100,
+    estQuoteTotal: Math.round(total * 100) / 100
+  };
+
   var statusJob = activeJob();
   var jobStatus = statusJob ? statusJob.status : null;
 
@@ -7345,11 +7565,23 @@ function renderSummary() {
             '</div>'
         : jobStatus === 'completed'
           ? '<div class="field-label" style="color:var(--text3);text-decoration:line-through">✓ Completed<small style="text-decoration:none">'+(statusJob.completedAt ? new Date(statusJob.completedAt).toLocaleDateString() : '')+'</small></div>'+
-            '<div onclick="moveJobToDraft()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Move to Draft</div>'
+            '<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">'+
+              '<button onclick="invoiceJob()" style="background:var(--accent);color:white;border:none;border-radius:var(--rs);padding:10px 16px;font-size:14px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;white-space:nowrap">Mark Invoiced</button>'+
+              '<div onclick="moveJobToDraft()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Move to Draft</div>'+
+            '</div>'
+        : jobStatus === 'invoiced'
+          ? '<div class="field-label" style="color:var(--success)">£ Invoiced<small>'+(statusJob.invoicedAt ? new Date(statusJob.invoicedAt).toLocaleDateString() : '')+'</small></div>'+
+            '<div onclick="uninvoiceJob()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Back to Completed</div>'
         : jobStatus === 'declined'
           ? '<div class="field-label" style="color:var(--danger)">✗ Declined<small>'+(statusJob.declinedAt ? new Date(statusJob.declinedAt).toLocaleDateString() : '')+(statusJob.xeroQuoteStatus === 'DECLINED' ? ' · Xero ✓' : '')+'</small></div>'+
             '<div onclick="moveJobToDraft()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Move to Draft</div>'
-        : '<div class="field-label">Draft quote<small>Mark accepted or declined once the client responds</small></div>'+
+        : jobStatus === 'quoted'
+          ? '<div class="field-label" style="color:var(--accent)">Quote sent<small>'+(statusJob.quotedAt ? new Date(statusJob.quotedAt).toLocaleDateString() : '')+(statusJob.xeroQuoteNumber ? ' · '+escapeHtml(statusJob.xeroQuoteNumber) : '')+' · awaiting answer</small></div>'+
+            '<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">'+
+              '<button onclick="acceptJob()" style="background:var(--success);color:white;border:none;border-radius:var(--rs);padding:10px 16px;font-size:14px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;white-space:nowrap">Mark Accepted</button>'+
+              '<div onclick="declineJob()" style="color:var(--danger);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Mark Declined</div>'+
+            '</div>'
+        : '<div class="field-label">Draft quote<small>Send to Xero below, or mark the client\'s answer directly</small></div>'+
           '<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">'+
             '<button onclick="acceptJob()" style="background:var(--success);color:white;border:none;border-radius:var(--rs);padding:10px 16px;font-size:14px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;white-space:nowrap">Mark Accepted</button>'+
             '<div onclick="declineJob()" style="color:var(--danger);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Mark Declined</div>'+

@@ -6,16 +6,17 @@ This document captures planned features for the NH Estimator app, scoped and rea
 
 Reconciled against the code on **2026-07-14**. Most of the original roadmap is now built — keep this index honest as things ship, it had drifted badly once already.
 
-**Shipped:** Automatic materials from Xero Items · Materials editing + sundries · Realistic time estimate · Deposit & staged payments · Colour reference library · Multiple saved jobs · Rename jobs · HSL alignment (both steps) · Exterior alignment · Wallpaper calculator · Wallpaper per-roll labour · Lining + finish on one job · Feature wall paint/wallpaper toggle · Colours tab evolution (paint/ordering view) · **Material tracking Phases 0, 1 and 2(a)** · **Navigation: hamburger for job admin** (2026-07-14) · **Spray walls toggle** (2026-07-21) · **Accepted/Declined syncs the quote status to Xero** (2026-07-22, `estimating-app-edits.md` #14 — quotes created before this never stored a quote ID, so they still need marking in Xero by hand)
+**Shipped:** **Backup system — export-all + additive import** (2026-07-15, commit `1b55df0`; this index wrongly said "not built" until 2026-07-22 — it had drifted again) · Automatic materials from Xero Items · Materials editing + sundries · Realistic time estimate · Deposit & staged payments · Colour reference library · Multiple saved jobs · Rename jobs · HSL alignment (both steps) · Exterior alignment · Wallpaper calculator · Wallpaper per-roll labour · Lining + finish on one job · Feature wall paint/wallpaper toggle · Colours tab evolution (paint/ordering view) · **Material tracking Phases 0, 1 and 2(a)** · **Navigation: hamburger for job admin** (2026-07-14) · **Spray walls toggle** (2026-07-21) · **Accepted/Declined syncs the quote status to Xero** (2026-07-22, `estimating-app-edits.md` #14 — quotes created before this never stored a quote ID, so they still need marking in Xero by hand)
 
-**⚠️ Deploy step outstanding:** material tracking added the `material_actuals` table, and **`db/setup.sql` is not run automatically** (README: `psql $DATABASE_URL -f db/setup.sql`). Until it's run against the live database, the Materials and Invoice screens 500 on a missing relation. Nothing else is affected. `IF NOT EXISTS` throughout, so re-running is safe.
+**⚠️ Deploy step outstanding:** material tracking added the `material_actuals` table, and the labour log (2026-07-22) added `labour_log` — **`db/setup.sql` is not run automatically** (README: `psql $DATABASE_URL -f db/setup.sql`). Until it's run against the live database, the Materials and Invoice screens 500 on a missing relation (the Materials screen tolerates `labour_log` alone being missing — the Time on site card just can't save). Nothing else is affected. `IF NOT EXISTS` throughout, so re-running is safe.
 
 **Still to build:**
 - ~~**Material tracking (actuals vs estimate)** — not started~~ **Phases 0, 1 and 2(a) SHIPPED 2026-07-14** (`MATERIAL_TRACKING_SPEC.md`): the three-bucket item picker, the actuals log, and the materials list for the invoice. What remains there:
   - **Phase 3 — margin / calibration.** Cheap (311/314 purchase prices already ride on the `/Items` call and are thrown away), but **needs history to be worth building** — run Phase 1 on a few real jobs first.
   - **Phase 2(b) — `POST /Invoices` from the app.** Optional; 2(a) outputs a list to enter in Xero by hand and proves the model first. Needs its scope verified — the app requests `accounting.invoices`, which is not a documented Xero scope name — and probably a re-auth.
 - ~~**Navigation: hamburger for job admin**~~ **SHIPPED 2026-07-14** (see "Navigation — hamburger for job admin"): Jobs/Materials/Settings in one menu reached from every measuring screen, replacing the four separate ⚙️ buttons. The outstanding-count badge is live. "My Job ›" was removed then restored same day on Home's topbar — see that section for why.
-- **Backup: CSV import + full-data export** — a per-job *summary* export exists on the Summary tab, but it is NOT a backup (see "Backup system"). **Note `material_actuals` is now in scope for this**: it's the only table that regenerates from nothing, so it's the one with most to lose.
+- ~~**Backup: CSV import + full-data export**~~ **SHIPPED 2026-07-15** (see "Backup system" below) — JSON export-all + additive import per `BACKUP_SPEC.md`, `material_actuals` included.
+- **2.0 candidates scoped 2026-07-22** — see `FEATURES_2.0_IDEAS.md` for the index and the individual `*_SPEC.md` docs (calibration, job pipeline, scheduling, variations, final invoice, job templates, site notes). **First slice BUILT same day:** the labour log (calibration Phase A — "Time on site" card on Materials), the extended status pipeline (`quoted`/`invoiced` + Jobs-list regrouping), and the shared `acceptedSnapshot` stamp. See those two specs' status notes for the as-built detail.
 
 **Loose ends on otherwise-shipped features:**
 - Confirm the wallpaper **staircase +25%** doesn't double-count difficulty already in markup/prep — the spec asked for this before shipping and it was never explicitly closed off.
@@ -411,20 +412,20 @@ Headlines from the spec:
 - **Xero can't supply purchases.** No `accounting.transactions` scope, so logging stays manual — fine, since only quantities are typed.
 - Depends on Multiple saved jobs (tracking is per-job) — now shipped, so this is unblocked.
 
-## FEATURE: Backup system (CSV export / import) — ⚠️ PARTIAL, NOT YET A BACKUP
+## FEATURE: Backup system (JSON export-all / import) ✅ SHIPPED (2026-07-15)
 
-> **NOTE: now specced in `BACKUP_SPEC.md`, scoped 2026-07-15, which SUPERSEDES the "CSV export/import" framing in this section's title.** That doc changes the format decision (JSON, not CSV — CSV can't round-trip 7 relational tables cleanly) and settles the import-safety question: additive only, fresh ids on every re-imported job, never deletes or overwrites existing data. Settings/colour library needed their own rule since neither is per-job data — see that doc for the reasoning. Not yet built.
+Built the same day it was scoped, per `BACKUP_SPEC.md` (commit `1b55df0`). **This index said "not built" for a week afterwards — corrected 2026-07-22.** The doc-drift failure mode struck the very entry warning about doc drift.
 
-The app holds real job data on Render Postgres — a DB problem would lose everything with no backup. Still true.
+**As built:**
+- `GET /api/backup/export` — one JSON file: settings, colour library, and every job with its rooms, exterior items, colours, materials snapshot AND `material_actuals` (the table with most to lose, as flagged). One query per table, bucketed by `job_id` in memory.
+- `POST /api/backup/import` — **additive only**: every imported job and everything under it gets fresh ids, so importing can never overwrite or delete existing data; worst case of a double import is a duplicate-looking job. Name collisions get an "(imported)" suffix. Fails closed on anything that isn't a recognised v1 file.
+- **Settings restore is opt-in** (a toggle on the import preview) — the one place import can overwrite something, per the spec's reasoning about live business rates.
+- UI: Settings → Backup card — "Export everything" (Blob download, dated filename) and "Import backup" (file picker → preview of job names/counts → confirm).
+- `hsl_state` is deliberately not exported — it has no references anywhere in the app anymore (legacy of pre-alignment HSL); confirmed dead 2026-07-22, not a coverage gap.
 
-**What exists:** an `exportCSV()` button on the Summary tab. It is a **human-readable summary of the ACTIVE job only** — settings header, a room-by-room table (dimensions, coats, counts, colour labels, cost, time), a single lumped Exterior row, and the totals. Useful, and it shares its colour-label builder with the Colour Schedule.
+**Still on Nicky, not the app:** exporting regularly. The Settings card says so. If that discipline doesn't hold, a future nudge (e.g. "last export N weeks ago" on the attention strip — see `JOB_PIPELINE_SPEC.md`) is the cheap fix.
 
-**Why it is NOT a backup — don't mistake one for the other:**
-- **Export only. There is no import**, so nothing can be restored from it.
-- **Active job only** — other saved jobs aren't in the file.
-- **Lossy by design**: exterior items collapse to one total row, and the materials snapshot, the colour library, per-room product overrides and full settings aren't exported. You could not rebuild the job from it.
-
-**What's left to build:** a real export-all (every job + settings + colour library, round-trippable) and the matching import. The Multiple saved jobs data model is now settled, so the structure to export is finally stable. Reuse the CSV tooling patterns in `scripts/` where sensible. Note `db/setup.sql` is written to be re-runnable (ALTER … IF NOT EXISTS, backfill, then NOT NULL), which is the pattern an import would need to respect.
+The old `exportCSV()` on Summary remains what it always was — a human-readable single-job summary, not a backup.
 
 ## Quote description templates
 
