@@ -332,6 +332,18 @@ function simulate(dts,bdgt){
   return months;
 }
 
+// Memoized simulate(debts,budget). Every real change replaces `debts` by
+// reference (debts=debts.map(...) / =body.current / =s.debts), so reference
+// equality is a correct cache key — renderAll, getCyclePayments and the
+// what-if baselines were each re-running the full 360-month sim per render.
+let simCache={debts:null,budget:null,months:null};
+function getSim(){
+  if(simCache.debts!==debts||simCache.budget!==budget){
+    simCache={debts,budget,months:simulate(debts,budget)};
+  }
+  return simCache.months;
+}
+
 function getMilestones(months){const m={};for(const mo of months)for(const p of mo.payments)if(p.cleared&&p.wasActive&&!m[p.id])m[p.id]=mo.month;return m;}
 
 // Build the "this cycle" payment list from month 1 of the sim
@@ -348,7 +360,7 @@ function getCurrentTarget(){
   return active.slice().sort((a,b)=>a.balance-b.balance)[0]||null;
 }
 function getCyclePayments(){
-  const months=simulate(debts,budget);
+  const months=getSim();
   const m1=months[0];
   if(!m1)return [];
   return m1.payments.filter(p=>p.total>0.005).map(p=>{
@@ -358,7 +370,7 @@ function getCyclePayments(){
 }
 
 function renderAll(){
-  const months=simulate(debts,budget);
+  const months=getSim();
   const totalMonths=months.length;
   const totalDebt=debts.reduce((s,d)=>s+d.balance,0);
   const totalArrears=debts.reduce((s,d)=>s+d.arrears,0);
@@ -385,7 +397,7 @@ function renderAll(){
   const totals=chartData.map(m=>m.payments.reduce((s,p)=>s+p.remaining,0));
   const pts=totals.map((v,i)=>`${toX(i)},${toY(v)}`).join(' ');
   const gridLines=[0,0.5,1].map(f=>`<line x1="${pad.l}" x2="${cW-pad.r}" y1="${toY(f*chartMax)}" y2="${toY(f*chartMax)}" stroke="#2a2d3e" stroke-width="1"/><text x="${pad.l-4}" y="${toY(f*chartMax)+4}" text-anchor="end" font-size="9" fill="#444">${fmtS(f*chartMax)}</text>`).join('');
-  const xLabels=chartData.filter((_,i)=>i%4===0||i===chartData.length-1).map(m=>{const i=chartData.indexOf(m);return `<text x="${toX(i)}" y="${cH-4}" text-anchor="middle" font-size="8" fill="#444">${getMonthLabel(m.month,true)}</text>`;}).join('');
+  const xLabels=chartData.map((m,i)=>(i%4===0||i===chartData.length-1)?`<text x="${toX(i)}" y="${cH-4}" text-anchor="middle" font-size="8" fill="#444">${getMonthLabel(m.month,true)}</text>`:'').join('');
   document.getElementById('chart').innerHTML=`<defs><linearGradient id="g2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#5b8def"/><stop offset="100%" stop-color="#5b8def" stop-opacity="0"/></linearGradient></defs>${gridLines}<polygon points="${pad.l},${toY(0)} ${pts} ${toX(chartData.length-1)},${toY(0)}" fill="url(#g2)" opacity="0.2"/><polyline points="${pts}" fill="none" stroke="#5b8def" stroke-width="1.5"/>${xLabels}`;
 
   const tabs=[['cashflow','Cash Flow'],['whatif','What If?'],['monthly','Schedule'],['milestones','Milestones'],['history','History'],['borrowed','Borrowed'],['edit','Edit Debts'],['overview','All Debts']];
@@ -1187,7 +1199,7 @@ function openSyncBalances(){
   // Seed the draft with the PROJECTED balance after one cycle (month 1 of the sim).
   // This mirrors what the plan expects to happen, giving a realistic starting estimate to tweak.
   syncDraft={};
-  const months=simulate(debts,budget);
+  const months=getSim();
   const m1=months[0];
   debts.forEach(d=>{
     if(d.balance<=0.005)return;
@@ -1413,7 +1425,7 @@ function calcLump(){
   if(!tgt){result.style.display='none';return;}
   const modDebts=debts.map(d=>d.id===tgt.id?{...d,balance:Math.max(0,d.balance-extra),arrears:Math.min(d.arrears,Math.max(0,d.balance-extra))}:d);
   const newMonths=simulate(modDebts,budget).length;
-  const base=simulate(debts,budget).length;
+  const base=getSim().length;
   const saved=base-newMonths;
   const newDateEl=document.getElementById('lumpNewDate');
   const savedEl=document.getElementById('lumpMonthsSaved');
@@ -1430,7 +1442,7 @@ function calcExtraMonthly(val){
   const savedEl=document.getElementById('extraMonthlySaved');
   if(labelEl)labelEl.textContent=fmt(extra);
   if(budgetEl)budgetEl.textContent=fmt(budget+extra)+'/mo';
-  const base=simulate(debts,budget).length;
+  const base=getSim().length;
   const newM=simulate(debts,budget+extra).length;
   const saved=base-newM;
   if(dateEl)dateEl.textContent=getMonthLabel(newM,true);
@@ -1558,9 +1570,19 @@ async function confirmAddLoan(){
 }
 
 function setView(v){view=v;editDraft={};renderAll();}
-function changeMonth(dir){const months=simulate(debts,budget);selectedMonth=Math.max(1,Math.min(months.length,selectedMonth+dir));renderAll();}
+function changeMonth(dir){const months=getSim();selectedMonth=Math.max(1,Math.min(months.length,selectedMonth+dir));renderAll();}
 
-document.getElementById('budgetSlider').addEventListener('input',e=>{budget=parseInt(e.target.value);persist();renderAll();});
+// Dragging the slider fires per notch — update the label instantly but put
+// the full re-render (sim + whole-tab innerHTML rebuild) behind a short
+// trailing debounce so a drag isn't dozens of rebuilds.
+let renderTimer=null;
+function scheduleRender(){clearTimeout(renderTimer);renderTimer=setTimeout(renderAll,80);}
+document.getElementById('budgetSlider').addEventListener('input',e=>{
+  budget=parseInt(e.target.value);
+  document.getElementById('budgetLabel').textContent=fmt(budget);
+  persist('settings');
+  scheduleRender();
+});
 
 loadState();
 initPush();
