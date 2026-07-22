@@ -24,33 +24,46 @@ CSS and JS inline, no build step) backed by a small Express server.
   `<script>` block in `index.html`. Grep before adding a function — nothing
   stops you from redefining one (see gotcha below).
 
-## Gotcha: localStorage-vs-server sync
+## localStorage-vs-server sync (hardened 2026-07)
 
-Client state (rooms, exterior items, staircase costs, settings) is cached
-in `localStorage` and mirrored to Postgres so the estimate survives a
-refresh and (loosely) syncs across devices. The pattern, spelled out at
-`public/index.html:635`:
+Client state (rooms, exterior items, colours, materials snapshot,
+settings, job rows) is cached in `localStorage` and mirrored to Postgres.
+The sync layer now runs through a **persistent outbox** — see the
+"Sync outbox" block in `public/index.html` (search for `pe-dirty`):
 
 - **Reads**: `initApp()` loads from `localStorage` first (instant, works
-  offline), renders, *then* fetches from `/api/*` in the background and
-  overwrites local state — but only if the server actually has data
-  (`if (serverRooms && serverRooms.length > 0)`, etc.). An empty server
-  response never clears local state. This means a genuinely-cleared server
-  won't propagate to a device that still has local data, and a brand new
-  device/incognito session with an empty server will just show nothing
-  even if another device has real data (no server truly means empty here,
-  vs "haven't synced yet" — the two are indistinguishable).
+  offline), renders, then fetches from `/api/*` in the background. A
+  *successful* fetch is authoritative even when empty — EXCEPT for any
+  collection still flagged in `pe-dirty`, whose local edits are newer and
+  are pushed instead of overwritten. Before any fetch runs, `initApp()`
+  awaits `flushDirty()`, which re-pushes everything a previous session
+  failed to sync.
 - **Writes**: `saveRooms()` and friends write to `localStorage`
-  synchronously, then fire-and-forget sync to the server via
-  **delete-all-then-put-each** (`apiDelete('/api/rooms')` then a `PUT` per
-  room). Not transactional — a failed request mid-loop can leave the
-  server missing rooms until the next full save. There's no debounce on
-  these calls either, so rapid edits mean rapid delete+put roundtrips.
-- `serverAvailable` is set on every `apiPut`/`apiDelete` failure but very
-  little in the UI actually branches on it today — mostly informational.
+  synchronously, then send ONE transactional replace-all request per
+  collection (`replaceAllRows` in `routes/api.js`). Sends are serialized
+  per collection (no out-of-order replace-alls) and coalesced (rapid edits
+  collapse to at most one in-flight + one queued request carrying the
+  newest state). `apiPut`/`apiDelete` return a boolean and treat a non-2xx
+  as failure — a server 500 can no longer show a green "synced" dot.
+- **Retry**: a failed write leaves its `pe-dirty` flag set (it survives
+  restarts); `flushDirty()` re-pushes on reconnect (`online` event), on
+  the app becoming visible again, on a 45s safety-net interval, at
+  startup, and before a job switch. `switchJob()` refuses to leave a job
+  whose collections are still dirty (the localStorage mirror only holds
+  one job, so leaving would strand those edits) and refuses to switch
+  while offline.
+- **Job rows**: `persistJobData()` is dirty-tracked per job id and
+  serialized per job. It always sends `name` plus every data field —
+  `PUT /api/jobs/:id` replaces `data` wholesale, and a historical
+  name-only PUT from `renameJob()` used to wipe the job's
+  status/contact/markup/kitchen data on every rename.
+- Material **actuals** keep their own stricter path (`apiPutStrict`) and
+  are not in the outbox — see MATERIAL_TRACKING_SPEC.md.
 
-If you're debugging "my data didn't show up on another device," start
-here, not in Postgres.
+If you're debugging "my data didn't show up on another device": check
+`localStorage['pe-dirty']` on the *source* device first — a stuck flag
+means the push never landed (and the sync row in the hamburger menu will
+say so), then look at Postgres.
 
 ## Gotcha: extItems vs extCost (fixed in d6f6c09)
 

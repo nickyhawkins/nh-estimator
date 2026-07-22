@@ -1035,15 +1035,19 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.2.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.3.0</div>
 </div>
 </div>
 
 <script>
 
 // ── Storage Layer (localStorage cache + server sync) ───────────────────────
-// Writes go to localStorage immediately, then sync to server
-// Reads come from localStorage instantly, server syncs in background
+// Writes go to localStorage immediately, then sync to the server through a
+// persistent outbox (see "Sync outbox" below): serialized per collection,
+// coalesced under rapid edits, dirty-flagged across restarts and retried
+// until the server confirms — so a failed sync can never be silently
+// clobbered by a later fetch.
+// Reads come from localStorage instantly, server syncs in background.
 
 var serverAvailable = true;
 
@@ -1077,38 +1081,60 @@ var pendingWrites = 0;
 function beginWrite() { pendingWrites++; updateSyncStatus(); }
 function endWrite() { pendingWrites = Math.max(0, pendingWrites - 1); updateSyncStatus(); }
 
-// synced (green) / saving (amber) / offline (red). "Offline" means the last
-// write failed OR the browser knows it has no connection -- either way the
-// data is safe in localStorage, which is what the menu row's wording says.
+// synced (green) / saving (amber) / offline (red). Red now covers BOTH "no
+// connection" and "something is still unsynced" (anyDirty) — either way the
+// data is safe in localStorage and will be retried automatically; the menu
+// row's wording distinguishes the two.
 function updateSyncStatus() {
-  var state = (!navigator.onLine || !serverAvailable) ? 'offline'
-            : (pendingWrites > 0 ? 'saving' : 'synced');
+  var unsynced = !navigator.onLine || !serverAvailable || anyDirty();
+  var state = pendingWrites > 0 ? 'saving' : (unsynced ? 'offline' : 'synced');
   document.querySelectorAll('.sync-dot').forEach(function(el) {
     el.classList.toggle('saving', state === 'saving');
     el.classList.toggle('offline', state === 'offline');
   });
   var row = document.getElementById('nav-menu-sync');
   if (row) {
-    row.textContent = state === 'offline' ? 'Offline — changes saved on this phone'
+    row.textContent = state === 'offline'
+                    ? (navigator.onLine ? 'Not synced yet — retrying automatically'
+                                        : 'Offline — changes saved on this phone')
                     : state === 'saving' ? 'Saving…' : 'All changes synced ✓';
     row.className = 'nav-menu-sync' + (state === 'synced' ? '' : ' ' + state);
   }
 }
-// Optimistic reset on reconnect: the next real write settles the truth.
-window.addEventListener('online', function() { serverAvailable = true; updateSyncStatus(); });
+// Reconnect is the natural retry moment: re-push anything that failed while
+// the connection was down. The writes themselves settle serverAvailable.
+window.addEventListener('online', function() { serverAvailable = true; updateSyncStatus(); flushDirty(); });
 window.addEventListener('offline', updateSyncStatus);
+// Returning to the app is the other one — iOS freezes timers while a PWA is
+// backgrounded, so the safety-net interval below can't fire there.
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'visible' && anyDirty()) flushDirty();
+});
+// Slow safety-net for connections that come back without an 'online' event
+// (patchy on-site signal). No-ops unless something is genuinely unsynced
+// and nothing is already in flight.
+setInterval(function() {
+  if (navigator.onLine && anyDirty() && pendingWrites === 0) flushDirty();
+}, 45000);
 
+// Both report success as a boolean — true only for a 2xx. They deliberately
+// never throw (localStorage already has the data and the sync outbox below
+// owns the retry), but a non-2xx now counts as FAILURE: previously only a
+// network error did, so a server-side 500 left the sync dot green while the
+// write had silently not landed.
 async function apiPut(path, data) {
   beginWrite();
   try {
-    await fetch(path, {
+    var r = await fetch(path, {
       method: 'PUT',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify(data)
     });
     serverAvailable = true;
+    return r.ok;
   } catch(e) {
     serverAvailable = false;
+    return false;
   } finally {
     endWrite();
   }
@@ -1116,10 +1142,12 @@ async function apiPut(path, data) {
 async function apiDelete(path) {
   beginWrite();
   try {
-    await fetch(path, { method: 'DELETE' });
+    var r = await fetch(path, { method: 'DELETE' });
     serverAvailable = true;
+    return r.ok;
   } catch(e) {
     serverAvailable = false;
+    return false;
   } finally {
     endWrite();
   }
@@ -1166,26 +1194,144 @@ async function apiDeleteStrict(path) {
   }
 }
 
+// ── Sync outbox (persistent dirty flags + serialized, coalescing sends) ───
+// Two guarantees the plain fire-and-forget writes never gave:
+//
+//  1. DIRTY FLAGS SURVIVE RESTARTS. A collection is flagged in pe-dirty the
+//     moment a save is attempted and unflagged only when the server
+//     confirms a 2xx for the LATEST state. If the app is killed offline,
+//     the next launch sees the flag, re-pushes from the localStorage mirror
+//     (flushDirty below), and — critically — initApp() skips overwriting
+//     any still-dirty collection with the server's copy. That overwrite was
+//     the old data-loss hole: edit offline, close the app, reopen online,
+//     and the server's stale rows clobbered the local edits before any
+//     retry existed.
+//
+//  2. SENDS ARE SERIALIZED PER COLLECTION and coalesced. Each save chains
+//     behind the previous one, so two replace-all PUTs for the same
+//     collection can never arrive out of order (rapid edits used to race:
+//     the older payload could land last and win). Superseded payloads are
+//     skipped entirely — type fast and at most one request is in flight
+//     with one more queued, always carrying the newest state.
+//
+// Retrying is safe because every save is a full replace-all built from
+// current local state — a retry is just "save again". Values in `dirty`:
+// rooms/colours/extItems/materials/clearAll hold the job_id they belong
+// to; settings holds true; jobs holds a {jobId: true} map.
+var dirty = {};
+try { dirty = JSON.parse(localStorage.getItem('pe-dirty') || '{}') || {}; } catch (e) { dirty = {}; }
+function persistDirty() { localStorage.setItem('pe-dirty', JSON.stringify(dirty)); }
+function anyDirty() { return Object.keys(dirty).length > 0; }
+function jobCollectionsDirty() {
+  return !!(dirty.rooms || dirty.colours || dirty.extItems || dirty.materials || dirty.clearAll);
+}
+
+function makeCollectionSyncer(key) {
+  var chain = Promise.resolve(true);
+  var latest = null;
+  return { push: function(owner, path, body) {   // body === null → DELETE
+    var req = { path: path, body: body };
+    latest = req;
+    dirty[key] = owner; persistDirty(); updateSyncStatus();
+    chain = chain.then(function() {
+      if (latest !== req) return true; // superseded — a newer link carries newer state
+      return (req.body === null ? apiDelete(req.path) : apiPut(req.path, req.body)).then(function(ok) {
+        if (ok && latest === req) {
+          latest = null;
+          delete dirty[key]; persistDirty(); updateSyncStatus();
+        }
+        return ok;
+      });
+    });
+    return chain;
+  } };
+}
+var collectionSyncers = {
+  rooms: makeCollectionSyncer('rooms'),
+  colours: makeCollectionSyncer('colours'),
+  extItems: makeCollectionSyncer('extItems'),
+  materials: makeCollectionSyncer('materials'),
+  clearAll: makeCollectionSyncer('clearAll'),
+  settings: makeCollectionSyncer('settings')
+};
+
+function pushSettings() { return collectionSyncers.settings.push(true, '/api/settings', settings); }
+// The DELETE half of Clear Everything — the only part the empty replace-all
+// saves can't cover is material_actuals, which /api/all clears server-side.
+function clearJobAll(jobId) {
+  return collectionSyncers.clearAll.push(jobId, '/api/all?job_id='+encodeURIComponent(jobId), null);
+}
+
+// Drop dirty flags whose job no longer exists (deleted here or on another
+// device) — re-pushing rows for a dead job would only recreate orphans.
+function dropDirtyForMissingJobs() {
+  var live = {};
+  jobs.forEach(function(j) { live[j.id] = true; });
+  ['rooms','colours','extItems','materials','clearAll'].forEach(function(k) {
+    if (dirty[k] && !live[dirty[k]]) delete dirty[k];
+  });
+  if (dirty.jobs) {
+    Object.keys(dirty.jobs).forEach(function(id) { if (!live[id]) delete dirty.jobs[id]; });
+    if (Object.keys(dirty.jobs).length === 0) delete dirty.jobs;
+  }
+  persistDirty();
+}
+
+// Re-push everything still flagged dirty, rebuilding each payload from
+// current local state. clearAll replays FIRST — it must precede any
+// re-pushed rows. Never rejects (the senders swallow failures and leave
+// the flags set for the next retry trigger).
+var flushingDirty = null;
+function flushDirty() {
+  if (!anyDirty()) return Promise.resolve(true);
+  if (flushingDirty) return flushingDirty;
+  var first = dirty.clearAll ? clearJobAll(dirty.clearAll) : Promise.resolve(true);
+  flushingDirty = first.then(function() {
+    var ops = [];
+    // Collections can only be rebuilt for the ACTIVE job (the localStorage
+    // mirror is single-job). A dirty flag for another job means that job
+    // was deleted remotely — dropDirtyForMissingJobs() clears it after the
+    // next jobs fetch; switchJob() refuses to leave a job while its flags
+    // are still set, so flags can't otherwise belong to a non-active job.
+    if (dirty.rooms === activeJobId) ops.push(saveRooms());
+    if (dirty.colours === activeJobId) ops.push(saveColours());
+    if (dirty.extItems === activeJobId) ops.push(saveExtItems());
+    if (dirty.materials === activeJobId) ops.push(saveMaterialsSnapshot());
+    if (dirty.settings) ops.push(pushSettings());
+    if (dirty.jobs) {
+      Object.keys(dirty.jobs).forEach(function(id) {
+        var job = jobs.find(function(j) { return j.id === id; });
+        if (job) ops.push(persistJobData(job));
+      });
+    }
+    return Promise.all(ops);
+  }).finally(function() {
+    flushingDirty = null;
+    updateSyncStatus();
+  });
+  return flushingDirty;
+}
+
 // Save to localStorage AND server
 // Returns the save's promise chain (not just fire-and-forget) so
 // switchJob() can await a full flush of the OLD job before reassigning
 // activeJobId -- existing call sites that don't need to wait just don't
 // consume the return value, unaffected.
 //
-// pendingSaves records each collection's latest in-flight flush. Every edit
-// path already calls its save*() the moment data changes, so by switch time
-// the server is up to date -- switchJob() awaits these recorded promises
+// pendingSaves records each collection's latest chain. Every edit path
+// already calls its save*() the moment data changes, so by switch time the
+// server is up to date -- switchJob() awaits these recorded promises
 // (preserving the DELETE/PUT-vs-activeJobId race guarantee) instead of
 // re-uploading all four collections wholesale on every switch.
 var pendingSaves = { rooms: null, colours: null, extItems: null, materials: null };
 
 function saveRooms() {
   localStorage.setItem('pe-rooms', JSON.stringify(rooms));
-  // One transactional replace-all request (see PUT /rooms in routes/api.js)
-  // -- previously a DELETE followed by one PUT per room, which was O(rooms)
-  // round trips per edit and could leave the server's copy empty if a PUT
-  // dropped after the DELETE landed. Same for the other three save*() below.
-  pendingSaves.rooms = apiPut('/api/rooms?job_id='+encodeURIComponent(activeJobId), { rooms: rooms });
+  // One transactional replace-all request (see PUT /rooms in routes/api.js),
+  // serialized/retried by the sync outbox above. Same for the other three
+  // save*() functions.
+  pendingSaves.rooms = collectionSyncers.rooms.push(activeJobId,
+    '/api/rooms?job_id='+encodeURIComponent(activeJobId), { rooms: rooms });
   return pendingSaves.rooms;
 }
 // Kitchen Cabinet Spray Calculator -- rate table shape. Draft v1 figures
@@ -1255,7 +1401,7 @@ function saveSettings() {
   next.paymentWeeks = settings.paymentWeeks || null;
   settings = next;
   localStorage.setItem('pe-settings', JSON.stringify(settings));
-  apiPut('/api/settings', settings);
+  pushSettings();
 }
 
 // Payment plan (Summary tab's Payment card) -- set directly on settings
@@ -1288,11 +1434,13 @@ function clearRooms() {
 function clearEverything() {
   if(!confirm('Clear ALL data in this job including exterior? This cannot be undone.'))return;
   rooms=[]; extItems=[]; colours=[]; materialsSnapshot=[];
-  localStorage.setItem('pe-rooms','[]');
-  localStorage.setItem('pe-extitems','[]');
-  localStorage.setItem('pe-colours','[]');
-  localStorage.setItem('pe-materials-snapshot','[]');
-  apiDelete('/api/all?job_id='+encodeURIComponent(activeJobId));
+  // /api/all clears material_actuals too (dirty-tracked, so a failure here
+  // is retried rather than letting the server copy resurrect everything on
+  // the next fetch). The empty replace-all saves below cover the four
+  // collections AND serialize behind any in-flight PUT still carrying the
+  // old rows, so a slow request can't land after the clear and revive them.
+  clearJobAll(activeJobId);
+  saveRooms(); saveExtItems(); saveColours(); saveMaterialsSnapshot();
   var clearedJob = activeJob();
   if (clearedJob) clearedJob.kitchen = null;
   markMaterialsSeeded(false);
@@ -1736,8 +1884,15 @@ async function initApp() {
 
   // ── Step 2: Sync from server in background ──
   try {
+    // Re-push anything a previous session failed to sync BEFORE any fetch
+    // below runs — otherwise the fetches would overwrite newer local edits
+    // with the server's stale rows (the old close-offline-reopen-online
+    // data-loss hole). If this flush fails too, the dirty guards on each
+    // fetch handler below keep the local copy in play for the next retry.
+    await flushDirty();
+
     var s = await apiGet('/api/settings');
-    if (s && Object.keys(s).length > 0) {
+    if (!dirty.settings && s && Object.keys(s).length > 0) {
       // Same mergeSettings as the module init — the server row wins
       // wholesale (it's the source of truth once reachable), with schema
       // defaults filling anything an older row predates. This replaces the
@@ -1756,7 +1911,18 @@ async function initApp() {
     try {
       var jobsData = await apiGet('/api/jobs');
       if (jobsData && jobsData.length > 0) {
-        jobs = jobsData;
+        // Keep the local copy of any job whose row-level save hasn't been
+        // confirmed yet (dirty.jobs) — its status/contact/markup edits are
+        // newer than what the server just returned.
+        var localJobs = jobs;
+        jobs = jobsData.map(function(sj) {
+          if (dirty.jobs && dirty.jobs[sj.id]) {
+            var lj = localJobs.find(function(j) { return j.id === sj.id; });
+            if (lj) return lj;
+          }
+          return sj;
+        });
+        dropDirtyForMissingJobs();
         localStorage.setItem('pe-jobs', JSON.stringify(jobs));
         if (!jobs.some(function(j){ return j.id === activeJobId; })) {
           activeJobId = jobs[0].id; // server orders by updated_at DESC
@@ -1808,9 +1974,15 @@ async function initApp() {
     // a not-yet-migrated DB), which is the case those guards were
     // actually for. loadActiveJobData() has always behaved this way on
     // every job switch; this makes startup match it.
+    //
+    // The one exception: a collection still flagged in the sync outbox
+    // (`dirty`) has local edits the server hasn't confirmed — those are
+    // NEWER than whatever the fetch returns, so each handler below skips
+    // the overwrite until the flush lands.
     await Promise.all([
       // Rooms
       apiGet('/api/rooms?job_id='+encodeURIComponent(syncJobId)).then(function(serverRooms) {
+        if (dirty.rooms) return; // unsynced local edits are newer — keep them
         rooms = serverRooms || [];
         localStorage.setItem('pe-rooms', JSON.stringify(rooms));
         renderHome();
@@ -1819,6 +1991,7 @@ async function initApp() {
       }),
       // Exterior items
       apiGet('/api/extitems?job_id='+encodeURIComponent(syncJobId)).then(function(extData) {
+        if (dirty.extItems) return; // unsynced local edits are newer — keep them
         extItems = extData || [];
         localStorage.setItem('pe-extitems', JSON.stringify(extItems));
         renderExterior();
@@ -1832,6 +2005,7 @@ async function initApp() {
       // nested pair.
       Promise.all([
         apiGet('/api/colours?job_id='+encodeURIComponent(syncJobId)).then(function(colourData) {
+          if (dirty.colours) return; // unsynced local edits are newer — keep them
           colours = colourData || [];
           localStorage.setItem('pe-colours', JSON.stringify(colours));
         }).catch(function(e) {
@@ -1854,6 +2028,7 @@ async function initApp() {
       }),
       // Materials snapshot
       apiGet('/api/materials?job_id='+encodeURIComponent(syncJobId)).then(function(materialsData) {
+        if (dirty.materials) return; // unsynced local edits are newer — keep them
         materialsSnapshot = materialsData || [];
         localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot));
       }).catch(function(e) {
@@ -2115,18 +2290,25 @@ async function loadActiveJobData() {
 // then loads the new job's data.
 async function switchJob(id) {
   if (id === activeJobId) return;
-  if (serverAvailable) {
-    // Every edit path already flushed via its save*() as the edit happened,
-    // so the server is current -- awaiting the recorded in-flight promises
-    // keeps the race guarantee without re-uploading all four collections
-    // (previously: 4 DELETEs + one PUT per row of unchanged data, per switch).
-    await Promise.all([pendingSaves.rooms, pendingSaves.colours, pendingSaves.extItems, pendingSaves.materials]);
-  } else {
-    // A save is known to have failed since the last successful request --
-    // this full re-flush is the retry that gets the old job's local edits
-    // onto the server before its localStorage mirror is overwritten by the
-    // new job's data below.
-    await Promise.all([saveRooms(), saveColours(), saveExtItems(), saveMaterialsSnapshot()]);
+  // Loading the new job needs the server, and any unsynced edits on the OLD
+  // job would be stranded by leaving (the localStorage mirror only holds
+  // one job's data) -- so a switch is refused, with an explanation, rather
+  // than silently losing either side. Previously an offline switch loaded
+  // four empty collections AND left the old job's failed saves to be
+  // clobbered by the next successful fetch.
+  if (!navigator.onLine) {
+    alert("You're offline — switching jobs needs a connection, so this job's changes aren't lost and the other job's data can be loaded.");
+    return;
+  }
+  // Every edit path already flushed via its save*() as the edit happened,
+  // so awaiting the recorded chains (which include any queued coalesced
+  // send) normally suffices; flushDirty() then retries anything that
+  // failed earlier, and only if THAT also fails is the switch refused.
+  await Promise.all([pendingSaves.rooms, pendingSaves.colours, pendingSaves.extItems, pendingSaves.materials]);
+  if (jobCollectionsDirty()) await flushDirty();
+  if (jobCollectionsDirty()) {
+    alert("This job has changes that haven't reached the server yet. Switching now would lose them — try again in a moment.");
+    return;
   }
   activeJobId = id;
   localStorage.setItem('pe-active-job-id', activeJobId);
@@ -2139,7 +2321,18 @@ async function createJob(name) {
   name = (name || '').trim();
   if (!name) return;
   var job = { id: uid(), name: name };
-  await fetch('/api/jobs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(job) });
+  // Unlike the collection saves there's no retry-later here: the job row
+  // must exist server-side before anything can sync under it, so a job
+  // that can't be created now isn't half-created locally. (Previously a
+  // failed POST threw out of this function unhandled — the job silently
+  // didn't appear, with no explanation.)
+  try {
+    var r = await fetch('/api/jobs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(job) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+  } catch (e) {
+    alert('Could not create the job — check your connection and try again.');
+    return;
+  }
   jobs.unshift(job);
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   await switchJob(job.id);
@@ -2147,7 +2340,23 @@ async function createJob(name) {
 
 async function deleteJob(id) {
   if (!confirm('Delete this job and everything in it? This cannot be undone.')) return;
-  await fetch('/api/jobs/'+id, { method:'DELETE' });
+  // Same fail-loudly rule as createJob: a DELETE that silently failed used
+  // to vanish the job locally only for it to resurrect on the next fetch.
+  try {
+    var r = await fetch('/api/jobs/'+id, { method:'DELETE' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+  } catch (e) {
+    alert('Could not delete the job — check your connection and try again.');
+    return;
+  }
+  // Any unsynced flags for the deleted job are garbage now — drop them so
+  // they can't block a job switch or replay rows for a job that's gone.
+  ['rooms','colours','extItems','materials','clearAll'].forEach(function(k) { if (dirty[k] === id) delete dirty[k]; });
+  if (dirty.jobs && dirty.jobs[id]) {
+    delete dirty.jobs[id];
+    if (Object.keys(dirty.jobs).length === 0) delete dirty.jobs;
+  }
+  persistDirty();
   jobs = jobs.filter(function(j){ return j.id !== id; });
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   if (id === activeJobId) {
@@ -2171,17 +2380,45 @@ function renameJob(id) {
   if (!name || name === job.name) return;
   job.name = name;
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
-  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name: name }) });
+  // Through persistJobData (which sends name too) rather than the old raw
+  // {name}-only PUT: PUT /api/jobs/:id replaces `data` wholesale, so the
+  // name-only body silently WIPED every data field of the job row (status,
+  // contact, markup, kitchen...) on every rename.
+  persistJobData(job);
   renderHome(); renderJobs();
 }
 
 // PUT /api/jobs/:id replaces `data` wholesale (see routes/api.js), so any
 // save here that only sends SOME of the client-known data fields would
 // silently drop whichever ones it left out. Every call site that persists
-// part of job.data must go through this so xeroClient/xeroRef/contact/
+// part of job.data must go through this so name/xeroClient/xeroRef/contact/
 // xeroContactId/contactSyncedAt/materialsSeeded/kitchen always travel together.
+//
+// Tracked in the sync outbox (dirty.jobs, per job id — a failed save is
+// retried by flushDirty and survives a restart via the localStorage jobs
+// mirror) and serialized per job so retries and rapid edits can't arrive
+// out of order. The body is built at send time from the live job object,
+// so whichever send actually lands carries the newest state; superseded
+// sends are skipped via the per-job sequence counter.
+var jobRowChains = {};
+var jobRowSeq = {};
 function persistJobData(job) {
-  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, status: job.status, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, kitchen: job.kitchen }) });
+  var id = job.id;
+  var seq = jobRowSeq[id] = (jobRowSeq[id] || 0) + 1;
+  dirty.jobs = dirty.jobs || {};
+  dirty.jobs[id] = true; persistDirty(); updateSyncStatus();
+  jobRowChains[id] = (jobRowChains[id] || Promise.resolve(true)).then(function() {
+    if (jobRowSeq[id] !== seq) return true; // superseded — a newer call carries newer state
+    return apiPut('/api/jobs/'+id, { name: job.name, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, status: job.status, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, kitchen: job.kitchen }).then(function(ok) {
+      if (ok && jobRowSeq[id] === seq && dirty.jobs && dirty.jobs[id]) {
+        delete dirty.jobs[id];
+        if (Object.keys(dirty.jobs).length === 0) delete dirty.jobs;
+        persistDirty(); updateSyncStatus();
+      }
+      return ok;
+    });
+  });
+  return jobRowChains[id];
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -3481,7 +3718,8 @@ var materialsSnapshot = [];
 
 function saveMaterialsSnapshot() {
   localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot));
-  pendingSaves.materials = apiPut('/api/materials?job_id='+encodeURIComponent(activeJobId), { lines: materialsSnapshot });
+  pendingSaves.materials = collectionSyncers.materials.push(activeJobId,
+    '/api/materials?job_id='+encodeURIComponent(activeJobId), { lines: materialsSnapshot });
   return pendingSaves.materials;
 }
 
@@ -4219,9 +4457,10 @@ var colourLibrary = [];
 
 function saveColours() {
   localStorage.setItem('pe-colours', JSON.stringify(colours));
-  pendingSaves.colours = apiPut('/api/colours?job_id='+encodeURIComponent(activeJobId), {
-    colours: colours.map(function(c) { return { number: c.number, label: c.label, brand: c.brand||'', code: c.code||'' }; })
-  });
+  pendingSaves.colours = collectionSyncers.colours.push(activeJobId,
+    '/api/colours?job_id='+encodeURIComponent(activeJobId), {
+      colours: colours.map(function(c) { return { number: c.number, label: c.label, brand: c.brand||'', code: c.code||'' }; })
+    });
   return pendingSaves.colours;
 }
 
@@ -5467,14 +5706,17 @@ function deleteExtItemFromList(id) {
 function clearExteriorItems() {
   if(!confirm('Clear all exterior items?')) return;
   extItems=[];
-  localStorage.setItem('pe-extitems','[]');
-  apiDelete('/api/extitems?job_id='+encodeURIComponent(activeJobId));
+  // Replace-all with an empty list — transactional server-side and tracked
+  // by the sync outbox, unlike the old raw DELETE (which, if it failed,
+  // left the server copy to resurrect these items on the next fetch).
+  saveExtItems();
   renderExterior();
 }
 
 function saveExtItems() {
   localStorage.setItem('pe-extitems', JSON.stringify(extItems));
-  pendingSaves.extItems = apiPut('/api/extitems?job_id='+encodeURIComponent(activeJobId), { items: extItems });
+  pendingSaves.extItems = collectionSyncers.extItems.push(activeJobId,
+    '/api/extitems?job_id='+encodeURIComponent(activeJobId), { items: extItems });
   return pendingSaves.extItems;
 }
 
@@ -7566,7 +7808,19 @@ async function confirmBackupImport() {
     // reapplying the init-time defaults/migration logic outside initApp()
     // would duplicate it rather than reuse it.
     var jobsData = await apiGet('/api/jobs');
-    if (jobsData) { jobs = jobsData; localStorage.setItem('pe-jobs', JSON.stringify(jobs)); }
+    if (jobsData) {
+      // Same dirty-jobs guard as initApp's jobs fetch: keep the local copy
+      // of any job whose row-level save hasn't been confirmed yet.
+      var localJobs = jobs;
+      jobs = jobsData.map(function(sj) {
+        if (dirty.jobs && dirty.jobs[sj.id]) {
+          var lj = localJobs.find(function(j) { return j.id === sj.id; });
+          if (lj) return lj;
+        }
+        return sj;
+      });
+      localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+    }
     if (typeof renderJobs === 'function') renderJobs();
     alert('Imported ' + result.jobsImported + ' job(s) and ' + result.colourLibraryEntriesAdded + ' colour library entries' + (settingsRestored ? '. Settings were also restored — reloading.' : '.'));
     if (settingsRestored) window.location.reload();
@@ -7576,6 +7830,13 @@ async function confirmBackupImport() {
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────
+// Best-effort ask to exempt this origin's storage (the localStorage mirror,
+// the SW cache) from eviction under storage pressure — matters for a PWA
+// whose offline copy IS the working data between syncs. No-op where
+// unsupported or denied.
+if (navigator.storage && navigator.storage.persist) {
+  navigator.storage.persist().catch(function() {});
+}
 initApp();
 
 // Service worker: offline app shell + installability (see public/sw.js).
