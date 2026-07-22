@@ -140,24 +140,51 @@ let borrowedActive=[]; // loaded from GET /debt/api/borrowed on init
 let borrowedRepaid=[];
 let repaidLogExpanded=false;
 let loanIsSavings=false;
+// Guards against the seed-overwrite trap (efficiency review finding 1):
+// until the server state has actually loaded, saving stays off so a slider
+// touch can't push DEBTS_INITIAL over the real balances.
+let loadedFromServer=false;
+let loadFailed=false;
+// Set when a save fails (network or 5xx) — surfaced as a banner instead of
+// dying silently in the console; the dirty flags retry on the next save.
+let saveError=false;
 
 const JSON_HEADERS={'Content-Type':'application/json'};
 let persistTimer=null;
-function persist(){
+// Which collections have local changes the server hasn't seen. Saving only
+// what changed keeps a settings tweak from rewriting the debt rows too —
+// call persist('settings') etc.; a bare persist() marks everything (safe
+// fallback for anything missed).
+const dirty={debts:false,settings:false,cashflow:false};
+function persist(...kinds){
+  (kinds.length?kinds:['debts','settings','cashflow']).forEach(k=>dirty[k]=true);
   clearTimeout(persistTimer);
   persistTimer=setTimeout(persistNow,400);
 }
+const PERSIST_BODIES={
+  debts:()=>({debts,clientUpdatedAt:debtsUpdatedAt}),
+  settings:()=>({budget,sweepPct,savingsPct,tightThreshold,lastMilestone,notifyDaysBefore,notificationsEnabled,clientUpdatedAt:settingsUpdatedAt}),
+  cashflow:()=>({bizPot,perPot,savingsPot,paidThisCycle,clientUpdatedAt:cashflowUpdatedAt})
+};
 async function persistNow(){
+  if(!loadedFromServer)return; // never push the fallback seed over real data
+  const kinds=Object.keys(dirty).filter(k=>dirty[k]);
+  if(!kinds.length)return;
+  kinds.forEach(k=>dirty[k]=false);
   try{
-    const [debtsRes,settingsRes,cashflowRes]=await Promise.all([
-      fetch('/debt/api/debts',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify({debts,clientUpdatedAt:debtsUpdatedAt})}),
-      fetch('/debt/api/settings',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify({budget,sweepPct,savingsPct,tightThreshold,lastMilestone,notifyDaysBefore,notificationsEnabled,clientUpdatedAt:settingsUpdatedAt})}),
-      fetch('/debt/api/cashflow',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify({bizPot,perPot,savingsPot,paidThisCycle,clientUpdatedAt:cashflowUpdatedAt})})
-    ]);
-    await handleWriteResponse(debtsRes,'debts');
-    await handleWriteResponse(settingsRes,'settings');
-    await handleWriteResponse(cashflowRes,'cashflow');
-  }catch(err){console.error('Failed to save debt plan state',err);}
+    const results=await Promise.all(kinds.map(k=>
+      fetch('/debt/api/'+k,{method:'POST',headers:JSON_HEADERS,body:JSON.stringify(PERSIST_BODIES[k]())})));
+    let failed=false;
+    for(let i=0;i<results.length;i++){
+      if(!results[i].ok&&results[i].status!==409){dirty[kinds[i]]=true;failed=true;continue;}
+      await handleWriteResponse(results[i],kinds[i]);
+    }
+    if(failed!==saveError){saveError=failed;renderAll();}
+  }catch(err){
+    kinds.forEach(k=>dirty[k]=true); // retried with the next save
+    if(!saveError){saveError=true;renderAll();}
+    console.error('Failed to save debt plan state',err);
+  }
 }
 // Applies a write's outcome: on 409, another device saved more recently, so
 // hydrate from the fresh copy the server sends back instead of overwriting
@@ -189,8 +216,9 @@ async function handleWriteResponse(res,kind){
   else if(kind==='cashflow')cashflowUpdatedAt=body.updatedAt;
 }
 async function loadState(){
-  try{
+  const stateLoad=(async()=>{
     const res=await fetch('/debt/api/state');
+    if(!res.ok)throw new Error('state load failed: '+res.status);
     const s=await res.json();
     debts=s.debts;
     budget=s.settings.budget;
@@ -208,13 +236,16 @@ async function loadState(){
     debtsUpdatedAt=s.meta?.debtsUpdatedAt||null;
     settingsUpdatedAt=s.meta?.settingsUpdatedAt||null;
     cashflowUpdatedAt=s.meta?.cashflowUpdatedAt||null;
-  }catch(err){
+    loadedFromServer=true;
+  })().catch(err=>{
     console.error('Failed to load debt plan state, using defaults',err);
     debts=DEBTS_INITIAL.map(d=>({...d}));
-  }
-  await refreshHistory();
-  await refreshCycleStatus();
-  await refreshBorrowed();
+    loadFailed=true; // read-only: persistNow() refuses until a real load
+  });
+  // These endpoints are independent of /api/state and each other — fetch
+  // them alongside it instead of one after another (was 4 serialized round
+  // trips before first paint).
+  await Promise.all([stateLoad,refreshHistory(),refreshCycleStatus(),refreshBorrowed()]);
   renderAll();
 }
 async function refreshHistory(){
@@ -362,6 +393,17 @@ function renderAll(){
 
   let html='';
 
+  if(loadFailed){
+    html+=`<div class="card" style="border:1px solid #5a2a2a;background:#1a0808;border-radius:10px;margin-bottom:8px">
+      <div style="font-size:13px;color:#e05c5c;line-height:1.5">⚠ Couldn't load your data — these are placeholder figures and <strong>saving is switched off</strong>. Check your signal and reload.</div>
+      <button class="btn-ghost" style="width:100%;margin-top:10px" onclick="location.reload()">Reload</button>
+    </div>`;
+  }else if(saveError){
+    html+=`<div class="card" style="border:1px solid #6a3a1a;background:#1a0f08;border-radius:10px;margin-bottom:8px">
+      <div style="font-size:13px;color:#e0923b;line-height:1.5">⚠ Couldn't save — recent changes are only on this device. They'll retry automatically with your next change.</div>
+    </div>`;
+  }
+
   if(conflictBanner){
     html+=`<div class="card" style="border:1px solid #6a3a1a;background:#1a0f08;border-radius:10px;margin-bottom:8px">
       <div class="row" style="align-items:flex-start">
@@ -441,7 +483,7 @@ function renderAll(){
           <div style="font-size:32px;margin-bottom:6px">${msg.icon}</div>
           <div style="font-size:17px;font-weight:700;color:#7db87d">${msg.title}</div>
           <div style="font-size:13px;color:#7c9f7c;margin-top:4px">${msg.sub}</div>
-          <button onclick="lastMilestone='${milestoneKey}';persist();renderAll()" style="margin-top:12px;padding:6px 16px;border-radius:6px;border:1px solid #3a6a3a;background:transparent;color:#7db87d;font-size:12px;cursor:pointer">Got it ✓</button>
+          <button onclick="lastMilestone='${milestoneKey}';persist('settings');renderAll()" style="margin-top:12px;padding:6px 16px;border-radius:6px;border:1px solid #3a6a3a;background:transparent;color:#7db87d;font-size:12px;cursor:pointer">Got it ✓</button>
         </div>`;
       }
     }
@@ -1060,11 +1102,12 @@ async function confirmLog(){
   closeModal();renderAll();
   try{
     const res=await fetch('/debt/api/income',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify(entry)});
+    if(!res.ok)throw new Error('income save failed: '+res.status);
     const saved=await res.json();
     entry.id=saved.id;
-  }catch(err){console.error('Failed to save income entry',err);}
+  }catch(err){saveError=true;console.error('Failed to save income entry',err);}
   incomeLog.push(entry);
-  persist();renderAll();
+  persist('cashflow');renderAll();
 }
 function openPotsModal(){
   document.getElementById('modalRoot').innerHTML=`
@@ -1083,7 +1126,7 @@ function openPotsModal(){
 function confirmPots(){
   bizPot=parseNum(document.getElementById('bizPotVal').value);
   perPot=parseNum(document.getElementById('perPotVal').value);
-  persist();closeModal();renderAll();
+  persist('cashflow');closeModal();renderAll();
 }
 function closeModal(){document.getElementById('modalRoot').innerHTML='';}
 
@@ -1100,7 +1143,7 @@ function togglePaid(id){
     paidThisCycle.push(id);
     if(isBiz)bizPot=Math.max(0,bizPot-p.amount); else perPot=Math.max(0,perPot-p.amount);
   }
-  persist();renderAll();
+  persist('cashflow');renderAll();
 }
 async function deleteIncome(idx){
   const e=incomeLog[idx];
@@ -1109,14 +1152,24 @@ async function deleteIncome(idx){
   perPot=Math.max(0,perPot-(e.perAmt||0));
   savingsPot=Math.max(0,savingsPot-(e.savedAmt||0));
   incomeLog.splice(idx,1);
-  persist();renderAll();
+  persist('cashflow');renderAll();
   if(e.id!=null){
     try{ await fetch('/debt/api/income/'+e.id,{method:'DELETE'}); }
     catch(err){ console.error('Failed to delete income entry',err); }
   }
 }
 let syncDraft={};
+// Adopt the fresh updated_at values new-cycle returns — its server-side
+// writes bump the timestamps, and without this the next ordinary save would
+// look stale and 409 as a phantom "updated on another device".
+function adoptCycleTimestamps(body){
+  if(!body)return;
+  if(body.debtsUpdatedAt)debtsUpdatedAt=body.debtsUpdatedAt;
+  if(body.cashflowUpdatedAt)cashflowUpdatedAt=body.cashflowUpdatedAt;
+  if(body.settingsUpdatedAt)settingsUpdatedAt=body.settingsUpdatedAt;
+}
 function startNewCycle(){
+  if(!loadedFromServer)return; // read-only until a real load (see loadFailed banner)
   document.getElementById('modalRoot').innerHTML=`
     <div class="modal-bg" onclick="if(event.target===this)closeModal()">
       <div class="modal">
@@ -1189,10 +1242,13 @@ async function confirmSync(){
   selectedMonth=1;
   closeModal();renderAll();
   try{
-    await fetch('/debt/api/new-cycle',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify({debts,...archivePayload})});
-  }catch(err){console.error('Failed to start new cycle',err);}
-  persist();
-  await refreshHistory();renderAll();
+    // new-cycle writes the synced balances and clears the cycle server-side,
+    // so there's nothing left for persist() to send — just adopt timestamps.
+    const res=await fetch('/debt/api/new-cycle',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify({debts,...archivePayload})});
+    if(res.ok)adoptCycleTimestamps(await res.json().catch(()=>null));
+    else{saveError=true;}
+  }catch(err){saveError=true;console.error('Failed to start new cycle',err);}
+  await Promise.all([refreshHistory(),refreshCycleStatus()]);renderAll();
 }
 async function confirmNewCycle(){
   const archivePayload=getCycleArchivePayload(); // must read before paidThisCycle/incomeLog clear
@@ -1200,9 +1256,11 @@ async function confirmNewCycle(){
   incomeLog=[];
   closeModal();renderAll();
   try{
-    await fetch('/debt/api/new-cycle',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify(archivePayload)});
-  }catch(err){console.error('Failed to start new cycle',err);}
-  await refreshHistory();renderAll();
+    const res=await fetch('/debt/api/new-cycle',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify(archivePayload)});
+    if(res.ok)adoptCycleTimestamps(await res.json().catch(()=>null));
+    else{saveError=true;}
+  }catch(err){saveError=true;console.error('Failed to start new cycle',err);}
+  await Promise.all([refreshHistory(),refreshCycleStatus()]);renderAll();
 }
 function applySurplus(){
   const target=getCurrentTarget();
@@ -1233,12 +1291,12 @@ function confirmSurplus(){
   const newArrears=Math.min(target.arrears,newBal);
   debts=debts.map(d=>d.id===target.id?{...d,balance:newBal,arrears:newArrears}:d);
   if(isBiz)bizPot=0; else perPot=0;
-  persist();closeModal();renderAll();
+  persist('debts','cashflow');closeModal();renderAll();
 }
-function setSweep(v){sweepPct=parseInt(v);persist();renderAll();}
-function setTightThreshold(v){tightThreshold=parseInt(v);persist();renderAll();}
-function toggleNotifications(){notificationsEnabled=!notificationsEnabled;persist();renderAll();}
-function setNotifyDays(n){notifyDaysBefore=n;persist();renderAll();}
+function setSweep(v){sweepPct=parseInt(v);persist('settings');renderAll();}
+function setTightThreshold(v){tightThreshold=parseInt(v);persist('settings');renderAll();}
+function toggleNotifications(){notificationsEnabled=!notificationsEnabled;persist('settings');renderAll();}
+function setNotifyDays(n){notifyDaysBefore=n;persist('settings');renderAll();}
 
 // ---------- Web Push (this device) ----------
 // The "Push to this device" row inside the Notifications card. ntfy needs
@@ -1378,7 +1436,7 @@ function calcExtraMonthly(val){
   if(dateEl)dateEl.textContent=getMonthLabel(newM,true);
   if(savedEl)savedEl.textContent=saved>0?saved+' months':'0';
 }
-function setSavingsPct(v){savingsPct=parseInt(v);persist();renderAll();}
+function setSavingsPct(v){savingsPct=parseInt(v);persist('settings');renderAll();}
 function openSavingsAdjust(){
   document.getElementById('modalRoot').innerHTML=`
     <div class="modal-bg" onclick="if(event.target===this)closeModal()">
@@ -1391,13 +1449,13 @@ function openSavingsAdjust(){
       </div>
     </div>`;
 }
-function confirmSavings(){savingsPot=parseNum(document.getElementById('savingsVal').value);persist();closeModal();renderAll();}
+function confirmSavings(){savingsPot=parseNum(document.getElementById('savingsVal').value);persist('cashflow');closeModal();renderAll();}
 
 // ---------- Edit actions ----------
 function updateDraft(id,field,val){if(!editDraft[id]){const d=debts.find(x=>x.id===id);editDraft[id]={balance:d.balance,apr:d.apr,min:d.min,arrears:d.arrears,due:d.due??'',note:d.note};}editDraft[id][field]=val;}
 function applyEdits(){
   debts=debts.map(d=>{const ev=editDraft[d.id];if(!ev)return d;return{...d,balance:parseNum(ev.balance),apr:parseNum(ev.apr),min:parseNum(ev.min),arrears:parseNum(ev.arrears),due:ev.due===''?null:parseInt(ev.due)||null,account:ev.account||d.account||'personal',note:ev.note};});
-  editDraft={};selectedMonth=1;persist();
+  editDraft={};selectedMonth=1;persist('debts');
   const btn=document.getElementById('saveBtn');if(btn){btn.textContent='✓ Saved';btn.style.background='#1a3a1a';btn.style.color='#7db87d';}
   setTimeout(()=>renderAll(),1000);
 }
@@ -1414,7 +1472,7 @@ function resetDebts(){
       </div>
     </div>`;
 }
-function confirmReset(){debts=DEBTS_INITIAL.map(d=>({...d}));editDraft={};selectedMonth=1;persist();closeModal();renderAll();}
+function confirmReset(){debts=DEBTS_INITIAL.map(d=>({...d}));editDraft={};selectedMonth=1;persist('debts');closeModal();renderAll();}
 
 // ---------- Borrowed money actions ----------
 function openRepayModal(id){
@@ -1437,8 +1495,10 @@ function openRepayModal(id){
 }
 async function confirmRepay(id){
   closeModal();
-  try{ await fetch('/debt/api/borrowed/'+id+'/repay',{method:'POST'}); }
-  catch(err){ console.error('Failed to mark loan repaid',err); }
+  try{
+    const res=await fetch('/debt/api/borrowed/'+id+'/repay',{method:'POST'});
+    if(!res.ok)throw new Error('repay failed: '+res.status);
+  }catch(err){ saveError=true;console.error('Failed to mark loan repaid',err); }
   await refreshBorrowed();renderAll();
 }
 function openAddLoanModal(){
@@ -1490,8 +1550,9 @@ async function confirmAddLoan(){
   if(!source){errEl.textContent='Source name is required';errEl.style.display='block';return;}
   if(!amount||amount<=0){errEl.textContent='Amount must be greater than 0';errEl.style.display='block';return;}
   try{
-    await fetch('/debt/api/borrowed',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify({source_name:source,is_savings:loanIsSavings,amount,note:note||null,borrowed_at:date||null})});
-  }catch(err){console.error('Failed to save loan',err);}
+    const res=await fetch('/debt/api/borrowed',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify({source_name:source,is_savings:loanIsSavings,amount,note:note||null,borrowed_at:date||null})});
+    if(!res.ok)throw new Error('loan save failed: '+res.status);
+  }catch(err){saveError=true;console.error('Failed to save loan',err);}
   closeModal();
   await refreshBorrowed();renderAll();
 }
