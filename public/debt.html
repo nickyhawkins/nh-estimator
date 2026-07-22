@@ -145,6 +145,11 @@ let loanIsSavings=false;
 // touch can't push DEBTS_INITIAL over the real balances.
 let loadedFromServer=false;
 let loadFailed=false;
+// Offline read-only mode: when /api/state is unreachable but a snapshot of
+// the last synced load exists in localStorage, the app renders that data
+// instead of the seed placeholders. Timestamp of the snapshot, or null.
+const STATE_CACHE_KEY='debtPlanOfflineCache';
+let offlineCachedAt=null;
 // Set when a save fails (network or 5xx) — surfaced as a banner instead of
 // dying silently in the console; the dirty flags retry on the next save.
 let saveError=false;
@@ -215,27 +220,32 @@ async function handleWriteResponse(res,kind){
   else if(kind==='settings')settingsUpdatedAt=body.updatedAt;
   else if(kind==='cashflow')cashflowUpdatedAt=body.updatedAt;
 }
+function applyStatePayload(s){
+  debts=s.debts;
+  budget=s.settings.budget;
+  sweepPct=s.settings.sweepPct;
+  savingsPct=s.settings.savingsPct;
+  tightThreshold=s.settings.tightThreshold;
+  lastMilestone=s.settings.lastMilestone;
+  notifyDaysBefore=s.settings.notifyDaysBefore??3;
+  notificationsEnabled=s.settings.notificationsEnabled??true;
+  bizPot=s.cashflow.bizPot;
+  perPot=s.cashflow.perPot;
+  savingsPot=s.cashflow.savingsPot;
+  paidThisCycle=s.cashflow.paidThisCycle;
+  incomeLog=s.incomeLog;
+  debtsUpdatedAt=s.meta?.debtsUpdatedAt||null;
+  settingsUpdatedAt=s.meta?.settingsUpdatedAt||null;
+  cashflowUpdatedAt=s.meta?.cashflowUpdatedAt||null;
+}
 async function loadState(){
+  let statePayload=null;
   const stateLoad=(async()=>{
     const res=await fetch('/debt/api/state');
     if(!res.ok)throw new Error('state load failed: '+res.status);
     const s=await res.json();
-    debts=s.debts;
-    budget=s.settings.budget;
-    sweepPct=s.settings.sweepPct;
-    savingsPct=s.settings.savingsPct;
-    tightThreshold=s.settings.tightThreshold;
-    lastMilestone=s.settings.lastMilestone;
-    notifyDaysBefore=s.settings.notifyDaysBefore??3;
-    notificationsEnabled=s.settings.notificationsEnabled??true;
-    bizPot=s.cashflow.bizPot;
-    perPot=s.cashflow.perPot;
-    savingsPot=s.cashflow.savingsPot;
-    paidThisCycle=s.cashflow.paidThisCycle;
-    incomeLog=s.incomeLog;
-    debtsUpdatedAt=s.meta?.debtsUpdatedAt||null;
-    settingsUpdatedAt=s.meta?.settingsUpdatedAt||null;
-    cashflowUpdatedAt=s.meta?.cashflowUpdatedAt||null;
+    applyStatePayload(s);
+    statePayload=s;
     loadedFromServer=true;
   })().catch(err=>{
     console.error('Failed to load debt plan state, using defaults',err);
@@ -246,6 +256,29 @@ async function loadState(){
   // them alongside it instead of one after another (was 4 serialized round
   // trips before first paint).
   await Promise.all([stateLoad,refreshHistory(),refreshCycleStatus(),refreshBorrowed()]);
+  if(loadedFromServer){
+    // Snapshot everything the tabs render, for the offline read-only view.
+    try{
+      localStorage.setItem(STATE_CACHE_KEY,JSON.stringify({
+        state:statePayload,history,borrowedActive,borrowedRepaid,cycleStatus,cachedAt:Date.now()
+      }));
+    }catch(err){/* quota/private mode — offline view just stays unavailable */}
+  }else{
+    // No server: fall back to the last synced snapshot, still read-only
+    // (loadedFromServer stays false, so persistNow()/startNewCycle refuse).
+    try{
+      const cached=JSON.parse(localStorage.getItem(STATE_CACHE_KEY)||'null');
+      if(cached&&cached.state){
+        applyStatePayload(cached.state);
+        history=cached.history||[];
+        borrowedActive=cached.borrowedActive||[];
+        borrowedRepaid=cached.borrowedRepaid||[];
+        cycleStatus=cached.cycleStatus||cycleStatus;
+        offlineCachedAt=cached.cachedAt||null;
+        loadFailed=false; // real (if stale) data — show the offline banner instead
+      }
+    }catch(err){console.error('Offline snapshot unreadable',err);}
+  }
   renderAll();
 }
 async function refreshHistory(){
@@ -412,6 +445,12 @@ function renderAll(){
     html+=`<div class="card" style="border:1px solid #5a2a2a;background:#1a0808;border-radius:10px;margin-bottom:8px">
       <div style="font-size:13px;color:#e05c5c;line-height:1.5">⚠ Couldn't load your data — these are placeholder figures and <strong>saving is switched off</strong>. Check your signal and reload.</div>
       <button class="btn-ghost" style="width:100%;margin-top:10px" onclick="location.reload()">Reload</button>
+    </div>`;
+  }else if(offlineCachedAt){
+    const syncedLabel=new Date(offlineCachedAt).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+    html+=`<div class="card" style="border:1px solid #2a3a5e;background:#0d1220;border-radius:10px;margin-bottom:8px">
+      <div style="font-size:13px;color:#5b8def;line-height:1.5">📡 Offline — showing your data as last synced <strong>${syncedLabel}</strong>. Read-only until you're back online.</div>
+      <button class="btn-ghost" style="width:100%;margin-top:10px" onclick="location.reload()">Try again</button>
     </div>`;
   }else if(saveError){
     html+=`<div class="card" style="border:1px solid #6a3a1a;background:#1a0f08;border-radius:10px;margin-bottom:8px">
@@ -1339,11 +1378,20 @@ function renderDevicePushRow(){
 }
 
 async function initPush(){
-  if(!('serviceWorker' in navigator)||!('PushManager' in window)||!('Notification' in window)){pushState='unsupported';renderAll();return;}
+  if(!('serviceWorker' in navigator)){pushState='unsupported';renderAll();return;}
+  // Register the worker before the push feature-detect: it also carries the
+  // offline app-shell cache, which should work even where push doesn't
+  // (e.g. a Safari tab, where PushManager only exists for installed apps).
   try{
     // Scope '/debt' out-specifics the estimator sw.js's '/' scope, so this
-    // worker (push-only, no fetch handler) controls /debt and /debt.html.
+    // worker controls /debt and /debt.html.
     swRegistration=await navigator.serviceWorker.register('/debt-sw.js',{scope:'/debt'});
+  }catch(err){
+    console.error('Service worker registration failed',err);
+    pushState='unsupported';renderAll();return;
+  }
+  if(!('PushManager' in window)||!('Notification' in window)){pushState='unsupported';renderAll();return;}
+  try{
     const sub=await swRegistration.pushManager.getSubscription();
     if(sub){
       pushState='on';
