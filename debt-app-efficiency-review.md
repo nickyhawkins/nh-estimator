@@ -1,5 +1,30 @@
 # Debt App Efficiency & Feature Review — 2026-07-22
 
+> **Status update (same day):** Part 1 is APPLIED on this branch (four
+> commits) except where noted:
+> - Findings 1–5, 7 and most of 9 (save-failure banners, cron timezone,
+>   income/loan failure surfacing, chart indexOf, icons) — all applied.
+>   Finding 4 used the `Promise.all` version; folding the endpoints into
+>   `/api/state` stays available if cold start ever needs more.
+> - Finding 6 — no action by design (documented risk, nothing to change
+>   yet).
+> - Finding 8 (savings pot) — deferred to Part 2 E deliberately: the fix
+>   worth doing is *wiring the pot into the UI*, which is a feature, not a
+>   tidy-up. The dead functions stay until that decision is made.
+> - Finding 9's `DEBTS_INITIAL`/Reset/History-baseline item — deferred: it
+>   changes behaviour (retiring Reset, re-deriving the baseline) and
+>   deserves its own change.
+> - The icon item turned out bigger than written: the embedded icons were
+>   NOT duplicates of `/icon-192.png` — that file is the *paint app's*
+>   house icon, which the debt manifest and push notifications had been
+>   using all along. Both now use the debt app's own £ icon, saved as
+>   `debt-icon-192.png`/`debt-touch-icon.png`.
+> - Bonus fix found while applying 2/3: the new-cycle flow used to make its
+>   *own* follow-up save look stale (server-side timestamp bumps the client
+>   never saw), triggering a false conflict banner on every balance sync.
+>   `new-cycle` now returns the fresh timestamps and the client adopts
+>   them.
+
 Full read-through of the debt app: `routes/debt.js`, `lib/debtNotify.js`,
 `lib/debtPush.js`, `public/debt.html` (all 1,508 lines), `public/debt-sw.js`,
 `public/debt-manifest.json`, the debt sections of `server.js` and
