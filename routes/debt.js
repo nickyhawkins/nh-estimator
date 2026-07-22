@@ -79,14 +79,29 @@ router.post('/api/debts', async (req, res) => {
       });
     }
 
-    let newUpdatedAt = null;
-    for (const d of debts) {
-      const result = await db.query(
-        `UPDATE debt_plan_debts SET name=$2, balance=$3, apr=$4, min=$5, arrears=$6, due=$7, account=$8, note=$9 WHERE id=$1 RETURNING updated_at`,
-        [d.id, d.name, d.balance, d.apr, d.min, d.arrears, d.due, d.account, d.note || '']
-      );
-      const rowUpdatedAt = result.rows[0]?.updated_at;
-      if (rowUpdatedAt && (!newUpdatedAt || rowUpdatedAt > newUpdatedAt)) newUpdatedAt = rowUpdatedAt;
+    // One statement instead of a per-row loop, and rows whose values are
+    // unchanged are skipped entirely so their updated_at doesn't move — an
+    // untouched row can no longer make another device's later save look
+    // stale (the false-409 path in debt-app-efficiency-review.md finding 2).
+    const result = await db.query(
+      `UPDATE debt_plan_debts d
+          SET name=j.name, balance=j.balance, apr=j.apr, min=j."min",
+              arrears=j.arrears, due=j.due, account=j.account, note=j.note
+         FROM jsonb_to_recordset($1::jsonb)
+              AS j(id int, name text, balance numeric, apr numeric, "min" numeric,
+                   arrears numeric, due int, account text, note text)
+        WHERE d.id = j.id
+          AND (d.name, d.balance, d.apr, d.min, d.arrears, d.due, d.account, d.note)
+              IS DISTINCT FROM
+              (j.name, j.balance, j.apr, j."min", j.arrears, j.due, j.account, j.note)
+    RETURNING d.updated_at`,
+      [JSON.stringify(debts.map(d => ({ ...d, note: d.note || '' })))]
+    );
+    // If nothing actually changed, the client's timestamp should stay at the
+    // table's current max rather than null.
+    let newUpdatedAt = current.rows[0].max;
+    for (const row of result.rows) {
+      if (!newUpdatedAt || row.updated_at > newUpdatedAt) newUpdatedAt = row.updated_at;
     }
     res.json({ ok: true, updatedAt: newUpdatedAt });
   } catch (err) {
@@ -173,51 +188,73 @@ router.delete('/api/income/:id', async (req, res) => {
 });
 
 // Archives the closing cycle to debt_plan_cycle_history, then clears the
-// cycle (income log + tick-list) and optionally applies synced balances,
-// all in one round trip so a page refresh mid-transition can't leave things
-// half-cleared or the history row unwritten. debtsPaid/bizPotClose/
+// cycle (income log + tick-list) and optionally applies synced balances, in
+// one database transaction so a crash or deploy mid-transition can't leave
+// things half-cleared or the history row unwritten. debtsPaid/bizPotClose/
 // perPotClose come from the client because the payoff simulation that
-// produces cycle payment amounts is client-side only.
+// produces cycle payment amounts is client-side only. The response carries
+// the fresh updated_at for every table this touches, so the client can
+// adopt them instead of its next save tripping the stale-write guard.
 router.post('/api/new-cycle', async (req, res) => {
   const { debts, debtsPaid, bizPotClose, perPotClose } = req.body;
+  const client = await db.pool.connect();
   try {
+    await client.query('BEGIN');
     const paidList = Array.isArray(debtsPaid) ? debtsPaid : [];
     const totalPaid = paidList.reduce((s, p) => s + Number(p.amount || 0), 0);
 
-    const incomeResult = await db.query('SELECT COALESCE(SUM(amount),0) AS total FROM debt_plan_income_log');
+    const incomeResult = await client.query('SELECT COALESCE(SUM(amount),0) AS total FROM debt_plan_income_log');
     const totalIncome = Number(incomeResult.rows[0].total);
 
-    const settingsResult = await db.query('SELECT cycle_started_at FROM debt_plan_settings WHERE id = 1');
+    const settingsResult = await client.query('SELECT cycle_started_at FROM debt_plan_settings WHERE id = 1');
     const startedAt = settingsResult.rows[0]?.cycle_started_at || null;
 
     if (Array.isArray(debts)) {
-      for (const d of debts) {
-        await db.query('UPDATE debt_plan_debts SET balance=$2, arrears=$3 WHERE id=$1', [d.id, d.balance, d.arrears]);
-      }
+      // Same skip-unchanged shape as POST /api/debts: only rows whose synced
+      // balance/arrears actually differ get written (and updated_at-bumped).
+      await client.query(
+        `UPDATE debt_plan_debts d
+            SET balance=j.balance, arrears=j.arrears
+           FROM jsonb_to_recordset($1::jsonb) AS j(id int, balance numeric, arrears numeric)
+          WHERE d.id = j.id
+            AND (d.balance, d.arrears) IS DISTINCT FROM (j.balance, j.arrears)`,
+        [JSON.stringify(debts.map(d => ({ id: d.id, balance: d.balance, arrears: d.arrears })))]
+      );
     }
 
-    const snapshotResult = await db.query('SELECT id, name, balance, arrears FROM debt_plan_debts ORDER BY id');
+    const snapshotResult = await client.query('SELECT id, name, balance, arrears FROM debt_plan_debts ORDER BY id');
     const debtSnapshot = snapshotResult.rows.map(d => ({
       id: d.id, name: d.name, balance: Number(d.balance), arrears: Number(d.arrears)
     }));
 
-    const cycleNumResult = await db.query('SELECT COALESCE(MAX(cycle_number),0) + 1 AS next FROM debt_plan_cycle_history');
+    const cycleNumResult = await client.query('SELECT COALESCE(MAX(cycle_number),0) + 1 AS next FROM debt_plan_cycle_history');
     const cycleNumber = cycleNumResult.rows[0].next;
 
-    await db.query(
+    await client.query(
       `INSERT INTO debt_plan_cycle_history
         (cycle_number, started_at, total_income, total_paid, biz_pot_close, per_pot_close, debts_paid, debt_snapshot)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
       [cycleNumber, startedAt, totalIncome, totalPaid, bizPotClose || 0, perPotClose || 0, JSON.stringify(paidList), JSON.stringify(debtSnapshot)]
     );
 
-    await db.query('DELETE FROM debt_plan_income_log');
-    await db.query(`UPDATE debt_plan_cashflow SET paid_this_cycle = '[]' WHERE id = 1`);
-    await db.query('UPDATE debt_plan_settings SET cycle_started_at = NOW() WHERE id = 1');
+    await client.query('DELETE FROM debt_plan_income_log');
+    const cashflowResult = await client.query(`UPDATE debt_plan_cashflow SET paid_this_cycle = '[]' WHERE id = 1 RETURNING updated_at`);
+    const newSettings = await client.query('UPDATE debt_plan_settings SET cycle_started_at = NOW() WHERE id = 1 RETURNING updated_at');
+    const debtsMax = await client.query('SELECT MAX(updated_at) AS max FROM debt_plan_debts');
+    await client.query('COMMIT');
 
-    res.json({ ok: true, cycleNumber });
+    res.json({
+      ok: true,
+      cycleNumber,
+      debtsUpdatedAt: debtsMax.rows[0].max,
+      cashflowUpdatedAt: cashflowResult.rows[0]?.updated_at || null,
+      settingsUpdatedAt: newSettings.rows[0]?.updated_at || null
+    });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 

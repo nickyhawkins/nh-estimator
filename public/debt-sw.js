@@ -27,8 +27,8 @@ self.addEventListener('push', function (e) {
   e.waitUntil(self.registration.showNotification(data.title || 'Debt Plan', {
     body: data.body || '',
     tag: data.tag || undefined,
-    icon: '/icon-192.png',
-    badge: '/icon-192.png',
+    icon: '/debt-icon-192.png',
+    badge: '/debt-icon-192.png',
     data: { url: data.url || '/debt' }
   }));
 });

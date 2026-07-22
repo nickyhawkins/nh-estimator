@@ -61,6 +61,8 @@ app.get('*', (req, res) => {
 // debt_push_subscriptions), so unlike the old ntfy-only gate there's no
 // env var that decides at startup whether notifications can ever fire.
 // With no topic AND no subscriptions the morning run is a cheap no-op.
+// Timezone pinned so "8am" means 8am UK year-round — the server runs UTC,
+// which would otherwise drift the reminders to 9am through BST.
 cron.schedule('0 8 * * *', async () => {
   try {
     await sendDueNotifications();
@@ -68,7 +70,7 @@ cron.schedule('0 8 * * *', async () => {
   } catch (err) {
     console.error('Debt app notification cron failed', err);
   }
-});
+}, { timezone: 'Europe/London' });
 if (!ntfyConfigured()) {
   console.log('NTFY_TOPIC not set — debt app notifications will use Web Push subscriptions only');
 }
