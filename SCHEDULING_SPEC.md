@@ -1,7 +1,32 @@
 # Scheduling — Spec (start dates, week strip, next free slot, ICS)
 
-**Status: SCOPED 2026-07-22, not built.** Idea #3 in `FEATURES_2.0_IDEAS.md`.
-Depends on `JOB_PIPELINE_SPEC.md` Part 1 (schedules hang off accepted jobs).
+**Status: BUILT 2026-07-22 (same day as scoping), all five build-order items** (item 1,
+the `acceptedSnapshot` stamp, had already shipped with pipeline Part 1). Idea #3 in
+`FEATURES_2.0_IDEAS.md`. Depends on `JOB_PIPELINE_SPEC.md` Part 1 (schedules hang off
+accepted jobs).
+
+**As built:** one working-day walker (`isWorkingDay`/`workingDaySpan`) shared by
+slot-finding, the strip, payment dates — and mirrored server-side for ICS
+(`icsWorkingDaySpan` in `routes/api.js`, parity-tested against the client copy). The
+Schedule flow lives in the Summary status card's accepted branch: "Not scheduled — could
+start {slot} · Schedule ›" opens a date+days form (date prefilled from `nextFreeSlot`,
+days from `acceptedSnapshot.estOnSiteDays`, live "overlaps {job} by N days" warning),
+with Reschedule/Unschedule and the ≥1-day drift nudge once scheduled. The attention
+strip's "Not scheduled" line landed with it; accepted Jobs-list rows show "Starts {date}
+· Nd". The week strip is a "Schedule" screen off the hamburger: 12 week rows from the
+current Monday, past days dimmed, today outlined, stacked colour blocks tap through to
+the job, header shows the next free day. Weekly instalments show "w/c {date}" on Summary
+and in the quote's Terms text — only when a start date exists at send time. ICS shipped
+as option (a): `GET /api/schedule.ics?key=…`, 404 until the Settings "Calendar feed"
+toggle generates the 128-bit key; one all-day multi-day VEVENT per scheduled accepted
+job. Deliberate deviations: **Sundays are omitted from the strip entirely** (and
+Saturdays only appear when Work Saturdays is on) rather than rendered compressed-grey —
+same information, less noise on a phone; **job-level `workSaturdays` override is honoured
+by all the maths but has no UI** (set it if the rare case ever arrives); **leaving
+`accepted` keeps `startDate`/`scheduledDays` stored** — the job just stops occupying
+days, and the schedule resurfaces if it's re-accepted. Verified in the 27-check Chromium
+smoke run (schedule flow end-to-end, overlap warning, strip line clearing, ICS key/URL,
+toggles) plus working-day-math harnesses incl. weekend spans and client/server parity.
 
 ## Purpose
 

@@ -218,6 +218,17 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
   <button class="fab" onclick="goScreen('room')">+</button>
 </div>
 
+<!-- ══ SCHEDULE (week strip — SCHEDULING_SPEC.md) ══ -->
+<div id="screen-schedule" class="screen">
+  <div class="topbar">
+    <button class="back-btn" onclick="goTab('home')">←</button>
+    <div class="topbar-title">Schedule</div>
+  </div>
+  <div class="content">
+    <div id="schedule-strip"></div>
+  </div>
+</div>
+
 <!-- ══ JOBS ══ -->
 <div id="screen-jobs" class="screen">
   <div class="topbar">
@@ -664,6 +675,18 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="card-header">Scheduling</div>
       <div class="field-row"><div class="field-label">Daily overhead<small>mins/day — setup, protection, cleanup (not costed, just stretches the diary)</small></div><input type="number" class="field-input" id="s-overhead-mins" value="45" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Schedule buffer<small>% — optional, for drying/slippage</small></div><input type="number" class="field-input" id="s-buffer-pct" value="0" min="0" max="100" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="toggle-row" style="border-top:1px solid var(--border)">
+        <div class="toggle-label">Work Saturdays<small>Saturdays count as bookable days on the Schedule strip</small></div>
+        <div class="toggle" id="tog-worksat" onclick="toggleWorkSaturdays()"></div>
+      </div>
+      <div class="toggle-row" style="border-top:1px solid var(--border)">
+        <div class="toggle-label">Calendar feed<small>Subscribe your phone's calendar to scheduled jobs — the link below auto-updates when jobs move</small></div>
+        <div class="toggle" id="tog-ics" onclick="toggleIcsEnabled()"></div>
+      </div>
+      <div id="ics-url-row" style="display:none;padding:0 16px 14px">
+        <div style="font-size:12px;color:var(--text2);margin-bottom:6px">In iOS: Settings → Calendar → Accounts → Add Subscribed Calendar, paste this:</div>
+        <div id="ics-url" onclick="copyIcsUrl()" style="font-size:11px;color:var(--accent);word-break:break-all;background:var(--surface2);border-radius:8px;padding:8px 10px;cursor:pointer" title="Tap to copy"></div>
+      </div>
     </div>
     <div class="card">
       <div class="card-header">Coverage Rates</div>
@@ -1030,6 +1053,10 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     <div>Materials</div>
     <span id="nav-menu-materials-badge" class="nav-menu-sub" style="margin-top:0"></span>
   </div>
+  <div class="nav-menu-item" onclick="closeNavMenu();goTab('schedule')">
+    <div>Schedule</div>
+    <span class="nav-menu-arrow">›</span>
+  </div>
   <div class="nav-menu-item" onclick="closeNavMenu();goTab('settings')">
     <div>Settings</div>
     <span class="nav-menu-arrow">›</span>
@@ -1045,7 +1072,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.7.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.8.0</div>
 </div>
 </div>
 
@@ -1264,6 +1291,9 @@ function saveSettings() {
   next.paymentType = settings.paymentType || 'single';
   next.paymentWeeks = settings.paymentWeeks || null;
   next.lastBackupExportAt = settings.lastBackupExportAt || null;
+  next.workSaturdays = !!settings.workSaturdays;
+  next.icsEnabled = !!settings.icsEnabled;
+  next.icsKey = settings.icsKey || null;
   settings = next;
   localStorage.setItem('pe-settings', JSON.stringify(settings));
   apiPut('/api/settings', settings);
@@ -1651,7 +1681,7 @@ async function createXeroQuote() {
     ttS += extTimeTotal + kitchenTimeTotal;
     var onSiteDays = realisticDays(ttS);
     var depositPlan = computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabourS);
-    var paymentTerms = buildPaymentTermsText(depositPlan);
+    var paymentTerms = buildPaymentTermsText(depositPlan, activeJob() && activeJob().startDate);
     var paymentSummary = buildPaymentSummaryText(depositPlan);
 
     // Contact resolution now reads the job's PERSISTED link/details (see
@@ -2021,6 +2051,11 @@ function mergeSettings(raw) {
   // backup-age attention line). null = no export recorded since this
   // shipped, which the strip treats as unknown rather than nagging.
   out.lastBackupExportAt = raw.lastBackupExportAt || null;
+  // Scheduling (SCHEDULING_SPEC.md): toggles + the ICS feed's URL token.
+  // No Settings-screen number inputs, so handled here like paymentType.
+  out.workSaturdays = !!raw.workSaturdays;
+  out.icsEnabled = !!raw.icsEnabled;
+  out.icsKey = raw.icsKey || null;
   return out;
 }
 
@@ -2218,7 +2253,7 @@ function renameJob(id) {
 // part of job.data must go through this so xeroClient/xeroRef/contact/
 // xeroContactId/contactSyncedAt/materialsSeeded/kitchen always travel together.
 function persistJobData(job) {
-  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, acceptedSnapshot: job.acceptedSnapshot, kitchen: job.kitchen }) });
+  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, workSaturdays: job.workSaturdays, kitchen: job.kitchen }) });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -2382,6 +2417,281 @@ function invoiceJobFromList(jobId) { setJobStatusById(jobId, 'invoiced', 'Mark t
 // Undo for a mis-tap on Mark Invoiced. NB re-entering 'completed' refreshes
 // completedAt to now -- acceptable for an undo taken moments later.
 function uninvoiceJob() { setJobStatus('completed', 'Move this job back to Completed?'); }
+
+// ── Scheduling (SCHEDULING_SPEC.md) ─────────────────────────────────────────
+// Booked-days arithmetic, not a calendar app. A schedule is two fields on
+// jobs.data: startDate (ISO date, null = unscheduled) and scheduledDays --
+// a SNAPSHOT of the on-site estimate taken at scheduling time, because the
+// engine can only compute onSiteDays for the ACTIVE job's loaded rooms and
+// the week strip needs every scheduled job's length at once.
+
+// THE one working-day walker -- slot-finding, the strip, payment dates and
+// the server's ICS feed (its own copy, same rules) must all agree, and four
+// hand-rolled date loops is this repo's known duplicate-function failure
+// mode. Sundays never count; Saturdays only when workSaturdays.
+function isWorkingDay(d, workSat) {
+  var day = d.getDay();
+  return (day >= 1 && day <= 5) || (workSat && day === 6);
+}
+// Local-time ISO date -- toISOString() is UTC and would shift the date for
+// an evening tap in BST, booking tomorrow's job on the wrong day.
+function isoDate(d) {
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function parseIsoDate(iso) {
+  var p = iso.split('-');
+  return new Date(+p[0], +p[1]-1, +p[2], 12, 0, 0); // noon dodges DST edges
+}
+// The n working days a job starting startIso occupies, as ISO dates. A
+// non-working start rolls forward to the next working day first.
+function workingDaySpan(startIso, n, workSat) {
+  var out = [];
+  var d = parseIsoDate(startIso);
+  var guard = 0;
+  while (out.length < n && guard++ < 800) {
+    if (isWorkingDay(d, workSat)) out.push(isoDate(d));
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
+}
+function jobWorkSat(job) {
+  return job && job.workSaturdays != null ? !!job.workSaturdays : !!settings.workSaturdays;
+}
+function jobBookedDays(job) {
+  if (!job || !job.startDate || !(+job.scheduledDays > 0)) return [];
+  return workingDaySpan(job.startDate, Math.ceil(+job.scheduledDays), jobWorkSat(job));
+}
+// Only accepted jobs hold diary space: completed/invoiced work is done (it
+// drops off the strip and frees its days), and nothing earlier in the
+// pipeline is booked at all.
+function scheduledJobs() {
+  return jobs.filter(function(j) { return j.status === 'accepted' && j.startDate && +j.scheduledDays > 0; });
+}
+// First gap of requiredDays consecutive working days with nothing booked,
+// walking from tomorrow. excludeJobId leaves the job being (re)scheduled
+// out of its own way. Returns an ISO date, or null if a year has no gap.
+function nextFreeSlot(requiredDays, excludeJobId) {
+  requiredDays = Math.max(1, Math.ceil(+requiredDays || 1));
+  var booked = {};
+  scheduledJobs().forEach(function(j) {
+    if (j.id === excludeJobId) return;
+    jobBookedDays(j).forEach(function(day) { booked[day] = true; });
+  });
+  var workSat = !!settings.workSaturdays;
+  var d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() + 1);
+  for (var i = 0; i < 420; i++) {
+    if (isWorkingDay(d, workSat)) {
+      var span = workingDaySpan(isoDate(d), requiredDays, workSat);
+      if (span.length === requiredDays && span.every(function(x) { return !booked[x]; })) return span[0];
+    }
+    d.setDate(d.getDate() + 1);
+  }
+  return null;
+}
+// Soft-warning check at scheduling time: which job (if any) does this
+// span collide with, and by how many days. Overlaps are ALLOWED -- real
+// life has second-coat-drying overlaps; the warning shows the truth and
+// Nicky judges (same philosophy as the sundries control).
+function scheduleOverlap(startIso, days, excludeJobId) {
+  var span = {};
+  workingDaySpan(startIso, Math.ceil(+days || 1), !!settings.workSaturdays).forEach(function(d) { span[d] = true; });
+  var worst = null;
+  scheduledJobs().forEach(function(j) {
+    if (j.id === excludeJobId) return;
+    var hit = jobBookedDays(j).filter(function(d) { return span[d]; }).length;
+    if (hit > 0 && (!worst || hit > worst.days)) worst = { name: j.name, days: hit };
+  });
+  return worst;
+}
+function fmtShortDate(iso) {
+  return parseIsoDate(iso).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+// The days figure a fresh schedule should offer: the acceptance-frozen
+// estimate when there is one, else the live engine figure for the active
+// job (lastSummaryTotals), else 1.
+function defaultScheduleDays(job) {
+  var est = job && job.acceptedSnapshot && +job.acceptedSnapshot.estOnSiteDays > 0
+    ? +job.acceptedSnapshot.estOnSiteDays
+    : (job && job.id === activeJobId && lastSummaryTotals ? +lastSummaryTotals.estOnSiteDays : 0);
+  return Math.max(1, Math.ceil(est || 1));
+}
+
+var scheduleRowOpen = false; // transient: the Schedule form's expanded state
+
+function toggleScheduleRow() {
+  scheduleRowOpen = !scheduleRowOpen;
+  renderSummary();
+}
+function updateScheduleOverlapHint() {
+  var hintEl = document.getElementById('schedule-overlap-hint');
+  var dateEl = document.getElementById('schedule-date');
+  var daysEl = document.getElementById('schedule-days');
+  if (!hintEl || !dateEl || !dateEl.value) return;
+  var overlap = scheduleOverlap(dateEl.value, +daysEl.value || 1, activeJobId);
+  hintEl.textContent = overlap ? '⚠ overlaps ' + overlap.name + ' by ' + overlap.days + ' day' + (overlap.days === 1 ? '' : 's') : '';
+}
+function confirmSchedule() {
+  var job = activeJob();
+  var dateEl = document.getElementById('schedule-date');
+  var daysEl = document.getElementById('schedule-days');
+  if (!job || !dateEl || !dateEl.value) return;
+  job.startDate = dateEl.value;
+  job.scheduledDays = Math.max(1, Math.ceil(+daysEl.value || 1));
+  scheduleRowOpen = false;
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  renderSummary(); renderJobs(); renderAttentionStrip();
+}
+function unscheduleJob() {
+  var job = activeJob();
+  if (!job || !confirm('Unschedule this job? Its days come off the Schedule strip.')) return;
+  job.startDate = null;
+  job.scheduledDays = null;
+  scheduleRowOpen = false;
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  renderSummary(); renderJobs(); renderAttentionStrip();
+}
+
+// The schedule block inside Summary's accepted status card. Three shapes:
+// scheduled (dates + drift nudge + Reschedule/Unschedule), the open form
+// (date prefilled with the next free slot, days from the frozen estimate,
+// live overlap warning), or the one-line prompt with "could start {slot}".
+function scheduleBlockHtml(job) {
+  var link = 'color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap';
+  if (scheduleRowOpen) {
+    var days = defaultScheduleDays(job);
+    var slot = job.startDate || nextFreeSlot(days, job.id) || isoDate(new Date());
+    return '<div style="border-top:1px solid var(--border);padding:12px 16px">'+
+      '<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">'+
+        '<input type="date" class="field-input" id="schedule-date" value="'+slot+'" style="flex:1" onchange="updateScheduleOverlapHint()">'+
+        '<input type="number" class="field-input" id="schedule-days" value="'+(job.scheduledDays || days)+'" min="1" step="1" inputmode="numeric" style="width:64px;text-align:center" onchange="updateScheduleOverlapHint()">'+
+        '<span style="font-size:12px;color:var(--text2)">days</span>'+
+      '</div>'+
+      '<div id="schedule-overlap-hint" style="font-size:12px;color:var(--danger);min-height:14px;margin-bottom:8px"></div>'+
+      '<div style="display:flex;gap:8px">'+
+        '<button onclick="confirmSchedule()" style="flex:1;background:var(--accent);color:white;border:none;border-radius:var(--rs);padding:10px;font-size:13px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer">Save schedule</button>'+
+        '<button onclick="toggleScheduleRow()" style="background:none;border:1px solid var(--border);color:var(--text2);border-radius:var(--rs);padding:10px 14px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer">Cancel</button>'+
+      '</div>'+
+    '</div>';
+  }
+  if (job.startDate) {
+    var span = jobBookedDays(job);
+    var last = span[span.length - 1];
+    // Drift nudge: the stamp can go stale if rooms change after scheduling.
+    // The live engine figure only exists for the active job (it is, here).
+    var liveDays = lastSummaryTotals ? Math.ceil(+lastSummaryTotals.estOnSiteDays || 0) : 0;
+    var drift = liveDays > 0 && Math.abs(liveDays - job.scheduledDays) >= 1;
+    return '<div style="border-top:1px solid var(--border);padding:12px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'+
+      '<div style="flex:1;min-width:0">'+
+        '<div style="font-size:13px;font-weight:600">📅 Starts '+fmtShortDate(job.startDate)+' · '+job.scheduledDays+' day'+(job.scheduledDays === 1 ? '' : 's')+(last && last !== job.startDate ? ' → '+fmtShortDate(last) : '')+'</div>'+
+        (drift ? '<div style="font-size:12px;color:var(--danger);margin-top:2px">estimate now ~'+liveDays+' days, scheduled '+job.scheduledDays+'</div>' : '')+
+      '</div>'+
+      '<div onclick="toggleScheduleRow()" style="'+link+'">Reschedule</div>'+
+      '<div onclick="unscheduleJob()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline">Unschedule</div>'+
+    '</div>';
+  }
+  var slotDate = nextFreeSlot(defaultScheduleDays(job), job.id);
+  return '<div style="border-top:1px solid var(--border);padding:12px 16px;display:flex;align-items:center;gap:10px">'+
+    '<div style="flex:1;font-size:13px;color:var(--text2)">📅 Not scheduled'+(slotDate ? ' — could start '+fmtShortDate(slotDate) : '')+'</div>'+
+    '<div onclick="toggleScheduleRow()" style="'+link+'">Schedule ›</div>'+
+  '</div>';
+}
+
+function toggleWorkSaturdays() {
+  settings.workSaturdays = !settings.workSaturdays;
+  localStorage.setItem('pe-settings', JSON.stringify(settings));
+  apiPut('/api/settings', settings);
+  var tog = document.getElementById('tog-worksat');
+  if (tog) tog.classList.toggle('on', settings.workSaturdays);
+  renderScheduleStrip();
+}
+function toggleIcsEnabled() {
+  settings.icsEnabled = !settings.icsEnabled;
+  if (settings.icsEnabled && !settings.icsKey) {
+    // One-time URL token -- iOS calendar subscriptions can't carry the
+    // app's session cookie, so the key IS the auth. 128 bits of hex.
+    var bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    settings.icsKey = Array.from(bytes).map(function(b) { return b.toString(16).padStart(2, '0'); }).join('');
+  }
+  localStorage.setItem('pe-settings', JSON.stringify(settings));
+  apiPut('/api/settings', settings);
+  var tog = document.getElementById('tog-ics');
+  if (tog) tog.classList.toggle('on', settings.icsEnabled);
+  renderIcsUrlRow();
+}
+function renderIcsUrlRow() {
+  var row = document.getElementById('ics-url-row');
+  if (!row) return;
+  row.style.display = settings.icsEnabled && settings.icsKey ? 'block' : 'none';
+  var urlEl = document.getElementById('ics-url');
+  if (urlEl && settings.icsKey) urlEl.textContent = location.origin + '/api/schedule.ics?key=' + settings.icsKey;
+}
+function copyIcsUrl() {
+  var urlEl = document.getElementById('ics-url');
+  if (!urlEl || !navigator.clipboard) return;
+  navigator.clipboard.writeText(urlEl.textContent).then(function() {
+    var was = urlEl.textContent;
+    urlEl.textContent = 'Copied ✓';
+    setTimeout(function() { urlEl.textContent = was; }, 1200);
+  }).catch(function() {});
+}
+
+// The week strip: ~12 weeks of booked days, current week first. Vertical
+// list of week rows, each day a cell, booked jobs as tappable colour
+// blocks (stacked when overlapping). Nothing draggable -- rescheduling
+// goes through the same date form on Summary. Past weeks aren't rendered;
+// history lives in the labour log.
+var SCHEDULE_COLOURS = ['#1a5276', '#7d6608', '#1e8449', '#922b21', '#6c3483', '#a04000', '#117864', '#4a235a'];
+function renderScheduleStrip() {
+  var el = document.getElementById('schedule-strip');
+  if (!el) return;
+  var booked = scheduledJobs();
+  var colourOf = {};
+  booked.forEach(function(j, i) { colourOf[j.id] = SCHEDULE_COLOURS[i % SCHEDULE_COLOURS.length]; });
+  var dayMap = {}; // iso date -> [job]
+  booked.forEach(function(j) {
+    jobBookedDays(j).forEach(function(d) { (dayMap[d] = dayMap[d] || []).push(j); });
+  });
+
+  var slot = nextFreeSlot(1);
+  var header = '<div style="font-size:13px;color:var(--text2);margin-bottom:12px">'+
+    (booked.length
+      ? booked.length + ' job' + (booked.length === 1 ? '' : 's') + ' scheduled' + (slot ? ' · next free day ' + fmtShortDate(slot) : '')
+      : 'Nothing scheduled yet — accepted jobs get a Schedule button on their Summary page.')+
+  '</div>';
+
+  var workSat = !!settings.workSaturdays;
+  var todayIso = isoDate(new Date());
+  var monday = new Date(); monday.setHours(12, 0, 0, 0);
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7)); // back to Monday
+  var weeks = '';
+  for (var w = 0; w < 12; w++) {
+    var cells = '';
+    var label = '';
+    for (var i = 0; i < (workSat ? 6 : 5); i++) {
+      var d = new Date(monday); d.setDate(monday.getDate() + w * 7 + i);
+      var dIso = isoDate(d);
+      if (i === 0) label = 'w/c ' + d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+      var isPast = dIso < todayIso;
+      var isToday = dIso === todayIso;
+      var blocks = (dayMap[dIso] || []).map(function(j) {
+        return '<div onclick="attentionOpenJob(\''+j.id+'\')" style="background:'+colourOf[j.id]+';color:#fff;border-radius:4px;padding:2px 4px;font-size:9px;font-weight:600;line-height:1.3;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer">'+escapeHtml(j.name)+'</div>';
+      }).join('');
+      cells += '<div style="flex:1;min-width:0;min-height:44px;border-radius:6px;padding:3px 4px;background:'+(isToday ? 'var(--surface2)' : 'transparent')+';border:1px solid '+(isToday ? 'var(--accent)' : 'var(--border)')+(isPast ? ';opacity:.35' : '')+'">'+
+        '<div style="font-size:9px;color:var(--text3);font-weight:600">'+d.toLocaleDateString('en-GB', { weekday: 'short' }).slice(0, 2)+' '+d.getDate()+'</div>'+
+        blocks+
+      '</div>';
+    }
+    weeks += '<div style="margin-bottom:10px">'+
+      '<div style="font-size:11px;color:var(--text2);font-weight:600;margin-bottom:4px">'+label+'</div>'+
+      '<div style="display:flex;gap:4px">'+cells+'</div>'+
+    '</div>';
+  }
+  el.innerHTML = header + '<div class="card" style="padding:12px">'+weeks+'</div>';
+}
 
 // This job's markup if it's been overridden on the Summary page, else the
 // live global default from Settings -- the single read every markup
@@ -2592,6 +2902,7 @@ function renderJobRow(j) {
       '</div>'+
       (j.xeroClient ? '<div style="font-size:12px;color:var(--text2)">'+escapeHtml(j.xeroClient)+'</div>' : '')+
       (isQuoted && j.quotedAt ? '<div style="font-size:12px;color:var(--text2)">Quote sent '+new Date(j.quotedAt).toLocaleDateString()+'</div>'
+        : isAccepted && j.startDate ? '<div style="font-size:12px;color:var(--text2)">📅 Starts '+fmtShortDate(j.startDate)+' · '+j.scheduledDays+'d</div>'
         : (j.updatedAt ? '<div style="font-size:12px;color:var(--text2)">'+new Date(j.updatedAt).toLocaleDateString()+'</div>' : ''))+
     '</div>'+
     (isAccepted ? '<div onclick="event.stopPropagation();completeJobFromList(\''+j.id+'\')" title="Mark Completed" style="color:var(--success);font-size:18px;font-weight:700;padding:0 8px;cursor:pointer">✓</div>' : '')+
@@ -2765,6 +3076,7 @@ function goTab(tab) {
   if (tab==='kitchen') renderKitchen();
   if (tab==='colours') renderColours();
   if (tab==='jobs') renderJobs();
+  if (tab==='schedule') renderScheduleStrip();
   // NB no renderActuals() here — actuals live only on the server, so the
   // screen is entered via openActuals(), which loads before it renders.
   // goTab('actuals') on its own would paint a stale or empty list.
@@ -2949,6 +3261,11 @@ function loadSettings() {
   SETTINGS_FIELDS.forEach(function(f) {
     document.getElementById(f[1]).value = settings[f[0]];
   });
+  var togSat = document.getElementById('tog-worksat');
+  if (togSat) togSat.classList.toggle('on', !!settings.workSaturdays);
+  var togIcs = document.getElementById('tog-ics');
+  if (togIcs) togIcs.classList.toggle('on', !!settings.icsEnabled);
+  renderIcsUrlRow();
   populateKitchenRatesTable();
   document.getElementById('s-kr-cornice-base').value = (settings.kitchenRates && settings.kitchenRates.cornice) ? settings.kitchenRates.cornice.base : 25;
   document.getElementById('s-kr-cornice-coat').value = (settings.kitchenRates && settings.kitchenRates.cornice) ? settings.kitchenRates.cornice.coat : 4;
@@ -3268,10 +3585,24 @@ function computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabour) {
 // buildPaymentSummaryText() below). Built from the same computeDepositPlan()
 // output Summary renders, so the quote text can never say something
 // different from the app.
-function buildPaymentTermsText(plan) {
+// Weekly instalment i (0-based) falls a week after the previous one,
+// starting one week after the start date -- start 3 Aug, 2 instalments →
+// w/c 10 Aug and 17 Aug (SCHEDULING_SPEC.md payment-dates byproduct).
+function instalmentDate(startDateIso, i) {
+  var d = parseIsoDate(startDateIso);
+  d.setDate(d.getDate() + 7 * (i + 1));
+  return isoDate(d);
+}
+// startDateIso is optional: quotes are usually sent before scheduling, and
+// with no date the text reads exactly as it always has. Only a quote sent
+// AFTER scheduling picks up the real w/c dates.
+function buildPaymentTermsText(plan, startDateIso) {
   var text = 'Deposit due on acceptance: ' + fmt(plan.deposit) + ' (' + plan.depositBasis + ').';
   if (plan.paymentType === 'multiweek' && plan.weeklyRows.length > 0) {
-    var weekParts = plan.weeklyRows.map(function(amt, i) { return 'Week ' + (i+1) + ' ' + fmt(amt); }).join(', ');
+    var weekParts = plan.weeklyRows.map(function(amt, i) {
+      var wc = startDateIso ? ' (w/c ' + fmtShortDate(instalmentDate(startDateIso, i)) + ')' : '';
+      return 'Week ' + (i+1) + wc + ' ' + fmt(amt);
+    }).join(', ');
     text += ' Balance of ' + fmt(plan.balance) + ' split across ' + plan.weeklyRows.length + ' weekly instalments: ' + weekParts + '.';
   } else {
     text += ' Balance of ' + fmt(plan.balance) + ' due on completion.';
@@ -5849,6 +6180,9 @@ function renderAttentionStrip() {
         lines.push({ jobId: j.id, icon: '⏳', text: 'Quote to chase — <strong>' + escapeHtml(j.name) + '</strong>, sent ' + sentDays + ' days ago' });
       }
     }
+    if (j.status === 'accepted' && !j.startDate) {
+      lines.push({ jobId: j.id, icon: '📅', text: 'Not scheduled — <strong>' + escapeHtml(j.name) + '</strong>' });
+    }
     if (j.status === 'completed' && j.completedAt) {
       var doneDays = Math.floor((now - new Date(j.completedAt).getTime()) / DAY);
       if (doneDays > 3) {
@@ -7719,6 +8053,7 @@ function renderSummary() {
           '</div>'
         )+
       '</div>'+
+      (jobStatus === 'accepted' ? scheduleBlockHtml(statusJob) : '')+
     '</div>'+
     '<div class="hero" style="margin-top:16px">'+
       '<div class="hero-label">Total Quote</div>'+
@@ -7757,7 +8092,8 @@ function renderSummary() {
         '<div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Weeks<small>from on-site estimate, editable</small></div>'+
           '<input type="number" class="field-input" style="width:70px" value="'+paymentWeeks+'" min="1" step="1" inputmode="numeric" onchange="setPaymentWeeks(this.value)"></div>'+
         weeklyRows.map(function(amt, wi){
-          return '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Week '+(wi+1)+'</span><span class="breakdown-sub-value">'+fmt(amt)+'</span></div>';
+          var wcDate = statusJob && statusJob.startDate ? ' <small style="color:var(--text3)">w/c '+fmtShortDate(instalmentDate(statusJob.startDate, wi))+'</small>' : '';
+          return '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Week '+(wi+1)+wcDate+'</span><span class="breakdown-sub-value">'+fmt(amt)+'</span></div>';
         }).join('')
       ) : '') +
     '</div>'+
