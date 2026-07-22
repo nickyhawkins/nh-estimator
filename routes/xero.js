@@ -714,6 +714,82 @@ router.post('/create-quote', async (req, res) => {
   }
 });
 
+// Push a quote's status to Xero -- called when a quote is marked Accepted/
+// Declined in the app (see setJobStatusById() in public/index.html), so the
+// Xero copy reflects the client's real answer without re-keying it there.
+//
+// Xero's quote status machine only reaches ACCEPTED/DECLINED via SENT
+// (DRAFT -> SENT -> ACCEPTED | DECLINED), and this app creates every quote
+// as DRAFT -- so a quote that was never emailed out of Xero (e.g. shown in
+// person) needs the SENT hop written first. The current status is read
+// fresh from Xero rather than tracked locally: if Nicky already sent or
+// accepted it inside Xero, the hop (or the whole call) is skipped.
+//
+// Target SENT is allowed too, but only as the un-accept path: the app sends
+// it when a job that previously synced ACCEPTED/DECLINED moves back to
+// Draft, un-sticking the Xero copy (ACCEPTED -> SENT is a legal reversal).
+// A quote still sitting at DRAFT is never advanced by it.
+const QUOTE_STATUS_TARGETS = new Set(['ACCEPTED', 'DECLINED', 'SENT']);
+
+router.post('/update-quote-status', async (req, res) => {
+  const { quoteId } = req.body;
+  const target = String(req.body.status || '').toUpperCase();
+  if (!quoteId) return res.status(400).json({ error: 'quoteId is required' });
+  if (!QUOTE_STATUS_TARGETS.has(target)) {
+    return res.status(400).json({ error: `status must be one of: ${[...QUOTE_STATUS_TARGETS].join(', ')}` });
+  }
+
+  try {
+    const accessToken = await getAccessToken();
+    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    const tenantId = result.rows[0]?.xero_tenant_id;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
+    }
+    const headers = {
+      Authorization: `Bearer ${accessToken}`,
+      'Xero-Tenant-Id': tenantId,
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    };
+
+    const getRes = await axios.get(`${XERO_API_URL}/Quotes/${quoteId}`, { headers });
+    const quote = getRes.data.Quotes && getRes.data.Quotes[0];
+    if (!quote) return res.status(404).json({ error: 'Quote not found in Xero' });
+
+    const current = quote.Status;
+    if (current === target) return res.json({ ok: true, status: current });
+    if (current === 'INVOICED' || current === 'DELETED') {
+      return res.status(409).json({ error: `Quote is ${current} in Xero and can no longer be marked ${target}` });
+    }
+    if (target === 'SENT' && current === 'DRAFT') {
+      // Un-accept path only (see above) -- a never-sent draft stays a draft.
+      return res.json({ ok: true, status: current });
+    }
+
+    // A status update POST still requires the mandatory quote fields
+    // (Contact + Date) alongside QuoteID; everything else (line items,
+    // terms) is left off and survives untouched. DateString is preferred
+    // because with Accept: application/json the Date property comes back
+    // in .NET "/Date(ms)/" form, not ISO.
+    const quoteDate = quote.DateString ? quote.DateString.split('T')[0] : quote.Date;
+    const postStatus = (status) => axios.post(
+      `${XERO_API_URL}/Quotes/${quoteId}`,
+      { Quotes: [{ QuoteID: quoteId, Contact: { ContactID: quote.Contact.ContactID }, Date: quoteDate, Status: status }] },
+      { headers }
+    );
+
+    if (current === 'DRAFT') await postStatus('SENT');
+    await postStatus(target);
+    res.json({ ok: true, status: target });
+  } catch (err) {
+    console.error('Update quote status error:', err.response?.data || err.message);
+    const xeroMsg = err.response?.data?.Elements?.[0]?.ValidationErrors?.[0]?.Message
+      || err.response?.data?.Message;
+    res.status(500).json({ error: xeroMsg || err.message });
+  }
+});
+
 module.exports = router;
 module.exports.getAccessToken = getAccessToken;
 // Exported for the tin-fill checks in scripts/check_item_parse.py's Node

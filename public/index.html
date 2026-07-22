@@ -1672,13 +1672,25 @@ async function createXeroQuote() {
     var result = await resp.json();
     if (result.ok) {
       btn.textContent = '✓ Quote created — ' + (result.quoteNumber || 'check Xero');
-      // Keep (don't wipe) the resolved contact link -- a second quote for
-      // the same job should reuse this Xero contact, not create a duplicate.
-      if (result.contactId && quoteJob) {
-        quoteJob.xeroContactId = result.contactId;
+      if (quoteJob) {
+        // Remember which Xero quote this job produced, so marking the job
+        // Accepted/Declined later can flag that same quote in Xero (see
+        // syncQuoteStatusToXero). A re-send overwrites the link: the NEWEST
+        // quote is the one the client is answering. Freshly created means
+        // DRAFT in Xero, so any earlier synced status no longer applies.
+        if (result.quoteId) {
+          quoteJob.xeroQuoteId = result.quoteId;
+          quoteJob.xeroQuoteNumber = result.quoteNumber || null;
+          quoteJob.xeroQuoteStatus = 'DRAFT';
+        }
+        // Keep (don't wipe) the resolved contact link -- a second quote for
+        // the same job should reuse this Xero contact, not create a duplicate.
+        if (result.contactId) {
+          quoteJob.xeroContactId = result.contactId;
+          xeroSelectedContactId = result.contactId;
+        }
         localStorage.setItem('pe-jobs', JSON.stringify(jobs));
         persistJobData(quoteJob);
-        xeroSelectedContactId = result.contactId;
         updateXeroContactSyncStatus();
       }
       setTimeout(function(){ btn.textContent = 'Send to Xero'; btn.disabled = false; }, 4000);
@@ -2155,7 +2167,7 @@ function renameJob(id) {
 // part of job.data must go through this so xeroClient/xeroRef/contact/
 // xeroContactId/contactSyncedAt/materialsSeeded/kitchen always travel together.
 function persistJobData(job) {
-  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, status: job.status, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, kitchen: job.kitchen }) });
+  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, status: job.status, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, kitchen: job.kitchen }) });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -2185,6 +2197,49 @@ function setJobStatusById(jobId, newStatus, confirmMsg) {
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   persistJobData(job);
   renderSummary(); renderJobs();
+
+  // Mirror the client's answer onto the Xero quote this job created, if
+  // there is one. 'completed' is deliberately absent: Xero has no such
+  // quote status and the quote is already ACCEPTED (completed is only
+  // reachable from accepted). Moving back to Draft reverts a previously
+  // synced ACCEPTED/DECLINED to SENT so the Xero copy doesn't stay stuck
+  // on an answer the app has withdrawn -- but never touches a quote whose
+  // status was never synced (server-side, SENT also never advances a
+  // still-DRAFT quote).
+  if (job.xeroQuoteId) {
+    var xeroTarget = newStatus === 'accepted' ? 'ACCEPTED'
+      : newStatus === 'declined' ? 'DECLINED'
+      : (!newStatus && (job.xeroQuoteStatus === 'ACCEPTED' || job.xeroQuoteStatus === 'DECLINED')) ? 'SENT'
+      : null;
+    if (xeroTarget && xeroTarget !== job.xeroQuoteStatus) syncQuoteStatusToXero(job, xeroTarget);
+  }
+}
+
+// Best-effort, fire-and-forget push of a job's accepted/declined answer to
+// its Xero quote (POST /auth/update-quote-status walks Xero's DRAFT ->
+// SENT -> ACCEPTED/DECLINED status machine server-side). The app's own
+// status is the source of truth and has already been saved by the time
+// this runs -- a failed push (offline, Xero disconnected, quote deleted in
+// Xero) alerts so it can be fixed in Xero by hand, but never blocks or
+// reverts the in-app change. On success the synced status is persisted so
+// Summary can show the ✓ and repeat pushes of the same answer are skipped.
+function syncQuoteStatusToXero(job, xeroStatus) {
+  fetch('/auth/update-quote-status', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ quoteId: job.xeroQuoteId, status: xeroStatus })
+  })
+    .then(function(resp){ return resp.json(); })
+    .then(function(result){
+      if (!result.ok) throw new Error(result.error || 'Xero update failed');
+      job.xeroQuoteStatus = result.status;
+      localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+      persistJobData(job);
+      renderSummary();
+    })
+    .catch(function(err){
+      alert('Saved here, but the Xero quote could not be marked ' + xeroStatus.toLowerCase() + ': ' + err.message + '\n\nUpdate it in Xero manually, or toggle the status again to retry.');
+    });
 }
 function setJobStatus(newStatus, confirmMsg) {
   var job = activeJob();
@@ -7118,7 +7173,7 @@ function renderSummary() {
     '<div class="card">'+
       '<div class="field-row">'+
         (jobStatus === 'accepted'
-          ? '<div class="field-label" style="color:var(--success)">✓ Accepted<small>'+(statusJob.acceptedAt ? new Date(statusJob.acceptedAt).toLocaleDateString() : '')+' · tracked in Materials ›</small></div>'+
+          ? '<div class="field-label" style="color:var(--success)">✓ Accepted<small>'+(statusJob.acceptedAt ? new Date(statusJob.acceptedAt).toLocaleDateString() : '')+(statusJob.xeroQuoteStatus === 'ACCEPTED' ? ' · Xero ✓' : '')+' · tracked in Materials ›</small></div>'+
             '<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">'+
               '<button onclick="completeJob()" style="background:var(--text2);color:white;border:none;border-radius:var(--rs);padding:10px 16px;font-size:14px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;white-space:nowrap">Mark Completed</button>'+
               '<div onclick="moveJobToDraft()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Move to Draft</div>'+
@@ -7127,7 +7182,7 @@ function renderSummary() {
           ? '<div class="field-label" style="color:var(--text3);text-decoration:line-through">✓ Completed<small style="text-decoration:none">'+(statusJob.completedAt ? new Date(statusJob.completedAt).toLocaleDateString() : '')+'</small></div>'+
             '<div onclick="moveJobToDraft()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Move to Draft</div>'
         : jobStatus === 'declined'
-          ? '<div class="field-label" style="color:var(--danger)">✗ Declined<small>'+(statusJob.declinedAt ? new Date(statusJob.declinedAt).toLocaleDateString() : '')+'</small></div>'+
+          ? '<div class="field-label" style="color:var(--danger)">✗ Declined<small>'+(statusJob.declinedAt ? new Date(statusJob.declinedAt).toLocaleDateString() : '')+(statusJob.xeroQuoteStatus === 'DECLINED' ? ' · Xero ✓' : '')+'</small></div>'+
             '<div onclick="moveJobToDraft()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Move to Draft</div>'
         : '<div class="field-label">Draft quote<small>Mark accepted or declined once the client responds</small></div>'+
           '<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">'+

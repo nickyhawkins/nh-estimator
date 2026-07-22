@@ -175,3 +175,10 @@ These are generic UK trade book rates rather than Nicky's own pricing, so should
 Mural — still needs real data: No equivalent trade-book rate found for one-piece printed murals specifically (they're a newer product category than standard wallcovering, so most trade rate books don't cover them yet). Budget a largely fixed install time (e.g. 3–5 hours for a typical single feature wall mural) rather than scaling linearly with m², and get pricing from timing 1–2 real jobs.
 
 
+
+## 14. Marking a quote Accepted/Declined also updates the quote in Xero — BUILT
+- Marking a quote as Accepted (or Declined) in the app should also flag the quote as accepted/declined in Xero, instead of it needing to be updated in both places.
+- Built: `POST /auth/update-quote-status` (routes/xero.js) reads the quote's current status from Xero and walks its status machine — Xero only reaches ACCEPTED/DECLINED via SENT, so a still-DRAFT quote gets the SENT hop written first; a quote already sent (or already at the target) skips it. INVOICED/DELETED quotes refuse with a clear error.
+- The app stores the Xero quote ID on the job when "Send to Xero" creates the quote (`job.xeroQuoteId`; re-sending re-links to the newest quote). Mark Accepted/Declined then pushes the matching Xero status best-effort: the in-app status saves first and never blocks on Xero; a failed push alerts so it can be fixed in Xero by hand. Summary shows "Xero ✓" beside Accepted/Declined once the push lands. Move to Draft reverts a previously synced ACCEPTED/DECLINED back to SENT in Xero.
+- Only quotes created after this shipped can sync (older jobs never stored a quote ID — mark those in Xero by hand).
+- Verified against the real route with axios/db stubbed (per this repo's convention); not yet proven against live Xero — watch the first real acceptance.
