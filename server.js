@@ -54,22 +54,23 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Debt app: due-date push notifications + the 28-day cycle-reset nudge,
-// both routed through ntfy.sh (see Debt Management App/debt-app-roadmap.md,
-// Feature 4/5). No-op internally if NTFY_TOPIC isn't set, but skip
-// scheduling entirely in that case rather than running a job every morning
-// that never does anything.
-if (ntfyConfigured()) {
-  cron.schedule('0 8 * * *', async () => {
-    try {
-      await sendDueNotifications();
-      await checkCycleReset();
-    } catch (err) {
-      console.error('Debt app notification cron failed', err);
-    }
-  });
-} else {
-  console.log('NTFY_TOPIC not set — debt app push notifications disabled');
+// Debt app: due-date push notifications + the 28-day cycle-reset nudge
+// (see Debt Management App/debt-app-roadmap.md, Feature 4/5), delivered
+// over Web Push to the installed PWA and/or ntfy.sh. Always scheduled --
+// devices subscribe to Web Push at runtime (rows in
+// debt_push_subscriptions), so unlike the old ntfy-only gate there's no
+// env var that decides at startup whether notifications can ever fire.
+// With no topic AND no subscriptions the morning run is a cheap no-op.
+cron.schedule('0 8 * * *', async () => {
+  try {
+    await sendDueNotifications();
+    await checkCycleReset();
+  } catch (err) {
+    console.error('Debt app notification cron failed', err);
+  }
+});
+if (!ntfyConfigured()) {
+  console.log('NTFY_TOPIC not set — debt app notifications will use Web Push subscriptions only');
 }
 
 // Start server

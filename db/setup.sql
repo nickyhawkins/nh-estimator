@@ -301,3 +301,25 @@ DROP TRIGGER IF EXISTS debt_plan_borrowed_updated_at ON debt_plan_borrowed;
 CREATE TRIGGER debt_plan_borrowed_updated_at
   BEFORE UPDATE ON debt_plan_borrowed
   FOR EACH ROW EXECUTE FUNCTION debt_plan_set_updated_at();
+
+-- Web Push (debt app, Feature 4 extension): push straight to the installed
+-- PWA, alongside ntfy. These tables are ALSO created lazily by
+-- lib/debtPush.js on first use (this file is not run automatically on
+-- deploy), so they're documented here for fresh installs rather than being
+-- a required migration step. The VAPID keypair is generated server-side on
+-- first use and persisted so subscriptions survive restarts; one
+-- subscription row per enabled device.
+CREATE TABLE IF NOT EXISTS debt_push_vapid (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  public_key TEXT NOT NULL,
+  private_key TEXT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS debt_push_subscriptions (
+  id SERIAL PRIMARY KEY,
+  endpoint TEXT UNIQUE NOT NULL,
+  subscription JSONB NOT NULL,
+  user_agent TEXT,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
