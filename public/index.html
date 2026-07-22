@@ -692,7 +692,8 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     </div>
     <div class="card">
       <div class="card-header">Exterior Rates</div>
-      <div class="field-row"><div class="field-label">Masonry / Render<small>mins/m² per coat</small></div><input type="number" class="field-input" id="s-rextmasonry" value="5" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Masonry / Render — smooth<small>mins/m² per coat</small></div><input type="number" class="field-input" id="s-rextmasonry" value="5" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Masonry / Render — textured<small>mins/m² per coat — used when an item's Textured render toggle is on</small></div><input type="number" class="field-input" id="s-rextmasonrytex" value="7" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Fascias &amp; Soffits<small>mins/lm per coat</small></div><input type="number" class="field-input" id="s-rextfascia" value="8" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Ext Window base<small>mins/coat at 2 panes</small></div><input type="number" class="field-input" id="s-rextwinbase" value="25" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Ext Window per pane<small>mins/coat, beyond 2 panes</small></div><input type="number" class="field-input" id="s-rextwinperpane" value="2" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
@@ -711,7 +712,10 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     <div class="card">
       <div class="card-header">Exterior Paint Coverage &amp; Areas</div>
       <div class="settings-note">Exterior items only carry counts/lengths, so paint litres are estimated from an assumed paintable area per unit. Start with these defaults and calibrate against real jobs — same idea as the sundries %.</div>
-      <div class="field-row"><div class="field-label">Masonry coverage<small>m² per litre, per coat</small></div><input type="number" class="field-input" id="s-extmasonrycov" value="6" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Masonry — smooth, rolled<small>m² per litre, per coat</small></div><input type="number" class="field-input" id="s-extmasonrycov" value="6" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Masonry — smooth, sprayed<small>m² per litre, per coat</small></div><input type="number" class="field-input" id="s-extmasonrycovspray" value="4" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Masonry — textured, rolled<small>m² per litre, per coat</small></div><input type="number" class="field-input" id="s-extmasonrycovtex" value="4" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Masonry — textured, sprayed<small>m² per litre, per coat</small></div><input type="number" class="field-input" id="s-extmasonrycovtexspray" value="3" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Ext woodwork coverage<small>m² per litre, per coat</small></div><input type="number" class="field-input" id="s-extwoodcov" value="12" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Area per window<small>m² paintable, per casement</small></div><input type="number" class="field-input" id="s-extareawindow" value="1.5" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Area per sash window<small>m² paintable, per sash</small></div><input type="number" class="field-input" id="s-extareasash" value="2.5" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
@@ -905,6 +909,8 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="card-body open" id="sec-ext-masonry">
       <div class="field-row"><div class="field-label">Area<small>m²</small></div><input type="number" class="field-input" id="ex-masonry" placeholder="0" min="0" step="0.5" inputmode="decimal" oninput="previewExterior()"></div>
       <div class="field-row"><div class="field-label">Coats</div><div class="seg" id="seg-ex-masonry"><button class="seg-btn" onclick="setExtSeg('ex-masonry',1)">1</button><button class="seg-btn active" onclick="setExtSeg('ex-masonry',2)">2</button><button class="seg-btn" onclick="setExtSeg('ex-masonry',3)">3</button></div></div>
+      <div class="toggle-row"><div class="toggle-label">Textured render<small>Litres use the textured masonry coverage and labour uses the textured masonry rate — off means smooth</small></div><div class="toggle" id="tog-ex-tex" onclick="toggleExtTextured()"></div></div>
+      <div class="toggle-row"><div class="toggle-label">Spray render<small>Litres use the sprayed masonry coverage, and the masonry labour picks up the spray sundries bump. Labour time is unchanged</small></div><div class="toggle" id="tog-ex-spray" onclick="toggleExtSpray()"></div></div>
       </div>
     </div>
     <div class="card">
@@ -1022,10 +1028,14 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        The question that matters on site is "did today's measurements reach
        the server before I drive off?" — this row answers it explicitly. -->
   <div class="nav-menu-sync" id="nav-menu-sync"></div>
-  <!-- Build marker: bump the label when verifying a deploy actually reached
-       the phone -- the PWA plus Render's deploy lag makes "which version am
-       I on?" otherwise unanswerable from the device. -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: spray toggle v1 · 21 Jul</div>
+  <!-- Build marker: bump on EVERY deploy-worthy change so a deploy can be
+       verified from the phone -- the PWA plus Render's deploy lag makes
+       "which version am I on?" otherwise unanswerable from the device.
+       Numbered by significance (was feature-name + date before v1.2.0):
+       major = reworks/breaking data changes, minor = new features,
+       patch = fixes and small tweaks. Keep in sync with package.json's
+       "version". -->
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.2.0</div>
 </div>
 </div>
 
@@ -1598,7 +1608,7 @@ async function createXeroQuote() {
     // Itemised for the quote: each exterior item is its own labelled line
     // (mirroring rooms), not a single lump total -- while still summing
     // extTotal/extTimeTotal for the job total and realistic-time figures.
-    var exteriorData = extItems.map(function(item){ var c = calcExtItem(item); extTotal += c.total; extTimeTotal += c.time; return { label: item.label, total: c.total }; });
+    var exteriorData = extItems.map(function(item){ var c = calcExtItem(item); extTotal += c.total; extTimeTotal += c.time; sprayLabourS += c.sprayLabour || 0; return { label: item.label, total: c.total }; });
     // Kitchen: a single per-job config, not a list -- one lump cost/time,
     // matching how routes/xero.js turns it into one Xero line item.
     var kitchenXeroCalc = calcKitchen(activeJob() && activeJob().kitchen);
@@ -1924,6 +1934,7 @@ var SETTINGS_FIELDS = [
   ['wpMuralMaterialRatePerM2', 's-wpmural-material-rate',  0],
   ['wpMuralFlatFee',           's-wpmural-flat-fee',       0],
   ['rExtMasonry',    's-rextmasonry',    5],
+  ['rExtMasonryTex', 's-rextmasonrytex', 7],
   ['rExtFascia',     's-rextfascia',     8],
   ['rExtWinBase',    's-rextwinbase',    25],
   ['rExtWinPerPane', 's-rextwinperpane', 2],
@@ -1939,6 +1950,9 @@ var SETTINGS_FIELDS = [
   ['rStaffBeads',   's-rstaffbeads',   25],
   ['rPartingBeads', 's-rpartingbeads', 35],
   ['extMasonryCov',  's-extmasonrycov',  6],
+  ['extMasonryCovSpray', 's-extmasonrycovspray', 4],
+  ['extMasonryCovTex', 's-extmasonrycovtex', 4],
+  ['extMasonryCovTexSpray', 's-extmasonrycovtexspray', 3],
   ['extWoodCov',     's-extwoodcov',     12],
   ['extAreaWindow',  's-extareawindow',  1.5],
   ['extAreaSash',    's-extareasash',    2.5],
@@ -3413,7 +3427,21 @@ function extMasonryLitres(item) {
   var area = +item.masonry || 0;
   if (area <= 0) return 0;
   var coats = (item.coats || {})['ex-masonry'] || 2;
-  var cov = settings.extMasonryCov || 6;
+  // Smooth/textured x rolled/sprayed: four coverage rates, both toggles
+  // materials-only forks mirroring the interior wall toggle in calcRoom().
+  // Textured render soaks up more paint however it's applied, so texture
+  // picks its own rolled/sprayed pair rather than stacking a multiplier on
+  // the smooth rates. Fallback chain per pick: its own rate, then the
+  // smooth rolled rate (an old settings blob predating these fields), then
+  // the hardcoded default.
+  var cov;
+  if (item.texturedRender) {
+    cov = item.sprayRender ? (settings.extMasonryCovTexSpray || settings.extMasonryCov || 6)
+                           : (settings.extMasonryCovTex || settings.extMasonryCov || 6);
+  } else {
+    cov = item.sprayRender ? (settings.extMasonryCovSpray || settings.extMasonryCov || 6)
+                           : (settings.extMasonryCov || 6);
+  }
   return area * coats / cov;
 }
 // All exterior woodwork surfaces (windows, sash, doors, garage, fascia) pooled
@@ -4795,6 +4823,8 @@ function onRoomOverrideBandSelect(role) {
 var extItems = [];
 var editExtId = null;
 var extItemCoats = {'ex-masonry':2,'ex-fascia':2,'ex-wins':2,'ex-doors':2,'ex-garage':2};
+var exSprayRender = false;
+var exTexturedRender = false;
 var exPrepPct = 0;
 // Form-local window lists (not the saved item's own arrays until Save is
 // tapped) -- each row is a {qty, panes, access, ...repairs} record describing
@@ -4919,7 +4949,16 @@ function toggleExtWindowRepairsOpen(key, idx) {
 }
 
 // Exterior rate functions
-function extMasonryMins(c) { return c * (settings.rExtMasonry||5); }
+// Texture forks the labour rate (unlike spray, which is materials-only):
+// working paint into textured render is genuinely slower than smooth,
+// whereas spray's speed gain is treated as cancelling its masking time.
+// One textured rate covers rolled and sprayed alike -- spray never changes
+// labour, texture always does.
+function extMasonryMins(c, textured) {
+  var rate = textured ? (settings.rExtMasonryTex || settings.rExtMasonry || 5)
+                      : (settings.rExtMasonry || 5);
+  return c * rate;
+}
 function extFasciaMins(c)  { return c * (settings.rExtFascia||8); }
 // Access multiplier: ground floor is baseline: first-floor/ladder work and
 // tower-scaffold work both take longer than reaching a window from the
@@ -4995,7 +5034,7 @@ function calcExtItem(item) {
   var porch = +item.porch||0;
   var mc = item.coats||{};
 
-  var masonryCost = masonry > 0 ? masonry * extMasonryMins(mc['ex-masonry']||2) * r2 : 0;
+  var masonryCost = masonry > 0 ? masonry * extMasonryMins(mc['ex-masonry']||2, !!item.texturedRender) * r2 : 0;
   var fasciaCost  = fascia  > 0 ? fascia  * extFasciaMins(mc['ex-fascia']||2)   * r2 : 0;
   var winCoats = mc['ex-wins']||2;
   // Repairs (resin/reglaze/draught-proofing, plus sash-only cords/beads) are
@@ -5036,6 +5075,14 @@ function calcExtItem(item) {
   return { total: total, time: time, winCost: winCost, sashCost: sashCost, repairsCost: repairsCost,
            masonryCost: masonryCost, fasciaCost: fasciaCost, doorCost: doorCost,
            garageCost: garageCost, porchCost: porchCost,
+           // Spray sundries bump basis, same contract as calcRoom()'s
+           // sprayLabour. Unlike rooms (whole-room labour), only the masonry
+           // share carries the bump here -- an exterior item can be dominated
+           // by window restoration that has nothing to do with spraying the
+           // render, so the whole-item total would be the wrong proxy for
+           // masking. Includes the masonry share of prep, matching how prep
+           // scales the base cost in `total` above.
+           sprayLabour: item.sprayRender ? masonryCost * (1 + prepUp/100) : 0,
            legacyResinCost: legacyResinCost, legacyReglazeCost: legacyReglazeCost };
 }
 
@@ -5248,6 +5295,10 @@ function resetExtForm() {
   editExtId = null;
   exPrepPct = 0;
   extItemCoats = {'ex-masonry':2,'ex-fascia':2,'ex-wins':2,'ex-doors':2,'ex-garage':2};
+  exSprayRender = false;
+  document.getElementById('tog-ex-spray').classList.remove('on');
+  exTexturedRender = false;
+  document.getElementById('tog-ex-tex').classList.remove('on');
   extColourNumbers = { 'ext-masonry': 1, 'ext-woodwork': 1 };
   populateExtColourChips('ext-masonry');
   populateExtColourChips('ext-woodwork');
@@ -5270,6 +5321,18 @@ function resetExtForm() {
   document.getElementById('ex-prep-custom-row').style.display='none';
   document.getElementById('ext-preview-card').style.display='none';
   document.getElementById('del-ext-btn').style.display='none';
+}
+
+function toggleExtSpray() {
+  exSprayRender = !exSprayRender;
+  document.getElementById('tog-ex-spray').classList.toggle('on', exSprayRender);
+  previewExterior();
+}
+
+function toggleExtTextured() {
+  exTexturedRender = !exTexturedRender;
+  document.getElementById('tog-ex-tex').classList.toggle('on', exTexturedRender);
+  previewExterior();
 }
 
 function previewExterior() {
@@ -5311,6 +5374,8 @@ function getExtFormData() {
     sashWindows: cleanWindowList(extFormSashWindows),
     sash:    extWindowCount(extFormSashWindows),
     coats:   Object.assign({}, extItemCoats),
+    sprayRender: exSprayRender,
+    texturedRender: exTexturedRender,
     masonryColourNumber: extColourNumbers['ext-masonry'],
     extWoodworkColourNumber: extColourNumbers['ext-woodwork'],
     prepPct: exPrepPct,
@@ -5333,6 +5398,10 @@ function editExtItem(id) {
   editExtId = id;
   exPrepPct = item.prepPct!=null?item.prepPct:0;
   extItemCoats = Object.assign({'ex-masonry':2,'ex-fascia':2,'ex-wins':2,'ex-doors':2,'ex-garage':2}, item.coats||{});
+  exSprayRender = !!item.sprayRender;
+  document.getElementById('tog-ex-spray').classList.toggle('on', exSprayRender);
+  exTexturedRender = !!item.texturedRender;
+  document.getElementById('tog-ex-tex').classList.toggle('on', exTexturedRender);
   extColourNumbers = { 'ext-masonry': item.masonryColourNumber||1, 'ext-woodwork': item.extWoodworkColourNumber||1 };
   populateExtColourChips('ext-masonry');
   populateExtColourChips('ext-woodwork');
@@ -7098,7 +7167,7 @@ function renderSummary() {
     '<div style="height:1px;background:var(--border)"></div>';
   }).join('');
   var extTotal=0; var extTimeTotal=0;
-  extCalcs.forEach(function(c){extTotal+=c.total;extTimeTotal+=c.time;});
+  extCalcs.forEach(function(c){extTotal+=c.total;extTimeTotal+=c.time;sprayLabourS+=c.sprayLabour||0;});
   // kitchenCalc computed above (ahead of the empty-state guard) -- reused
   // here rather than calling calcKitchen() a second time.
   var kitchenTotal = kitchenCalc.total, kitchenTimeTotal = kitchenCalc.time;
@@ -7259,7 +7328,7 @@ function renderSummary() {
       var legacyResinCost   = c.legacyResinCost||0;
       var legacyReglazeCost = c.legacyReglazeCost||0;
       if(prepUp>0){var base=masonryCost+fasciaCost+winCost+doorCost+garageCost+sashCost+legacyResinCost+legacyReglazeCost;sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Prep ('+prepLabel+')</span><span class="breakdown-sub-value">'+fmt(base*(prepUp/100)*mk)+'</span></div>';}
-      if(masonryCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Masonry / Render</span><span class="breakdown-sub-value">'+fmt(masonryCost*mk)+'</span></div>';
+      if(masonryCost>0){var renderTags=[item.texturedRender?'textured':'',item.sprayRender?'sprayed':''].filter(Boolean).join(', ');sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Masonry / Render'+(renderTags?' — '+renderTags:'')+'</span><span class="breakdown-sub-value">'+fmt(masonryCost*mk)+'</span></div>';}
       if(fasciaCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Fascias &amp; Soffits</span><span class="breakdown-sub-value">'+fmt(fasciaCost*mk)+'</span></div>';
       if(winCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ext Windows</span><span class="breakdown-sub-value">'+fmt(winCost*mk)+'</span></div>';
       if(doorCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ext Doors</span><span class="breakdown-sub-value">'+fmt(doorCost*mk)+'</span></div>';
@@ -7302,7 +7371,7 @@ function renderSummary() {
       '<span class="breakdown-label" style="font-weight:600;color:var(--text)">Labour subtotal</span>'+
       '<span class="breakdown-value" style="color:var(--accent)">'+fmt(tcS)+'</span></div>'+
     (sundries>0?'<div class="breakdown-row">'+
-      '<span class="breakdown-label">Sundries &amp; Consumables<small style="display:block;font-weight:400;color:var(--text2)">'+settings.sundriesPct+'% of labour'+(plan.spraySundries>0?' + '+settings.sundriesSprayPct+'% spray masking on sprayed rooms':'')+'</small></span>'+
+      '<span class="breakdown-label">Sundries &amp; Consumables<small style="display:block;font-weight:400;color:var(--text2)">'+settings.sundriesPct+'% of labour'+(plan.spraySundries>0?' + '+settings.sundriesSprayPct+'% spray masking on sprayed areas':'')+'</small></span>'+
       '<span class="breakdown-value">'+fmt(sundries)+'</span></div>':'')+
     '<div class="breakdown-row">'+
       '<span class="breakdown-label" style="font-weight:600;color:var(--text)">'+markupSummaryLabel()+'<small style="display:block;font-weight:400;color:var(--text2)">on labour + sundries</small></span>'+
