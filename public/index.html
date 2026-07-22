@@ -254,6 +254,14 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Width<small>metres</small></div><input type="number" class="field-input" id="r-w" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
       <div class="field-row"><div class="field-label">Height<small>metres</small></div><input type="number" class="field-input" id="r-h" value="2.4" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
     </div>
+    <div class="card" id="card-excluded-walls">
+      <div class="card-header sec-toggle" onclick="toggleFormSection('excluded')"><span>Excluded Walls</span><span class="sec-chev" id="sec-chev-excluded">›</span></div>
+      <div class="card-body" id="sec-excluded">
+        <div class="subsection-label">Excluded Walls<small>walls you're not painting — e.g. wallpaper that's staying. Each width × height comes off the painted wall area (and mist coat); leave empty to skip</small></div>
+        <div id="excluded-walls-list"></div>
+        <div class="field-row" style="cursor:pointer" onclick="addExcludedWall()"><div class="field-label" style="color:var(--accent);font-weight:600">+ Add excluded wall</div></div>
+      </div>
+    </div>
     <div class="card" id="card-hsl-geometry" style="display:none">
       <div class="card-header">Number of Floors</div>
       <div class="field-row">
@@ -1035,7 +1043,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.2.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.3.0</div>
 </div>
 </div>
 
@@ -2041,6 +2049,11 @@ var prepPct  = 10; // 10 (Minimal, default), 25 (Standard), 40 (Heavy), or -1 fo
 // as extFormWindows below -- see addPanelWall()/renderPanelWallsList().
 var panelPrepPct = 10;
 var panelItemsForm = [];
+// Excluded walls: same form-local-array lifecycle as panelItemsForm, but
+// the OPPOSITE meaning -- {id,width,height} rows of wall that are NOT
+// being painted (wallpaper that's staying, a mirrored/tiled wall, etc.),
+// subtracted from the room's wall area in calcRoom() rather than priced.
+var excludedWallsForm = [];
 var swCoats  = 2;
 var curTab   = 'home';
 var inSub    = null; // 'room' | 'stair' | null
@@ -2737,6 +2750,8 @@ function goScreen(name) {
     };
     panelItemsForm = [];
     renderPanelWallsList();
+    excludedWallsForm = [];
+    renderExcludedWallsList();
     panelPrepPct = 10;
     document.querySelectorAll('#seg-panel-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===0);});
     document.getElementById('panel-prep-custom-row').style.display = 'none';
@@ -2843,6 +2858,18 @@ function calcRoom(r) {
   var mistW=!!r.mistWall, mistC=!!r.mistCeil;
   // Use pre-computed area if set (staircase rooms), otherwise calculate normally
   var wallArea = r.wallAreaOverride ? +r.wallAreaOverride : Math.max((L*2+W*2)*H - doors*1.8, 0);
+  // Excluded walls (e.g. wallpaper that's staying): each one's measured
+  // width x height comes off the wall area HERE, before anything downstream
+  // reads it -- paint labour, wall litres, mist coat and the feature-wall
+  // carve-out all shrink together. Deliberately NOT applied to room
+  // wallpaper (wpwCost below prices by perimeter-derived rolls, and a wall
+  // excluded from painting may well be the one being papered). HSL rooms
+  // never carry the array -- buildRoomFromForm() drops it in staircase
+  // mode, since calcHSLNow()'s preview knows nothing about exclusions.
+  var excludedWallArea = (r.excludedWalls || []).reduce(function(sum, x){
+    return sum + Math.max(+x.width || 0, 0) * Math.max(+x.height || 0, 0);
+  }, 0);
+  wallArea = Math.max(wallArea - excludedWallArea, 0);
   var ceilArea = r.ceilAreaOverride ? +r.ceilAreaOverride : L*W;
   var perim    = (L+W)*2;
   var r2       = rpm();
@@ -5594,6 +5621,7 @@ function duplicateRoom(id) {
   // Panelling rows carry their own ids -- refresh them so the copy never
   // shares row ids with the original.
   (copy.panelItems || []).forEach(function(p) { p.id = uid(); });
+  (copy.excludedWalls || []).forEach(function(x) { x.id = uid(); });
   rooms.splice(idx + 1, 0, copy);
   saveRooms();
   renderHome();
@@ -6074,6 +6102,62 @@ function setPanelWallField(idx, field, value) {
   previewRoom();
 }
 
+// Excluded walls list -- same row template and add/remove/set lifecycle as
+// the panelling walls above, minus the coats input (an excluded wall isn't
+// painted at all), plus a running total row so the m² coming off the wall
+// area is visible without hunting through the preview.
+function renderExcludedWallsList() {
+  var el = document.getElementById('excluded-walls-list');
+  if (!el) return;
+  el.innerHTML = excludedWallsForm.map(function(x, i) {
+    return '<div class="field-row">'+
+      '<div class="field-label">Wall '+(i+1)+'</div>'+
+      '<div style="display:flex;align-items:center;gap:6px">'+
+        '<input type="number" class="field-input" style="width:56px" value="'+x.width+'" min="0" step="0.1" inputmode="decimal" placeholder="W" onchange="setExcludedWallField('+i+',\'width\',this.value)">'+
+        '<span style="color:var(--text3)">×</span>'+
+        '<input type="number" class="field-input" style="width:56px" value="'+x.height+'" min="0" step="0.1" inputmode="decimal" placeholder="H" onchange="setExcludedWallField('+i+',\'height\',this.value)">'+
+        '<div onclick="removeExcludedWall('+i+')" style="color:var(--danger);font-size:22px;padding:0 4px;cursor:pointer">×</div>'+
+      '</div>'+
+    '</div>';
+  }).join('') + (excludedWallsForm.length
+    ? '<div class="breakdown-row"><span class="breakdown-label">Excluded from wall area</span><span class="breakdown-value" id="excluded-walls-total">—</span></div>'
+    : '');
+  updateExcludedWallsTotal();
+}
+
+// Total updated in place (not via a full re-render) so a width edit's
+// onchange can't rebuild the list out from under the H input the user is
+// about to tab into -- the same reason setPanelWallField() doesn't re-render.
+function updateExcludedWallsTotal() {
+  var el = document.getElementById('excluded-walls-total');
+  if (!el) return;
+  el.textContent = fmtM(excludedWallsForm.reduce(function(s, x){
+    return s + (+x.width || 0) * (+x.height || 0);
+  }, 0));
+}
+
+function addExcludedWall() {
+  // Height pre-filled from the room height -- an excluded wall is nearly
+  // always full-height, so usually only its width needs typing.
+  excludedWallsForm.push({ id: uid(), width: 0, height: +document.getElementById('r-h').value || 0 });
+  renderExcludedWallsList();
+  previewRoom();
+}
+
+function removeExcludedWall(idx) {
+  excludedWallsForm.splice(idx, 1);
+  renderExcludedWallsList();
+  previewRoom();
+}
+
+function setExcludedWallField(idx, field, value) {
+  var x = excludedWallsForm[idx];
+  if (!x) return;
+  x[field] = Math.max(0, +value || 0);
+  updateExcludedWallsTotal();
+  previewRoom();
+}
+
 function toggleMist(key) {
   if(key==='mw') { mistWall=!mistWall; document.getElementById('tog-mw').classList.toggle('on',mistWall); }
   if(key==='mc') { mistCeil=!mistCeil; document.getElementById('tog-mc').classList.toggle('on',mistCeil); }
@@ -6125,7 +6209,8 @@ function previewRoomNow() {
     fwWpCommercialType:fwWpCommercialType, fwMuralPriceMode:fwMuralPriceMode,
     fwVinylRollWidthCm:+document.getElementById('r-fw-vinyl-rollwidth').value||137,
     panelItems:panelItemsForm, panelPrepPct:panelPrepPct,
-    panelPrepCustom:+document.getElementById('r-panel-prep-custom').value};
+    panelPrepCustom:+document.getElementById('r-panel-prep-custom').value,
+    excludedWalls:excludedWallsForm};
   var c=calcRoom(r);
   document.getElementById('room-preview').style.display='block';
   document.getElementById('prev-wall').textContent=fmtM(c.wallArea);
@@ -6280,6 +6365,8 @@ function editRoom(id) {
   document.getElementById('r-mist-area').value = r.mistAreaOverride || '';
   panelItemsForm = (r.panelItems || []).map(function(p){ return { id: p.id||uid(), width: +p.width||0, height: +p.height||0, coats: +p.coats||2 }; });
   renderPanelWallsList();
+  excludedWallsForm = (r.excludedWalls || []).map(function(x){ return { id: x.id||uid(), width: +x.width||0, height: +x.height||0 }; });
+  renderExcludedWallsList();
   panelPrepPct = r.panelPrepPct != null ? r.panelPrepPct : 10;
   document.querySelectorAll('#seg-panel-prep .seg-btn').forEach(function(b,i){ b.classList.toggle('active', [10,25,40,-1][i]===panelPrepPct); });
   document.getElementById('r-panel-prep-custom').value = r.panelPrepCustom||'';
@@ -6452,6 +6539,9 @@ function buildRoomFromForm() {
     // filled in yet (or removed) -- skip them, same "0 to skip" rule as
     // feature wall's width/height above.
     panelItems:panelItemsForm.filter(function(p){ return (+p.width>0 && +p.height>0); }).map(function(p){ return { id:p.id, width:+p.width, height:+p.height, coats:+p.coats||2 }; }),
+    // Walls NOT being painted -- same "empty placeholder rows dropped on
+    // save" rule as panelItems above.
+    excludedWalls:excludedWallsForm.filter(function(x){ return (+x.width>0 && +x.height>0); }).map(function(x){ return { id:x.id, width:+x.width, height:+x.height }; }),
     l:+document.getElementById('r-l').value, w:+document.getElementById('r-w').value, h:+document.getElementById('r-h').value,
     wc:coats.wc, cc:coats.cc, xc:coats.xc,
     win:+document.getElementById('r-win').value, doors:+document.getElementById('r-doors').value, rads:+document.getElementById('r-rads').value,
@@ -6476,6 +6566,11 @@ function buildRoomFromForm() {
   if (roomIsStaircase) {
     room.l = '1'; room.w = '1'; room.h = '1';
     room.isHSL = true;
+    // Excluded walls are a normal-room concept -- calcHSLNow()'s preview
+    // knows nothing about them, so persisting rows here (left over from
+    // before the staircase toggle was flipped) would make the saved total
+    // silently drift below the staircase preview.
+    room.excludedWalls = [];
     var hslOverrides = computeHSLOverrides();
     Object.keys(hslOverrides).forEach(function(k){ room[k] = hslOverrides[k]; });
   }
@@ -6567,6 +6662,7 @@ function setRoomStaircase(on) {
   roomIsStaircase = on;
   document.getElementById('tog-staircase').classList.toggle('on', on);
   document.getElementById('card-dimensions').style.display = on ? 'none' : 'block';
+  document.getElementById('card-excluded-walls').style.display = on ? 'none' : 'block';
   document.getElementById('card-hsl-geometry').style.display = on ? 'block' : 'none';
   document.getElementById('card-hsl-hall').style.display = on ? 'block' : 'none';
   document.getElementById('card-hsl-woodwork').style.display = on ? 'block' : 'none';
