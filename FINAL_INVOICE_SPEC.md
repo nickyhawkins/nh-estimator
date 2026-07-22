@@ -30,8 +30,10 @@ maths, negative-quantity lines, divider row, status hook).
 stays as manual mark-invoiced, and the builder is one tap away on Summary; (2) the
 sundries line mirrors the QUOTE's exactly (raw original labour × % × markup, no
 spray-sundries bump — the quote has never included it, and labour/sundries go out AS
-QUOTED); (3) the negative-line deduction style still needs the accountant's nod, as the
-spec itself flags.
+QUOTED); (3) **the deduction question was answered by Nicky same day: payments are
+applied in Xero** — so the invoice goes out at the FULL amount with no negative lines
+(v1.10.1); the review screen's deposit/instalment figures are reference-only, showing
+the payments to apply in Xero and the balance the client will owe after application.
 
 ## Purpose
 
