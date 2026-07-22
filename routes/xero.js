@@ -790,6 +790,45 @@ router.post('/update-quote-status', async (req, res) => {
   }
 });
 
+// Inward half of the quote-status sync (JOB_PIPELINE_SPEC.md Part 3) --
+// batch-reads the given quotes so the app can learn about answers given
+// through Xero's own portal/email without them being re-typed. Read-only.
+// Per-quote failures never fail the batch: a quote Xero no longer has
+// (hard 404) reports status DELETED so the client can drop its dead link,
+// and any other per-quote error reports status null, which the client
+// ignores (it's a poll -- the next app open retries).
+router.get('/quote-statuses', async (req, res) => {
+  const ids = String(req.query.ids || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (!ids.length) return res.status(400).json({ error: 'ids is required' });
+
+  try {
+    const accessToken = await getAccessToken();
+    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    const tenantId = result.rows[0]?.xero_tenant_id;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
+    }
+    const headers = {
+      Authorization: `Bearer ${accessToken}`,
+      'Xero-Tenant-Id': tenantId,
+      Accept: 'application/json'
+    };
+
+    const statuses = await Promise.all(ids.map(id =>
+      axios.get(`${XERO_API_URL}/Quotes/${encodeURIComponent(id)}`, { headers })
+        .then(r => {
+          const quote = r.data.Quotes && r.data.Quotes[0];
+          return { quoteId: id, status: quote ? quote.Status : null };
+        })
+        .catch(err => ({ quoteId: id, status: err.response?.status === 404 ? 'DELETED' : null }))
+    ));
+    res.json({ ok: true, statuses });
+  } catch (err) {
+    console.error('Quote statuses error:', err.response?.data || err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
 module.exports.getAccessToken = getAccessToken;
 // Exported for the tin-fill checks in scripts/check_item_parse.py's Node

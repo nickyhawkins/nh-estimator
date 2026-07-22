@@ -1,7 +1,30 @@
 # Job Pipeline — Spec (lifecycle statuses + attention strip + inward Xero sync)
 
-**Status: Part 1 BUILT 2026-07-22 (same day as scoping); Parts 2 and 3 not started.**
-Idea #2 in `FEATURES_2.0_IDEAS.md`.
+**Status: ALL THREE PARTS BUILT — Part 1 2026-07-22 (same day as scoping); Parts 2 and 3
+2026-07-22 (second slice, same day).** Idea #2 in `FEATURES_2.0_IDEAS.md`.
+
+**Parts 2+3 as built:** the attention strip renders at the top of Home
+(`renderAttentionStrip()`, container above the room list), lines tappable → switches to
+that job and lands on Summary, where the status card holds the action being nagged about
+(the backup line goes to Settings instead). Chase threshold is the new `chaseDays`
+setting (default 14, "Chase quotes after" in Settings' Quoting card); `exportBackup()`
+now stamps `settings.lastBackupExportAt` on success. Deliberate deviations: (1) the
+"accepted but not scheduled" line waits for `SCHEDULING_SPEC.md` (`startDate` doesn't
+exist yet); (2) a null `lastBackupExportAt` shows NO backup line — every pre-existing
+install would otherwise wake up to a permanent nag it can only clear by exporting, which
+trains ignoring the strip; the clock starts at the first export after this ships; (3) no
+"Needs attention" group on the Jobs list — Home is the attention surface, one place not
+two (consistent with Part 1's no-collapse deviation). Part 3: `GET /auth/quote-statuses`
+batch-reads quotes (per-quote failures isolated; a hard 404 maps to DELETED);
+`syncQuoteAnswersFromXero()` polls fire-and-forget from `initApp()` after the jobs fetch;
+`setJobStatusById()` gained the `opts.skipXeroSync` arg and records the inward
+`xeroQuoteStatus` before the status change so the outward guard sees the truth. Xero
+INVOICED advances a quoted job to accepted with an "invoiced in Xero" chip (Jobs row +
+Summary), per the spec. Verified with a 15-check browser smoke run (real Chromium against
+a mock server): strip rules incl. answered/fresh exclusions, all four inward transitions,
+the app's-answer-wins guard, no outward push on inward changes, strip tap navigation, and
+no runtime errors. The live-Xero caveat from Part 1 applies to Part 3 equally: watch the
+first real poll against a real quote.
 
 **Part 1 as built:** `setJobStatusById()` extended with `quoted` (auto-set by a successful
 Send to Xero; re-send refreshes `quotedAt`; never moves an answered job backwards) and

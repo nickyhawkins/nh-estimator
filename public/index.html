@@ -204,6 +204,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
   </div>
   <div class="content">
+    <div id="attention-strip"></div>
     <div class="empty" id="home-empty">
       <div class="empty-icon">🏠</div>
       <div class="empty-title">No rooms yet</div>
@@ -657,6 +658,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Sundries &amp; Consumables<small>% of labour, before markup</small></div><input type="number" class="field-input" id="s-sundries" value="5" min="0" max="100" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Spray sundries bump<small>extra % on sprayed rooms' labour — masking film, tape &amp; paper</small></div><input type="number" class="field-input" id="s-sundriesspray" value="3" min="0" max="100" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Deposit<small>% of quote — or materials+sundries cost, whichever greater</small></div><input type="number" class="field-input" id="s-deposit-pct" value="25" min="0" max="100" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Chase quotes after<small>days — unanswered quotes then appear on Home's attention strip</small></div><input type="number" class="field-input" id="s-chasedays" value="14" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
     </div>
     <div class="card">
       <div class="card-header">Scheduling</div>
@@ -1043,7 +1045,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.6.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.7.0</div>
 </div>
 </div>
 
@@ -1261,6 +1263,7 @@ function saveSettings() {
   // that doesn't exist. Same pattern as materials above.
   next.paymentType = settings.paymentType || 'single';
   next.paymentWeeks = settings.paymentWeeks || null;
+  next.lastBackupExportAt = settings.lastBackupExportAt || null;
   settings = next;
   localStorage.setItem('pe-settings', JSON.stringify(settings));
   apiPut('/api/settings', settings);
@@ -1804,6 +1807,11 @@ async function initApp() {
     // point. Call it unconditionally here so both agree regardless of rooms.
     renderHome();
 
+    // Inward Xero quote sync (Part 3) -- needs the server's jobs list
+    // (fresh xeroQuoteIds) resolved above, nothing below needs it.
+    // Fire-and-forget: it re-renders whatever it changes.
+    syncQuoteAnswersFromXero();
+
     // Everything below is independent of everything else -- only settings
     // (merged above, so the Xero branch's renderMaterialsSettings() sees
     // the mapped materials) and jobs (activeJobId must be resolved before
@@ -1924,6 +1932,7 @@ var SETTINGS_FIELDS = [
   ['sundriesPct',  's-sundries',      5],
   ['sundriesSprayPct', 's-sundriesspray', 3],
   ['depositPct',   's-deposit-pct',   25],
+  ['chaseDays',    's-chasedays',     14],
   ['overheadMins', 's-overhead-mins', 45],
   ['bufferPct',    's-buffer-pct',    0],
   ['cw',           's-cw',            13,  'covWall'],
@@ -2008,6 +2017,10 @@ function mergeSettings(raw) {
   out.materials    = raw.materials || {};
   out.paymentType  = raw.paymentType || 'single';
   out.paymentWeeks = raw.paymentWeeks || null;
+  // Stamped by exportBackup() on success (JOB_PIPELINE_SPEC.md Part 2's
+  // backup-age attention line). null = no export recorded since this
+  // shipped, which the strip treats as unknown rather than nagging.
+  out.lastBackupExportAt = raw.lastBackupExportAt || null;
   return out;
 }
 
@@ -2240,7 +2253,10 @@ function persistJobData(job) {
 // exists; anything else tolerates its absence.
 var lastSummaryTotals = null; // set by renderSummary() every render
 
-function setJobStatusById(jobId, newStatus, confirmMsg) {
+// opts.skipXeroSync: set by the inward sync (Part 3) -- the status change
+// came FROM Xero, so pushing it straight back outward would be a pointless
+// write (and a ping-pong risk); everything else behaves exactly as before.
+function setJobStatusById(jobId, newStatus, confirmMsg, opts) {
   var job = jobs.find(function(j) { return j.id === jobId; });
   if (!job) return;
   if (confirmMsg && !confirm(confirmMsg)) return;
@@ -2263,8 +2279,9 @@ function setJobStatusById(jobId, newStatus, confirmMsg) {
   }
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   persistJobData(job);
-  renderSummary(); renderJobs();
+  renderSummary(); renderJobs(); renderAttentionStrip();
 
+  if (opts && opts.skipXeroSync) return;
   // Mirror the client's answer onto the Xero quote this job created, if
   // there is one. 'completed'/'invoiced' are deliberately absent: Xero has
   // no such quote statuses and the quote is already ACCEPTED (both are only
@@ -2308,6 +2325,48 @@ function syncQuoteStatusToXero(job, xeroStatus) {
       alert('Saved here, but the Xero quote could not be marked ' + xeroStatus.toLowerCase() + ': ' + err.message + '\n\nUpdate it in Xero manually, or toggle the status again to retry.');
     });
 }
+
+// Inward half of the sync (JOB_PIPELINE_SPEC.md Part 3): on app open, ask
+// Xero where the outstanding quotes got to, so an answer given through
+// Xero's own portal/email lands in the app without being re-typed.
+// Fire-and-forget like the outward push; failures are silent (it's a poll,
+// the next open retries). Conflict rule: THE APP'S ANSWER WINS -- only jobs
+// still sitting in 'quoted' are ever advanced, so a status Nicky already
+// tapped is never overridden. Xero INVOICED means the quote was accepted
+// and invoiced entirely inside Xero: the job moves to accepted (the app's
+// completed means *work finished*, which Xero can't know) and the synced
+// INVOICED quote status shows as a chip on the row/Summary instead. A hard
+// 404 (quote gone from Xero) drops the dead link but leaves status alone.
+function syncQuoteAnswersFromXero() {
+  var quotedJobs = jobs.filter(function(j) { return j.status === 'quoted' && j.xeroQuoteId; });
+  if (!quotedJobs.length) return;
+  var ids = quotedJobs.map(function(j) { return j.xeroQuoteId; });
+  fetch('/auth/quote-statuses?ids=' + encodeURIComponent(ids.join(',')))
+    .then(function(resp) { return resp.json(); })
+    .then(function(result) {
+      if (!result.ok || !Array.isArray(result.statuses)) return;
+      result.statuses.forEach(function(s) {
+        var job = jobs.find(function(j) { return j.xeroQuoteId === s.quoteId; });
+        if (!job || job.status !== 'quoted') return; // the app's answer wins
+        if (s.status === 'ACCEPTED' || s.status === 'DECLINED' || s.status === 'INVOICED') {
+          // Record what Xero says BEFORE the status change, so the outward
+          // guard inside future toggles compares against the truth.
+          job.xeroQuoteStatus = s.status;
+          var newStatus = s.status === 'DECLINED' ? 'declined' : 'accepted';
+          setJobStatusById(job.id, newStatus, null, { skipXeroSync: true });
+        } else if (s.status === 'DELETED') {
+          job.xeroQuoteId = null;
+          job.xeroQuoteNumber = null;
+          job.xeroQuoteStatus = null;
+          localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+          persistJobData(job);
+          renderJobs(); renderSummary();
+        }
+      });
+    })
+    .catch(function(err) { console.log('Inward quote sync skipped:', err.message); });
+}
+
 function setJobStatus(newStatus, confirmMsg) {
   var job = activeJob();
   if (!job) return;
@@ -2525,6 +2584,7 @@ function renderJobRow(j) {
       '<div style="font-weight:600;color:'+nameColor+(isDimmed ? ';text-decoration:line-through' : '')+'">'+escapeHtml(j.name)+
         (isQuoted ? ' <span style="color:var(--accent);font-size:12px;font-weight:700;text-decoration:none">· QUOTED</span>' : '')+
         (isAccepted ? ' <span style="color:var(--success);font-size:12px;font-weight:700;text-decoration:none">· ACCEPTED</span>' : '')+
+        (isAccepted && j.xeroQuoteStatus === 'INVOICED' ? ' <span style="color:var(--text2);font-size:11px;font-weight:600;text-decoration:none">· invoiced in Xero</span>' : '')+
         (isCompleted ? ' <span style="color:var(--text3);font-size:12px;font-weight:700;text-decoration:none">· COMPLETED</span>' : '')+
         (isInvoiced ? ' <span style="color:var(--success);font-size:12px;font-weight:700;text-decoration:none">· INVOICED</span>' : '')+
         (isDeclined ? ' <span style="color:var(--danger);font-size:12px;font-weight:700;text-decoration:none">· DECLINED</span>' : '')+
@@ -5757,7 +5817,78 @@ function deleteRoomFromList(id) {
 }
 
 // ── Home ───────────────────────────────────────────────────────────────────
+// The attention strip (JOB_PIPELINE_SPEC.md Part 2): a card at the top of
+// Home, only rendered when non-empty -- silence is the success state. All
+// cheap derivations over the already-loaded jobs array + settings:
+//   - quoted with no answer for > settings.chaseDays (unchased quotes are
+//     lost jobs). "No answer" means still status 'quoted' AND the synced
+//     xeroQuoteStatus isn't an answer -- inward sync (Part 3) normally
+//     advances the status itself, so the extra guard only matters in the
+//     gap before a poll lands.
+//   - completed > 3 days and not invoiced (forgotten invoice = lost money,
+//     the app's founding motivation).
+//   - last backup export > 28 days ago. Deliberate deviation: before the
+//     first export ever stamps lastBackupExportAt this is unknown, and
+//     showing a permanent nag a fresh install can't honestly clear would
+//     train Nicky to ignore the strip -- so null shows nothing and the
+//     clock starts at the first export after this ships.
+// The spec's "accepted but not scheduled" line waits for SCHEDULING_SPEC.md
+// (startDate doesn't exist yet). No dismissal mechanism by design: lines
+// clear by doing the thing they point at.
+function renderAttentionStrip() {
+  var el = document.getElementById('attention-strip');
+  if (!el) return;
+  var DAY = 86400000;
+  var now = Date.now();
+  var lines = [];
+  jobs.forEach(function(j) {
+    if (j.status === 'quoted' && j.quotedAt) {
+      var answered = j.xeroQuoteStatus === 'ACCEPTED' || j.xeroQuoteStatus === 'DECLINED';
+      var sentDays = Math.floor((now - new Date(j.quotedAt).getTime()) / DAY);
+      if (!answered && sentDays > (settings.chaseDays || 14)) {
+        lines.push({ jobId: j.id, icon: '⏳', text: 'Quote to chase — <strong>' + escapeHtml(j.name) + '</strong>, sent ' + sentDays + ' days ago' });
+      }
+    }
+    if (j.status === 'completed' && j.completedAt) {
+      var doneDays = Math.floor((now - new Date(j.completedAt).getTime()) / DAY);
+      if (doneDays > 3) {
+        lines.push({ jobId: j.id, icon: '💷', text: 'Not invoiced — <strong>' + escapeHtml(j.name) + '</strong>, finished ' + doneDays + ' days ago' });
+      }
+    }
+  });
+  if (settings.lastBackupExportAt) {
+    var backupAge = now - new Date(settings.lastBackupExportAt).getTime();
+    if (backupAge > 28 * DAY) {
+      var weeks = Math.floor(backupAge / (7 * DAY));
+      lines.push({ screen: 'settings', icon: '🗄', text: 'No backup for ' + weeks + ' week' + (weeks === 1 ? '' : 's') });
+    }
+  }
+  if (!lines.length) { el.innerHTML = ''; return; }
+  el.innerHTML = '<div class="card" style="margin-bottom:16px">' +
+    '<div class="card-header">Needs attention</div>' +
+    lines.map(function(l) {
+      var onclick = l.jobId ? 'attentionOpenJob(\'' + l.jobId + '\')' : 'goTab(\'' + l.screen + '\')';
+      return '<div class="field-row" style="cursor:pointer" onclick="' + onclick + '">' +
+        '<div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">' +
+          '<span style="font-size:16px;flex-shrink:0">' + l.icon + '</span>' +
+          '<span style="font-size:13px;color:var(--text)">' + l.text + '</span>' +
+        '</div>' +
+        '<div style="color:var(--text3);font-size:16px;flex-shrink:0">›</div>' +
+      '</div>';
+    }).join('') +
+  '</div>';
+}
+
+// A strip line's tap: switch to that job and land on its Summary, where the
+// status card holds the action the line is nagging about (chase → the
+// quoted card, invoice → Mark Invoiced).
+function attentionOpenJob(jobId) {
+  if (jobId !== activeJobId) { switchJob(jobId).then(function() { goTab('summary'); }); }
+  else goTab('summary');
+}
+
 function renderHome() {
+  renderAttentionStrip();
   var jobNameEl = document.getElementById('home-job-name');
   if (jobNameEl) jobNameEl.textContent = ((activeJob() && activeJob().name) || 'My Job') + ' ›';
   var empty = document.getElementById('home-empty');
@@ -7558,7 +7689,7 @@ function renderSummary() {
     '<div class="card">'+
       '<div class="field-row">'+
         (jobStatus === 'accepted'
-          ? '<div class="field-label" style="color:var(--success)">✓ Accepted<small>'+(statusJob.acceptedAt ? new Date(statusJob.acceptedAt).toLocaleDateString() : '')+(statusJob.xeroQuoteStatus === 'ACCEPTED' ? ' · Xero ✓' : '')+' · tracked in Materials ›</small></div>'+
+          ? '<div class="field-label" style="color:var(--success)">✓ Accepted<small>'+(statusJob.acceptedAt ? new Date(statusJob.acceptedAt).toLocaleDateString() : '')+(statusJob.xeroQuoteStatus === 'ACCEPTED' ? ' · Xero ✓' : statusJob.xeroQuoteStatus === 'INVOICED' ? ' · invoiced in Xero' : '')+' · tracked in Materials ›</small></div>'+
             '<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">'+
               '<button onclick="completeJob()" style="background:var(--text2);color:white;border:none;border-radius:var(--rs);padding:10px 16px;font-size:14px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;white-space:nowrap">Mark Completed</button>'+
               '<div onclick="moveJobToDraft()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Move to Draft</div>'+
@@ -7815,6 +7946,13 @@ async function exportBackup() {
     a.href = url; a.download = 'nh-estimator-backup-' + date + '.json';
     document.body.appendChild(a); a.click();
     document.body.removeChild(a); URL.revokeObjectURL(url);
+    // Start/refresh the backup-age clock for Home's attention strip
+    // (JOB_PIPELINE_SPEC.md Part 2). Persisted directly rather than via
+    // saveSettings() -- nothing on the Settings inputs changed.
+    settings.lastBackupExportAt = new Date().toISOString();
+    localStorage.setItem('pe-settings', JSON.stringify(settings));
+    apiPut('/api/settings', settings);
+    renderAttentionStrip();
   } catch (e) {
     alert('Export failed: ' + e.message);
   } finally {
