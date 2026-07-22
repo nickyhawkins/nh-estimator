@@ -1084,7 +1084,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.9.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.9.1</div>
 </div>
 </div>
 
@@ -2279,7 +2279,7 @@ function renameJob(id) {
 // part of job.data must go through this so xeroClient/xeroRef/contact/
 // xeroContactId/contactSyncedAt/materialsSeeded/kitchen always travel together.
 function persistJobData(job) {
-  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, workSaturdays: job.workSaturdays, freeVariations: job.freeVariations, variationCount: job.variationCount, kitchen: job.kitchen }) });
+  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, freeVariations: job.freeVariations, variationCount: job.variationCount, kitchen: job.kitchen }) });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -2564,6 +2564,8 @@ function confirmSchedule() {
   if (!job || !dateEl || !dateEl.value) return;
   job.startDate = dateEl.value;
   job.scheduledDays = Math.max(1, Math.ceil(+daysEl.value || 1));
+  var titleEl = document.getElementById('schedule-title');
+  job.scheduleTitle = titleEl && titleEl.value.trim() ? titleEl.value.trim() : null;
   scheduleRowOpen = false;
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   persistJobData(job);
@@ -2595,6 +2597,7 @@ function scheduleBlockHtml(job) {
         '<input type="number" class="field-input" id="schedule-days" value="'+(job.scheduledDays || days)+'" min="1" step="1" inputmode="numeric" style="width:64px;text-align:center" onchange="updateScheduleOverlapHint()">'+
         '<span style="font-size:12px;color:var(--text2)">days</span>'+
       '</div>'+
+      '<input type="text" class="field-input wide" id="schedule-title" value="'+escapeHtml(job.scheduleTitle||'')+'" placeholder="Calendar title (optional) — e.g. Smith · 12 Elm Road" autocorrect="off" style="margin-bottom:8px">'+
       '<div id="schedule-overlap-hint" style="font-size:12px;color:var(--danger);min-height:14px;margin-bottom:8px"></div>'+
       '<div style="display:flex;gap:8px">'+
         '<button onclick="confirmSchedule()" style="flex:1;background:var(--accent);color:white;border:none;border-radius:var(--rs);padding:10px;font-size:13px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer">Save schedule</button>'+
@@ -2612,6 +2615,7 @@ function scheduleBlockHtml(job) {
     return '<div style="border-top:1px solid var(--border);padding:12px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'+
       '<div style="flex:1;min-width:0">'+
         '<div style="font-size:13px;font-weight:600">📅 Starts '+fmtShortDate(job.startDate)+' · '+job.scheduledDays+' day'+(job.scheduledDays === 1 ? '' : 's')+(last && last !== job.startDate ? ' → '+fmtShortDate(last) : '')+'</div>'+
+        (job.scheduleTitle ? '<div style="font-size:11px;color:var(--text2);margin-top:2px">in calendar as “'+escapeHtml(job.scheduleTitle)+'”</div>' : '')+
         (drift ? '<div style="font-size:12px;color:var(--danger);margin-top:2px">estimate now ~'+liveDays+' days, scheduled '+job.scheduledDays+'</div>' : '')+
       '</div>'+
       '<div onclick="toggleScheduleRow()" style="'+link+'">Reschedule</div>'+
@@ -2704,7 +2708,7 @@ function renderScheduleStrip() {
       var isPast = dIso < todayIso;
       var isToday = dIso === todayIso;
       var blocks = (dayMap[dIso] || []).map(function(j) {
-        return '<div onclick="attentionOpenJob(\''+j.id+'\')" style="background:'+colourOf[j.id]+';color:#fff;border-radius:4px;padding:2px 4px;font-size:9px;font-weight:600;line-height:1.3;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer">'+escapeHtml(j.name)+'</div>';
+        return '<div onclick="attentionOpenJob(\''+j.id+'\')" style="background:'+colourOf[j.id]+';color:#fff;border-radius:4px;padding:2px 4px;font-size:9px;font-weight:600;line-height:1.3;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer">'+escapeHtml(j.scheduleTitle||j.name)+'</div>';
       }).join('');
       cells += '<div style="flex:1;min-width:0;min-height:44px;border-radius:6px;padding:3px 4px;background:'+(isToday ? 'var(--surface2)' : 'transparent')+';border:1px solid '+(isToday ? 'var(--accent)' : 'var(--border)')+(isPast ? ';opacity:.35' : '')+'">'+
         '<div style="font-size:9px;color:var(--text3);font-weight:600">'+d.toLocaleDateString('en-GB', { weekday: 'short' }).slice(0, 2)+' '+d.getDate()+'</div>'+

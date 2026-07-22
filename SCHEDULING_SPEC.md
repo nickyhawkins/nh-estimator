@@ -28,6 +28,12 @@ days, and the schedule resurfaces if it's re-accepted. Verified in the 27-check 
 smoke run (schedule flow end-to-end, overlap warning, strip line clearing, ICS key/URL,
 toggles) plus working-day-math harnesses incl. weekend spans and client/server parity.
 
+**Addendum 2026-07-22 (v1.9.1):** the Schedule form gained an optional **calendar
+title** (`job.scheduleTitle`) — job names are usually the client's name, so the ICS
+feed's `name — client` events read as "Smith — Smith". The typed title wins in the ICS
+SUMMARY and on the week strip's blocks; with no title, the fallback now dedupes
+name-equals-client (case-insensitive) instead of repeating it.
+
 ## Purpose
 
 `onSiteDays` (`realisticDays()`, `public/index.html:~3050`) already answers "how long will
