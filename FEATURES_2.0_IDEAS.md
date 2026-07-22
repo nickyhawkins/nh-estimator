@@ -1,8 +1,27 @@
 # NH Estimator 2.0 — Ideas
 
-Brainstorm, 2026-07-22. **Nothing here is committed roadmap** — these are candidates to
-discuss, in rough priority order. When one is chosen, spec it properly (its own
-`*_SPEC.md`, same as material tracking / backup) and move it into `FEATURES.md`.
+Brainstorm, 2026-07-22. **Now the INDEX to the 2.0 specs** — all seven ideas were specced
+same day (each has its own `*_SPEC.md`, linked per idea below). Still candidates, not
+committed roadmap: building one starts by reading its spec, then it moves into `FEATURES.md`.
+
+**Two corrections made while speccing (2026-07-22):**
+- **The backup system is LIVE** — shipped 2026-07-15 (`1b55df0`), all seven tables incl.
+  `material_actuals`, additive import, opt-in settings restore. FEATURES.md's "not built"
+  was doc drift (now fixed there and in `BACKUP_SPEC.md`'s new status header). The
+  sequencing note at the bottom of this file is therefore already satisfied.
+- **Jobs DO have lifecycle state** — idea #2's premise was half-stale: edits #9/#14 shipped
+  draft/accepted/declined/completed with timestamps and outward Xero quote-status sync.
+  `JOB_PIPELINE_SPEC.md` extends that machine rather than inventing one.
+
+| # | Idea | Spec |
+|---|---|---|
+| 1 | Calibration loop | `CALIBRATION_SPEC.md` (absorbs material tracking Phase 3) |
+| 2 | Job pipeline | `JOB_PIPELINE_SPEC.md` |
+| 3 | Scheduling | `SCHEDULING_SPEC.md` |
+| 4 | Variations | `VARIATIONS_SPEC.md` |
+| 5 | Final invoice builder | `FINAL_INVOICE_SPEC.md` (material tracking Phase 2(b)) |
+| 6 | Job templates | `JOB_TEMPLATES_SPEC.md` |
+| 7 | Photos & site notes | `SITE_NOTES_SPEC.md` (notes v1; photos gated on a storage decision) |
 
 ## The 2.0 theme
 
@@ -152,7 +171,11 @@ that's a new infrastructure dependency — cost it before committing. A notes-on
 
 ## Sequencing note
 
-**Ship the backup system first** (`BACKUP_SPEC.md`, scoped, not built). Every idea above
-adds more irreplaceable data to a database that still has no restore path — and #6 wants
-to reuse the import code anyway. After that, #1 and #2 are independent and both start
-accumulating value the day they land, so they lead; #3/#4/#5 chain off #2.
+~~**Ship the backup system first** (`BACKUP_SPEC.md`, scoped, not built).~~ **Already
+shipped 2026-07-15 — see the correction at the top.** So sequencing starts clean: #1
+Phase A (the labour log) and #2 Part 1 (statuses) are independent, tiny, and both start
+accumulating value the day they land — they lead. #3/#4/#5 chain off #2; #5's Step 0
+(the Xero scope verification) is worth doing early since it also derisks #2's inward
+sync. One shared piece to build once: the `acceptedSnapshot` stamp (needed by #1's
+comparison screen, #3's `scheduledDays`, and #4's frozen-quote semantics — each spec
+points at the others).
