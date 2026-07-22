@@ -1,8 +1,37 @@
 # Final Invoice Builder — Spec (material tracking Phase 2(b), done properly)
 
-**Status: SCOPED 2026-07-22, not built.** Idea #5 in `FEATURES_2.0_IDEAS.md`. This is
-`MATERIAL_TRACKING_SPEC.md` Phase 2(b) — that doc said "optional, prove the model with the
-2(a) list first"; 2(a) has been the manual re-keying step since, and this closes it.
+**Status: BUILT 2026-07-22 (same day as scoping) — with Step 0's live half outstanding,
+see below.** Idea #5 in `FEATURES_2.0_IDEAS.md`. This is `MATERIAL_TRACKING_SPEC.md`
+Phase 2(b) — that doc said "optional, prove the model with the 2(a) list first"; 2(a) has
+been the manual re-keying step since, and this closes it.
+
+**As built:** "Build final invoice ›" on a completed job's Summary card opens the review
+screen (`screen-finalinvoice`): labour as quoted (same maths and filtered original scope
+as `createXeroQuote`, incl. fixed-£ markup over the original base), variation lines at
+their agreed prices + variation sundries, materials from the 2(a) list's
+bought-confirmed lines, the quoted sundries line, and typed deductions prefilled from
+`computeDepositPlan()`. Lines drop/restore with ×; unpriced rows show red and BLOCK the
+create button until priced or dropped; zero-actuals warns loudly ("bills labour only");
+un-ticked items are counted but never billed. "Create draft invoice in Xero" →
+`POST /auth/create-invoice` (ACCREC, **always DRAFT**, NoTax, deductions as
+negative-quantity lines) → `xeroInvoiceId`/`xeroInvoiceNumber` stored, status →
+`invoiced`, Summary shows "INV-nnnn (draft in Xero)". Rebuild re-links to the newest
+draft. The 2(a) list remains the permanent fallback and the failure alert says so.
+
+**Step 0 as resolved:** `accounting.transactions` (the documented scope) is now in
+`SCOPES` alongside the legacy `accounting.invoices`. Scopes apply at auth time, so
+**Nicky must reconnect Xero once** before the first invoice write; until then
+`POST /Invoices` may 403 and the builder's error message says exactly that. The
+"watch the first real one" caveat applies at full strength — verified against a mock
+server only (52-check Chromium smoke run: assembly, blocked-line gating, deduction
+maths, negative-quantity lines, divider row, status hook).
+
+**Deviations:** (1) no separate Jobs-list button — the completed row's £ quick-action
+stays as manual mark-invoiced, and the builder is one tap away on Summary; (2) the
+sundries line mirrors the QUOTE's exactly (raw original labour × % × markup, no
+spray-sundries bump — the quote has never included it, and labour/sundries go out AS
+QUOTED); (3) the negative-line deduction style still needs the accountant's nod, as the
+spec itself flags.
 
 ## Purpose
 
