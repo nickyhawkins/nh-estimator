@@ -182,6 +182,39 @@ router.post('/disconnect', async (req, res) => {
 });
 
 // Helper: get valid access token (refresh if needed)
+// Single-flight lock for the refresh leg. Xero refresh tokens are
+// SINGLE-USE (each refresh rotates them): when several requests hit an
+// expired token at once — exactly what happens on app open, where items,
+// quote-statuses and a user action can all fire together — each would race
+// to refresh with the same soon-dead refresh_token. One wins; the losers
+// get invalid_grant and fail their whole request even though nothing is
+// actually wrong. Sharing one in-flight refresh promise means concurrent
+// callers all wait for (and reuse) the same rotation.
+let refreshInFlight = null;
+
+async function refreshXeroToken(token) {
+  const refreshRes = await axios.post(XERO_TOKEN_URL,
+    new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: token.refresh_token
+    }),
+    {
+      auth: {
+        username: process.env.XERO_CLIENT_ID,
+        password: process.env.XERO_CLIENT_SECRET
+      },
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    }
+  );
+  const newToken = { ...refreshRes.data };
+  newToken.expires_at = Date.now() + (newToken.expires_in * 1000);
+  await db.query(
+    'UPDATE settings SET xero_token = $1, updated_at = NOW() WHERE id = 1',
+    [JSON.stringify(newToken)]
+  );
+  return newToken.access_token;
+}
+
 async function getAccessToken() {
   const result = await db.query('SELECT xero_token FROM settings WHERE id = 1');
   const token = result.rows[0]?.xero_token;
@@ -189,29 +222,34 @@ async function getAccessToken() {
 
   // Refresh if expired
   if (Date.now() > token.expires_at - 60000) {
-    const refreshRes = await axios.post(XERO_TOKEN_URL,
-      new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: token.refresh_token
-      }),
-      {
-        auth: {
-          username: process.env.XERO_CLIENT_ID,
-          password: process.env.XERO_CLIENT_SECRET
-        },
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-      }
-    );
-    const newToken = { ...refreshRes.data };
-    newToken.expires_at = Date.now() + (newToken.expires_in * 1000);
-    await db.query(
-      'UPDATE settings SET xero_token = $1, updated_at = NOW() WHERE id = 1',
-      [JSON.stringify(newToken)]
-    );
-    return newToken.access_token;
+    if (!refreshInFlight) {
+      refreshInFlight = refreshXeroToken(token)
+        .finally(() => { refreshInFlight = null; });
+    }
+    return refreshInFlight;
   }
 
   return token.access_token;
+}
+
+// Xero's real complaint out of an axios error, for the client to show.
+// Validation failures arrive as Elements[].ValidationErrors[].Message (the
+// only part that says WHICH rule was broken); other 4xx bodies carry
+// Detail/Message/Title. err.message alone is always the useless
+// "Request failed with status code 400".
+function xeroErrorMessage(err) {
+  const d = err.response?.data;
+  if (d) {
+    const validation = (d.Elements || [])
+      .flatMap(e => (e.ValidationErrors || []).map(v => v.Message))
+      .filter(Boolean);
+    if (validation.length) return validation.join('; ');
+    if (typeof d === 'string' && d.trim()) return d.slice(0, 300);
+    if (d.Detail) return d.Detail;
+    if (d.Message) return d.Message;
+    if (d.Title) return d.Title;
+  }
+  return err.message;
 }
 
 // Check Xero connection status
@@ -256,7 +294,7 @@ router.get('/contacts', async (req, res) => {
     res.json(contacts);
   } catch (err) {
     console.error('Contacts search error:', err.response?.data || err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: xeroErrorMessage(err) });
   }
 });
 
@@ -282,7 +320,7 @@ router.post('/sync-contact', async (req, res) => {
     res.json({ ok: true, contactId: saved.ContactID });
   } catch (err) {
     console.error('Sync contact error:', err.response?.data || err.message);
-    res.status(500).json({ error: err.response?.data?.Message || err.message });
+    res.status(500).json({ error: xeroErrorMessage(err) });
   }
 });
 
@@ -563,7 +601,7 @@ router.get('/material-groups', async (req, res) => {
     res.json(buckets);
   } catch (err) {
     console.error('Material groups fetch error:', err.response?.data || err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: xeroErrorMessage(err) });
   }
 });
 
@@ -814,7 +852,7 @@ router.post('/create-quote', async (req, res) => {
   } catch (err) {
     console.error('Create quote error:', err.response?.data || err.message);
     console.error('Stack:', err.stack);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: xeroErrorMessage(err) });
   }
 });
 
@@ -963,15 +1001,13 @@ router.post('/create-invoice', async (req, res) => {
   } catch (err) {
     console.error('Create invoice error:', err.response?.data || err.message);
     const status = err.response?.status;
-    const xeroMsg = err.response?.data?.Elements?.[0]?.ValidationErrors?.[0]?.Message
-      || err.response?.data?.Message;
     // The known scope gap (FEATURES.md): tokens granted before
     // accounting.transactions joined SCOPES can't write invoices until
     // Xero is reconnected once. Say so instead of a bare 403.
     const hint = (status === 401 || status === 403)
       ? ' — this can mean Xero needs reconnecting once to grant invoice permission (Summary → Connect Xero)'
       : '';
-    res.status(500).json({ error: (xeroMsg || err.message) + hint });
+    res.status(500).json({ error: xeroErrorMessage(err) + hint });
   }
 });
 
@@ -1010,7 +1046,7 @@ router.get('/quote-statuses', async (req, res) => {
     res.json({ ok: true, statuses });
   } catch (err) {
     console.error('Quote statuses error:', err.response?.data || err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: xeroErrorMessage(err) });
   }
 });
 
