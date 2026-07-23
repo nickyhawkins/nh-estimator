@@ -586,6 +586,46 @@ router.put('/settings', async (req, res) => {
   }
 });
 
+// ── Bank holidays (gov.uk) ─────────────────────────────────────────────────
+// One shared fetch of https://www.gov.uk/bank-holidays.json, cached in
+// memory for a day (the file changes a few times a year). Trimmed to
+// {division: [{date, title}]} — the client only needs dates and names.
+// Two consumers: GET /api/bank-holidays (the Schedule calendar) and the
+// ICS feed's working-day walk below, so both sides skip the same days.
+// A failed fetch keeps serving the stale cache if one exists, else the
+// endpoint 503s and everything degrades to "no holidays known" — the
+// pre-holiday behaviour, never an error the user sees.
+const BANK_HOLIDAY_DIVISIONS = ['england-and-wales', 'scotland', 'northern-ireland'];
+let bankHolidayCache = { at: 0, divisions: null };
+async function getBankHolidays() {
+  if (bankHolidayCache.divisions && Date.now() - bankHolidayCache.at < 24 * 60 * 60 * 1000) {
+    return bankHolidayCache.divisions;
+  }
+  try {
+    const axios = require('axios');
+    const resp = await axios.get('https://www.gov.uk/bank-holidays.json', { timeout: 10000 });
+    const divisions = {};
+    for (const div of BANK_HOLIDAY_DIVISIONS) {
+      const events = resp.data && resp.data[div] && Array.isArray(resp.data[div].events)
+        ? resp.data[div].events : null;
+      if (!events) throw new Error('unexpected gov.uk shape');
+      divisions[div] = events.map((e) => ({ date: e.date, title: e.title }));
+    }
+    bankHolidayCache = { at: Date.now(), divisions };
+  } catch (err) {
+    // Keep any stale cache; only bump `at` so a dead gov.uk isn't hit on
+    // every request (retry at most every 10 minutes).
+    if (bankHolidayCache.divisions) bankHolidayCache.at = Date.now() - 24 * 60 * 60 * 1000 + 10 * 60 * 1000;
+  }
+  return bankHolidayCache.divisions;
+}
+
+router.get('/bank-holidays', async (req, res) => {
+  const divisions = await getBankHolidays();
+  if (!divisions) return res.status(503).json({ error: 'bank holidays unavailable' });
+  res.json(divisions);
+});
+
 // ── Schedule ICS feed (SCHEDULING_SPEC.md) ─────────────────────────────────
 // One all-day multi-day VEVENT per scheduled accepted job, so jobs land in
 // the phone's real calendar via a subscribed-calendar URL instead of the
@@ -597,16 +637,20 @@ router.put('/settings', async (req, res) => {
 // Server-side twin of the client's working-day walk (isWorkingDay/
 // workingDaySpan in public/index.html) — the two MUST agree on which days
 // a job occupies: Sundays never count, Saturdays only when workSaturdays
-// (job-level override wins over the setting).
-function icsWorkingDaySpan(startIso, n, workSat) {
+// (job-level override wins over the setting), and bank holidays (v1.16.0)
+// are skipped. `holidays` is a Set of ISO dates for the settings region —
+// pass an empty Set when gov.uk is unreachable, which matches the client's
+// own no-data fallback.
+function icsWorkingDaySpan(startIso, n, workSat, holidays) {
   const out = [];
   const p = startIso.split('-');
   const d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2], 12));
   let guard = 0;
   while (out.length < n && guard++ < 800) {
     const day = d.getUTCDay();
-    if ((day >= 1 && day <= 5) || (workSat && day === 6)) {
-      out.push(d.toISOString().slice(0, 10));
+    const iso = d.toISOString().slice(0, 10);
+    if (((day >= 1 && day <= 5) || (workSat && day === 6)) && !(holidays && holidays.has(iso))) {
+      out.push(iso);
     }
     d.setUTCDate(d.getUTCDate() + 1);
   }
@@ -626,11 +670,15 @@ router.get('/schedule.ics', async (req, res) => {
     const jobsResult = await db.query('SELECT id, name, data FROM jobs');
     const events = [];
     const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+    // Same region default as the client's mergeSettings — keep in sync.
+    const divisions = await getBankHolidays();
+    const region = s.bankHolidayRegion || 'northern-ireland';
+    const holidays = new Set(((divisions && divisions[region]) || []).map((e) => e.date));
     for (const row of jobsResult.rows) {
       const d = row.data || {};
       if (d.status !== 'accepted' || !d.startDate || !(+d.scheduledDays > 0)) continue;
       const workSat = d.workSaturdays != null ? !!d.workSaturdays : !!s.workSaturdays;
-      const span = icsWorkingDaySpan(d.startDate, Math.ceil(+d.scheduledDays), workSat);
+      const span = icsWorkingDaySpan(d.startDate, Math.ceil(+d.scheduledDays), workSat, holidays);
       if (!span.length) continue;
       // DTEND is exclusive per RFC 5545: the day after the last booked day.
       const p = span[span.length - 1].split('-');

@@ -38,6 +38,36 @@ suggestion, and the date stays editable. Same slice: Mark Completed joined the O
 Site header (accepted jobs — the run-to-close arc without leaving the screen), and
 On Site's Variations section moved below Materials to match the daily rhythm.
 
+**Addendum 2026-07-23 (v1.16.0) — calendar-app parity (per Nicky, from her
+calendar screenshots).** The Schedule screen is now a real calendar, three views
+behind a topbar segment (List | Weeks | Month, choice remembered): List is the
+chronological bookings (+ a "Not scheduled" section with could-start slots),
+Weeks is the old 12-week strip, Month is a paged month grid (‹ › into past
+months too — completed/invoiced jobs keep their stamped days and render as
+greyed history bars; slot maths still ignores them). Jobs draw as CONTINUOUS
+bars spanning their booked days (lane-stacked when overlapping, squared edges
+where a job continues across a week boundary, stable per-job colour from an id
+hash) instead of a chip repeated per cell. Rows are now full Mon–Sun with
+weekends dimmed — supersedes the v1 "Sundays omitted entirely" deviation.
+Interactions: tap a bar → bottom sheet (Open job / Move start date /
+Unschedule); tap a day → day sheet (that day's jobs, plus "Start a job here"
+listing accepted-unscheduled jobs, today-or-later only); Move is tap-to-move
+(banner + tap the new start day), never drag — with the same overlap warning in
+the confirm. A tapped Sat/Sun/holiday start rolls forward to the next working
+day and the confirm says so. **Bank holidays are in** (supersedes the "ignored
+in v1" gotcha): `GET /api/bank-holidays` proxies gov.uk's JSON (24h server
+cache, trimmed to date+title per division), the client caches it in
+localStorage and treats holidays as non-working days in THE one walker — so
+spans, slot suggestions and the strip all skip them, and the server's ICS twin
+skips the same dates from the same cache (parity-harness-checked). Region is a
+Settings select (`bankHolidayRegion`, default `northern-ireland` — Nicky's
+calendar carries the Battle of the Boyne holiday; the default lives in BOTH
+client mergeSettings and the ICS route). If gov.uk is unreachable and no cache
+exists, everything degrades to the pre-holiday behaviour — no error surfaces.
+Verified by a 25-check Chromium smoke run (all three views, spanning/stacking,
+past-month history, both sheets, tap-to-schedule, tap-to-move incl. weekend
+roll-forward, region select) plus an 800-span client/server parity harness.
+
 **Addendum 2026-07-22 (v1.9.1, revised v1.10.2):** the Schedule form gained an optional
 **calendar title** (`job.scheduleTitle`) — job names are usually the client's name, so
 the ICS feed's `name — client` events read as "Smith — Smith". Per Nicky the title
