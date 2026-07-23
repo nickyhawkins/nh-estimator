@@ -672,7 +672,7 @@ router.get('/schedule.ics', async (req, res) => {
     const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
     // Same region default as the client's mergeSettings — keep in sync.
     const divisions = await getBankHolidays();
-    const region = s.bankHolidayRegion || 'northern-ireland';
+    const region = s.bankHolidayRegion || 'england-and-wales';
     const holidays = new Set(((divisions && divisions[region]) || []).map((e) => e.date));
     for (const row of jobsResult.rows) {
       const d = row.data || {};
