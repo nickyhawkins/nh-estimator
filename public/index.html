@@ -1107,7 +1107,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.11.1</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.11.2</div>
 </div>
 </div>
 
@@ -4283,12 +4283,6 @@ var materialPickerMatches = {};
 
 function onMaterialProductInput(idPrefix) {
   document.getElementById(idPrefix+'-itemcode').value = '';
-  // Actuals lock the price field to the picked item's live 202 price (see
-  // selectMaterialProduct) -- typing again to search for something else
-  // invalidates that selection, so re-open it for a possible free-text price.
-  // No-op on Summary's picker, whose price field is never disabled.
-  var priceEl = document.getElementById(idPrefix+'-price');
-  if (priceEl) priceEl.disabled = false;
   var q = document.getElementById(idPrefix+'-product').value.trim().toLowerCase();
   var dd = document.getElementById(idPrefix+'-product-dd');
   if (!dd) return;
@@ -4316,9 +4310,11 @@ function selectMaterialProduct(idPrefix, i) {
   document.getElementById(idPrefix+'-itemcode').value = item.itemCode;
   var priceEl = document.getElementById(idPrefix+'-price');
   priceEl.value = item.price;
-  // Actuals price strictly from live Xero data; Summary's estimate price
-  // stays editable -- same divergence the old onActualsProductSelect had.
-  if (idPrefix === 'act-add') priceEl.disabled = true;
+  // Prefilled from the item's live 202 price but EDITABLE on both screens
+  // (was locked for actuals until 2026-07-23): merchant prices move before
+  // Xero gets updated, and the price paid is the price to bill. Left
+  // untouched, the row keeps tracking live Xero data (see
+  // addActualFromPicker's equal-price rule).
   hideMaterialProductDropdown(idPrefix);
 }
 
@@ -4468,9 +4464,13 @@ function rollUpEstimateByItem(lines) {
 // copy can be months stale. Free-text rows have no Xero item, so they fall back
 // to the manually entered amount: the one place a price is ever typed.
 function materialPriceFor(row) {
+  // A stored unit_amount is an explicit price — a free-text row's only
+  // price, or (since 2026-07-23) a deliberate override on an item row
+  // where the merchant price moved before Xero was updated. It wins; live
+  // Xero data prices everything left at null.
+  if (row.unitAmount != null) return +row.unitAmount || 0;
   var live = row.itemCode ? materialItemIndex.get(row.itemCode) : null;
   if (live && live.price != null) return +live.price;
-  if (row.unitAmount != null) return +row.unitAmount || 0;
   return 0;
 }
 
@@ -4834,7 +4834,7 @@ function renderActuals() {
         + '<div id="act-add-product-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:280px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div>'
         + '</div></div>'
       + '<div class="field-row"><div class="field-label">Description</div><input type="text" class="field-input wide" id="act-add-desc" placeholder="e.g. Extra roller sleeves" autocorrect="off"></div>'
-      + '<div class="field-row"><div class="field-label">Unit price<small>free text only</small></div><input type="number" class="field-input" id="act-add-price" value="0" min="0" step="0.01" inputmode="decimal"></div>'
+      + '<div class="field-row"><div class="field-label">Unit price<small>prefills from Xero — change it if the shop price has moved</small></div><input type="number" class="field-input" id="act-add-price" value="0" min="0" step="0.01" inputmode="decimal"></div>'
       + '<div class="field-row"><div class="field-label">Quantity</div><input type="number" class="field-input" id="act-add-qty" value="1" min="0" step="1" inputmode="decimal"></div>'
       + '<input type="hidden" id="act-add-itemcode">'
     + '</div>'
@@ -5015,6 +5015,15 @@ async function addActualFromPicker() {
   var itemCode = document.getElementById('act-add-itemcode').value || null;
   var qty = Math.max(0, +document.getElementById('act-add-qty').value || 0);
   var price = +document.getElementById('act-add-price').value || 0;
+  // Item rows: a typed price that MATCHES the live Xero price stores as
+  // null, so the row keeps tracking Xero (price fixes flow in). A typed
+  // price that DIFFERS is a deliberate override — merchant prices change
+  // before Xero gets updated — and it sticks (materialPriceFor prefers it).
+  var liveItem = itemCode ? materialItemIndex.get(itemCode) : null;
+  var livePrice = liveItem && liveItem.price != null ? +liveItem.price : null;
+  var storedPrice = itemCode
+    ? (livePrice != null && Math.abs(price - livePrice) < 0.005 ? null : price)
+    : price;
 
   // Already logged (or already on the estimate)? Add to it rather than making
   // a second row — a row is a product, and the unique index would reject the
@@ -5023,6 +5032,10 @@ async function addActualFromPicker() {
   var existing = materialActuals.filter(function(a) { return materialKey(a) === key; })[0];
   if (existing) {
     existing.actualQuantity = (+existing.actualQuantity || 0) + qty;
+    // A product picked fresh from the search prefilled a meaningful price —
+    // carry a changed one onto the existing row too (free-text merges leave
+    // the stored price alone; their form price defaults to 0).
+    if (itemCode) existing.unitAmount = storedPrice;
     if (await persistActual(existing)) { clearFormFields(ACT_ADD_FIELD_IDS); renderActuals(); }
     return;
   }
@@ -5030,12 +5043,13 @@ async function addActualFromPicker() {
   if (row) {
     var a = ensureActual(row);
     a.actualQuantity = qty;
+    if (itemCode) a.unitAmount = storedPrice;
     if (await persistActual(a)) { clearFormFields(ACT_ADD_FIELD_IDS); renderActuals(); }
     return;
   }
   var fresh = {
     id: uid(), itemCode: itemCode, description: desc, actualQuantity: qty,
-    unitAmount: itemCode ? null : price, bought: false
+    unitAmount: storedPrice, bought: false
   };
   materialActuals.push(fresh);
   if (await persistActual(fresh)) { clearFormFields(ACT_ADD_FIELD_IDS); renderActuals(); }
