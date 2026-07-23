@@ -28,6 +28,16 @@ days, and the schedule resurfaces if it's re-accepted. Verified in the 27-check 
 smoke run (schedule flow end-to-end, overlap warning, strip line clearing, ICS key/URL,
 toggles) plus working-day-math harnesses incl. weekend spans and client/server parity.
 
+**Addendum 2026-07-23 (v1.12.1) — weekend-aware slot suggestions:** `nextFreeSlot()`
+now prefers starts that keep a job in one piece. A job that fits inside one working
+week gets the earliest free start whose span doesn't cross a weekend (a 2-day job can
+start Wednesday; a 4-day job waits for Monday); a job longer than a working week must
+span weekends anyway, so it prefers a Monday start (whole weeks). If no preferred
+start exists in the horizon, the earliest merely-free day is the fallback — it's a
+suggestion, and the date stays editable. Same slice: Mark Completed joined the On
+Site header (accepted jobs — the run-to-close arc without leaving the screen), and
+On Site's Variations section moved below Materials to match the daily rhythm.
+
 **Addendum 2026-07-22 (v1.9.1, revised v1.10.2):** the Schedule form gained an optional
 **calendar title** (`job.scheduleTitle`) — job names are usually the client's name, so
 the ICS feed's `name — client` events read as "Smith — Smith". Per Nicky the title
