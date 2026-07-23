@@ -1117,7 +1117,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.13.2</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.14.0</div>
 </div>
 </div>
 
@@ -1661,11 +1661,13 @@ function renderXeroContactDropdown(items, q) {
   dd.style.display = 'block';
 }
 
-// Links this job to an EXISTING Xero contact -- the client-details fields
-// below stay exactly as typed (an existing contact's real info already
-// lives in Xero; this only records which one to reuse), and only the link
-// itself is persisted onto the job. Pre-fills email if the search result
-// had one and the field is still blank, never overwriting something typed.
+// Links this job to an EXISTING Xero contact and pulls that contact's
+// details (email from the search row immediately; phone/address via
+// pullXeroContactDetails' follow-up fetch, since the autocomplete search
+// is summaryOnly and doesn't carry them). Every fill respects one rule:
+// BLANK fields only -- a value already typed in the app may be newer than
+// Xero's (a new address for a returning client), and "Sync to Xero" is
+// the path that pushes it back the other way.
 function selectXeroContact(i) {
   var c = xeroContactResults[i];
   if (!c) return;
@@ -1674,16 +1676,45 @@ function selectXeroContact(i) {
   var job = activeJob();
   if (job) {
     job.xeroContactId = c.contactId;
-    var emailEl = document.getElementById('xero-contact-email');
-    if (emailEl && !emailEl.value && c.email) { emailEl.value = c.email; }
-    job.contact = job.contact || {};
-    if (c.email && !job.contact.email) job.contact.email = c.email;
+    fillContactFieldIfBlank('email', c.email, job);
     localStorage.setItem('pe-jobs', JSON.stringify(jobs));
     persistJobData(job);
   }
   saveJobXeroFields(); // programmatic .value set doesn't fire onchange
   hideXeroDropdown();
   updateXeroContactSyncStatus();
+  pullXeroContactDetails(c.contactId);
+}
+
+// One client-details field (input + job.contact mirror), filled from Xero
+// ONLY where the app side is blank -- see selectXeroContact's rule.
+function fillContactFieldIfBlank(key, value, job) {
+  if (!value) return;
+  var el = document.getElementById('xero-contact-' + key);
+  if (el && !el.value.trim()) el.value = value;
+  job.contact = job.contact || {};
+  if (!job.contact[key]) job.contact[key] = value;
+}
+
+// Follow-up to selectXeroContact: fetch the linked contact's full Xero
+// record (phone + billing address) and fill the still-blank fields.
+// Async and best-effort -- offline just means the fields stay as they
+// were, same as before this existed.
+async function pullXeroContactDetails(contactId) {
+  try {
+    var resp = await fetch('/auth/contacts/' + encodeURIComponent(contactId));
+    if (!resp.ok) return;
+    var d = await resp.json();
+    var job = activeJob();
+    // The link may have changed while the fetch was in flight (job switch,
+    // Unlink, a different contact picked) -- fill nothing in that case.
+    if (!job || job.xeroContactId !== contactId) return;
+    ['phone', 'email', 'street', 'town', 'postcode'].forEach(function(k) {
+      fillContactFieldIfBlank(k, d[k], job);
+    });
+    localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+    persistJobData(job);
+  } catch (e) {}
 }
 
 function hideXeroDropdown() {

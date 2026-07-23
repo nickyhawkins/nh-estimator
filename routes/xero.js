@@ -25,8 +25,16 @@ const SCOPES = 'openid profile email offline_access accounting.contacts accounti
 // already on file) with a blank the app just hasn't been given.
 function buildContactPayload({ contactId, name, email, phone, street, town, postcode }) {
   const hasAddress = street || town || postcode;
+  // Xero keeps FirstName/LastName separate from the display Name, and its
+  // UI (and quote templates) read them -- Nicky was re-typing them by hand
+  // in Xero after every contact the app created. Clients here are people,
+  // so derive them: first word / rest. A single-word name (or a company)
+  // gets neither field rather than a made-up surname.
+  const nameWords = (name || '').trim().split(/\s+/).filter(Boolean);
   const payload = {
     Name: name || undefined,
+    FirstName: nameWords.length >= 2 ? nameWords[0] : undefined,
+    LastName: nameWords.length >= 2 ? nameWords.slice(1).join(' ') : undefined,
     EmailAddress: email || undefined,
     Phones: phone ? [{ PhoneType: 'DEFAULT', PhoneNumber: phone }] : undefined,
     // AddressType 'STREET' renders as the Delivery address on a Xero
@@ -294,6 +302,55 @@ router.get('/contacts', async (req, res) => {
     res.json(contacts);
   } catch (err) {
     console.error('Contacts search error:', err.response?.data || err.message);
+    res.status(500).json({ error: xeroErrorMessage(err) });
+  }
+});
+
+// Full record for ONE contact -- the autocomplete above deliberately runs
+// summaryOnly (Xero omits Phones/Addresses from summary responses), so
+// selecting a contact needs this second call to bring the rest of its
+// details into the app's client fields (per Nicky 2026-07-23: picking a
+// contact should carry its phone/address over, not just the email).
+router.get('/contacts/:id', async (req, res) => {
+  try {
+    const accessToken = await getAccessToken();
+    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    const tenantId = result.rows[0]?.xero_tenant_id;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
+    }
+    const contactRes = await axios.get(`${XERO_API_URL}/Contacts/${encodeURIComponent(req.params.id)}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Xero-Tenant-Id': tenantId,
+        Accept: 'application/json'
+      }
+    });
+    const c = contactRes.data.Contacts && contactRes.data.Contacts[0];
+    if (!c) return res.status(404).json({ error: 'Contact not found in Xero' });
+    // Phone: prefer the type the app itself writes (DEFAULT), then MOBILE,
+    // then anything with a number. Xero splits numbers into country/area/
+    // number parts; rejoin whatever's populated.
+    const phones = c.Phones || [];
+    const phoneOf = t => phones.find(p => p.PhoneType === t && p.PhoneNumber);
+    const ph = phoneOf('DEFAULT') || phoneOf('MOBILE') || phones.find(p => p.PhoneNumber);
+    const phone = ph ? [ph.PhoneCountryCode, ph.PhoneAreaCode, ph.PhoneNumber].filter(Boolean).join(' ') : '';
+    // Address: POBOX is the billing address and what buildContactPayload()
+    // writes, so read that first; fall back to any address with content.
+    const hasContent = a => a && (a.AddressLine1 || a.City || a.PostalCode);
+    const addresses = c.Addresses || [];
+    const ad = addresses.find(a => a.AddressType === 'POBOX' && hasContent(a)) || addresses.find(hasContent) || {};
+    res.json({
+      contactId: c.ContactID,
+      name: c.Name,
+      email: c.EmailAddress || '',
+      phone: phone,
+      street: [ad.AddressLine1, ad.AddressLine2].filter(Boolean).join(', '),
+      town: ad.City || '',
+      postcode: ad.PostalCode || ''
+    });
+  } catch (err) {
+    console.error('Contact fetch error:', err.response?.data || err.message);
     res.status(500).json({ error: xeroErrorMessage(err) });
   }
 });
