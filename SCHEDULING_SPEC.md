@@ -28,10 +28,11 @@ days, and the schedule resurfaces if it's re-accepted. Verified in the 27-check 
 smoke run (schedule flow end-to-end, overlap warning, strip line clearing, ICS key/URL,
 toggles) plus working-day-math harnesses incl. weekend spans and client/server parity.
 
-**Addendum 2026-07-22 (v1.9.1):** the Schedule form gained an optional **calendar
-title** (`job.scheduleTitle`) — job names are usually the client's name, so the ICS
-feed's `name — client` events read as "Smith — Smith". The typed title wins in the ICS
-SUMMARY and on the week strip's blocks; with no title, the fallback now dedupes
+**Addendum 2026-07-22 (v1.9.1, revised v1.10.2):** the Schedule form gained an optional
+**calendar title** (`job.scheduleTitle`) — job names are usually the client's name, so
+the ICS feed's `name — client` events read as "Smith — Smith". Per Nicky the title
+EXTENDS the name rather than replacing it: with a title, the event (and the week strip's
+blocks) read **"job name — schedule title"**; with no title, the fallback dedupes
 name-equals-client (case-insensitive) instead of repeating it.
 
 ## Purpose
