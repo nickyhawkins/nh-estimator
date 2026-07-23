@@ -636,14 +636,17 @@ router.get('/schedule.ics', async (req, res) => {
       const p = span[span.length - 1].split('-');
       const end = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2], 12));
       end.setUTCDate(end.getUTCDate() + 1);
-      // Event title: the per-job scheduleTitle when one was typed at
-      // scheduling time; otherwise name — client, EXCEPT when they're the
-      // same text (job names are usually the client name, which read as
-      // "Smith — Smith" before this dedupe).
+      // Event title: "job name — scheduleTitle" when a title was typed at
+      // scheduling time (per Nicky 2026-07-22 — the title extends the name,
+      // it doesn't replace it); otherwise name — client, EXCEPT when
+      // they're the same text (job names are usually the client name,
+      // which read as "Smith — Smith" before this dedupe).
+      const title = (d.scheduleTitle && String(d.scheduleTitle).trim()) || '';
       const client = (d.xeroClient || '').trim();
       const sameName = client && client.toLowerCase() === String(row.name || '').trim().toLowerCase();
-      const summary = (d.scheduleTitle && String(d.scheduleTitle).trim())
-        || (row.name + (client && !sameName ? ' — ' + client : ''));
+      const summary = title
+        ? row.name + ' — ' + title
+        : row.name + (client && !sameName ? ' — ' + client : '');
       events.push(
         'BEGIN:VEVENT',
         `UID:${row.id}@nh-estimator`,
