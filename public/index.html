@@ -638,6 +638,14 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     <button onclick="exportCSV()" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:20px;padding:6px 14px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Export ↓</button>
     <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
   </div>
+  <!-- Compact stand-in for the quote panel once a job is quoted or beyond
+       (see updateXeroPanelCollapse) — the full form + Send button are
+       noise after the quote's out, and a mis-tap hazard on answered jobs.
+       Tap to expand for edits, re-sends, or adding missing details. -->
+  <div id="xero-quote-collapsed" style="display:none;padding:10px 16px;background:var(--surface);border-bottom:1px solid var(--border);align-items:center;gap:10px;cursor:pointer" onclick="expandXeroPanel()">
+    <div id="xero-quote-collapsed-text" style="flex:1;font-size:13px;color:var(--text2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
+    <div id="xero-quote-collapsed-action" style="font-size:13px;font-weight:600;color:var(--accent);flex-shrink:0">Details ›</div>
+  </div>
   <div id="xero-quote-panel" style="display:none;padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--border);flex-direction:column;gap:8px">
     <div style="display:flex;gap:8px">
       <div style="position:relative;flex:1">
@@ -664,6 +672,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       </div>
     </div>
     <button id="xero-quote-btn" onclick="createXeroQuote()" style="background:var(--accent);color:white;border:none;border-radius:var(--rs);padding:12px;font-size:15px;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer;width:100%">Send to Xero</button>
+    <div id="xero-panel-hide" style="display:none;text-align:center;font-size:12px;color:var(--text2);font-weight:600;cursor:pointer;padding-top:2px" onclick="collapseXeroPanel()">Hide client &amp; quote details ᐱ</div>
   </div>
   <div class="content" id="sum-content">
     <div class="empty" id="sum-empty">
@@ -1098,7 +1107,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.10.6</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.10.7</div>
 </div>
 </div>
 
@@ -1375,21 +1384,60 @@ function clearEverything() {
   setTimeout(function(){if(b.parentNode)b.parentNode.removeChild(b);},3000);
 }
 
+var xeroConnected = false;
 function updateXeroButton(connected) {
+  xeroConnected = !!connected;
   var btn = document.getElementById('xero-connect-btn');
   var discBtn = document.getElementById('xero-disconnect-btn');
-  var panel = document.getElementById('xero-quote-panel');
   if (!btn) return;
   if (connected) {
     btn.style.display = 'none';
     if (discBtn) discBtn.style.display = 'block';
-    if (panel) panel.style.display = 'flex';
   } else {
     btn.style.display = 'block';
     if (discBtn) discBtn.style.display = 'none';
-    if (panel) panel.style.display = 'none';
+  }
+  updateXeroPanelCollapse();
+}
+
+// Once a job is quoted or beyond, the full client+send panel collapses to
+// a one-line bar (client · quote number) — the form and the big Send
+// button are quote-CREATION tooling, noise after the quote's out and a
+// mis-tap hazard on answered jobs. Tapping the bar expands the panel for
+// edits, re-sends, or adding details that were never stored (the bar says
+// so in red rather than showing a wall of empty inputs). Expansion is
+// per-job and resets on switch.
+var xeroPanelExpanded = false;
+var xeroPanelJobId = null;
+function updateXeroPanelCollapse() {
+  var panel = document.getElementById('xero-quote-panel');
+  var bar = document.getElementById('xero-quote-collapsed');
+  var hideRow = document.getElementById('xero-panel-hide');
+  if (!panel || !bar) return;
+  if (!xeroConnected) { panel.style.display = 'none'; bar.style.display = 'none'; return; }
+  if (xeroPanelJobId !== activeJobId) { xeroPanelExpanded = false; xeroPanelJobId = activeJobId; }
+  var job = activeJob();
+  var pastQuoting = job && ['quoted', 'accepted', 'completed', 'invoiced'].indexOf(job.status) !== -1;
+  if (pastQuoting && !xeroPanelExpanded) {
+    panel.style.display = 'none';
+    bar.style.display = 'flex';
+    var client = (job.xeroClient || '').trim();
+    var text = client
+      ? 'Client: <strong style="color:var(--text)">' + escapeHtml(client) + '</strong>'
+      : '<span style="color:var(--danger)">No client details saved</span>';
+    if (job.xeroQuoteNumber) {
+      text += ' · ' + escapeHtml(job.xeroQuoteNumber) + (job.xeroQuoteStatus ? ' (' + escapeHtml(String(job.xeroQuoteStatus).toLowerCase()) + ')' : '');
+    }
+    document.getElementById('xero-quote-collapsed-text').innerHTML = text;
+    document.getElementById('xero-quote-collapsed-action').textContent = client ? 'Details ›' : 'Add ›';
+  } else {
+    panel.style.display = 'flex';
+    bar.style.display = 'none';
+    if (hideRow) hideRow.style.display = pastQuoting ? 'block' : 'none';
   }
 }
+function expandXeroPanel() { xeroPanelExpanded = true; updateXeroPanelCollapse(); }
+function collapseXeroPanel() { xeroPanelExpanded = false; updateXeroPanelCollapse(); }
 
 async function disconnectXero() {
   if (!confirm('Disconnect Xero?')) return;
@@ -8299,6 +8347,7 @@ function refreshSummaryTab() {
 }
 
 function renderSummary() {
+  updateXeroPanelCollapse(); // panel vs collapsed bar tracks job status
   var empty=document.getElementById('sum-empty');
   var data=document.getElementById('sum-data');
   // A kitchen-only job (no rooms, no exterior) still has a real total to
