@@ -781,6 +781,12 @@ router.post('/create-quote', async (req, res) => {
         return res.status(409).json({ error: `Quote ${existing.QuoteNumber || ''} is ${existing.Status.toLowerCase()} in Xero and can't be amended — send a new quote instead` });
       }
       const quoteDate = existing.DateString ? existing.DateString.split('T')[0] : new Date().toISOString().split('T')[0];
+      // No Status field: echoing the quote's own status back (even
+      // unchanged) makes Xero reject the update with "Please provide a
+      // valid Status Code" — a documented Quotes-API quirk. Omitting it
+      // updates the lines and leaves the status exactly as it is, which is
+      // the intent here anyway (the guard above already rejected the
+      // unamendable states).
       await axios.post(
         `${XERO_API_URL}/Quotes/${encodeURIComponent(updateQuoteId)}`,
         { Quotes: [{
@@ -790,7 +796,6 @@ router.post('/create-quote', async (req, res) => {
           Reference: xeroRef || existing.Reference || '',
           LineItems: lineItems,
           LineAmountTypes: 'NoTax',
-          Status: existing.Status,
           Terms: paymentTerms || undefined,
           Summary: paymentSummary || undefined
         }] },
