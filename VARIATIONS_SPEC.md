@@ -26,6 +26,15 @@ the CSV export stay blind to the flag (they're live working views). Verified in 
 40-check Chromium smoke run: auto-flag default, original-scope Labour invariance,
 quote-resend exclusion, free-line CRUD/persistence, chips, pre-acceptance hiding.
 
+**Addendum 2026-07-23 (v1.11.0, per Nicky's layout review):** the Variations card
+moved from Summary to the renamed **On Site** screen (was "Materials") — extras get
+agreed on site, in the same moment days are logged. Summary keeps the money (the
+"+£X variations → job total" hero line and the totals split) and now badges flagged
+rooms/exteriors in its per-item breakdown; the card's add/manage UI lives On Site.
+Both render from ONE shared `computeVariationsView()` so the screens can never
+disagree. On Site also gained a job-context header (name · status · scheduled dates,
+with Build final invoice › when completed).
+
 ## Purpose
 
 The classic mid-job leak: *"while you're here, can you just do the landing ceiling?"* —

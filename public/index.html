@@ -387,7 +387,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
           <div class="toggle" id="tog-spray" onclick="toggleSprayWalls()"></div>
         </div>
         <div class="toggle-row" id="variation-row" style="border-top:1px solid var(--border);display:none">
-          <div class="toggle-label" style="color:var(--accent)">Variation<small>Extra scope on top of the accepted quote — kept separate on Summary. Turn off if this is a correction to the original quote</small></div>
+          <div class="toggle-label" style="color:var(--accent)">Variation<small>Extra scope on top of the accepted quote — listed under On Site › Variations. Turn off if this is a correction to the original quote</small></div>
           <div class="toggle" id="tog-variation" onclick="toggleRoomVariation()"></div>
         </div>
       </div>
@@ -591,7 +591,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 <div id="screen-actuals" class="screen">
   <div class="topbar">
     <button class="back-btn" onclick="goTab('summary')">←</button>
-    <div class="topbar-title">Materials</div>
+    <div class="topbar-title">On Site</div>
     <button onclick="goInvoiceList()" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:20px;padding:6px 14px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Invoice ›</button>
   </div>
   <div class="content">
@@ -898,7 +898,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     <div class="card">
       <div class="card-header">Coats<small style="text-transform:none;letter-spacing:normal;font-weight:400"> — applies to every item below</small></div>
       <div class="toggle-row" id="k-variation-row" style="display:none">
-        <div class="toggle-label" style="color:var(--accent)">Variation<small>Kitchen added after the quote was accepted — kept separate on Summary</small></div>
+        <div class="toggle-label" style="color:var(--accent)">Variation<small>Kitchen added after the quote was accepted — listed under On Site › Variations</small></div>
         <div class="toggle" id="tog-k-variation" onclick="toggleKitchenVariation()"></div>
       </div>
       <div class="field-row"><div class="field-label">Coat count</div><div class="seg" id="seg-k-coats">
@@ -968,7 +968,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         <input type="text" class="field-input wide" id="ex-label" placeholder="e.g. Front elevation" autocorrect="off">
       </div>
       <div class="toggle-row" id="ex-variation-row" style="border-top:1px solid var(--border);display:none">
-        <div class="toggle-label" style="color:var(--accent)">Variation<small>Extra scope on top of the accepted quote — kept separate on Summary. Turn off if this is a correction to the original quote</small></div>
+        <div class="toggle-label" style="color:var(--accent)">Variation<small>Extra scope on top of the accepted quote — listed under On Site › Variations. Turn off if this is a correction to the original quote</small></div>
         <div class="toggle" id="tog-ex-variation" onclick="toggleExtVariation()"></div>
       </div>
     </div>
@@ -1085,7 +1085,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     <span class="nav-menu-arrow">›</span>
   </div>
   <div class="nav-menu-item" onclick="closeNavMenu();openActuals()">
-    <div>Materials</div>
+    <div>On Site</div>
     <span id="nav-menu-materials-badge" class="nav-menu-sub" style="margin-top:0"></span>
   </div>
   <div class="nav-menu-item" onclick="closeNavMenu();goTab('schedule')">
@@ -1107,7 +1107,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.10.7</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.11.0</div>
 </div>
 </div>
 
@@ -2785,14 +2785,59 @@ function renderScheduleStrip() {
   el.innerHTML = header + '<div class="card" style="padding:12px">'+weeks+'</div>';
 }
 
-// ── Variations card (Summary) ───────────────────────────────────────────────
+// ── Variations (VARIATIONS_SPEC.md) ─────────────────────────────────────────
+// ONE computation for everything variations-money: renderSummary's totals
+// split and the On Site card both read this, so the two screens can never
+// disagree (the repo's parallel-lists lesson). Pass precomputed calc
+// arrays when the caller already has them (renderSummary does); otherwise
+// they're computed fresh.
+function computeVariationsView(roomCalcs, extCalcs, kitchenCalc) {
+  var job = activeJob();
+  roomCalcs = roomCalcs || rooms.map(function(r){ return calcRoom(r); });
+  extCalcs = extCalcs || extItems.map(function(it){ return calcExtItem(it); });
+  kitchenCalc = kitchenCalc || calcKitchen(job && job.kitchen);
+  var varLabour=0, varTime=0, varSpray=0, varLines=[];
+  roomCalcs.forEach(function(c,ri){ if(rooms[ri].isVariation){ varLabour+=c.total; varTime+=c.time; varSpray+=c.sprayLabour||0; varLines.push({name:rooms[ri].name,raw:c.total}); }});
+  extCalcs.forEach(function(c,ei){ if(extItems[ei].isVariation){ varLabour+=c.total; varTime+=c.time; varSpray+=c.sprayLabour||0; varLines.push({name:extItems[ei].label||'Exterior',raw:c.total}); }});
+  var kitchenIsVar = !!(job && job.kitchen && job.kitchen.isVariation) && kitchenCalc.total>0.005;
+  if(kitchenIsVar){ varLabour+=kitchenCalc.total; varTime+=kitchenCalc.time; varLines.push({name:'Kitchen Cabinet Spraying',raw:kitchenCalc.total}); }
+  // Free lines: 'hours' prices from the raw hourly rate (day rate /
+  // hours-per-day) and gets markup+sundries like any labour; 'flat' is the
+  // agreed price verbatim — no markup, no sundries, no time contribution.
+  var freeVars = (job && job.freeVariations) || [];
+  var hourlyRate = (settings.dr||0) / (settings.hpd||7);
+  var freeHoursRaw=0, freeHoursDays=0, freeFlatSum=0;
+  freeVars.forEach(function(fv){
+    if(fv.mode==='flat'){ freeFlatSum += (+fv.amount||0); }
+    else { freeHoursRaw += (+fv.hours||0)*hourlyRate; freeHoursDays += (+fv.hours||0)/(settings.hpd||7); }
+  });
+  var hasVariations = varLines.length>0 || freeVars.length>0;
+  // Sundries % on variation labour (plus the spray bump), then markup —
+  // mirroring the main plan's composition. In fixed-£ markup mode
+  // variations get NO markup: the fixed amount was the adjustment agreed
+  // on the ORIGINAL quote.
+  var varSundries = (varLabour+freeHoursRaw) * (settings.sundriesPct||0)/100 + varSpray * (settings.sundriesSprayPct||0)/100;
+  var varMk = effectiveMarkupType()==='fixed' ? 1 : 1 + (effectiveMarkup()/100);
+  var variationsTotal = hasVariations ? (varLabour+freeHoursRaw+varSundries)*varMk + freeFlatSum : 0;
+  return { varLabour:varLabour, varTime:varTime, varSpray:varSpray, varLines:varLines,
+    freeVars:freeVars, freeHoursRaw:freeHoursRaw, freeHoursDays:freeHoursDays, freeFlatSum:freeFlatSum,
+    hasVariations:hasVariations, kitchenIsVar:kitchenIsVar,
+    varSundries:varSundries, varMk:varMk, variationsTotal:variationsTotal };
+}
+
+// ── Variations card (On Site screen — moved from Summary 2026-07-23 per
+// Nicky: extras get agreed on site, in the same moment days are logged).
 // Rendered whenever variations exist OR the concept applies (accepted+), so
 // the "+ Add variation" entry point is there the moment it's meaningful --
 // but never before acceptance, and never as an empty box on old quotes.
+// Money totals (subtotal + job total) still show on Summary, which stays
+// the money view.
 var freeVarFormOpen = false;
 var freeVarMode = 'hours';
 
-function variationsCardHtml(varLines, freeVars, varSundries, varMk, variationsTotal, jobTotal) {
+function variationsCardHtml(v) {
+  var varLines = v.varLines, freeVars = v.freeVars, varSundries = v.varSundries,
+      varMk = v.varMk, variationsTotal = v.variationsTotal;
   var hasAny = varLines.length > 0 || freeVars.length > 0;
   if (!hasAny && !variationApplies()) return '';
   var rows = '';
@@ -2835,10 +2880,8 @@ function variationsCardHtml(varLines, freeVars, varSundries, varMk, variationsTo
     '<div class="card-header" style="color:var(--accent)">Variations'+(hasAny?' — extras on the accepted quote':'')+'</div>'+
     (hasAny
       ? rows+
-        '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Variations subtotal</span>'+
-          '<span class="breakdown-value" style="color:var(--accent)">'+fmt(variationsTotal)+'</span></div>'+
-        '<div class="breakdown-row"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Job total incl. variations</span>'+
-          '<span class="breakdown-value" style="font-weight:700">'+fmt(jobTotal)+'</span></div>'
+        '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Variations subtotal<small style="display:block;font-weight:400;color:var(--text2)">job total incl. variations shows on Summary</small></span>'+
+          '<span class="breakdown-value" style="color:var(--accent)">'+fmt(variationsTotal)+'</span></div>'
       : '<div style="padding:0 16px 4px;font-size:12px;color:var(--text2)">Mid-job extras land here — new rooms/exteriors added from now on are flagged automatically, or add a quick priced line below. Kept separate from the accepted quote; settled on the final invoice.</div>')+
     form+
     (freeVarFormOpen ? '' : '<div style="padding:10px 16px'+(hasAny?';border-top:1px solid var(--border)':'')+'">'+
@@ -2846,7 +2889,7 @@ function variationsCardHtml(varLines, freeVars, varSundries, varMk, variationsTo
     '</div>')+
   '</div>';
 }
-function toggleFreeVarForm() { freeVarFormOpen = !freeVarFormOpen; renderSummary(); }
+function toggleFreeVarForm() { freeVarFormOpen = !freeVarFormOpen; renderActuals(); }
 function setFreeVarMode(m) {
   // Re-render would wipe the half-typed label (the known form-wipe class),
   // so flip the seg + placeholder in place instead.
@@ -2872,7 +2915,7 @@ function confirmAddFreeVariation() {
   freeVarFormOpen = false;
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   persistJobData(job);
-  renderSummary(); renderJobs();
+  renderActuals(); renderSummary(); renderJobs();
 }
 function deleteFreeVariation(id) {
   var job = activeJob(); if (!job || !job.freeVariations) return;
@@ -2881,7 +2924,7 @@ function deleteFreeVariation(id) {
   job.freeVariations = job.freeVariations.filter(function(x) { return x.id !== id; });
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   persistJobData(job);
-  renderSummary(); renderJobs();
+  renderActuals(); renderSummary(); renderJobs();
 }
 
 // This job's markup if it's been overridden on the Summary page, else the
@@ -4679,6 +4722,31 @@ async function openActuals() {
   renderActuals();
 }
 
+// The On Site screen's job-context header: which job, where it stands,
+// when it runs — so a working day never needs the Summary tab. When the
+// job is completed, the invoice builder lives here too, right next to the
+// actuals that feed it.
+function onSiteJobHeader() {
+  var job = activeJob();
+  if (!job) return '';
+  var st = job.status || null;
+  var statusLabel = st === 'accepted' ? '✓ Accepted' : st === 'completed' ? '✓ Completed'
+    : st === 'invoiced' ? '£ Invoiced' : st === 'quoted' ? 'Quote sent'
+    : st === 'declined' ? '✗ Declined' : 'Draft';
+  var colour = st === 'accepted' || st === 'completed' || st === 'invoiced' ? 'var(--success)'
+    : st === 'quoted' ? 'var(--accent)' : st === 'declined' ? 'var(--danger)' : 'var(--text2)';
+  var schedule = job.startDate && +job.scheduledDays > 0
+    ? ' <span style="color:var(--text2)">· 📅 ' + fmtShortDate(job.startDate) + ' · ' + job.scheduledDays + 'd</span>' : '';
+  return '<div class="card" style="padding:12px 14px;margin-bottom:12px">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">'
+      + '<div style="min-width:0;flex:1">'
+        + '<div style="font-weight:700;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escapeHtml(job.name)+'</div>'
+        + '<div style="font-size:12px;margin-top:2px"><span style="color:'+colour+';font-weight:600">'+statusLabel+'</span>'+schedule+'</div>'
+      + '</div>'
+      + (st === 'completed' ? '<button onclick="openFinalInvoice()" style="background:var(--accent);color:#fff;border:none;border-radius:var(--rs);padding:9px 12px;font-size:13px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;white-space:nowrap;flex:none">Build final invoice ›</button>' : '')
+    + '</div></div>';
+}
+
 function renderActuals() {
   var el = document.getElementById('actuals-body');
   if (!el) return;
@@ -4773,7 +4841,13 @@ function renderActuals() {
     + '<button onclick="addActualFromPicker()" style="background:var(--accent);color:#fff;border:none;border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%;margin-top:8px">Add Material</button>';
 
   var pendingAdd = snapshotFields(ACT_ADD_FIELD_IDS);
-  el.innerHTML = head + renderTimeOnSiteCard()
+  var variationsSection = '';
+  var vCard = variationsCardHtml(computeVariationsView());
+  if (vCard) {
+    variationsSection = '<div class="section-title" style="margin:16px 0 8px">Variations</div>' + vCard.replace('style="margin-top:16px;', 'style="');
+  }
+  el.innerHTML = onSiteJobHeader() + head + renderTimeOnSiteCard()
+    + variationsSection
     + '<div class="section-title" style="margin:16px 0 8px">Materials</div>'
     + rowsHtml + add;
   restoreFields(pendingAdd);
@@ -4824,7 +4898,7 @@ function renderInvoiceList() {
         + '<span style="font-weight:700;font-size:16px">'+fmt(inv.total)+'</span>'
       + '</div>'
       + '</div>'
-    : '<div class="card" style="padding:16px;color:var(--text2)">Nothing ticked as bought yet, so there\'s nothing to invoice. Tick items off on the Materials screen as you buy them.</div>';
+    : '<div class="card" style="padding:16px;color:var(--text2)">Nothing ticked as bought yet, so there\'s nothing to invoice. Tick items off on the On Site screen as you buy them.</div>';
 
   // Listed, never totalled. Un-ticked means nobody confirmed it was bought:
   // billing it would charge for goods possibly never delivered, and dropping it
@@ -4835,7 +4909,7 @@ function renderInvoiceList() {
       + '<div class="card" style="padding:12px 14px">'
       + '<div style="font-size:13px;color:var(--text2);margin-bottom:8px;line-height:1.45">'
         + 'Never ticked as bought, so <strong>not included in the total above</strong>. '
-        + 'If you did buy one, tick it on the Materials screen and it\'ll join the invoice.'
+        + 'If you did buy one, tick it on the On Site screen and it\'ll join the invoice.'
       + '</div>'
       + inv.unconfirmed.map(function(l) {
           return '<div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--border)">'
@@ -5209,10 +5283,10 @@ function renderFinalInvoice() {
   var matHtml = s.materials.length
     ? s.materials.map(function(l) {
         var detail = (l.itemCode ? escapeHtml(l.itemCode) + ' · ' : '') + l.qty + ' × ' + fmt(l.unitAmount)
-          + (l.blocked && !l.dropped ? ' · NO PRICE — set a price on the Materials screen or drop this line' : '');
+          + (l.blocked && !l.dropped ? ' · NO PRICE — set a price on the On Site screen or drop this line' : '');
         return lineRow('materials', l, detail);
       }).join('')
-    : '<div style="font-size:13px;color:var(--danger)">⚠ No materials were ticked as bought — this invoice bills labour only. If that\'s wrong, log actuals on the Materials screen first.</div>';
+    : '<div style="font-size:13px;color:var(--danger)">⚠ No materials were ticked as bought — this invoice bills labour only. If that\'s wrong, log actuals on the On Site screen first.</div>';
   var unconfirmedNote = s.unconfirmedCount > 0
     ? '<div style="font-size:12px;color:var(--text2);padding-top:8px">'+s.unconfirmedCount+' item'+(s.unconfirmedCount===1?'':'s')+' never ticked as bought — not included (see the Invoice list).</div>'
     : '';
@@ -5293,7 +5367,7 @@ async function createFinalInvoice() {
     alert('Invoice ' + (result.invoiceNumber || '') + ' created as a DRAFT in Xero ✓\n\nApply the payments already received against it there, review, then send.');
     goTab('summary');
   } catch (err) {
-    alert('Could not create the invoice: ' + err.message + '\n\nNothing was changed — the Invoice list (Materials → Invoice) is the copy-by-hand fallback.');
+    alert('Could not create the invoice: ' + err.message + '\n\nNothing was changed — the Invoice list (On Site → Invoice) is the copy-by-hand fallback.');
     btn.disabled = false; btn.textContent = 'Create draft invoice in Xero';
   }
 }
@@ -8440,7 +8514,7 @@ function renderSummary() {
     }
     return '<div class="room-item room-item-tap" onclick="toggleRoomBd(this.dataset.id)" data-id="'+id+'"  style="border-bottom:none">'+
       '<div class="room-icon">'+r.emoji+'</div>'+
-      '<div class="room-info"><div class="room-name">'+r.name+'</div>'+
+      '<div class="room-info"><div class="room-name">'+r.name+(r.isVariation?' <span style=\"color:var(--accent);font-size:10px;font-weight:700;letter-spacing:.03em\">VARIATION</span>':'')+'</div>'+
       '<div class="room-meta">'+
       (r.isHSL
         ? 'Walls '+c.wallArea.toFixed(1)+'m² · '+fmtD(c.time)
@@ -8465,24 +8539,13 @@ function renderSummary() {
   // stay recognisable against the Xero quote) and INTO their own subtotal.
   // The LIVE time figures keep variations in: they're real days on site,
   // and the scheduling drift-nudge compares against them. Materials/colours
-  // /tins stay blind to the flag throughout (billed as actuals).
-  var varLabour=0, varTime=0, varSpray=0, varLines=[];
-  roomCalcs.forEach(function(c,ri){ if(rooms[ri].isVariation){ varLabour+=c.total; varTime+=c.time; varSpray+=c.sprayLabour||0; varLines.push({name:rooms[ri].name,raw:c.total}); }});
-  extCalcs.forEach(function(c,ei){ if(extItems[ei].isVariation){ varLabour+=c.total; varTime+=c.time; varSpray+=c.sprayLabour||0; varLines.push({name:extItems[ei].label||'Exterior',raw:c.total}); }});
-  var kitchenIsVar = !!(activeJob() && activeJob().kitchen && activeJob().kitchen.isVariation) && kitchenTotal>0.005;
-  if(kitchenIsVar){ varLabour+=kitchenTotal; varTime+=kitchenTimeTotal; varLines.push({name:'Kitchen Cabinet Spraying',raw:kitchenTotal}); }
-  // Free lines for the odd job not worth measuring: 'hours' prices from the
-  // raw hourly rate (day rate / hours-per-day) and gets markup+sundries like
-  // any labour; 'flat' is the agreed price verbatim — no markup, no
-  // sundries, and no time contribution (unknown by definition).
-  var freeVars = (activeJob() && activeJob().freeVariations) || [];
-  var hourlyRate = (settings.dr||0) / (settings.hpd||7);
-  var freeHoursRaw=0, freeHoursDays=0, freeFlatSum=0;
-  freeVars.forEach(function(v){
-    if(v.mode==='flat'){ freeFlatSum += (+v.amount||0); }
-    else { freeHoursRaw += (+v.hours||0)*hourlyRate; freeHoursDays += (+v.hours||0)/(settings.hpd||7); }
-  });
-  var hasVariations = varLines.length>0 || freeVars.length>0;
+  // /tins stay blind to the flag throughout (billed as actuals). All the
+  // variation figures come from the ONE shared computation the On Site
+  // card also renders from.
+  var vView = computeVariationsView(roomCalcs, extCalcs, kitchenCalc);
+  var varLabour=vView.varLabour, varTime=vView.varTime, varSpray=vView.varSpray, varLines=vView.varLines;
+  var freeVars=vView.freeVars, freeHoursDays=vView.freeHoursDays;
+  var hasVariations=vView.hasVariations;
   var tcOrig = tcS - varLabour;
   var ttOrig = ttS - varTime;
   var sprayOrig = sprayLabourS - varSpray;
@@ -8550,14 +8613,9 @@ function renderSummary() {
   // on the final invoice, never here.
   var plan = computeDepositPlan(tcOrig, materialsTotal, onSiteDaysOrig, sprayOrig);
 
-  // Variations money, mirroring the plan's own composition: sundries % on
-  // variation labour (plus the spray bump on spray-flagged variation
-  // rooms), then markup. In fixed-£ markup mode variations get NO markup —
-  // the fixed amount was the adjustment agreed on the ORIGINAL quote, and
-  // spreading it thinner would silently change that quote's total.
-  var varSundries = (varLabour+freeHoursRaw) * (settings.sundriesPct||0)/100 + varSpray * (settings.sundriesSprayPct||0)/100;
-  var varMk = effectiveMarkupType()==='fixed' ? 1 : 1 + (effectiveMarkup()/100);
-  var variationsTotal = hasVariations ? (varLabour+freeHoursRaw+varSundries)*varMk + freeFlatSum : 0;
+  // Variations money — computed in the shared view (see its comment for
+  // the fixed-£ markup rule).
+  var variationsTotal = vView.variationsTotal;
   var jobTotal = plan.total + variationsTotal;
   var sundries = plan.sundries, labourTotal = plan.labourTotal, total = plan.total,
       deposit = plan.deposit, depositBasis = plan.depositBasis, balance = plan.balance,
@@ -8642,7 +8700,6 @@ function renderSummary() {
       '<div class="stat-card"><div class="stat-label">On Site</div><div class="stat-value bl">'+fmtD(onSiteDays)+'</div>'+
         '<small style="display:block;font-weight:400;color:var(--text2);margin-top:2px">'+ttAll.toFixed(1)+'d working'+(hasVariations ? ' incl. variations' : '')+'</small></div>'+
     '</div>'+
-    variationsCardHtml(varLines, freeVars, varSundries, varMk, variationsTotal, jobTotal)+
     '<div class="card" style="margin-top:16px">'+
       '<div class="card-header">Markup / Discount</div>'+
       '<div class="field-row"><div class="field-label">This quote<small>'+(activeJob()&&activeJob().markupOverride!=null?'overridden, default is '+settings.mu+'%':'default, from Settings')+'</small></div>'+
@@ -8712,7 +8769,7 @@ function renderSummary() {
       if(+item.makingGood>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Making Good</span><span class="breakdown-sub-value">'+fmt(+item.makingGood)+'</span></div>';
       return '<div class="room-item room-item-tap" onclick="toggleRoomBd(this.dataset.id)" data-id="'+eid+'" style="border-bottom:none">'+
         '<div class="room-icon">🏡</div>'+
-        '<div class="room-info"><div class="room-name">'+item.label+'</div>'+
+        '<div class="room-info"><div class="room-name">'+item.label+(item.isVariation?' <span style=\"color:var(--accent);font-size:10px;font-weight:700;letter-spacing:.03em\">VARIATION</span>':'')+'</div>'+
         '<div class="room-meta">'+fmtD(c.time)+(prepUp>0?' · '+prepLabel:'')+'</div></div>'+
         '<div class="room-cost">'+fmt(c.total*mk)+'</div>'+
         '<div class="room-chevron-icon" id="chev-'+eid+'">›</div>'+
