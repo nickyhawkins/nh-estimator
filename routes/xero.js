@@ -6,14 +6,16 @@ const router = express.Router();
 const XERO_AUTH_URL = 'https://login.xero.com/identity/connect/authorize';
 const XERO_TOKEN_URL = 'https://identity.xero.com/connect/token';
 const XERO_API_URL = 'https://api.xero.com/api.xro/2.0';
-// accounting.transactions added 2026-07-22 for the final-invoice builder
-// (FINAL_INVOICE_SPEC.md Step 0): it's the DOCUMENTED scope covering
-// invoices AND quotes -- accounting.invoices (kept for continuity, quotes
-// have worked against it) is not a documented scope name. NB scopes apply
-// at AUTH time: the running token keeps its old grants until Xero is
-// reconnected once from Settings, so POST /Invoices may 403 until then --
-// the builder's error message says so.
-const SCOPES = 'openid profile email offline_access accounting.contacts accounting.settings.read accounting.invoices accounting.transactions';
+// accounting.transactions is the DOCUMENTED scope covering invoices AND
+// quotes (FINAL_INVOICE_SPEC.md Step 0). The legacy accounting.invoices
+// name that used to sit here was NEVER a real Xero scope: the live
+// connection simply predated any re-auth, so it went unnoticed until the
+// 2026-07-22 reconnect, when Xero's login rejected the whole request with
+// invalid_scope. Removed — do not re-add it, one bad name fails the lot.
+// NB scopes apply at AUTH time: the running token keeps its old grants
+// until Xero is reconnected once from Settings, so POST /Invoices may 403
+// until then -- the builder's error message says so.
+const SCOPES = 'openid profile email offline_access accounting.contacts accounting.settings.read accounting.transactions';
 
 // Builds the {Contacts:[...]} entry for a Xero contact create/update PUT.
 // Fields left blank are OMITTED (undefined keys never reach JSON.stringify),

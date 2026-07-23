@@ -19,7 +19,10 @@ negative-quantity lines) → `xeroInvoiceId`/`xeroInvoiceNumber` stored, status 
 draft. The 2(a) list remains the permanent fallback and the failure alert says so.
 
 **Step 0 as resolved:** `accounting.transactions` (the documented scope) is now in
-`SCOPES` alongside the legacy `accounting.invoices`. Scopes apply at auth time, so
+`SCOPES`. The legacy `accounting.invoices` was initially kept alongside it — and Xero's
+login promptly proved the spec's suspicion right by rejecting the whole reconnect with
+`invalid_scope` (one bad name fails the entire request); it was removed in v1.10.3.
+Scopes apply at auth time, so
 **Nicky must reconnect Xero once** before the first invoice write; until then
 `POST /Invoices` may 403 and the builder's error message says exactly that. The
 "watch the first real one" caveat applies at full strength — verified against a mock
