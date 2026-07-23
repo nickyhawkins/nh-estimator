@@ -1114,7 +1114,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.12.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.12.1</div>
 </div>
 </div>
 
@@ -2565,7 +2565,26 @@ function scheduledJobs() {
 // First gap of requiredDays consecutive working days with nothing booked,
 // walking from tomorrow. excludeJobId leaves the job being (re)scheduled
 // out of its own way. Returns an ISO date, or null if a year has no gap.
-function nextFreeSlot(requiredDays, excludeJobId) {
+// True when a span's working days are consecutive CALENDAR days — i.e. the
+// job runs without a weekend in the middle. A 2-day job from Wednesday
+// passes; a 4-day job from Wednesday (Wed Thu Fri → Mon) doesn't.
+function spanAvoidsWeekend(span) {
+  for (var i = 1; i < span.length; i++) {
+    var prev = parseIsoDate(span[i - 1]);
+    prev.setDate(prev.getDate() + 1);
+    if (isoDate(prev) !== span[i]) return false;
+  }
+  return true;
+}
+// Weekend-aware slot preference (per Nicky 2026-07-23): a job that CAN fit
+// inside one working week gets the earliest free start that doesn't span a
+// weekend — a 2-day job can start Wednesday, a 4-day job waits for Monday.
+// A job longer than a working week must span weekends regardless, so it
+// prefers a Monday start (whole weeks). If no preferred start exists in
+// the horizon, the earliest merely-free start is the fallback — this is a
+// suggestion, not a rule, and the date stays editable. fromIso is for
+// tests; callers omit it (defaults to tomorrow).
+function nextFreeSlot(requiredDays, excludeJobId, fromIso) {
   requiredDays = Math.max(1, Math.ceil(+requiredDays || 1));
   var booked = {};
   scheduledJobs().forEach(function(j) {
@@ -2573,15 +2592,23 @@ function nextFreeSlot(requiredDays, excludeJobId) {
     jobBookedDays(j).forEach(function(day) { booked[day] = true; });
   });
   var workSat = !!settings.workSaturdays;
-  var d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() + 1);
+  var fitsOneWeek = requiredDays <= (workSat ? 6 : 5);
+  var d = fromIso ? parseIsoDate(fromIso) : new Date();
+  d.setHours(12, 0, 0, 0);
+  if (!fromIso) d.setDate(d.getDate() + 1);
+  var fallback = null;
   for (var i = 0; i < 420; i++) {
     if (isWorkingDay(d, workSat)) {
       var span = workingDaySpan(isoDate(d), requiredDays, workSat);
-      if (span.length === requiredDays && span.every(function(x) { return !booked[x]; })) return span[0];
+      if (span.length === requiredDays && span.every(function(x) { return !booked[x]; })) {
+        if (!fallback) fallback = span[0];
+        var preferred = fitsOneWeek ? spanAvoidsWeekend(span) : d.getDay() === 1;
+        if (preferred) return span[0];
+      }
     }
     d.setDate(d.getDate() + 1);
   }
-  return null;
+  return fallback;
 }
 // Soft-warning check at scheduling time: which job (if any) does this
 // span collide with, and by how many days. Overlaps are ALLOWED -- real
@@ -4775,8 +4802,18 @@ function onSiteJobHeader() {
         + '<div style="font-weight:700;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escapeHtml(job.name)+'</div>'
         + '<div style="font-size:12px;margin-top:2px"><span style="color:'+colour+';font-weight:600">'+statusLabel+'</span>'+schedule+'</div>'
       + '</div>'
+      + (st === 'accepted' ? '<button onclick="completeJobOnSite()" style="background:var(--success);color:#fff;border:none;border-radius:var(--rs);padding:9px 12px;font-size:13px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;white-space:nowrap;flex:none">Mark Completed</button>' : '')
       + (st === 'completed' ? '<button onclick="openFinalInvoice()" style="background:var(--accent);color:#fff;border:none;border-radius:var(--rs);padding:9px 12px;font-size:13px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;white-space:nowrap;flex:none">Build final invoice ›</button>' : '')
     + '</div></div>';
+}
+
+// The header's completion tap: same confirm+status change as Summary's,
+// then re-render THIS screen so the header flips straight to the
+// Build-final-invoice state without leaving On Site (the whole
+// run-to-close arc on one screen).
+function completeJobOnSite() {
+  completeJob();
+  renderActuals();
 }
 
 function renderActuals() {
@@ -4878,10 +4915,12 @@ function renderActuals() {
   if (vCard) {
     variationsSection = '<div class="section-title" style="margin:16px 0 8px">Variations</div>' + vCard.replace('style="margin-top:16px;', 'style="');
   }
+  // Order per Nicky (2026-07-23): the daily rhythm is days → materials,
+  // with variations the occasional visitor — so they sit below.
   el.innerHTML = onSiteJobHeader() + head + renderTimeOnSiteCard()
-    + variationsSection
     + '<div class="section-title" style="margin:16px 0 8px">Materials</div>'
-    + rowsHtml + add;
+    + rowsHtml + add
+    + variationsSection;
   restoreFields(pendingAdd);
   // Reuses the Summary picker wholesale -- same onMaterialProductInput
   // function, same materialItemIndex, just mounted with the 'act-add' prefix.
