@@ -34,6 +34,8 @@ Reconciled against the code on **2026-07-14**. Most of the original roadmap is n
 
 **2026-07-23 (v1.15.1): link listed quotes to existing app jobs.** Nicky's first run surfaced the overlap case: app jobs that predate quote-linking (xeroQuoteId storage arrived with the pipeline) can't be matched by the import filter, so their accepted quotes still list. Re-importing would duplicate the job — each import row now carries **"Already a job in the app? Link it ›"**, opening a picker of unlinked jobs; linking writes only the quote link + contact gap-fill (status untouched — the inward sync's rules own that), and the quote drops off the list. 93-check smoke suite (picker offers unlinked jobs only; linking creates no duplicate).
 
+**2026-07-23 (v1.15.2): startup restore of Summary's client/contact fields.** Nicky: "going back to the summary of quoted jobs the contact field is empty". The restore of `xero-client`/`xero-ref`/contact-details lived only inside `loadActiveJobData()` — the job-SWITCH path; initApp does its own collection fetches, so opening the app already on a job left those fields blank until the first switch away and back. Factored into `restoreJobIdentityFields()`, called from both paths. 94-check smoke suite (field populated on first load, pre-switch).
+
 **Loose ends on otherwise-shipped features:**
 - Confirm the wallpaper **staircase +25%** doesn't double-count difficulty already in markup/prep — the spec asked for this before shipping and it was never explicitly closed off.
 - Feature wall never got its **own collapsible section** (cosmetic only).
