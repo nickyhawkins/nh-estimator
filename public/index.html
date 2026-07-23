@@ -1182,7 +1182,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.17.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.17.1</div>
 </div>
 </div>
 
@@ -3106,8 +3106,18 @@ function scheduleWeekRowHtml(rowStart, opts) {
   });
   rowDays.forEach(function(iso, idx) {
     if (bankHolidays[iso]) segs.push({ start: idx, end: idx, holiday: bankHolidays[iso] });
-    if (settings.blockedDays && settings.blockedDays[iso]) segs.push({ start: idx, end: idx, blockedLabel: settings.blockedDays[iso] });
   });
+  // Consecutive same-label blocked days merge into one bar, like a job's
+  // span (v1.17.1 — range blocking made multi-day blocks the normal case).
+  var blocked = settings.blockedDays || {};
+  for (var bi = 0; bi < 7; bi++) {
+    var lbl = blocked[rowDays[bi]];
+    if (!lbl) continue;
+    var be = bi;
+    while (be + 1 < 7 && blocked[rowDays[be + 1]] === lbl) be++;
+    segs.push({ start: bi, end: be, blockedLabel: lbl });
+    bi = be;
+  }
   // Lane stacking: earliest-starting (then longest) first, each segment into
   // the first lane free at its start column.
   segs.sort(function(x, y) { return x.start - y.start || (y.end - y.start) - (x.end - x.start); });
@@ -3325,13 +3335,18 @@ function openScheduleDaySheet(iso) {
         }).join('');
     }
   }
-  // Block/unblock (v1.17.0): only offered where it means something — a day
-  // that is (or would be) a working day, today or later. Unblocking is
-  // offered on any blocked day so a stale block can always be cleared.
+  // Block/unblock (v1.17.0, ranges v1.17.1): only offered where it means
+  // something — a day that is (or would be) a working day, today or later.
+  // Unblocking is offered on any blocked day so a stale block can always
+  // be cleared; a multi-day run gets a clear-the-lot button too.
   if (blockedLabel) {
-    html += '<button class="sched-sheet-btn warn" onclick="toggleBlockedDay(\'' + iso + '\')">Unblock this day</button>';
+    var run = blockedRun(iso);
+    html += '<button class="sched-sheet-btn warn" onclick="unblockDay(\'' + iso + '\')">Unblock this day</button>';
+    if (run.length > 1) {
+      html += '<button class="sched-sheet-btn warn" onclick="unblockRun(\'' + iso + '\')">Unblock all ' + run.length + ' days (' + escapeHtml(blockedLabel) + ')</button>';
+    }
   } else if (iso >= todayIso && isWorkingDay(parseIsoDate(iso), !!settings.workSaturdays)) {
-    html += '<button class="sched-sheet-btn alt" onclick="toggleBlockedDay(\'' + iso + '\')">Block this day</button>';
+    html += '<button class="sched-sheet-btn alt" onclick="openScheduleBlockForm(\'' + iso + '\')">Block day(s)…</button>';
   }
   openScheduleSheet(html);
 }
@@ -3340,20 +3355,74 @@ function openScheduleDaySheet(iso) {
 // count as non-working in THE walker — so slot suggestions skip them and
 // scheduled spans stretch around them, exactly like bank holidays. The
 // server folds them into the ICS feed's skip set from the same settings row.
-function toggleBlockedDay(iso) {
-  if (!settings.blockedDays) settings.blockedDays = {};
-  if (settings.blockedDays[iso]) {
-    delete settings.blockedDays[iso];
-  } else {
-    var label = prompt('Block ' + fmtShortDate(iso) + ' — what for? (optional)', '');
-    if (label === null) return;
-    settings.blockedDays[iso] = label.trim() || 'Blocked';
-  }
+function persistBlockedDays() {
   localStorage.setItem('pe-settings', JSON.stringify(settings));
   apiPut('/api/settings', settings);
   closeScheduleSheet();
   renderScheduleStrip(); renderJobs(); renderAttentionStrip();
   if (activeJob()) renderSummary();
+}
+// The in-sheet range form: from the tapped day to an end date (defaults to
+// the same day, so a single-day block is just "Block"), plus a label.
+function openScheduleBlockForm(iso) {
+  var html = '<div style="font-size:16px;font-weight:700;margin-bottom:10px">Block days off</div>' +
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">' +
+      '<div style="font-size:13px;color:var(--text2);flex:none">' + fmtShortDate(iso) + ' →</div>' +
+      '<input type="date" class="field-input" id="block-to" value="' + iso + '" min="' + iso + '" style="flex:1;text-align:left">' +
+    '</div>' +
+    '<input type="text" class="field-input wide" id="block-label" placeholder="Label (optional) — e.g. Holiday" autocorrect="off" style="margin-bottom:4px">' +
+    '<div style="font-size:12px;color:var(--text2);margin-bottom:6px">Blocked days don’t get offered as start dates, and booked jobs stretch around them.</div>' +
+    '<button class="sched-sheet-btn" onclick="confirmScheduleBlock(\'' + iso + '\')">Block</button>' +
+    '<button class="sched-sheet-btn alt" onclick="closeScheduleSheet()">Cancel</button>';
+  openScheduleSheet(html);
+}
+function confirmScheduleBlock(fromIso) {
+  var toEl = document.getElementById('block-to');
+  var toIso = (toEl && toEl.value) || fromIso;
+  if (toIso < fromIso) toIso = fromIso;
+  var labelEl = document.getElementById('block-label');
+  var label = (labelEl && labelEl.value.trim()) || 'Blocked';
+  if (!settings.blockedDays) settings.blockedDays = {};
+  // Only store would-be working days — weekends and bank holidays inside
+  // the range are already off, and storing them would just add noise chips.
+  var d = parseIsoDate(fromIso);
+  var guard = 0;
+  while (isoDate(d) <= toIso && guard++ < 400) {
+    if (isWorkingDay(d, !!settings.workSaturdays)) settings.blockedDays[isoDate(d)] = label;
+    d.setDate(d.getDate() + 1);
+  }
+  persistBlockedDays();
+}
+function unblockDay(iso) {
+  if (settings.blockedDays) delete settings.blockedDays[iso];
+  persistBlockedDays();
+}
+// The contiguous same-label run a blocked day belongs to, letting weekends
+// and bank holidays sit inside it (a two-week holiday is one run even
+// though its Sat/Sun were never stored).
+function blockedRun(iso) {
+  var blocked = settings.blockedDays || {};
+  var label = blocked[iso];
+  if (!label) return [iso];
+  var run = [iso];
+  [1, -1].forEach(function(step) {
+    var d = parseIsoDate(iso);
+    var guard = 0;
+    while (guard++ < 400) {
+      d.setDate(d.getDate() + step);
+      var x = isoDate(d);
+      if (blocked[x] === label) { run.push(x); continue; }
+      var day = d.getDay();
+      var offAnyway = !((day >= 1 && day <= 5) || (!!settings.workSaturdays && day === 6)) || bankHolidays[x];
+      if (offAnyway) continue;
+      break;
+    }
+  });
+  return run.sort();
+}
+function unblockRun(iso) {
+  blockedRun(iso).forEach(function(x) { if (settings.blockedDays) delete settings.blockedDays[x]; });
+  persistBlockedDays();
 }
 
 // A tapped Sat/Sun/holiday rolls forward to the next working day — same

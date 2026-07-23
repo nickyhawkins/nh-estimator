@@ -81,8 +81,16 @@ suggestions skip them, scheduled spans stretch around them, and the ICS route
 folds them into its skip set from the same settings row. They render as
 dashed grey chips in the bar lanes. Block is only offered on would-be working
 days, today onward; Unblock on any blocked day so stale blocks can always be
-cleared. Covered by the parity harness (blocked spans, client vs ICS) and the
-31-check smoke run (block → chip + non-working, unblock clears).
+cleared. **v1.17.1 — ranges** (per Nicky, holidays were tedious a day at a
+time): "Block day(s)…" opens an in-sheet form (from the tapped day → an end
+date + label); only would-be working days in the range are stored (weekends
+and bank holidays inside it are already off — storing them would be noise
+chips). Consecutive same-label blocks merge into one spanning bar per week
+row, and the day sheet of any day in a run offers "Unblock all N days
+({label})" — `blockedRun()` walks outward letting weekends/holidays sit
+inside the run, so a two-week holiday is one run. Covered by the parity
+harness (blocked spans, client vs ICS) and the 43-check smoke run (range
+blocks 4 working days across a weekend, bars merge, run-unblock clears).
 
 **Addendum 2026-07-22 (v1.9.1, revised v1.10.2):** the Schedule form gained an optional
 **calendar title** (`job.scheduleTitle`) — job names are usually the client's name, so
