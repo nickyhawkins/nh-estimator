@@ -1137,7 +1137,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.15.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.15.1</div>
 </div>
 </div>
 
@@ -3354,10 +3354,12 @@ function renderJobRow(j) {
 // defaults to 1). No rooms are created: the £ figures are the record.
 var xeroImportOpen = false;
 var xeroImportQuotes = [];
+var xeroImportLinkOpen = null; // index of the row showing its link-to-job picker
 
 async function toggleXeroQuoteImport() {
   var list = document.getElementById('xero-import-list');
   xeroImportOpen = !xeroImportOpen;
+  xeroImportLinkOpen = null;
   if (!xeroImportOpen) { list.style.display = 'none'; return; }
   list.style.display = 'block';
   list.innerHTML = '<div style="text-align:center;font-size:13px;color:var(--text2);padding:12px">Loading accepted quotes…</div>';
@@ -3366,20 +3368,69 @@ async function toggleXeroQuoteImport() {
     var data = await resp.json();
     if (!resp.ok) throw new Error(data.error || 'Could not load quotes');
     xeroImportQuotes = data.quotes || [];
-    if (!xeroImportQuotes.length) {
-      list.innerHTML = '<div style="text-align:center;font-size:13px;color:var(--text2);padding:12px">No accepted Xero quotes left to import — they may all be linked to jobs already.</div>';
-      return;
-    }
-    list.innerHTML = '<div class="card">' + xeroImportQuotes.map(function(q, i) {
-      return '<div class="field-row" style="cursor:pointer" onclick="importAcceptedQuote(' + i + ')">' +
-        '<div style="flex:1"><div style="font-weight:600;color:var(--text)">' + escapeHtml(q.contactName) + '</div>' +
-        '<div style="font-size:12px;color:var(--text2)">' + escapeHtml(q.quoteNumber) + (q.date ? ' · ' + fmtShortDate(q.date) : '') + (q.reference ? ' · ' + escapeHtml(q.reference) : '') + '</div></div>' +
-        '<div style="font-weight:700;color:var(--text)">' + fmt(q.total) + '</div>' +
-        '<div style="color:var(--text3);font-size:16px;padding-left:8px">›</div></div>';
-    }).join('') + '</div>';
+    renderXeroImportList();
   } catch (e) {
     list.innerHTML = '<div style="text-align:center;font-size:13px;color:var(--danger);padding:12px">' + escapeHtml(e.message) + '</div>';
   }
+}
+
+function renderXeroImportList() {
+  var list = document.getElementById('xero-import-list');
+  if (!list) return;
+  if (!xeroImportQuotes.length) {
+    list.innerHTML = '<div style="text-align:center;font-size:13px;color:var(--text2);padding:12px">No accepted Xero quotes left to import — they may all be linked to jobs already.</div>';
+    return;
+  }
+  list.innerHTML = '<div class="card">' + xeroImportQuotes.map(function(q, i) {
+    var row = '<div class="field-row" style="cursor:pointer;border-bottom:none" onclick="importAcceptedQuote(' + i + ')">' +
+      '<div style="flex:1"><div style="font-weight:600;color:var(--text)">' + escapeHtml(q.contactName) + '</div>' +
+      '<div style="font-size:12px;color:var(--text2)">' + escapeHtml(q.quoteNumber) + (q.date ? ' · ' + fmtShortDate(q.date) : '') + (q.reference ? ' · ' + escapeHtml(q.reference) : '') + '</div></div>' +
+      '<div style="font-weight:700;color:var(--text)">' + fmt(q.total) + '</div>' +
+      '<div style="color:var(--text3);font-size:16px;padding-left:8px">›</div></div>';
+    // Old app jobs predate quote-linking (the app only started storing
+    // xeroQuoteId with the pipeline), so their accepted quotes still list
+    // here. "Link" ties the quote to that existing job instead of
+    // importing a duplicate.
+    row += '<div style="padding:0 16px 10px;font-size:12px">' +
+      '<span onclick="event.stopPropagation();toggleImportLink(' + i + ')" style="color:var(--text2);font-weight:600;cursor:pointer;text-decoration:underline">' +
+      (xeroImportLinkOpen === i ? 'Cancel linking' : 'Already a job in the app? Link it ›') + '</span></div>';
+    if (xeroImportLinkOpen === i) {
+      var candidates = jobs.filter(function(j) { return !j.xeroQuoteId; });
+      row += candidates.length
+        ? candidates.map(function(j) {
+            return '<div onclick="event.stopPropagation();linkQuoteToJob(' + i + ',\'' + j.id + '\')" style="padding:8px 24px;font-size:13px;color:var(--accent);font-weight:600;cursor:pointer">↳ ' + escapeHtml(j.name) + (j.status ? ' <span style="color:var(--text3);font-weight:400">· ' + j.status + '</span>' : '') + '</div>';
+          }).join('')
+        : '<div style="padding:8px 24px;font-size:12px;color:var(--text2)">Every app job already has a quote linked.</div>';
+    }
+    row += '<div style="height:1px;background:var(--border)"></div>';
+    return row;
+  }).join('') + '</div>';
+}
+
+// Ties a listed Xero quote to an EXISTING app job (no new job, no
+// duplicate): just the quote link + contact gap-fill. Status is left
+// alone — the inward quote-status sync already handles "accepted in
+// Xero, quoted in app" by the pipeline's own rules on next app-open.
+function linkQuoteToJob(qi, jobId) {
+  var q = xeroImportQuotes[qi];
+  var job = jobs.find(function(j) { return j.id === jobId; });
+  if (!q || !job) return;
+  job.xeroQuoteId = q.quoteId;
+  job.xeroQuoteNumber = q.quoteNumber || null;
+  job.xeroQuoteStatus = 'ACCEPTED';
+  if (!job.xeroContactId && q.contactId) job.xeroContactId = q.contactId;
+  if (!job.xeroClient && q.contactName) job.xeroClient = q.contactName;
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  xeroImportQuotes.splice(qi, 1);
+  xeroImportLinkOpen = null;
+  renderXeroImportList();
+  renderJobs();
+}
+
+function toggleImportLink(i) {
+  xeroImportLinkOpen = xeroImportLinkOpen === i ? null : i;
+  renderXeroImportList();
 }
 
 async function importAcceptedQuote(i) {
