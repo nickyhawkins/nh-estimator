@@ -1,6 +1,18 @@
 # Job Templates — Spec (duplicate a job as a starting point)
 
-**Status: SCOPED 2026-07-22, not built.** Idea #6 in `FEATURES_2.0_IDEAS.md`. Small.
+**Status: BUILT 2026-07-23 (v1.12.0).** Idea #6 in `FEATURES_2.0_IDEAS.md`. Small.
+
+**As built:** exactly per spec. The import's per-job copy loop factored into
+`copyJobRows(entry, newJobId)` (`routes/api.js`) — import and duplicate now share the
+ONE implementation; `POST /api/jobs/:id/duplicate` reads the source rows, filters
+`jobs.data` through `templateJobData()` (keeps kitchen config minus its variation
+flag, markup override/type, materialsSeeded; drops contact, quote/invoice links,
+status+timestamps, schedule, acceptedSnapshot, variations, notes), strips
+`isVariation` from copied room/exterior blobs, names the copy "{source} (copy)" and
+returns the GET /jobs row shape. Client: ⧉ on every Jobs-list row → confirm →
+copy inserted, switched to, landing on Home. Actuals and the labour log never copy.
+Verified in the 70-check Chromium smoke run + a data-filter harness asserting the
+exact keep/drop table above.
 
 ## Purpose
 
