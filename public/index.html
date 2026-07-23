@@ -669,7 +669,10 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       </div>
       <input type="tel" id="xero-contact-phone" placeholder="Phone" autocorrect="off" onchange="saveJobContactFields()" style="background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none">
       <input type="email" id="xero-contact-email" placeholder="Email" autocorrect="off" onchange="saveJobContactFields()" style="background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none">
-      <input type="text" id="xero-contact-street" placeholder="Street address" autocorrect="off" onchange="saveJobContactFields()" style="background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none">
+      <div style="position:relative">
+        <input type="text" id="xero-contact-street" placeholder="Street address" autocorrect="off" autocomplete="off" oninput="onAddressStreetInput()" onchange="saveJobContactFields()" style="width:100%;box-sizing:border-box;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none">
+        <div id="address-dropdown" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:220px;overflow-y:auto"></div>
+      </div>
       <div style="display:flex;gap:8px">
         <input type="text" id="xero-contact-town" placeholder="Town" autocorrect="off" onchange="saveJobContactFields()" style="flex:1;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none">
         <input type="text" id="xero-contact-postcode" placeholder="Postcode" autocorrect="off" onchange="saveJobContactFields()" style="flex:1;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none">
@@ -1117,7 +1120,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.14.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.14.1</div>
 </div>
 </div>
 
@@ -1745,6 +1748,81 @@ document.addEventListener('click', function(e){
   var dd = document.getElementById('xero-contact-dropdown');
   if (!input || !dd) return;
   if (e.target !== input && !dd.contains(e.target)) hideXeroDropdown();
+});
+
+// ── Address autofill (Google Places via /api/address-*) ────────────────────
+// Same pattern as the contact autocomplete above: debounced suggestions
+// under the street field, tap one to fill street + town + postcode in one
+// go. Silently absent when the server has no GOOGLE_MAPS_API_KEY (the
+// endpoint answers disabled:true) or the lookup fails — typing an address
+// by hand keeps working exactly as before.
+var addressSearchTimer = null;
+var addressLookupDisabled = false;
+
+function onAddressStreetInput() {
+  if (addressLookupDisabled) return;
+  var q = document.getElementById('xero-contact-street').value.trim();
+  clearTimeout(addressSearchTimer);
+  if (q.length < 4) { hideAddressDropdown(); return; }
+  addressSearchTimer = setTimeout(function(){ searchAddresses(q); }, 300);
+}
+
+async function searchAddresses(q) {
+  try {
+    var resp = await fetch('/api/address-autocomplete?q=' + encodeURIComponent(q));
+    if (!resp.ok) { hideAddressDropdown(); return; }
+    var data = await resp.json();
+    if (data.disabled) { addressLookupDisabled = true; hideAddressDropdown(); return; }
+    // Ignore a slow response that lands after further typing.
+    if (document.getElementById('xero-contact-street').value.trim() !== q) return;
+    renderAddressDropdown(data.suggestions || []);
+  } catch (e) { hideAddressDropdown(); }
+}
+
+var addressResults = [];
+function renderAddressDropdown(items) {
+  addressResults = items;
+  var dd = document.getElementById('address-dropdown');
+  if (!dd) return;
+  if (!items.length) { dd.style.display = 'none'; return; }
+  dd.innerHTML = items.slice(0, 6).map(function(a, i){
+    return '<div style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:14px;color:var(--text)" '
+      + 'onclick="selectAddress(' + i + ')">' + escapeHtml(a.text) + '</div>';
+  }).join('');
+  dd.style.display = 'block';
+}
+
+function hideAddressDropdown() {
+  var dd = document.getElementById('address-dropdown');
+  if (dd) dd.style.display = 'none';
+}
+
+// Picking a suggestion is a deliberate choice of THIS address, so unlike
+// the Xero contact pull it overwrites street/town/postcode (the typed
+// fragment being searched with is part of what's replaced).
+async function selectAddress(i) {
+  var a = addressResults[i];
+  if (!a) return;
+  hideAddressDropdown();
+  try {
+    var resp = await fetch('/api/address-details?id=' + encodeURIComponent(a.id));
+    if (!resp.ok) return;
+    var d = await resp.json();
+    var st = document.getElementById('xero-contact-street');
+    var tn = document.getElementById('xero-contact-town');
+    var pc = document.getElementById('xero-contact-postcode');
+    if (d.street && st) st.value = d.street;
+    if (d.town && tn) tn.value = d.town;
+    if (d.postcode && pc) pc.value = d.postcode;
+    saveJobContactFields(); // programmatic .value sets don't fire onchange
+  } catch (e) {}
+}
+
+document.addEventListener('click', function(e){
+  var input = document.getElementById('xero-contact-street');
+  var dd = document.getElementById('address-dropdown');
+  if (!input || !dd) return;
+  if (e.target !== input && !dd.contains(e.target)) hideAddressDropdown();
 });
 
 // Whether this job's existing Xero quote can be amended in place: it must

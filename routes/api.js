@@ -954,4 +954,78 @@ router.post('/backup/import', async (req, res) => {
   }
 });
 
+// ── Address autofill (Google Places, per Nicky 2026-07-23) ─────────────────
+// UK address lookup as you type in the street field, the way Xero's own
+// contact form does it — no address database of our own, just a thin proxy
+// over the Places API (New). Proxied server-side so the API key never
+// reaches the browser. Dormant until GOOGLE_MAPS_API_KEY is set in the
+// environment (Render → Environment): /address-autocomplete then answers
+// {disabled:true} and the client shows nothing, so the app works
+// identically with or without the key.
+//
+// URL overridable via env purely so the test harness can stand in for
+// Google; production never sets it.
+const GOOGLE_PLACES_URL = process.env.GOOGLE_PLACES_URL || 'https://places.googleapis.com/v1';
+
+router.get('/address-autocomplete', async (req, res) => {
+  const key = process.env.GOOGLE_MAPS_API_KEY;
+  if (!key) return res.json({ disabled: true, suggestions: [] });
+  const q = (req.query.q || '').trim();
+  if (q.length < 4) return res.json({ suggestions: [] });
+  try {
+    const r = await fetch(`${GOOGLE_PLACES_URL}/places:autocomplete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': key },
+      // Region-limited to GB — this is a UK sole trader's client list; a
+      // bare query like "12 Elm" matches half the planet otherwise.
+      body: JSON.stringify({ input: q, includedRegionCodes: ['GB'] })
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      return res.status(500).json({ error: (data.error && data.error.message) || 'Address lookup failed' });
+    }
+    const suggestions = (data.suggestions || [])
+      .map(s => s.placePrediction)
+      .filter(Boolean)
+      .map(p => ({ id: p.placeId, text: (p.text && p.text.text) || '' }))
+      .filter(s => s.id && s.text);
+    res.json({ suggestions });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/address-details', async (req, res) => {
+  const key = process.env.GOOGLE_MAPS_API_KEY;
+  if (!key) return res.status(400).json({ error: 'Address lookup is not configured' });
+  const id = (req.query.id || '').trim();
+  if (!id) return res.status(400).json({ error: 'id is required' });
+  try {
+    const r = await fetch(`${GOOGLE_PLACES_URL}/places/${encodeURIComponent(id)}`, {
+      headers: { 'X-Goog-Api-Key': key, 'X-Goog-FieldMask': 'addressComponents' }
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      return res.status(500).json({ error: (data.error && data.error.message) || 'Address lookup failed' });
+    }
+    const comp = (t) => {
+      const c = (data.addressComponents || []).find(c => (c.types || []).includes(t));
+      return (c && (c.longText || c.shortText)) || '';
+    };
+    // Street line from Google's parts: "12 Elm Road" is street_number +
+    // route; named houses/flats arrive as premise/subpremise instead, so
+    // fall back through those. postal_town is the Royal Mail post town
+    // (what UK addresses actually use); locality covers the rare gaps.
+    const number = comp('street_number') || comp('premise');
+    const street = [comp('subpremise'), [number, comp('route')].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+    res.json({
+      street: street,
+      town: comp('postal_town') || comp('locality'),
+      postcode: comp('postal_code')
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
