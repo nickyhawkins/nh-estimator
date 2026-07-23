@@ -1117,7 +1117,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.13.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.13.1</div>
 </div>
 </div>
 
@@ -1876,10 +1876,14 @@ async function createXeroQuote(forceNew) {
         updateXeroContactSyncStatus();
       }
       setTimeout(function(){ btn.disabled = false; updateXeroQuoteButton(); }, 4000);
-    } else { throw new Error(result.error); }
+    } else { throw new Error(result.error || 'Xero returned no detail'); }
   } catch(err) {
     btn.textContent = 'Error — try again';
     btn.disabled = false;
+    // Say WHAT failed, not just that it did — Xero's validation messages
+    // (via the server's xeroErrorMessage()) name the broken rule, which is
+    // the difference between a fixable problem and a mystery.
+    alert((updateQuoteId ? 'Could not update the quote in Xero: ' : 'Could not create the quote in Xero: ') + (err && err.message || 'unknown error'));
   }
 }
 
