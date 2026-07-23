@@ -31,7 +31,7 @@ Reconciled against the code on **2026-07-14**. Most of the original roadmap is n
 - **Backend:** `routes/xero.js` (OAuth + quote/contact/item endpoints), `routes/api.js` (rooms, exterior items, settings, HSL)
 - **Database:** PostgreSQL on Render (rooms, exterior_items, settings, hsl_state tables)
 - **Deploy:** push to GitHub `main` → Render auto-deploys
-- **Xero:** connects with `accounting.contacts`, `accounting.settings.read`, `accounting.transactions` scopes (the long-carried `accounting.invoices` was never a real scope — Xero rejected the whole auth with `invalid_scope` on the 2026-07-22 reconnect; removed in v1.10.3)
+- **Xero:** connects with `accounting.contacts`, `accounting.settings.read`, `accounting.invoices` scopes. **This app uses GRANULAR scopes** (see its developer-portal Authorisation list): `accounting.invoices` is the valid quotes+invoices scope here, and the coarse `accounting.transactions` is NOT permitted — requesting it fails the whole auth with `invalid_scope` (the 2026-07-22/23 reconnect saga, resolved v1.10.6). Old doubts about `accounting.invoices` being "not a documented scope" were wrong for this app type.
 
 ## Key gotchas learned during the build
 

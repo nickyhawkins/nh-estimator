@@ -18,11 +18,12 @@ negative-quantity lines) → `xeroInvoiceId`/`xeroInvoiceNumber` stored, status 
 `invoiced`, Summary shows "INV-nnnn (draft in Xero)". Rebuild re-links to the newest
 draft. The 2(a) list remains the permanent fallback and the failure alert says so.
 
-**Step 0 as resolved:** `accounting.transactions` (the documented scope) is now in
-`SCOPES`. The legacy `accounting.invoices` was initially kept alongside it — and Xero's
-login promptly proved the spec's suspicion right by rejecting the whole reconnect with
-`invalid_scope` (one bad name fails the entire request); it was removed in v1.10.3.
-Scopes apply at auth time, so
+**Step 0 as resolved (the long way, v1.10.6):** the spec's suspicion was BACKWARDS —
+this Xero app uses **granular scopes**, where `accounting.invoices` is the valid
+quotes+invoices scope and the coarse `accounting.transactions` is not on the app's
+permitted list. Adding `transactions` (v1.10.0) is what made every reconnect fail with
+`invalid_scope`; v1.10.3 then removed the wrong name. `SCOPES` is back to the original
+granular set, which covers `POST /Invoices` fine. Scopes apply at auth time, so
 **Nicky must reconnect Xero once** before the first invoice write; until then
 `POST /Invoices` may 403 and the builder's error message says exactly that. The
 "watch the first real one" caveat applies at full strength — verified against a mock
