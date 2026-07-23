@@ -188,6 +188,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 .sched-bar.contR{border-top-right-radius:0;border-bottom-right-radius:0}
 .sched-bar.done{opacity:.5}
 .sched-bar.holiday{background:var(--surface);color:var(--accent2);border:1px solid var(--accent2);line-height:14px}
+.sched-bar.blockedday{background:var(--surface2);color:var(--text2);border:1px dashed var(--text3);line-height:14px}
 .sched-moving .sched-bar{pointer-events:none}
 .sched-nav{width:32px;height:32px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:16px;font-weight:700;cursor:pointer;flex-shrink:0;font-family:'DM Sans',sans-serif}
 .sched-row{display:flex;align-items:center;gap:10px;padding:11px 0;border-top:1px solid var(--border);cursor:pointer;font-size:14px}
@@ -1181,7 +1182,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.16.1</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.17.0</div>
 </div>
 </div>
 
@@ -1404,6 +1405,7 @@ function saveSettings() {
   next.icsEnabled = !!settings.icsEnabled;
   next.icsKey = settings.icsKey || null;
   next.bankHolidayRegion = settings.bankHolidayRegion || 'england-and-wales';
+  next.blockedDays = settings.blockedDays || {};
   settings = next;
   localStorage.setItem('pe-settings', JSON.stringify(settings));
   apiPut('/api/settings', settings);
@@ -2364,6 +2366,10 @@ function mergeSettings(raw) {
   // is in England; the July holiday on her phone was iOS's all-UK holiday
   // calendar, not a region signal). Default matches the server's ICS route.
   out.bankHolidayRegion = raw.bankHolidayRegion || 'england-and-wales';
+  // Blocked days (v1.17.0): {iso date -> label}, set from the calendar's
+  // day sheet. Global like workSaturdays — it's Nicky's availability, not
+  // a job's. The ICS route folds these into its skip set too.
+  out.blockedDays = raw.blockedDays || {};
   return out;
 }
 
@@ -2787,11 +2793,13 @@ function setBankHolidayRegion(region) {
 // the server's ICS feed (its own copy, same rules) must all agree, and four
 // hand-rolled date loops is this repo's known duplicate-function failure
 // mode. Sundays never count; Saturdays only when workSaturdays; bank
-// holidays never count once the gov.uk list has loaded.
+// holidays never count once the gov.uk list has loaded; nor do Nicky's own
+// blocked days (v1.17.0).
 function isWorkingDay(d, workSat) {
   var day = d.getDay();
   if (!((day >= 1 && day <= 5) || (workSat && day === 6))) return false;
-  return !bankHolidays[isoDate(d)];
+  var iso = isoDate(d);
+  return !bankHolidays[iso] && !(settings.blockedDays && settings.blockedDays[iso]);
 }
 // Local-time ISO date -- toISOString() is UTC and would shift the date for
 // an evening tap in BST, booking tomorrow's job on the wrong day.
@@ -3098,6 +3106,7 @@ function scheduleWeekRowHtml(rowStart, opts) {
   });
   rowDays.forEach(function(iso, idx) {
     if (bankHolidays[iso]) segs.push({ start: idx, end: idx, holiday: bankHolidays[iso] });
+    if (settings.blockedDays && settings.blockedDays[iso]) segs.push({ start: idx, end: idx, blockedLabel: settings.blockedDays[iso] });
   });
   // Lane stacking: earliest-starting (then longest) first, each segment into
   // the first lane free at its start column.
@@ -3126,6 +3135,9 @@ function scheduleWeekRowHtml(rowStart, opts) {
     var style = 'left:' + (s.start / 7 * 100).toFixed(3) + '%;width:' + ((s.end - s.start + 1) / 7 * 100).toFixed(3) + '%;top:' + (s.lane * 18) + 'px;';
     if (s.holiday) {
       return '<div class="sched-bar holiday" style="' + style + '" onclick="scheduleDayTap(\'' + rowDays[s.start] + '\')">' + escapeHtml(s.holiday) + '</div>';
+    }
+    if (s.blockedLabel) {
+      return '<div class="sched-bar blockedday" style="' + style + '" onclick="scheduleDayTap(\'' + rowDays[s.start] + '\')">' + escapeHtml(s.blockedLabel) + '</div>';
     }
     var j = s.job;
     var cls = 'sched-bar' + (s.contL ? ' contL' : '') + (s.contR ? ' contR' : '') + (j.status !== 'accepted' ? ' done' : '');
@@ -3282,6 +3294,8 @@ function openScheduleDaySheet(iso) {
   var title = parseIsoDate(iso).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   var html = '<div style="font-size:16px;font-weight:700;margin-bottom:2px">' + title + (iso === todayIso ? ' · today' : '') + '</div>';
   if (bankHolidays[iso]) html += '<div style="font-size:13px;color:var(--accent2);font-weight:600;margin-bottom:4px">' + escapeHtml(bankHolidays[iso]) + '</div>';
+  var blockedLabel = settings.blockedDays && settings.blockedDays[iso];
+  if (blockedLabel) html += '<div style="font-size:13px;color:var(--text2);font-weight:600;margin-bottom:4px">🚫 Blocked — ' + escapeHtml(blockedLabel) + '</div>';
   var dayJobs = displayScheduledJobs().filter(function(j) { return jobBookedDays(j).indexOf(iso) !== -1; });
   html += '<div style="margin-top:8px">';
   if (dayJobs.length) {
@@ -3311,7 +3325,35 @@ function openScheduleDaySheet(iso) {
         }).join('');
     }
   }
+  // Block/unblock (v1.17.0): only offered where it means something — a day
+  // that is (or would be) a working day, today or later. Unblocking is
+  // offered on any blocked day so a stale block can always be cleared.
+  if (blockedLabel) {
+    html += '<button class="sched-sheet-btn warn" onclick="toggleBlockedDay(\'' + iso + '\')">Unblock this day</button>';
+  } else if (iso >= todayIso && isWorkingDay(parseIsoDate(iso), !!settings.workSaturdays)) {
+    html += '<button class="sched-sheet-btn alt" onclick="toggleBlockedDay(\'' + iso + '\')">Block this day</button>';
+  }
   openScheduleSheet(html);
+}
+
+// Blocked days live on settings (availability is Nicky's, not a job's) and
+// count as non-working in THE walker — so slot suggestions skip them and
+// scheduled spans stretch around them, exactly like bank holidays. The
+// server folds them into the ICS feed's skip set from the same settings row.
+function toggleBlockedDay(iso) {
+  if (!settings.blockedDays) settings.blockedDays = {};
+  if (settings.blockedDays[iso]) {
+    delete settings.blockedDays[iso];
+  } else {
+    var label = prompt('Block ' + fmtShortDate(iso) + ' — what for? (optional)', '');
+    if (label === null) return;
+    settings.blockedDays[iso] = label.trim() || 'Blocked';
+  }
+  localStorage.setItem('pe-settings', JSON.stringify(settings));
+  apiPut('/api/settings', settings);
+  closeScheduleSheet();
+  renderScheduleStrip(); renderJobs(); renderAttentionStrip();
+  if (activeJob()) renderSummary();
 }
 
 // A tapped Sat/Sun/holiday rolls forward to the next working day — same

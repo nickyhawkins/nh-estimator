@@ -69,6 +69,21 @@ Verified by a 25-check Chromium smoke run (all three views, spanning/stacking,
 past-month history, both sheets, tap-to-schedule, tap-to-move incl. weekend
 roll-forward, region select) plus an 800-span client/server parity harness.
 
+**Addendum 2026-07-23 (v1.17.0) — blocked days.** Nicky manages her diary in
+Apple Calendar (the ICS feed pushes jobs INTO it), but the app couldn't see
+her absences, so next-free-slot happily offered days she's away. Rather than
+subscribing to her personal calendar (heavier, and the public-share URL
+exposes the whole calendar), the day sheet gains **Block this day** (optional
+label via prompt, e.g. "Holiday") / **Unblock this day**. Blocks live on
+`settings.blockedDays` ({iso → label} — availability is hers, not a job's)
+and count as NON-WORKING in the one walker, exactly like bank holidays: slot
+suggestions skip them, scheduled spans stretch around them, and the ICS route
+folds them into its skip set from the same settings row. They render as
+dashed grey chips in the bar lanes. Block is only offered on would-be working
+days, today onward; Unblock on any blocked day so stale blocks can always be
+cleared. Covered by the parity harness (blocked spans, client vs ICS) and the
+31-check smoke run (block → chip + non-working, unblock clears).
+
 **Addendum 2026-07-22 (v1.9.1, revised v1.10.2):** the Schedule form gained an optional
 **calendar title** (`job.scheduleTitle`) — job names are usually the client's name, so
 the ICS feed's `name — client` events read as "Smith — Smith". Per Nicky the title

@@ -674,6 +674,8 @@ router.get('/schedule.ics', async (req, res) => {
     const divisions = await getBankHolidays();
     const region = s.bankHolidayRegion || 'england-and-wales';
     const holidays = new Set(((divisions && divisions[region]) || []).map((e) => e.date));
+    // Nicky's own blocked days (v1.17.0) join the skip set — same walker rules.
+    for (const iso of Object.keys(s.blockedDays || {})) holidays.add(iso);
     for (const row of jobsResult.rows) {
       const d = row.data || {};
       if (d.status !== 'accepted' || !d.startDate || !(+d.scheduledDays > 0)) continue;
