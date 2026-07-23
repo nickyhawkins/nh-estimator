@@ -10,21 +10,50 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#1a5276">
+<script>
+// Theme boot — runs before first paint so a dark-phone launch never flashes
+// white. The full theme logic (Settings seg, matchMedia listener) lives in
+// the main script; this only mirrors its resolution of pe-theme.
+try {
+  var _tp = localStorage.getItem('pe-theme') || 'auto';
+  if (_tp === 'dark' || (_tp === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches)) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    document.querySelector('meta[name="theme-color"]').setAttribute('content', '#10141a');
+  }
+} catch (e) {}
+</script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root {
   --bg:#f4f6f9; --surface:#fff; --surface2:#eef1f5; --border:#dde2ea;
   --accent:#1a5276; --accent2:#2980b9; --warn:#e67e22; --danger:#c0392b; --success:#2e7d46;
   --text:#1a1f2e; --text2:#5a6270; --text3:#9aa0ad;
+  --glass:rgba(244,246,249,.95); --glass2:rgba(244,246,249,.97);
+  --accent-soft-bg:rgba(26,82,118,.10); --accent-soft-border:rgba(26,82,118,.25);
+  --accent-faint:var(--accent-faint);
+  --danger-soft-bg:rgba(192,57,43,.10); --danger-soft-border:rgba(192,57,43,.30);
   --r:16px; --rs:10px;
   --st:env(safe-area-inset-top,0px); --sb:env(safe-area-inset-bottom,20px);
+}
+/* Dark palette (v2.0) — same ~12 vars, flipped. Applied via data-theme on
+   <html>, set by the head boot snippet before first paint and by
+   applyTheme() afterwards. Accent lightens because it doubles as body text
+   (.room-cost, chips, ghost buttons) which #1a5276 can't do on dark. */
+:root[data-theme="dark"] {
+  --bg:#10141a; --surface:#1a202a; --surface2:#242c39; --border:#323b4a;
+  --accent:#4f9cd1; --accent2:#63aede; --warn:#f0932b; --danger:#e0604f; --success:#45b36b;
+  --text:#e9ecf2; --text2:#a4adbb; --text3:#68717f;
+  --glass:rgba(16,20,26,.92); --glass2:rgba(16,20,26,.95);
+  --accent-soft-bg:rgba(79,156,209,.16); --accent-soft-border:rgba(79,156,209,.38);
+  --accent-faint:rgba(79,156,209,.10);
+  --danger-soft-bg:rgba(224,96,79,.16); --danger-soft-border:rgba(224,96,79,.4);
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100dvh;overflow-x:hidden}
 #app{display:flex;flex-direction:column;min-height:100dvh}
 
 /* Topbar */
-.topbar{position:sticky;top:0;z-index:100;background:rgba(244,246,249,0.95);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);padding:calc(var(--st) + 12px) 20px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
+.topbar{position:sticky;top:0;z-index:100;background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);padding:calc(var(--st) + 12px) 20px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
 .topbar-title{font-size:17px;font-weight:700;letter-spacing:-.3px;flex:1}
 .topbar-sub{font-size:11px;color:var(--text2);font-family:'DM Mono',monospace}
 .back-btn{width:36px;height:36px;border-radius:50%;background:var(--surface2);border:none;color:var(--text);display:flex;align-items:center;justify-content:center;font-size:18px;cursor:pointer;flex-shrink:0}
@@ -66,7 +95,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 /* Buttons */
 .btn{display:flex;align-items:center;justify-content:center;gap:8px;padding:16px;border-radius:var(--r);border:none;font-family:'DM Sans',sans-serif;font-size:16px;font-weight:700;cursor:pointer;transition:all .15s}
 .btn:active{transform:scale(.97)}
-.btn-danger{background:rgba(192,57,43,.12);color:var(--danger);border:1px solid rgba(192,57,43,.3)}
+.btn-danger{background:var(--danger-soft-bg);color:var(--danger);border:1px solid var(--danger-soft-border)}
 .btn-ghost{background:transparent;color:var(--accent)}
 
 /* Room list */
@@ -124,13 +153,13 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 .mat-detail{font-size:12px;color:var(--text2);margin-top:2px}
 .mat-val{font-family:'DM Mono',monospace;font-size:14px;font-weight:500;color:var(--accent2)}
 .mat-chargeable-tag{display:inline-block;margin-top:6px;padding:3px 8px;font-size:11px;font-weight:600;border-radius:10px;cursor:pointer;background:var(--surface2);color:var(--text2);border:1px solid var(--border)}
-.mat-chargeable-tag.on{background:rgba(26,82,118,.12);color:var(--accent);border-color:transparent}
+.mat-chargeable-tag.on{background:var(--accent-soft-bg);color:var(--accent);border-color:transparent}
 
 /* Navbar */
-.navbar{position:sticky;bottom:0;z-index:100;background:rgba(244,246,249,.97);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:1px solid var(--border);display:flex;padding:8px 0 calc(var(--sb))}
+.navbar{position:sticky;bottom:0;z-index:100;background:var(--glass2);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:1px solid var(--border);display:flex;padding:8px 0 calc(var(--sb))}
 .nav-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px;cursor:pointer;border:none;background:transparent;color:var(--text3);transition:color .15s}
 .nav-item.active{color:var(--accent)}
-.nav-icon{font-size:22px}
+.nav-icon{font-size:22px;position:relative}
 .nav-label{font-size:10px;font-weight:600;letter-spacing:.3px}
 
 /* Hamburger menu — job admin (Jobs / Materials / Settings). One overlay
@@ -159,7 +188,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 
 /* Misc */
 .section-title{font-size:13px;font-weight:700;color:var(--text2);letter-spacing:.5px;text-transform:uppercase;padding:0 4px;margin-top:4px}
-.chip{display:inline-flex;align-items:center;gap:4px;background:rgba(26,82,118,.10);color:var(--accent);border:1px solid rgba(26,82,118,.25);border-radius:20px;padding:4px 10px;font-size:12px;font-weight:600}
+.chip{display:inline-flex;align-items:center;gap:4px;background:var(--accent-soft-bg);color:var(--accent);border:1px solid var(--accent-soft-border);border-radius:20px;padding:4px 10px;font-size:12px;font-weight:600}
 .fab{position:fixed;bottom:calc(var(--sb) + 80px);right:20px;width:56px;height:56px;border-radius:50%;background:var(--accent);border:none;color:#fff;font-size:28px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(26,82,118,.4);cursor:pointer;z-index:50;transition:all .15s}
 .fab:active{transform:scale(.92)}
 .fab-quick{position:fixed;bottom:calc(var(--sb) + 92px);right:88px;height:36px;padding:0 14px;border-radius:18px;background:var(--surface);border:1px solid var(--border);color:var(--accent);font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;box-shadow:0 2px 12px rgba(0,0,0,.12);cursor:pointer;z-index:50;transition:all .15s}
@@ -219,8 +248,12 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 <body>
 <div id="app">
 
-<!-- ══ HOME ══ -->
-<div id="screen-home" class="screen active">
+<!-- ══ MEASURE (v2.0: interior rooms + exterior items on one screen) ══
+     Still tab key 'home'/screen-home internally — renaming the key would
+     churn curTab, draft capture and every goTab('home') call site for no
+     user-visible gain. The + FAB opens a Room/Exterior chooser sheet;
+     Quick add stays rooms-only. -->
+<div id="screen-home" class="screen">
   <div class="topbar">
     <img src="/logo.png" style="height:36px;width:auto;object-fit:contain" alt="Nicky Hawkins">
     <!-- Kept visible in the top corner per Nicky (2026-07-14) -- the
@@ -229,22 +262,38 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     <div onclick="goTab('jobs')" id="home-job-name" style="flex:1;font-weight:700;font-size:15px;color:var(--text);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">My Job &rsaquo;</div>
     <div class="topbar-sub" id="home-sub"></div>
     <div class="chip" id="home-chip" style="display:none">£0</div>
-    <button id="clear-btn" onclick="clearRooms()" style="display:none;background:rgba(192,57,43,.1);border:1px solid rgba(192,57,43,.3);color:var(--danger);border-radius:20px;padding:5px 12px;font-size:12px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;margin-left:6px">Clear</button>
     <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
   </div>
   <div class="content">
-    <div id="attention-strip"></div>
-    <div class="empty" id="home-empty">
-      <div class="empty-icon">🏠</div>
-      <div class="empty-title">No rooms yet</div>
-      <div class="empty-sub">Tap + to add rooms as you walk round, or Quick add to name every room first and measure on a second pass. Toggle Staircase / HSL on the room form for halls, stairs &amp; landings.</div>
+    <div class="empty" id="measure-empty">
+      <div class="empty-icon">📐</div>
+      <div class="empty-title">Nothing measured yet</div>
+      <div class="empty-sub">Tap + to add a room or an exterior item as you walk round, or Quick add to name every room first and measure on a second pass. Toggle Staircase / HSL on the room form for halls, stairs &amp; landings.</div>
+    </div>
+    <div class="section-title" id="rooms-section-head" style="display:none;justify-content:space-between;align-items:center">
+      <span>Interior</span>
+      <span onclick="clearRooms()" style="color:var(--danger);font-size:12px;font-weight:600;cursor:pointer;text-transform:none;letter-spacing:0">Clear</span>
     </div>
     <div id="room-list" style="display:none">
       <div class="card" id="room-cards"></div>
     </div>
+    <div class="section-title" id="ext-section-head" style="display:none;justify-content:space-between;align-items:center">
+      <span>Exterior</span>
+      <span onclick="clearExteriorItems()" style="color:var(--danger);font-size:12px;font-weight:600;cursor:pointer;text-transform:none;letter-spacing:0">Clear</span>
+    </div>
+    <div id="ext-list" style="display:none">
+      <div class="card" id="ext-cards"></div>
+    </div>
   </div>
   <button class="fab-quick" onclick="quickAddRooms()">Quick add</button>
-  <button class="fab" onclick="goScreen('room')">+</button>
+  <button class="fab" onclick="openAddChooser()">+</button>
+  <!-- The + chooser: same bottom-sheet pattern as the notes panel below. -->
+  <div id="add-chooser" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.4)" onclick="closeAddChooser()">
+    <div style="position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-radius:16px 16px 0 0;padding:10px 0 calc(var(--sb) + 10px);box-shadow:0 -4px 24px rgba(0,0,0,.2)" onclick="event.stopPropagation()">
+      <div class="nav-menu-item" onclick="closeAddChooser();goScreen('room')"><div>🏠&ensp;Room</div><span class="nav-menu-arrow">›</span></div>
+      <div class="nav-menu-item" onclick="closeAddChooser();showAddExterior()"><div>🏡&ensp;Exterior item</div><span class="nav-menu-arrow">›</span></div>
+    </div>
+  </div>
   <!-- Per-job site notes (SITE_NOTES_SPEC.md Part 1, tucked away per Nicky
        2026-07-23): a small corner notepad instead of a full-width card —
        tap to open a bottom sheet with the same jobs.data.notes field
@@ -262,10 +311,37 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
   </div>
 </div>
 
+<!-- ══ HOME DASHBOARD (v2.0) ══
+     The landing tab -- job at a glance, the attention strip (moved here
+     from Measure), materials/schedule glances, and quick links to the
+     screens that used to require the hamburger. Re-rendered by renderDash()
+     on every entry, on init, on job switch/data load, and after any
+     status-changing action -- see the wiring next to each call site. -->
+<div id="screen-dash" class="screen active">
+  <div class="topbar">
+    <img src="/logo.png" style="height:36px;width:auto;object-fit:contain" alt="Nicky Hawkins">
+    <div style="flex:1"></div>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
+  </div>
+  <div class="content">
+    <div id="attention-strip"></div>
+    <div id="dash-body"></div>
+    <div class="card">
+      <div class="card-header">Go to</div>
+      <div class="field-row" style="cursor:pointer" onclick="goTab('jobs')"><div class="field-label">Jobs</div><span class="nav-menu-arrow">›</span></div>
+      <div class="field-row" style="cursor:pointer" onclick="goTab('schedule')"><div class="field-label">Schedule</div><span class="nav-menu-arrow">›</span></div>
+      <div class="field-row" style="cursor:pointer" onclick="openActuals()"><div class="field-label">On Site</div><span class="nav-menu-arrow">›</span></div>
+      <div class="field-row" style="cursor:pointer" onclick="goTab('colours')"><div class="field-label">Colours</div><span class="nav-menu-arrow">›</span></div>
+      <div class="field-row" style="cursor:pointer" onclick="goTab('settings')"><div class="field-label">Settings</div><span class="nav-menu-arrow">›</span></div>
+    </div>
+    <div id="dash-sync" style="text-align:center;font-size:12px;color:var(--text2);padding:4px 0 12px"></div>
+  </div>
+</div>
+
 <!-- ══ SCHEDULE (calendar — SCHEDULING_SPEC.md) ══ -->
 <div id="screen-schedule" class="screen">
   <div class="topbar">
-    <button class="back-btn" onclick="goTab('home')">←</button>
+    <button class="back-btn" onclick="goTab('dash')">←</button>
     <div class="topbar-title">Schedule</div>
     <div class="seg" style="margin-left:auto;flex:none">
       <button class="seg-btn" id="segsched-list" style="padding:6px 10px;font-size:12px" onclick="setScheduleView('list')">List</button>
@@ -287,7 +363,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 <!-- ══ JOBS ══ -->
 <div id="screen-jobs" class="screen">
   <div class="topbar">
-    <button class="back-btn" onclick="goTab('home')">←</button>
+    <button class="back-btn" onclick="goTab('dash')">←</button>
     <div class="topbar-title">Jobs</div>
   </div>
   <div class="content">
@@ -516,7 +592,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
             <div class="breakdown-row" id="fwwp-r-labour-row" style="display:none"><span class="breakdown-label">Feature wall wallpaper labour</span><span class="breakdown-value" id="fwwp-r-labour">—</span></div>
             <div class="breakdown-row" id="fwwp-r-droplen-row" style="display:none"><span class="breakdown-label">Drop length</span><span class="breakdown-value" id="fwwp-r-droplen">—</span></div>
             <div class="breakdown-row" id="fwwp-r-drops-row" style="display:none"><span class="breakdown-label">Drops per roll / needed</span><span class="breakdown-value" id="fwwp-r-drops">—</span></div>
-            <div class="breakdown-row" id="fwwp-r-rolls-row" style="display:none;background:rgba(26,82,118,.06)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Rolls to order</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="fwwp-r-rolls">—</span></div>
+            <div class="breakdown-row" id="fwwp-r-rolls-row" style="display:none;background:var(--accent-faint)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Rolls to order</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="fwwp-r-rolls">—</span></div>
             <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label" style="color:var(--text2)">Roll length/width, match &amp; spare<small>set in the Wallpaper section below — shared paper spec</small></div></div>
           </div>
           <div id="fw-wp-vinyl-fields" style="display:none">
@@ -525,7 +601,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
               <input type="number" class="field-input" id="r-fw-vinyl-rollwidth" value="137" min="50" step="1" inputmode="numeric" oninput="previewRoom()">
             </div>
             <div class="breakdown-row" id="fwwp-r-vinyl-metres-row" style="display:none"><span class="breakdown-label">Linear metres needed</span><span class="breakdown-value" id="fwwp-r-vinyl-metres">—</span></div>
-            <div class="breakdown-row" id="fwwp-r-vinyl-cost-row" style="display:none;background:rgba(26,82,118,.06)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Wide vinyl cost</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="fwwp-r-vinyl-cost">—</span></div>
+            <div class="breakdown-row" id="fwwp-r-vinyl-cost-row" style="display:none;background:var(--accent-faint)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Wide vinyl cost</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="fwwp-r-vinyl-cost">—</span></div>
           </div>
           <div id="fw-wp-mural-fields" style="display:none">
             <div class="field-row" style="border-top:1px solid var(--border)">
@@ -536,7 +612,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
               </div>
             </div>
             <div class="breakdown-row" id="fwwp-r-mural-area-row" style="display:none"><span class="breakdown-label">Area</span><span class="breakdown-value" id="fwwp-r-mural-area">—</span></div>
-            <div class="breakdown-row" id="fwwp-r-mural-cost-row" style="display:none;background:rgba(26,82,118,.06)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Mural cost</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="fwwp-r-mural-cost">—</span></div>
+            <div class="breakdown-row" id="fwwp-r-mural-cost-row" style="display:none;background:var(--accent-faint)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Mural cost</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="fwwp-r-mural-cost">—</span></div>
           </div>
         </div>
       </div>
@@ -579,7 +655,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         </div>
         <div class="breakdown-row" id="wp-r-droplen-row" style="display:none"><span class="breakdown-label">Drop length</span><span class="breakdown-value" id="wp-r-droplen">—</span></div>
         <div class="breakdown-row" id="wp-r-drops-row" style="display:none"><span class="breakdown-label">Drops per roll / needed</span><span class="breakdown-value" id="wp-r-drops">—</span></div>
-        <div class="breakdown-row" id="wp-r-rolls-row" style="display:none;background:rgba(26,82,118,.06)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Rolls to order</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="wp-r-rolls">—</span></div>
+        <div class="breakdown-row" id="wp-r-rolls-row" style="display:none;background:var(--accent-faint)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Rolls to order</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="wp-r-rolls">—</span></div>
         <div class="field-row" style="border-top:1px solid var(--border)">
           <div class="field-label">Ceiling<small>both can be on — e.g. line out then finish</small></div>
           <div class="seg" id="seg-wpc" style="flex:1.5">
@@ -590,7 +666,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         <div class="breakdown-row" id="wp-r-ceil-labour-row" style="display:none"><span class="breakdown-label">Ceiling wallpaper labour</span><span class="breakdown-value" id="wp-r-ceil-labour">—</span></div>
         <div class="breakdown-row" id="wp-r-ceil-droplen-row" style="display:none"><span class="breakdown-label">Ceiling drop length</span><span class="breakdown-value" id="wp-r-ceil-droplen">—</span></div>
         <div class="breakdown-row" id="wp-r-ceil-drops-row" style="display:none"><span class="breakdown-label">Ceiling drops per roll / needed</span><span class="breakdown-value" id="wp-r-ceil-drops">—</span></div>
-        <div class="breakdown-row" id="wp-r-ceil-rolls-row" style="display:none;background:rgba(26,82,118,.06)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Ceiling rolls to order</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="wp-r-ceil-rolls">—</span></div>
+        <div class="breakdown-row" id="wp-r-ceil-rolls-row" style="display:none;background:var(--accent-faint)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Ceiling rolls to order</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="wp-r-ceil-rolls">—</span></div>
       </div>
     </div>
     <div class="card searchable-card">
@@ -627,10 +703,10 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="breakdown-row" id="hsl-r-stair2-row" style="display:none"><span class="breakdown-label">Staircase 2 walls</span><span class="breakdown-value" id="hsl-r-stair2">—</span></div>
       <div class="breakdown-row" id="hsl-r-land2-row" style="display:none"><span class="breakdown-label">2nd floor landing walls</span><span class="breakdown-value" id="hsl-r-land2">—</span></div>
       <div class="breakdown-row"><span class="breakdown-label">Total ceiling area</span><span class="breakdown-value" id="hsl-r-ceil">—</span></div>
-      <div class="breakdown-row" style="background:rgba(26,82,118,.06)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Total wall area</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="hsl-r-walls">—</span></div>
+      <div class="breakdown-row" style="background:var(--accent-faint)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Total wall area</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="hsl-r-walls">—</span></div>
       <div class="breakdown-row" id="hsl-r-doorskirt-row" style="display:none"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Woodwork (doors &amp; skirtings)</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="hsl-r-doorskirt">—</span></div>
       <div class="breakdown-row" id="hsl-r-wood-row" style="display:none"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Staircase woodwork</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="hsl-r-wood">—</span></div>
-      <div class="breakdown-row" style="background:rgba(26,82,118,.06)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Estimated cost (ex markup)</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="hsl-r-cost">—</span></div>
+      <div class="breakdown-row" style="background:var(--accent-faint)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Estimated cost (ex markup)</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="hsl-r-cost">—</span></div>
       <div class="breakdown-row"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Estimated time</span><span class="breakdown-value" id="hsl-r-time">—</span></div>
     </div>
     <div class="card" id="room-preview" style="display:none">
@@ -644,17 +720,17 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
   </div>
 </div>
 
-<!-- ══ SUMMARY ══ -->
 <!-- ══ MATERIALS TRACKING (actuals vs estimate) ══
-     Reached from the hamburger menu's "Materials" row (job admin), from every
-     measuring screen -- was a temporary button on Summary until the hamburger
-     nav shipped (2026-07-14). The outstanding-count badge on the hamburger
-     itself is load-bearing, not decoration: see updateNavBadge(). -->
+     Bottom-bar tab in v2.0 (was hamburger-only) -- always entered via
+     openActuals(), which loads server data before rendering, never a bare
+     goTab('actuals'). No back button: it's a top-level tab now. The
+     outstanding-count badge is load-bearing, not decoration: see
+     updateNavBadge(). -->
 <div id="screen-actuals" class="screen">
   <div class="topbar">
-    <button class="back-btn" onclick="goTab('summary')">←</button>
     <div class="topbar-title">On Site</div>
-    <button onclick="goInvoiceList()" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:20px;padding:6px 14px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Invoice ›</button>
+    <button onclick="goInvoiceList()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:20px;padding:6px 14px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Invoice ›</button>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
   </div>
   <div class="content">
     <div id="actuals-body"></div>
@@ -669,7 +745,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
   <div class="topbar">
     <button class="back-btn" onclick="openActuals()">←</button>
     <div class="topbar-title">Invoice</div>
-    <button onclick="copyInvoiceList()" id="inv-copy-btn" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:20px;padding:6px 14px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Copy</button>
+    <button onclick="copyInvoiceList()" id="inv-copy-btn" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:20px;padding:6px 14px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Copy</button>
   </div>
   <div class="content">
     <div id="invoice-body"></div>
@@ -682,7 +758,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
      Xero. The 2(a) Invoice list above stays as the permanent fallback. -->
 <div id="screen-finalinvoice" class="screen">
   <div class="topbar">
-    <button class="back-btn" onclick="goTab('summary')">←</button>
+    <button class="back-btn" onclick="backFromFinalInvoice()">←</button>
     <div class="topbar-title">Final Invoice</div>
   </div>
   <div class="content">
@@ -697,7 +773,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
          entry point while the hamburger nav didn't exist yet -- Materials is
          now reached from there on every measuring screen, so this one is
          retired rather than left as a second, redundant path in. -->
-    <button onclick="exportCSV()" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:20px;padding:6px 14px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Export ↓</button>
+    <button onclick="exportCSV()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:20px;padding:6px 14px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Export ↓</button>
     <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
   </div>
   <!-- Compact stand-in for the quote panel once a job is quoted or beyond
@@ -744,7 +820,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     <div class="empty" id="sum-empty">
       <div class="empty-icon">📋</div>
       <div class="empty-title">No rooms added</div>
-      <div class="empty-sub">Add rooms on the Rooms tab to see your quote summary</div>
+      <div class="empty-sub">Add rooms on the Measure tab to see your quote summary</div>
     </div>
     <div id="sum-data" style="display:none"></div>
   </div>
@@ -893,15 +969,15 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     <div class="card">
       <div class="card-header">Xero Integration</div>
       <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px">
-        <button id="xero-connect-btn" onclick="window.location='/auth/connect'" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:12px;padding:12px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Connect Xero</button>
-        <button id="xero-disconnect-btn" onclick="disconnectXero()" style="display:none;background:rgba(192,57,43,.1);border:1px solid rgba(192,57,43,.3);color:var(--danger);border-radius:12px;padding:12px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Disconnect Xero</button>
+        <button id="xero-connect-btn" onclick="window.location='/auth/connect'" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:12px;padding:12px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Connect Xero</button>
+        <button id="xero-disconnect-btn" onclick="disconnectXero()" style="display:none;background:var(--danger-soft-bg);border:1px solid var(--danger-soft-border);color:var(--danger);border-radius:12px;padding:12px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Disconnect Xero</button>
       </div>
       <div class="settings-note">Connect your Xero account to send quotes directly from the Summary tab.</div>
     </div>
     <div class="card">
       <div class="card-header">Materials (Xero Items)</div>
       <div style="padding:0 16px 14px">
-        <button id="materials-refresh-btn" onclick="refreshXeroItems()" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:12px;padding:12px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;width:100%">Refresh from Xero</button>
+        <button id="materials-refresh-btn" onclick="refreshXeroItems()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:12px;padding:12px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;width:100%">Refresh from Xero</button>
       </div>
       <div class="field-row"><div class="field-label">Wall paint<small>per tin</small></div><select class="field-input" id="mat-wall" onchange="onMaterialSelect('wall')"></select></div>
       <div class="field-row"><div class="field-label">— Colour band<small>&nbsp;</small></div><select class="field-input" id="mat-wall-band" onchange="onBandSelect('wall')" disabled></select></div>
@@ -922,39 +998,28 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="settings-note" id="materials-note">Connect Xero above, then tap Refresh to choose a default product range and colour band for each role (e.g. "Tikkurila Optiva 5" / "White"). These are job-wide defaults — override per room on the room screen if a room needs a different product or colour. Until a range is picked, the Summary shows an estimated litres/tins figure instead of a real price.</div>
     </div>
     <div class="card">
+      <div class="card-header">Appearance</div>
+      <div class="field-row">
+        <div class="field-label">Theme<small>Auto follows this phone's setting</small></div>
+        <div class="seg" id="seg-theme" style="width:200px">
+          <button class="seg-btn" data-theme="auto" onclick="setThemePref('auto')">Auto</button>
+          <button class="seg-btn" data-theme="light" onclick="setThemePref('light')">Light</button>
+          <button class="seg-btn" data-theme="dark" onclick="setThemePref('dark')">Dark</button>
+        </div>
+      </div>
+      <div class="settings-note">Applies to this phone only — not synced.</div>
+    </div>
+    <div class="card">
       <div class="card-header">Backup</div>
       <div class="settings-note">Everything lives on the server with no automatic backup behind it. Export regularly, especially before anything risky. See BACKUP_SPEC.md.</div>
       <div style="padding:0 16px 14px;display:flex;flex-direction:column;gap:10px">
-        <button id="backup-export-btn" onclick="exportBackup()" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:12px;padding:12px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;width:100%">Export everything</button>
+        <button id="backup-export-btn" onclick="exportBackup()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:12px;padding:12px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;width:100%">Export everything</button>
         <input type="file" id="backup-import-file" accept="application/json" style="display:none" onchange="onBackupFileSelected(this.files[0])">
-        <button onclick="document.getElementById('backup-import-file').click()" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:12px;padding:12px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;width:100%">Import backup</button>
+        <button onclick="document.getElementById('backup-import-file').click()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:12px;padding:12px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;width:100%">Import backup</button>
       </div>
       <div id="backup-preview" style="display:none;padding:0 16px 14px"></div>
     </div>
   </div>
-</div>
-
-<!-- ══ EXTERIOR ══ -->
-<div id="screen-exterior" class="screen">
-  <div class="topbar">
-    <img src="/logo.png" style="height:36px;width:auto;object-fit:contain" alt="Nicky Hawkins">
-    <div style="flex:1"></div>
-    <div class="topbar-sub" id="ext-sub"></div>
-    <div class="chip" id="ext-chip" style="display:none">£0</div>
-    <button id="ext-clear-btn" onclick="clearExteriorItems()" style="display:none;background:rgba(192,57,43,.1);border:1px solid rgba(192,57,43,.3);color:var(--danger);border-radius:20px;padding:5px 12px;font-size:12px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;margin-left:6px">Clear</button>
-    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
-  </div>
-  <div class="content">
-    <div class="empty" id="ext-empty">
-      <div class="empty-icon">🏡</div>
-      <div class="empty-title">No exterior items</div>
-      <div class="empty-sub">Tap + to add exterior elements as you survey</div>
-    </div>
-    <div id="ext-list" style="display:none">
-      <div class="card" id="ext-cards"></div>
-    </div>
-  </div>
-  <button class="fab" onclick="showAddExterior()">+</button>
 </div>
 
 <!-- ══ KITCHEN CABINET SPRAY CALCULATOR ══
@@ -1012,6 +1077,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 <!-- ══ COLOURS ══ -->
 <div id="screen-colours" class="screen">
   <div class="topbar">
+    <button class="back-btn" onclick="goTab('dash')">←</button>
     <div class="topbar-title">Colours</div>
     <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
   </div>
@@ -1136,20 +1202,25 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
   </div>
 </div>
 
-<!-- ══ NAVBAR ══ -->
+<!-- ══ NAVBAR (v2.0) ══
+     Home = dashboard/landing · Measure = interior + exterior · On Site
+     promoted from the hamburger (enters via openActuals(), which loads
+     server actuals BEFORE rendering — never a bare goTab('actuals')).
+     Colours moved to the hamburger. -->
 <nav class="navbar">
-  <button class="nav-item active" id="nav-home" onclick="goTab('home')"><span class="nav-icon">🏠</span><span class="nav-label">Rooms</span></button>
-  <button class="nav-item" id="nav-exterior" onclick="goTab('exterior')"><span class="nav-icon">🏡</span><span class="nav-label">Exterior</span></button>
+  <button class="nav-item active" id="nav-dash" onclick="goTab('dash')"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></button>
+  <button class="nav-item" id="nav-home" onclick="goTab('home')"><span class="nav-icon">📐</span><span class="nav-label">Measure</span></button>
   <button class="nav-item" id="nav-kitchen" onclick="goTab('kitchen')"><span class="nav-icon">🍳</span><span class="nav-label">Kitchen</span></button>
-  <button class="nav-item" id="nav-colours" onclick="goTab('colours')"><span class="nav-icon">🎨</span><span class="nav-label">Colours</span></button>
+  <button class="nav-item" id="nav-actuals" onclick="openActuals()"><span class="nav-icon">🛠️<span class="nav-ham-badge"></span></span><span class="nav-label">On Site</span></button>
   <button class="nav-item" id="nav-summary" onclick="goTab('summary')"><span class="nav-icon">📋</span><span class="nav-label">Summary</span></button>
 </nav>
 
 <!-- ══ HAMBURGER MENU (job admin) ══
-     One shared overlay, not per-screen: fixed position, floats above whichever
-     of the 4 measuring screens is active. Bottom bar above = measuring, this
-     menu = job admin (Jobs · Materials · Settings) -- a deliberate split by
-     activity, not a random shuffle of controls. See FEATURES.md. -->
+     One shared overlay, not per-screen: fixed position, floats above
+     whichever screen is active. Bottom bar = Home/Measure/Kitchen/On
+     Site/Summary; this menu = job admin (Jobs · Colours · Schedule ·
+     Settings) -- On Site moved to the bottom bar in v2.0, Colours moved
+     here in its place. See FEATURES.md. -->
 <div id="nav-menu-backdrop" class="nav-menu-backdrop" onclick="closeNavMenu()"></div>
 <div id="nav-menu-panel" class="nav-menu-panel" style="display:none">
   <div class="nav-menu-item" onclick="closeNavMenu();goTab('jobs')">
@@ -1159,9 +1230,9 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     </div>
     <span class="nav-menu-arrow">›</span>
   </div>
-  <div class="nav-menu-item" onclick="closeNavMenu();openActuals()">
-    <div>On Site</div>
-    <span id="nav-menu-materials-badge" class="nav-menu-sub" style="margin-top:0"></span>
+  <div class="nav-menu-item" onclick="closeNavMenu();goTab('colours')">
+    <div>Colours</div>
+    <span class="nav-menu-arrow">›</span>
   </div>
   <div class="nav-menu-item" onclick="closeNavMenu();goTab('schedule')">
     <div>Schedule</div>
@@ -1182,7 +1253,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.17.1</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.0.0</div>
 </div>
 </div>
 
@@ -1224,6 +1295,42 @@ var pendingWrites = 0;
 function beginWrite() { pendingWrites++; updateSyncStatus(); }
 function endWrite() { pendingWrites = Math.max(0, pendingWrites - 1); updateSyncStatus(); }
 
+// ── Theme (v2.0 dark mode) ─────────────────────────────────────────────────
+// Device-local by design (pe-theme in localStorage, NOT the server settings
+// schema): "dark on the phone in the evening" is a per-device preference,
+// and keeping it out of SETTINGS_FIELDS means no migration and no surprise
+// theme flips on another device. The head boot snippet applies the same
+// resolution before first paint; these are the runtime/Settings-seg half.
+function getThemePref() { return localStorage.getItem('pe-theme') || 'auto'; }
+function resolvedTheme() {
+  var p = getThemePref();
+  if (p !== 'auto') return p;
+  return (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+}
+function applyTheme() {
+  var t = resolvedTheme();
+  if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  else document.documentElement.removeAttribute('data-theme');
+  var m = document.querySelector('meta[name="theme-color"]');
+  if (m) m.setAttribute('content', t === 'dark' ? '#10141a' : '#1a5276');
+}
+function setThemePref(p) { localStorage.setItem('pe-theme', p); applyTheme(); syncThemeSeg(); }
+function syncThemeSeg() {
+  var p = getThemePref();
+  document.querySelectorAll('#seg-theme .seg-btn').forEach(function(b) {
+    b.classList.toggle('active', b.dataset.theme === p);
+  });
+}
+// Follow OS switches live while in Auto (addListener fallback: older iOS
+// Safari lacks addEventListener on MediaQueryList).
+(function() {
+  if (!window.matchMedia) return;
+  var mq = matchMedia('(prefers-color-scheme: dark)');
+  var fn = function() { if (getThemePref() === 'auto') applyTheme(); };
+  if (mq.addEventListener) mq.addEventListener('change', fn);
+  else if (mq.addListener) mq.addListener(fn);
+})();
+
 // synced (green) / saving (amber) / offline (red). "Offline" means the last
 // write failed OR the browser knows it has no connection -- either way the
 // data is safe in localStorage, which is what the menu row's wording says.
@@ -1239,6 +1346,12 @@ function updateSyncStatus() {
     row.textContent = state === 'offline' ? 'Offline — changes saved on this phone'
                     : state === 'saving' ? 'Saving…' : 'All changes synced ✓';
     row.className = 'nav-menu-sync' + (state === 'synced' ? '' : ' ' + state);
+  }
+  var dashRow = document.getElementById('dash-sync');
+  if (dashRow) {
+    dashRow.textContent = state === 'offline' ? 'Offline — changes saved on this phone'
+                         : state === 'saving' ? 'Saving…' : 'All changes synced ✓';
+    dashRow.style.color = state === 'offline' ? 'var(--danger)' : state === 'saving' ? 'var(--warn)' : 'var(--success)';
   }
 }
 // Optimistic reset on reconnect: the next real write settles the truth.
@@ -1455,7 +1568,7 @@ function clearEverything() {
   Object.keys(extItemCoats).forEach(function(k){ extItemCoats[k]=2; });
   renderHome(); goTab('home');
   var b=document.createElement('div');
-  b.style.cssText='position:fixed;top:calc(env(safe-area-inset-top,0px) + 70px);left:20px;right:20px;background:#c0392b;color:white;border-radius:12px;padding:14px 16px;font-size:14px;font-weight:600;z-index:999;text-align:center';
+  b.style.cssText='position:fixed;top:calc(env(safe-area-inset-top,0px) + 70px);left:20px;right:20px;background:var(--danger);color:white;border-radius:12px;padding:14px 16px;font-size:14px;font-weight:600;z-index:999;text-align:center';
   b.textContent='All data cleared';
   document.body.appendChild(b);
   setTimeout(function(){if(b.parentNode)b.parentNode.removeChild(b);},3000);
@@ -2062,6 +2175,9 @@ async function createXeroQuote(forceNew) {
 
 // Load from localStorage immediately, then sync from server in background
 async function initApp() {
+  // Theme first — the head snippet already painted it; this just re-applies
+  // (harmless) and marks the Settings seg with the saved preference.
+  applyTheme(); syncThemeSeg();
   // ── Step 1: Load from localStorage instantly (works offline) ──
   // settings itself needs no work here: the module-level init already built
   // it from the same pe-settings blob via mergeSettings(). Just paint it.
@@ -2082,6 +2198,7 @@ async function initApp() {
   if (materialsLocal && materialsLocal.length > 0) { materialsSnapshot = materialsLocal; }
 
   renderHome();
+  renderDash();
 
   // ── Step 2: Sync from server in background ──
   try {
@@ -2133,6 +2250,7 @@ async function initApp() {
     // this because it reads activeJob() fresh at open time, always after this
     // point. Call it unconditionally here so both agree regardless of rooms.
     renderHome();
+    renderDash();
     // Same reasoning for Summary's client/reference/contact fields: this
     // startup path never went through loadActiveJobData(), so without this
     // they stayed empty until the first job SWITCH.
@@ -2434,7 +2552,7 @@ var panelItemsForm = [];
 // subtracted from the room's wall area in calcRoom() rather than priced.
 var excludedWallsForm = [];
 var swCoats  = 2;
-var curTab   = 'home';
+var curTab   = 'dash';
 var inSub    = null; // 'room' | 'stair' | null
 
 // ── Jobs ───────────────────────────────────────────────────────────────────
@@ -2482,7 +2600,7 @@ async function loadActiveJobData() {
   ensureDefaultColour();
   matReorderMode = false; // reorder mode is per-visit, not per-job state
   restoreJobIdentityFields();
-  renderHome(); renderExterior(); renderColours(); renderSummary();
+  renderHome(); renderExterior(); renderColours(); renderSummary(); renderDash();
   updateNavBadge();
 }
 
@@ -2533,7 +2651,7 @@ async function switchJob(id) {
   localStorage.setItem('pe-active-job-id', activeJobId);
   await loadActiveJobData();
   renderJobs();
-  goTab('home');
+  goTab('dash');
 }
 
 async function createJob(name) {
@@ -3679,7 +3797,7 @@ function setJobMarkup(value) {
   job.markupOverride = +value || 0;
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   persistJobData(job);
-  renderSummary(); renderHome(); renderExterior();
+  renderSummary(); renderHome(); renderExterior(); renderDash();
 }
 
 function setJobMarkupType(type) {
@@ -3688,7 +3806,7 @@ function setJobMarkupType(type) {
   job.markupType = (type === 'fixed') ? 'fixed' : 'percent';
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   persistJobData(job);
-  renderSummary(); renderHome(); renderExterior();
+  renderSummary(); renderHome(); renderExterior(); renderDash();
 }
 
 function resetJobMarkup() {
@@ -3698,7 +3816,7 @@ function resetJobMarkup() {
   job.markupType = null;
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   persistJobData(job);
-  renderSummary(); renderHome(); renderExterior();
+  renderSummary(); renderHome(); renderExterior(); renderDash();
 }
 
 // xero-client/xero-ref live in the active job's data now (persisted, not
@@ -4202,8 +4320,8 @@ function promptNewJob() {
 // Job templates (JOB_TEMPLATES_SPEC.md): a template is just a job that gets
 // duplicated — the server copies rooms/exteriors/colours/snapshot under a
 // fresh id (contact, quote links, status, schedule, notes and actuals
-// deliberately don't copy) and we land on the new draft's Home ready to
-// adjust. Keeping a "TEMPLATE — 3-bed repaint" job in Draft IS the
+// deliberately don't copy) and we land on the new draft's Measure tab ready
+// to adjust. Keeping a "TEMPLATE — 3-bed repaint" job in Draft IS the
 // templates system.
 async function duplicateJobFromList(id) {
   var src = jobs.find(function(j) { return j.id === id; });
@@ -4216,7 +4334,7 @@ async function duplicateJobFromList(id) {
     localStorage.setItem('pe-jobs', JSON.stringify(jobs));
     renderJobs();
     await switchJob(job.id);
-    goTab('home');
+    goTab('home'); // overrides switchJob's dash landing — straight to Measure
   } catch (e) {
     alert('Could not duplicate the job: ' + e.message);
   }
@@ -4228,12 +4346,15 @@ function goTab(tab) {
   curTab = tab; inSub = null;
   document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active');});
   document.getElementById('screen-'+tab).classList.add('active');
-  ['home','exterior','kitchen','colours','summary'].forEach(function(t){
+  // v2.0 bottom bar. 'actuals' (On Site) is here for the active highlight,
+  // but is always ENTERED via openActuals() — see the note below.
+  ['dash','home','kitchen','actuals','summary'].forEach(function(t){
     var el=document.getElementById('nav-'+t);
     if(el) el.classList.toggle('active', t===tab);
   });
+  if (tab==='dash') renderDash();
+  if (tab==='home') renderHome();
   if (tab==='summary') refreshSummaryTab();
-  if (tab==='exterior') renderExterior();
   if (tab==='kitchen') renderKitchen();
   if (tab==='colours') renderColours();
   if (tab==='jobs') renderJobs();
@@ -4275,6 +4396,9 @@ function closeNavMenu() {
 // paint without a Materials visit, and from renderActuals() so it stays
 // correct after every tick/edit/add/remove without needing a special hook at
 // each call site.
+// Also lights the outstanding count on the bottom bar's On Site icon
+// (v2.0 — .nav-ham-badge is shared markup on both the hamburger button and
+// nav-actuals now).
 function updateNavBadge() {
   var n = 0;
   try { n = actualsTotals().outstanding; } catch (e) { /* actuals not loaded yet — show clear, not an error */ }
@@ -4282,8 +4406,6 @@ function updateNavBadge() {
     if (n > 0) { el.textContent = n > 99 ? '99+' : n; el.style.display = 'inline-block'; }
     else { el.style.display = 'none'; }
   });
-  var menuBadge = document.getElementById('nav-menu-materials-badge');
-  if (menuBadge) menuBadge.textContent = n > 0 ? (n + ' to buy') : '';
 }
 
 // Collapsible room-form sections (Extras/Preparation/Mist Coat/Paint &
@@ -4413,8 +4535,9 @@ function goBack() {
   inSub = null;
   document.querySelectorAll('.screen').forEach(function(s) { s.classList.remove('active'); });
   document.getElementById('screen-'+curTab).classList.add('active');
+  // renderHome() covers both halves of the combined Measure screen — the
+  // exterior form exits through here with curTab still 'home'.
   if(curTab==='home') renderHome();
-  if(curTab==='exterior') renderExterior();
 }
 
 // ── Settings ───────────────────────────────────────────────────────────────
@@ -5600,7 +5723,7 @@ function renderTimeOnSiteCard() {
         + (todayLogged ? 'Today logged ✓ — edit above' : '+ Log today (full day)') + '</button>'
       + '<div id="labour-other-row" style="display:none;margin-top:8px;gap:8px;align-items:center">'
         + '<input type="date" class="field-input" id="labour-other-date" style="flex:1;text-align:left" max="' + today + '">'
-        + '<button onclick="logOtherDay()" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:12px;padding:9px 14px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer">Add</button>'
+        + '<button onclick="logOtherDay()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:12px;padding:9px 14px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer">Add</button>'
       + '</div>'
       + '<div onclick="toggleLabourOtherRow()" style="text-align:center;color:var(--text2);font-size:12px;font-weight:600;padding:8px 0 0;cursor:pointer">Log a different day</div>'
     + '</div>'
@@ -5673,7 +5796,7 @@ async function openActuals() {
       loadLabourLog().catch(function() { labourLog = []; })
     ]);
   } catch (e) {
-    if (el) el.innerHTML = '<div class="card" style="padding:16px;color:var(--danger,#b00)">Could not load actuals: '
+    if (el) el.innerHTML = '<div class="card" style="padding:16px;color:var(--danger)">Could not load actuals: '
       + escapeHtml(e.message) + '<div style="color:var(--text2);margin-top:6px;font-size:13px">Nothing has been saved or lost — reopen to retry.</div></div>';
     return;
   }
@@ -5729,7 +5852,7 @@ function renderActuals() {
   // well over it the invoice will exceed it, and that's a conversation to have
   // while it's still cheap. Client-relations feature, not arithmetic.
   var diff = t.actTotal - t.estTotal;
-  var diffColour = Math.abs(diff) < 0.005 ? 'var(--text2)' : (diff > 0 ? '#b00' : 'var(--accent)');
+  var diffColour = Math.abs(diff) < 0.005 ? 'var(--text2)' : (diff > 0 ? 'var(--danger)' : 'var(--accent)');
   var head =
     '<div class="card" style="padding:14px;margin-bottom:12px">'
     + '<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="color:var(--text2)">Estimated</span><span>'+fmt(t.estTotal)+'</span></div>'
@@ -5768,7 +5891,7 @@ function renderActuals() {
           : '');
 
     var tag = !r.onEstimate
-      ? '<span style="font-size:11px;font-weight:600;color:#b00;background:rgba(187,0,0,.08);border-radius:10px;padding:2px 8px;margin-left:6px">not quoted</span>'
+      ? '<span style="font-size:11px;font-weight:600;color:var(--danger);background:var(--danger-soft-bg);border-radius:10px;padding:2px 8px;margin-left:6px">not quoted</span>'
       : (variance ? '<span style="font-size:11px;font-weight:600;color:var(--text2);background:var(--surface2);border-radius:10px;padding:2px 8px;margin-left:6px">est '+(Math.round(r.estimated*100)/100)+'</span>' : '');
 
     return '<div class="card" style="padding:12px;margin-bottom:8px;'+(bought ? 'opacity:.6' : '')+'">'
@@ -5852,7 +5975,7 @@ function renderInvoiceList() {
         + '<div style="font-size:12px;color:var(--text2);margin-top:2px">'
           + (l.itemCode ? escapeHtml(l.itemCode) + ' · ' : '')
           + l.quantity + ' × ' + fmt(l.unitAmount)
-          + (l.onEstimate ? '' : ' · <span style="color:#b00">not quoted</span>')
+          + (l.onEstimate ? '' : ' · <span style="color:var(--danger)">not quoted</span>')
         + '</div>'
       + '</div>'
       + '<div style="font-size:14px;font-weight:600;white-space:nowrap">'+fmt(l.lineTotal)+'</div>'
@@ -6092,16 +6215,24 @@ function invoiceListAsText() {
 // the deducted figures) and ends at ONE DRAFT invoice in Xero.
 var finalInvState = null;
 
+// Reachable from both Summary's status card and On Site's job header
+// (onSiteJobHeader) -- remember which so the back button returns the same
+// way it came in, instead of always landing on one of the two.
+var finalInvoiceReturnTab = 'summary';
+function backFromFinalInvoice() {
+  if (finalInvoiceReturnTab === 'actuals') openActuals(); else goTab('summary');
+}
 async function openFinalInvoice() {
   var job = activeJob();
   if (!job) return;
+  finalInvoiceReturnTab = curTab === 'actuals' ? 'actuals' : 'summary';
   goTab('finalinvoice');
   var el = document.getElementById('finalinvoice-body');
   el.innerHTML = '<div class="card" style="padding:16px;color:var(--text2)">Loading actuals…</div>';
   try {
     await loadMaterialActuals();
   } catch (e) {
-    el.innerHTML = '<div class="card" style="padding:16px;color:var(--danger,#b00)">Could not load the materials actuals: '
+    el.innerHTML = '<div class="card" style="padding:16px;color:var(--danger)">Could not load the materials actuals: '
       + escapeHtml(e.message) + '<div style="color:var(--text2);margin-top:6px;font-size:13px">Nothing was changed — go back and retry.</div></div>';
     return;
   }
@@ -7636,20 +7767,20 @@ function renderExterior() {
   _renderExteriorInner();
 }
 
+// Exterior half of the combined Measure screen (v2.0 — the separate
+// Exterior tab merged into screen-home). Renders its own card list, then
+// hands the shared chrome (empty state / section headers / topbar chip)
+// to updateMeasureChrome(), same as renderHome() does for the rooms half.
 function _renderExteriorInner() {
-  var empty = document.getElementById('ext-empty');
   var list  = document.getElementById('ext-list');
   var cards = document.getElementById('ext-cards');
-  var chip  = document.getElementById('ext-chip');
-  var clr   = document.getElementById('ext-clear-btn');
   if(extItems.length===0) {
-    empty.style.display='flex'; list.style.display='none';
-    chip.style.display='none'; if(clr) clr.style.display='none';
-    var sub2=document.getElementById('ext-sub');
-    if(sub2) sub2.textContent='';
+    list.style.display='none';
+    measureExtTotal=0;
+    updateMeasureChrome();
     return;
   }
-  empty.style.display='none'; list.style.display='block';
+  list.style.display='block';
   var total=0;
   cards.innerHTML = extItems.map(function(item) {
     var c=calcExtItem(item); total+=c.total;
@@ -7661,11 +7792,34 @@ function _renderExteriorInner() {
       '<div class="room-cost">'+fmt(c.total)+'</div>'+
       '<div style="color:var(--text3);font-size:16px">›</div></div>');
   }).join('');
-  var marked = applyMarkupAmount(total);
-  chip.style.display='flex'; chip.textContent=fmt(marked);
-  if(clr) clr.style.display='block';
-  var sub=document.getElementById('ext-sub');
-  if(sub) sub.textContent=extItems.length+' item'+(extItems.length===1?'':'s');
+  measureExtTotal=total;
+  updateMeasureChrome();
+}
+
+// ── Combined Measure screen chrome ─────────────────────────────────────────
+// The + chooser sheet (Room vs Exterior item) — same bottom-sheet pattern
+// as the notes panel.
+function openAddChooser() { document.getElementById('add-chooser').style.display = 'block'; }
+function closeAddChooser() { document.getElementById('add-chooser').style.display = 'none'; }
+
+// Raw (pre-markup) totals from each half's last render, so the topbar chip
+// can show one combined figure. Markup is applied to the SUM — equivalent
+// to marking up each half since applyMarkupAmount is proportional.
+var measureRoomsTotal = 0, measureExtTotal = 0;
+function updateMeasureChrome() {
+  var both = rooms.length === 0 && extItems.length === 0;
+  var empty = document.getElementById('measure-empty');
+  if (empty) empty.style.display = both ? 'flex' : 'none';
+  document.getElementById('rooms-section-head').style.display = rooms.length ? 'flex' : 'none';
+  document.getElementById('ext-section-head').style.display = extItems.length ? 'flex' : 'none';
+  var chip = document.getElementById('home-chip'), sub = document.getElementById('home-sub');
+  if (both) { chip.style.display = 'none'; sub.textContent = ''; return; }
+  chip.style.display = 'flex';
+  chip.textContent = fmt(applyMarkupAmount(measureRoomsTotal + measureExtTotal));
+  var parts = [];
+  if (rooms.length) parts.push(rooms.length + ' room' + (rooms.length === 1 ? '' : 's'));
+  if (extItems.length) parts.push(extItems.length + ' ext');
+  sub.textContent = parts.join(' · ');
 }
 
 // Swipe-to-delete path for the home room list -- deleteRoom() (room editor)
@@ -7752,6 +7906,64 @@ function attentionOpenJob(jobId) {
   else goTab('summary');
 }
 
+// ── Home dashboard (v2.0) ───────────────────────────────────────────────────
+// The active job at a glance. Deliberately reuses existing totals rather
+// than computing a new one: the frozen acceptedSnapshot once a job is
+// accepted+ (the same figure Schedule/Jobs show for non-active jobs), else
+// lastSummaryTotals -- set by renderSummary() every time Summary renders,
+// so it can go stale between visits but never wrong (it's never shown
+// alongside a contradicting figure elsewhere).
+function renderDash() {
+  renderAttentionStrip();
+  var body = document.getElementById('dash-body');
+  if (!body) return;
+  var job = activeJob();
+  if (!job) { body.innerHTML = ''; return; }
+  // Same status label/colour ternary as onSiteJobHeader() / renderJobRow().
+  var st = job.status || null;
+  var statusLabel = st === 'accepted' ? '✓ Accepted' : st === 'completed' ? '✓ Completed'
+    : st === 'invoiced' ? '£ Invoiced' : st === 'quoted' ? 'Quote sent'
+    : st === 'declined' ? '✗ Declined' : 'Draft';
+  var statusColour = st === 'accepted' || st === 'completed' || st === 'invoiced' ? 'var(--success)'
+    : st === 'quoted' ? 'var(--accent)' : st === 'declined' ? 'var(--danger)' : 'var(--text2)';
+  var totalStr = job.acceptedSnapshot && +job.acceptedSnapshot.estQuoteTotal > 0
+    ? fmt(job.acceptedSnapshot.estQuoteTotal)
+    : (lastSummaryTotals ? fmt(lastSummaryTotals.estQuoteTotal) : '—');
+  var schedLine = job.startDate && +job.scheduledDays > 0
+    ? '📅 ' + fmtShortDate(job.startDate) + ' · ' + job.scheduledDays + 'd' : 'Not scheduled';
+  var outstanding = null;
+  try { outstanding = actualsTotals().outstanding; } catch (e) { /* actuals not loaded yet */ }
+  body.innerHTML =
+    '<div class="card" style="cursor:pointer" onclick="goTab(\'summary\')">'
+    + '<div style="padding:16px">'
+      + '<div style="font-weight:700;font-size:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(job.name) + '</div>'
+      + (job.xeroClient ? '<div style="font-size:13px;color:var(--text2);margin-top:2px">' + escapeHtml(job.xeroClient) + '</div>' : '')
+      + '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:10px">'
+        + '<span style="color:' + statusColour + ';font-weight:600;font-size:13px">' + statusLabel + '</span>'
+        + '<span style="font-family:\'DM Mono\',monospace;font-size:22px;font-weight:700;color:var(--accent)">' + totalStr + '</span>'
+      + '</div>'
+      + '<div style="font-size:12px;color:var(--text2);margin-top:6px">' + schedLine + '</div>'
+    + '</div></div>'
+    + '<div class="stat-grid">'
+      + '<div class="stat-card" style="cursor:pointer" onclick="openActuals()"><div class="stat-label">Materials to buy</div>'
+        + '<div class="stat-value' + (outstanding > 0 ? ' ac' : '') + '">' + (outstanding === null ? '—' : outstanding) + '</div></div>'
+      + '<div class="stat-card" style="cursor:pointer" onclick="goTab(\'schedule\')"><div class="stat-label">Next on site</div>'
+        + '<div class="stat-value" style="font-size:14px;line-height:1.4">' + nextScheduledGlance() + '</div></div>'
+    + '</div>';
+}
+
+// Earliest accepted+scheduled job across ALL jobs, not just the active one
+// -- "what's next" is a whole-business question, not a per-job one.
+function nextScheduledGlance() {
+  var best = null;
+  jobs.forEach(function(j) {
+    if (j.status !== 'accepted' || !j.startDate || !(+j.scheduledDays > 0)) return;
+    if (!best || j.startDate < best.startDate) best = j;
+  });
+  if (!best) return 'Nothing booked';
+  return escapeHtml(best.name) + '<br>' + fmtShortDate(best.startDate);
+}
+
 // Site notes (SITE_NOTES_SPEC.md Part 1): jobs.data.notes, one field,
 // debounced autosave through persistJobData. The textarea is static HTML —
 // syncJobNotes() only overwrites its value when it ISN'T focused, so a
@@ -7807,24 +8019,24 @@ function updateNotesFabDot() {
   if (dot) dot.style.display = (job && job.notes && job.notes.trim()) ? 'block' : 'none';
 }
 
+// Rooms half of the combined Measure screen. Always finishes by rendering
+// the exterior half too, so every existing renderHome() call site (job
+// switch, saves, goBack) refreshes the whole screen without changes.
 function renderHome() {
   renderAttentionStrip();
   syncJobNotes();
   updateNotesFabDot();
   var jobNameEl = document.getElementById('home-job-name');
   if (jobNameEl) jobNameEl.textContent = ((activeJob() && activeJob().name) || 'My Job') + ' ›';
-  var empty = document.getElementById('home-empty');
   var list  = document.getElementById('room-list');
   var cards = document.getElementById('room-cards');
-  var sub   = document.getElementById('home-sub');
-  var chip  = document.getElementById('home-chip');
-  var clr   = document.getElementById('clear-btn');
   if (rooms.length===0) {
-    empty.style.display='flex'; list.style.display='none';
-    chip.style.display='none'; clr.style.display='none';
-    sub.textContent=''; return;
+    list.style.display='none';
+    measureRoomsTotal=0;
+    _renderExteriorInner();
+    return;
   }
-  empty.style.display='none'; list.style.display='block';
+  list.style.display='block';
   var total=0;
   cards.innerHTML = rooms.map(function(r) {
     var c=calcRoom(r); total+=c.total;
@@ -7837,10 +8049,8 @@ function renderHome() {
       '<button class="room-dup-btn" title="Duplicate room" onclick="event.stopPropagation();duplicateRoom(this.dataset.id)" data-id="'+r.id+'">⧉</button>'+
       '<div style="color:var(--text3);font-size:16px">›</div></div>');
   }).join('');
-  var marked = applyMarkupAmount(total);
-  sub.textContent=rooms.length+' room'+(rooms.length===1?'':'s');
-  chip.style.display='flex'; chip.textContent=fmt(marked);
-  clr.style.display='block';
+  measureRoomsTotal=total;
+  _renderExteriorInner();
 }
 
 // Capture-first entry: walk the house once naming rooms ("Hall, Lounge,
@@ -9881,7 +10091,7 @@ function renderSummary() {
         '<span class="breakdown-label" style="font-weight:600;color:var(--text)">Materials subtotal</span>'+
         '<span class="breakdown-value" style="color:var(--accent)">'+fmt(materialsTotal)+'</span></div>':'')+
     '</div>'+
-    '<button onclick="recalculateMaterialsSnapshot();renderSummary();" style="background:rgba(26,82,118,.1);border:1px solid rgba(26,82,118,.3);color:var(--accent);border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%;margin-top:8px">Recalculate from rooms &amp; exterior</button>'+
+    '<button onclick="recalculateMaterialsSnapshot();renderSummary();" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%;margin-top:8px">Recalculate from rooms &amp; exterior</button>'+
     '<div class="card" style="margin-top:8px;overflow:visible">'+
       '<div class="card-header">Add Material</div>'+
       '<div class="field-row"><div class="field-label">Product<small>optional, type to search</small></div>'+
