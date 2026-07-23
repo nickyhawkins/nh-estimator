@@ -1,16 +1,25 @@
 # Site Notes & Photos — Spec (notes now, photos deliberately deferred)
 
-**Status: Part 1 (notes) BUILT 2026-07-23 (v1.12.0); Part 2 (photos) still a
-decision, not a build.** Idea #7 in `FEATURES_2.0_IDEAS.md`.
-Split decision made here: **notes are v1 and nearly free; photos are a separate,
-infrastructure-carrying decision that should not block notes.**
+**Status: Part 1 (notes) BUILT 2026-07-23 (v1.12.0); Part 2 (photos) DROPPED
+2026-07-23 per Nicky — no photo storage will be built.** Idea #7 in
+`FEATURES_2.0_IDEAS.md`. Split decision made here: **notes are v1 and nearly
+free; photos are a separate, infrastructure-carrying decision that should not
+block notes** — and the decision came back "drop them".
 
-**Part 1 as built:** a Notes card on Home above the room list — one plain textarea
-on `jobs.data.notes`, auto-growing, 500ms-debounced autosave through
-`persistJobData()`, value only re-synced when the field ISN'T focused (form-wipe
-guard). 📝 chip on Jobs-list rows when non-empty. Rides backup exports
-automatically; job duplication deliberately does NOT copy notes. Verified in the
-70-check Chromium smoke run (debounced save, PUT payload, chip, per-job isolation).
+**Part 1 as built:** one plain textarea on `jobs.data.notes`, auto-growing,
+500ms-debounced autosave through `persistJobData()`, value only re-synced when
+the field ISN'T focused (form-wipe guard). 📝 chip on Jobs-list rows when
+non-empty. Rides backup exports automatically; job duplication deliberately
+does NOT copy notes. Verified in the Chromium smoke run (debounced save, PUT
+payload, chip, per-job isolation).
+
+**Revised UI 2026-07-23 (v1.14.2, per Nicky — "a little notepad item in a
+corner"):** the full-width Notes card on Home was too prominent for a field
+that's usually empty. It's now a small 📝 corner button (bottom-left, opposite
+the + fab) opening a bottom sheet with the same textarea — same storage, same
+debounce, same form-wipe guard. An accent dot on the button marks "this job
+has notes", and closing the sheet flushes any pending debounced save
+immediately so a quick type-and-Done never loses the last keystrokes.
 
 ## Part 1 — per-job notes (build now)
 

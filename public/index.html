@@ -164,6 +164,9 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 .fab:active{transform:scale(.92)}
 .fab-quick{position:fixed;bottom:calc(var(--sb) + 92px);right:88px;height:36px;padding:0 14px;border-radius:18px;background:var(--surface);border:1px solid var(--border);color:var(--accent);font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;box-shadow:0 2px 12px rgba(0,0,0,.12);cursor:pointer;z-index:50;transition:all .15s}
 .fab-quick:active{transform:scale(.95)}
+.notes-fab{position:fixed;bottom:calc(var(--sb) + 88px);left:20px;width:40px;height:40px;border-radius:50%;background:var(--surface);border:1px solid var(--border);font-size:18px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 12px rgba(0,0,0,.12);cursor:pointer;z-index:50;transition:all .15s}
+.notes-fab:active{transform:scale(.92)}
+.notes-fab-dot{position:absolute;top:2px;right:2px;width:9px;height:9px;border-radius:50%;background:var(--accent);border:1.5px solid var(--surface);display:none}
 .note-card{background:rgba(245,166,35,.06);border:1px solid rgba(245,166,35,.25);border-radius:var(--r);overflow:hidden}
 .note-card .card-header{color:var(--warn)}
 .note-text{padding:14px 16px;font-size:13px;color:var(--text2);line-height:1.6}
@@ -205,13 +208,6 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
   </div>
   <div class="content">
     <div id="attention-strip"></div>
-    <!-- Per-job site notes (SITE_NOTES_SPEC.md Part 1): one dumb free-text
-         field on jobs.data.notes — access arrangements, verbal agreements,
-         snags. Debounced autosave; never copied by job duplication. -->
-    <div class="card" style="margin-bottom:16px">
-      <div class="card-header">Notes</div>
-      <textarea id="job-notes" rows="1" placeholder="Site notes — access, agreements, snags… saves automatically" oninput="onJobNotesInput()" style="display:block;width:100%;border:none;background:transparent;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;line-height:1.5;padding:2px 16px 12px;outline:none;resize:none;overflow:hidden;min-height:40px;box-sizing:border-box"></textarea>
-    </div>
     <div class="empty" id="home-empty">
       <div class="empty-icon">🏠</div>
       <div class="empty-title">No rooms yet</div>
@@ -223,6 +219,21 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
   </div>
   <button class="fab-quick" onclick="quickAddRooms()">Quick add</button>
   <button class="fab" onclick="goScreen('room')">+</button>
+  <!-- Per-job site notes (SITE_NOTES_SPEC.md Part 1, tucked away per Nicky
+       2026-07-23): a small corner notepad instead of a full-width card —
+       tap to open a bottom sheet with the same jobs.data.notes field
+       (debounced autosave; never copied by job duplication). The dot marks
+       "this job has notes". -->
+  <button class="notes-fab" onclick="openNotesPanel()" title="Site notes">📝<span class="notes-fab-dot" id="notes-fab-dot"></span></button>
+  <div id="notes-panel" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.4)" onclick="closeNotesPanel()">
+    <div style="position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-radius:16px 16px 0 0;padding:14px 0 calc(var(--sb) + 10px);max-height:70%;display:flex;flex-direction:column;box-shadow:0 -4px 24px rgba(0,0,0,.2)" onclick="event.stopPropagation()">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:0 16px 8px">
+        <div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.6px">Site notes</div>
+        <div onclick="closeNotesPanel()" style="font-size:14px;font-weight:700;color:var(--accent);cursor:pointer;padding:4px 2px">Done</div>
+      </div>
+      <textarea id="job-notes" rows="1" placeholder="Access, agreements, snags… saves automatically" oninput="onJobNotesInput()" style="display:block;width:100%;border:none;background:transparent;color:var(--text);font-family:'DM Sans',sans-serif;font-size:15px;line-height:1.5;padding:2px 16px 12px;outline:none;resize:none;overflow-y:auto;min-height:120px;max-height:45vh;box-sizing:border-box"></textarea>
+    </div>
+  </div>
 </div>
 
 <!-- ══ SCHEDULE (week strip — SCHEDULING_SPEC.md) ══ -->
@@ -1120,7 +1131,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.14.1</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.14.2</div>
 </div>
 </div>
 
@@ -7027,19 +7038,45 @@ function onJobNotesInput() {
   var el = document.getElementById('job-notes');
   autosizeJobNotes(el);
   clearTimeout(jobNotesTimer);
-  jobNotesTimer = setTimeout(function() {
-    var job = activeJob();
-    if (!job) return;
-    job.notes = el.value;
-    localStorage.setItem('pe-jobs', JSON.stringify(jobs));
-    persistJobData(job);
-    renderJobs(); // 📝 chip
-  }, 500);
+  jobNotesTimer = setTimeout(saveJobNotes, 500);
+}
+function saveJobNotes() {
+  clearTimeout(jobNotesTimer);
+  var el = document.getElementById('job-notes');
+  var job = activeJob();
+  if (!el || !job) return;
+  job.notes = el.value;
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  renderJobs(); // 📝 chip
+  updateNotesFabDot();
+}
+
+// The corner notepad (Home) — opens the bottom sheet over whatever's on
+// screen. Autosize runs on open because a display:none textarea measures
+// scrollHeight 0.
+function openNotesPanel() {
+  document.getElementById('notes-panel').style.display = 'block';
+  syncJobNotes();
+  var el = document.getElementById('job-notes');
+  if (el) { autosizeJobNotes(el); el.focus(); }
+}
+// Close flushes any pending debounce immediately — "type, tap Done, switch
+// job" inside 500ms must not lose the last keystrokes.
+function closeNotesPanel() {
+  saveJobNotes();
+  document.getElementById('notes-panel').style.display = 'none';
+}
+function updateNotesFabDot() {
+  var dot = document.getElementById('notes-fab-dot');
+  var job = activeJob();
+  if (dot) dot.style.display = (job && job.notes && job.notes.trim()) ? 'block' : 'none';
 }
 
 function renderHome() {
   renderAttentionStrip();
   syncJobNotes();
+  updateNotesFabDot();
   var jobNameEl = document.getElementById('home-job-name');
   if (jobNameEl) jobNameEl.textContent = ((activeJob() && activeJob().name) || 'My Job') + ' ›';
   var empty = document.getElementById('home-empty');
