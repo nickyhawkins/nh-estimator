@@ -78,6 +78,34 @@ router.get('/connect-info', (req, res) => {
   });
 });
 
+// Scope bisect for the invalid_scope investigation — FIXED variants only,
+// no free-form scope injection. Each redirects to Xero's authorize page:
+// REACHING THE LOGIN SCREEN means that scope set passed validation; the
+// tester should then close the tab WITHOUT logging in (the callback also
+// refuses to exchange these, see the state check there, so a stray login
+// can't save a weaker token over the real one).
+const SCOPE_TESTS = {
+  oidc:         'openid profile email offline_access',
+  contacts:     'openid profile email offline_access accounting.contacts',
+  settingsread: 'openid profile email offline_access accounting.settings.read',
+  settings:     'openid profile email offline_access accounting.settings',
+  transactions: 'openid profile email offline_access accounting.transactions',
+  invoices:     'openid profile email offline_access accounting.invoices',
+  full:         SCOPES
+};
+router.get('/connect-test/:variant', (req, res) => {
+  const scope = SCOPE_TESTS[req.params.variant];
+  if (!scope) return res.status(400).json({ error: 'unknown variant', variants: Object.keys(SCOPE_TESTS) });
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id: process.env.XERO_CLIENT_ID,
+    redirect_uri: process.env.XERO_REDIRECT_URI,
+    scope,
+    state: 'xero-scope-test'
+  });
+  res.redirect(`${XERO_AUTH_URL}?${params}`);
+});
+
 // Step 1: Redirect to Xero login
 router.get('/connect', (req, res) => {
   const params = new URLSearchParams({
@@ -94,6 +122,10 @@ router.get('/connect', (req, res) => {
 router.get('/xero/callback', async (req, res) => {
   const { code } = req.query;
   if (!code) return res.redirect('/?error=xero_auth_failed');
+  // A completed /connect-test login must NEVER be exchanged: its token
+  // would carry the test's reduced scopes and silently replace the real
+  // one, breaking API access until the next proper reconnect.
+  if (req.query.state === 'xero-scope-test') return res.redirect('/?error=scope_test_not_a_real_connect');
 
   try {
     // Exchange code for tokens
