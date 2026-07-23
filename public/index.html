@@ -171,6 +171,31 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 .note-card .card-header{color:var(--warn)}
 .note-text{padding:14px 16px;font-size:13px;color:var(--text2);line-height:1.6}
 .settings-note{font-size:12px;color:var(--text2);padding:12px 16px;line-height:1.5}
+/* Schedule calendar (SCHEDULING_SPEC.md, v1.16.0). Each week is 7 background
+   day cells with an absolutely-positioned overlay of continuous job bars,
+   stacked into lanes when jobs overlap — the layout every calendar app uses. */
+.sched-week{position:relative;display:flex;gap:2px}
+.sched-cell{flex:1;min-width:0;border:1px solid var(--border);border-radius:6px;padding:2px 3px;background:var(--surface);cursor:pointer}
+.sched-cell .dnum{font-size:10px;font-weight:600;color:var(--text2);text-align:right;white-space:nowrap;overflow:hidden}
+.sched-cell.off{background:var(--surface2)}
+.sched-cell.past{opacity:.45}
+.sched-cell.out .dnum{color:var(--text3);opacity:.6}
+.sched-cell.today{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.sched-cell.today .dnum{color:var(--accent)}
+.sched-bars{position:absolute;left:0;right:0;top:18px;bottom:0;pointer-events:none;overflow:hidden}
+.sched-bar{position:absolute;height:16px;line-height:16px;font-size:9px;font-weight:600;color:#fff;border-radius:4px;padding:0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;pointer-events:auto;box-sizing:border-box}
+.sched-bar.contL{border-top-left-radius:0;border-bottom-left-radius:0}
+.sched-bar.contR{border-top-right-radius:0;border-bottom-right-radius:0}
+.sched-bar.done{opacity:.5}
+.sched-bar.holiday{background:var(--surface);color:var(--accent2);border:1px solid var(--accent2);line-height:14px}
+.sched-moving .sched-bar{pointer-events:none}
+.sched-nav{width:32px;height:32px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:16px;font-weight:700;cursor:pointer;flex-shrink:0;font-family:'DM Sans',sans-serif}
+.sched-row{display:flex;align-items:center;gap:10px;padding:11px 0;border-top:1px solid var(--border);cursor:pointer;font-size:14px}
+.sched-row:first-child{border-top:none}
+.sched-dot{width:12px;height:12px;border-radius:3px;flex-shrink:0}
+.sched-sheet-btn{display:block;width:100%;border:none;border-radius:var(--rs);padding:12px;font-size:14px;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer;margin-top:8px;background:var(--accent);color:#fff}
+.sched-sheet-btn.alt{background:var(--surface2);color:var(--text)}
+.sched-sheet-btn.warn{background:none;border:1px solid var(--border);color:var(--danger)}
 .room-breakdown{display:none;background:var(--surface2);border-top:1px solid var(--border)}
 .room-breakdown.open{display:block}
 .breakdown-sub-row{display:flex;justify-content:space-between;align-items:center;padding:10px 16px 10px 58px;border-bottom:1px solid var(--border)}
@@ -236,14 +261,25 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
   </div>
 </div>
 
-<!-- ══ SCHEDULE (week strip — SCHEDULING_SPEC.md) ══ -->
+<!-- ══ SCHEDULE (calendar — SCHEDULING_SPEC.md) ══ -->
 <div id="screen-schedule" class="screen">
   <div class="topbar">
     <button class="back-btn" onclick="goTab('home')">←</button>
     <div class="topbar-title">Schedule</div>
+    <div class="seg" style="margin-left:auto;flex:none">
+      <button class="seg-btn" id="segsched-list" style="padding:6px 10px;font-size:12px" onclick="setScheduleView('list')">List</button>
+      <button class="seg-btn" id="segsched-weeks" style="padding:6px 10px;font-size:12px" onclick="setScheduleView('weeks')">Weeks</button>
+      <button class="seg-btn" id="segsched-month" style="padding:6px 10px;font-size:12px" onclick="setScheduleView('month')">Month</button>
+    </div>
   </div>
   <div class="content">
+    <div id="schedule-move-banner" style="display:none;align-items:center;gap:10px;background:var(--accent);color:#fff;border-radius:var(--rs);padding:10px 14px;margin-bottom:10px;font-size:13px;font-weight:600"></div>
     <div id="schedule-strip"></div>
+  </div>
+  <!-- Bottom sheet for day peek / job actions — same overlay pattern as the
+       site-notes panel. -->
+  <div id="schedule-sheet-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:300" onclick="closeScheduleSheet()">
+    <div id="schedule-sheet" style="position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-radius:16px 16px 0 0;padding:16px 16px calc(var(--sb) + 14px);max-height:70%;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.2)" onclick="event.stopPropagation()"></div>
   </div>
 </div>
 
@@ -732,8 +768,16 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Daily overhead<small>mins/day — setup, protection, cleanup (not costed, just stretches the diary)</small></div><input type="number" class="field-input" id="s-overhead-mins" value="45" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Schedule buffer<small>% — optional, for drying/slippage</small></div><input type="number" class="field-input" id="s-buffer-pct" value="0" min="0" max="100" step="5" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="toggle-row" style="border-top:1px solid var(--border)">
-        <div class="toggle-label">Work Saturdays<small>Saturdays count as bookable days on the Schedule strip</small></div>
+        <div class="toggle-label">Work Saturdays<small>Saturdays count as bookable days on the Schedule calendar</small></div>
         <div class="toggle" id="tog-worksat" onclick="toggleWorkSaturdays()"></div>
+      </div>
+      <div class="field-row" style="border-top:1px solid var(--border)">
+        <div class="field-label">Bank holidays<small>gov.uk region — holidays show on the Schedule and don't count as working days</small></div>
+        <select class="field-input" id="s-bh-region" style="width:auto;max-width:150px;text-align:left;font-family:'DM Sans',sans-serif" onchange="setBankHolidayRegion(this.value)">
+          <option value="northern-ireland">N. Ireland</option>
+          <option value="england-and-wales">England &amp; Wales</option>
+          <option value="scotland">Scotland</option>
+        </select>
       </div>
       <div class="toggle-row" style="border-top:1px solid var(--border)">
         <div class="toggle-label">Calendar feed<small>Subscribe your phone's calendar to scheduled jobs — the link below auto-updates when jobs move</small></div>
@@ -1137,7 +1181,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.15.4</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.16.0</div>
 </div>
 </div>
 
@@ -1359,6 +1403,7 @@ function saveSettings() {
   next.workSaturdays = !!settings.workSaturdays;
   next.icsEnabled = !!settings.icsEnabled;
   next.icsKey = settings.icsKey || null;
+  next.bankHolidayRegion = settings.bankHolidayRegion || 'northern-ireland';
   settings = next;
   localStorage.setItem('pe-settings', JSON.stringify(settings));
   apiPut('/api/settings', settings);
@@ -2106,6 +2151,10 @@ async function initApp() {
     // so a missing table on a not-yet-migrated DB (or one flaky request)
     // only loses that one fetch, never the rest.
     var syncJobId = activeJobId;
+    // Bank holidays for the Schedule calendar — fire-and-forget like the
+    // Xero sync above: it re-renders the schedule itself if that's the
+    // open screen, and everything below is independent of it.
+    fetchBankHolidays();
     // For the four job-scoped collections below, a SUCCESSFUL response is
     // authoritative even when it's empty -- "the server has no rows" is
     // real data (the user deleted them, possibly in another browser
@@ -2311,6 +2360,9 @@ function mergeSettings(raw) {
   out.workSaturdays = !!raw.workSaturdays;
   out.icsEnabled = !!raw.icsEnabled;
   out.icsKey = raw.icsKey || null;
+  // gov.uk bank-holiday region (v1.16.0). Default matches the server's ICS
+  // route — Nicky's calendar carries the Battle of the Boyne holiday.
+  out.bankHolidayRegion = raw.bankHolidayRegion || 'northern-ireland';
   return out;
 }
 
@@ -2695,13 +2747,50 @@ function uninvoiceJob() { setJobStatus('completed', 'Move this job back to Compl
 // engine can only compute onSiteDays for the ACTIVE job's loaded rooms and
 // the week strip needs every scheduled job's length at once.
 
+// Bank holidays (v1.16.0): gov.uk's list for the Settings region, held as
+// {iso date -> title}. Served by /api/bank-holidays (24h server cache),
+// mirrored in localStorage so offline still knows the holidays, and empty
+// until the first successful fetch — which simply reproduces the app's
+// pre-holiday behaviour rather than erroring. The server's ICS walk skips
+// the same dates from the same feed.
+var bankHolidays = {};
+var bankHolidayDivisions = JSON.parse(localStorage.getItem('pe-bank-holidays') || 'null');
+function applyBankHolidays() {
+  bankHolidays = {};
+  var region = settings.bankHolidayRegion || 'northern-ireland';
+  ((bankHolidayDivisions && bankHolidayDivisions[region]) || []).forEach(function(e) {
+    if (e && e.date) bankHolidays[e.date] = e.title || 'Bank holiday';
+  });
+}
+applyBankHolidays();
+function fetchBankHolidays() {
+  apiGet('/api/bank-holidays').then(function(divisions) {
+    if (!divisions || !divisions['england-and-wales']) return;
+    bankHolidayDivisions = divisions;
+    localStorage.setItem('pe-bank-holidays', JSON.stringify(divisions));
+    applyBankHolidays();
+    if (curTab === 'schedule') renderScheduleStrip();
+  }).catch(function(e) {
+    console.log('Bank holidays fetch failed — using cached list:', e.message);
+  });
+}
+function setBankHolidayRegion(region) {
+  settings.bankHolidayRegion = region;
+  localStorage.setItem('pe-settings', JSON.stringify(settings));
+  apiPut('/api/settings', settings);
+  applyBankHolidays();
+  renderScheduleStrip();
+}
+
 // THE one working-day walker -- slot-finding, the strip, payment dates and
 // the server's ICS feed (its own copy, same rules) must all agree, and four
 // hand-rolled date loops is this repo's known duplicate-function failure
-// mode. Sundays never count; Saturdays only when workSaturdays.
+// mode. Sundays never count; Saturdays only when workSaturdays; bank
+// holidays never count once the gov.uk list has loaded.
 function isWorkingDay(d, workSat) {
   var day = d.getDay();
-  return (day >= 1 && day <= 5) || (workSat && day === 6);
+  if (!((day >= 1 && day <= 5) || (workSat && day === 6))) return false;
+  return !bankHolidays[isoDate(d)];
 }
 // Local-time ISO date -- toISOString() is UTC and would shift the date for
 // an evening tap in BST, booking tomorrow's job on the wrong day.
@@ -2940,58 +3029,350 @@ function copyIcsUrl() {
   }).catch(function() {});
 }
 
-// The week strip: ~12 weeks of booked days, current week first. Vertical
-// list of week rows, each day a cell, booked jobs as tappable colour
-// blocks (stacked when overlapping). Nothing draggable -- rescheduling
-// goes through the same date form on Summary. Past weeks aren't rendered;
-// history lives in the labour log.
+// The Schedule calendar (calendar-app parity, 2026-07-23): three views —
+// List (chronological bookings), Weeks (12 week rows from the current
+// Monday) and Month (a real month grid with ‹ › paging, including past
+// months). Jobs render as CONTINUOUS bars spanning their booked days,
+// wrapping at week boundaries, instead of a chip repeated in every cell.
+// Tap a bar → job action sheet (open / move / unschedule); tap a day →
+// day sheet (that day's jobs + "start a job here"). Rescheduling is
+// tap-to-move, not drag — drag is misery on a phone.
 var SCHEDULE_COLOURS = ['#1a5276', '#7d6608', '#1e8449', '#922b21', '#6c3483', '#a04000', '#117864', '#4a235a'];
+var scheduleView = localStorage.getItem('pe-schedule-view') || 'month';
+var scheduleMonthOffset = 0;   // months from the current one (Month view)
+var scheduleMoveJobId = null;  // tap-to-move: the job awaiting a new start day
+
+function setScheduleView(v) {
+  scheduleView = v;
+  localStorage.setItem('pe-schedule-view', v);
+  renderScheduleStrip();
+}
+// Everything the calendar DRAWS: live bookings plus completed/invoiced
+// history (greyed bars — they keep startDate/scheduledDays when they leave
+// 'accepted'). Slot maths stays on scheduledJobs(): finished work frees
+// its days, unstarted pipeline never held any.
+function displayScheduledJobs() {
+  return jobs.filter(function(j) {
+    return ['accepted', 'completed', 'invoiced'].indexOf(j.status) !== -1 && j.startDate && +j.scheduledDays > 0;
+  });
+}
+// Stable per-job colour: hash of the id, not position in the booked list —
+// a job keeps its colour when others complete or new ones are scheduled.
+function scheduleColour(id) {
+  var h = 0;
+  for (var i = 0; i < String(id).length; i++) h = (h * 31 + String(id).charCodeAt(i)) >>> 0;
+  return SCHEDULE_COLOURS[h % SCHEDULE_COLOURS.length];
+}
+function scheduleLabel(j) { return j.scheduleTitle ? j.name + ' — ' + j.scheduleTitle : j.name; }
+
+// One week row: 7 background day cells (Mon..Sun, weekends dimmed) plus an
+// overlay of bars. opts.monthIdx fades days outside that month; opts.dayNames
+// puts "Mo 20" in the cells (Weeks view) instead of a bare number.
+function scheduleWeekRowHtml(rowStart, opts) {
+  opts = opts || {};
+  var todayIso = isoDate(new Date());
+  var workSat = !!settings.workSaturdays;
+  var rowDays = [];
+  for (var i = 0; i < 7; i++) {
+    var dd = new Date(rowStart); dd.setDate(rowStart.getDate() + i);
+    rowDays.push(isoDate(dd));
+  }
+  var rowStartIso = rowDays[0], rowEndIso = rowDays[6];
+
+  // Bar segments: for each job intersecting the row, one bar from its first
+  // to last booked day here (bank holidays mid-span stay under the bar —
+  // their outlined chip shows through the stack). Squared edges mark a job
+  // continuing from the previous row / into the next.
+  var segs = [];
+  displayScheduledJobs().forEach(function(j) {
+    var span = jobBookedDays(j);
+    if (!span.length || span[0] > rowEndIso || span[span.length - 1] < rowStartIso) return;
+    var a = -1, b = -1;
+    span.forEach(function(iso) {
+      var idx = rowDays.indexOf(iso);
+      if (idx !== -1) { if (a === -1) a = idx; b = idx; }
+    });
+    if (a === -1) return; // overlaps the row's dates but books none of its days
+    segs.push({ start: a, end: b, job: j, contL: span[0] < rowStartIso, contR: span[span.length - 1] > rowEndIso });
+  });
+  rowDays.forEach(function(iso, idx) {
+    if (bankHolidays[iso]) segs.push({ start: idx, end: idx, holiday: bankHolidays[iso] });
+  });
+  // Lane stacking: earliest-starting (then longest) first, each segment into
+  // the first lane free at its start column.
+  segs.sort(function(x, y) { return x.start - y.start || (y.end - y.start) - (x.end - x.start); });
+  var lanes = [];
+  segs.forEach(function(s) {
+    for (var l = 0; ; l++) {
+      if (lanes[l] == null || lanes[l] < s.start) { s.lane = l; lanes[l] = s.end; break; }
+    }
+  });
+
+  var cells = rowDays.map(function(iso, idx) {
+    var d = parseIsoDate(iso);
+    var cls = 'sched-cell';
+    if (idx > 4 && !(workSat && idx === 5)) cls += ' off';
+    if (iso < todayIso) cls += ' past';
+    if (iso === todayIso) cls += ' today';
+    if (opts.monthIdx != null && d.getMonth() !== opts.monthIdx) cls += ' out';
+    var num = opts.dayNames
+      ? d.toLocaleDateString('en-GB', { weekday: 'short' }).slice(0, 2) + ' ' + d.getDate()
+      : d.getDate();
+    return '<div class="' + cls + '" onclick="scheduleDayTap(\'' + iso + '\')"><div class="dnum">' + num + '</div></div>';
+  }).join('');
+
+  var bars = segs.map(function(s) {
+    var style = 'left:' + (s.start / 7 * 100).toFixed(3) + '%;width:' + ((s.end - s.start + 1) / 7 * 100).toFixed(3) + '%;top:' + (s.lane * 18) + 'px;';
+    if (s.holiday) {
+      return '<div class="sched-bar holiday" style="' + style + '" onclick="scheduleDayTap(\'' + rowDays[s.start] + '\')">' + escapeHtml(s.holiday) + '</div>';
+    }
+    var j = s.job;
+    var cls = 'sched-bar' + (s.contL ? ' contL' : '') + (s.contR ? ' contR' : '') + (j.status !== 'accepted' ? ' done' : '');
+    return '<div class="' + cls + '" style="' + style + 'background:' + scheduleColour(j.id) + '" onclick="event.stopPropagation();scheduleBarTap(\'' + j.id + '\')">' + escapeHtml(scheduleLabel(j)) + '</div>';
+  }).join('');
+
+  var height = Math.max(20 + Math.max(lanes.length, 1) * 18 + 4, 54);
+  return '<div class="sched-week" style="min-height:' + height + 'px">' + cells + '<div class="sched-bars">' + bars + '</div></div>';
+}
+
+function scheduleMonthNav(step) { scheduleMonthOffset += step; renderScheduleStrip(); }
+function scheduleMonthToday() { scheduleMonthOffset = 0; renderScheduleStrip(); }
+
+function renderScheduleMonth() {
+  var base = new Date(); base.setHours(12, 0, 0, 0); base.setDate(1);
+  base.setMonth(base.getMonth() + scheduleMonthOffset);
+  var monthIdx = base.getMonth();
+  var title = base.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  var header = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">' +
+    '<button class="sched-nav" onclick="scheduleMonthNav(-1)">‹</button>' +
+    '<div style="flex:1;text-align:center"><span style="font-size:15px;font-weight:700">' + title + '</span>' +
+      (scheduleMonthOffset !== 0 ? ' <span onclick="scheduleMonthToday()" style="font-size:12px;font-weight:600;color:var(--accent);cursor:pointer;text-decoration:underline;margin-left:6px">Today</span>' : '') +
+    '</div>' +
+    '<button class="sched-nav" onclick="scheduleMonthNav(1)">›</button>' +
+  '</div>';
+  var wdHeader = '<div style="display:flex;gap:2px;margin-bottom:3px">' +
+    ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].map(function(w, i) {
+      return '<div style="flex:1;text-align:center;font-size:10px;font-weight:600;color:' + (i >= 5 ? 'var(--text3)' : 'var(--text2)') + '">' + w + '</div>';
+    }).join('') + '</div>';
+  var gridStart = new Date(base);
+  gridStart.setDate(gridStart.getDate() - ((gridStart.getDay() + 6) % 7)); // back to Monday
+  var lastDay = new Date(base.getFullYear(), monthIdx + 1, 0, 12);
+  var rows = '';
+  for (var cur = new Date(gridStart); cur <= lastDay; cur.setDate(cur.getDate() + 7)) {
+    rows += scheduleWeekRowHtml(new Date(cur), { monthIdx: monthIdx });
+  }
+  return header + wdHeader + '<div style="display:flex;flex-direction:column;gap:2px">' + rows + '</div>';
+}
+
+function renderScheduleWeeks() {
+  var monday = new Date(); monday.setHours(12, 0, 0, 0);
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+  var out = '';
+  for (var w = 0; w < 12; w++) {
+    var ws = new Date(monday); ws.setDate(monday.getDate() + w * 7);
+    out += '<div style="font-size:11px;color:var(--text2);font-weight:600;margin:' + (w ? '10px' : '0') + ' 0 3px">w/c ' + ws.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + '</div>' +
+      scheduleWeekRowHtml(ws, { dayNames: true });
+  }
+  return out;
+}
+
+function renderScheduleList() {
+  var todayIso = isoDate(new Date());
+  var live = scheduledJobs().slice().sort(function(a, b) { return a.startDate < b.startDate ? -1 : 1; });
+  var rows = live.map(function(j) {
+    var span = jobBookedDays(j);
+    var last = span[span.length - 1];
+    var onSite = span[0] <= todayIso && last >= todayIso;
+    return '<div class="sched-row" onclick="scheduleBarTap(\'' + j.id + '\')">' +
+      '<span class="sched-dot" style="background:' + scheduleColour(j.id) + '"></span>' +
+      '<div style="flex:1;min-width:0"><div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(scheduleLabel(j)) + '</div>' +
+        '<div style="font-size:12px;color:var(--text2)">' + fmtShortDate(span[0] || j.startDate) + (last && last !== span[0] ? ' → ' + fmtShortDate(last) : '') + ' · ' + j.scheduledDays + ' day' + (j.scheduledDays === 1 ? '' : 's') + '</div></div>' +
+      (onSite ? '<span style="font-size:11px;font-weight:700;color:var(--success);flex:none">on site</span>' : '') +
+    '</div>';
+  }).join('');
+  if (!rows) rows = '<div style="font-size:13px;color:var(--text2);padding:6px 0">Nothing scheduled yet.</div>';
+  var unsched = jobs.filter(function(j) { return j.status === 'accepted' && !(j.startDate && +j.scheduledDays > 0); });
+  if (unsched.length) {
+    rows += '<div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:14px 0 2px">Not scheduled</div>' +
+      unsched.map(function(j) {
+        var slot = nextFreeSlot(defaultScheduleDays(j), j.id);
+        return '<div class="sched-row" style="border-top:none;padding:8px 0" onclick="attentionOpenJob(\'' + j.id + '\')">' +
+          '<span class="sched-dot" style="background:var(--surface2);border:1px dashed var(--text3)"></span>' +
+          '<div style="flex:1;min-width:0"><div style="font-weight:600">' + escapeHtml(j.name) + '</div>' +
+          '<div style="font-size:12px;color:var(--text2)">' + (slot ? 'could start ' + fmtShortDate(slot) : 'no free slot found') + ' · Schedule ›</div></div>' +
+        '</div>';
+      }).join('');
+  }
+  return rows;
+}
+
 function renderScheduleStrip() {
   var el = document.getElementById('schedule-strip');
   if (!el) return;
-  var booked = scheduledJobs();
-  var colourOf = {};
-  booked.forEach(function(j, i) { colourOf[j.id] = SCHEDULE_COLOURS[i % SCHEDULE_COLOURS.length]; });
-  var dayMap = {}; // iso date -> [job]
-  booked.forEach(function(j) {
-    jobBookedDays(j).forEach(function(d) { (dayMap[d] = dayMap[d] || []).push(j); });
+  ['list', 'weeks', 'month'].forEach(function(v) {
+    var b = document.getElementById('segsched-' + v);
+    if (b) b.classList.toggle('active', scheduleView === v);
   });
-
+  var booked = scheduledJobs();
   var slot = nextFreeSlot(1);
-  var header = '<div style="font-size:13px;color:var(--text2);margin-bottom:12px">'+
+  var header = '<div style="font-size:13px;color:var(--text2);margin-bottom:12px">' +
     (booked.length
       ? booked.length + ' job' + (booked.length === 1 ? '' : 's') + ' scheduled' + (slot ? ' · next free day ' + fmtShortDate(slot) : '')
-      : 'Nothing scheduled yet — accepted jobs get a Schedule button on their Summary page.')+
+      : 'Nothing scheduled yet — accepted jobs get a Schedule button on their Summary page, or tap a day here.') +
   '</div>';
+  var body = scheduleView === 'list' ? renderScheduleList()
+           : scheduleView === 'weeks' ? renderScheduleWeeks()
+           : renderScheduleMonth();
+  el.innerHTML = header + '<div class="card" style="padding:' + (scheduleView === 'list' ? '6px 16px' : '10px') + '">' + body + '</div>';
+  el.classList.toggle('sched-moving', !!scheduleMoveJobId);
+  renderScheduleMoveBanner();
+}
 
-  var workSat = !!settings.workSaturdays;
+// ── Calendar interactions: sheets, tap-to-schedule, tap-to-move ────────────
+function openScheduleSheet(html) {
+  document.getElementById('schedule-sheet').innerHTML = html;
+  document.getElementById('schedule-sheet-backdrop').style.display = 'block';
+}
+function closeScheduleSheet() {
+  document.getElementById('schedule-sheet-backdrop').style.display = 'none';
+}
+function scheduleJobById(id) {
+  for (var i = 0; i < jobs.length; i++) if (jobs[i].id === id) return jobs[i];
+  return null;
+}
+// Shared post-write refresh: the calendar, the Jobs list rows' "Starts …"
+// line and the attention strip all show schedule state; Summary only for
+// the active job (its status card holds the schedule block).
+function scheduleAfterWrite(j) {
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(j);
+  renderScheduleStrip(); renderJobs(); renderAttentionStrip();
+  if (j.id === activeJobId) renderSummary();
+}
+
+function scheduleDayTap(iso) {
+  if (scheduleMoveJobId) return scheduleMoveTo(iso);
+  openScheduleDaySheet(iso);
+}
+function scheduleBarTap(jobId) { openScheduleJobSheet(jobId); }
+
+function openScheduleJobSheet(jobId) {
+  var j = scheduleJobById(jobId);
+  if (!j) return;
+  var span = jobBookedDays(j);
+  var last = span[span.length - 1];
+  var dates = fmtShortDate(span[0] || j.startDate) + (last && last !== span[0] ? ' → ' + fmtShortDate(last) : '') +
+    ' · ' + j.scheduledDays + ' day' + (j.scheduledDays === 1 ? '' : 's') +
+    (j.status !== 'accepted' ? ' · ' + j.status : '');
+  var html = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">' +
+      '<span class="sched-dot" style="background:' + scheduleColour(j.id) + '"></span>' +
+      '<div style="font-size:16px;font-weight:700;flex:1;min-width:0">' + escapeHtml(scheduleLabel(j)) + '</div></div>' +
+    '<div style="font-size:13px;color:var(--text2);margin-bottom:12px">' + dates + '</div>' +
+    '<button class="sched-sheet-btn" onclick="closeScheduleSheet();attentionOpenJob(\'' + j.id + '\')">Open job</button>' +
+    (j.status === 'accepted'
+      ? '<button class="sched-sheet-btn alt" onclick="startScheduleMove(\'' + j.id + '\')">Move start date</button>' +
+        '<button class="sched-sheet-btn warn" onclick="sheetUnscheduleJob(\'' + j.id + '\')">Unschedule</button>'
+      : '');
+  openScheduleSheet(html);
+}
+
+function openScheduleDaySheet(iso) {
   var todayIso = isoDate(new Date());
-  var monday = new Date(); monday.setHours(12, 0, 0, 0);
-  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7)); // back to Monday
-  var weeks = '';
-  for (var w = 0; w < 12; w++) {
-    var cells = '';
-    var label = '';
-    for (var i = 0; i < (workSat ? 6 : 5); i++) {
-      var d = new Date(monday); d.setDate(monday.getDate() + w * 7 + i);
-      var dIso = isoDate(d);
-      if (i === 0) label = 'w/c ' + d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-      var isPast = dIso < todayIso;
-      var isToday = dIso === todayIso;
-      var blocks = (dayMap[dIso] || []).map(function(j) {
-        return '<div onclick="attentionOpenJob(\''+j.id+'\')" style="background:'+colourOf[j.id]+';color:#fff;border-radius:4px;padding:2px 4px;font-size:9px;font-weight:600;line-height:1.3;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer">'+escapeHtml(j.scheduleTitle ? j.name+' — '+j.scheduleTitle : j.name)+'</div>';
-      }).join('');
-      cells += '<div style="flex:1;min-width:0;min-height:44px;border-radius:6px;padding:3px 4px;background:'+(isToday ? 'var(--surface2)' : 'transparent')+';border:1px solid '+(isToday ? 'var(--accent)' : 'var(--border)')+(isPast ? ';opacity:.35' : '')+'">'+
-        '<div style="font-size:9px;color:var(--text3);font-weight:600">'+d.toLocaleDateString('en-GB', { weekday: 'short' }).slice(0, 2)+' '+d.getDate()+'</div>'+
-        blocks+
+  var title = parseIsoDate(iso).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+  var html = '<div style="font-size:16px;font-weight:700;margin-bottom:2px">' + title + (iso === todayIso ? ' · today' : '') + '</div>';
+  if (bankHolidays[iso]) html += '<div style="font-size:13px;color:var(--accent2);font-weight:600;margin-bottom:4px">' + escapeHtml(bankHolidays[iso]) + '</div>';
+  var dayJobs = displayScheduledJobs().filter(function(j) { return jobBookedDays(j).indexOf(iso) !== -1; });
+  html += '<div style="margin-top:8px">';
+  if (dayJobs.length) {
+    html += dayJobs.map(function(j) {
+      return '<div class="sched-row" onclick="openScheduleJobSheet(\'' + j.id + '\')">' +
+        '<span class="sched-dot" style="background:' + scheduleColour(j.id) + (j.status !== 'accepted' ? ';opacity:.5' : '') + '"></span>' +
+        '<div style="flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(scheduleLabel(j)) + '</div>' +
+        '<span style="font-size:12px;color:var(--text2);flex:none">' + (j.status === 'accepted' ? j.scheduledDays + 'd' : j.status) + '</span>' +
       '</div>';
-    }
-    weeks += '<div style="margin-bottom:10px">'+
-      '<div style="font-size:11px;color:var(--text2);font-weight:600;margin-bottom:4px">'+label+'</div>'+
-      '<div style="display:flex;gap:4px">'+cells+'</div>'+
-    '</div>';
+    }).join('');
+  } else {
+    html += '<div style="font-size:13px;color:var(--text2);padding:4px 0 8px">Nothing booked.</div>';
   }
-  el.innerHTML = header + '<div class="card" style="padding:12px">'+weeks+'</div>';
+  html += '</div>';
+  // Tap-to-schedule: only offered from today forward, and only when there
+  // are accepted jobs waiting for a date.
+  if (iso >= todayIso) {
+    var unsched = jobs.filter(function(j) { return j.status === 'accepted' && !(j.startDate && +j.scheduledDays > 0); });
+    if (unsched.length) {
+      html += '<div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 2px">Start a job here</div>' +
+        unsched.map(function(j) {
+          return '<div class="sched-row" style="border-top:none;padding:8px 0" onclick="scheduleJobFromDay(\'' + j.id + '\',\'' + iso + '\')">' +
+            '<span style="font-size:16px;color:var(--accent);flex:none">＋</span>' +
+            '<div style="flex:1;min-width:0;font-weight:600">' + escapeHtml(j.name) + '</div>' +
+            '<span style="font-size:12px;color:var(--text2);flex:none">~' + defaultScheduleDays(j) + 'd</span>' +
+          '</div>';
+        }).join('');
+    }
+  }
+  openScheduleSheet(html);
+}
+
+// A tapped Sat/Sun/holiday rolls forward to the next working day — same
+// rule workingDaySpan applies — and the confirm says so.
+function scheduleEffectiveStart(iso, workSat) {
+  var span = workingDaySpan(iso, 1, workSat);
+  return span[0] || iso;
+}
+function scheduleJobFromDay(jobId, iso) {
+  var j = scheduleJobById(jobId);
+  if (!j) return;
+  var eff = scheduleEffectiveStart(iso, jobWorkSat(j));
+  var days = defaultScheduleDays(j);
+  var overlap = scheduleOverlap(eff, days, j.id);
+  var msg = 'Schedule ' + j.name + ' to start ' + fmtShortDate(eff) + ' (' + days + ' day' + (days === 1 ? '' : 's') + ')?' +
+    (eff !== iso ? '\n(next working day after ' + fmtShortDate(iso) + ')' : '') +
+    (overlap ? '\n⚠ overlaps ' + overlap.name + ' by ' + overlap.days + ' day' + (overlap.days === 1 ? '' : 's') : '');
+  if (!confirm(msg)) return;
+  j.startDate = eff;
+  j.scheduledDays = days;
+  closeScheduleSheet();
+  scheduleAfterWrite(j);
+}
+
+function startScheduleMove(jobId) {
+  scheduleMoveJobId = jobId;
+  closeScheduleSheet();
+  if (scheduleView === 'list') setScheduleView('month'); else renderScheduleStrip();
+}
+function cancelScheduleMove() {
+  scheduleMoveJobId = null;
+  renderScheduleStrip();
+}
+function scheduleMoveTo(iso) {
+  var j = scheduleJobById(scheduleMoveJobId);
+  if (!j) return cancelScheduleMove();
+  var eff = scheduleEffectiveStart(iso, jobWorkSat(j));
+  var overlap = scheduleOverlap(eff, j.scheduledDays, j.id);
+  var msg = 'Move ' + j.name + ' to start ' + fmtShortDate(eff) + '?' +
+    (eff !== iso ? '\n(next working day after ' + fmtShortDate(iso) + ')' : '') +
+    (overlap ? '\n⚠ overlaps ' + overlap.name + ' by ' + overlap.days + ' day' + (overlap.days === 1 ? '' : 's') : '');
+  if (!confirm(msg)) return;
+  j.startDate = eff;
+  scheduleMoveJobId = null;
+  scheduleAfterWrite(j);
+}
+function sheetUnscheduleJob(jobId) {
+  var j = scheduleJobById(jobId);
+  if (!j || !confirm('Unschedule ' + j.name + '? Its days come off the calendar.')) return;
+  j.startDate = null;
+  j.scheduledDays = null;
+  closeScheduleSheet();
+  scheduleAfterWrite(j);
+}
+function renderScheduleMoveBanner() {
+  var el = document.getElementById('schedule-move-banner');
+  if (!el) return;
+  var j = scheduleMoveJobId && scheduleJobById(scheduleMoveJobId);
+  if (!j) { el.style.display = 'none'; return; }
+  el.style.display = 'flex';
+  el.innerHTML = '<div style="flex:1;min-width:0">Moving ' + escapeHtml(j.name) + ' — tap its new start day</div>' +
+    '<div onclick="cancelScheduleMove()" style="cursor:pointer;text-decoration:underline;flex:none">Cancel</div>';
 }
 
 // ── Variations (VARIATIONS_SPEC.md) ─────────────────────────────────────────
@@ -3936,6 +4317,8 @@ function loadSettings() {
   if (togSat) togSat.classList.toggle('on', !!settings.workSaturdays);
   var togIcs = document.getElementById('tog-ics');
   if (togIcs) togIcs.classList.toggle('on', !!settings.icsEnabled);
+  var bhSel = document.getElementById('s-bh-region');
+  if (bhSel) bhSel.value = settings.bankHolidayRegion || 'northern-ireland';
   renderIcsUrlRow();
   populateKitchenRatesTable();
   document.getElementById('s-kr-cornice-base').value = (settings.kitchenRates && settings.kitchenRates.cornice) ? settings.kitchenRates.cornice.base : 25;
