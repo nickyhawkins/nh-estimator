@@ -1137,7 +1137,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.15.3</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.15.4</div>
 </div>
 </div>
 
@@ -2421,6 +2421,7 @@ async function loadActiveJobData() {
     }).catch(function() { materialActuals = []; })
   ]);
   ensureDefaultColour();
+  matReorderMode = false; // reorder mode is per-visit, not per-job state
   restoreJobIdentityFields();
   renderHome(); renderExterior(); renderColours(); renderSummary();
   updateNavBadge();
@@ -4636,6 +4637,27 @@ function saveMaterialsSnapshot() {
   localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot));
   pendingSaves.materials = apiPut('/api/materials?job_id='+encodeURIComponent(activeJobId), { lines: materialsSnapshot });
   return pendingSaves.materials;
+}
+
+// ── Materials reorder (per Nicky 2026-07-23) ───────────────────────────────
+// Snapshot order IS the quote's materials order (createXeroQuote maps the
+// array as-is), and auto-calculated lines come out grouped by use — but a
+// manually-added line lands at the end, breaking the grouping. Reorder
+// mode swaps each row's qty/price controls for ▲▼ so lines can be walked
+// into place; the array order persists through the bulk save (the server
+// stamps clock_timestamp per row and GET orders by it).
+var matReorderMode = false;
+function toggleMatReorder() {
+  matReorderMode = !matReorderMode;
+  renderSummary();
+}
+function moveMaterialLine(id, dir) {
+  var i = materialsSnapshot.findIndex(function(l) { return l.id === id; });
+  var j = i + dir;
+  if (i < 0 || j < 0 || j >= materialsSnapshot.length) return;
+  var tmp = materialsSnapshot[i]; materialsSnapshot[i] = materialsSnapshot[j]; materialsSnapshot[j] = tmp;
+  saveMaterialsSnapshot();
+  renderSummary();
 }
 
 // Rebuilds the snapshot from scratch out of whatever computeMaterials()
@@ -9128,6 +9150,15 @@ function renderSummary() {
     var chargeableTag = l.custom
       ? '<div class="mat-chargeable-tag'+(isChargeable?' on':'')+'" onclick="toggleMaterialChargeable(\''+l.id+'\')">'+(isChargeable?'Chargeable':'Tracking only')+'</div>'
       : '';
+    if (matReorderMode) {
+      var arrowStyle = 'width:38px;height:38px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:var(--rs);background:var(--surface2);color:var(--accent);font-size:16px;cursor:pointer';
+      return '<div class="mat-row"><div><div class="mat-label">'+escapeHtml(l.description)+'</div>'+
+        '<div class="mat-detail">'+fmt(+l.unitAmount||0)+(l.isPerLitre?'/ltr':' each')+'</div></div>'+
+        '<div style="display:flex;align-items:center;gap:8px">'+
+          '<div style="'+arrowStyle+'" onclick="moveMaterialLine(\''+l.id+'\',-1)">▲</div>'+
+          '<div style="'+arrowStyle+'" onclick="moveMaterialLine(\''+l.id+'\',1)">▼</div>'+
+        '</div></div>';
+    }
     return swipeDeleteWrap('deleteMaterialLine', l.id,
       '<div class="mat-row"><div><div class="mat-label">'+escapeHtml(l.description)+'</div>'+
       '<div class="mat-detail">'+fmt(+l.unitAmount||0)+(l.isPerLitre?'/ltr':' each')+'</div>'+chargeableTag+'</div>'+
@@ -9346,7 +9377,9 @@ function renderSummary() {
       '<span class="breakdown-label" style="font-weight:600;color:var(--text)">'+markupSummaryLabel()+'<small style="display:block;font-weight:400;color:var(--text2)">on labour + sundries</small></span>'+
       '<span class="breakdown-value" style="color:var(--accent)">'+fmt(labourTotal)+'</span></div>'+
     '</div></div>'+
-    '<div><div class="section-title" style="margin-bottom:8px">Materials</div>'+
+    '<div><div class="section-title" style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">Materials'+
+      (materialsSnapshot.length > 1 ? '<span onclick="toggleMatReorder()" style="font-size:12px;font-weight:600;color:var(--accent);cursor:pointer;text-transform:none;letter-spacing:normal">'+(matReorderMode ? 'Done' : 'Reorder')+'</span>' : '')+
+    '</div>'+
     '<div class="card">'+
       editableRowsHtml + unmappedRowsHtml +
       (materialsTotal>0?'<div class="breakdown-row" style="border-top:1px solid var(--border);padding:12px 16px">'+

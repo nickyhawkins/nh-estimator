@@ -38,6 +38,8 @@ Reconciled against the code on **2026-07-14**. Most of the original roadmap is n
 
 **2026-07-23 (v1.15.3): imported jobs' figures are editable.** Per Nicky: some imported quotes are part-done or their materials will move — the frozen Xero figures need adjusting. The imported-job Summary gains an **"Agreed figures"** card (Quote total / Labour / Materials £ inputs) writing straight onto the snapshot, with `figuresEditedAt` stamped and the hero relabelled "edited by hand". Deliberately **imported-only** (`setImportedFigure()` guards on `importedFromXero`): engine-quoted jobs' snapshots remain the untouchable record of a computed, accepted quote. 95-check smoke suite.
 
+**2026-07-23 (v1.15.4): materials list reorder.** Per Nicky: paints are kept grouped by use — auto-calculation produces that grouping, but a manually-added line lands at the end and breaks it. Summary's Materials section header gains a **Reorder** toggle (shown when >1 line): rows swap their qty/price/delete controls for ▲▼ arrows, lines walk into place, Done restores editing. Array order is the persisted order (bulk save → per-row `clock_timestamp` → GET order), and **the Xero quote's MATERIALS section follows it** — createXeroQuote maps the snapshot as-is. Mode resets on job switch. 97-check smoke suite (mode swap, move, top-row no-op, restore).
+
 **Loose ends on otherwise-shipped features:**
 - Confirm the wallpaper **staircase +25%** doesn't double-count difficulty already in markup/prep — the spec asked for this before shipping and it was never explicitly closed off.
 - Feature wall never got its **own collapsible section** (cosmetic only).
