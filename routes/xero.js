@@ -64,6 +64,20 @@ async function putXeroContact(accessToken, tenantId, payload) {
   return saved;
 }
 
+// Diagnostic for the 2026-07-22/23 invalid_scope investigation: shows
+// exactly what /connect sends to Xero (and which build is live) WITHOUT
+// redirecting there — Xero's error page hides the failing request, so
+// this is the ground truth to compare against. No secrets: the scope
+// list and redirect URI appear in every authorize URL anyway.
+router.get('/connect-info', (req, res) => {
+  res.json({
+    build: require('../package.json').version,
+    scope: SCOPES,
+    clientIdSet: !!process.env.XERO_CLIENT_ID,
+    redirectUri: process.env.XERO_REDIRECT_URI || null
+  });
+});
+
 // Step 1: Redirect to Xero login
 router.get('/connect', (req, res) => {
   const params = new URLSearchParams({
