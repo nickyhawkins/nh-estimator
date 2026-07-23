@@ -205,6 +205,13 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
   </div>
   <div class="content">
     <div id="attention-strip"></div>
+    <!-- Per-job site notes (SITE_NOTES_SPEC.md Part 1): one dumb free-text
+         field on jobs.data.notes — access arrangements, verbal agreements,
+         snags. Debounced autosave; never copied by job duplication. -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header">Notes</div>
+      <textarea id="job-notes" rows="1" placeholder="Site notes — access, agreements, snags… saves automatically" oninput="onJobNotesInput()" style="display:block;width:100%;border:none;background:transparent;color:var(--text);font-family:'DM Sans',sans-serif;font-size:14px;line-height:1.5;padding:2px 16px 12px;outline:none;resize:none;overflow:hidden;min-height:40px;box-sizing:border-box"></textarea>
+    </div>
     <div class="empty" id="home-empty">
       <div class="empty-icon">🏠</div>
       <div class="empty-title">No rooms yet</div>
@@ -1107,7 +1114,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.11.2</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.12.0</div>
 </div>
 </div>
 
@@ -2341,7 +2348,7 @@ function renameJob(id) {
 // part of job.data must go through this so xeroClient/xeroRef/contact/
 // xeroContactId/contactSyncedAt/materialsSeeded/kitchen always travel together.
 function persistJobData(job) {
-  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, freeVariations: job.freeVariations, variationCount: job.variationCount, kitchen: job.kitchen }) });
+  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, freeVariations: job.freeVariations, variationCount: job.variationCount, notes: job.notes, kitchen: job.kitchen }) });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -3130,6 +3137,7 @@ function renderJobRow(j) {
         (isAccepted ? ' <span style="color:var(--success);font-size:12px;font-weight:700;text-decoration:none">· ACCEPTED</span>' : '')+
         (isAccepted && j.xeroQuoteStatus === 'INVOICED' ? ' <span style="color:var(--text2);font-size:11px;font-weight:600;text-decoration:none">· invoiced in Xero</span>' : '')+
         ((isAccepted||isCompleted||isInvoiced) && j.variationCount > 0 ? ' <span style="color:var(--accent);font-size:11px;font-weight:700;text-decoration:none" title="Variations">+'+j.variationCount+'</span>' : '')+
+        (j.notes && j.notes.trim() ? ' <span title="Has site notes" style="font-size:11px;text-decoration:none">📝</span>' : '')+
         (isCompleted ? ' <span style="color:var(--text3);font-size:12px;font-weight:700;text-decoration:none">· COMPLETED</span>' : '')+
         (isInvoiced ? ' <span style="color:var(--success);font-size:12px;font-weight:700;text-decoration:none">· INVOICED</span>' : '')+
         (isDeclined ? ' <span style="color:var(--danger);font-size:12px;font-weight:700;text-decoration:none">· DECLINED</span>' : '')+
@@ -3142,6 +3150,7 @@ function renderJobRow(j) {
     '</div>'+
     (isAccepted ? '<div onclick="event.stopPropagation();completeJobFromList(\''+j.id+'\')" title="Mark Completed" style="color:var(--success);font-size:18px;font-weight:700;padding:0 8px;cursor:pointer">✓</div>' : '')+
     (isCompleted ? '<div onclick="event.stopPropagation();invoiceJobFromList(\''+j.id+'\')" title="Mark Invoiced" style="color:var(--accent);font-size:15px;font-weight:700;padding:0 8px;cursor:pointer;text-decoration:none">£</div>' : '')+
+    '<div onclick="event.stopPropagation();duplicateJobFromList(\''+j.id+'\')" title="Duplicate job" style="color:var(--text2);font-size:15px;padding:0 8px;cursor:pointer">⧉</div>'+
     '<div onclick="event.stopPropagation();renameJob(\''+j.id+'\')" style="color:var(--text2);font-size:16px;padding:0 8px;cursor:pointer">✎</div>'+
     '<div onclick="event.stopPropagation();deleteJob(\''+j.id+'\')" style="color:var(--danger);font-size:22px;padding:0 4px;cursor:pointer">×</div>'+
   '</div>');
@@ -3294,6 +3303,29 @@ document.addEventListener('click', function(e) {
 function promptNewJob() {
   var name = prompt('Job name (e.g. client / address):');
   if (name) createJob(name);
+}
+
+// Job templates (JOB_TEMPLATES_SPEC.md): a template is just a job that gets
+// duplicated — the server copies rooms/exteriors/colours/snapshot under a
+// fresh id (contact, quote links, status, schedule, notes and actuals
+// deliberately don't copy) and we land on the new draft's Home ready to
+// adjust. Keeping a "TEMPLATE — 3-bed repaint" job in Draft IS the
+// templates system.
+async function duplicateJobFromList(id) {
+  var src = jobs.find(function(j) { return j.id === id; });
+  if (!src || !confirm('Duplicate "' + src.name + '" as a fresh draft job?\n\nRooms, exteriors, colours and the materials estimate copy over; the client, quote, schedule, notes and anything logged on site don\'t.')) return;
+  try {
+    var resp = await fetch('/api/jobs/' + encodeURIComponent(id) + '/duplicate', { method: 'POST' });
+    var job = await resp.json();
+    if (!resp.ok || !job.id) throw new Error(job.error || 'duplicate failed');
+    jobs.unshift(job);
+    localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+    renderJobs();
+    await switchJob(job.id);
+    goTab('home');
+  } catch (e) {
+    alert('Could not duplicate the job: ' + e.message);
+  }
 }
 
 // ── Navigation ─────────────────────────────────────────────────────────────
@@ -6782,8 +6814,39 @@ function attentionOpenJob(jobId) {
   else goTab('summary');
 }
 
+// Site notes (SITE_NOTES_SPEC.md Part 1): jobs.data.notes, one field,
+// debounced autosave through persistJobData. The textarea is static HTML —
+// syncJobNotes() only overwrites its value when it ISN'T focused, so a
+// background render can never wipe mid-typing (the form-wipe class of bug).
+var jobNotesTimer = null;
+function autosizeJobNotes(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.max(40, el.scrollHeight) + 'px';
+}
+function syncJobNotes() {
+  var el = document.getElementById('job-notes');
+  if (!el || document.activeElement === el) return;
+  var job = activeJob();
+  el.value = (job && job.notes) || '';
+  autosizeJobNotes(el);
+}
+function onJobNotesInput() {
+  var el = document.getElementById('job-notes');
+  autosizeJobNotes(el);
+  clearTimeout(jobNotesTimer);
+  jobNotesTimer = setTimeout(function() {
+    var job = activeJob();
+    if (!job) return;
+    job.notes = el.value;
+    localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+    persistJobData(job);
+    renderJobs(); // 📝 chip
+  }, 500);
+}
+
 function renderHome() {
   renderAttentionStrip();
+  syncJobNotes();
   var jobNameEl = document.getElementById('home-job-name');
   if (jobNameEl) jobNameEl.textContent = ((activeJob() && activeJob().name) || 'My Job') + ' ›';
   var empty = document.getElementById('home-empty');

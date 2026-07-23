@@ -782,6 +782,120 @@ router.get('/backup/export', async (req, res) => {
   }
 });
 
+// THE one copy-a-job implementation (JOB_TEMPLATES_SPEC.md's solve-it-once
+// rule): walks an entry's child rows and inserts every one under newJobId
+// with fresh row ids. Shared by backup import and POST /jobs/:id/duplicate
+// — divergence here would mean duplicate and import silently disagreeing
+// about what a job contains. Name-collision suffixing stays with each
+// caller (import's "(imported)" vs duplicate's "(copy)"); this function
+// takes the rows as given. Duplicate simply omits materialActuals and
+// labourLog from its entry — actuals and logged days are the HISTORY of a
+// real job, never template data.
+async function copyJobRows(entry, newJobId) {
+  for (const r of (entry.rooms || [])) {
+    await db.query(
+      'INSERT INTO rooms (id, job_id, name, data) VALUES ($1, $2, $3, $4)',
+      [crypto.randomUUID(), newJobId, r.name || 'Room', r.data || {}]
+    );
+  }
+  for (const it of (entry.exteriorItems || [])) {
+    await db.query(
+      'INSERT INTO exterior_items (id, job_id, label, data) VALUES ($1, $2, $3, $4)',
+      [crypto.randomUUID(), newJobId, it.label || 'Exterior', it.data || {}]
+    );
+  }
+  for (const c of (entry.colours || [])) {
+    await db.query(
+      'INSERT INTO colours (number, job_id, label, brand, code) VALUES ($1, $2, $3, $4, $5)',
+      [c.number, newJobId, c.label || '', c.brand || '', c.code || '']
+    );
+  }
+  for (const m of (entry.materialsSnapshot || [])) {
+    await db.query(
+      'INSERT INTO materials_snapshot (id, job_id, data) VALUES ($1, $2, $3)',
+      [crypto.randomUUID(), newJobId, m.data || {}]
+    );
+  }
+  for (const a of (entry.materialActuals || [])) {
+    await db.query(
+      `INSERT INTO material_actuals (id, job_id, item_code, description, actual_quantity, unit_amount, bought)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [crypto.randomUUID(), newJobId, a.itemCode || null, a.description || '', +a.actualQuantity || 0,
+        a.unitAmount == null ? null : +a.unitAmount, !!a.bought]
+    );
+  }
+  for (const l of (entry.labourLog || [])) {
+    if (!l.workDate || !/^\d{4}-\d{2}-\d{2}$/.test(l.workDate)) continue;
+    await db.query(
+      `INSERT INTO labour_log (id, job_id, work_date, days, note) VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (job_id, work_date) DO NOTHING`,
+      [crypto.randomUUID(), newJobId, l.workDate, +l.days || 0, l.note || '']
+    );
+  }
+}
+
+// What survives from a source job's data blob when it's duplicated as a
+// template (JOB_TEMPLATES_SPEC.md's copies/doesn't table): the SCOPE and
+// pricing choices copy (kitchen config minus its variation flag, markup
+// override, materials-seeded marker); everything belonging to the source
+// job's own lifecycle — client contact, quote/invoice links, status +
+// timestamps, schedule, acceptedSnapshot, variations, notes — does not.
+// A copy is a fresh draft for a new client.
+function templateJobData(d) {
+  d = d || {};
+  const keep = {};
+  ['materialsSeeded', 'markupOverride', 'markupType'].forEach(k => {
+    if (d[k] !== undefined && d[k] !== null) keep[k] = d[k];
+  });
+  if (d.kitchen) {
+    keep.kitchen = { ...d.kitchen };
+    delete keep.kitchen.isVariation;
+  }
+  return keep;
+}
+const stripVariationFlag = (data) => {
+  const copy = { ...(data || {}) };
+  delete copy.isVariation;
+  return copy;
+};
+
+// Duplicate a job as a fresh draft — the whole of the templates feature:
+// a "template" is just a job kept around to duplicate (naming convention,
+// no template type). Copied rooms/exteriors lose their isVariation flag
+// (a template built from a job that had variations copies them as plain
+// scope).
+router.post('/jobs/:id/duplicate', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const jobResult = await db.query('SELECT id, name, data FROM jobs WHERE id = $1', [id]);
+    const src = jobResult.rows[0];
+    if (!src) return res.status(404).json({ error: 'job not found' });
+
+    const [roomsResult, extResult, coloursResult, matsResult] = await Promise.all([
+      db.query('SELECT name, data FROM rooms WHERE job_id = $1', [id]),
+      db.query('SELECT label, data FROM exterior_items WHERE job_id = $1', [id]),
+      db.query('SELECT number, label, brand, code FROM colours WHERE job_id = $1', [id]),
+      db.query('SELECT data FROM materials_snapshot WHERE job_id = $1', [id]),
+    ]);
+
+    const newJobId = crypto.randomUUID();
+    const name = `${src.name} (copy)`;
+    const data = templateJobData(src.data);
+    await db.query('INSERT INTO jobs (id, name, data) VALUES ($1, $2, $3)', [newJobId, name, data]);
+    await copyJobRows({
+      rooms: roomsResult.rows.map(r => ({ name: r.name, data: stripVariationFlag(r.data) })),
+      exteriorItems: extResult.rows.map(it => ({ label: it.label, data: stripVariationFlag(it.data) })),
+      colours: coloursResult.rows,
+      materialsSnapshot: matsResult.rows,
+    }, newJobId);
+
+    // Same shape GET /jobs rows take, so the client can slot it straight in.
+    res.json({ id: newJobId, name, ...data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.post('/backup/import', async (req, res) => {
   const { backup, restoreSettings } = req.body || {};
   // Fail closed: reject anything that doesn't look like a v1 backup BEFORE
@@ -808,47 +922,7 @@ router.post('/backup/import', async (req, res) => {
       existingNames.add(name);
 
       await db.query('INSERT INTO jobs (id, name, data) VALUES ($1, $2, $3)', [newJobId, name, srcJob.data || {}]);
-
-      for (const r of (entry.rooms || [])) {
-        await db.query(
-          'INSERT INTO rooms (id, job_id, name, data) VALUES ($1, $2, $3, $4)',
-          [crypto.randomUUID(), newJobId, r.name || 'Room', r.data || {}]
-        );
-      }
-      for (const it of (entry.exteriorItems || [])) {
-        await db.query(
-          'INSERT INTO exterior_items (id, job_id, label, data) VALUES ($1, $2, $3, $4)',
-          [crypto.randomUUID(), newJobId, it.label || 'Exterior', it.data || {}]
-        );
-      }
-      for (const c of (entry.colours || [])) {
-        await db.query(
-          'INSERT INTO colours (number, job_id, label, brand, code) VALUES ($1, $2, $3, $4, $5)',
-          [c.number, newJobId, c.label || '', c.brand || '', c.code || '']
-        );
-      }
-      for (const m of (entry.materialsSnapshot || [])) {
-        await db.query(
-          'INSERT INTO materials_snapshot (id, job_id, data) VALUES ($1, $2, $3)',
-          [crypto.randomUUID(), newJobId, m.data || {}]
-        );
-      }
-      for (const a of (entry.materialActuals || [])) {
-        await db.query(
-          `INSERT INTO material_actuals (id, job_id, item_code, description, actual_quantity, unit_amount, bought)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [crypto.randomUUID(), newJobId, a.itemCode || null, a.description || '', +a.actualQuantity || 0,
-            a.unitAmount == null ? null : +a.unitAmount, !!a.bought]
-        );
-      }
-      for (const l of (entry.labourLog || [])) {
-        if (!l.workDate || !/^\d{4}-\d{2}-\d{2}$/.test(l.workDate)) continue;
-        await db.query(
-          `INSERT INTO labour_log (id, job_id, work_date, days, note) VALUES ($1, $2, $3, $4, $5)
-           ON CONFLICT (job_id, work_date) DO NOTHING`,
-          [crypto.randomUUID(), newJobId, l.workDate, +l.days || 0, l.note || '']
-        );
-      }
+      await copyJobRows(entry, newJobId);
       jobsImported++;
     }
 

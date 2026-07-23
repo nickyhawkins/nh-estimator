@@ -1,8 +1,16 @@
 # Site Notes & Photos — Spec (notes now, photos deliberately deferred)
 
-**Status: SCOPED 2026-07-22, not built.** Idea #7 in `FEATURES_2.0_IDEAS.md`.
+**Status: Part 1 (notes) BUILT 2026-07-23 (v1.12.0); Part 2 (photos) still a
+decision, not a build.** Idea #7 in `FEATURES_2.0_IDEAS.md`.
 Split decision made here: **notes are v1 and nearly free; photos are a separate,
 infrastructure-carrying decision that should not block notes.**
+
+**Part 1 as built:** a Notes card on Home above the room list — one plain textarea
+on `jobs.data.notes`, auto-growing, 500ms-debounced autosave through
+`persistJobData()`, value only re-synced when the field ISN'T focused (form-wipe
+guard). 📝 chip on Jobs-list rows when non-empty. Rides backup exports
+automatically; job duplication deliberately does NOT copy notes. Verified in the
+70-check Chromium smoke run (debounced save, PUT payload, chip, per-job isolation).
 
 ## Part 1 — per-job notes (build now)
 
