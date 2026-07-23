@@ -36,6 +36,8 @@ Reconciled against the code on **2026-07-14**. Most of the original roadmap is n
 
 **2026-07-23 (v1.15.2): startup restore of Summary's client/contact fields.** Nicky: "going back to the summary of quoted jobs the contact field is empty". The restore of `xero-client`/`xero-ref`/contact-details lived only inside `loadActiveJobData()` — the job-SWITCH path; initApp does its own collection fetches, so opening the app already on a job left those fields blank until the first switch away and back. Factored into `restoreJobIdentityFields()`, called from both paths. 94-check smoke suite (field populated on first load, pre-switch).
 
+**2026-07-23 (v1.15.3): imported jobs' figures are editable.** Per Nicky: some imported quotes are part-done or their materials will move — the frozen Xero figures need adjusting. The imported-job Summary gains an **"Agreed figures"** card (Quote total / Labour / Materials £ inputs) writing straight onto the snapshot, with `figuresEditedAt` stamped and the hero relabelled "edited by hand". Deliberately **imported-only** (`setImportedFigure()` guards on `importedFromXero`): engine-quoted jobs' snapshots remain the untouchable record of a computed, accepted quote. 95-check smoke suite.
+
 **Loose ends on otherwise-shipped features:**
 - Confirm the wallpaper **staircase +25%** doesn't double-count difficulty already in markup/prep — the spec asked for this before shipping and it was never explicitly closed off.
 - Feature wall never got its **own collapsible section** (cosmetic only).
