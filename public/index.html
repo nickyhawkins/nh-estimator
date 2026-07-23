@@ -1137,7 +1137,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.15.1</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.15.2</div>
 </div>
 </div>
 
@@ -2086,6 +2086,10 @@ async function initApp() {
     // this because it reads activeJob() fresh at open time, always after this
     // point. Call it unconditionally here so both agree regardless of rooms.
     renderHome();
+    // Same reasoning for Summary's client/reference/contact fields: this
+    // startup path never went through loadActiveJobData(), so without this
+    // they stayed empty until the first job SWITCH.
+    restoreJobIdentityFields();
 
     // Inward Xero quote sync (Part 3) -- needs the server's jobs list
     // (fresh xeroQuoteIds) resolved above, nothing below needs it.
@@ -2417,21 +2421,7 @@ async function loadActiveJobData() {
     }).catch(function() { materialActuals = []; })
   ]);
   ensureDefaultColour();
-  var loadedJob = activeJob();
-  var xc = document.getElementById('xero-client'); if (xc) xc.value = (loadedJob && loadedJob.xeroClient) || '';
-  var xr = document.getElementById('xero-ref'); if (xr) xr.value = (loadedJob && loadedJob.xeroRef) || '';
-  // Contact details/link are per-job (see saveJobContactFields()) -- restore
-  // the DOM fields and the linked-contact state on every switch, same as
-  // xeroClient/xeroRef above, so nothing bleeds from the PREVIOUS job's
-  // fields into this one.
-  var loadedContact = (loadedJob && loadedJob.contact) || {};
-  var xp = document.getElementById('xero-contact-phone'); if (xp) xp.value = loadedContact.phone || '';
-  var xe = document.getElementById('xero-contact-email'); if (xe) xe.value = loadedContact.email || '';
-  var xs = document.getElementById('xero-contact-street'); if (xs) xs.value = loadedContact.street || '';
-  var xt = document.getElementById('xero-contact-town'); if (xt) xt.value = loadedContact.town || '';
-  var xpc = document.getElementById('xero-contact-postcode'); if (xpc) xpc.value = loadedContact.postcode || '';
-  xeroSelectedContactId = (loadedJob && loadedJob.xeroContactId) || null;
-  updateXeroContactSyncStatus();
+  restoreJobIdentityFields();
   renderHome(); renderExterior(); renderColours(); renderSummary();
   updateNavBadge();
 }
@@ -2442,6 +2432,28 @@ async function loadActiveJobData() {
 // reassigning activeJobId means a DELETE for the old job can never race
 // a PUT carrying the new job's id -- different WHERE-scopes, always),
 // then loads the new job's data.
+// Restores the Summary client/reference/contact-details fields and the
+// linked-contact state from the active job's data. Called on every job
+// switch (so nothing bleeds from the PREVIOUS job's fields into this one)
+// AND once at startup after the jobs fetch — initApp does its own
+// collection fetches rather than loadActiveJobData(), and before this was
+// factored out, that path never repopulated these fields at all: opening
+// the app already on a quoted job showed an empty client field until you
+// switched away and back (Nicky 2026-07-23).
+function restoreJobIdentityFields() {
+  var loadedJob = activeJob();
+  var xc = document.getElementById('xero-client'); if (xc) xc.value = (loadedJob && loadedJob.xeroClient) || '';
+  var xr = document.getElementById('xero-ref'); if (xr) xr.value = (loadedJob && loadedJob.xeroRef) || '';
+  var loadedContact = (loadedJob && loadedJob.contact) || {};
+  var xp = document.getElementById('xero-contact-phone'); if (xp) xp.value = loadedContact.phone || '';
+  var xe = document.getElementById('xero-contact-email'); if (xe) xe.value = loadedContact.email || '';
+  var xs = document.getElementById('xero-contact-street'); if (xs) xs.value = loadedContact.street || '';
+  var xt = document.getElementById('xero-contact-town'); if (xt) xt.value = loadedContact.town || '';
+  var xpc = document.getElementById('xero-contact-postcode'); if (xpc) xpc.value = loadedContact.postcode || '';
+  xeroSelectedContactId = (loadedJob && loadedJob.xeroContactId) || null;
+  updateXeroContactSyncStatus();
+}
+
 async function switchJob(id) {
   if (id === activeJobId) return;
   if (serverAvailable) {
