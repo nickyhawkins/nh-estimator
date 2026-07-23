@@ -346,6 +346,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="card-header sec-toggle" onclick="toggleFormSection('extras')"><span>Extras</span><span class="sec-chev" id="sec-chev-extras">›</span></div>
       <div class="card-body" id="sec-extras">
         <div class="field-row"><div class="field-label">Windows<small>total m²</small></div><input type="number" class="field-input" id="r-win" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+        <div class="field-row"><div class="field-label">Window sills<small>count — painted wooden sills on unpainted (plastic) windows</small></div><input type="number" class="field-input" id="r-sills" placeholder="0" min="0" step="1" inputmode="numeric" oninput="previewRoom()"></div>
         <div class="field-row"><div class="field-label">Doors<small>qty</small></div><input type="number" class="field-input" id="r-doors" placeholder="0" min="0" step="1" inputmode="numeric" oninput="previewRoom()"></div>
         <div class="field-row"><div class="field-label">Radiators<small>m²</small></div><input type="number" class="field-input" id="r-rads" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
       </div>
@@ -679,6 +680,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       </div>
     </div>
     <button id="xero-quote-btn" onclick="createXeroQuote()" style="background:var(--accent);color:white;border:none;border-radius:var(--rs);padding:12px;font-size:15px;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer;width:100%">Send to Xero</button>
+    <div id="xero-newquote-link" onclick="createXeroQuote(true)" style="display:none;text-align:center;font-size:12px;color:var(--text2);font-weight:600;cursor:pointer;text-decoration:underline;padding-top:2px">Send as a NEW quote instead</div>
     <div id="xero-panel-hide" style="display:none;text-align:center;font-size:12px;color:var(--text2);font-weight:600;cursor:pointer;padding-top:2px" onclick="collapseXeroPanel()">Hide client &amp; quote details ᐱ</div>
   </div>
   <div class="content" id="sum-content">
@@ -740,6 +742,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Door per coat<small>mins per coat (door+frame)</small></div><input type="number" class="field-input" id="s-rdoorcoat" value="10" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Windows<small>mins/m² total</small></div><input type="number" class="field-input" id="s-rwin" value="35" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Radiators<small>mins/m² total</small></div><input type="number" class="field-input" id="s-rrad" value="15" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Window sills<small>mins per painted internal sill — for plastic windows with wooden sills</small></div><input type="number" class="field-input" id="s-rsill" value="15" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Mist coat<small>mins/m²</small></div><input type="number" class="field-input" id="s-rmist" value="2" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Panelling<small>mins/m² per coat — draft default, adjust to taste</small></div><input type="number" class="field-input" id="s-rpanel" value="6" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
     </div>
@@ -1114,7 +1117,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.12.1</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.13.0</div>
 </div>
 </div>
 
@@ -1442,6 +1445,7 @@ function updateXeroPanelCollapse() {
     bar.style.display = 'none';
     if (hideRow) hideRow.style.display = pastQuoting ? 'block' : 'none';
   }
+  updateXeroQuoteButton();
 }
 function expandXeroPanel() { xeroPanelExpanded = true; updateXeroPanelCollapse(); }
 function collapseXeroPanel() { xeroPanelExpanded = false; updateXeroPanelCollapse(); }
@@ -1712,9 +1716,35 @@ document.addEventListener('click', function(e){
   if (e.target !== input && !dd.contains(e.target)) hideXeroDropdown();
 });
 
-async function createXeroQuote() {
+// Whether this job's existing Xero quote can be amended in place: it must
+// have one, and the quote must still be DRAFT or SENT (an unknown synced
+// status counts as DRAFT — that's how every quote is created). Answered or
+// invoiced quotes are the record of what was agreed; those get a NEW quote.
+function quoteIsUpdatable(job) {
+  if (!job || !job.xeroQuoteId) return false;
+  var st = job.xeroQuoteStatus || 'DRAFT';
+  return st === 'DRAFT' || st === 'SENT';
+}
+// Keeps the send button honest about what it will do — called from
+// updateXeroPanelCollapse() (every Summary render). Skipped mid-send so it
+// can't stomp the Creating…/success text.
+function updateXeroQuoteButton() {
   var btn = document.getElementById('xero-quote-btn');
-  btn.textContent = 'Creating...';
+  var newLink = document.getElementById('xero-newquote-link');
+  if (!btn || btn.disabled) return;
+  var job = activeJob();
+  var updatable = quoteIsUpdatable(job);
+  btn.textContent = updatable ? 'Update quote ' + (job.xeroQuoteNumber || '') + ' in Xero' : 'Send to Xero';
+  if (newLink) newLink.style.display = updatable ? 'block' : 'none';
+}
+
+async function createXeroQuote(forceNew) {
+  var btn = document.getElementById('xero-quote-btn');
+  // Amend-in-place when the job's existing quote is still amendable (per
+  // Nicky 2026-07-23 — same quote number, no duplicate documents in Xero);
+  // forceNew is the "Send as a NEW quote" escape hatch.
+  var updateQuoteId = !forceNew && quoteIsUpdatable(activeJob()) ? activeJob().xeroQuoteId : undefined;
+  btn.textContent = updateQuoteId ? 'Updating...' : 'Creating...';
   btn.disabled = true;
   try {
     // Variations NEVER touch the quote (VARIATIONS_SPEC.md): the quote is
@@ -1806,12 +1836,13 @@ async function createXeroQuote() {
         paymentTerms: paymentTerms,
         paymentSummary: paymentSummary,
         contactId: linkedContactId,
-        newContact: newContact
+        newContact: newContact,
+        updateQuoteId: updateQuoteId
       })
     });
     var result = await resp.json();
     if (result.ok) {
-      btn.textContent = '✓ Quote created — ' + (result.quoteNumber || 'check Xero');
+      btn.textContent = (result.updated ? '✓ Quote updated — ' : '✓ Quote created — ') + (result.quoteNumber || 'check Xero');
       if (quoteJob) {
         // Remember which Xero quote this job produced, so marking the job
         // Accepted/Declined later can flag that same quote in Xero (see
@@ -1821,7 +1852,7 @@ async function createXeroQuote() {
         if (result.quoteId) {
           quoteJob.xeroQuoteId = result.quoteId;
           quoteJob.xeroQuoteNumber = result.quoteNumber || null;
-          quoteJob.xeroQuoteStatus = 'DRAFT';
+          quoteJob.xeroQuoteStatus = result.updated ? (result.status || 'DRAFT') : 'DRAFT';
         }
         // Keep (don't wipe) the resolved contact link -- a second quote for
         // the same job should reuse this Xero contact, not create a duplicate.
@@ -1844,7 +1875,7 @@ async function createXeroQuote() {
         persistJobData(quoteJob);
         updateXeroContactSyncStatus();
       }
-      setTimeout(function(){ btn.textContent = 'Send to Xero'; btn.disabled = false; }, 4000);
+      setTimeout(function(){ btn.disabled = false; updateXeroQuoteButton(); }, 4000);
     } else { throw new Error(result.error); }
   } catch(err) {
     btn.textContent = 'Error — try again';
@@ -2067,6 +2098,7 @@ var SETTINGS_FIELDS = [
   ['rDoorCoat',    's-rdoorcoat',     10],
   ['rWin',         's-rwin',          35],
   ['rRad',         's-rrad',          15],
+  ['rSill',        's-rsill',         15],
   ['rMist',        's-rmist',         2],
   ['rPanel',       's-rpanel',        6],
   ['wpLiningRate',   's-wplining-rate', 30],
@@ -3491,6 +3523,7 @@ function goScreen(name) {
     document.getElementById('r-w').value='';
     document.getElementById('r-h').value='2.4';
     document.getElementById('r-win').value='';
+    document.getElementById('r-sills').value='';
     document.getElementById('r-doors').value='';
     document.getElementById('r-rads').value='';
 
@@ -3572,18 +3605,22 @@ function loadSettings() {
 
 // ── Rate functions ──────────────────────────────────────────────────────────
 function rpm()          { return settings.dr / settings.hpd / 60; }
-function wallMins(c)    { return c * 3; }                                   // 3 mins/m² per coat
-function ceilMins(c)    { return c * 5; }                                   // 5 mins/m² per coat
-function skirtMins(c)   { return c * 4; }                                   // 4 mins/lm per coat
-function doorMins(c)    { return 10 + c * 10; }                            // 10 prep + 10 mins per coat (door+frame)
-function winMins()      { return 35; }
-function radMins()      { return 15; }
+// These read the Settings "Room Rates" fields (2026-07-23 — the inputs
+// existed but were silently ignored; the numbers here were hardcoded to
+// the same defaults, so wiring them changed nothing until edited).
+function wallMins(c)    { return c * (settings.rWall || 3); }              // mins/m² per coat
+function ceilMins(c)    { return c * (settings.rCeil || 5); }              // mins/m² per coat
+function skirtMins(c)   { return c * (settings.rSkirt || 4); }             // mins/lm per coat
+function doorMins(c)    { return (settings.rDoorPrep || 10) + c * (settings.rDoorCoat || 10); }
+function winMins()      { return settings.rWin || 35; }
+function radMins()      { return settings.rRad || 15; }
+function sillMins()     { return settings.rSill || 15; }                   // per painted internal sill
 
 // ── Room calc ──────────────────────────────────────────────────────────────
 function calcRoom(r) {
   migrateWPFields(r);
   var L=+r.l, W=+r.w, H=+r.h;
-  var doors=+r.doors, win=+r.win, rads=+r.rads;
+  var doors=+r.doors, win=+r.win, rads=+r.rads, sills=+r.sills||0;
   var wc=+r.wc, cc=+r.cc, xc=+r.xc;
   var mistW=!!r.mistWall, mistC=!!r.mistCeil;
   // Use pre-computed area if set (staircase rooms), otherwise calculate normally
@@ -3628,6 +3665,10 @@ function calcRoom(r) {
   var woodCost = r.woodCostOverride != null ? +r.woodCostOverride :
                  (xc>0 ? (perim*skirtMins(xc) + doors*doorMins(xc))*r2 : 0);
   var radCost  = rads>0 ? rads*radMins()*r2 : 0;
+  // Internal window sills (2026-07-23): plastic windows aren't painted but
+  // their wooden sills are — a per-sill labour line gated on woodwork
+  // coats, like the rest of the woodwork.
+  var sillCost = sills>0 && xc>0 ? sills*sillMins()*r2 : 0;
   // Spray walls toggle: a MATERIALS-ONLY switch. Sprayed walls burn through
   // paint faster (overspray, heavier film build), so litres divide by the
   // sprayed coverage rate instead of the rolled one. Labour deliberately
@@ -3688,7 +3729,7 @@ function calcRoom(r) {
       panelArea = panelResult.panelArea, panelMinsCost = panelResult.panelRawCost,
       panelPrepUp = panelResult.panelPrepUp;
 
-  var baseTotal = wallCost+ceilCost+winCost+woodCost+radCost+featureWallOwnCost+mistWCost+mistCCost+wpwCost+wpcCost+featureWallWpCost;
+  var baseTotal = wallCost+ceilCost+winCost+woodCost+radCost+sillCost+featureWallOwnCost+mistWCost+mistCCost+wpwCost+wpcCost+featureWallWpCost;
   var prepUp  = r.prepPct >= 0 ? r.prepPct : (+r.prepCustom||0);
   var makingGood = +r.makingGood||0;
   // panelCost already carries its own prep multiplier (panelPrepUp above)
@@ -3720,7 +3761,7 @@ function calcRoom(r) {
   // formula below is meaningless against a staircase room's dummy l=w=h=1
   // placeholder dimensions. This was the actual materials-under-counting
   // bug the HSL/room alignment work exists to fix.
-  var wdA = r.woodAreaOverride ? +r.woodAreaOverride : perim*0.15 + doors*1.9;
+  var wdA = r.woodAreaOverride ? +r.woodAreaOverride : perim*0.15 + doors*1.9 + sills*0.25;
   var gL  = xc>0 ? Math.ceil(wdA*xc/settings.cg*2)/2 : 0;
   // Manual override only applies to the paint quantity (only part of the
   // room may be new plaster) -- the time cost above stays on the full
@@ -3735,7 +3776,7 @@ function calcRoom(r) {
            // this file's history keeps hitting -- see NOTES.md's extCost
            // gotcha). Raw (pre-prep, pre-markup), like wpwCost/wpcCost below.
            wallCost:wallCost, ceilCost:ceilCost, woodCost:woodCost,
-           winCost:winCost, radCost:radCost,
+           winCost:winCost, radCost:radCost, sillCost:sillCost,
            mistWCost:mistWCost, mistCCost:mistCCost,
            wallL:wL, ceilL:cL, glossL:gL, mistL:mL, featureWallL:fwL,
            wpwCost:wpwCost, wpcCost:wpcCost, wpwRolls:wpwRolls, wpcRolls:wpcRolls,
@@ -7563,6 +7604,7 @@ function previewRoomNow() {
   var r={l:L,w:W,h:H,wc:coats.wc,cc:coats.cc,xc:coats.xc,
     doors:+document.getElementById('r-doors').value,
     win:+document.getElementById('r-win').value,
+    sills:+document.getElementById('r-sills').value,
     rads:+document.getElementById('r-rads').value,
     mistWall:mistWall, mistCeil:mistCeil, sprayWalls:sprayWalls,
     wpWallLining:wpWallLining, wpWallFinish:wpWallFinish,
@@ -7782,6 +7824,7 @@ function editRoom(id) {
   document.getElementById('r-w').value=r.w||'';
   document.getElementById('r-h').value=r.h;
   document.getElementById('r-win').value=r.win||'';
+  document.getElementById('r-sills').value=r.sills||'';
   document.getElementById('r-doors').value=r.doors||'';
   document.getElementById('r-rads').value=r.rads||'';
 
@@ -7919,7 +7962,7 @@ function buildRoomFromForm() {
     excludedWalls:excludedWallsForm.filter(function(x){ return (+x.width>0 && +x.height>0); }).map(function(x){ return { id:x.id, width:+x.width, height:+x.height }; }),
     l:+document.getElementById('r-l').value, w:+document.getElementById('r-w').value, h:+document.getElementById('r-h').value,
     wc:coats.wc, cc:coats.cc, xc:coats.xc,
-    win:+document.getElementById('r-win').value, doors:+document.getElementById('r-doors').value, rads:+document.getElementById('r-rads').value,
+    win:+document.getElementById('r-win').value, sills:+document.getElementById('r-sills').value, doors:+document.getElementById('r-doors').value, rads:+document.getElementById('r-rads').value,
     mistWall:mistWall, mistCeil:mistCeil, sprayWalls:sprayWalls,
     isVariation:roomIsVariation,
     wpWallLining:wpWallLining, wpWallFinish:wpWallFinish,
@@ -8572,11 +8615,11 @@ function renderSummary() {
     // file's recurring drift bug (see NOTES.md's extCost gotcha).
     var wc=+r.wc,cc=+r.cc,xc=+r.xc;
     var wallCost=c.wallCost, ceilCost=c.ceilCost, woodCost=c.woodCost;
-    var winCost=c.winCost, radCost=c.radCost;
+    var winCost=c.winCost, radCost=c.radCost, sillCost=c.sillCost||0;
     var mk=1+mu;
     var id='room-bd-'+ri;
     var subRows='';
-    var woodTotal = (woodCost + winCost + radCost) * mk;
+    var woodTotal = (woodCost + winCost + radCost + sillCost) * mk;
     var prepUp2 = c.prepUp;
     var prepLabel = prepLabelFor(prepUp2);
     // c.wpMinTopUp is subtracted first -- it's added to c.total AFTER the

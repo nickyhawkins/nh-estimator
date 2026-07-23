@@ -569,7 +569,7 @@ router.get('/material-groups', async (req, res) => {
 
 // Create quote in Xero
 router.post('/create-quote', async (req, res) => {
-  const { clientName, jobName, xeroRef, rooms, exterior, kitchen, materials, settings, markup, markupType, paymentTerms, paymentSummary, contactId, newContact } = req.body;
+  const { clientName, jobName, xeroRef, rooms, exterior, kitchen, materials, settings, markup, markupType, paymentTerms, paymentSummary, contactId, newContact, updateQuoteId } = req.body;
 
   try {
     const accessToken = await getAccessToken();
@@ -717,6 +717,54 @@ router.post('/create-quote', async (req, res) => {
           AccountCode: '202'
         });
       }
+    }
+
+    // UPDATE path (2026-07-23, per Nicky): amend the EXISTING Xero quote in
+    // place — same number, same document — instead of minting a new one.
+    // Only a DRAFT or SENT quote is amendable: an answered quote is the
+    // record of what the client agreed, and Xero itself blocks INVOICED/
+    // DELETED. The quote's own contact is reused untouched (updating is
+    // about the lines, not re-resolving the client), and its current
+    // status is preserved so a SENT quote stays SENT.
+    if (updateQuoteId) {
+      const headers = {
+        Authorization: `Bearer ${accessToken}`,
+        'Xero-Tenant-Id': tenantId,
+        'Content-Type': 'application/json',
+        Accept: 'application/json'
+      };
+      const getRes = await axios.get(`${XERO_API_URL}/Quotes/${encodeURIComponent(updateQuoteId)}`, { headers })
+        .catch(err => { if (err.response?.status === 404) return null; throw err; });
+      const existing = getRes && getRes.data.Quotes && getRes.data.Quotes[0];
+      if (!existing) {
+        return res.status(404).json({ error: 'That quote no longer exists in Xero — send as a new quote instead' });
+      }
+      if (['ACCEPTED', 'DECLINED', 'INVOICED', 'DELETED'].includes(existing.Status)) {
+        return res.status(409).json({ error: `Quote ${existing.QuoteNumber || ''} is ${existing.Status.toLowerCase()} in Xero and can't be amended — send a new quote instead` });
+      }
+      const quoteDate = existing.DateString ? existing.DateString.split('T')[0] : new Date().toISOString().split('T')[0];
+      await axios.post(
+        `${XERO_API_URL}/Quotes/${encodeURIComponent(updateQuoteId)}`,
+        { Quotes: [{
+          QuoteID: updateQuoteId,
+          Contact: { ContactID: existing.Contact.ContactID },
+          Date: quoteDate,
+          Reference: xeroRef || existing.Reference || '',
+          LineItems: lineItems,
+          LineAmountTypes: 'NoTax',
+          Status: existing.Status,
+          Terms: paymentTerms || undefined,
+          Summary: paymentSummary || undefined
+        }] },
+        { headers }
+      );
+      return res.json({
+        ok: true, updated: true,
+        quoteId: updateQuoteId,
+        quoteNumber: existing.QuoteNumber || 'updated',
+        status: existing.Status,
+        contactId: existing.Contact.ContactID
+      });
     }
 
     // Create quote in Xero
