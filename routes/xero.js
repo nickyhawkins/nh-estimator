@@ -355,6 +355,60 @@ router.get('/contacts/:id', async (req, res) => {
   }
 });
 
+// Accepted quotes that predate the app (per Nicky 2026-07-23): quotes she
+// made directly in Xero, listed so the app can adopt them as accepted jobs
+// — scheduling and day-logging need the job to exist here even though it
+// was never estimated here. Quotes already linked to an app job are
+// filtered out server-side (the jobs table is right there). The labour/
+// materials split is best-effort from line-item account codes (201 labour,
+// 202 materials — the same convention every app-made quote uses and her
+// hand-made quotes generally follow); a quote with neither code still
+// imports with just its total.
+router.get('/accepted-quotes', async (req, res) => {
+  try {
+    const accessToken = await getAccessToken();
+    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    const tenantId = result.rows[0]?.xero_tenant_id;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
+    }
+    const quotesRes = await axios.get(`${XERO_API_URL}/Quotes?Status=ACCEPTED`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Xero-Tenant-Id': tenantId,
+        Accept: 'application/json'
+      }
+    });
+    const jobsResult = await db.query('SELECT data FROM jobs');
+    const linkedQuoteIds = new Set(jobsResult.rows.map(r => r.data && r.data.xeroQuoteId).filter(Boolean));
+    const quotes = (quotesRes.data.Quotes || [])
+      .filter(q => !linkedQuoteIds.has(q.QuoteID))
+      .map(q => {
+        let labour = 0, materials = 0;
+        (q.LineItems || []).forEach(li => {
+          const amt = +li.LineAmount || 0;
+          if (li.AccountCode === '201') labour += amt;
+          else if (li.AccountCode === '202') materials += amt;
+        });
+        return {
+          quoteId: q.QuoteID,
+          quoteNumber: q.QuoteNumber || '',
+          contactName: (q.Contact && q.Contact.Name) || 'Client',
+          contactId: (q.Contact && q.Contact.ContactID) || null,
+          reference: q.Reference || '',
+          date: q.DateString ? q.DateString.split('T')[0] : null,
+          total: +q.Total || 0,
+          labour: Math.round(labour * 100) / 100,
+          materials: Math.round(materials * 100) / 100
+        };
+      });
+    res.json({ quotes });
+  } catch (err) {
+    console.error('Accepted quotes error:', err.response?.data || err.message);
+    res.status(500).json({ error: xeroErrorMessage(err) });
+  }
+});
+
 // Manually push a job's locally-saved contact details to Xero, independent
 // of creating a quote -- lets a client's name/phone/email/address be typed
 // in and kept per-job (see saveJobContactFields() in public/index.html)

@@ -255,6 +255,12 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
   </div>
   <div class="content">
     <div id="jobs-cards" style="display:flex;flex-direction:column;gap:16px"></div>
+    <!-- Adopt accepted quotes made directly in Xero (pre-app jobs) so they
+         can be scheduled and have days logged — see /auth/accepted-quotes. -->
+    <div style="margin-top:16px;padding-bottom:24px">
+      <div onclick="toggleXeroQuoteImport()" style="text-align:center;font-size:13px;color:var(--accent);font-weight:600;cursor:pointer;padding:8px">⬇ Import an accepted quote from Xero</div>
+      <div id="xero-import-list" style="display:none"></div>
+    </div>
   </div>
   <button class="fab" onclick="promptNewJob()">+</button>
 </div>
@@ -1131,7 +1137,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.14.2</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.15.0</div>
 </div>
 </div>
 
@@ -3337,6 +3343,124 @@ function renderJobRow(j) {
     '<div onclick="event.stopPropagation();renameJob(\''+j.id+'\')" style="color:var(--text2);font-size:16px;padding:0 8px;cursor:pointer">✎</div>'+
     '<div onclick="event.stopPropagation();deleteJob(\''+j.id+'\')" style="color:var(--danger);font-size:22px;padding:0 4px;cursor:pointer">×</div>'+
   '</div>');
+}
+
+// ── Import accepted Xero quotes as jobs (pre-app backfill) ─────────────────
+// Adopts a quote made directly in Xero as an accepted app job: pipeline
+// status, schedule-ability and the Time on Site day log all work, with the
+// acceptance snapshot carrying the quote's agreed money figures instead of
+// engine output. estOnSiteDays stays null — the app never estimated this
+// job, so the Schedule form just asks for the days (its editable field
+// defaults to 1). No rooms are created: the £ figures are the record.
+var xeroImportOpen = false;
+var xeroImportQuotes = [];
+
+async function toggleXeroQuoteImport() {
+  var list = document.getElementById('xero-import-list');
+  xeroImportOpen = !xeroImportOpen;
+  if (!xeroImportOpen) { list.style.display = 'none'; return; }
+  list.style.display = 'block';
+  list.innerHTML = '<div style="text-align:center;font-size:13px;color:var(--text2);padding:12px">Loading accepted quotes…</div>';
+  try {
+    var resp = await fetch('/auth/accepted-quotes');
+    var data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Could not load quotes');
+    xeroImportQuotes = data.quotes || [];
+    if (!xeroImportQuotes.length) {
+      list.innerHTML = '<div style="text-align:center;font-size:13px;color:var(--text2);padding:12px">No accepted Xero quotes left to import — they may all be linked to jobs already.</div>';
+      return;
+    }
+    list.innerHTML = '<div class="card">' + xeroImportQuotes.map(function(q, i) {
+      return '<div class="field-row" style="cursor:pointer" onclick="importAcceptedQuote(' + i + ')">' +
+        '<div style="flex:1"><div style="font-weight:600;color:var(--text)">' + escapeHtml(q.contactName) + '</div>' +
+        '<div style="font-size:12px;color:var(--text2)">' + escapeHtml(q.quoteNumber) + (q.date ? ' · ' + fmtShortDate(q.date) : '') + (q.reference ? ' · ' + escapeHtml(q.reference) : '') + '</div></div>' +
+        '<div style="font-weight:700;color:var(--text)">' + fmt(q.total) + '</div>' +
+        '<div style="color:var(--text3);font-size:16px;padding-left:8px">›</div></div>';
+    }).join('') + '</div>';
+  } catch (e) {
+    list.innerHTML = '<div style="text-align:center;font-size:13px;color:var(--danger);padding:12px">' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+async function importAcceptedQuote(i) {
+  var q = xeroImportQuotes[i];
+  if (!q) return;
+  var when = q.date ? q.date + 'T12:00:00.000Z' : new Date().toISOString();
+  var job = {
+    id: uid(),
+    name: q.contactName,
+    xeroClient: q.contactName,
+    xeroContactId: q.contactId,
+    xeroRef: q.reference || null,
+    xeroQuoteId: q.quoteId,
+    xeroQuoteNumber: q.quoteNumber || null,
+    xeroQuoteStatus: 'ACCEPTED',
+    status: 'accepted',
+    quotedAt: when,
+    acceptedAt: when,
+    acceptedSnapshot: {
+      at: when,
+      importedFromXero: true,
+      estQuoteTotal: q.total,
+      estLabourTotal: q.labour || null,
+      estMaterialsTotal: q.materials || null,
+      estOnSiteDays: null,
+      estWorkingDays: null
+    }
+  };
+  try {
+    var resp = await fetch('/api/jobs', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ id: job.id, name: job.name }) });
+    if (!resp.ok) throw new Error('Could not create the job');
+    jobs.unshift(job);
+    localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+    persistJobData(job);
+    xeroImportQuotes.splice(i, 1);
+    renderJobs();
+    // Land on the new job's Summary — that's where Schedule › lives, which
+    // is the whole reason the job was imported.
+    await switchJob(job.id);
+    goTab('summary');
+  } catch (e) {
+    alert('Import failed: ' + e.message);
+  }
+}
+
+// Summary body for a roomless imported-from-Xero job (see renderSummary's
+// guard): pipeline status card, the Schedule flow, and the quote's agreed
+// figures from the snapshot. Deliberately NOT the full quote document —
+// there are no rooms to break down and no engine numbers to show.
+function importedJobSummaryHtml(job) {
+  var snap = job.acceptedSnapshot || {};
+  var st = job.status;
+  var btnStyle = 'background:var(--text2);color:white;border:none;border-radius:var(--rs);padding:10px 16px;font-size:14px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;white-space:nowrap';
+  var statusRow = '';
+  if (st === 'accepted') {
+    statusRow = '<div class="field-row">'+
+      '<div class="field-label" style="color:var(--success)">✓ Accepted<small>'+(job.acceptedAt ? new Date(job.acceptedAt).toLocaleDateString() : '')+' · imported from Xero</small></div>'+
+      '<button onclick="completeJob()" style="'+btnStyle+'">Mark Completed</button>'+
+    '</div>'+scheduleBlockHtml(job);
+  } else if (st === 'completed') {
+    statusRow = '<div class="field-row">'+
+      '<div class="field-label" style="color:var(--text3);text-decoration:line-through">✓ Completed<small style="text-decoration:none">'+(job.completedAt ? new Date(job.completedAt).toLocaleDateString() : '')+'</small></div>'+
+      '<div onclick="invoiceJob()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Mark Invoiced (done in Xero)</div>'+
+    '</div>';
+  } else if (st === 'invoiced') {
+    statusRow = '<div class="field-row">'+
+      '<div class="field-label" style="color:var(--success)">£ Invoiced<small>'+(job.invoicedAt ? new Date(job.invoicedAt).toLocaleDateString() : '')+'</small></div>'+
+    '</div>';
+  }
+  return '<div class="card">'+statusRow+'</div>'+
+    '<div class="hero" style="margin-top:16px">'+
+      '<div class="hero-label">Accepted Quote</div>'+
+      '<div class="hero-amount">'+fmt(snap.estQuoteTotal || 0)+'</div>'+
+      '<div class="hero-sub">as agreed in Xero'+(job.xeroQuoteNumber ? ' · '+escapeHtml(job.xeroQuoteNumber) : '')+'</div>'+
+    '</div>'+
+    ((snap.estLabourTotal || snap.estMaterialsTotal)
+      ? '<div class="stat-grid">'+
+        (snap.estLabourTotal ? '<div class="stat-card"><div class="stat-label">Labour</div><div class="stat-value ac">'+fmt(snap.estLabourTotal)+'</div></div>' : '')+
+        (snap.estMaterialsTotal ? '<div class="stat-card"><div class="stat-label">Materials</div><div class="stat-value bl">'+fmt(snap.estMaterialsTotal)+'</div></div>' : '')+
+      '</div>' : '')+
+    '<div style="margin-top:16px;font-size:12px;color:var(--text2);text-align:center;padding:0 16px">Imported from Xero — no measured rooms. Schedule it above and log days on On Site; invoicing for this job stays in Xero.</div>';
 }
 
 // Grouped by pipeline status (JOB_PIPELINE_SPEC.md): live work first
@@ -8741,6 +8865,19 @@ function renderSummary() {
   // lastSummaryTotals cleared on the empty path: an empty job renders no
   // Mark Accepted button so nothing can stamp from it, but a stale stash
   // from the PREVIOUS job must not linger either.
+  // A job imported from an accepted Xero quote has no rooms and never will
+  // — the agreed money IS its record. The plain empty state would hide the
+  // status card and Schedule flow (the reason it was imported), so those
+  // jobs get their own compact summary instead. lastSummaryTotals stays
+  // null: nothing engine-computed exists to stamp or schedule from.
+  var impJob = activeJob();
+  if (rooms.length===0 && extItems.length===0 && kitchenCalc.total<=0
+      && impJob && impJob.acceptedSnapshot && impJob.acceptedSnapshot.importedFromXero) {
+    empty.style.display='none'; data.style.display='block';
+    lastSummaryTotals = null;
+    data.innerHTML = importedJobSummaryHtml(impJob);
+    return;
+  }
   if(rooms.length===0&&extItems.length===0&&kitchenCalc.total<=0){empty.style.display='flex';data.style.display='none';lastSummaryTotals=null;return;}
   empty.style.display='none'; data.style.display='block';
   var tc=0,tt=0,sprayLabourS=0;
