@@ -1137,7 +1137,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.15.2</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.15.3</div>
 </div>
 </div>
 
@@ -3512,18 +3512,48 @@ function importedJobSummaryHtml(job) {
       '<div class="field-label" style="color:var(--success)">£ Invoiced<small>'+(job.invoicedAt ? new Date(job.invoicedAt).toLocaleDateString() : '')+'</small></div>'+
     '</div>';
   }
+  var figRow = function(label, key, hint) {
+    return '<div class="field-row"><div class="field-label">'+label+(hint ? '<small>'+hint+'</small>' : '')+'</div>'+
+      '<input type="number" class="field-input" id="imp-fig-'+key+'" style="width:100px" value="'+(snap[key] != null ? snap[key] : '')+'" step="0.01" inputmode="decimal" onchange="setImportedFigure(\''+key+'\', this.value)"></div>';
+  };
   return '<div class="card">'+statusRow+'</div>'+
     '<div class="hero" style="margin-top:16px">'+
       '<div class="hero-label">Accepted Quote</div>'+
       '<div class="hero-amount">'+fmt(snap.estQuoteTotal || 0)+'</div>'+
-      '<div class="hero-sub">as agreed in Xero'+(job.xeroQuoteNumber ? ' · '+escapeHtml(job.xeroQuoteNumber) : '')+'</div>'+
+      '<div class="hero-sub">'+(snap.figuresEditedAt ? 'edited by hand' : 'as agreed in Xero')+(job.xeroQuoteNumber ? ' · '+escapeHtml(job.xeroQuoteNumber) : '')+'</div>'+
     '</div>'+
     ((snap.estLabourTotal || snap.estMaterialsTotal)
       ? '<div class="stat-grid">'+
         (snap.estLabourTotal ? '<div class="stat-card"><div class="stat-label">Labour</div><div class="stat-value ac">'+fmt(snap.estLabourTotal)+'</div></div>' : '')+
         (snap.estMaterialsTotal ? '<div class="stat-card"><div class="stat-label">Materials</div><div class="stat-value bl">'+fmt(snap.estMaterialsTotal)+'</div></div>' : '')+
       '</div>' : '')+
+    // Imported figures are hand-editable (per Nicky 2026-07-23: some of
+    // these jobs are part-done, or materials will change) — a freedom
+    // engine-quoted jobs deliberately do NOT get, since their snapshot is
+    // the frozen record of a computed quote.
+    '<div class="card" style="margin-top:16px">'+
+      '<div class="card-header">Agreed figures</div>'+
+      figRow('Quote total £', 'estQuoteTotal', 'what the client is paying')+
+      figRow('Labour £', 'estLabourTotal', 'optional split')+
+      figRow('Materials £', 'estMaterialsTotal', 'optional split')+
+      '<div style="padding:0 16px 12px;font-size:12px;color:var(--text2)">Editable because this job was imported, not estimated here — update it if the scope or materials move.</div>'+
+    '</div>'+
     '<div style="margin-top:16px;font-size:12px;color:var(--text2);text-align:center;padding:0 16px">Imported from Xero — no measured rooms. Schedule it above and log days on On Site; invoicing for this job stays in Xero.</div>';
+}
+
+// Saves one hand-edited figure on an imported job's snapshot. Guarded to
+// importedFromXero snapshots only — engine-quoted jobs' snapshots stay the
+// untouchable record of what was computed and accepted.
+function setImportedFigure(key, val) {
+  var job = activeJob();
+  if (!job || !job.acceptedSnapshot || !job.acceptedSnapshot.importedFromXero) return;
+  if (['estQuoteTotal', 'estLabourTotal', 'estMaterialsTotal'].indexOf(key) === -1) return;
+  var n = parseFloat(val);
+  job.acceptedSnapshot[key] = isNaN(n) ? null : Math.round(n * 100) / 100;
+  job.acceptedSnapshot.figuresEditedAt = new Date().toISOString();
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  renderSummary();
 }
 
 // Grouped by pipeline status (JOB_PIPELINE_SPEC.md): live work first
