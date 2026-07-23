@@ -60,9 +60,10 @@ cache, trimmed to date+title per division), the client caches it in
 localStorage and treats holidays as non-working days in THE one walker — so
 spans, slot suggestions and the strip all skip them, and the server's ICS twin
 skips the same dates from the same cache (parity-harness-checked). Region is a
-Settings select (`bankHolidayRegion`, default `northern-ireland` — Nicky's
-calendar carries the Battle of the Boyne holiday; the default lives in BOTH
-client mergeSettings and the ICS route). If gov.uk is unreachable and no cache
+Settings select (`bankHolidayRegion`, default `england-and-wales` — corrected
+v1.16.1: v1.16.0 guessed N. Ireland from a Battle of the Boyne entry on
+Nicky's phone, which turned out to be iOS's all-UK holiday calendar, and she's
+in England; the default lives in BOTH client mergeSettings and the ICS route). If gov.uk is unreachable and no cache
 exists, everything degrades to the pre-holiday behaviour — no error surfaces.
 Verified by a 25-check Chromium smoke run (all three views, spanning/stacking,
 past-month history, both sheets, tap-to-schedule, tap-to-move incl. weekend

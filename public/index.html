@@ -774,9 +774,9 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row" style="border-top:1px solid var(--border)">
         <div class="field-label">Bank holidays<small>gov.uk region — holidays show on the Schedule and don't count as working days</small></div>
         <select class="field-input" id="s-bh-region" style="width:auto;max-width:150px;text-align:left;font-family:'DM Sans',sans-serif" onchange="setBankHolidayRegion(this.value)">
-          <option value="northern-ireland">N. Ireland</option>
           <option value="england-and-wales">England &amp; Wales</option>
           <option value="scotland">Scotland</option>
+          <option value="northern-ireland">N. Ireland</option>
         </select>
       </div>
       <div class="toggle-row" style="border-top:1px solid var(--border)">
@@ -1181,7 +1181,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.16.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v1.16.1</div>
 </div>
 </div>
 
@@ -1403,7 +1403,7 @@ function saveSettings() {
   next.workSaturdays = !!settings.workSaturdays;
   next.icsEnabled = !!settings.icsEnabled;
   next.icsKey = settings.icsKey || null;
-  next.bankHolidayRegion = settings.bankHolidayRegion || 'northern-ireland';
+  next.bankHolidayRegion = settings.bankHolidayRegion || 'england-and-wales';
   settings = next;
   localStorage.setItem('pe-settings', JSON.stringify(settings));
   apiPut('/api/settings', settings);
@@ -2360,9 +2360,10 @@ function mergeSettings(raw) {
   out.workSaturdays = !!raw.workSaturdays;
   out.icsEnabled = !!raw.icsEnabled;
   out.icsKey = raw.icsKey || null;
-  // gov.uk bank-holiday region (v1.16.0). Default matches the server's ICS
-  // route — Nicky's calendar carries the Battle of the Boyne holiday.
-  out.bankHolidayRegion = raw.bankHolidayRegion || 'northern-ireland';
+  // gov.uk bank-holiday region (v1.16.0, default corrected v1.16.1 — Nicky
+  // is in England; the July holiday on her phone was iOS's all-UK holiday
+  // calendar, not a region signal). Default matches the server's ICS route.
+  out.bankHolidayRegion = raw.bankHolidayRegion || 'england-and-wales';
   return out;
 }
 
@@ -4318,7 +4319,7 @@ function loadSettings() {
   var togIcs = document.getElementById('tog-ics');
   if (togIcs) togIcs.classList.toggle('on', !!settings.icsEnabled);
   var bhSel = document.getElementById('s-bh-region');
-  if (bhSel) bhSel.value = settings.bankHolidayRegion || 'northern-ireland';
+  if (bhSel) bhSel.value = settings.bankHolidayRegion || 'england-and-wales';
   renderIcsUrlRow();
   populateKitchenRatesTable();
   document.getElementById('s-kr-cornice-base').value = (settings.kitchenRates && settings.kitchenRates.cornice) ? settings.kitchenRates.cornice.base : 25;
