@@ -6364,6 +6364,25 @@ function buildFinalInvoiceModel() {
   var fixed = effectiveMarkupType() === 'fixed';
   var muInv = fixed ? 1 + (rawOrig > 0 ? muVal / rawOrig : 0) : 1 + muVal / 100;
   labour.forEach(function(l) { l.amount = l.raw * muInv; l.dropped = false; });
+  // Xero-imported jobs (importAcceptedQuote()) stamp the already-agreed
+  // total onto acceptedSnapshot.estQuoteTotal with zero rooms, so rawOrig/
+  // labour above see nothing for that scope even after real rooms get added
+  // later (e.g. a variation tracked here) -- same gap as Summary's tcOrig,
+  // see the matching comment in renderSummary(). Pushed in as its own
+  // labour line AFTER the muInv pass above (not into rawOrig itself), since
+  // it's already a final, already-marked-up figure and re-applying markup/
+  // sundries on top of it would double them up. Droppable like any other
+  // line if it turns out to have been invoiced separately in Xero already.
+  if (job && job.acceptedSnapshot && job.acceptedSnapshot.importedFromXero) {
+    var importedAmt = +job.acceptedSnapshot.estQuoteTotal || 0;
+    if (importedAmt > 0.005) {
+      labour.push({
+        id: 'imported',
+        desc: 'Original quote' + (job.xeroQuoteNumber ? ' (' + job.xeroQuoteNumber + ')' : '') + ' — from Xero',
+        raw: importedAmt, amount: importedAmt, dropped: false
+      });
+    }
+  }
   // As the quote bills it: % of raw original labour, marked up. (The quote
   // line has never included the spray-sundries bump — mirrored, not fixed
   // here: labour and sundries go out AS QUOTED.)
@@ -9983,8 +10002,22 @@ function renderSummary() {
   // Variations money — computed in the shared view (see its comment for
   // the fixed-£ markup rule).
   var variationsTotal = vView.variationsTotal;
-  var jobTotal = plan.total + variationsTotal;
-  var sundries = plan.sundries, labourTotal = plan.labourTotal, total = plan.total,
+  // A job imported from an accepted Xero quote (importAcceptedQuote()) has
+  // its agreed total stamped onto acceptedSnapshot.estQuoteTotal with ZERO
+  // rooms -- tcOrig above is computed purely from rooms/extItems/kitchen, so
+  // it's 0 for that scope regardless of how many rooms this job later grows
+  // (e.g. a variation tracked here after import). Without this, the
+  // imported total simply vanishes from every quote-facing figure the
+  // moment the job stops being roomless. It's already a final, already-
+  // marked-up figure -- added on top of plan.total (post-markup), never fed
+  // through computeDepositPlan() where sundries/markup would double-apply,
+  // and deliberately NOT folded into Deposit/Balance below: that money's
+  // collection was already handled directly in Xero, same reasoning as
+  // variations settling on the final invoice rather than here.
+  var importedBaseline = (impJob && impJob.acceptedSnapshot && impJob.acceptedSnapshot.importedFromXero)
+    ? (+impJob.acceptedSnapshot.estQuoteTotal || 0) : 0;
+  var jobTotal = plan.total + importedBaseline + variationsTotal;
+  var sundries = plan.sundries, labourTotal = plan.labourTotal, total = plan.total + importedBaseline,
       deposit = plan.deposit, depositBasis = plan.depositBasis, balance = plan.balance,
       paymentType = plan.paymentType, paymentWeeks = plan.paymentWeeks, weeklyRows = plan.weeklyRows;
 
