@@ -97,7 +97,7 @@ The form works top to bottom, and only the top matters for a basic room:
 
 Then the optional sections, which you'll use as the room demands:
 
-- **Staircase / HSL** — flick this toggle for a hall/stairs/landing and the form swaps in staircase geometry: floors, steps, stair width, spindles, newel posts. The app calculates the awkward angled wall areas for you.
+- **Staircase / HSL** — flick this toggle for a hall/stairs/landing and the form swaps in staircase geometry. Covered in detail in [Staircases](#staircases-hall-stairs--landing) below.
 - **Excluded Walls** — walls you're *not* painting (a tiled wall, wallpaper that's staying). Add its width × height and it's deducted.
 - **Extras** — windows (m²), window sills, doors and radiators. Each adds its own time and paint.
 - **Preparation** — Minimal / Standard / Heavy, or a custom percentage. This scales labour. **Making Good** adds a fixed £ amount for repairs.
@@ -105,10 +105,65 @@ Then the optional sections, which you'll use as the room demands:
 - **Spray Application** — price the walls for spraying rather than brush and roller.
 - **Paint & Colour** — each surface takes your default product from Settings; override the product, colour band or colour here when a room is different.
 - **Feature Wall** — one wall in a different finish: paint, or wallpaper (standard, wide vinyl or mural).
-- **Wallpaper** — lining and finish paper for walls or ceiling, with roll size and pattern-repeat inputs. The app works out **rolls to order**, including the spare-roll option.
+- **Wallpaper** — lining and finish paper for walls or ceiling, priced per roll with an automatic **rolls-to-order** count. Covered in detail in [Wallpaper](#wallpaper--rolls-to-order) below.
 - **Panelling** — wall panelling by area with its own coats, prep and colour.
 
 A **Preview** card at the bottom shows the wall/ceiling areas and this room's estimated cost and time as you type, so you can sanity-check before you leave the room. Tap **Save** (top right) when you're happy. To change a room later, tap it in the Measure list; **Delete Room** is at the bottom of the edit form.
+
+### Staircases (Hall, Stairs & Landing)
+
+Stairwells are the hardest thing to measure by hand — big raking walls you can't get a tape across, hall and landing running into each other. The app does the geometry for you. Flick the **Staircase / HSL** toggle at the top of the room form and the Dimensions card is replaced with staircase geometry:
+
+![Staircase / HSL form](images/14-hsl-form.png)
+
+Work down the cards:
+
+1. **Number of Floors** — 1, 2 or 3 including the ground floor. A typical two-storey house is **2**: ground-floor hall, one staircase, first-floor landing. Choose 3 and a second staircase and landing appear.
+2. **Ground Floor Hall** — plain length × width × height, like any room.
+3. **Staircase 1** — this is where the app earns its keep:
+
+![Staircase details](images/14b-hsl-stairs.png)
+
+- **Stair walls** — how many sides of the staircase get painted (1 or 2).
+- **Steps** — count them as you go up.
+- **Stair width** — the physical width of the stairs.
+- **Wall height at bottom** — floor to ceiling at the foot of the stairs.
+- **Riser** and **Tread** — pre-filled with the standard 220 mm; only touch these on an unusual staircase.
+- **Top step** — the one measurement people get wrong, so it has its own diagram:
+
+![How the stair wall is measured](images/15-stair-wall-diagram.png)
+
+The trick, as the diagram shows, is that the big raking stair wall's width is **derived, never measured**: hall width + (steps × going) + top step. Measuring across the top instead double-counts the stairwell void; measuring along the bottom is impossible because the stairs are in the way. You measure only the easy things — heights straight up with a laser — and the app builds the wall from the step geometry.
+
+4. **1st Floor Landing** (and 2nd, for three floors) — plain length × width × height again.
+5. **Staircase Details** — spindles, newel posts and their woodwork coats. These are priced per piece on top of the ordinary skirtings and doors.
+
+The **Staircase Areas** card at the bottom shows its working — so you can see exactly what you're pricing and sanity-check it against the space you're standing in:
+
+![Staircase areas breakdown](images/14c-hsl-areas.png)
+
+Here the derived stair wall width is 5.01 m (1.9 m hall + 13 steps × 0.22 m + 0.25 m top step), giving 13.23 m² of raking stair wall on top of the hall's 29.28 m² and the landing's 23.52 m² — a 66 m² job in total, priced at 2.74 days, without a tape measure going anywhere near the stairwell.
+
+### Wallpaper & rolls to order
+
+Any room (including a staircase) can have wallpaper on the walls, the ceiling, or both. Open the **Wallpaper** section of the room form:
+
+![Wallpaper section with rolls-to-order](images/13-wallpaper.png)
+
+- **Lining / Finish** — tap either or both. Both on means "line out, then hang finish paper", and each is priced separately per roll (rates in Settings → Wallpaper Rates). The labour appears immediately — £780.00 for this dining room's walls.
+- **Roll length / Roll width** — pre-filled with the standard 10.05 m × 0.53 m; check the label of the actual paper and adjust.
+- **Pattern match** — *No match* (lining papers, plains), *Straight* or *Offset*. A pattern match wastes paper, and the calculation accounts for it.
+- **Pattern repeat** — in cm, straight off the roll label.
+- **Spare roll** — adds one extra to the order, just in case.
+
+Below the inputs the app shows its working, batch-book style: the **drop length** (wall height plus trim allowance, lengthened to allow for the pattern repeat when there's a match), **drops per roll / drops needed**, and the bottom line — **Rolls to order** (here: 10 lining, 12 finish, including the spare). Read that to the client off your phone.
+
+Two things worth knowing:
+
+- The rolls figure is a **buying guide, not a charge** — the labour feeds the quote; the client buys the paper. (It says so right under the heading.)
+- On a staircase/HSL room, wallpaper labour automatically picks up the **staircase multiplier** from Settings — hanging over a stairwell is slower and the price reflects it. Ceilings get their own multiplier the same way.
+
+For a single papered **feature wall**, use the Feature Wall section instead — it has its own wallpaper option including wide vinyl and mural pricing.
 
 ### Adding an exterior item
 
