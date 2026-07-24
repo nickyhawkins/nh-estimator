@@ -156,6 +156,13 @@ CREATE TABLE IF NOT EXISTS material_actuals (
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
+-- Which job colour (see the colours table above) a row not on the estimate
+-- was bought for. Only meaningful on rows added from the On Site tab's own
+-- "Add material" form (onEstimate: false client-side) -- a row pulled from
+-- the estimate is one PRODUCT and can legitimately cover more than one
+-- colour (see the big comment on material_actuals_job_item below), so it
+-- keeps its existing read-only, auto-derived colour breakdown instead.
+ALTER TABLE material_actuals ADD COLUMN IF NOT EXISTS colour_number INTEGER;
 -- ONE actual row per product per job: a tracking row is a PRODUCT, not an
 -- estimate line. item_code is NOT unique within the snapshot (a colour band is
 -- a PRICE band covering many colours, so two colours on one range yield two
