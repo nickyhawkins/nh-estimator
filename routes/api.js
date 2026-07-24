@@ -426,7 +426,7 @@ router.get('/actuals', async (req, res) => {
   const jobId = requireJobId(req, res); if (!jobId) return;
   try {
     const result = await db.query(
-      `SELECT id, item_code, description, actual_quantity, unit_amount, bought
+      `SELECT id, item_code, description, actual_quantity, unit_amount, bought, colour_number
          FROM material_actuals WHERE job_id = $1 ORDER BY created_at ASC`,
       [jobId]
     );
@@ -439,6 +439,7 @@ router.get('/actuals', async (req, res) => {
       actualQuantity: r.actual_quantity == null ? 0 : +r.actual_quantity,
       unitAmount: r.unit_amount == null ? null : +r.unit_amount,
       bought: r.bought,
+      colourNumber: r.colour_number == null ? null : +r.colour_number,
     })));
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -448,20 +449,21 @@ router.get('/actuals', async (req, res) => {
 router.put('/actuals/:id', async (req, res) => {
   const { id } = req.params;
   const jobId = requireJobId(req, res); if (!jobId) return;
-  const { itemCode, description, actualQuantity, unitAmount, bought } = req.body;
+  const { itemCode, description, actualQuantity, unitAmount, bought, colourNumber } = req.body;
   if (!description) return res.status(400).json({ error: 'description is required' });
   try {
     // Empty string -> NULL: a free-text row has no code, and '' would defeat
     // the partial unique index (it's only partial on NULL), letting two
     // free-text rows collide as one product.
     const code = itemCode || null;
+    const colour = colourNumber == null || colourNumber === '' ? null : +colourNumber;
     const result = await db.query(`
-      INSERT INTO material_actuals (id, job_id, item_code, description, actual_quantity, unit_amount, bought, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+      INSERT INTO material_actuals (id, job_id, item_code, description, actual_quantity, unit_amount, bought, colour_number, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
       ON CONFLICT (job_id, item_code) WHERE item_code IS NOT NULL
-      DO UPDATE SET description = $4, actual_quantity = $5, unit_amount = $6, bought = $7, updated_at = NOW()
+      DO UPDATE SET description = $4, actual_quantity = $5, unit_amount = $6, bought = $7, colour_number = $8, updated_at = NOW()
       RETURNING id
-    `, [id, jobId, code, description, +actualQuantity || 0, unitAmount == null || unitAmount === '' ? null : +unitAmount, !!bought]);
+    `, [id, jobId, code, description, +actualQuantity || 0, unitAmount == null || unitAmount === '' ? null : +unitAmount, !!bought, colour]);
     // Report the id that actually holds the row: on conflict the server keeps
     // the original, so a client PUTting a new uid() for an already-logged item
     // would otherwise hold an id that matches nothing.
@@ -477,14 +479,15 @@ router.put('/actuals-freetext/:id', async (req, res) => {
   // every PUT would insert a duplicate. They key on the primary key instead.
   const { id } = req.params;
   const jobId = requireJobId(req, res); if (!jobId) return;
-  const { description, actualQuantity, unitAmount, bought } = req.body;
+  const { description, actualQuantity, unitAmount, bought, colourNumber } = req.body;
   if (!description) return res.status(400).json({ error: 'description is required' });
   try {
+    const colour = colourNumber == null || colourNumber === '' ? null : +colourNumber;
     await db.query(`
-      INSERT INTO material_actuals (id, job_id, item_code, description, actual_quantity, unit_amount, bought, updated_at)
-      VALUES ($1, $2, NULL, $3, $4, $5, $6, NOW())
-      ON CONFLICT (id) DO UPDATE SET description = $3, actual_quantity = $4, unit_amount = $5, bought = $6, updated_at = NOW()
-    `, [id, jobId, description, +actualQuantity || 0, unitAmount == null || unitAmount === '' ? null : +unitAmount, !!bought]);
+      INSERT INTO material_actuals (id, job_id, item_code, description, actual_quantity, unit_amount, bought, colour_number, updated_at)
+      VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, NOW())
+      ON CONFLICT (id) DO UPDATE SET description = $3, actual_quantity = $4, unit_amount = $5, bought = $6, colour_number = $7, updated_at = NOW()
+    `, [id, jobId, description, +actualQuantity || 0, unitAmount == null || unitAmount === '' ? null : +unitAmount, !!bought, colour]);
     res.json({ ok: true, id });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -772,7 +775,7 @@ router.get('/backup/export', async (req, res) => {
     const coloursResult = await db.query('SELECT job_id, number, label, brand, code FROM colours ORDER BY job_id ASC, number ASC');
     const materialsResult = await db.query('SELECT id, job_id, data FROM materials_snapshot ORDER BY created_at ASC');
     const actualsResult = await db.query(
-      `SELECT id, job_id, item_code, description, actual_quantity, unit_amount, bought
+      `SELECT id, job_id, item_code, description, actual_quantity, unit_amount, bought, colour_number
          FROM material_actuals ORDER BY created_at ASC`
     );
     // Additive field on the v1 shape (jobs[].labourLog) -- import tolerates
@@ -811,6 +814,7 @@ router.get('/backup/export', async (req, res) => {
         actualQuantity: r.actual_quantity == null ? 0 : +r.actual_quantity,
         unitAmount: r.unit_amount == null ? null : +r.unit_amount,
         bought: r.bought,
+        colourNumber: r.colour_number == null ? null : +r.colour_number,
       })),
       labourLog: (labourByJob[j.id] || []).map(r => ({
         id: r.id,
@@ -868,10 +872,10 @@ async function copyJobRows(entry, newJobId) {
   }
   for (const a of (entry.materialActuals || [])) {
     await db.query(
-      `INSERT INTO material_actuals (id, job_id, item_code, description, actual_quantity, unit_amount, bought)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      `INSERT INTO material_actuals (id, job_id, item_code, description, actual_quantity, unit_amount, bought, colour_number)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [crypto.randomUUID(), newJobId, a.itemCode || null, a.description || '', +a.actualQuantity || 0,
-        a.unitAmount == null ? null : +a.unitAmount, !!a.bought]
+        a.unitAmount == null ? null : +a.unitAmount, !!a.bought, a.colourNumber == null ? null : +a.colourNumber]
     );
   }
   for (const l of (entry.labourLog || [])) {

@@ -5456,7 +5456,13 @@ function restoreFields(vals) {
   });
 }
 var ADD_MAT_FIELD_IDS = ['add-mat-product','add-mat-desc','add-mat-colour','add-mat-price','add-mat-qty','add-mat-itemcode','add-mat-chargeable'];
-var ACT_ADD_FIELD_IDS = ['act-add-product','act-add-desc','act-add-price','act-add-qty','act-add-itemcode'];
+var ACT_ADD_FIELD_IDS = ['act-add-product','act-add-desc','act-add-colour','act-add-price','act-add-qty','act-add-itemcode'];
+
+// Which row (by materialKey) is currently showing its edit form on the On
+// Site screen. Only one at a time -- editing is a rare, deliberate action
+// (fix a typo, correct a colour), not a persistent per-row UI state worth
+// tracking for every card.
+var actualsEditKey = null;
 // Called by the add functions after a SUCCESSFUL add, so the re-render's
 // restore doesn't hand the just-added values back to the form (the rebuild
 // alone used to be what cleared it).
@@ -5580,7 +5586,8 @@ async function saveMaterialActual(row) {
     description: row.description,
     actualQuantity: row.actualQuantity,
     unitAmount: row.unitAmount,
-    bought: row.bought
+    bought: row.bought,
+    colourNumber: row.colourNumber != null ? row.colourNumber : null
   };
   var path = row.itemCode ? '/api/actuals/' : '/api/actuals-freetext/';
   var res = await apiPutStrict(path + row.id, body);
@@ -5889,10 +5896,36 @@ function renderActuals() {
       : (parts.length === 1
           ? 'Colour ' + parts[0].colourNumber + (colourLabels[parts[0].colourNumber] ? ' (' + colourLabels[parts[0].colourNumber] + ')' : '')
           : '');
+    // Manually-added rows (onEstimate false) carry their own single
+    // colourNumber rather than the estimate's aggregated parts -- see the
+    // schema comment on material_actuals.colour_number.
+    var manualColourNumber = (!r.onEstimate && r.actual) ? r.actual.colourNumber : null;
+    if (!r.onEstimate && manualColourNumber != null) {
+      detail = 'Colour ' + manualColourNumber + (colourLabels[manualColourNumber] ? ' (' + colourLabels[manualColourNumber] + ')' : '');
+    }
 
     var tag = !r.onEstimate
       ? '<span style="font-size:11px;font-weight:600;color:var(--danger);background:var(--danger-soft-bg);border-radius:10px;padding:2px 8px;margin-left:6px">not quoted</span>'
       : (variance ? '<span style="font-size:11px;font-weight:600;color:var(--text2);background:var(--surface2);border-radius:10px;padding:2px 8px;margin-left:6px">est '+(Math.round(r.estimated*100)/100)+'</span>' : '');
+
+    // Editing (description/colour/price) only makes sense for rows added
+    // manually on this screen: an estimate-pulled row is one PRODUCT that
+    // can legitimately cover more than one colour (see the `detail` comment
+    // above), so it keeps its auto-derived, read-only colour breakdown.
+    if (!r.onEstimate && actualsEditKey === r.key) {
+      return '<div class="card" style="padding:12px;margin-bottom:8px;overflow:visible">'
+        + '<div class="field-row"><div class="field-label">Description</div><input type="text" class="field-input wide" id="act-edit-desc" value="'+escapeHtml(r.description)+'" autocorrect="off"></div>'
+        + '<div class="field-row"><div class="field-label">Colour<small>optional</small></div><select class="field-input wide" id="act-edit-colour">'
+          + '<option value="">— No colour —</option>'
+          + colours.map(function(c) { return '<option value="'+c.number+'"'+(c.number === manualColourNumber ? ' selected' : '')+'>'+escapeHtml(c.label || ('Colour '+c.number))+'</option>'; }).join('')
+        + '</select></div>'
+        + '<div class="field-row"><div class="field-label">Unit price</div><input type="number" class="field-input" id="act-edit-price" value="'+price+'" min="0" step="0.01" inputmode="decimal"></div>'
+        + '<div style="display:flex;gap:8px;margin-top:8px">'
+          + '<button onclick="saveEditActualRow(\''+escapeHtml(r.key)+'\')" style="background:var(--accent);color:#fff;border:none;border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;flex:1">Save</button>'
+          + '<button onclick="cancelEditActualRow()" style="background:var(--surface2);color:var(--text);border:none;border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;flex:1">Cancel</button>'
+        + '</div>'
+        + '</div>';
+    }
 
     return '<div class="card" style="padding:12px;margin-bottom:8px;'+(bought ? 'opacity:.6' : '')+'">'
       + '<div style="display:flex;align-items:flex-start;gap:10px">'
@@ -5906,6 +5939,7 @@ function renderActuals() {
               + ' style="width:74px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:\'DM Sans\',sans-serif;font-size:15px;border-radius:var(--rs);padding:6px 8px;outline:none">'
             + '<span style="font-size:13px;color:var(--text2)">'+escapeHtml(unit)+'</span>'
             + '<span style="margin-left:auto;font-size:14px;font-weight:600">'+fmt(qty * price)+'</span>'
+            + (r.onEstimate ? '' : '<button onclick="editActualRow(\''+escapeHtml(r.key)+'\')" style="background:none;border:none;color:var(--text3);font-size:14px;cursor:pointer;padding:0 2px;line-height:1">✎</button>')
             + (r.onEstimate ? '' : '<button onclick="removeActual(\''+escapeHtml(r.key)+'\')" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0 2px;line-height:1">✕</button>')
           + '</div>'
         + '</div>'
@@ -5925,6 +5959,10 @@ function renderActuals() {
         + '<div id="act-add-product-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:280px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div>'
         + '</div></div>'
       + '<div class="field-row"><div class="field-label">Description</div><input type="text" class="field-input wide" id="act-add-desc" placeholder="e.g. Extra roller sleeves" autocorrect="off"></div>'
+      + '<div class="field-row"><div class="field-label">Colour<small>optional</small></div><select class="field-input wide" id="act-add-colour">'
+        + '<option value="">— No colour —</option>'
+        + colours.map(function(c) { return '<option value="'+c.number+'">'+escapeHtml(c.label || ('Colour '+c.number))+'</option>'; }).join('')
+      + '</select></div>'
       + '<div class="field-row"><div class="field-label">Unit price<small>prefills from Xero — change it if the shop price has moved</small></div><input type="number" class="field-input" id="act-add-price" value="0" min="0" step="0.01" inputmode="decimal"></div>'
       + '<div class="field-row"><div class="field-label">Quantity</div><input type="number" class="field-input" id="act-add-qty" value="1" min="0" step="1" inputmode="decimal"></div>'
       + '<input type="hidden" id="act-add-itemcode">'
@@ -6102,12 +6140,47 @@ async function removeActual(key) {
   renderActuals();
 }
 
+// Edit a manually-added row's description/colour/price in place. Only
+// reachable for onEstimate:false rows -- see the comment above the edit-mode
+// branch in renderActuals()'s row map.
+function editActualRow(key) {
+  actualsEditKey = key;
+  renderActuals();
+}
+
+function cancelEditActualRow() {
+  actualsEditKey = null;
+  renderActuals();
+}
+
+async function saveEditActualRow(key) {
+  var row = findActualsRow(key); if (!row || !row.actual) return;
+  var desc = document.getElementById('act-edit-desc').value.trim();
+  if (!desc) { alert('Description can\'t be empty.'); return; }
+  var price = +document.getElementById('act-edit-price').value || 0;
+  var colourVal = document.getElementById('act-edit-colour').value;
+  var a = row.actual;
+  // Same "typed price matching live Xero price reverts to tracking Xero"
+  // rule as addActualFromPicker, so an edit that leaves the price untouched
+  // doesn't accidentally freeze it against future Xero price changes.
+  var liveItem = a.itemCode ? materialItemIndex.get(a.itemCode) : null;
+  var livePrice = liveItem && liveItem.price != null ? +liveItem.price : null;
+  a.description = desc;
+  a.unitAmount = a.itemCode
+    ? (livePrice != null && Math.abs(price - livePrice) < 0.005 ? null : price)
+    : price;
+  a.colourNumber = colourVal ? +colourVal : null;
+  if (await persistActual(a)) { actualsEditKey = null; renderActuals(); }
+}
+
 async function addActualFromPicker() {
   var desc = document.getElementById('act-add-desc').value.trim();
   if (!desc) { alert('Enter a description for the material.'); return; }
   var itemCode = document.getElementById('act-add-itemcode').value || null;
   var qty = Math.max(0, +document.getElementById('act-add-qty').value || 0);
   var price = +document.getElementById('act-add-price').value || 0;
+  var colourVal = document.getElementById('act-add-colour').value;
+  var colourNumber = colourVal ? +colourVal : null;
   // Item rows: a typed price that MATCHES the live Xero price stores as
   // null, so the row keeps tracking Xero (price fixes flow in). A typed
   // price that DIFFERS is a deliberate override — merchant prices change
@@ -6129,6 +6202,7 @@ async function addActualFromPicker() {
     // carry a changed one onto the existing row too (free-text merges leave
     // the stored price alone; their form price defaults to 0).
     if (itemCode) existing.unitAmount = storedPrice;
+    existing.colourNumber = colourNumber;
     if (await persistActual(existing)) { clearFormFields(ACT_ADD_FIELD_IDS); renderActuals(); }
     return;
   }
@@ -6136,13 +6210,14 @@ async function addActualFromPicker() {
   if (row) {
     var a = ensureActual(row);
     a.actualQuantity = qty;
+    a.colourNumber = colourNumber;
     if (itemCode) a.unitAmount = storedPrice;
     if (await persistActual(a)) { clearFormFields(ACT_ADD_FIELD_IDS); renderActuals(); }
     return;
   }
   var fresh = {
     id: uid(), itemCode: itemCode, description: desc, actualQuantity: qty,
-    unitAmount: storedPrice, bought: false
+    unitAmount: storedPrice, bought: false, colourNumber: colourNumber
   };
   materialActuals.push(fresh);
   if (await persistActual(fresh)) { clearFormFields(ACT_ADD_FIELD_IDS); renderActuals(); }
@@ -9967,7 +10042,13 @@ function renderSummary() {
       '<div class="hero-label">Total Quote</div>'+
       '<div class="hero-amount">'+fmt(total)+'</div>'+
       '<div class="hero-sub">'+ttAll.toFixed(1)+' days · '+markupSummaryLabel()+'</div>'+
-      (hasVariations ? '<div class="hero-sub" style="color:var(--accent)">+ '+fmt(variationsTotal)+' variations → '+fmt(jobTotal)+' job total</div>' : '')+
+      // Fixed gold, not var(--accent): the hero card's background is a fixed
+      // dark navy regardless of theme, but --accent flips to a near-identical
+      // dark navy in light mode (#1a5276 light theme == this card's own
+      // background stop), which made this line invisible. Every other colour
+      // in the hero is likewise hardcoded against the fixed dark background
+      // rather than theme-reactive.
+      (hasVariations ? '<div class="hero-sub" style="color:#ffd166;font-weight:600">+ '+fmt(variationsTotal)+' variations → '+fmt(jobTotal)+' job total</div>' : '')+
     '</div>'+
     '<div class="stat-grid">'+
       '<div class="stat-card"><div class="stat-label">Labour</div><div class="stat-value ac">'+fmt(tcOrig)+'</div>'+
@@ -10074,7 +10155,14 @@ function renderSummary() {
     })():'')+
     '<div class="breakdown-row" style="border-top:1px solid var(--border)">'+
       '<span class="breakdown-label" style="font-weight:600;color:var(--text)">Labour subtotal</span>'+
-      '<span class="breakdown-value" style="color:var(--accent)">'+fmt(tcS)+'</span></div>'+
+      // tcOrig, not tcS: this row feeds straight into Sundries/Markup below,
+      // both of which are already original-quote-scoped (via `plan`, built
+      // from tcOrig) per VARIATIONS_SPEC.md's "main labour/section totals
+      // EXCLUDE flagged items" rule. tcS (which includes variation rooms)
+      // made this one row disagree with the two directly under it — a
+      // variation-only job showed a non-zero subtotal here against a £0.00
+      // markup right below.
+      '<span class="breakdown-value" style="color:var(--accent)">'+fmt(tcOrig)+'</span></div>'+
     (sundries>0?'<div class="breakdown-row">'+
       '<span class="breakdown-label">Sundries &amp; Consumables<small style="display:block;font-weight:400;color:var(--text2)">'+settings.sundriesPct+'% of labour'+(plan.spraySundries>0?' + '+settings.sundriesSprayPct+'% spray masking on sprayed areas':'')+'</small></span>'+
       '<span class="breakdown-value">'+fmt(sundries)+'</span></div>':'')+

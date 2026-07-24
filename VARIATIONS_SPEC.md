@@ -137,3 +137,19 @@ Plus one genuinely new lightweight type for the odd job that isn't worth measuri
   acceptance; variations require accepted) — ordering is safe by construction, but a job
   accepted before that snapshot code ships will lack it: comparison screens must tolerate
   a missing snapshot.
+
+**Bugfix (2026-07-24): two Summary display bugs, caught before merge on a job whose only
+room was a variation.** (1) The "Labour subtotal" row in Room Breakdown used `tcS` (every
+room, including flagged ones) while the Sundries/Markup rows directly beneath it already
+used `tcOrig` per the totalling-exclusions rule above — so a variation-only job showed a
+non-zero subtotal sitting on top of a £0.00 markup, looking broken even though each row
+was individually "correct" for its own (mismatched) scope. Now all three rows read
+`tcOrig`. (2) The "+ £X variations → £Y job total" hero-sub line (the one place the
+combined total is meant to surface, per "Totalling and money" above) WAS being computed
+correctly the whole time, but rendered `color:var(--accent)` — and the hero card's
+background is a fixed dark navy in both themes while `--accent` in light theme
+(`#1a5276`) is the *same colour* as that background, making the line invisible. Fixed to
+a fixed gold (`#ffd166`) that reads on the fixed dark background regardless of theme,
+matching how every other hero-sub colour is hardcoded rather than theme-reactive. Net
+effect: the money was never missing, just unreadable — worth remembering next time a
+"total isn't there" report comes in against a hero-style dark card.
