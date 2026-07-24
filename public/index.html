@@ -2742,16 +2742,25 @@ function setJobStatusById(jobId, newStatus, confirmMsg, opts) {
   var job = jobs.find(function(j) { return j.id === jobId; });
   if (!job) return;
   if (confirmMsg && !confirm(confirmMsg)) return;
+  var prevStatus = job.status;
   job.status = newStatus || null;
   var now = new Date().toISOString();
   var keepsAccepted = newStatus === 'completed' || newStatus === 'invoiced';
-  job.acceptedAt = newStatus === 'accepted' ? now : (keepsAccepted ? job.acceptedAt : null);
+  // Reversing a mis-tapped Mark Completed (unCompleteJob) is an undo of one
+  // step, not a fresh acceptance -- it must leave acceptedAt and
+  // acceptedSnapshot exactly as they were, the same way completed->invoiced
+  // and back already leaves acceptedAt untouched. Without this, re-entering
+  // 'accepted' below would re-stamp both to right now, discarding the
+  // original acceptance date and the frozen estimate CALIBRATION_SPEC.md's
+  // comparisons are keyed on.
+  var isUncomplete = newStatus === 'accepted' && prevStatus === 'completed';
+  job.acceptedAt = newStatus === 'accepted' ? (isUncomplete ? job.acceptedAt : now) : (keepsAccepted ? job.acceptedAt : null);
   job.declinedAt = newStatus === 'declined' ? now : null;
   job.completedAt = newStatus === 'completed' ? now : (newStatus === 'invoiced' ? job.completedAt : null);
   job.invoicedAt = newStatus === 'invoiced' ? now : null;
   if (newStatus === 'quoted') job.quotedAt = now;
   if (newStatus === 'accepted') {
-    if (jobId === activeJobId && lastSummaryTotals) {
+    if (!isUncomplete && jobId === activeJobId && lastSummaryTotals) {
       job.acceptedSnapshot = Object.assign({ at: now }, lastSummaryTotals);
     }
   } else if (!keepsAccepted) {
@@ -2857,6 +2866,11 @@ function setJobStatus(newStatus, confirmMsg) {
 function acceptJob() { setJobStatus('accepted'); }
 function completeJob() { setJobStatus('completed', 'Mark this job as Completed?'); }
 function completeJobFromList(jobId) { setJobStatusById(jobId, 'completed', 'Mark this job as Completed?'); }
+// Undo for a mis-tap on Mark Completed. Unlike uninvoiceJob() below, this
+// one leaves acceptedAt/acceptedSnapshot untouched (see setJobStatusById's
+// isUncomplete branch) -- it's reversing one step back to the same
+// acceptance, not re-accepting a fresh quote.
+function unCompleteJob() { setJobStatus('accepted', 'Move this job back to Accepted?'); }
 function declineJob() { setJobStatus('declined', 'Mark this quote as Declined?'); }
 function moveJobToDraft() { setJobStatus(null, 'Move this job back to Draft?'); }
 function invoiceJob() { setJobStatus('invoiced', 'Mark this job as Invoiced?'); }
@@ -4117,7 +4131,10 @@ function importedJobSummaryHtml(job) {
   } else if (st === 'completed') {
     statusRow = '<div class="field-row">'+
       '<div class="field-label" style="color:var(--text3);text-decoration:line-through">✓ Completed<small style="text-decoration:none">'+(job.completedAt ? new Date(job.completedAt).toLocaleDateString() : '')+'</small></div>'+
-      '<div onclick="invoiceJob()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Mark Invoiced (done in Xero)</div>'+
+      '<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">'+
+        '<div onclick="invoiceJob()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Mark Invoiced (done in Xero)</div>'+
+        '<div onclick="unCompleteJob()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Back to Accepted</div>'+
+      '</div>'+
     '</div>';
   } else if (st === 'invoiced') {
     statusRow = '<div class="field-row">'+
@@ -10015,6 +10032,7 @@ function renderSummary() {
             '<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">'+
               '<button onclick="openFinalInvoice()" style="background:var(--accent);color:white;border:none;border-radius:var(--rs);padding:10px 16px;font-size:14px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;white-space:nowrap">Build final invoice ›</button>'+
               '<div onclick="invoiceJob()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Mark Invoiced (done elsewhere)</div>'+
+              '<div onclick="unCompleteJob()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Back to Accepted</div>'+
               '<div onclick="moveJobToDraft()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Move to Draft</div>'+
             '</div>'
         : jobStatus === 'invoiced'
