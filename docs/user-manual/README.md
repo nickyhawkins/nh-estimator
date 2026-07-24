@@ -364,3 +364,5 @@ The **Clear Everything** button in Settings does exactly what it says across all
 ---
 
 *Manual for NH Estimator v2.0.0. Screenshots taken from the app with example data.*
+
+*Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

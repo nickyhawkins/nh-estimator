@@ -4,7 +4,7 @@ Paint estimating web app with Xero integration.
 
 See [NOTES.md](NOTES.md) for architecture notes and gotchas hit during development.
 
-**New here? Read the [illustrated user manual](docs/user-manual/README.md)** — a screen-by-screen guide from first measure to final invoice.
+**New here? Read the [illustrated user manual](docs/user-manual/README.md)** — a screen-by-screen guide from first measure to final invoice. Also available as a [PDF](docs/user-manual/NH-Estimator-User-Manual.pdf); after editing the manual, run `npm run build:manual` to regenerate it.
 
 ## Setup
 
