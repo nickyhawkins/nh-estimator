@@ -10042,7 +10042,13 @@ function renderSummary() {
       '<div class="hero-label">Total Quote</div>'+
       '<div class="hero-amount">'+fmt(total)+'</div>'+
       '<div class="hero-sub">'+ttAll.toFixed(1)+' days · '+markupSummaryLabel()+'</div>'+
-      (hasVariations ? '<div class="hero-sub" style="color:var(--accent)">+ '+fmt(variationsTotal)+' variations → '+fmt(jobTotal)+' job total</div>' : '')+
+      // Fixed gold, not var(--accent): the hero card's background is a fixed
+      // dark navy regardless of theme, but --accent flips to a near-identical
+      // dark navy in light mode (#1a5276 light theme == this card's own
+      // background stop), which made this line invisible. Every other colour
+      // in the hero is likewise hardcoded against the fixed dark background
+      // rather than theme-reactive.
+      (hasVariations ? '<div class="hero-sub" style="color:#ffd166;font-weight:600">+ '+fmt(variationsTotal)+' variations → '+fmt(jobTotal)+' job total</div>' : '')+
     '</div>'+
     '<div class="stat-grid">'+
       '<div class="stat-card"><div class="stat-label">Labour</div><div class="stat-value ac">'+fmt(tcOrig)+'</div>'+
@@ -10149,7 +10155,14 @@ function renderSummary() {
     })():'')+
     '<div class="breakdown-row" style="border-top:1px solid var(--border)">'+
       '<span class="breakdown-label" style="font-weight:600;color:var(--text)">Labour subtotal</span>'+
-      '<span class="breakdown-value" style="color:var(--accent)">'+fmt(tcS)+'</span></div>'+
+      // tcOrig, not tcS: this row feeds straight into Sundries/Markup below,
+      // both of which are already original-quote-scoped (via `plan`, built
+      // from tcOrig) per VARIATIONS_SPEC.md's "main labour/section totals
+      // EXCLUDE flagged items" rule. tcS (which includes variation rooms)
+      // made this one row disagree with the two directly under it — a
+      // variation-only job showed a non-zero subtotal here against a £0.00
+      // markup right below.
+      '<span class="breakdown-value" style="color:var(--accent)">'+fmt(tcOrig)+'</span></div>'+
     (sundries>0?'<div class="breakdown-row">'+
       '<span class="breakdown-label">Sundries &amp; Consumables<small style="display:block;font-weight:400;color:var(--text2)">'+settings.sundriesPct+'% of labour'+(plan.spraySundries>0?' + '+settings.sundriesSprayPct+'% spray masking on sprayed areas':'')+'</small></span>'+
       '<span class="breakdown-value">'+fmt(sundries)+'</span></div>':'')+
