@@ -35,11 +35,13 @@ self.addEventListener('fetch', function (e) {
   if (req.method !== 'GET') return;
   var url = new URL(req.url);
   if (url.origin !== location.origin) return;
-  if (url.pathname.indexOf('/api') === 0 || url.pathname.indexOf('/auth') === 0 || url.pathname.indexOf('/debt') === 0) return;
+  if (url.pathname.indexOf('/api') === 0 || url.pathname.indexOf('/auth') === 0 || url.pathname.indexOf('/debt') === 0 || url.pathname.indexOf('/login') === 0) return;
 
   e.respondWith(
     fetch(req).then(function (res) {
-      if (res && res.ok) {
+      // res.redirected guards the login gate: a logged-out navigation to '/'
+      // resolves to the login page, which must never be cached as the shell.
+      if (res && res.ok && !res.redirected) {
         var copy = res.clone();
         caches.open(CACHE).then(function (c) { c.put(req, copy); });
       }

@@ -1283,8 +1283,19 @@ function debounce(fn, ms) {
 var previewRoom = debounce(previewRoomNow, 80);
 var calcHSL = debounce(calcHSLNow, 80);
 
+// Session expired (or the instance's APP_PASSWORD gate just turned on):
+// every API helper funnels its response through here so the app lands on
+// the login page instead of limping along on failing requests. The cached
+// PWA shell still loads offline-style when logged out — this is what
+// notices and redirects.
+function apiAuthExpired(r) {
+  if (r && r.status === 401) { location.href = '/login'; return true; }
+  return false;
+}
+
 async function apiGet(path) {
   const r = await fetch(path);
+  if (apiAuthExpired(r)) throw new Error('login required');
   if (!r.ok) throw new Error('API error: ' + path);
   return r.json();
 }
@@ -1361,11 +1372,12 @@ window.addEventListener('offline', updateSyncStatus);
 async function apiPut(path, data) {
   beginWrite();
   try {
-    await fetch(path, {
+    const r = await fetch(path, {
       method: 'PUT',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify(data)
     });
+    apiAuthExpired(r);
     serverAvailable = true;
   } catch(e) {
     serverAvailable = false;
@@ -1376,7 +1388,8 @@ async function apiPut(path, data) {
 async function apiDelete(path) {
   beginWrite();
   try {
-    await fetch(path, { method: 'DELETE' });
+    const r = await fetch(path, { method: 'DELETE' });
+    apiAuthExpired(r);
     serverAvailable = true;
   } catch(e) {
     serverAvailable = false;
@@ -1404,6 +1417,7 @@ async function apiPutStrict(path, data) {
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify(data)
     });
+    if (apiAuthExpired(r)) throw new Error('login required');
     if (!r.ok) {
       let msg = 'HTTP ' + r.status;
       try { const b = await r.json(); if (b && b.error) msg = b.error; } catch (e) {}
@@ -1419,6 +1433,7 @@ async function apiDeleteStrict(path) {
   beginWrite();
   try {
     const r = await fetch(path, { method: 'DELETE' });
+    if (apiAuthExpired(r)) throw new Error('login required');
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return await r.json();
   } finally {

@@ -31,6 +31,14 @@ app.use(session({
   }
 }));
 
+// App login gate (MULTI_INSTANCE_PILOT_SPEC.md WS1). Mounted after the
+// session (it needs req.session) and before EVERYTHING else that serves
+// data — including express.static, which would otherwise hand out
+// index.html itself. No APP_PASSWORD env var = no gate.
+const { router: loginRouter, requireAuth } = require('./routes/appLogin');
+app.use(loginRouter);
+app.use(requireAuth);
+
 // Static files. Images get a long cache lifetime (they change rarely and the
 // filename can be bumped if they ever do); HTML stays no-cache so a deploy
 // shows up on the next load — no-cache still allows ETag revalidation, so an
