@@ -4662,6 +4662,12 @@ function calcRoom(r) {
   var wallCov = r.sprayWalls ? (settings.cwSpray || settings.cw) : settings.cw;
   var wL  = wc>0 ? Math.ceil(mainWallPaintArea*wc/wallCov*2)/2 : 0;
   var fwL = (!fwWallpaper && featureWallArea>0 && wc>0) ? Math.ceil(featureWallArea*wc/wallCov*2)/2 : 0;
+  // Litres for main walls + painted feature wall as ONE bucket of paint --
+  // used by computeMaterials() instead of wL/fwL when the feature wall is
+  // the same colour AND product as the main walls (see
+  // featureWallSharesWallPaint), so the half-litre round-up happens once
+  // over the combined area rather than once per part.
+  var wLCombined = (!fwWallpaper && wc>0) ? Math.ceil((mainWallPaintArea+featureWallArea)*wc/wallCov*2)/2 : wL;
   // Normally painting the feature wall is already covered by wallCost
   // above, since that's costed on the FULL wallArea regardless of the
   // colour carve-out -- no extra labour needed for a real room. But a
@@ -4765,7 +4771,7 @@ function calcRoom(r) {
            wallCost:wallCost, ceilCost:ceilCost, woodCost:woodCost,
            winCost:winCost, radCost:radCost, sillCost:sillCost,
            mistWCost:mistWCost, mistCCost:mistCCost,
-           wallL:wL, ceilL:cL, glossL:gL, mistL:mL, featureWallL:fwL,
+           wallL:wL, ceilL:cL, glossL:gL, mistL:mL, featureWallL:fwL, wallLCombined:wLCombined,
            wpwCost:wpwCost, wpcCost:wpcCost, wpwRolls:wpwRolls, wpcRolls:wpcRolls,
            featureWallMode:featureWallMode, featureWallWpCost:featureWallWpCost, featureWallWpRolls:featureWallWpRolls,
            fwCommercialType:fwCommercialType, featureWallVinylMetres:featureWallVinylResult?featureWallVinylResult.metres:0,
@@ -5161,6 +5167,27 @@ function buildRoleRows(label, role, litresPerRoom, skipRoom, items) {
   });
 }
 
+// A painted feature wall in the SAME colour and product as the room's main
+// walls is the same bucket of paint, so its litres must pool into the Wall
+// Emulsion row (one round-up, one tin optimisation) rather than a separate
+// Feature Wall row buying its own tins -- otherwise toggling a wall to
+// "feature" quietly adds extra tins of identical paint. "Same product"
+// means the feature wall's override matches the wall's effective product
+// (override or Settings default, mirroring computeRoleGroups' mapping
+// logic), or no feature-wall product was chosen at all -- that field has
+// no Settings default, so unset + matching colour can only mean "the same
+// paint as the walls".
+function featureWallSharesWallPaint(r) {
+  if (!(+r.featureWallArea > 0) || (r.featureWallMode || 'paint') !== 'paint') return false;
+  if ((r.featureWallColourNumber || 1) !== (r.colourNumber || 1)) return false;
+  var fwRange = r.featurewallRangeOverride;
+  if (!fwRange) return true;
+  var wallMap = r.wallRangeOverride
+    ? { range: r.wallRangeOverride, band: r.wallBandOverride || '' }
+    : (settings.materials || {}).wall || null;
+  return !!wallMap && fwRange === wallMap.range && (r.featurewallBandOverride || '') === (wallMap.band || '');
+}
+
 function computeMaterials() {
   // calcRoom() is the expensive part of every role below (it runs the full
   // wallpaper-roll machinery), and between the litres and skip callbacks it
@@ -5180,7 +5207,10 @@ function computeMaterials() {
     if (l == null) { l = extWoodworkLitres(it); extWoodCalcs.set(it, l); }
     return l;
   };
-  var wallRows    = buildRoleRows('Wall Emulsion', 'wall', function(r) { return cr(r).wallL; });
+  // Same-paint feature walls fold into the wall bucket (wallLCombined --
+  // one rounding pass over the combined area); different-paint ones stay on
+  // their own Feature Wall row below.
+  var wallRows    = buildRoleRows('Wall Emulsion', 'wall', function(r) { return featureWallSharesWallPaint(r) ? cr(r).wallLCombined : cr(r).wallL; });
   var ceilingRows = buildRoleRows('Ceiling Emulsion', 'ceiling', function(r) { return cr(r).ceilL; });
   var topcoatRows = buildRoleRows('Woodwork Topcoat', 'topcoat', function(r) { return cr(r).glossL; });
   // Primer litres = that room's own topcoat litres × 0.8 (not job-wide,
@@ -5196,7 +5226,7 @@ function computeMaterials() {
   // Feature wall: opt-in manual carve-out, same "skip zero" pattern as mist
   // coat -- most rooms have none. Its own colour group per room (per
   // featureWallColourNumber), never pooled with the room's main wall colour.
-  var featureWallRows = buildRoleRows('Feature Wall', 'featurewall', function(r) { return cr(r).featureWallL; }, function(r) { return cr(r).featureWallL <= 0; });
+  var featureWallRows = buildRoleRows('Feature Wall', 'featurewall', function(r) { return cr(r).featureWallL; }, function(r) { return cr(r).featureWallL <= 0 || featureWallSharesWallPaint(r); });
   // Panelling: same "skip zero" pattern, own colour per room (panelColourNumber),
   // never pooled with the room's wall/woodwork colours -- see estimating-app-edits.md #7.
   var panelRows = buildRoleRows('Panelling', 'panel', function(r) { return cr(r).panelL; }, function(r) { return cr(r).panelL <= 0; });
