@@ -487,7 +487,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         </div>
         <div id="fw-paint-fields">
           <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Colour<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-featurewall" style="flex-wrap:wrap"></div></div>
-          <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Product<small>no default — choose explicitly</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-featurewall-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('featurewall')" onfocus="onRoomRangeSearchInput('featurewall')"><div id="r-featurewall-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
+          <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Product<small>defaults to the wall product</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-featurewall-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('featurewall')" onfocus="onRoomRangeSearchInput('featurewall')"><div id="r-featurewall-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
           <div class="field-row" id="r-featurewall-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-featurewall-band" onchange="onRoomOverrideBandSelect('featurewall')"></select></div>
         </div>
         <div id="fw-wp-fields" style="display:none">
@@ -5005,6 +5005,16 @@ function computeRoleGroups(role, litresPerRoom, skipRoom, items) {
     var mapping = overrideRange
       ? { range: overrideRange, band: r[role + 'BandOverride'] || '' }
       : defaultMapping;
+    // A painted feature wall with no product of its own is still a wall, so
+    // it defaults to the room's effective WALL product (per-room override,
+    // else the Settings wall default) rather than sitting unmapped. There
+    // is deliberately no featurewall entry in Settings materials -- pick a
+    // product on the room's Feature Wall card to differ from the walls.
+    if (!overrideRange && role === 'featurewall') {
+      mapping = r.wallRangeOverride
+        ? { range: r.wallRangeOverride, band: r.wallBandOverride || '' }
+        : (settings.materials || {}).wall || null;
+    }
     var num = r[colourField] || 1;
     var mapKey = mapping ? (mapping.range + '\x01' + mapping.band) : '\x01unmapped';
     var key = mapKey + '\x01' + num;
@@ -5174,9 +5184,9 @@ function buildRoleRows(label, role, litresPerRoom, skipRoom, items) {
 // "feature" quietly adds extra tins of identical paint. "Same product"
 // means the feature wall's override matches the wall's effective product
 // (override or Settings default, mirroring computeRoleGroups' mapping
-// logic), or no feature-wall product was chosen at all -- that field has
-// no Settings default, so unset + matching colour can only mean "the same
-// paint as the walls".
+// logic), or no feature-wall product was chosen at all -- unset defaults
+// to the wall's own product (computeRoleGroups' featurewall fallback), so
+// it IS the same paint by definition.
 function featureWallSharesWallPaint(r) {
   if (!(+r.featureWallArea > 0) || (r.featureWallMode || 'paint') !== 'paint') return false;
   if ((r.featureWallColourNumber || 1) !== (r.colourNumber || 1)) return false;
@@ -7132,11 +7142,14 @@ function populateRoomOverridePicker(role) {
   var rangeInput = document.getElementById(overrideIdPrefix(role)+'-range');
   if (!rangeInput) return;
   var state = overrideState(role);
-  // Feature wall, Panelling and Kitchen have no job-wide Settings default to
-  // fall back to -- all three are inherently a per-room/per-job, per-instance
-  // product decision -- so the empty placeholder reads as "not chosen"
-  // rather than implying a default exists.
-  rangeInput.placeholder = (role === 'featurewall' || role === 'panel' || role === 'kitchen') ? '— none chosen —' : 'Use default (Settings)';
+  // Panelling and Kitchen have no job-wide Settings default to fall back
+  // to -- both are inherently a per-room/per-job, per-instance product
+  // decision -- so their empty placeholder reads as "not chosen" rather
+  // than implying a default exists. Feature wall DOES have a default now:
+  // the room's wall product (see computeRoleGroups' featurewall fallback).
+  rangeInput.placeholder = (role === 'panel' || role === 'kitchen') ? '— none chosen —'
+                         : role === 'featurewall' ? 'Same as walls'
+                         : 'Use default (Settings)';
   rangeInput.value = state.none ? 'None' : (state.range || '');
   populateRoomOverrideBandPicker(role);
 }
@@ -7151,7 +7164,9 @@ function populateRoomOverridePicker(role) {
 var rangeSearchMatches = {};
 
 function roomRangeSearchOptions(role) {
-  var options = [{ type: 'default', label: (role === 'featurewall' || role === 'panel' || role === 'kitchen') ? '— none chosen —' : 'Use default (Settings)' }];
+  var options = [{ type: 'default', label: (role === 'panel' || role === 'kitchen') ? '— none chosen —'
+                                         : role === 'featurewall' ? 'Same as walls'
+                                         : 'Use default (Settings)' }];
   if (role === 'primer') options.push({ type: 'none', label: 'None' });
   return options.concat(Object.keys(materialGroupsCache).sort().map(function(r) { return { type: 'range', label: r }; }));
 }
