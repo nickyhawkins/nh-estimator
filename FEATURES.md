@@ -268,6 +268,7 @@ The exterior section had fallen behind — a long scroll of items, no materials,
 
 ### 1. Measurement tweaks — SHIPPED
 - **Window panes:** panes-per-window input added (per-window `{panes}` records for both casement and sash). Labour scales on pane count via `extWindowMins()`, not just area — a 16-pane Georgian window now costs far more than a 2-pane one.
+- **Window size band (2026-07-25):** S/M/L selector per window row, default medium. Scales the *base* mins only (`extSizeMult()` — small ×0.7, large ×1.4, editable in Settings), never the per-pane addition: size captures frame/sill perimeter, panes capture glazing-bar cutting-in, so scaling both would charge big frames twice. Rough bands: S under ~0.5m², M ~0.5–1.5m² (standard casement), L over ~1.5m² (tall sash, picture window). Same multiplier weights the materials litre estimate (`extWindowSizeUnits()`), since paintable frame area also scales with perimeter. Rows saved before the selector cost out unchanged (no `size` → medium).
 
 ### 2. UI compaction — SHIPPED
 - Exterior form now uses the same collapsible sections as the compacted room tab (`toggleFormSection()`/`resetExtFormSections()`), default open. Replaced the long-scroll list.
