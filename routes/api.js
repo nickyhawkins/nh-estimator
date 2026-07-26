@@ -661,6 +661,28 @@ function icsWorkingDaySpan(startIso, n, workSat, holidays) {
 }
 const icsEscape = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
 const icsDate = (iso) => iso.replace(/-/g, '');
+// A VEVENT's DTSTART/DTEND is one continuous range -- it can't skip a
+// weekend or holiday sitting inside a job's span. So split the booked days
+// (already gap-free of non-working days) into runs of consecutive calendar
+// dates and emit one VEVENT per run; that's what actually keeps a subscribed
+// calendar from drawing a solid bar through days nobody's working.
+function icsContiguousRuns(span) {
+  const runs = [];
+  let run = [span[0]];
+  for (let i = 1; i < span.length; i++) {
+    const p = run[run.length - 1].split('-');
+    const next = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2], 12));
+    next.setUTCDate(next.getUTCDate() + 1);
+    if (next.toISOString().slice(0, 10) === span[i]) {
+      run.push(span[i]);
+    } else {
+      runs.push(run);
+      run = [span[i]];
+    }
+  }
+  runs.push(run);
+  return runs;
+}
 
 router.get('/schedule.ics', async (req, res) => {
   try {
@@ -685,10 +707,6 @@ router.get('/schedule.ics', async (req, res) => {
       const workSat = d.workSaturdays != null ? !!d.workSaturdays : !!s.workSaturdays;
       const span = icsWorkingDaySpan(d.startDate, Math.ceil(+d.scheduledDays), workSat, holidays);
       if (!span.length) continue;
-      // DTEND is exclusive per RFC 5545: the day after the last booked day.
-      const p = span[span.length - 1].split('-');
-      const end = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2], 12));
-      end.setUTCDate(end.getUTCDate() + 1);
       // Event title: "job name — scheduleTitle" when a title was typed at
       // scheduling time (per Nicky 2026-07-22 — the title extends the name,
       // it doesn't replace it); otherwise name — client, EXCEPT when
@@ -700,15 +718,22 @@ router.get('/schedule.ics', async (req, res) => {
       const summary = title
         ? row.name + ' — ' + title
         : row.name + (client && !sameName ? ' — ' + client : '');
-      events.push(
-        'BEGIN:VEVENT',
-        `UID:${row.id}@nh-estimator`,
-        `DTSTAMP:${stamp}`,
-        `DTSTART;VALUE=DATE:${icsDate(span[0])}`,
-        `DTEND;VALUE=DATE:${icsDate(end.toISOString().slice(0, 10))}`,
-        `SUMMARY:${icsEscape(summary)}`,
-        'END:VEVENT'
-      );
+      const runs = icsContiguousRuns(span);
+      runs.forEach((run, i) => {
+        // DTEND is exclusive per RFC 5545: the day after this run's last booked day.
+        const p = run[run.length - 1].split('-');
+        const end = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2], 12));
+        end.setUTCDate(end.getUTCDate() + 1);
+        events.push(
+          'BEGIN:VEVENT',
+          `UID:${row.id}-${i}@nh-estimator`,
+          `DTSTAMP:${stamp}`,
+          `DTSTART;VALUE=DATE:${icsDate(run[0])}`,
+          `DTEND;VALUE=DATE:${icsDate(end.toISOString().slice(0, 10))}`,
+          `SUMMARY:${icsEscape(runs.length > 1 ? summary + ' (' + (i + 1) + '/' + runs.length + ')' : summary)}`,
+          'END:VEVENT'
+        );
+      });
     }
     const lines = [
       'BEGIN:VCALENDAR',
