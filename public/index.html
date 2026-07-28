@@ -568,8 +568,47 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="card-body" id="sec-extras">
         <div class="field-row"><div class="field-label">Windows<small>total m² — woodwork; comes off wall area, painted only when Woodwork coats &gt; 0</small></div><input type="number" class="field-input" id="r-win" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
         <div class="field-row"><div class="field-label">Window sills<small>count — painted wooden sills on unpainted (plastic) windows</small></div><input type="number" class="field-input" id="r-sills" placeholder="0" min="0" step="1" inputmode="numeric" oninput="previewRoom()"></div>
-        <div class="field-row"><div class="field-label">Doors<small>qty</small></div><input type="number" class="field-input" id="r-doors" placeholder="0" min="0" step="1" inputmode="numeric" oninput="previewRoom()"></div>
         <div class="field-row"><div class="field-label">Radiators<small>m²</small></div><input type="number" class="field-input" id="r-rads" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header sec-toggle" onclick="toggleFormSection('doorframe')"><span>Doors &amp; Frames</span><span class="sec-chev" id="sec-chev-doorframe">›</span></div>
+      <div class="card-body" id="sec-doorframe">
+        <div class="subsection-label">Door<small>leave qty at 0 to price frames only</small></div>
+        <div class="field-row"><div class="field-label">Qty</div><input type="number" class="field-input" id="r-door-qty" placeholder="0" min="0" step="1" inputmode="numeric" oninput="previewRoom()"></div>
+        <div class="field-row"><div class="field-label">Coats</div><div class="seg" id="seg-door-coats"><button class="seg-btn" onclick="setDoorFrameSeg('door',0)">0</button><button class="seg-btn" onclick="setDoorFrameSeg('door',1)">1</button><button class="seg-btn active" onclick="setDoorFrameSeg('door',2)">2</button><button class="seg-btn" onclick="setDoorFrameSeg('door',3)">3</button></div></div>
+        <div class="subsection-label">Frame<small>leave qty at 0 to price doors only</small></div>
+        <div class="field-row"><div class="field-label">Qty</div><input type="number" class="field-input" id="r-frame-qty" placeholder="0" min="0" step="1" inputmode="numeric" oninput="previewRoom()"></div>
+        <div class="field-row"><div class="field-label">Coats</div><div class="seg" id="seg-frame-coats"><button class="seg-btn" onclick="setDoorFrameSeg('frame',0)">0</button><button class="seg-btn" onclick="setDoorFrameSeg('frame',1)">1</button><button class="seg-btn active" onclick="setDoorFrameSeg('frame',2)">2</button><button class="seg-btn" onclick="setDoorFrameSeg('frame',3)">3</button></div></div>
+        <div class="field-row" style="border-top:1px solid var(--border)">
+          <div class="field-label">Prep level<small>independent of the room's own prep</small></div>
+          <div class="seg" id="seg-doorframe-prep" style="flex:1.5">
+            <button class="seg-btn active" onclick="setDoorFramePrep(10)">Minimal</button>
+            <button class="seg-btn" onclick="setDoorFramePrep(25)">Standard</button>
+            <button class="seg-btn" onclick="setDoorFramePrep(40)">Heavy</button>
+            <button class="seg-btn" onclick="setDoorFramePrep(-1)">Custom</button>
+          </div>
+        </div>
+        <div class="field-row" id="doorframe-prep-custom-row" style="display:none;border-top:1px solid var(--border)">
+          <div class="field-label">Custom prep %<small>uplift on door/frame labour only</small></div>
+          <input type="number" class="field-input" id="r-doorframe-prep-custom" placeholder="0" min="0" max="100" step="5" inputmode="numeric" oninput="previewRoom()">
+        </div>
+        <div class="toggle-row" style="border-top:1px solid var(--border)">
+          <div class="toggle-label">Fire door (FD30/FD60)<small>Intumescent-compatible coating surcharge; includes edges in the coat/coverage calc</small></div>
+          <div class="toggle" id="tog-firedoor" onclick="toggleFireDoor()"></div>
+        </div>
+        <div class="toggle-row" style="border-top:1px solid var(--border)">
+          <div class="toggle-label">Self-priming paint<small>Skips the primer coat, adds one extra topcoat instead</small></div>
+          <div class="toggle" id="tog-doorselfpriming" onclick="toggleDoorSelfPriming()"></div>
+        </div>
+        <div class="toggle-row" style="border-top:1px solid var(--border)">
+          <div class="toggle-label">Remove &amp; refit ironmongery<small>Handles/hinges/locks taken off and refitted</small></div>
+          <div class="toggle" id="tog-ironremove" onclick="toggleDoorIronmongery('remove')"></div>
+        </div>
+        <div class="toggle-row" style="border-top:1px solid var(--border)">
+          <div class="toggle-label">Mask ironmongery in place<small>Cheaper than removing — mutually exclusive with removing</small></div>
+          <div class="toggle" id="tog-ironmask" onclick="toggleDoorIronmongery('mask')"></div>
+        </div>
       </div>
     </div>
     <div class="card">
@@ -587,6 +626,10 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         <div class="field-row" id="prep-custom-row" style="display:none">
           <div class="field-label">Custom prep %<small>uplift on room total</small></div>
           <input type="number" class="field-input" id="r-prep-custom" placeholder="0" min="0" max="100" step="5" inputmode="numeric" oninput="previewRoom()">
+        </div>
+        <div class="toggle-row" style="border-top:1px solid var(--border)">
+          <div class="toggle-label">Self-priming paint<small>Woodwork other than doors/frames (skirting, sills, windows) — skips the primer coat, adds one extra topcoat instead</small></div>
+          <div class="toggle" id="tog-selfprimingwoodwork" onclick="toggleSelfPrimingWoodwork()"></div>
         </div>
         <div class="field-row" style="border-top:1px solid var(--border)">
           <div class="field-label">Making Good<small>£ fixed cost for repairs</small></div>
@@ -708,7 +751,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="breakdown-row" id="hsl-r-land2-row" style="display:none"><span class="breakdown-label">2nd floor landing walls</span><span class="breakdown-value" id="hsl-r-land2">—</span></div>
       <div class="breakdown-row"><span class="breakdown-label">Total ceiling area</span><span class="breakdown-value" id="hsl-r-ceil">—</span></div>
       <div class="breakdown-row" style="background:var(--accent-faint)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Total wall area</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="hsl-r-walls">—</span></div>
-      <div class="breakdown-row" id="hsl-r-doorskirt-row" style="display:none"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Woodwork (doors &amp; skirtings)</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="hsl-r-doorskirt">—</span></div>
+      <div class="breakdown-row" id="hsl-r-doorskirt-row" style="display:none"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Woodwork (doors, frames &amp; skirtings)</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="hsl-r-doorskirt">—</span></div>
       <div class="breakdown-row" id="hsl-r-wood-row" style="display:none"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Staircase woodwork</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="hsl-r-wood">—</span></div>
       <div class="breakdown-row" style="background:var(--accent-faint)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Estimated cost (ex markup)</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="hsl-r-cost">—</span></div>
       <div class="breakdown-row"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Estimated time</span><span class="breakdown-value" id="hsl-r-time">—</span></div>
@@ -839,6 +882,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Day Rate<small>£ per day</small></div><input type="number" class="field-input" id="s-dr" value="300" min="0" step="10" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Hours Per Day</div><input type="number" class="field-input" id="s-hpd" value="7" min="1" max="12" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Markup<small>%</small></div><input type="number" class="field-input" id="s-mu" value="20" min="0" max="100" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Commercial job adjustment<small>% — default when a quote's Commercial job toggle is on, applied before markup/discount</small></div><input type="number" class="field-input" id="s-commercial-pct" value="10" min="-100" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Sundries &amp; Consumables<small>% of labour, before markup</small></div><input type="number" class="field-input" id="s-sundries" value="5" min="0" max="100" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Spray sundries bump<small>extra % on sprayed rooms' labour — masking film, tape &amp; paper</small></div><input type="number" class="field-input" id="s-sundriesspray" value="3" min="0" max="100" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Deposit<small>% of quote — or materials+sundries cost, whichever greater</small></div><input type="number" class="field-input" id="s-deposit-pct" value="25" min="0" max="100" step="5" inputmode="numeric" onchange="saveSettings()"></div>
@@ -883,13 +927,24 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Walls<small>mins/m² per coat</small></div><input type="number" class="field-input" id="s-rwall" value="3" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Ceilings<small>mins/m² per coat</small></div><input type="number" class="field-input" id="s-rceil" value="5" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Skirtings<small>mins/lm per coat</small></div><input type="number" class="field-input" id="s-rskirt" value="4" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Door prep<small>mins flat per door</small></div><input type="number" class="field-input" id="s-rdoorprep" value="10" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Door per coat<small>mins per coat (door+frame)</small></div><input type="number" class="field-input" id="s-rdoorcoat" value="10" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Door prep<small>mins flat per door — door leaf only, see Frame prep below</small></div><input type="number" class="field-input" id="s-rdoorprep" value="10" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Door per coat<small>mins per coat, per door leaf</small></div><input type="number" class="field-input" id="s-rdoorcoat" value="10" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Frame prep<small>mins flat per frame — priceable independently of the door</small></div><input type="number" class="field-input" id="s-rframeprep" value="5" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Frame per coat<small>mins per coat, per frame</small></div><input type="number" class="field-input" id="s-rframecoat" value="6" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Windows<small>mins/m² total</small></div><input type="number" class="field-input" id="s-rwin" value="35" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Radiators<small>mins/m² total</small></div><input type="number" class="field-input" id="s-rrad" value="15" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Window sills<small>mins per painted internal sill — for plastic windows with wooden sills</small></div><input type="number" class="field-input" id="s-rsill" value="15" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Mist coat<small>mins/m²</small></div><input type="number" class="field-input" id="s-rmist" value="2" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Panelling<small>mins/m² per coat — draft default, adjust to taste</small></div><input type="number" class="field-input" id="s-rpanel" value="6" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Doors &amp; Frames</div>
+      <div class="field-row"><div class="field-label">Door face area<small>m² paintable — one door leaf, used for topcoat/primer litres. Shared by interior rooms and exterior doors.</small></div><input type="number" class="field-input" id="s-doorfacearea" value="1.3" min="0.1" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Frame area<small>m² paintable — one frame/lining set. Shared by interior rooms and exterior doors.</small></div><input type="number" class="field-input" id="s-doorframearea" value="0.6" min="0.1" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Fire door edge area<small>m² — added on top of the face area when a door's Fire door flag is on, so litres cover edges too</small></div><input type="number" class="field-input" id="s-dooredgearea" value="0.3" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Fire door surcharge<small>£ per door — FD30/FD60, intumescent-compatible coating</small></div><input type="number" class="field-input" id="s-firedoorsurcharge" value="10" min="0" step="1" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Ironmongery — remove &amp; refit<small>£ per door</small></div><input type="number" class="field-input" id="s-ironmongeryremove" value="8" min="0" step="1" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Ironmongery — mask in place<small>£ per door</small></div><input type="number" class="field-input" id="s-ironmongerymask" value="4" min="0" step="1" inputmode="decimal" onchange="saveSettings()"></div>
     </div>
     <div class="card">
       <div class="card-header">Wallpaper Rates</div>
@@ -914,7 +969,8 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Ext Window per pane<small>mins/coat, beyond 2 panes</small></div><input type="number" class="field-input" id="s-rextwinperpane" value="2" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Small window ×<small>on base mins &amp; litres — under ~0.5m², medium = 1</small></div><input type="number" class="field-input" id="s-rwinsizesmall" value="0.7" min="0.1" step="0.05" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Large window ×<small>on base mins &amp; litres — over ~1.5m², medium = 1</small></div><input type="number" class="field-input" id="s-rwinsizelarge" value="1.4" min="1" step="0.05" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Ext Door incl frame<small>mins total (2 coats)</small></div><input type="number" class="field-input" id="s-rextdoor" value="150" min="1" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Ext Door<small>mins per coat — door leaf only, see Ext Frame below</small></div><input type="number" class="field-input" id="s-rextdoor" value="75" min="1" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Ext Frame<small>mins per coat — priceable independently of the door</small></div><input type="number" class="field-input" id="s-rextframe" value="40" min="1" step="5" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Garage Door<small>mins total (2 coats)</small></div><input type="number" class="field-input" id="s-rextgarage" value="150" min="1" step="5" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Sash multiplier<small>% on top of window rate, for sash complexity</small></div><input type="number" class="field-input" id="s-rsashmultiplier" value="20" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Access — 1st floor<small>% uplift, ladder from ground</small></div><input type="number" class="field-input" id="s-raccessfirst" value="10" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
@@ -936,7 +992,6 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Ext woodwork coverage<small>m² per litre, per coat</small></div><input type="number" class="field-input" id="s-extwoodcov" value="12" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Area per window<small>m² paintable, per casement</small></div><input type="number" class="field-input" id="s-extareawindow" value="1.5" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Area per sash window<small>m² paintable, per sash</small></div><input type="number" class="field-input" id="s-extareasash" value="2.5" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Area per door<small>m² paintable, incl frame</small></div><input type="number" class="field-input" id="s-extareadoor" value="2" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Area per garage door<small>m² paintable</small></div><input type="number" class="field-input" id="s-extareagarage" value="6" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Fascia developed width<small>m, to convert linear m → m²</small></div><input type="number" class="field-input" id="s-extfasciawidth" value="0.35" min="0" step="0.05" inputmode="decimal" onchange="saveSettings()"></div>
     </div>
@@ -1146,8 +1201,28 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     <div class="card">
       <div class="card-header sec-toggle" onclick="toggleFormSection('ext-doors')"><span>Exterior Doors</span><span class="sec-chev open" id="sec-chev-ext-doors">›</span></div>
       <div class="card-body open" id="sec-ext-doors">
-      <div class="field-row"><div class="field-label">Qty<small>standard door incl frame</small></div><input type="number" class="field-input" id="ex-doors" placeholder="0" min="0" step="1" inputmode="numeric" oninput="previewExterior()"></div>
-      <div class="field-row"><div class="field-label">Coats</div><div class="seg" id="seg-ex-doors"><button class="seg-btn" onclick="setExtSeg('ex-doors',1)">1</button><button class="seg-btn active" onclick="setExtSeg('ex-doors',2)">2</button><button class="seg-btn" onclick="setExtSeg('ex-doors',3)">3</button></div></div>
+      <div class="subsection-label">Door<small>leave qty at 0 to price frames only</small></div>
+      <div class="field-row"><div class="field-label">Qty</div><input type="number" class="field-input" id="ex-door-qty" placeholder="0" min="0" step="1" inputmode="numeric" oninput="previewExterior()"></div>
+      <div class="field-row"><div class="field-label">Coats</div><div class="seg" id="seg-ex-door"><button class="seg-btn" onclick="setExtSeg('ex-door',1)">1</button><button class="seg-btn active" onclick="setExtSeg('ex-door',2)">2</button><button class="seg-btn" onclick="setExtSeg('ex-door',3)">3</button></div></div>
+      <div class="subsection-label">Frame<small>leave qty at 0 to price doors only</small></div>
+      <div class="field-row"><div class="field-label">Qty</div><input type="number" class="field-input" id="ex-frame-qty" placeholder="0" min="0" step="1" inputmode="numeric" oninput="previewExterior()"></div>
+      <div class="field-row"><div class="field-label">Coats</div><div class="seg" id="seg-ex-frame"><button class="seg-btn" onclick="setExtSeg('ex-frame',1)">1</button><button class="seg-btn active" onclick="setExtSeg('ex-frame',2)">2</button><button class="seg-btn" onclick="setExtSeg('ex-frame',3)">3</button></div></div>
+      <div class="toggle-row" style="border-top:1px solid var(--border)">
+        <div class="toggle-label">Fire door (FD30/FD60)<small>Intumescent-compatible coating surcharge; includes edges in the coat/coverage calc</small></div>
+        <div class="toggle" id="tog-ex-firedoor" onclick="toggleExFireDoor()"></div>
+      </div>
+      <div class="toggle-row" style="border-top:1px solid var(--border)">
+        <div class="toggle-label">Self-priming paint<small>Skips the primer coat, adds one extra topcoat instead</small></div>
+        <div class="toggle" id="tog-ex-doorselfpriming" onclick="toggleExDoorSelfPriming()"></div>
+      </div>
+      <div class="toggle-row" style="border-top:1px solid var(--border)">
+        <div class="toggle-label">Remove &amp; refit ironmongery<small>Handles/hinges/locks taken off and refitted</small></div>
+        <div class="toggle" id="tog-ex-ironremove" onclick="toggleExDoorIronmongery('remove')"></div>
+      </div>
+      <div class="toggle-row" style="border-top:1px solid var(--border)">
+        <div class="toggle-label">Mask ironmongery in place<small>Cheaper than removing — mutually exclusive with removing</small></div>
+        <div class="toggle" id="tog-ex-ironmask" onclick="toggleExDoorIronmongery('mask')"></div>
+      </div>
       </div>
     </div>
     <div class="card">
@@ -1185,6 +1260,10 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row" id="ex-prep-custom-row" style="display:none">
         <div class="field-label">Custom prep %</div>
         <input type="number" class="field-input" id="ex-prep-custom" placeholder="0" min="0" max="100" step="5" inputmode="numeric" oninput="previewExterior()">
+      </div>
+      <div class="toggle-row" style="border-top:1px solid var(--border)">
+        <div class="toggle-label">Self-priming paint<small>Fascia/windows/garage woodwork — skips the primer coat, adds one extra topcoat instead. Doors/frames have their own toggle above.</small></div>
+        <div class="toggle" id="tog-ex-selfprimingwoodwork" onclick="toggleExSelfPrimingWoodwork()"></div>
       </div>
       <div class="field-row" style="border-top:1px solid var(--border)">
         <div class="field-label">Making Good<small>£ fixed cost</small></div>
@@ -1568,7 +1647,7 @@ function clearEverything() {
   var clearedJob = activeJob();
   if (clearedJob) clearedJob.kitchen = null;
   markMaterialsSeeded(false);
-  ['ex-doors','ex-wins','ex-garage'].forEach(function(id){
+  ['ex-door-qty','ex-frame-qty','ex-wins','ex-garage'].forEach(function(id){
     var el=document.getElementById(id); if(el) el.value='0';
   });
   Object.keys(extItemCoats).forEach(function(k){ extItemCoats[k]=2; });
@@ -2125,6 +2204,8 @@ async function createXeroQuote(forceNew) {
         settings: settings,
         markup: effectiveMarkup(),
         markupType: effectiveMarkupType(),
+        commercial: !!(activeJob() && activeJob().commercial),
+        commercialPct: settings.commercialPct,
         paymentTerms: paymentTerms,
         paymentSummary: paymentSummary,
         contactId: linkedContactId,
@@ -2388,6 +2469,7 @@ var SETTINGS_FIELDS = [
   ['dr',           's-dr',            300, 'dayRate'],
   ['hpd',          's-hpd',           7],
   ['mu',           's-mu',            20,  'markup'],
+  ['commercialPct', 's-commercial-pct', 10],
   ['sundriesPct',  's-sundries',      5],
   ['sundriesSprayPct', 's-sundriesspray', 3],
   ['depositPct',   's-deposit-pct',   25],
@@ -2405,6 +2487,14 @@ var SETTINGS_FIELDS = [
   ['rSkirt',       's-rskirt',        4],
   ['rDoorPrep',    's-rdoorprep',     10],
   ['rDoorCoat',    's-rdoorcoat',     10],
+  ['rFramePrep',   's-rframeprep',    5],
+  ['rFrameCoat',   's-rframecoat',    6],
+  ['doorFaceAreaM2',  's-doorfacearea',  1.3],
+  ['doorFrameAreaM2', 's-doorframearea', 0.6],
+  ['doorEdgeAreaM2',  's-dooredgearea',  0.3],
+  ['fireDoorSurcharge',     's-firedoorsurcharge', 10],
+  ['ironmongeryRemovePrice', 's-ironmongeryremove', 8],
+  ['ironmongeryMaskPrice',   's-ironmongerymask',   4],
   ['rWin',         's-rwin',          35],
   ['rRad',         's-rrad',          15],
   ['rSill',        's-rsill',         15],
@@ -2428,7 +2518,14 @@ var SETTINGS_FIELDS = [
   ['rExtWinPerPane', 's-rextwinperpane', 2],
   ['rWinSizeSmall',  's-rwinsizesmall',  0.7],
   ['rWinSizeLarge',  's-rwinsizelarge',  1.4],
-  ['rExtDoor',       's-rextdoor',       150],
+  // rExtDoor used to mean "total mins for a door incl. frame at 2 coats"
+  // (default 150) -- now the door leaf gets its own per-coat rate (frame
+  // split out below), so this default halves to 75. A saved settings blob
+  // still carrying the old 150 now prices exterior doors at 2x its former
+  // per-coat cost; that's a one-time recalibration this feature requires,
+  // not silently preserved -- see the Settings screen's own field label.
+  ['rExtDoor',       's-rextdoor',       75],
+  ['rExtFrame',      's-rextframe',      40],
   ['rExtGarage',     's-rextgarage',     150],
   ['rSashMultiplierPct', 's-rsashmultiplier', 20],
   ['rAccessFirstPct',    's-raccessfirst',    10],
@@ -2446,7 +2543,6 @@ var SETTINGS_FIELDS = [
   ['extWoodCov',     's-extwoodcov',     12],
   ['extAreaWindow',  's-extareawindow',  1.5],
   ['extAreaSash',    's-extareasash',    2.5],
-  ['extAreaDoor',    's-extareadoor',    2],
   ['extAreaGarage',  's-extareagarage',  6],
   ['extFasciaWidth', 's-extfasciawidth', 0.35],
   ['kitchenGlazedPct',  's-kglazedpct',  50],
@@ -2546,6 +2642,24 @@ var fwWpLining = false, fwWpFinish = false;
 var fwWpCommercialType = 'none';
 var fwMuralPriceMode = 'perArea';
 var prepPct  = 10; // 10 (Minimal, default), 25 (Standard), 40 (Heavy), or -1 for custom
+// Door / Frame: independent line items (own qty/coats each, so either can be
+// priced alone), independent prep (doorFramePrepPct, same 10/25/40/-1
+// precedent as panelPrepPct below), and their own toggles. Fire door +
+// ironmongery are per-line-item flags (this room's whole Door line is or
+// isn't fire-rated) rather than per-physical-door, matching how every other
+// toggle in this file (mistWall, sprayWalls, etc.) applies to a whole
+// section rather than tracking individual units.
+var doorCoats = 2, frameCoats = 2;
+var doorFramePrepPct = 10;
+var doorFireDoor = false, doorSelfPriming = false;
+var doorIronRemove = false, doorIronMask = false;
+// "Other woodwork" (skirting/sills/windows) self-priming -- distinct from
+// doorSelfPriming above (doors/frames are their own item now) and from the
+// existing primerNone product flag (roomOverrides.primer.none), which just
+// skips buying a primer product without adding a topcoat coat. This one
+// swaps a primer coat for an extra topcoat coat -- see calcRoom()'s
+// otherWoodTopcoatCoatM2/otherWoodPrimerCoatM2.
+var selfPrimingWoodwork = false;
 // Panelling: independent of the room's own prep (prepPct above) and coats
 // (coats.wc) -- prepPct/prepCustom precedent, same 10/25/40/-1 vals, just a
 // second copy scoped to the panelling section only. panelItemsForm is an
@@ -2708,7 +2822,7 @@ function renameJob(id) {
 // part of job.data must go through this so xeroClient/xeroRef/contact/
 // xeroContactId/contactSyncedAt/materialsSeeded/kitchen always travel together.
 function persistJobData(job) {
-  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, freeVariations: job.freeVariations, variationCount: job.variationCount, notes: job.notes, kitchen: job.kitchen }) });
+  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, freeVariations: job.freeVariations, variationCount: job.variationCount, notes: job.notes, kitchen: job.kitchen }) });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -3659,7 +3773,9 @@ function computeVariationsView(roomCalcs, extCalcs, kitchenCalc) {
   // variations get NO markup: the fixed amount was the adjustment agreed
   // on the ORIGINAL quote.
   var varSundries = (varLabour+freeHoursRaw) * (settings.sundriesPct||0)/100 + varSpray * (settings.sundriesSprayPct||0)/100;
-  var varMk = effectiveMarkupType()==='fixed' ? 1 : 1 + (effectiveMarkup()/100);
+  // Commercial% stacks with markup here too (same order as applyMarkupAmount()) --
+  // fixed-£ markup still never touches variations, only commercial does.
+  var varMk = (1+commercialRatio()) * (effectiveMarkupType()==='fixed' ? 1 : 1 + (effectiveMarkup()/100));
   var variationsTotal = hasVariations ? (varLabour+freeHoursRaw+varSundries)*varMk + freeFlatSum : 0;
   return { varLabour:varLabour, varTime:varTime, varSpray:varSpray, varLines:varLines,
     freeVars:freeVars, freeHoursRaw:freeHoursRaw, freeHoursDays:freeHoursDays, freeFlatSum:freeFlatSum,
@@ -3799,8 +3915,42 @@ function markupRatio(base) {
   return v / 100;
 }
 
+// Commercial job (estimating-app-edits.md): a quote-level toggle, off by
+// default, that applies settings.commercialPct as a straight % adjustment
+// on top of the raw labour+sundries total -- BEFORE the per-quote markup/
+// discount above, not instead of it. Order matters: commercial% first, then
+// markup/discount on top of the already-adjusted figure, so a commercial
+// job's markup override still reads as "X% on top of everything" rather
+// than being diluted by the commercial uplift. See applyMarkupAmount()
+// below, the one function nearly every total in the app already funnels
+// through (deposit plan, Xero quote, CSV/PDF export, Home/Exterior chips),
+// so wiring commercial% in there is the single point that propagates
+// everywhere without a second, driftable copy of the total formula.
+function commercialRatio() {
+  var job = activeJob();
+  if (!job || !job.commercial) return 0;
+  var v = settings.commercialPct != null ? settings.commercialPct : 10;
+  return v / 100;
+}
+function applyCommercialAmount(base) {
+  return base * (1 + commercialRatio());
+}
 function applyMarkupAmount(base) {
-  return base * (1 + markupRatio(base));
+  // markupRatio() is evaluated against the POST-commercial base (not the
+  // raw one) so a fixed-£ markup/discount still lands as an exact £ amount
+  // on the commercial-adjusted total, matching "commercial first" ordering
+  // for both markup modes, not just percentage.
+  var afterCommercial = applyCommercialAmount(base);
+  return afterCommercial * (1 + markupRatio(afterCommercial));
+}
+
+function setJobCommercial(on) {
+  var job = activeJob();
+  if (!job) return;
+  job.commercial = !!on;
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  renderSummary(); renderHome(); renderExterior(); renderDash();
 }
 
 // "+ 20% markup" / "− £50 discount" -- shared by the Total Quote strap-line
@@ -4466,6 +4616,17 @@ function goScreen(name) {
   if (name==='room') {
     resetFormSections();
     editId=null; coats={wc:2,cc:2,xc:2}; mistWall=false; mistCeil=false; sprayWalls=false; prepPct=10;
+    doorCoats=2; frameCoats=2; doorFramePrepPct=10;
+    doorFireDoor=false; doorSelfPriming=false; doorIronRemove=false; doorIronMask=false;
+    selfPrimingWoodwork=false;
+    document.querySelectorAll('#seg-door-coats .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===2);});
+    document.querySelectorAll('#seg-frame-coats .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===2);});
+    document.querySelectorAll('#seg-doorframe-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===0);});
+    document.getElementById('doorframe-prep-custom-row').style.display = 'none';
+    document.getElementById('r-doorframe-prep-custom').value = '';
+    ['tog-firedoor','tog-doorselfpriming','tog-ironremove','tog-ironmask','tog-selfprimingwoodwork'].forEach(function(id){
+      document.getElementById(id).classList.remove('on');
+    });
     roomIsVariation = variationApplies(); // new post-acceptance items default to variation
     syncVariationRow('variation-row', 'tog-variation', roomIsVariation);
     roomIsStaircase=false; hslFloors=1; hslStairWalls={1:1,2:1}; hslCoats={swc:2};
@@ -4506,7 +4667,8 @@ function goScreen(name) {
     document.getElementById('r-h').value='2.4';
     document.getElementById('r-win').value='';
     document.getElementById('r-sills').value='';
-    document.getElementById('r-doors').value='';
+    document.getElementById('r-door-qty').value='';
+    document.getElementById('r-frame-qty').value='';
     document.getElementById('r-rads').value='';
 
     document.getElementById('tog-mw').classList.remove('on');
@@ -4597,22 +4759,84 @@ function wallMins(c)    { return c * (settings.rWall || 3); }              // mi
 function ceilMins(c)    { return c * (settings.rCeil || 5); }              // mins/m² per coat
 function skirtMins(c)   { return c * (settings.rSkirt || 4); }             // mins/lm per coat
 function doorMins(c)    { return (settings.rDoorPrep || 10) + c * (settings.rDoorCoat || 10); }
+function frameMins(c)   { return (settings.rFramePrep || 5) + c * (settings.rFrameCoat || 6); }
 function winMins()      { return settings.rWin || 35; }
 function radMins()      { return settings.rRad || 15; }
 function sillMins()     { return settings.rSill || 15; }                   // per painted internal sill
 
+// ── Door / Frame shared calc ────────────────────────────────────────────────
+// Door and Frame are independent line items (own qty/coats each, so either
+// can be priced alone) shared identically by a normal room, an HSL/staircase
+// room (calcHSLNow()'s preview and computeHSLOverrides()'s persisted calc)
+// and an exterior item -- one implementation so the three can never drift
+// apart, the same reasoning as skirtMins/doorMins being shared functions
+// rather than copies. `kind` picks the labour rate pair: 'ext' uses the
+// exterior per-coat rates (no flat prep component, matching extFasciaMins's
+// shape), anything else uses the interior door/frame rate pair above.
+function doorFrameLabourCost(kind, doorQty, frameQty, doorCoats, frameCoats, r2) {
+  var doorUnitMins  = kind === 'ext' ? function(c){ return c * (settings.rExtDoor  || 75); } : doorMins;
+  var frameUnitMins = kind === 'ext' ? function(c){ return c * (settings.rExtFrame || 40); } : frameMins;
+  var doorCost  = doorQty>0  && doorCoats>0  ? doorQty  * doorUnitMins(doorCoats)   * r2 : 0;
+  var frameCost = frameQty>0 && frameCoats>0 ? frameQty * frameUnitMins(frameCoats) * r2 : 0;
+  return { doorCost: doorCost, frameCost: frameCost, total: doorCost + frameCost };
+}
+// Materials basis for door+frame topcoat/primer litres, expressed as
+// area×coats ("coat-m²") rather than litres -- callers sum this alongside
+// whatever else shares the same tin (room woodwork, exterior woodwork) and
+// convert the pooled total to litres once, so half-litre rounding happens
+// only at the very end (matching wL/gL elsewhere in this file).
+// Self-priming paint (fire doors especially are often specified with an
+// intumescent self-priming system): when on, the topcoat side gets ONE
+// extra coat-equivalent instead of a primer coat, and the primer side drops
+// to zero for this door/frame -- swapping which tin the last coat comes out
+// of rather than just adding/removing a flat line (estimating-app-edits.md
+// self-priming ask). Fire door faces are assumed to need their edges coated
+// too (intumescent seals run around the door edge), so the fire door flag
+// adds a fixed edge allowance to the face area on top of the surcharge.
+function doorFrameAreaCoats(doorQty, frameQty, doorCoats, frameCoats, fireDoor, selfPriming) {
+  var doorFaceArea = settings.doorFaceAreaM2  != null ? settings.doorFaceAreaM2  : 1.3;
+  var doorEdgeArea = settings.doorEdgeAreaM2  != null ? settings.doorEdgeAreaM2  : 0.3;
+  var frameArea    = settings.doorFrameAreaM2 != null ? settings.doorFrameAreaM2 : 0.6;
+  var doorAreaEach  = doorFaceArea + (fireDoor ? doorEdgeArea : 0);
+  var doorEffCoats  = doorCoats  + (selfPriming ? 1 : 0);
+  var frameEffCoats = frameCoats + (selfPriming ? 1 : 0);
+  var topcoatCoatM2 = (doorQty>0  && doorCoats>0  ? doorQty  * doorAreaEach * doorEffCoats  : 0)
+                     + (frameQty>0 && frameCoats>0 ? frameQty * frameArea    * frameEffCoats : 0);
+  var primerCoatM2  = selfPriming ? 0 :
+                        (doorQty>0  && doorCoats>0  ? doorQty  * doorAreaEach * doorCoats  : 0)
+                      + (frameQty>0 && frameCoats>0 ? frameQty * frameArea    * frameCoats : 0);
+  return { topcoatCoatM2: topcoatCoatM2, primerCoatM2: primerCoatM2 };
+}
+// Fire door surcharge + ironmongery handling are flat £/door add-ons, not
+// scaled by prep% (they're not labour-time-derived) -- kept as their own
+// function so callers add them AFTER any prep multiplier, never before.
+// removeRefit/maskInPlace are mutually exclusive per door item (enforced by
+// the toggle handlers, not re-checked here).
+function doorFrameExtrasCost(doorQty, fireDoor, ironRemove, ironMask) {
+  var fireDoorCost = fireDoor ? doorQty * (settings.fireDoorSurcharge != null ? settings.fireDoorSurcharge : 10) : 0;
+  var ironCost = ironRemove ? doorQty * (settings.ironmongeryRemovePrice != null ? settings.ironmongeryRemovePrice : 8)
+               : ironMask   ? doorQty * (settings.ironmongeryMaskPrice   != null ? settings.ironmongeryMaskPrice   : 4) : 0;
+  return fireDoorCost + ironCost;
+}
+
 // ── Room calc ──────────────────────────────────────────────────────────────
 function calcRoom(r) {
   migrateWPFields(r);
+  migrateDoorFields(r);
   var L=+r.l, W=+r.w, H=+r.h;
-  var doors=+r.doors, win=+r.win||0, rads=+r.rads, sills=+r.sills||0;
+  var win=+r.win||0, rads=+r.rads, sills=+r.sills||0;
+  var doorQty=+r.doorQty||0, frameQty=+r.frameQty||0, doorCoats=+r.doorCoats||0, frameCoats=+r.frameCoats||0;
   var wc=+r.wc, cc=+r.cc, xc=+r.xc;
   var mistW=!!r.mistWall, mistC=!!r.mistCeil;
   // Use pre-computed area if set (staircase rooms), otherwise calculate
   // normally. Windows are holes in the wall same as doors, so their measured
   // m² always comes off the wall area regardless of whether the frames get
-  // painted (winCost below, gated on woodwork coats).
-  var wallArea = r.wallAreaOverride ? +r.wallAreaOverride : Math.max((L*2+W*2)*H - doors*1.8 - win, 0);
+  // painted (winCost below, gated on woodwork coats). The opening count uses
+  // whichever of door/frame qty is larger -- painting a frame only (door
+  // already done) or a door only (frame is UPVC, say) doesn't change how
+  // many doorway-sized holes are cut into the wall.
+  var doorOpenings = Math.max(doorQty, frameQty);
+  var wallArea = r.wallAreaOverride ? +r.wallAreaOverride : Math.max((L*2+W*2)*H - doorOpenings*1.8 - win, 0);
   // Excluded walls (e.g. wallpaper that's staying): each one's measured
   // width x height comes off the wall area HERE, before anything downstream
   // reads it -- paint labour, wall litres, mist coat and the feature-wall
@@ -4655,7 +4879,18 @@ function calcRoom(r) {
   // painted.
   var winCost  = win>0 && xc>0 ? win*winMins()*r2 : 0;
   var woodCost = r.woodCostOverride != null ? +r.woodCostOverride :
-                 (xc>0 ? (perim*skirtMins(xc) + doors*doorMins(xc))*r2 : 0);
+                 (xc>0 ? perim*skirtMins(xc)*r2 : 0);
+  // Door + Frame: independent line items (own qty/coats each -- see
+  // doorFrameLabourCost()), with their own prep% independent of the room's
+  // (prepUp below), same pattern as panelling's panelPrepUp. Fire door
+  // surcharge + ironmongery are flat £/door add-ons, so they're added AFTER
+  // the prep multiplier, never scaled by it.
+  var doorFramePrepUp = r.doorFramePrepPct >= 0 ? r.doorFramePrepPct : (+r.doorFramePrepCustom||0);
+  var doorFrameLabour = doorFrameLabourCost('int', doorQty, frameQty, doorCoats, frameCoats, r2);
+  var doorCost  = doorFrameLabour.doorCost  * (1 + doorFramePrepUp/100);
+  var frameCost = doorFrameLabour.frameCost * (1 + doorFramePrepUp/100);
+  var doorExtrasCost = doorFrameExtrasCost(doorQty, !!r.doorFireDoor, !!r.doorIronRemove, !!r.doorIronMask);
+  var doorFrameCost = doorCost + frameCost + doorExtrasCost;
   var radCost  = rads>0 ? rads*radMins()*r2 : 0;
   // Internal window sills (2026-07-23): plastic windows aren't painted but
   // their wooden sills are — a per-sill labour line gated on woodwork
@@ -4736,10 +4971,12 @@ function calcRoom(r) {
   // SECOND time on top of panelling's independent one. Additive in both
   // branches (not just the non-override one) so an HSL/staircase room's
   // totalOverride can still carry panelling, e.g. wainscoting under stairs.
+  // doorFrameCost is the same story -- its own prep (doorFramePrepUp above),
+  // added post-total like panelling rather than folded into baseTotal.
   var roomBaseTotal = r.totalOverride != null
     ? +r.totalOverride
     : baseTotal * (1 + prepUp/100) + makingGood;
-  var preFloorTotal = roomBaseTotal + panelCost;
+  var preFloorTotal = roomBaseTotal + panelCost + doorFrameCost;
   var time     = preFloorTotal / r2 / 60 / hpd;
   // Wallpaper minimum charge (estimating-app-edits.md #11) -- a small
   // wallpapering job (a single feature wall, say) shouldn't invoice below a
@@ -4754,16 +4991,39 @@ function calcRoom(r) {
   var total = preFloorTotal + wpMinTopUp;
   var cL  = cc>0 ? Math.ceil(ceilArea*cc/settings.cc*2)/2 : 0;
   // woodAreaOverride: same pattern as wallAreaOverride/ceilAreaOverride above
-  // -- staircase/HSL rooms set this to the REAL skirting+door+spindle+newel
+  // -- staircase/HSL rooms set this to the REAL skirting+spindle+newel
   // surface area (computeHSLOverrides()), since the generic perim*0.15
   // formula below is meaningless against a staircase room's dummy l=w=h=1
   // placeholder dimensions. This was the actual materials-under-counting
-  // bug the HSL/room alignment work exists to fix.
+  // bug the HSL/room alignment work exists to fix. Doors/frames are NOT
+  // part of wdA any more -- they get their own area via
+  // doorFrameAreaCoats() below, at their own coat count, so a room where
+  // skirting gets 2 coats but doors get 3 doesn't blend the two.
   // Windows count as woodwork, so their measured m² joins the gloss basis
-  // alongside skirting/doors/sills -- gL below is already gated on xc, so
-  // 0 woodwork coats means no window paint either.
-  var wdA = r.woodAreaOverride ? +r.woodAreaOverride : perim*0.15 + doors*1.9 + sills*0.25 + win;
-  var gL  = xc>0 ? Math.ceil(wdA*xc/settings.cg*2)/2 : 0;
+  // alongside skirting/sills -- gated on xc, so 0 woodwork coats means no
+  // window paint either.
+  var wdA = r.woodAreaOverride != null ? +r.woodAreaOverride : perim*0.15 + sills*0.25 + win;
+  // Self-priming paint (own toggle for the "other woodwork" bucket --
+  // skirting/sills/windows -- distinct from primerNone, which is a product
+  // choice, not a coat swap): one extra topcoat coat-equivalent instead of a
+  // primer coat. Doors/frames carry their own independent self-priming flag
+  // via doorFrameAreaCoats() below.
+  var selfPrimingWoodwork = !!r.selfPrimingWoodwork;
+  var otherWoodTopcoatCoatM2 = xc>0 ? wdA * (xc + (selfPrimingWoodwork?1:0)) : 0;
+  var otherWoodPrimerCoatM2  = (xc>0 && !r.primerNone && !selfPrimingWoodwork) ? wdA*xc : 0;
+  var doorFrameAreas = doorFrameAreaCoats(doorQty, frameQty, doorCoats, frameCoats, !!r.doorFireDoor, !!r.doorSelfPriming);
+  var totalTopcoatCoatM2 = otherWoodTopcoatCoatM2 + doorFrameAreas.topcoatCoatM2;
+  // primerNone is a room-wide "don't buy a primer product" choice, so it
+  // zeroes the door/frame share too, same as it always zeroed the whole room.
+  var totalPrimerCoatM2 = otherWoodPrimerCoatM2 + (r.primerNone ? 0 : doorFrameAreas.primerCoatM2);
+  var gL  = totalTopcoatCoatM2>0 ? Math.ceil(totalTopcoatCoatM2/settings.cg*2)/2 : 0;
+  // Primer litres -- moved in from computeMaterials()'s buildRoleRows(),
+  // which used to do `glossL * 0.8` for the WHOLE room; primer exclusion is
+  // now per-item (door/frame/other-woodwork can each be self-priming
+  // independently) so the real math has to live here, where each item's
+  // effective coats are already known. Same 0.8-of-topcoat-volume proxy and
+  // coverage rate as before, just computed per-item then summed.
+  var primerL = totalPrimerCoatM2>0 ? Math.ceil(totalPrimerCoatM2/settings.cg*0.8*2)/2 : 0;
   // Manual override only applies to the paint quantity (only part of the
   // room may be new plaster) -- the time cost above stays on the full
   // toggle-selected area(s), since prepping/accessing the room still takes
@@ -4777,9 +5037,11 @@ function calcRoom(r) {
            // this file's history keeps hitting -- see NOTES.md's extCost
            // gotcha). Raw (pre-prep, pre-markup), like wpwCost/wpcCost below.
            wallCost:wallCost, ceilCost:ceilCost, woodCost:woodCost,
+           doorCost:doorCost, frameCost:frameCost, doorExtrasCost:doorExtrasCost,
+           doorFrameRawCost:doorFrameLabour.total, doorFramePrepUp:doorFramePrepUp,
            winCost:winCost, radCost:radCost, sillCost:sillCost,
            mistWCost:mistWCost, mistCCost:mistCCost,
-           wallL:wL, ceilL:cL, glossL:gL, mistL:mL, featureWallL:fwL, wallLCombined:wLCombined,
+           wallL:wL, ceilL:cL, glossL:gL, primerL:primerL, mistL:mL, featureWallL:fwL, wallLCombined:wLCombined,
            wpwCost:wpwCost, wpcCost:wpcCost, wpwRolls:wpwRolls, wpcRolls:wpcRolls,
            featureWallMode:featureWallMode, featureWallWpCost:featureWallWpCost, featureWallWpRolls:featureWallWpRolls,
            fwCommercialType:fwCommercialType, featureWallVinylMetres:featureWallVinylResult?featureWallVinylResult.metres:0,
@@ -5218,11 +5480,18 @@ function computeMaterials() {
     if (!c) { c = calcRoom(r); roomCalcs.set(r, c); }
     return c;
   };
-  // Same for extWoodworkLitres(), read by two roles × two callbacks each.
+  // Same for extWoodworkLitres()/extPrimerLitres(), read by two roles ×
+  // two callbacks each.
   var extWoodCalcs = new Map();
   var ew = function(it) {
     var l = extWoodCalcs.get(it);
     if (l == null) { l = extWoodworkLitres(it); extWoodCalcs.set(it, l); }
+    return l;
+  };
+  var extPrimerCalcs = new Map();
+  var ep = function(it) {
+    var l = extPrimerCalcs.get(it);
+    if (l == null) { l = extPrimerLitres(it); extPrimerCalcs.set(it, l); }
     return l;
   };
   // Same-paint feature walls fold into the wall bucket (wallLCombined --
@@ -5231,11 +5500,16 @@ function computeMaterials() {
   var wallRows    = buildRoleRows('Wall Emulsion', 'wall', function(r) { return featureWallSharesWallPaint(r) ? cr(r).wallLCombined : cr(r).wallL; });
   var ceilingRows = buildRoleRows('Ceiling Emulsion', 'ceiling', function(r) { return cr(r).ceilL; });
   var topcoatRows = buildRoleRows('Woodwork Topcoat', 'topcoat', function(r) { return cr(r).glossL; });
-  // Primer litres = that room's own topcoat litres × 0.8 (not job-wide,
-  // since topcoat itself can now vary room to room) -- always this formula
-  // now, mapped or not, since it's a material-quantity rule, not a pricing
-  // assumption. Rooms with primerNone are excluded entirely: no row, no cost.
-  var primerRows  = buildRoleRows('Woodwork Primer', 'primer', function(r) { return cr(r).glossL * 0.8; }, function(r) { return !!r.primerNone; });
+  // Primer litres: calcRoom()'s own primerL, which already accounts for
+  // primerNone (room-wide "don't buy primer product" — zeroes everything)
+  // AND each item's independent self-priming flag (doors/frames/other-
+  // woodwork can each swap their primer coat for an extra topcoat coat --
+  // see calcRoom()'s otherWoodPrimerCoatM2/doorFrameAreaCoats()). Used to be
+  // a flat `glossL * 0.8` computed here with primerNone as the only
+  // exclusion; that per-room-only granularity couldn't represent "this
+  // room's doors are self-priming but its skirting isn't", so the real math
+  // moved into calcRoom() where each item's effective coats are known.
+  var primerRows  = buildRoleRows('Woodwork Primer', 'primer', function(r) { return cr(r).primerL; }, function(r) { return cr(r).primerL <= 0; });
   // Mist coat is opt-in per room (off by default), so most jobs have no
   // rooms using it at all -- skip any room contributing zero mist litres
   // rather than let it join a "0.0L" group, so an unused product never
@@ -5253,12 +5527,13 @@ function computeMaterials() {
   // Masonry (tin-based) has its own colour; exterior woodwork topcoat + primer
   // share the "exterior woodwork" colour. Litres come from assumed-area
   // Settings (see extMasonryLitres / extWoodworkLitres) since exterior items
-  // only carry counts/lengths, not measured m². Primer = topcoat × 0.8, the
-  // same rule as interior; skip an item entirely when it has no exterior
-  // woodwork surfaces (matches primerNone's "no row at all").
+  // only carry counts/lengths, not measured m². Primer litres come from
+  // extPrimerLitres() (its own decomposed area×coats, excluding whichever
+  // sub-surfaces are self-priming), NOT a flat topcoat×0.8 any more -- same
+  // reasoning as interior primerL above.
   var masonryRows   = buildRoleRows('Masonry / Render', 'masonry', function(it) { return extMasonryLitres(it); }, function(it) { return extMasonryLitres(it) <= 0; }, extItems);
   var extTopcoatRows= buildRoleRows('Exterior Woodwork', 'extTopcoat', function(it) { return ew(it); }, function(it) { return ew(it) <= 0; }, extItems);
-  var extPrimerRows = buildRoleRows('Exterior Primer', 'extPrimer', function(it) { return ew(it) * 0.8; }, function(it) { return ew(it) <= 0; }, extItems);
+  var extPrimerRows = buildRoleRows('Exterior Primer', 'extPrimer', function(it) { return ep(it); }, function(it) { return ep(it) <= 0; }, extItems);
 
   var allRows = wallRows.concat(ceilingRows, topcoatRows, primerRows, mistRows, featureWallRows, panelRows, masonryRows, extTopcoatRows, extPrimerRows);
   var total = allRows.reduce(function(sum, r) { return sum + r.cost; }, 0);
@@ -5295,24 +5570,56 @@ function extMasonryLitres(item) {
 // into one topcoat quantity, since they share one exterior-woodwork colour and
 // product. Each surface's own coat count applies before summing; fascia's
 // linear metres convert to m² via the developed-width setting.
-function extWoodworkLitres(item) {
+// Shared by extWoodworkLitres()/extPrimerLitres() below -- windows/sash/
+// garage/fascia's area×coats, split into a topcoat share and a primer
+// share. woodworkSelfPriming (the item-wide toggle, distinct from the door/
+// frame's own self-priming flag) adds one extra coat-equivalent to the
+// topcoat share and zeroes the primer share for windows/garage/fascia; sash
+// restoration is left untouched either way (its "prime & paint" is already
+// a fixed 2-pass process baked in elsewhere, not a primer-coat swap).
+function extOtherWoodworkAreaCoats(item) {
   var mc = item.coats || {};
   var windows = item.windows || legacyWindowList(item.wins);
   var sashWindows = item.sashWindows || legacyWindowList(item.sash);
   var aWin  = settings.extAreaWindow!=null ? settings.extAreaWindow : 1.5;
   var aSash = settings.extAreaSash!=null ? settings.extAreaSash : 2.5;
-  var aDoor = settings.extAreaDoor!=null ? settings.extAreaDoor : 2;
   var aGar  = settings.extAreaGarage!=null ? settings.extAreaGarage : 6;
   var fasciaW = settings.extFasciaWidth!=null ? settings.extFasciaWidth : 0.35;
-  var areaCoats = 0;
-  areaCoats += extWindowSizeUnits(windows)     * aWin  * (mc['ex-wins']  || 2);
-  areaCoats += extWindowSizeUnits(sashWindows) * aSash * 2;            // sash prime & paint = fixed 2 passes
-  areaCoats += (+item.doors  || 0)  * aDoor * (mc['ex-doors'] || 2);
-  areaCoats += (+item.garage || 0)  * aGar  * (mc['ex-garage']|| 2);
-  areaCoats += (+item.fascia || 0)  * fasciaW * (mc['ex-fascia'] || 2);
+  var selfPriming = !!item.woodworkSelfPriming;
+  var winCoats = mc['ex-wins']||2, garCoats = mc['ex-garage']||2, fasciaCoats = mc['ex-fascia']||2;
+  var sashAreaCoats = extWindowSizeUnits(sashWindows) * aSash * 2;
+  var topcoatAreaCoats = extWindowSizeUnits(windows) * aWin * (winCoats + (selfPriming?1:0))
+                        + sashAreaCoats
+                        + (+item.garage||0) * aGar * (garCoats + (selfPriming?1:0))
+                        + (+item.fascia||0) * fasciaW * (fasciaCoats + (selfPriming?1:0));
+  var primerAreaCoats = sashAreaCoats + (selfPriming ? 0 :
+                          extWindowSizeUnits(windows) * aWin * winCoats
+                        + (+item.garage||0) * aGar * garCoats
+                        + (+item.fascia||0) * fasciaW * fasciaCoats);
+  return { topcoatAreaCoats: topcoatAreaCoats, primerAreaCoats: primerAreaCoats };
+}
+function extWoodworkLitres(item) {
+  migrateExtDoorFields(item);
+  var mc = item.coats || {};
+  var other = extOtherWoodworkAreaCoats(item);
+  var doorFrame = doorFrameAreaCoats(+item.doorQty||0, +item.frameQty||0, mc['ex-door']||2, mc['ex-frame']||2, !!item.doorFireDoor, !!item.doorSelfPriming);
+  var areaCoats = other.topcoatAreaCoats + doorFrame.topcoatCoatM2;
   if (areaCoats <= 0) return 0;
   var cov = settings.extWoodCov || 12;
   return areaCoats / cov;
+}
+// Primer litres = 0.8 x the (self-priming-excluded) topcoat-equivalent
+// volume -- same proxy rule as interior primer (calcRoom()'s primerL), just
+// computed from exterior's pooled area×coats instead of a single glossL.
+function extPrimerLitres(item) {
+  migrateExtDoorFields(item);
+  var mc = item.coats || {};
+  var other = extOtherWoodworkAreaCoats(item);
+  var doorFrame = doorFrameAreaCoats(+item.doorQty||0, +item.frameQty||0, mc['ex-door']||2, mc['ex-frame']||2, !!item.doorFireDoor, !!item.doorSelfPriming);
+  var areaCoats = other.primerAreaCoats + doorFrame.primerCoatM2;
+  if (areaCoats <= 0) return 0;
+  var cov = settings.extWoodCov || 12;
+  return areaCoats / cov * 0.8;
 }
 
 // ── Materials snapshot (job-scoped, editable, same lifecycle as rooms/
@@ -6420,7 +6727,15 @@ function buildFinalInvoiceModel() {
   }
   var muVal = effectiveMarkup();
   var fixed = effectiveMarkupType() === 'fixed';
-  var muInv = fixed ? 1 + (rawOrig > 0 ? muVal / rawOrig : 0) : 1 + muVal / 100;
+  // Commercial job adjustment applies before markup here too, same order as
+  // applyMarkupAmount() -- the invoice must reproduce the quote's figures
+  // exactly (this whole function's premise), so it can't skip commercial%
+  // just because it computes muInv independently instead of calling
+  // applyMarkupAmount() (a manual per-line multiplier is needed here since
+  // labour lines need their OWN £ amount, not just a job-wide total).
+  var commercialMultInv = 1 + commercialRatio();
+  var afterCommercialRawOrig = rawOrig * commercialMultInv;
+  var muInv = commercialMultInv * (fixed ? 1 + (afterCommercialRawOrig > 0 ? muVal / afterCommercialRawOrig : 0) : 1 + muVal / 100);
   labour.forEach(function(l) { l.amount = l.raw * muInv; l.dropped = false; });
   // Xero-imported jobs (importAcceptedQuote()) stamp the already-agreed
   // total onto acceptedSnapshot.estQuoteTotal with zero rooms, so rawOrig/
@@ -6446,8 +6761,11 @@ function buildFinalInvoiceModel() {
   // here: labour and sundries go out AS QUOTED.)
   var sundries = rawOrig * (settings.sundriesPct || 0) / 100 * muInv;
 
-  // Variations — same figures the Summary card shows.
-  var varMk = fixed ? 1 : 1 + muVal / 100;
+  // Variations — same figures the Summary card shows. Commercial% applies
+  // here too (same reasoning as muInv above), stacking with markup in
+  // percent mode same as the main plan; fixed-£ markup still never touches
+  // variations (see VARIATIONS_SPEC.md), only commercial does.
+  var varMk = commercialMultInv * (fixed ? 1 : 1 + muVal / 100);
   var variations = [], varRaw = 0, varSpray = 0;
   rooms.forEach(function(r, i) {
     if (!r.isVariation) return;
@@ -7275,10 +7593,19 @@ function onRoomOverrideBandSelect(role) {
 // ── Exterior items (room-style list) ──────────────────────────────────────────
 var extItems = [];
 var editExtId = null;
-var extItemCoats = {'ex-masonry':2,'ex-fascia':2,'ex-wins':2,'ex-doors':2,'ex-garage':2};
+var extItemCoats = {'ex-masonry':2,'ex-fascia':2,'ex-wins':2,'ex-door':2,'ex-frame':2,'ex-garage':2};
 var exSprayRender = false;
 var exTexturedRender = false;
 var exPrepPct = 0;
+// Exterior Door/Frame -- same independent-line-item pattern as a room's
+// doorFireDoor/doorSelfPriming/doorIronRemove/doorIronMask (see calcRoom()),
+// just ex-prefixed. Coats live in extItemCoats above ('ex-door'/'ex-frame'
+// keys) alongside the rest of this item's coat counts. exSelfPrimingWoodwork
+// is the item-wide toggle for the OTHER exterior woodwork (fascia/windows/
+// garage), distinct from the door/frame's own self-priming flag.
+var exDoorFireDoor = false, exDoorSelfPriming = false;
+var exDoorIronRemove = false, exDoorIronMask = false;
+var exSelfPrimingWoodwork = false;
 // Form-local window lists (not the saved item's own arrays until Save is
 // tapped) -- each row is a {qty, panes, access, ...repairs} record describing
 // a GROUP of identical windows, since a 2-pane window is far less work than a
@@ -7461,7 +7788,6 @@ function extSashWindowMins(w, coats) {
   var mult = 1 + (settings.rSashMultiplierPct!=null ? settings.rSashMultiplierPct : 20)/100;
   return extWindowMins(w, coats) * mult;
 }
-function extDoorMins2(c)   { return settings.rExtDoor||150; }
 function extGarageMins2(c) { return settings.rExtGarage||150; }
 // Repair/restoration minutes for ONE window entry. Resin, reglaze and
 // draught-proofing can apply to any window (casement or sash); cords and
@@ -7505,13 +7831,15 @@ function legacyWindowList(qty) {
 }
 
 function calcExtItem(item) {
+  migrateExtDoorFields(item);
   var r2 = rpm(); var hpd = settings.hpd;
   var masonry = +item.masonry||0, fascia = +item.fascia||0;
   var windows = item.windows || legacyWindowList(item.wins);
   var sashWindows = item.sashWindows || legacyWindowList(item.sash);
-  var doors = +item.doors||0, garage = +item.garage||0;
+  var doorQty = +item.doorQty||0, frameQty = +item.frameQty||0, garage = +item.garage||0;
   var porch = +item.porch||0;
   var mc = item.coats||{};
+  var doorCoatsN = mc['ex-door']||2, frameCoatsN = mc['ex-frame']||2;
 
   var masonryCost = masonry > 0 ? masonry * extMasonryMins(mc['ex-masonry']||2, !!item.texturedRender) * r2 : 0;
   var fasciaCost  = fascia  > 0 ? fascia  * extFasciaMins(mc['ex-fascia']||2)   * r2 : 0;
@@ -7524,7 +7852,17 @@ function calcExtItem(item) {
   var winPaintMins  = windows.reduce(function(sum,w){ return sum + extWindowQty(w) * extWindowMins(w, winCoats); }, 0);
   var winRepairMins = windows.reduce(function(sum,w){ return sum + extWindowQty(w) * extWindowRepairMins(w, false); }, 0);
   var winCost  = (winPaintMins + winRepairMins) * r2;
-  var doorCost    = doors   > 0 ? doors   * extDoorMins2()                       * r2 : 0;
+  // Door + Frame: independent line items (own qty/coats each), same shared
+  // calc as a room's -- see doorFrameLabourCost(). Unlike a room, exterior
+  // doesn't get its own independent door/frame prep -- masonry/fascia/
+  // windows/garage all already share this item's one prepUp, so door/frame
+  // does too (into `base` below) rather than adding a second independent
+  // prep control just for this item's doors.
+  var doorFrameLabour = doorFrameLabourCost('ext', doorQty, frameQty, doorCoatsN, frameCoatsN, r2);
+  var doorCost = doorFrameLabour.doorCost, frameCost = doorFrameLabour.frameCost;
+  // Fire door surcharge + ironmongery are flat £/door, added after prep
+  // (same as doorFrameExtrasCost()'s contract for rooms).
+  var doorExtrasCost = doorFrameExtrasCost(doorQty, !!item.doorFireDoor, !!item.doorIronRemove, !!item.doorIronMask);
   var garageCost  = garage  > 0 ? garage  * extGarageMins2()                     * r2 : 0;
   var porchCost   = porch   > 0 ? porch   * settings.dr                               : 0;
   // Sash restoration has no coats toggle of its own -- "prime & paint" is
@@ -7544,15 +7882,16 @@ function calcExtItem(item) {
   var mg = +item.makingGood||0;
 
   var prepUp = item.prepPct >= 0 ? item.prepPct : (+item.prepCustom||0);
-  var base = masonryCost+fasciaCost+winCost+doorCost+garageCost+sashCost+legacyResinCost+legacyReglazeCost;
-  var total = base*(1+prepUp/100) + porchCost + mg;
+  var base = masonryCost+fasciaCost+winCost+doorCost+frameCost+garageCost+sashCost+legacyResinCost+legacyReglazeCost;
+  var total = base*(1+prepUp/100) + porchCost + mg + doorExtrasCost;
   var time  = total / r2 / 60 / hpd;
   // Every per-element cost exposed, not just the window ones -- so
   // renderSummary()'s exterior breakdown reads the SAME figures the total
   // is built from instead of re-implementing masonry/fascia/door/garage/
   // porch/legacy-repair formulas inline (the drift bug NOTES.md documents).
   return { total: total, time: time, winCost: winCost, sashCost: sashCost, repairsCost: repairsCost,
-           masonryCost: masonryCost, fasciaCost: fasciaCost, doorCost: doorCost,
+           masonryCost: masonryCost, fasciaCost: fasciaCost, doorCost: doorCost*(1+prepUp/100),
+           frameCost: frameCost*(1+prepUp/100), doorExtrasCost: doorExtrasCost,
            garageCost: garageCost, porchCost: porchCost,
            // Spray sundries bump basis, same contract as calcRoom()'s
            // sprayLabour. Unlike rooms (whole-room labour), only the masonry
@@ -7774,7 +8113,7 @@ function setExPrep(val) {
 function resetExtForm() {
   editExtId = null;
   exPrepPct = 0;
-  extItemCoats = {'ex-masonry':2,'ex-fascia':2,'ex-wins':2,'ex-doors':2,'ex-garage':2};
+  extItemCoats = {'ex-masonry':2,'ex-fascia':2,'ex-wins':2,'ex-door':2,'ex-frame':2,'ex-garage':2};
   exSprayRender = false;
   document.getElementById('tog-ex-spray').classList.remove('on');
   exTexturedRender = false;
@@ -7790,17 +8129,21 @@ function resetExtForm() {
   exIsVariation = variationApplies(); // new post-acceptance items default to variation
   syncVariationRow('ex-variation-row', 'tog-ex-variation', exIsVariation);
   document.getElementById('ex-label').value = '';
-  ['ex-masonry','ex-fascia','ex-doors','ex-garage','ex-porch',
+  ['ex-masonry','ex-fascia','ex-door-qty','ex-frame-qty','ex-garage','ex-porch',
    'ex-making-good'].forEach(function(id){
     var el=document.getElementById(id); if(el) el.value='';
   });
   document.getElementById('ex-prep-custom').value='';
-  ['ex-masonry','ex-fascia','ex-wins','ex-doors','ex-garage'].forEach(function(k){
+  ['ex-masonry','ex-fascia','ex-wins','ex-door','ex-frame','ex-garage'].forEach(function(k){
     document.querySelectorAll('#seg-'+k+' .seg-btn').forEach(function(b,i){b.classList.toggle('active',i+1===2);});
   });
   var prepVals=[0,10,25,-1];
   document.querySelectorAll('#seg-ex-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',prepVals[i]===0);});
   document.getElementById('ex-prep-custom-row').style.display='none';
+  exDoorFireDoor=false; exDoorSelfPriming=false; exDoorIronRemove=false; exDoorIronMask=false; exSelfPrimingWoodwork=false;
+  ['tog-ex-firedoor','tog-ex-doorselfpriming','tog-ex-ironremove','tog-ex-ironmask','tog-ex-selfprimingwoodwork'].forEach(function(id){
+    document.getElementById(id).classList.remove('on');
+  });
   document.getElementById('ext-preview-card').style.display='none';
   document.getElementById('del-ext-btn').style.display='none';
 }
@@ -7814,6 +8157,35 @@ function toggleExtSpray() {
 function toggleExtTextured() {
   exTexturedRender = !exTexturedRender;
   document.getElementById('tog-ex-tex').classList.toggle('on', exTexturedRender);
+  previewExterior();
+}
+
+function toggleExFireDoor() {
+  exDoorFireDoor = !exDoorFireDoor;
+  document.getElementById('tog-ex-firedoor').classList.toggle('on', exDoorFireDoor);
+  previewExterior();
+}
+function toggleExDoorSelfPriming() {
+  exDoorSelfPriming = !exDoorSelfPriming;
+  document.getElementById('tog-ex-doorselfpriming').classList.toggle('on', exDoorSelfPriming);
+  previewExterior();
+}
+// Remove & refit / Mask in place are mutually exclusive per door item.
+function toggleExDoorIronmongery(which) {
+  if (which === 'remove') {
+    exDoorIronRemove = !exDoorIronRemove;
+    if (exDoorIronRemove) exDoorIronMask = false;
+  } else {
+    exDoorIronMask = !exDoorIronMask;
+    if (exDoorIronMask) exDoorIronRemove = false;
+  }
+  document.getElementById('tog-ex-ironremove').classList.toggle('on', exDoorIronRemove);
+  document.getElementById('tog-ex-ironmask').classList.toggle('on', exDoorIronMask);
+  previewExterior();
+}
+function toggleExSelfPrimingWoodwork() {
+  exSelfPrimingWoodwork = !exSelfPrimingWoodwork;
+  document.getElementById('tog-ex-selfprimingwoodwork').classList.toggle('on', exSelfPrimingWoodwork);
   previewExterior();
 }
 
@@ -7851,7 +8223,11 @@ function getExtFormData() {
     // anything (CSV, older code) that still just wants a qty. Sum of row
     // qtys, not row count, since a row can hold several identical windows.
     wins:    extWindowCount(extFormWindows),
-    doors:   +document.getElementById('ex-doors').value||0,
+    doorQty:  +document.getElementById('ex-door-qty').value||0,
+    frameQty: +document.getElementById('ex-frame-qty').value||0,
+    doorFireDoor: exDoorFireDoor, doorSelfPriming: exDoorSelfPriming,
+    doorIronRemove: exDoorIronRemove, doorIronMask: exDoorIronMask,
+    woodworkSelfPriming: exSelfPrimingWoodwork,
     garage:  +document.getElementById('ex-garage').value||0,
     porch:   +document.getElementById('ex-porch').value||0,
     sashWindows: cleanWindowList(extFormSashWindows),
@@ -7878,9 +8254,10 @@ function showAddExterior() {
 function editExtItem(id) {
   var item = extItems.find(function(x){return x.id===id;});
   if(!item) return;
+  migrateExtDoorFields(item);
   editExtId = id;
   exPrepPct = item.prepPct!=null?item.prepPct:0;
-  extItemCoats = Object.assign({'ex-masonry':2,'ex-fascia':2,'ex-wins':2,'ex-doors':2,'ex-garage':2}, item.coats||{});
+  extItemCoats = Object.assign({'ex-masonry':2,'ex-fascia':2,'ex-wins':2,'ex-door':2,'ex-frame':2,'ex-garage':2}, item.coats||{});
   exSprayRender = !!item.sprayRender;
   document.getElementById('tog-ex-spray').classList.toggle('on', exSprayRender);
   exTexturedRender = !!item.texturedRender;
@@ -7898,11 +8275,20 @@ function editExtItem(id) {
   extFormSashWindows = (item.sashWindows || legacyWindowList(item.sash)).map(function(w){ return Object.assign({ qty: extWindowQty(w), panes: w.panes||2, size: 'medium', access: 'ground' }, w); });
   renderExtWindowList('windows');
   renderExtWindowList('sashWindows');
-  document.getElementById('ex-doors').value   = item.doors||'';
+  document.getElementById('ex-door-qty').value  = item.doorQty||'';
+  document.getElementById('ex-frame-qty').value = item.frameQty||'';
+  exDoorFireDoor=!!item.doorFireDoor; exDoorSelfPriming=!!item.doorSelfPriming;
+  exDoorIronRemove=!!item.doorIronRemove; exDoorIronMask=!!item.doorIronMask;
+  exSelfPrimingWoodwork=!!item.woodworkSelfPriming;
+  document.getElementById('tog-ex-firedoor').classList.toggle('on',exDoorFireDoor);
+  document.getElementById('tog-ex-doorselfpriming').classList.toggle('on',exDoorSelfPriming);
+  document.getElementById('tog-ex-ironremove').classList.toggle('on',exDoorIronRemove);
+  document.getElementById('tog-ex-ironmask').classList.toggle('on',exDoorIronMask);
+  document.getElementById('tog-ex-selfprimingwoodwork').classList.toggle('on',exSelfPrimingWoodwork);
   document.getElementById('ex-garage').value  = item.garage||'';
   document.getElementById('ex-porch').value   = item.porch||'';
   document.getElementById('ex-making-good').value = item.makingGood||'';
-  ['ex-masonry','ex-fascia','ex-wins','ex-doors','ex-garage'].forEach(function(k){
+  ['ex-masonry','ex-fascia','ex-wins','ex-door','ex-frame','ex-garage'].forEach(function(k){
     var v=extItemCoats[k]||2;
     document.querySelectorAll('#seg-'+k+' .seg-btn').forEach(function(b,i){b.classList.toggle('active',i+1===v);});
   });
@@ -8327,6 +8713,34 @@ function migrateWPFields(r) {
   }
 }
 
+// Doors used to be one shared "Doors qty" field, priced at the room's own
+// woodwork coats (xc) with no frame line at all -- frames were never priced
+// separately. A room saved before the split has r.doors but no r.doorQty;
+// map it straight across (frame starts at 0, matching the old behaviour of
+// not pricing frames) so existing jobs cost out unchanged until re-saved.
+function migrateDoorFields(r) {
+  if (r.doorQty == null && r.doors != null) {
+    r.doorQty = +r.doors || 0;
+    r.frameQty = 0;
+    r.doorCoats = +r.xc || 0;
+    r.frameCoats = +r.xc || 0;
+  }
+}
+// Same migration as migrateDoorFields() above, for exterior items -- old
+// items have item.doors (qty, "incl frame" per the old field label, but
+// frame was never actually priced separately) and item.coats['ex-doors'].
+// Frame starts at 0, matching the old not-priced-separately behaviour.
+function migrateExtDoorFields(item) {
+  if (item.doorQty == null && item.doors != null) {
+    item.doorQty = +item.doors || 0;
+    item.frameQty = 0;
+    var legacyCoats = (item.coats || {})['ex-doors'] || 2;
+    item.coats = item.coats || {};
+    item.coats['ex-door'] = legacyCoats;
+    item.coats['ex-frame'] = legacyCoats;
+  }
+}
+
 // Computes wallpaper rolls + labour cost for a surface (walls or
 // ceiling) across however many of {lining, finish} are active. Each
 // active type gets its own roll calc via rollsForType(type) (the actual
@@ -8730,6 +9144,54 @@ function setPanelPrep(val) {
   previewRoom();
 }
 
+// Door / Frame coats -- own seg per line item (0-3, like seg-wc/seg-cc/
+// seg-xc), independent of the room's Woodwork coats (xc).
+function setDoorFrameSeg(which, val) {
+  if (which === 'door') doorCoats = val; else frameCoats = val;
+  document.querySelectorAll('#seg-'+which+'-coats .seg-btn').forEach(function(btn,i) {
+    btn.classList.toggle('active', i===val);
+  });
+  previewRoom();
+}
+function setDoorFramePrep(val) {
+  doorFramePrepPct = val;
+  var vals = [10, 25, 40, -1];
+  document.querySelectorAll('#seg-doorframe-prep .seg-btn').forEach(function(b,i){
+    b.classList.toggle('active', vals[i]===val);
+  });
+  document.getElementById('doorframe-prep-custom-row').style.display = val===-1 ? 'flex' : 'none';
+  previewRoom();
+}
+function toggleFireDoor() {
+  doorFireDoor = !doorFireDoor;
+  document.getElementById('tog-firedoor').classList.toggle('on', doorFireDoor);
+  previewRoom();
+}
+function toggleDoorSelfPriming() {
+  doorSelfPriming = !doorSelfPriming;
+  document.getElementById('tog-doorselfpriming').classList.toggle('on', doorSelfPriming);
+  previewRoom();
+}
+// Remove & refit / Mask in place are mutually exclusive per door item --
+// switching one on switches the other off.
+function toggleDoorIronmongery(which) {
+  if (which === 'remove') {
+    doorIronRemove = !doorIronRemove;
+    if (doorIronRemove) doorIronMask = false;
+  } else {
+    doorIronMask = !doorIronMask;
+    if (doorIronMask) doorIronRemove = false;
+  }
+  document.getElementById('tog-ironremove').classList.toggle('on', doorIronRemove);
+  document.getElementById('tog-ironmask').classList.toggle('on', doorIronMask);
+  previewRoom();
+}
+function toggleSelfPrimingWoodwork() {
+  selfPrimingWoodwork = !selfPrimingWoodwork;
+  document.getElementById('tog-selfprimingwoodwork').classList.toggle('on', selfPrimingWoodwork);
+  previewRoom();
+}
+
 // Panelling wall list -- one row per measured wall (own width/height/coats),
 // same "form-local array, rebuilt on every add/remove, only written into the
 // saved room object on Save" lifecycle as extFormWindows (see addExtWindow()
@@ -8896,7 +9358,14 @@ function previewRoomNow() {
   var fwHeightVal=+document.getElementById('r-featurewall-height').value||0;
   if((L<=0||W<=0||H<=0) && !(fwWidthVal>0 && fwHeightVal>0)) { document.getElementById('room-preview').style.display='none'; return; }
   var r={l:L,w:W,h:H,wc:coats.wc,cc:coats.cc,xc:coats.xc,
-    doors:+document.getElementById('r-doors').value,
+    doorQty:+document.getElementById('r-door-qty').value||0,
+    frameQty:+document.getElementById('r-frame-qty').value||0,
+    doorCoats:doorCoats, frameCoats:frameCoats,
+    doorFramePrepPct:doorFramePrepPct,
+    doorFramePrepCustom:+document.getElementById('r-doorframe-prep-custom').value,
+    doorFireDoor:doorFireDoor, doorSelfPriming:doorSelfPriming,
+    doorIronRemove:doorIronRemove, doorIronMask:doorIronMask,
+    selfPrimingWoodwork:selfPrimingWoodwork,
     win:+document.getElementById('r-win').value,
     sills:+document.getElementById('r-sills').value,
     rads:+document.getElementById('r-rads').value,
@@ -9119,7 +9588,25 @@ function editRoom(id) {
   document.getElementById('r-h').value=r.h;
   document.getElementById('r-win').value=r.win||'';
   document.getElementById('r-sills').value=r.sills||'';
-  document.getElementById('r-doors').value=r.doors||'';
+  migrateDoorFields(r);
+  document.getElementById('r-door-qty').value=r.doorQty||'';
+  document.getElementById('r-frame-qty').value=r.frameQty||'';
+  doorCoats = r.doorCoats!=null ? +r.doorCoats : 2;
+  frameCoats = r.frameCoats!=null ? +r.frameCoats : 2;
+  document.querySelectorAll('#seg-door-coats .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===doorCoats);});
+  document.querySelectorAll('#seg-frame-coats .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===frameCoats);});
+  doorFramePrepPct = r.doorFramePrepPct != null ? r.doorFramePrepPct : 10;
+  document.querySelectorAll('#seg-doorframe-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',[10,25,40,-1][i]===doorFramePrepPct);});
+  document.getElementById('r-doorframe-prep-custom').value = r.doorFramePrepCustom||'';
+  document.getElementById('doorframe-prep-custom-row').style.display = doorFramePrepPct===-1?'flex':'none';
+  doorFireDoor=!!r.doorFireDoor; doorSelfPriming=!!r.doorSelfPriming;
+  doorIronRemove=!!r.doorIronRemove; doorIronMask=!!r.doorIronMask;
+  selfPrimingWoodwork=!!r.selfPrimingWoodwork;
+  document.getElementById('tog-firedoor').classList.toggle('on',doorFireDoor);
+  document.getElementById('tog-doorselfpriming').classList.toggle('on',doorSelfPriming);
+  document.getElementById('tog-ironremove').classList.toggle('on',doorIronRemove);
+  document.getElementById('tog-ironmask').classList.toggle('on',doorIronMask);
+  document.getElementById('tog-selfprimingwoodwork').classList.toggle('on',selfPrimingWoodwork);
   document.getElementById('r-rads').value=r.rads||'';
 
   mistWall=!!r.mistWall; mistCeil=!!r.mistCeil;
@@ -9256,7 +9743,15 @@ function buildRoomFromForm() {
     excludedWalls:excludedWallsForm.filter(function(x){ return (+x.width>0 && +x.height>0); }).map(function(x){ return { id:x.id, width:+x.width, height:+x.height }; }),
     l:+document.getElementById('r-l').value, w:+document.getElementById('r-w').value, h:+document.getElementById('r-h').value,
     wc:coats.wc, cc:coats.cc, xc:coats.xc,
-    win:+document.getElementById('r-win').value, sills:+document.getElementById('r-sills').value, doors:+document.getElementById('r-doors').value, rads:+document.getElementById('r-rads').value,
+    win:+document.getElementById('r-win').value, sills:+document.getElementById('r-sills').value, rads:+document.getElementById('r-rads').value,
+    doorQty:+document.getElementById('r-door-qty').value||0,
+    frameQty:+document.getElementById('r-frame-qty').value||0,
+    doorCoats:doorCoats, frameCoats:frameCoats,
+    doorFramePrepPct:doorFramePrepPct,
+    doorFramePrepCustom:+document.getElementById('r-doorframe-prep-custom').value,
+    doorFireDoor:doorFireDoor, doorSelfPriming:doorSelfPriming,
+    doorIronRemove:doorIronRemove, doorIronMask:doorIronMask,
+    selfPrimingWoodwork:selfPrimingWoodwork,
     mistWall:mistWall, mistCeil:mistCeil, sprayWalls:sprayWalls,
     isVariation:roomIsVariation,
     wpWallLining:wpWallLining, wpWallFinish:wpWallFinish,
@@ -9540,8 +10035,10 @@ function calcHSLNow() {
   // Staircase woodwork (spindles/newels/strings/handrail) -- its own coat
   // count (hslCoats.swc), distinct from the general woodwork coats (xc)
   // below, since spindles/newels aren't always coated the same number of
-  // times as skirting/doors.
-  var doors   = +document.getElementById('r-doors').value||0;
+  // times as skirting.
+  var doorQtyDisp = +document.getElementById('r-door-qty').value||0;
+  var frameQtyDisp = +document.getElementById('r-frame-qty').value||0;
+  var doorFramePrepUpDisp = doorFramePrepPct>=0 ? doorFramePrepPct : (+document.getElementById('r-doorframe-prep-custom').value||0);
   var spindles= +document.getElementById('hsl-spindles').value||0;
   var newels  = +document.getElementById('hsl-newels').value||0;
   var swc     = hslCoats.swc;
@@ -9550,16 +10047,20 @@ function calcHSLNow() {
   var wMins   = (spindles>0||newels>0) ? (spindles*5+newels*5+strLm*2+hrLm*3)*swc : 0;
   var calcWoodCost = wMins*r2;
 
-  // Skirting/doors -- perimeter includes hall AND landings (previously this
+  // Skirting -- perimeter includes hall AND landings (previously this
   // preview only used the hall's perimeter, undercounting vs what actually
-  // got saved; fixed here to match computeHSLOverrides() exactly).
+  // got saved; fixed here to match computeHSLOverrides() exactly). Doors/
+  // frames are their own line item now (see doorFrameLabourCost()), same as
+  // a normal room -- not part of the skirting perimeter calc.
   var landPerimDisp = 0;
   if (hslFloors>=2) { var l1lv=+document.getElementById('hsl-l1-l').value||0, l1wv=+document.getElementById('hsl-l1-w').value||0; landPerimDisp += (l1lv+l1wv)*2; }
   if (hslFloors>=3) { var l2lv=+document.getElementById('hsl-l2-l').value||0, l2wv=+document.getElementById('hsl-l2-w').value||0; landPerimDisp += (l2lv+l2wv)*2; }
   var hallPerimDisp = (h1l+h1w)*2;
   var totalSkirtPerimDisp = hallPerimDisp + landPerimDisp;
   var skirtCostDisp = xc>0 ? totalSkirtPerimDisp*skirtMins(xc)*r2 : 0;
-  var doorCostDisp  = xc>0 ? doors*doorMins(xc)*r2 : 0;
+  var doorFrameLabourDisp = doorFrameLabourCost('int', doorQtyDisp, frameQtyDisp, doorCoats, frameCoats, r2);
+  var doorFrameExtrasDisp = doorFrameExtrasCost(doorQtyDisp, doorFireDoor, doorIronRemove, doorIronMask);
+  var doorCostDisp  = doorFrameLabourDisp.total * (1 + doorFramePrepUpDisp/100) + doorFrameExtrasDisp;
 
   // Rolls to order -- ONE combined total across every wallpapered surface
   // in the run (hall + stair wall(s) + landings, or hall + landing
@@ -9607,7 +10108,10 @@ function calcHSLNow() {
   var ceilCostDisp = cc>0 ? totalCeil*ceilMins(cc)*r2 : 0;
   var prepUpDisp = prepPct >= 0 ? prepPct : (+document.getElementById('r-prep-custom').value||0);
   var makingGoodDisp = +document.getElementById('r-making-good').value||0;
-  var totalCostDisp = (wallCostDisp+ceilCostDisp+skirtCostDisp+doorCostDisp+calcWoodCost+wpwCostDisp+wpcCostDisp+mistCostDisp+winCostDisp+radCostDisp) * (1+prepUpDisp/100) + makingGoodDisp;
+  // doorCostDisp already carries its own independent prep multiplier (see
+  // doorFramePrepUpDisp above), same reasoning as calcRoom()'s doorFrameCost
+  // -- added AFTER the room's own prep, not inside the bracket it applies to.
+  var totalCostDisp = (wallCostDisp+ceilCostDisp+skirtCostDisp+calcWoodCost+wpwCostDisp+wpcCostDisp+mistCostDisp+winCostDisp+radCostDisp) * (1+prepUpDisp/100) + makingGoodDisp + doorCostDisp;
   var totalTimeDisp = totalCostDisp/r2/60/hpd;
 
   // Update results display
@@ -9682,7 +10186,6 @@ function calcHSLNow() {
 function computeHSLOverrides() {
   var r2  = rpm();
   var wc  = coats.wc, cc = coats.cc, xc = coats.xc;
-  var doors = +document.getElementById('r-doors').value||0;
 
   var h1l=+document.getElementById('hsl-h1-l').value||0;
   var h1w=+document.getElementById('hsl-h1-w').value||0;
@@ -9741,7 +10244,7 @@ function computeHSLOverrides() {
   var ceilCost = cc>0 ? totalCeil*ceilMins(cc)*r2 : 0;
 
   // Skirting from hall + landing perimeters -- same real geometry feeds
-  // BOTH the cost (skirtCost/doorCost below) AND, via woodAreaOverride,
+  // BOTH the cost (skirtCost below) AND, via woodAreaOverride,
   // the woodwork MATERIAL litres. Previously only cost used this real
   // perimeter; materials silently used a generic formula against the
   // room's dummy 1x1 placeholder dimensions and under-counted paint --
@@ -9760,12 +10263,13 @@ function computeHSLOverrides() {
   }
   var totalSkirtPerim = hallPerim + landPerim;
   var skirtCost = xc>0 ? totalSkirtPerim*skirtMins(xc)*r2 : 0;
-  var doorCost  = xc>0 ? doors*doorMins(xc)*r2 : 0;
-  var doorSkirtCost = skirtCost + doorCost;
   // Windows are woodwork here too, so their m² joins the gloss-litres basis
-  // alongside skirting/doors (read early -- winCost below reuses it).
+  // alongside skirting (read early -- winCost below reuses it). Doors/frames
+  // are their own line item now (calcRoom()'s doorFrameAreaCoats(), fed
+  // straight from r.doorQty/frameQty like a normal room -- no override
+  // needed since they don't depend on the staircase's dummy 1x1 dimensions).
   var win = +document.getElementById('r-win').value||0;
-  var woodAreaOverride = totalSkirtPerim*0.15 + doors*1.9 + win;
+  var woodAreaOverride = totalSkirtPerim*0.15 + win;
 
   // Wallpaper -- shared card/fields. Rolls computed once here via the SAME
   // computeHSLWallpaperRolls() calcHSL()'s live preview uses (through the
@@ -9822,14 +10326,16 @@ function computeHSLOverrides() {
   // in here manually -- same as the old useHSL() did for prep, extended to
   // also cover makingGood (which the old flow silently dropped for HSL
   // rooms, since the dedicated HSL screen never had a Making Good field).
-  var baseTotal = wallCost+ceilCost+doorSkirtCost+stairWoodStore+wpwCost+wpcCost+mistCost+winCost+radCost;
+  // Door/frame cost is NOT part of this -- calcRoom() adds it separately,
+  // post-total, with its own independent prep, same as panelling.
+  var baseTotal = wallCost+ceilCost+skirtCost+stairWoodStore+wpwCost+wpcCost+mistCost+winCost+radCost;
   var prepUp = prepPct>=0 ? prepPct : (+document.getElementById('r-prep-custom').value||0);
   var makingGood = +document.getElementById('r-making-good').value||0;
   var totalOverride = baseTotal*(1+prepUp/100) + makingGood;
 
   return {
     wallAreaOverride: totalWall, ceilAreaOverride: totalCeil, woodAreaOverride: woodAreaOverride,
-    wallCostStore: wallCost, ceilCostStore: ceilCost, woodCostStore: doorSkirtCost,
+    wallCostStore: wallCost, ceilCostStore: ceilCost, woodCostStore: skirtCost,
     stairWoodStore: stairWoodStore, totalOverride: totalOverride,
     wallRollsOverrideLining: wallRollsOverrideLining, wallRollsOverrideFinish: wallRollsOverrideFinish,
     ceilRollsOverrideLining: ceilRollsOverrideLining, ceilRollsOverrideFinish: ceilRollsOverrideFinish,
@@ -9916,7 +10422,12 @@ function renderSummary() {
   // the flat amount proportionally instead of only working for percentages.
   var rawRoomsTotal = roomCalcs.reduce(function(s,c){ return s + c.total; }, 0);
   var rawExtTotal = extCalcs.reduce(function(s,c){ return s + c.total; }, 0);
-  var mu = markupRatio(rawRoomsTotal + rawExtTotal + kitchenCalc.total);
+  // commercialMult folds into every "* mk" below (mk = commercialMult *
+  // (1+mu)) so per-line breakdown figures sum to the same commercial% +
+  // markup/discount stack applyMarkupAmount() applies to the job total --
+  // see its comment for the "commercial first, then markup" ordering.
+  var commercialMult = 1 + commercialRatio();
+  var mu = markupRatio((rawRoomsTotal + rawExtTotal + kitchenCalc.total) * commercialMult);
   var rows=rooms.map(function(r,ri){
     var c=roomCalcs[ri]; tc+=c.total; tt+=c.time; sprayLabourS+=c.sprayLabour||0;
     // Per-element costs, read straight from calcRoom()'s return (the same
@@ -9926,7 +10437,7 @@ function renderSummary() {
     var wc=+r.wc,cc=+r.cc,xc=+r.xc;
     var wallCost=c.wallCost, ceilCost=c.ceilCost, woodCost=c.woodCost;
     var winCost=c.winCost, radCost=c.radCost, sillCost=c.sillCost||0;
-    var mk=1+mu;
+    var mk=commercialMult*(1+mu);
     var id='room-bd-'+ri;
     var subRows='';
     var woodTotal = (woodCost + winCost + radCost + sillCost) * mk;
@@ -9971,16 +10482,26 @@ function renderSummary() {
     if(c.wpMinTopUp>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Wallpaper minimum charge</span><span class="breakdown-sub-value">'+fmt(c.wpMinTopUp*mk)+'</span></div>';
     var dispWoodTotal = r.woodCostStore != null ? +r.woodCostStore*mk : woodTotal;
     if(r.woodCostStore != null) {
-      // HSL room — show doors/skirtings and stair woodwork separately.
+      // HSL room — show skirtings and stair woodwork separately. Doors/
+      // frames are their own rows below (shared with normal rooms).
       // Wallpaper (walls/ceiling) is NOT repeated here -- the wpwC/wpcC
       // rows above already cover both room types uniformly, since
       // calcRoom() resolves the staircase multiplier via roomWallpaperRolls()'s
       // override read regardless of isHSL.
-      if(+r.woodCostStore>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Woodwork (doors &amp; skirtings)</span><span class="breakdown-sub-value">'+fmt(+r.woodCostStore*mk)+'</span></div>';
+      if(+r.woodCostStore>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Woodwork (skirtings)</span><span class="breakdown-sub-value">'+fmt(+r.woodCostStore*mk)+'</span></div>';
       if(+r.stairWoodStore>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Staircase woodwork</span><span class="breakdown-sub-value">'+fmt(+r.stairWoodStore*mk)+'</span></div>';
     } else {
       if(dispWoodTotal>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Woodwork &amp; extras</span><span class="breakdown-sub-value">'+fmt(dispWoodTotal)+'</span></div>';
     }
+    // Door / Frame -- independent line items, own prep, shown separately from
+    // the rest of the woodwork above regardless of room type (HSL or
+    // normal), since calcRoom() computes them the same way for both.
+    if(c.doorCost>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Door'+(r.doorFireDoor?' (fire door)':'')+'</span><span class="breakdown-sub-value">'+fmt(c.doorCost*mk)+'</span></div>';
+    if(c.frameCost>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Frame</span><span class="breakdown-sub-value">'+fmt(c.frameCost*mk)+'</span></div>';
+    if(c.doorFramePrepUp>0 && (c.doorCost>0||c.frameCost>0)) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Door/Frame prep ('+prepLabelFor(c.doorFramePrepUp)+')</span><span class="breakdown-sub-value">'+fmt((c.doorCost+c.frameCost-c.doorFrameRawCost)*mk)+'</span></div>';
+    var doorQtyForExtras = +r.doorQty||0;
+    if(r.doorFireDoor && doorQtyForExtras>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Fire door surcharge</span><span class="breakdown-sub-value">'+fmt(doorQtyForExtras*(settings.fireDoorSurcharge!=null?settings.fireDoorSurcharge:10)*mk)+'</span></div>';
+    if((r.doorIronRemove||r.doorIronMask) && doorQtyForExtras>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ironmongery ('+(r.doorIronRemove?'remove &amp; refit':'mask in place')+')</span><span class="breakdown-sub-value">'+fmt(doorQtyForExtras*(r.doorIronRemove ? (settings.ironmongeryRemovePrice!=null?settings.ironmongeryRemovePrice:8) : (settings.ironmongeryMaskPrice!=null?settings.ironmongeryMaskPrice:4))*mk)+'</span></div>';
     return '<div class="room-item room-item-tap" onclick="toggleRoomBd(this.dataset.id)" data-id="'+id+'"  style="border-bottom:none">'+
       '<div class="room-icon">'+r.emoji+'</div>'+
       '<div class="room-info"><div class="room-name">'+r.name+(r.isVariation?' <span style=\"color:var(--accent);font-size:10px;font-weight:700;letter-spacing:.03em\">VARIATION</span>':'')+'</div>'+
@@ -10200,8 +10721,13 @@ function renderSummary() {
         '<small style="display:block;font-weight:400;color:var(--text2);margin-top:2px">'+ttAll.toFixed(1)+'d working'+(hasVariations ? ' incl. variations' : '')+'</small></div>'+
     '</div>'+
     '<div class="card" style="margin-top:16px">'+
+      '<div class="card-header">Commercial Job</div>'+
+      '<div class="toggle-row"><div class="toggle-label">Commercial job<small>Applies '+(settings.commercialPct!=null?settings.commercialPct:10)+'% before markup/discount below</small></div>'+
+        '<div class="toggle'+(activeJob()&&activeJob().commercial?' on':'')+'" onclick="setJobCommercial('+(activeJob()&&activeJob().commercial?'false':'true')+')"></div></div>'+
+    '</div>'+
+    '<div class="card" style="margin-top:16px">'+
       '<div class="card-header">Markup / Discount</div>'+
-      '<div class="field-row"><div class="field-label">This quote<small>'+(activeJob()&&activeJob().markupOverride!=null?'overridden, default is '+settings.mu+'%':'default, from Settings')+'</small></div>'+
+      '<div class="field-row"><div class="field-label">This quote<small>'+(activeJob()&&activeJob().markupOverride!=null?'overridden, default is '+settings.mu+'%':'default, from Settings')+(activeJob()&&activeJob().commercial?' — applied after the commercial adjustment above':'')+'</small></div>'+
         '<div style="display:flex;align-items:center;gap:10px">'+
         (activeJob()&&activeJob().markupOverride!=null?'<div onclick="resetJobMarkup()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;text-decoration:underline">Reset</div>':'')+
         '<div class="seg" style="width:76px">'+
@@ -10234,7 +10760,7 @@ function renderSummary() {
     '<div><div class="section-title" style="margin-bottom:8px">Room Breakdown</div>'+
     '<div class="card">'+rows+
     (extItems.length>0?extItems.map(function(item,ei){
-      var c=extCalcs[ei]; var mk=1+mu;
+      var c=extCalcs[ei]; var mk=commercialMult*(1+mu);
       var eid='ext-bd-'+ei;
       var sub='';
       // Every per-element cost comes straight from calcExtItem() (c, above)
@@ -10245,6 +10771,7 @@ function renderSummary() {
       var fasciaCost  = c.fasciaCost||0;
       var winCost     = c.winCost||0;
       var doorCost    = c.doorCost||0;
+      var frameCost   = c.frameCost||0;
       var garageCost  = c.garageCost||0;
       var porchCost   = c.porchCost||0;
       var sashCost    = c.sashCost||0;
@@ -10256,11 +10783,15 @@ function renderSummary() {
       // legacy fallback comment there.
       var legacyResinCost   = c.legacyResinCost||0;
       var legacyReglazeCost = c.legacyReglazeCost||0;
-      if(prepUp>0){var base=masonryCost+fasciaCost+winCost+doorCost+garageCost+sashCost+legacyResinCost+legacyReglazeCost;sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Prep ('+prepLabel+')</span><span class="breakdown-sub-value">'+fmt(base*(prepUp/100)*mk)+'</span></div>';}
+      if(prepUp>0){var base=masonryCost+fasciaCost+winCost+doorCost+frameCost+garageCost+sashCost+legacyResinCost+legacyReglazeCost;sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Prep ('+prepLabel+')</span><span class="breakdown-sub-value">'+fmt(base*(prepUp/100)*mk)+'</span></div>';}
       if(masonryCost>0){var renderTags=[item.texturedRender?'textured':'',item.sprayRender?'sprayed':''].filter(Boolean).join(', ');sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Masonry / Render'+(renderTags?' — '+renderTags:'')+'</span><span class="breakdown-sub-value">'+fmt(masonryCost*mk)+'</span></div>';}
       if(fasciaCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Fascias &amp; Soffits</span><span class="breakdown-sub-value">'+fmt(fasciaCost*mk)+'</span></div>';
       if(winCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ext Windows</span><span class="breakdown-sub-value">'+fmt(winCost*mk)+'</span></div>';
-      if(doorCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ext Doors</span><span class="breakdown-sub-value">'+fmt(doorCost*mk)+'</span></div>';
+      if(doorCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ext Door'+(item.doorFireDoor?' (fire door)':'')+'</span><span class="breakdown-sub-value">'+fmt(doorCost*mk)+'</span></div>';
+      if(frameCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ext Frame</span><span class="breakdown-sub-value">'+fmt(frameCost*mk)+'</span></div>';
+      var extDoorQtyForExtras = +item.doorQty||0;
+      if(item.doorFireDoor && extDoorQtyForExtras>0) sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Fire door surcharge</span><span class="breakdown-sub-value">'+fmt(extDoorQtyForExtras*(settings.fireDoorSurcharge!=null?settings.fireDoorSurcharge:10)*mk)+'</span></div>';
+      if((item.doorIronRemove||item.doorIronMask) && extDoorQtyForExtras>0) sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ironmongery ('+(item.doorIronRemove?'remove &amp; refit':'mask in place')+')</span><span class="breakdown-sub-value">'+fmt(extDoorQtyForExtras*(item.doorIronRemove ? (settings.ironmongeryRemovePrice!=null?settings.ironmongeryRemovePrice:8) : (settings.ironmongeryMaskPrice!=null?settings.ironmongeryMaskPrice:4))*mk)+'</span></div>';
       if(garageCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Garage Doors</span><span class="breakdown-sub-value">'+fmt(garageCost*mk)+'</span></div>';
       if(porchCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Porch / Feature Door</span><span class="breakdown-sub-value">'+fmt(porchCost*mk)+'</span></div>';
       if(sashCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Sash prime &amp; paint</span><span class="breakdown-sub-value">'+fmt(sashCost*mk)+'</span></div>';
@@ -10277,7 +10808,7 @@ function renderSummary() {
       '<div style="height:1px;background:var(--border)"></div>';
     }).join(''):'')+
     (kitchenTotal>0?(function(){
-      var mk = 1+mu;
+      var mk = commercialMult*(1+mu);
       var ksub = [
         ['Doors', kitchenCalc.doorsTotal], ['Drawer Fronts', kitchenCalc.drawersTotal],
         ['End Panels', kitchenCalc.endpanelsTotal], ['Fillers', kitchenCalc.fillersTotal],
@@ -10309,8 +10840,15 @@ function renderSummary() {
     (sundries>0?'<div class="breakdown-row">'+
       '<span class="breakdown-label">Sundries &amp; Consumables<small style="display:block;font-weight:400;color:var(--text2)">'+settings.sundriesPct+'% of labour'+(plan.spraySundries>0?' + '+settings.sundriesSprayPct+'% spray masking on sprayed areas':'')+'</small></span>'+
       '<span class="breakdown-value">'+fmt(sundries)+'</span></div>':'')+
+    // Order of operations, per the Commercial Job card above: commercial%
+    // applies first (to labour + sundries), THEN markup/discount on top of
+    // that already-adjusted figure -- see applyMarkupAmount(). Both rows
+    // read from the same running total so the maths always matches labourTotal.
+    (activeJob()&&activeJob().commercial?'<div class="breakdown-row">'+
+      '<span class="breakdown-label">Commercial adjustment<small style="display:block;font-weight:400;color:var(--text2)">'+(settings.commercialPct!=null?settings.commercialPct:10)+'% on labour + sundries, before markup/discount</small></span>'+
+      '<span class="breakdown-value">'+fmt(applyCommercialAmount(tcOrig+sundries)-(tcOrig+sundries))+'</span></div>':'')+
     '<div class="breakdown-row">'+
-      '<span class="breakdown-label" style="font-weight:600;color:var(--text)">'+markupSummaryLabel()+'<small style="display:block;font-weight:400;color:var(--text2)">on labour + sundries</small></span>'+
+      '<span class="breakdown-label" style="font-weight:600;color:var(--text)">'+markupSummaryLabel()+'<small style="display:block;font-weight:400;color:var(--text2)">on labour + sundries'+(activeJob()&&activeJob().commercial?' + commercial adjustment':'')+'</small></span>'+
       '<span class="breakdown-value" style="color:var(--accent)">'+fmt(labourTotal)+'</span></div>'+
     '</div></div>'+
     '<div><div class="section-title" style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">Materials'+
@@ -10373,15 +10911,15 @@ function exportCSV() {
   lines.push([q('Hours Per Day'),q(s.hpd)].join(','));
   lines.push([q('Markup %'),q(s.mu)].join(','));
   lines.push('');
-  var hdr=['Room','L','W','H','Wall Area','Ceil Area','Walls Coats','Ceil Coats','Wood Coats','Windows','Doors','Rads','New Plaster','Wall Colour','Ceiling Colour','Woodwork Colour','Cost','Time (days)'];
+  var hdr=['Room','L','W','H','Wall Area','Ceil Area','Walls Coats','Ceil Coats','Wood Coats','Windows','Doors','Frames','Rads','New Plaster','Wall Colour','Ceiling Colour','Woodwork Colour','Cost','Time (days)'];
   lines.push(hdr.map(q).join(','));
   var tc=0,tt=0;
   rooms.forEach(function(r){
-    var c=calcRoom(r); tc+=c.total; tt+=c.time;
+    var c=calcRoom(r); tc+=c.total; tt+=c.time; // calcRoom() migrates r.doorQty/frameQty in place if needed
     var wallColour = +r.wc>0 ? colourLabelFor(r.colourNumber||1) : '';
     var ceilColour = +r.cc>0 ? colourLabelFor(r.ceilingColourNumber||1) : '';
     var woodColour = +r.xc>0 ? colourLabelFor(r.woodworkColourNumber||1) : '';
-    var row=[r.name,r.l,r.w,r.h,c.wallArea.toFixed(2),c.ceilArea.toFixed(2),r.wc,r.cc,r.xc,r.win,r.doors,r.rads,r.np?'Yes':'No',wallColour,ceilColour,woodColour,c.total.toFixed(2),c.time.toFixed(2)];
+    var row=[r.name,r.l,r.w,r.h,c.wallArea.toFixed(2),c.ceilArea.toFixed(2),r.wc,r.cc,r.xc,r.win,r.doorQty||0,r.frameQty||0,r.rads,r.np?'Yes':'No',wallColour,ceilColour,woodColour,c.total.toFixed(2),c.time.toFixed(2)];
     lines.push(row.map(q).join(','));
   });
   var extTotal=0, extTimeTotal=0;
@@ -10393,8 +10931,9 @@ function exportCSV() {
   lines.push('');
   var tcS=tc+extTotal+kitchenTotal; var total=applyMarkupAmount(tcS);
   lines.push([q('Labour subtotal'),q(tcS.toFixed(2))].join(','));
+  if(activeJob() && activeJob().commercial) lines.push([q('Commercial job adjustment (%, applied before markup)'),q(settings.commercialPct!=null?settings.commercialPct:10)].join(','));
   lines.push([q(effectiveMarkupType()==='fixed'?'Markup/Discount (£, this quote)':'Markup/Discount (%, this quote)'),q(effectiveMarkup())].join(','));
-  lines.push([q('Total quote (inc markup)'),q(total.toFixed(2))].join(','));
+  lines.push([q('Total quote (inc commercial adjustment + markup)'),q(total.toFixed(2))].join(','));
   var csv=lines.join('\n');
   var blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
   var url=URL.createObjectURL(blob);
