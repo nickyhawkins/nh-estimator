@@ -718,7 +718,7 @@ router.get('/material-groups', async (req, res) => {
 
 // Create quote in Xero
 router.post('/create-quote', async (req, res) => {
-  const { clientName, jobName, xeroRef, rooms, exterior, kitchen, materials, settings, markup, markupType, paymentTerms, paymentSummary, contactId, newContact, updateQuoteId } = req.body;
+  const { clientName, jobName, xeroRef, rooms, exterior, kitchen, materials, settings, markup, markupType, commercial, commercialPct, paymentTerms, paymentSummary, contactId, newContact, updateQuoteId } = req.body;
 
   try {
     const accessToken = await getAccessToken();
@@ -755,9 +755,17 @@ router.post('/create-quote', async (req, res) => {
     if (rooms) rooms.forEach(r => { rawLabourSubtotal += r.total; });
     if (exterior && exterior.cost > 0) rawLabourSubtotal += exterior.cost;
     if (kitchen && kitchen.cost > 0) rawLabourSubtotal += kitchen.cost;
-    const mu = markupType === 'fixed'
-      ? 1 + (rawLabourSubtotal > 0 ? markup / rawLabourSubtotal : 0)
-      : 1 + (markup / 100);
+    // Commercial job (estimating-app-edits.md): applies BEFORE markup/
+    // discount, same order as the client's applyMarkupAmount() -- a flat £
+    // markup's ratio is expressed against the commercial-adjusted base too,
+    // so "commercial first, then markup" holds for both markup modes here,
+    // matching the app's own Summary breakdown exactly.
+    const commercialMult = commercial ? 1 + ((commercialPct != null ? commercialPct : 10) / 100) : 1;
+    const afterCommercialBase = rawLabourSubtotal * commercialMult;
+    const markupRatioVal = markupType === 'fixed'
+      ? (afterCommercialBase > 0 ? markup / afterCommercialBase : 0)
+      : (markup / 100);
+    const mu = commercialMult * (1 + markupRatioVal);
 
     // Helper to format currency
     const fmt = (n) => Math.round(n * 100) / 100;

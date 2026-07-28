@@ -923,7 +923,7 @@ async function copyJobRows(entry, newJobId) {
 function templateJobData(d) {
   d = d || {};
   const keep = {};
-  ['materialsSeeded', 'markupOverride', 'markupType'].forEach(k => {
+  ['materialsSeeded', 'markupOverride', 'markupType', 'commercial'].forEach(k => {
     if (d[k] !== undefined && d[k] !== null) keep[k] = d[k];
   });
   if (d.kitchen) {
