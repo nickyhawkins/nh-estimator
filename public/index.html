@@ -580,6 +580,10 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         <div class="subsection-label">Frame<small>leave qty at 0 to price doors only</small></div>
         <div class="field-row"><div class="field-label">Qty</div><input type="number" class="field-input" id="r-frame-qty" placeholder="0" min="0" step="1" inputmode="numeric" oninput="previewRoom()"></div>
         <div class="field-row"><div class="field-label">Coats</div><div class="seg" id="seg-frame-coats"><button class="seg-btn" onclick="setDoorFrameSeg('frame',0)">0</button><button class="seg-btn" onclick="setDoorFrameSeg('frame',1)">1</button><button class="seg-btn active" onclick="setDoorFrameSeg('frame',2)">2</button><button class="seg-btn" onclick="setDoorFrameSeg('frame',3)">3</button></div></div>
+        <div class="toggle-row" style="border-top:1px solid var(--border)">
+          <div class="toggle-label">Both sides<small>Price the whole leaf (both faces) in this qty — off prices just the side visible from this room</small></div>
+          <div class="toggle" id="tog-doorbothsides" onclick="toggleDoorBothSides()"></div>
+        </div>
         <div class="field-row" style="border-top:1px solid var(--border)">
           <div class="field-label">Prep level<small>independent of the room's own prep</small></div>
           <div class="seg" id="seg-doorframe-prep" style="flex:1.5">
@@ -939,7 +943,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     </div>
     <div class="card">
       <div class="card-header">Doors &amp; Frames</div>
-      <div class="field-row"><div class="field-label">Door face area<small>m² paintable — ONE side of one door leaf (the side visible from this room), used for topcoat/primer litres. A door between two rooms is priced once per room. Shared by interior rooms and exterior doors.</small></div><input type="number" class="field-input" id="s-doorfacearea" value="1.5" min="0.1" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Door face area<small>m² paintable — ONE side of one door leaf, edge included (a door painted both sides ≈ 3.5m², so one face is half). Used for topcoat/primer litres. A door between two rooms is priced once per room — see the Both sides toggle to price a whole leaf as one line instead. Shared by interior rooms and exterior doors.</small></div><input type="number" class="field-input" id="s-doorfacearea" value="1.75" min="0.1" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Frame area<small>m² paintable — ONE side of the frame/lining (the side visible from this room). Shared by interior rooms and exterior doors.</small></div><input type="number" class="field-input" id="s-doorframearea" value="0.4" min="0.1" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Fire door edge area<small>m² — added on top of the face area when a door's Fire door flag is on, so litres cover edges too</small></div><input type="number" class="field-input" id="s-dooredgearea" value="0.3" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Fire door surcharge<small>£ per door — FD30/FD60, intumescent-compatible coating</small></div><input type="number" class="field-input" id="s-firedoorsurcharge" value="10" min="0" step="1" inputmode="decimal" onchange="saveSettings()"></div>
@@ -1207,6 +1211,10 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="subsection-label">Frame<small>leave qty at 0 to price doors only</small></div>
       <div class="field-row"><div class="field-label">Qty</div><input type="number" class="field-input" id="ex-frame-qty" placeholder="0" min="0" step="1" inputmode="numeric" oninput="previewExterior()"></div>
       <div class="field-row"><div class="field-label">Coats</div><div class="seg" id="seg-ex-frame"><button class="seg-btn" onclick="setExtSeg('ex-frame',1)">1</button><button class="seg-btn active" onclick="setExtSeg('ex-frame',2)">2</button><button class="seg-btn" onclick="setExtSeg('ex-frame',3)">3</button></div></div>
+      <div class="toggle-row" style="border-top:1px solid var(--border)">
+        <div class="toggle-label">Both sides<small>Price the whole leaf (both faces) in this qty — off prices just the outside face</small></div>
+        <div class="toggle" id="tog-ex-doorbothsides" onclick="toggleExDoorBothSides()"></div>
+      </div>
       <div class="toggle-row" style="border-top:1px solid var(--border)">
         <div class="toggle-label">Fire door (FD30/FD60)<small>Intumescent-compatible coating surcharge; includes edges in the coat/coverage calc</small></div>
         <div class="toggle" id="tog-ex-firedoor" onclick="toggleExFireDoor()"></div>
@@ -2489,7 +2497,7 @@ var SETTINGS_FIELDS = [
   ['rDoorCoat',    's-rdoorcoat',     10],
   ['rFramePrep',   's-rframeprep',    5],
   ['rFrameCoat',   's-rframecoat',    6],
-  ['doorFaceAreaM2',  's-doorfacearea',  1.5],
+  ['doorFaceAreaM2',  's-doorfacearea',  1.75],
   ['doorFrameAreaM2', 's-doorframearea', 0.4],
   ['doorEdgeAreaM2',  's-dooredgearea',  0.3],
   ['fireDoorSurcharge',     's-firedoorsurcharge', 10],
@@ -2653,6 +2661,13 @@ var doorCoats = 2, frameCoats = 2;
 var doorFramePrepPct = 10;
 var doorFireDoor = false, doorSelfPriming = false;
 var doorIronRemove = false, doorIronMask = false;
+// Both sides: prices the whole leaf (both faces) as one line instead of the
+// default one-face-per-room split -- for jobs that don't split neatly into
+// two rooms (a standalone door count, an exterior door). Doubles the face
+// area/labour, not the fire door edge allowance or the surcharge/
+// ironmongery (all fixed per-door, not per-face) -- see doorFrameLabourCost()/
+// doorFrameAreaCoats()'s comments.
+var doorBothSides = false;
 // "Other woodwork" (skirting/sills/windows) self-priming -- distinct from
 // doorSelfPriming above (doors/frames are their own item now) and from the
 // existing primerNone product flag (roomOverrides.primer.none), which just
@@ -4618,13 +4633,13 @@ function goScreen(name) {
     editId=null; coats={wc:2,cc:2,xc:2}; mistWall=false; mistCeil=false; sprayWalls=false; prepPct=10;
     doorCoats=2; frameCoats=2; doorFramePrepPct=10;
     doorFireDoor=false; doorSelfPriming=false; doorIronRemove=false; doorIronMask=false;
-    selfPrimingWoodwork=false;
+    doorBothSides=false; selfPrimingWoodwork=false;
     document.querySelectorAll('#seg-door-coats .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===2);});
     document.querySelectorAll('#seg-frame-coats .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===2);});
     document.querySelectorAll('#seg-doorframe-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===0);});
     document.getElementById('doorframe-prep-custom-row').style.display = 'none';
     document.getElementById('r-doorframe-prep-custom').value = '';
-    ['tog-firedoor','tog-doorselfpriming','tog-ironremove','tog-ironmask','tog-selfprimingwoodwork'].forEach(function(id){
+    ['tog-firedoor','tog-doorselfpriming','tog-doorbothsides','tog-ironremove','tog-ironmask','tog-selfprimingwoodwork'].forEach(function(id){
       document.getElementById(id).classList.remove('on');
     });
     roomIsVariation = variationApplies(); // new post-acceptance items default to variation
@@ -4777,11 +4792,17 @@ function sillMins()     { return settings.rSill || 15; }                   // pe
 // rather than copies. `kind` picks the labour rate pair: 'ext' uses the
 // exterior per-coat rates (no flat prep component, matching extFasciaMins's
 // shape), anything else uses the interior door/frame rate pair above.
-function doorFrameLabourCost(kind, doorQty, frameQty, doorCoats, frameCoats, r2) {
+// bothSides doubles the labour (painting the second face is a second coat
+// pass) -- an explicit toggle for "price this door's whole leaf in one line"
+// instead of the old workaround of doubling the qty, which also silently
+// doubled the fire door surcharge/ironmongery (both genuinely per-door, not
+// per-face -- see doorFrameExtrasCost()).
+function doorFrameLabourCost(kind, doorQty, frameQty, doorCoats, frameCoats, r2, bothSides) {
   var doorUnitMins  = kind === 'ext' ? function(c){ return c * (settings.rExtDoor  || 75); } : doorMins;
   var frameUnitMins = kind === 'ext' ? function(c){ return c * (settings.rExtFrame || 40); } : frameMins;
-  var doorCost  = doorQty>0  && doorCoats>0  ? doorQty  * doorUnitMins(doorCoats)   * r2 : 0;
-  var frameCost = frameQty>0 && frameCoats>0 ? frameQty * frameUnitMins(frameCoats) * r2 : 0;
+  var facesMult = bothSides ? 2 : 1;
+  var doorCost  = doorQty>0  && doorCoats>0  ? doorQty  * doorUnitMins(doorCoats)   * facesMult * r2 : 0;
+  var frameCost = frameQty>0 && frameCoats>0 ? frameQty * frameUnitMins(frameCoats) * facesMult * r2 : 0;
   return { doorCost: doorCost, frameCost: frameCost, total: doorCost + frameCost };
 }
 // Materials basis for door+frame topcoat/primer litres, expressed as
@@ -4789,32 +4810,40 @@ function doorFrameLabourCost(kind, doorQty, frameQty, doorCoats, frameCoats, r2)
 // whatever else shares the same tin (room woodwork, exterior woodwork) and
 // convert the pooled total to litres once, so half-litre rounding happens
 // only at the very end (matching wL/gL elsewhere in this file).
-// doorFaceArea/frameArea are per FACE, not per leaf -- a room only ever
-// paints the one side of the door/frame visible from inside it (per
-// Nicky: "when painting a room only one side of the door is painted"), so
-// a door between two rooms is priced twice, once per room, each covering
-// its own face. Doubling happens naturally by adding the door as its own
-// line to both rooms, never inside this function.
+// doorFaceArea/frameArea are per FACE, not per leaf, and already include the
+// one edge that gets painted along with that face (per Nicky: a standard
+// door painted both sides is ~3.5m², so one face -- edge included -- is
+// half that, ~1.75m²). A room only ever paints the one side of the door/
+// frame visible from inside it, so a door between two rooms is normally
+// priced twice, once per room, each covering its own face -- doubling
+// happens naturally by adding the door as its own line to both rooms. The
+// bothSides toggle is the alternative: pricing the WHOLE leaf (both faces)
+// as a single line, for jobs that don't split neatly into two rooms (a
+// standalone door count, an exterior door) -- it doubles the face area,
+// but NOT the fire door edge allowance below, since the extra edges
+// (top/bottom/hinge side) a fire door needs sealed are a fixed physical
+// amount that doesn't grow just because both faces are now being priced
+// together.
 // Self-priming paint (fire doors especially are often specified with an
 // intumescent self-priming system): when on, the topcoat side gets ONE
 // extra coat-equivalent instead of a primer coat, and the primer side drops
 // to zero for this door/frame -- swapping which tin the last coat comes out
 // of rather than just adding/removing a flat line (estimating-app-edits.md
-// self-priming ask). Fire door faces are assumed to need their edges coated
-// too (intumescent seals run around the door edge), so the fire door flag
-// adds a fixed edge allowance to the face area on top of the surcharge.
-function doorFrameAreaCoats(doorQty, frameQty, doorCoats, frameCoats, fireDoor, selfPriming) {
-  var doorFaceArea = settings.doorFaceAreaM2  != null ? settings.doorFaceAreaM2  : 1.5;
+// self-priming ask).
+function doorFrameAreaCoats(doorQty, frameQty, doorCoats, frameCoats, fireDoor, selfPriming, bothSides) {
+  var doorFaceArea = settings.doorFaceAreaM2  != null ? settings.doorFaceAreaM2  : 1.75;
   var doorEdgeArea = settings.doorEdgeAreaM2  != null ? settings.doorEdgeAreaM2  : 0.3;
   var frameArea    = settings.doorFrameAreaM2 != null ? settings.doorFrameAreaM2 : 0.4;
-  var doorAreaEach  = doorFaceArea + (fireDoor ? doorEdgeArea : 0);
+  var facesMult = bothSides ? 2 : 1;
+  var doorAreaEach  = doorFaceArea * facesMult + (fireDoor ? doorEdgeArea : 0);
+  var frameAreaEach = frameArea * facesMult;
   var doorEffCoats  = doorCoats  + (selfPriming ? 1 : 0);
   var frameEffCoats = frameCoats + (selfPriming ? 1 : 0);
-  var topcoatCoatM2 = (doorQty>0  && doorCoats>0  ? doorQty  * doorAreaEach * doorEffCoats  : 0)
-                     + (frameQty>0 && frameCoats>0 ? frameQty * frameArea    * frameEffCoats : 0);
+  var topcoatCoatM2 = (doorQty>0  && doorCoats>0  ? doorQty  * doorAreaEach  * doorEffCoats  : 0)
+                     + (frameQty>0 && frameCoats>0 ? frameQty * frameAreaEach * frameEffCoats : 0);
   var primerCoatM2  = selfPriming ? 0 :
-                        (doorQty>0  && doorCoats>0  ? doorQty  * doorAreaEach * doorCoats  : 0)
-                      + (frameQty>0 && frameCoats>0 ? frameQty * frameArea    * frameCoats : 0);
+                        (doorQty>0  && doorCoats>0  ? doorQty  * doorAreaEach  * doorCoats  : 0)
+                      + (frameQty>0 && frameCoats>0 ? frameQty * frameAreaEach * frameCoats : 0);
   return { topcoatCoatM2: topcoatCoatM2, primerCoatM2: primerCoatM2 };
 }
 // Fire door surcharge + ironmongery handling are flat £/door add-ons, not
@@ -4896,7 +4925,7 @@ function calcRoom(r) {
   // surcharge + ironmongery are flat £/door add-ons, so they're added AFTER
   // the prep multiplier, never scaled by it.
   var doorFramePrepUp = r.doorFramePrepPct >= 0 ? r.doorFramePrepPct : (+r.doorFramePrepCustom||0);
-  var doorFrameLabour = doorFrameLabourCost('int', doorQty, frameQty, doorCoats, frameCoats, r2);
+  var doorFrameLabour = doorFrameLabourCost('int', doorQty, frameQty, doorCoats, frameCoats, r2, !!r.doorBothSides);
   var doorCost  = doorFrameLabour.doorCost  * (1 + doorFramePrepUp/100);
   var frameCost = doorFrameLabour.frameCost * (1 + doorFramePrepUp/100);
   var doorExtrasCost = doorFrameExtrasCost(doorQty, !!r.doorFireDoor, !!r.doorIronRemove, !!r.doorIronMask);
@@ -5021,7 +5050,7 @@ function calcRoom(r) {
   var selfPrimingWoodwork = !!r.selfPrimingWoodwork;
   var otherWoodTopcoatCoatM2 = xc>0 ? wdA * (xc + (selfPrimingWoodwork?1:0)) : 0;
   var otherWoodPrimerCoatM2  = (xc>0 && !r.primerNone && !selfPrimingWoodwork) ? wdA*xc : 0;
-  var doorFrameAreas = doorFrameAreaCoats(doorQty, frameQty, doorCoats, frameCoats, !!r.doorFireDoor, !!r.doorSelfPriming);
+  var doorFrameAreas = doorFrameAreaCoats(doorQty, frameQty, doorCoats, frameCoats, !!r.doorFireDoor, !!r.doorSelfPriming, !!r.doorBothSides);
   var totalTopcoatCoatM2 = otherWoodTopcoatCoatM2 + doorFrameAreas.topcoatCoatM2;
   // primerNone is a room-wide "don't buy a primer product" choice, so it
   // zeroes the door/frame share too, same as it always zeroed the whole room.
@@ -5612,7 +5641,7 @@ function extWoodworkLitres(item) {
   migrateExtDoorFields(item);
   var mc = item.coats || {};
   var other = extOtherWoodworkAreaCoats(item);
-  var doorFrame = doorFrameAreaCoats(+item.doorQty||0, +item.frameQty||0, mc['ex-door']||2, mc['ex-frame']||2, !!item.doorFireDoor, !!item.doorSelfPriming);
+  var doorFrame = doorFrameAreaCoats(+item.doorQty||0, +item.frameQty||0, mc['ex-door']||2, mc['ex-frame']||2, !!item.doorFireDoor, !!item.doorSelfPriming, !!item.doorBothSides);
   var areaCoats = other.topcoatAreaCoats + doorFrame.topcoatCoatM2;
   if (areaCoats <= 0) return 0;
   var cov = settings.extWoodCov || 12;
@@ -5625,7 +5654,7 @@ function extPrimerLitres(item) {
   migrateExtDoorFields(item);
   var mc = item.coats || {};
   var other = extOtherWoodworkAreaCoats(item);
-  var doorFrame = doorFrameAreaCoats(+item.doorQty||0, +item.frameQty||0, mc['ex-door']||2, mc['ex-frame']||2, !!item.doorFireDoor, !!item.doorSelfPriming);
+  var doorFrame = doorFrameAreaCoats(+item.doorQty||0, +item.frameQty||0, mc['ex-door']||2, mc['ex-frame']||2, !!item.doorFireDoor, !!item.doorSelfPriming, !!item.doorBothSides);
   var areaCoats = other.primerAreaCoats + doorFrame.primerCoatM2;
   if (areaCoats <= 0) return 0;
   var cov = settings.extWoodCov || 12;
@@ -7615,6 +7644,7 @@ var exPrepPct = 0;
 // garage), distinct from the door/frame's own self-priming flag.
 var exDoorFireDoor = false, exDoorSelfPriming = false;
 var exDoorIronRemove = false, exDoorIronMask = false;
+var exDoorBothSides = false;
 var exSelfPrimingWoodwork = false;
 // Form-local window lists (not the saved item's own arrays until Save is
 // tapped) -- each row is a {qty, panes, access, ...repairs} record describing
@@ -7868,7 +7898,7 @@ function calcExtItem(item) {
   // windows/garage all already share this item's one prepUp, so door/frame
   // does too (into `base` below) rather than adding a second independent
   // prep control just for this item's doors.
-  var doorFrameLabour = doorFrameLabourCost('ext', doorQty, frameQty, doorCoatsN, frameCoatsN, r2);
+  var doorFrameLabour = doorFrameLabourCost('ext', doorQty, frameQty, doorCoatsN, frameCoatsN, r2, !!item.doorBothSides);
   var doorCost = doorFrameLabour.doorCost, frameCost = doorFrameLabour.frameCost;
   // Fire door surcharge + ironmongery are flat £/door, added after prep
   // (same as doorFrameExtrasCost()'s contract for rooms).
@@ -8150,8 +8180,9 @@ function resetExtForm() {
   var prepVals=[0,10,25,-1];
   document.querySelectorAll('#seg-ex-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',prepVals[i]===0);});
   document.getElementById('ex-prep-custom-row').style.display='none';
-  exDoorFireDoor=false; exDoorSelfPriming=false; exDoorIronRemove=false; exDoorIronMask=false; exSelfPrimingWoodwork=false;
-  ['tog-ex-firedoor','tog-ex-doorselfpriming','tog-ex-ironremove','tog-ex-ironmask','tog-ex-selfprimingwoodwork'].forEach(function(id){
+  exDoorFireDoor=false; exDoorSelfPriming=false; exDoorIronRemove=false; exDoorIronMask=false;
+  exDoorBothSides=false; exSelfPrimingWoodwork=false;
+  ['tog-ex-firedoor','tog-ex-doorselfpriming','tog-ex-doorbothsides','tog-ex-ironremove','tog-ex-ironmask','tog-ex-selfprimingwoodwork'].forEach(function(id){
     document.getElementById(id).classList.remove('on');
   });
   document.getElementById('ext-preview-card').style.display='none';
@@ -8178,6 +8209,11 @@ function toggleExFireDoor() {
 function toggleExDoorSelfPriming() {
   exDoorSelfPriming = !exDoorSelfPriming;
   document.getElementById('tog-ex-doorselfpriming').classList.toggle('on', exDoorSelfPriming);
+  previewExterior();
+}
+function toggleExDoorBothSides() {
+  exDoorBothSides = !exDoorBothSides;
+  document.getElementById('tog-ex-doorbothsides').classList.toggle('on', exDoorBothSides);
   previewExterior();
 }
 // Remove & refit / Mask in place are mutually exclusive per door item.
@@ -8237,6 +8273,7 @@ function getExtFormData() {
     frameQty: +document.getElementById('ex-frame-qty').value||0,
     doorFireDoor: exDoorFireDoor, doorSelfPriming: exDoorSelfPriming,
     doorIronRemove: exDoorIronRemove, doorIronMask: exDoorIronMask,
+    doorBothSides: exDoorBothSides,
     woodworkSelfPriming: exSelfPrimingWoodwork,
     garage:  +document.getElementById('ex-garage').value||0,
     porch:   +document.getElementById('ex-porch').value||0,
@@ -8289,11 +8326,12 @@ function editExtItem(id) {
   document.getElementById('ex-frame-qty').value = item.frameQty||'';
   exDoorFireDoor=!!item.doorFireDoor; exDoorSelfPriming=!!item.doorSelfPriming;
   exDoorIronRemove=!!item.doorIronRemove; exDoorIronMask=!!item.doorIronMask;
-  exSelfPrimingWoodwork=!!item.woodworkSelfPriming;
+  exDoorBothSides=!!item.doorBothSides; exSelfPrimingWoodwork=!!item.woodworkSelfPriming;
   document.getElementById('tog-ex-firedoor').classList.toggle('on',exDoorFireDoor);
   document.getElementById('tog-ex-doorselfpriming').classList.toggle('on',exDoorSelfPriming);
   document.getElementById('tog-ex-ironremove').classList.toggle('on',exDoorIronRemove);
   document.getElementById('tog-ex-ironmask').classList.toggle('on',exDoorIronMask);
+  document.getElementById('tog-ex-doorbothsides').classList.toggle('on',exDoorBothSides);
   document.getElementById('tog-ex-selfprimingwoodwork').classList.toggle('on',exSelfPrimingWoodwork);
   document.getElementById('ex-garage').value  = item.garage||'';
   document.getElementById('ex-porch').value   = item.porch||'';
@@ -9182,6 +9220,11 @@ function toggleDoorSelfPriming() {
   document.getElementById('tog-doorselfpriming').classList.toggle('on', doorSelfPriming);
   previewRoom();
 }
+function toggleDoorBothSides() {
+  doorBothSides = !doorBothSides;
+  document.getElementById('tog-doorbothsides').classList.toggle('on', doorBothSides);
+  previewRoom();
+}
 // Remove & refit / Mask in place are mutually exclusive per door item --
 // switching one on switches the other off.
 function toggleDoorIronmongery(which) {
@@ -9375,7 +9418,7 @@ function previewRoomNow() {
     doorFramePrepCustom:+document.getElementById('r-doorframe-prep-custom').value,
     doorFireDoor:doorFireDoor, doorSelfPriming:doorSelfPriming,
     doorIronRemove:doorIronRemove, doorIronMask:doorIronMask,
-    selfPrimingWoodwork:selfPrimingWoodwork,
+    doorBothSides:doorBothSides, selfPrimingWoodwork:selfPrimingWoodwork,
     win:+document.getElementById('r-win').value,
     sills:+document.getElementById('r-sills').value,
     rads:+document.getElementById('r-rads').value,
@@ -9611,11 +9654,12 @@ function editRoom(id) {
   document.getElementById('doorframe-prep-custom-row').style.display = doorFramePrepPct===-1?'flex':'none';
   doorFireDoor=!!r.doorFireDoor; doorSelfPriming=!!r.doorSelfPriming;
   doorIronRemove=!!r.doorIronRemove; doorIronMask=!!r.doorIronMask;
-  selfPrimingWoodwork=!!r.selfPrimingWoodwork;
+  doorBothSides=!!r.doorBothSides; selfPrimingWoodwork=!!r.selfPrimingWoodwork;
   document.getElementById('tog-firedoor').classList.toggle('on',doorFireDoor);
   document.getElementById('tog-doorselfpriming').classList.toggle('on',doorSelfPriming);
   document.getElementById('tog-ironremove').classList.toggle('on',doorIronRemove);
   document.getElementById('tog-ironmask').classList.toggle('on',doorIronMask);
+  document.getElementById('tog-doorbothsides').classList.toggle('on',doorBothSides);
   document.getElementById('tog-selfprimingwoodwork').classList.toggle('on',selfPrimingWoodwork);
   document.getElementById('r-rads').value=r.rads||'';
 
@@ -9761,7 +9805,7 @@ function buildRoomFromForm() {
     doorFramePrepCustom:+document.getElementById('r-doorframe-prep-custom').value,
     doorFireDoor:doorFireDoor, doorSelfPriming:doorSelfPriming,
     doorIronRemove:doorIronRemove, doorIronMask:doorIronMask,
-    selfPrimingWoodwork:selfPrimingWoodwork,
+    doorBothSides:doorBothSides, selfPrimingWoodwork:selfPrimingWoodwork,
     mistWall:mistWall, mistCeil:mistCeil, sprayWalls:sprayWalls,
     isVariation:roomIsVariation,
     wpWallLining:wpWallLining, wpWallFinish:wpWallFinish,
@@ -10068,7 +10112,7 @@ function calcHSLNow() {
   var hallPerimDisp = (h1l+h1w)*2;
   var totalSkirtPerimDisp = hallPerimDisp + landPerimDisp;
   var skirtCostDisp = xc>0 ? totalSkirtPerimDisp*skirtMins(xc)*r2 : 0;
-  var doorFrameLabourDisp = doorFrameLabourCost('int', doorQtyDisp, frameQtyDisp, doorCoats, frameCoats, r2);
+  var doorFrameLabourDisp = doorFrameLabourCost('int', doorQtyDisp, frameQtyDisp, doorCoats, frameCoats, r2, doorBothSides);
   var doorFrameExtrasDisp = doorFrameExtrasCost(doorQtyDisp, doorFireDoor, doorIronRemove, doorIronMask);
   var doorCostDisp  = doorFrameLabourDisp.total * (1 + doorFramePrepUpDisp/100) + doorFrameExtrasDisp;
 
@@ -10506,7 +10550,7 @@ function renderSummary() {
     // Door / Frame -- independent line items, own prep, shown separately from
     // the rest of the woodwork above regardless of room type (HSL or
     // normal), since calcRoom() computes them the same way for both.
-    if(c.doorCost>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Door'+(r.doorFireDoor?' (fire door)':'')+'</span><span class="breakdown-sub-value">'+fmt(c.doorCost*mk)+'</span></div>';
+    if(c.doorCost>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Door'+[r.doorFireDoor?'fire door':'',r.doorBothSides?'both sides':''].filter(Boolean).map(function(t){return ' ('+t+')';}).join('')+'</span><span class="breakdown-sub-value">'+fmt(c.doorCost*mk)+'</span></div>';
     if(c.frameCost>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Frame</span><span class="breakdown-sub-value">'+fmt(c.frameCost*mk)+'</span></div>';
     if(c.doorFramePrepUp>0 && (c.doorCost>0||c.frameCost>0)) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Door/Frame prep ('+prepLabelFor(c.doorFramePrepUp)+')</span><span class="breakdown-sub-value">'+fmt((c.doorCost+c.frameCost-c.doorFrameRawCost)*mk)+'</span></div>';
     var doorQtyForExtras = +r.doorQty||0;
@@ -10797,7 +10841,7 @@ function renderSummary() {
       if(masonryCost>0){var renderTags=[item.texturedRender?'textured':'',item.sprayRender?'sprayed':''].filter(Boolean).join(', ');sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Masonry / Render'+(renderTags?' — '+renderTags:'')+'</span><span class="breakdown-sub-value">'+fmt(masonryCost*mk)+'</span></div>';}
       if(fasciaCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Fascias &amp; Soffits</span><span class="breakdown-sub-value">'+fmt(fasciaCost*mk)+'</span></div>';
       if(winCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ext Windows</span><span class="breakdown-sub-value">'+fmt(winCost*mk)+'</span></div>';
-      if(doorCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ext Door'+(item.doorFireDoor?' (fire door)':'')+'</span><span class="breakdown-sub-value">'+fmt(doorCost*mk)+'</span></div>';
+      if(doorCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ext Door'+[item.doorFireDoor?'fire door':'',item.doorBothSides?'both sides':''].filter(Boolean).map(function(t){return ' ('+t+')';}).join('')+'</span><span class="breakdown-sub-value">'+fmt(doorCost*mk)+'</span></div>';
       if(frameCost>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ext Frame</span><span class="breakdown-sub-value">'+fmt(frameCost*mk)+'</span></div>';
       var extDoorQtyForExtras = +item.doorQty||0;
       if(item.doorFireDoor && extDoorQtyForExtras>0) sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Fire door surcharge</span><span class="breakdown-sub-value">'+fmt(extDoorQtyForExtras*(settings.fireDoorSurcharge!=null?settings.fireDoorSurcharge:10)*mk)+'</span></div>';
