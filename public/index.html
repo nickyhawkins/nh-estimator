@@ -1346,7 +1346,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.1.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.1.1</div>
 </div>
 </div>
 
@@ -9402,14 +9402,18 @@ function previewRoomNow() {
   var L=+document.getElementById('r-l').value;
   var W=+document.getElementById('r-w').value;
   var H=+document.getElementById('r-h').value;
-  // A feature-wall-only job (see the Feature Wall hint text) deliberately
-  // leaves L/W/H at 0 -- only bail out here if there's ALSO no feature wall
-  // to preview, otherwise a feature-wall-only wallpaper job would never
-  // reach the fwwpOn block below and its roll calc would silently never show
-  // (estimating-app-edits.md #10).
+  // A feature-wall-only job (see the Feature Wall hint text) or a door/
+  // frame-only line (pricing doors/frames with no room around them --
+  // estimating-app-edits.md's door/frame split) deliberately leaves L/W/H
+  // at 0 -- only bail out here if there's NONE of those to preview,
+  // otherwise that job would never reach the calc below and its estimate
+  // would silently never show (estimating-app-edits.md #10, extended to
+  // cover doors/frames the same way).
   var fwWidthVal=+document.getElementById('r-featurewall-width').value||0;
   var fwHeightVal=+document.getElementById('r-featurewall-height').value||0;
-  if((L<=0||W<=0||H<=0) && !(fwWidthVal>0 && fwHeightVal>0)) { document.getElementById('room-preview').style.display='none'; return; }
+  var doorQtyVal=+document.getElementById('r-door-qty').value||0;
+  var frameQtyVal=+document.getElementById('r-frame-qty').value||0;
+  if((L<=0||W<=0||H<=0) && !(fwWidthVal>0 && fwHeightVal>0) && !(doorQtyVal>0 || frameQtyVal>0)) { document.getElementById('room-preview').style.display='none'; return; }
   var r={l:L,w:W,h:H,wc:coats.wc,cc:coats.cc,xc:coats.xc,
     doorQty:+document.getElementById('r-door-qty').value||0,
     frameQty:+document.getElementById('r-frame-qty').value||0,
