@@ -1346,7 +1346,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.1.1</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.1.2</div>
 </div>
 </div>
 
@@ -5015,6 +5015,20 @@ function calcRoom(r) {
   var roomBaseTotal = r.totalOverride != null
     ? +r.totalOverride
     : baseTotal * (1 + prepUp/100) + makingGood;
+  // The room's general prep %, as a £ amount -- computed directly here
+  // (baseTotal*prepUp/100) rather than reverse-derived from the room's
+  // final total downstream (renderSummary() used to do
+  // total-total/(1+prepUp/100)), which quietly assumed the ENTIRE total was
+  // built from baseTotal*(1+prepUp/100). That broke the moment doorFrameCost
+  // (and, before it, panelCost) started adding cost AFTER the prep
+  // multiplier: the reverse trick misattributed that unprepped cost to
+  // "Prep", showing a spurious extra Prep line on top of the real,
+  // independently-prepped Door/Frame prep line -- e.g. a 45-door,
+  // 0-wall room showed BOTH "Prep (Minimal) £180" (fabricated, baseTotal is
+  // £0 here) and "Door/Frame prep (Minimal)" (the real one). HSL rooms have
+  // no baseTotal of their own to read (totalOverride bypasses it), so they
+  // carry the equivalent figure over from computeHSLOverrides() instead.
+  var prepAmount = r.totalOverride != null ? (+r.prepAmountOverride || 0) : baseTotal * prepUp/100;
   var preFloorTotal = roomBaseTotal + panelCost + doorFrameCost;
   var time     = preFloorTotal / r2 / 60 / hpd;
   // Wallpaper minimum charge (estimating-app-edits.md #11) -- a small
@@ -5077,6 +5091,7 @@ function calcRoom(r) {
            // gotcha). Raw (pre-prep, pre-markup), like wpwCost/wpcCost below.
            wallCost:wallCost, ceilCost:ceilCost, woodCost:woodCost,
            doorCost:doorCost, frameCost:frameCost, doorExtrasCost:doorExtrasCost,
+           doorRawCost:doorFrameLabour.doorCost, frameRawCost:doorFrameLabour.frameCost,
            doorFrameRawCost:doorFrameLabour.total, doorFramePrepUp:doorFramePrepUp,
            winCost:winCost, radCost:radCost, sillCost:sillCost,
            mistWCost:mistWCost, mistCCost:mistCCost,
@@ -5093,7 +5108,7 @@ function calcRoom(r) {
            // Summary and createXeroQuote() sum the SAME figure instead of
            // re-deriving which rooms are sprayed (the usual drift risk).
            sprayLabour: r.sprayWalls ? total : 0,
-           wpMinTopUp:wpMinTopUp, prepUp:prepUp, panelPrepUp:panelPrepUp};
+           wpMinTopUp:wpMinTopUp, prepUp:prepUp, prepAmount:prepAmount, panelPrepUp:panelPrepUp};
 }
 
 // Panelling's own calculation -- pulled out of calcRoom() so it has the
@@ -7930,8 +7945,16 @@ function calcExtItem(item) {
   // is built from instead of re-implementing masonry/fascia/door/garage/
   // porch/legacy-repair formulas inline (the drift bug NOTES.md documents).
   return { total: total, time: time, winCost: winCost, sashCost: sashCost, repairsCost: repairsCost,
-           masonryCost: masonryCost, fasciaCost: fasciaCost, doorCost: doorCost*(1+prepUp/100),
-           frameCost: frameCost*(1+prepUp/100), doorExtrasCost: doorExtrasCost,
+           // doorCost/frameCost are RAW here (pre-prep), matching masonryCost/
+           // fasciaCost/garageCost/sashCost above -- door/frame share this
+           // item's one prepUp (see `base` above), same as everything else,
+           // so its prep share is already covered by the ONE "Prep" row the
+           // Summary breakdown shows for the whole item. Returning these
+           // pre-prepped (as an earlier version of this did) would double it
+           // up in that breakdown -- the "Ext Door" row already showing the
+           // prepped figure, then "Prep" adding prepUp% on top again.
+           masonryCost: masonryCost, fasciaCost: fasciaCost, doorCost: doorCost,
+           frameCost: frameCost, doorExtrasCost: doorExtrasCost,
            garageCost: garageCost, porchCost: porchCost,
            // Spray sundries bump basis, same contract as calcRoom()'s
            // sprayLabour. Unlike rooms (whole-room labour), only the masonry
@@ -10390,11 +10413,16 @@ function computeHSLOverrides() {
   var prepUp = prepPct>=0 ? prepPct : (+document.getElementById('r-prep-custom').value||0);
   var makingGood = +document.getElementById('r-making-good').value||0;
   var totalOverride = baseTotal*(1+prepUp/100) + makingGood;
+  // Carried over for calcRoom()'s prepAmount (the room's general prep as a
+  // £ figure, read directly by renderSummary()'s breakdown) -- an HSL room
+  // has no baseTotal of its own for calcRoom() to read since totalOverride
+  // bypasses that calculation entirely, so it has to come from here instead.
+  var prepAmountOverride = baseTotal * prepUp/100;
 
   return {
     wallAreaOverride: totalWall, ceilAreaOverride: totalCeil, woodAreaOverride: woodAreaOverride,
     wallCostStore: wallCost, ceilCostStore: ceilCost, woodCostStore: skirtCost,
-    stairWoodStore: stairWoodStore, totalOverride: totalOverride,
+    stairWoodStore: stairWoodStore, totalOverride: totalOverride, prepAmountOverride: prepAmountOverride,
     wallRollsOverrideLining: wallRollsOverrideLining, wallRollsOverrideFinish: wallRollsOverrideFinish,
     ceilRollsOverrideLining: ceilRollsOverrideLining, ceilRollsOverrideFinish: ceilRollsOverrideFinish,
     hslInputs: {
@@ -10501,13 +10529,15 @@ function renderSummary() {
     var woodTotal = (woodCost + winCost + radCost + sillCost) * mk;
     var prepUp2 = c.prepUp;
     var prepLabel = prepLabelFor(prepUp2);
-    // c.wpMinTopUp is subtracted first -- it's added to c.total AFTER the
-    // room's prep multiplier (see calcRoom()'s wpMinTopUp), so leaving it in
-    // would corrupt this reverse-derivation (total / (1+prepUp%) back to the
-    // pre-prep raw figure) and wrongly attribute the wallpaper minimum
-    // charge's £ to "Prep" instead of its own row below.
-    var prepBaseTotal2 = c.total - (c.wpMinTopUp||0);
-    if(prepUp2>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Prep ('+prepLabel+')</span><span class="breakdown-sub-value">'+fmt(prepBaseTotal2*mk - (prepBaseTotal2/(1+prepUp2/100))*mk)+'</span></div>';
+    // c.prepAmount is calcRoom()'s own figure (baseTotal*prepUp/100, or the
+    // HSL equivalent) -- NOT reverse-derived from c.total here any more.
+    // The old trick (total - total/(1+prepUp%)) silently assumed the WHOLE
+    // total was built from baseTotal*(1+prepUp%), which broke as soon as
+    // panelling/door+frame started adding cost AFTER that multiplier (they
+    // carry their own independent prep) -- it misattributed their raw cost
+    // to this room-wide "Prep" line on top of their own real prep line
+    // below, doubling up.
+    if(c.prepAmount>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Prep ('+prepLabel+')</span><span class="breakdown-sub-value">'+fmt(c.prepAmount*mk)+'</span></div>';
     if(+r.makingGood>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Making Good</span><span class="breakdown-sub-value">'+fmt(+r.makingGood)+'</span></div>';
     var dispWallCost = r.wallCostStore != null ? +r.wallCostStore : wallCost;
     var dispCeilCost = r.ceilCostStore != null ? +r.ceilCostStore : ceilCost;
@@ -10554,9 +10584,15 @@ function renderSummary() {
     // Door / Frame -- independent line items, own prep, shown separately from
     // the rest of the woodwork above regardless of room type (HSL or
     // normal), since calcRoom() computes them the same way for both.
-    if(c.doorCost>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Door'+[r.doorFireDoor?'fire door':'',r.doorBothSides?'both sides':''].filter(Boolean).map(function(t){return ' ('+t+')';}).join('')+'</span><span class="breakdown-sub-value">'+fmt(c.doorCost*mk)+'</span></div>';
-    if(c.frameCost>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Frame</span><span class="breakdown-sub-value">'+fmt(c.frameCost*mk)+'</span></div>';
-    if(c.doorFramePrepUp>0 && (c.doorCost>0||c.frameCost>0)) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Door/Frame prep ('+prepLabelFor(c.doorFramePrepUp)+')</span><span class="breakdown-sub-value">'+fmt((c.doorCost+c.frameCost-c.doorFrameRawCost)*mk)+'</span></div>';
+    // Door/Frame rows show the RAW (pre-prep) cost, same as Panelling above
+    // (panelRawCost then a separate "Panelling prep" delta) -- c.doorCost/
+    // c.frameCost are already post-prep, so showing those AND the prep
+    // delta below would show the prep amount twice over (once folded into
+    // "Door", once again as its own line) even though the actual total was
+    // never double-charged.
+    if(c.doorRawCost>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Door'+[r.doorFireDoor?'fire door':'',r.doorBothSides?'both sides':''].filter(Boolean).map(function(t){return ' ('+t+')';}).join('')+'</span><span class="breakdown-sub-value">'+fmt(c.doorRawCost*mk)+'</span></div>';
+    if(c.frameRawCost>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Frame</span><span class="breakdown-sub-value">'+fmt(c.frameRawCost*mk)+'</span></div>';
+    if(c.doorFramePrepUp>0 && (c.doorRawCost>0||c.frameRawCost>0)) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Door/Frame prep ('+prepLabelFor(c.doorFramePrepUp)+')</span><span class="breakdown-sub-value">'+fmt((c.doorCost+c.frameCost-c.doorFrameRawCost)*mk)+'</span></div>';
     var doorQtyForExtras = +r.doorQty||0;
     if(r.doorFireDoor && doorQtyForExtras>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Fire door surcharge</span><span class="breakdown-sub-value">'+fmt(doorQtyForExtras*(settings.fireDoorSurcharge!=null?settings.fireDoorSurcharge:10)*mk)+'</span></div>';
     if((r.doorIronRemove||r.doorIronMask) && doorQtyForExtras>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ironmongery ('+(r.doorIronRemove?'remove &amp; refit':'mask in place')+')</span><span class="breakdown-sub-value">'+fmt(doorQtyForExtras*(r.doorIronRemove ? (settings.ironmongeryRemovePrice!=null?settings.ironmongeryRemovePrice:8) : (settings.ironmongeryMaskPrice!=null?settings.ironmongeryMaskPrice:4))*mk)+'</span></div>';
