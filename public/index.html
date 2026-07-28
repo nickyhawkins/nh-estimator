@@ -1346,7 +1346,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.1.2</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.1.3</div>
 </div>
 </div>
 
@@ -8610,11 +8610,17 @@ function renderDash() {
 }
 
 // Earliest accepted+scheduled job across ALL jobs, not just the active one
-// -- "what's next" is a whole-business question, not a per-job one.
+// -- "what's next" is a whole-business question, not a per-job one. Jobs
+// whose booked span has already finished are skipped, else this keeps
+// pointing at a job that came and went once its start date is in the past.
 function nextScheduledGlance() {
+  var todayIso = isoDate(new Date());
   var best = null;
   jobs.forEach(function(j) {
     if (j.status !== 'accepted' || !j.startDate || !(+j.scheduledDays > 0)) return;
+    var span = jobBookedDays(j);
+    var last = span[span.length - 1];
+    if (!last || last < todayIso) return;
     if (!best || j.startDate < best.startDate) best = j;
   });
   if (!best) return 'Nothing booked';
