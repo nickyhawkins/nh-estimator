@@ -21,6 +21,23 @@ try {
     document.querySelector('meta[name="theme-color"]').setAttribute('content', '#10141a');
   }
 } catch (e) {}
+// Viewport-height boot — runs before first paint so the bottom nav doesn't
+// launch high and "drop" on the first tab switch. On a cold iOS PWA launch,
+// 100dvh can resolve against a shorter transient viewport (address bar not
+// yet collapsed) before WebKit corrects it on the next layout pass; a real
+// nav/tab change happens to force that pass, which reads as "fixed itself
+// after switching tabs". visualViewport tracks the true visible height
+// directly, so we drive --vh from it instead of trusting dvh's first read.
+try {
+  var _setVh = function() {
+    var h = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+    document.documentElement.style.setProperty('--vh', (h * 0.01) + 'px');
+  };
+  _setVh();
+  window.addEventListener('resize', _setVh);
+  window.addEventListener('orientationchange', _setVh);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', _setVh);
+} catch (e) {}
 </script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -49,8 +66,8 @@ try {
   --danger-soft-bg:rgba(224,96,79,.16); --danger-soft-border:rgba(224,96,79,.4);
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
-body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100dvh;overflow-x:hidden}
-#app{display:flex;flex-direction:column;min-height:100dvh}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100dvh;min-height:calc(var(--vh, 1vh) * 100);overflow-x:hidden}
+#app{display:flex;flex-direction:column;min-height:100dvh;min-height:calc(var(--vh, 1vh) * 100)}
 
 /* Topbar */
 .topbar{position:sticky;top:0;z-index:100;background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);padding:calc(var(--st) + 12px) 20px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
@@ -289,6 +306,15 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     <div id="ext-list" style="display:none">
       <div class="card" id="ext-cards"></div>
     </div>
+    <!-- Kitchen (v2.1): single per-job form, not a list, so this section
+         only shows once it has a real total -- entered via + chooser
+         (goScreen('kitchen')), no "add" of a second one, no swipe delete. -->
+    <div class="section-title" id="kitchen-section-head" style="display:none">
+      <span>Kitchen</span>
+    </div>
+    <div id="kitchen-section-list" style="display:none">
+      <div class="card" id="kitchen-section-cards"></div>
+    </div>
   </div>
   <button class="fab-quick" onclick="quickAddRooms()">Quick add</button>
   <button class="fab" onclick="openAddChooser()">+</button>
@@ -297,6 +323,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     <div style="position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-radius:16px 16px 0 0;padding:10px 0 calc(var(--sb) + 10px);box-shadow:0 -4px 24px rgba(0,0,0,.2)" onclick="event.stopPropagation()">
       <div class="nav-menu-item" onclick="closeAddChooser();goScreen('room')"><div>🏠&ensp;Room</div><span class="nav-menu-arrow">›</span></div>
       <div class="nav-menu-item" onclick="closeAddChooser();showAddExterior()"><div>🏡&ensp;Exterior item</div><span class="nav-menu-arrow">›</span></div>
+      <div class="nav-menu-item" onclick="closeAddChooser();goScreen('kitchen')"><div>🍳&ensp;Kitchen</div><span class="nav-menu-arrow">›</span></div>
     </div>
   </div>
   <!-- Per-job site notes (SITE_NOTES_SPEC.md Part 1, tucked away per Nicky
@@ -1090,12 +1117,15 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 
 <!-- ══ KITCHEN CABINET SPRAY CALCULATOR ══
      Job-level, single config (job.kitchen), not a list of items like Rooms/
-     Exterior -- no add/edit sub-screen, this tab IS the form, edited in
-     place and auto-saved on every change (same "no Save button" pattern as
-     Settings/xeroClient, not the room/ext-item "edit in isolation, commit
-     on Save" pattern), since there's nothing to cancel out of. -->
+     Exterior -- reached from Measure's + chooser (goScreen('kitchen')),
+     same sub-screen pattern as Room, but this screen itself IS the form,
+     edited in place and auto-saved on every change (same "no Save button"
+     pattern as Settings/xeroClient, not the room/ext-item "edit in
+     isolation, commit on Save" pattern), since there's nothing to cancel
+     out of -- Back just returns to Measure. -->
 <div id="screen-kitchen" class="screen">
   <div class="topbar">
+    <button class="back-btn" onclick="goBack()">←</button>
     <div class="topbar-title">Kitchen</div>
     <div class="chip" id="k-chip" style="display:none">£0</div>
     <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
@@ -1296,25 +1326,26 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
   </div>
 </div>
 
-<!-- ══ NAVBAR (v2.0) ══
-     Home = dashboard/landing · Measure = interior + exterior · On Site
-     promoted from the hamburger (enters via openActuals(), which loads
-     server actuals BEFORE rendering — never a bare goTab('actuals')).
-     Colours moved to the hamburger. -->
+<!-- ══ NAVBAR (v2.1) ══
+     Home = dashboard/landing · Measure = interior + exterior + kitchen ·
+     On Site promoted from the hamburger (enters via openActuals(), which
+     loads server actuals BEFORE rendering — never a bare goTab('actuals')).
+     Colours moved to the hamburger. Kitchen folded into Measure's + chooser
+     (v2.1) -- it's a single per-job form, not really a fifth destination;
+     entered via goScreen('kitchen'), same sub-screen pattern as Room. -->
 <nav class="navbar">
   <button class="nav-item active" id="nav-dash" onclick="goTab('dash')"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></button>
   <button class="nav-item" id="nav-home" onclick="goTab('home')"><span class="nav-icon">📐</span><span class="nav-label">Measure</span></button>
-  <button class="nav-item" id="nav-kitchen" onclick="goTab('kitchen')"><span class="nav-icon">🍳</span><span class="nav-label">Kitchen</span></button>
   <button class="nav-item" id="nav-actuals" onclick="openActuals()"><span class="nav-icon">🛠️<span class="nav-ham-badge"></span></span><span class="nav-label">On Site</span></button>
   <button class="nav-item" id="nav-summary" onclick="goTab('summary')"><span class="nav-icon">📋</span><span class="nav-label">Summary</span></button>
 </nav>
 
 <!-- ══ HAMBURGER MENU (job admin) ══
      One shared overlay, not per-screen: fixed position, floats above
-     whichever screen is active. Bottom bar = Home/Measure/Kitchen/On
-     Site/Summary; this menu = job admin (Jobs · Colours · Schedule ·
-     Settings) -- On Site moved to the bottom bar in v2.0, Colours moved
-     here in its place. See FEATURES.md. -->
+     whichever screen is active. Bottom bar = Home/Measure/On Site/Summary;
+     this menu = job admin (Jobs · Colours · Schedule · Settings) -- On Site
+     moved to the bottom bar in v2.0, Colours moved here in its place. See
+     FEATURES.md. -->
 <div id="nav-menu-backdrop" class="nav-menu-backdrop" onclick="closeNavMenu()"></div>
 <div id="nav-menu-panel" class="nav-menu-panel" style="display:none">
   <div class="nav-menu-item" onclick="closeNavMenu();goTab('jobs')">
@@ -1347,7 +1378,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.1.3</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.2.0</div>
 </div>
 </div>
 
@@ -4537,16 +4568,17 @@ function goTab(tab) {
   curTab = tab; inSub = null;
   document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active');});
   document.getElementById('screen-'+tab).classList.add('active');
-  // v2.0 bottom bar. 'actuals' (On Site) is here for the active highlight,
-  // but is always ENTERED via openActuals() — see the note below.
-  ['dash','home','kitchen','actuals','summary'].forEach(function(t){
+  // v2.1 bottom bar. 'actuals' (On Site) is here for the active highlight,
+  // but is always ENTERED via openActuals() — see the note below. 'kitchen'
+  // is no longer a bottom-bar tab (folded into Measure's + chooser) so it's
+  // not in this list — reached only via goScreen('kitchen').
+  ['dash','home','actuals','summary'].forEach(function(t){
     var el=document.getElementById('nav-'+t);
     if(el) el.classList.toggle('active', t===tab);
   });
   if (tab==='dash') renderDash();
   if (tab==='home') renderHome();
   if (tab==='summary') refreshSummaryTab();
-  if (tab==='kitchen') renderKitchen();
   if (tab==='colours') renderColours();
   if (tab==='jobs') renderJobs();
   if (tab==='schedule') renderScheduleStrip();
@@ -4727,6 +4759,8 @@ function goScreen(name) {
     document.getElementById('room-preview').style.display='none';
     ['wc','cc','xc'].forEach(function(k) { setSeg(k,2); });
     setRoomStaircase(false);
+  } else if (name==='kitchen') {
+    renderKitchen();
   }
 }
 
@@ -8427,15 +8461,16 @@ function renderExterior() {
 
 // Exterior half of the combined Measure screen (v2.0 — the separate
 // Exterior tab merged into screen-home). Renders its own card list, then
-// hands the shared chrome (empty state / section headers / topbar chip)
-// to updateMeasureChrome(), same as renderHome() does for the rooms half.
+// hands off to _renderKitchenInner(), which renders its own section and
+// finally the shared chrome (empty state / section headers / topbar chip)
+// via updateMeasureChrome() — same chain renderHome() kicks off for rooms.
 function _renderExteriorInner() {
   var list  = document.getElementById('ext-list');
   var cards = document.getElementById('ext-cards');
   if(extItems.length===0) {
     list.style.display='none';
     measureExtTotal=0;
-    updateMeasureChrome();
+    _renderKitchenInner();
     return;
   }
   list.style.display='block';
@@ -8451,6 +8486,35 @@ function _renderExteriorInner() {
       '<div style="color:var(--text3);font-size:16px">›</div></div>');
   }).join('');
   measureExtTotal=total;
+  _renderKitchenInner();
+}
+
+// Kitchen section of the combined Measure screen (v2.1 — folded in from its
+// own bottom-bar tab). job.kitchen is a single per-job form, not a list, so
+// there's no "add another" or swipe-delete here — the section just shows
+// once it has a real total, and tapping it reopens the same form via
+// goScreen('kitchen'). ensureKitchenShape() is NOT called here (unlike
+// renderKitchen()) so simply visiting Measure never creates job.kitchen on
+// a job that has never used it.
+function _renderKitchenInner() {
+  var job = activeJob();
+  var list  = document.getElementById('kitchen-section-list');
+  var cards = document.getElementById('kitchen-section-cards');
+  var k = job && job.kitchen;
+  var kc = calcKitchen(k);
+  measureKitchenTotal = kc.total;
+  if (!k || kc.total <= 0) {
+    list.style.display='none';
+    updateMeasureChrome();
+    return;
+  }
+  list.style.display='block';
+  cards.innerHTML = '<div class="room-item" onclick="goScreen(\'kitchen\')">'+
+    '<div class="room-icon">🍳</div>'+
+    '<div class="room-info"><div class="room-name">Kitchen'+(k.isVariation?' <span style="color:var(--accent);font-size:10px;font-weight:700;letter-spacing:.03em">VARIATION</span>':'')+'</div>'+
+    '<div class="room-meta">'+fmtD(kc.time)+'</div></div>'+
+    '<div class="room-cost">'+fmt(kc.total)+'</div>'+
+    '<div style="color:var(--text3);font-size:16px">›</div></div>';
   updateMeasureChrome();
 }
 
@@ -8463,22 +8527,25 @@ function closeAddChooser() { document.getElementById('add-chooser').style.displa
 // Raw (pre-markup) totals from each half's last render, so the topbar chip
 // can show one combined figure. Markup is applied to the SUM — equivalent
 // to marking up each half since applyMarkupAmount is proportional.
-var measureRoomsTotal = 0, measureExtTotal = 0;
+var measureRoomsTotal = 0, measureExtTotal = 0, measureKitchenTotal = 0;
 function updateMeasureChrome() {
-  var both = rooms.length === 0 && extItems.length === 0;
+  var hasKitchen = measureKitchenTotal > 0;
+  var both = rooms.length === 0 && extItems.length === 0 && !hasKitchen;
   var empty = document.getElementById('measure-empty');
   if (empty) empty.style.display = both ? 'flex' : 'none';
   document.getElementById('rooms-section-head').style.display = rooms.length ? 'flex' : 'none';
   document.getElementById('ext-section-head').style.display = extItems.length ? 'flex' : 'none';
+  document.getElementById('kitchen-section-head').style.display = hasKitchen ? 'block' : 'none';
   var chip = document.getElementById('home-chip'), sub = document.getElementById('home-sub');
   var note = document.getElementById('measure-cost-note');
   if (both) { chip.style.display = 'none'; sub.textContent = ''; if (note) note.style.display = 'none'; return; }
   if (note) note.style.display = 'block';
   chip.style.display = 'flex';
-  chip.innerHTML = fmt(applyMarkupAmount(measureRoomsTotal + measureExtTotal))+' <span style="font-weight:400;opacity:.75">quote</span>';
+  chip.innerHTML = fmt(applyMarkupAmount(measureRoomsTotal + measureExtTotal + measureKitchenTotal))+' <span style="font-weight:400;opacity:.75">quote</span>';
   var parts = [];
   if (rooms.length) parts.push(rooms.length + ' room' + (rooms.length === 1 ? '' : 's'));
   if (extItems.length) parts.push(extItems.length + ' ext');
+  if (hasKitchen) parts.push('kitchen');
   sub.textContent = parts.join(' · ');
 }
 
