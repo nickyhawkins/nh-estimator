@@ -37,6 +37,14 @@ try {
   window.addEventListener('resize', _setVh);
   window.addEventListener('orientationchange', _setVh);
   if (window.visualViewport) window.visualViewport.addEventListener('resize', _setVh);
+  // The listeners above still weren't enough on a cold standalone-PWA
+  // launch (splash screen -> content): WebKit can settle the real height a
+  // beat after this boot script runs WITHOUT firing a resize event for that
+  // internal settle, so nothing re-synced --vh until some unrelated layout
+  // pass (e.g. a tab switch) happened to land after it settled -- reading
+  // as "fixes itself after switching tabs". Re-poll a few times over the
+  // first second so it's already correct before you'd ever notice.
+  [50, 150, 300, 600, 1000].forEach(function(ms){ setTimeout(_setVh, ms); });
 } catch (e) {}
 </script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -1378,7 +1386,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.2.3</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.2.4</div>
 </div>
 </div>
 
