@@ -171,6 +171,16 @@ A feature wall is a subset of a room's wall area in a different colour/product f
 - Gotcha hit during build: the saved field names are `featurewallRangeOverride`/`featurewallBandOverride` (lowercase "wall"), NOT `featureWallRangeOverride` — `computeRoleGroups()` reads overrides via `role + 'RangeOverride'` string concatenation with role key `'featurewall'`, so the field name has to match that exactly or the override silently resolves to nothing. `featureWallColourNumber`/`featureWallArea` don't have this constraint (colour field goes through `ROLE_COLOUR_FIELD`'s explicit mapping; area is read directly by `calcRoom()`), so they keep the more readable camelCase.
 - Surfaces automatically everywhere materials rows already flow — Summary, materials snapshot, Xero payload, Colours tab (own colour-schedule line, own room listing, "Feature wall" appended to the surface chip rather than folded into "All surfaces", since it's a carve-out of Walls, not a whole-room surface of its own).
 
+### Feature: exterior item product overrides (gap — none existed)
+Exterior items (masonry/render, exterior woodwork topcoat, exterior woodwork primer) had colour-NUMBER pickers (which colour group) but no product/range override — they always fell back to the Settings default mapping for masonry/extTopcoat/extPrimer, unlike every interior role.
+
+**Shipped.** Implementation notes:
+- Reused the exact same generic override machinery as the room roles — `roomOverrides` gained three more keys (`masonry`, `extTopcoat`, `extPrimer`), each `{range, band}`, populated/read by `editExtItem()`/`getExtFormData()`/`resetExtForm()` instead of `editRoom()`/`buildRoomFromForm()`. `overrideIdPrefix`/`overrideState`/`populateRoomOverridePicker`/`onRoomRangeSearchInput`/`selectRoomRange`/`populateRoomOverrideBandPicker`/`onRoomOverrideBandSelect` needed no changes — they're already role-agnostic and only one of the room/exterior forms is ever open at a time.
+- `computeRoleGroups()` already read `r[role+'RangeOverride']`/`r[role+'BandOverride']` generically off whatever `items` array it's called with (`extItems` for these three roles) — the override "just worked" once the exterior item objects carried the fields; no calculation changes needed.
+- New "Paint Products" card on the exterior form (above Paint Colours), with the same search-as-you-type product picker + colour-band select per role, mirroring the room screen's Paint & Colour card.
+- No primer "None" state for `extPrimer` (unlike interior primer) — exterior woodwork already has its own self-priming toggles (`woodworkSelfPriming` on fascia/windows/garage, `doorSelfPriming` on doors/frames) that zero primer litres per sub-surface; a job-wide `extPrimerNone` flag would duplicate that.
+- `saveExteriorItem()` gained the same band-required-if-range-chosen guard as `saveRoom()`.
+
 ## COLOURS TAB — evolution into the paint/ordering view
 
 Beyond defining `{number, label}` colours (Phase 2), the Colours tab can become the job's paint/ordering screen using data the materials feature already calculates. Conceptual clarity: **Rooms = input the work, Summary = the price, Colours = what you actually buy and put where.**

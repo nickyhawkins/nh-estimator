@@ -1325,6 +1325,20 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Woodwork colour<small>windows, doors, fascia, sash</small></div><div class="seg" id="seg-colour-ext-woodwork" style="flex-wrap:wrap"></div></div>
       </div>
     </div>
+    <div class="card searchable-card">
+      <div class="card-header sec-toggle" onclick="toggleFormSection('ext-products')"><span>Paint Products</span><span class="sec-chev open" id="sec-chev-ext-products">›</span></div>
+      <div class="card-body open" id="sec-ext-products">
+      <div class="subsection-label">Masonry / Render</div>
+      <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-masonry-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('masonry')" onfocus="onRoomRangeSearchInput('masonry')"><div id="r-masonry-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
+      <div class="field-row" id="r-masonry-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-masonry-band" onchange="onRoomOverrideBandSelect('masonry')"></select></div>
+      <div class="subsection-label">Exterior Woodwork Topcoat</div>
+      <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-extTopcoat-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('extTopcoat')" onfocus="onRoomRangeSearchInput('extTopcoat')"><div id="r-extTopcoat-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
+      <div class="field-row" id="r-extTopcoat-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-extTopcoat-band" onchange="onRoomOverrideBandSelect('extTopcoat')"></select></div>
+      <div class="subsection-label">Exterior Woodwork Primer</div>
+      <div class="field-row"><div class="field-label">Product<small>defaults to Settings, or None</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-extPrimer-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('extPrimer')" onfocus="onRoomRangeSearchInput('extPrimer')"><div id="r-extPrimer-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
+      <div class="field-row" id="r-extPrimer-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-extPrimer-band" onchange="onRoomOverrideBandSelect('extPrimer')"></select></div>
+      </div>
+    </div>
     <div class="card" id="ext-preview-card" style="display:none">
       <div class="card-header">Preview</div>
       <div class="breakdown-row"><span class="breakdown-label">Estimated cost</span><span class="breakdown-value" style="color:var(--accent)" id="ext-prev-cost">—</span></div>
@@ -5354,9 +5368,10 @@ function tin(l) {
 // Exterior roles (masonry / extTopcoat / extPrimer) reuse this exact engine
 // but source from extItems, not rooms -- masonry has its own colour number,
 // while extTopcoat + extPrimer share one "exterior woodwork" colour (same
-// logic as interior topcoat/primer sharing the woodwork colour). Exterior
-// items have no per-item range/band overrides, so they always fall to the
-// Settings default mapping.
+// logic as interior topcoat/primer sharing the woodwork colour). Like rooms,
+// an exterior item without its own range/band override falls to the
+// Settings default mapping -- overrideRange below reads r[role+'RangeOverride']
+// off whatever's in `items`, room or exterior item alike.
 var ROLE_COLOUR_FIELD = { wall: 'colourNumber', ceiling: 'ceilingColourNumber', topcoat: 'woodworkColourNumber', primer: 'woodworkColourNumber', mist: 'colourNumber', featurewall: 'featureWallColourNumber', panel: 'panelColourNumber', masonry: 'masonryColourNumber', extTopcoat: 'extWoodworkColourNumber', extPrimer: 'extWoodworkColourNumber' };
 // Roles charged by whole tin (tin-optimised) rather than per litre. Masonry
 // mirrors interior walls -- bought and charged in whole tins.
@@ -7541,7 +7556,14 @@ var roomOverrides = {
   primer:  { range: '', band: '', none: false },
   mist:    { range: '', band: '' },
   featurewall: { range: '', band: '' },
-  panel: { range: '', band: '' }
+  panel: { range: '', band: '' },
+  // Exterior roles (edited on the exterior item form, not the room form) --
+  // same {range, band} shape, keyed into the SAME object since the picker
+  // machinery below (overrideIdPrefix/overrideState/etc.) is role-agnostic
+  // and only one of the room/exterior screens is ever being edited at once.
+  masonry: { range: '', band: '' },
+  extTopcoat: { range: '', band: '' },
+  extPrimer: { range: '', band: '' }
 };
 
 // Kitchen's product/band state isn't temp/form-local like the room roles
@@ -7639,7 +7661,7 @@ function hideRangeSearchDropdown(idPrefix) {
 }
 
 document.addEventListener('click', function(e) {
-  ['r-wall','r-ceiling','r-topcoat','r-primer','r-mist','r-featurewall','r-panel','k'].forEach(function(idPrefix) {
+  ['r-wall','r-ceiling','r-topcoat','r-primer','r-mist','r-featurewall','r-panel','r-masonry','r-extTopcoat','r-extPrimer','k'].forEach(function(idPrefix) {
     var input = document.getElementById(idPrefix+'-range');
     var dd = document.getElementById(idPrefix+'-range-dd');
     if (!input || !dd) return;
@@ -8231,6 +8253,10 @@ function resetExtForm() {
   extColourNumbers = { 'ext-masonry': 1, 'ext-woodwork': 1 };
   populateExtColourChips('ext-masonry');
   populateExtColourChips('ext-woodwork');
+  roomOverrides.masonry = { range: '', band: '' };
+  roomOverrides.extTopcoat = { range: '', band: '' };
+  roomOverrides.extPrimer = { range: '', band: '' };
+  ['masonry','extTopcoat','extPrimer'].forEach(populateRoomOverridePicker);
   extFormWindows = [];
   extFormSashWindows = [];
   renderExtWindowList('windows');
@@ -8354,6 +8380,9 @@ function getExtFormData() {
     texturedRender: exTexturedRender,
     masonryColourNumber: extColourNumbers['ext-masonry'],
     extWoodworkColourNumber: extColourNumbers['ext-woodwork'],
+    masonryRangeOverride: roomOverrides.masonry.range||undefined, masonryBandOverride: roomOverrides.masonry.band||undefined,
+    extTopcoatRangeOverride: roomOverrides.extTopcoat.range||undefined, extTopcoatBandOverride: roomOverrides.extTopcoat.band||undefined,
+    extPrimerRangeOverride: roomOverrides.extPrimer.range||undefined, extPrimerBandOverride: roomOverrides.extPrimer.band||undefined,
     prepPct: exPrepPct,
     prepCustom: +document.getElementById('ex-prep-custom').value||0,
     makingGood: +document.getElementById('ex-making-good').value||0
@@ -8384,6 +8413,10 @@ function editExtItem(id) {
   extColourNumbers = { 'ext-masonry': item.masonryColourNumber||1, 'ext-woodwork': item.extWoodworkColourNumber||1 };
   populateExtColourChips('ext-masonry');
   populateExtColourChips('ext-woodwork');
+  roomOverrides.masonry = { range: item.masonryRangeOverride || '', band: item.masonryBandOverride || '' };
+  roomOverrides.extTopcoat = { range: item.extTopcoatRangeOverride || '', band: item.extTopcoatBandOverride || '' };
+  roomOverrides.extPrimer = { range: item.extPrimerRangeOverride || '', band: item.extPrimerBandOverride || '' };
+  ['masonry','extTopcoat','extPrimer'].forEach(populateRoomOverridePicker);
   document.getElementById('extform-title').textContent = 'Edit Exterior';
   document.getElementById('ex-label').value = item.label||'';
   document.getElementById('ex-masonry').value = item.masonry||'';
@@ -8422,6 +8455,18 @@ function editExtItem(id) {
 }
 
 function saveExteriorItem() {
+  // Same band-required guard as saveRoom() -- an override with a range
+  // chosen must also have an explicit band, since band changes the price
+  // and can't be guessed. See MATERIALS_SPEC.md "Refinements".
+  var overrideRoleLabels = [['masonry','Masonry / Render'],['extTopcoat','Exterior Woodwork Topcoat'],['extPrimer','Exterior Woodwork Primer']];
+  for (var i = 0; i < overrideRoleLabels.length; i++) {
+    var role = overrideRoleLabels[i][0], label = overrideRoleLabels[i][1];
+    var ov = roomOverrides[role];
+    if (ov.range && ov.band == null) {
+      alert('Choose a colour band for the ' + label + ' override before saving — it changes the price and can\'t be guessed.');
+      return;
+    }
+  }
   var item = getExtFormData();
   item.id = editExtId || uid();
   item.emoji = '🏡';
