@@ -7274,7 +7274,11 @@ function onColourLabelInput(number, value) {
   if (q.length < 2) { dd.style.display = 'none'; return; }
   var qLower = q.toLowerCase();
   colourDropdownMatches = colourLibrary.filter(function(c){
-    return c.name.toLowerCase().indexOf(qLower) !== -1;
+    // Matches on code too, not just name -- RAL Classic stores its number as
+    // the name (e.g. "RAL 7016") and the descriptive name (e.g. "Anthracite
+    // grey") as the code, so search needs both sides to stay findable either way.
+    return c.name.toLowerCase().indexOf(qLower) !== -1
+      || (c.code && c.code.toLowerCase().indexOf(qLower) !== -1);
   }).slice(0, 8);
   var html = colourDropdownMatches.map(function(c, i){
     return '<div style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:14px" onmousedown="event.preventDefault()" onclick="selectLibraryColour('+number+','+i+')">'
