@@ -274,6 +274,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="empty-title">Nothing measured yet</div>
       <div class="empty-sub">Tap + to add a room or an exterior item as you walk round, or Quick add to name every room first and measure on a second pass. Toggle Staircase / HSL on the room form for halls, stairs &amp; landings.</div>
     </div>
+    <div id="measure-cost-note" style="display:none;padding:0 4px;margin:2px 0 8px;font-size:11px;color:var(--text3)">Costs below are your labour cost, before markup — see Summary for the customer-facing quote.</div>
     <div class="section-title" id="rooms-section-head" style="display:none;justify-content:space-between;align-items:center">
       <span>Interior</span>
       <span onclick="clearRooms()" style="color:var(--danger);font-size:12px;font-weight:600;cursor:pointer;text-transform:none;letter-spacing:0">Clear</span>
@@ -1133,7 +1134,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row" id="k-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="k-band" onchange="onRoomOverrideBandSelect('kitchen')"></select></div>
     </div>
     <div class="card" id="kitchen-breakdown-card" style="display:none">
-      <div class="card-header">Breakdown</div>
+      <div class="card-header">Breakdown<small style="text-transform:none;letter-spacing:normal;font-weight:400"> — before markup, see Summary for the customer price</small></div>
       <div id="kitchen-breakdown"></div>
     </div>
   </div>
@@ -8141,7 +8142,7 @@ function updateKitchenTotals() {
   if (chip) {
     var marked = applyMarkupAmount(c.total);
     chip.style.display = c.total>0 ? 'flex' : 'none';
-    chip.textContent = fmt(marked);
+    chip.innerHTML = fmt(marked)+' <span style="font-weight:400;opacity:.75">quote</span>';
   }
   var card = document.getElementById('kitchen-breakdown-card');
   var body = document.getElementById('kitchen-breakdown');
@@ -8156,7 +8157,7 @@ function updateKitchenTotals() {
   body.innerHTML = rows.map(function(r) {
     return '<div class="breakdown-row"><span class="breakdown-label">'+r[0]+'</span><span class="breakdown-value">'+fmt(r[1])+'</span></div>';
   }).join('') +
-  '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Kitchen total</span><span class="breakdown-value" style="color:var(--accent)">'+fmt(c.total)+'</span></div>';
+  '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Kitchen total<small style="display:block;font-weight:400;color:var(--text2)">before markup</small></span><span class="breakdown-value" style="color:var(--accent)">'+fmt(c.total)+'</span></div>';
 }
 
 function setExtSeg(key, val) {
@@ -8470,9 +8471,11 @@ function updateMeasureChrome() {
   document.getElementById('rooms-section-head').style.display = rooms.length ? 'flex' : 'none';
   document.getElementById('ext-section-head').style.display = extItems.length ? 'flex' : 'none';
   var chip = document.getElementById('home-chip'), sub = document.getElementById('home-sub');
-  if (both) { chip.style.display = 'none'; sub.textContent = ''; return; }
+  var note = document.getElementById('measure-cost-note');
+  if (both) { chip.style.display = 'none'; sub.textContent = ''; if (note) note.style.display = 'none'; return; }
+  if (note) note.style.display = 'block';
   chip.style.display = 'flex';
-  chip.textContent = fmt(applyMarkupAmount(measureRoomsTotal + measureExtTotal));
+  chip.innerHTML = fmt(applyMarkupAmount(measureRoomsTotal + measureExtTotal))+' <span style="font-weight:400;opacity:.75">quote</span>';
   var parts = [];
   if (rooms.length) parts.push(rooms.length + ' room' + (rooms.length === 1 ? '' : 's'));
   if (extItems.length) parts.push(extItems.length + ' ext');
@@ -10816,7 +10819,7 @@ function renderSummary() {
     '</div>'+
     '<div class="stat-grid">'+
       '<div class="stat-card"><div class="stat-label">Labour</div><div class="stat-value ac">'+fmt(tcOrig)+'</div>'+
-        (hasVariations ? '<small style="display:block;font-weight:400;color:var(--text2);margin-top:2px">original scope</small>' : '')+'</div>'+
+        '<small style="display:block;font-weight:400;color:var(--text2);margin-top:2px">before markup'+(hasVariations ? ' · original scope' : '')+'</small></div>'+
       '<div class="stat-card"><div class="stat-label">On Site</div><div class="stat-value bl">'+fmtD(onSiteDays)+'</div>'+
         '<small style="display:block;font-weight:400;color:var(--text2);margin-top:2px">'+ttAll.toFixed(1)+'d working'+(hasVariations ? ' incl. variations' : '')+'</small></div>'+
     '</div>'+
