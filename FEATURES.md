@@ -180,7 +180,7 @@ The Colours tab lets each colour number carry a name (e.g. colour 1 = "Dimity").
 
 ### What shipped
 - **Data model** — each colour stored as `{ name, brand, code }` in a `colour_library` table. **Global and permanent**: NOT job-scoped, and deliberately untouched by Clear Rooms / Clear Everything (it's a reference list, not job data).
-- **Seeded with Farrow & Ball + Little Greene** — 509 colours (301 F&B, 208 Little Greene) from `db/colour-library-seed.json`, loaded once via `db/seed-colour-library.js`. Notably larger than the ~130-each the plan assumed.
+- **Seeded with Farrow & Ball + Little Greene** — 509 colours (301 F&B, 208 Little Greene) from `db/colour-library-seed.json`, loaded once via `db/seed-colour-library.js`. Notably larger than the ~130-each the plan assumed. (Since grown to 1221 entries — Dulux, Dulux Heritage and Paint & Paper Library were added the same way, and RAL Classic added 2026-07-30: all 213 standard RAL Classic colours, `code` stored as `"RAL 1000"` etc.)
 - **Autocomplete on the Colours tab** — typing 2+ characters filters the library and shows up to 8 matches (name, brand, code); picking one fills in brand + code. Mirrors the existing Xero contact autocomplete pattern (`onXeroClientInput`), but filters in memory rather than hitting a search endpoint — ~500 entries are cheap to filter on every keystroke.
 - **Grows on first use** — an unknown colour offers "+ Save X to your colour library", which takes brand + code and POSTs to `/api/colour-library` (upsert on name+brand). The personal list grows over time; no cross-brand database needed.
 - **Free-text fallback** — "Skip" still commits the typed name as a plain label with no brand/code, so an unknown colour never blocks the flow.
