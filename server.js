@@ -22,6 +22,11 @@ const DEBT_APP_ENABLED = process.env.DEBT_APP_ENABLED === 'true';
 // served on every route, so this is the single biggest transfer saving.
 app.use(compression());
 
+// Unauthenticated liveness probe for Render's health checks (render.yaml).
+// Deliberately ahead of the login gate and content-free: it answers "is the
+// process up", nothing else.
+app.get('/healthz', (req, res) => res.type('text').send('ok'));
+
 // Body parsing
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
