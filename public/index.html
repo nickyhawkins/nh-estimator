@@ -443,14 +443,6 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Width<small>metres</small></div><input type="number" class="field-input" id="r-w" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
       <div class="field-row"><div class="field-label">Height<small>metres</small></div><input type="number" class="field-input" id="r-h" value="2.4" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
     </div>
-    <div class="card" id="card-excluded-walls">
-      <div class="card-header sec-toggle" onclick="toggleFormSection('excluded')"><span>Excluded Walls</span><span class="sec-chev" id="sec-chev-excluded">›</span></div>
-      <div class="card-body" id="sec-excluded">
-        <div class="subsection-label">Excluded Walls<small>walls you're not painting — e.g. wallpaper that's staying. Each width × height comes off the painted wall area (and mist coat); leave empty to skip</small></div>
-        <div id="excluded-walls-list"></div>
-        <div class="field-row" style="cursor:pointer" onclick="addExcludedWall()"><div class="field-label" style="color:var(--accent);font-weight:600">+ Add excluded wall</div></div>
-      </div>
-    </div>
     <div class="card" id="card-hsl-geometry" style="display:none">
       <div class="card-header">Number of Floors</div>
       <div class="field-row">
@@ -511,6 +503,14 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Walls</div><div class="seg" id="seg-wc"><button class="seg-btn" onclick="setSeg('wc',0)">0</button><button class="seg-btn" onclick="setSeg('wc',1)">1</button><button class="seg-btn active" onclick="setSeg('wc',2)">2</button><button class="seg-btn" onclick="setSeg('wc',3)">3</button></div></div>
       <div class="field-row"><div class="field-label">Ceiling</div><div class="seg" id="seg-cc"><button class="seg-btn" onclick="setSeg('cc',0)">0</button><button class="seg-btn" onclick="setSeg('cc',1)">1</button><button class="seg-btn active" onclick="setSeg('cc',2)">2</button><button class="seg-btn" onclick="setSeg('cc',3)">3</button></div></div>
       <div class="field-row"><div class="field-label">Woodwork</div><div class="seg" id="seg-xc"><button class="seg-btn" onclick="setSeg('xc',0)">0</button><button class="seg-btn" onclick="setSeg('xc',1)">1</button><button class="seg-btn active" onclick="setSeg('xc',2)">2</button><button class="seg-btn" onclick="setSeg('xc',3)">3</button></div></div>
+      <div class="toggle-row" style="border-top:1px solid var(--border)">
+        <div class="toggle-label">Spray walls<small>Wall litres use the sprayed coverage rate, and this room's labour picks up the spray sundries bump. Labour time is unchanged</small></div>
+        <div class="toggle" id="tog-spray" onclick="toggleSprayWalls()"></div>
+      </div>
+      <div class="toggle-row" id="variation-row" style="border-top:1px solid var(--border);display:none">
+        <div class="toggle-label" style="color:var(--accent)">Variation<small>Extra scope on top of the accepted quote — listed under On Site › Variations. Turn off if this is a correction to the original quote</small></div>
+        <div class="toggle" id="tog-variation" onclick="toggleRoomVariation()"></div>
+      </div>
     </div>
     <div class="card searchable-card">
       <div class="card-header sec-toggle" onclick="toggleFormSection('featurewall')"><span>Feature Wall</span><span class="sec-chev" id="sec-chev-featurewall">›</span></div>
@@ -575,36 +575,12 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         </div>
       </div>
     </div>
-    <div class="card searchable-card">
-      <div class="card-header sec-toggle" onclick="toggleFormSection('paint')"><span>Paint &amp; Colour</span><span class="sec-chev" id="sec-chev-paint">›</span></div>
-      <div class="card-body" id="sec-paint">
-        <div class="subsection-label">Colour</div>
-        <div class="field-row"><div class="field-label">Wall<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-wall" style="flex-wrap:wrap"></div></div>
-        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Ceiling<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-ceiling" style="flex-wrap:wrap"></div></div>
-        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Woodwork<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-woodwork" style="flex-wrap:wrap"></div></div>
-        <div class="subsection-label">Wall Paint</div>
-        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-wall-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('wall')" onfocus="onRoomRangeSearchInput('wall')"><div id="r-wall-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
-        <div class="field-row" id="r-wall-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-wall-band" onchange="onRoomOverrideBandSelect('wall')"></select></div>
-        <div class="subsection-label">Ceiling Paint</div>
-        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-ceiling-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('ceiling')" onfocus="onRoomRangeSearchInput('ceiling')"><div id="r-ceiling-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
-        <div class="field-row" id="r-ceiling-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-ceiling-band" onchange="onRoomOverrideBandSelect('ceiling')"></select></div>
-        <div class="subsection-label">Woodwork Topcoat</div>
-        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-topcoat-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('topcoat')" onfocus="onRoomRangeSearchInput('topcoat')"><div id="r-topcoat-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
-        <div class="field-row" id="r-topcoat-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-topcoat-band" onchange="onRoomOverrideBandSelect('topcoat')"></select></div>
-        <div class="subsection-label">Woodwork Primer</div>
-        <div class="field-row"><div class="field-label">Product<small>defaults to Settings, or None</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-primer-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('primer')" onfocus="onRoomRangeSearchInput('primer')"><div id="r-primer-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
-        <div class="field-row" id="r-primer-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-primer-band" onchange="onRoomOverrideBandSelect('primer')"></select></div>
-        <div class="subsection-label">Mist Coat</div>
-        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-mist-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('mist')" onfocus="onRoomRangeSearchInput('mist')"><div id="r-mist-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
-        <div class="field-row" id="r-mist-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-mist-band" onchange="onRoomOverrideBandSelect('mist')"></select></div>
-      </div>
-    </div>
-    <div class="card" id="card-extras">
-      <div class="card-header sec-toggle" onclick="toggleFormSection('extras')"><span>Extras</span><span class="sec-chev" id="sec-chev-extras">›</span></div>
-      <div class="card-body" id="sec-extras">
-        <div class="field-row"><div class="field-label">Windows<small>total m² — woodwork; comes off wall area, painted only when Woodwork coats &gt; 0</small></div><input type="number" class="field-input" id="r-win" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
-        <div class="field-row"><div class="field-label">Window sills<small>count — painted wooden sills on unpainted (plastic) windows</small></div><input type="number" class="field-input" id="r-sills" placeholder="0" min="0" step="1" inputmode="numeric" oninput="previewRoom()"></div>
-        <div class="field-row"><div class="field-label">Radiators<small>m²</small></div><input type="number" class="field-input" id="r-rads" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+    <div class="card" id="card-excluded-walls">
+      <div class="card-header sec-toggle" onclick="toggleFormSection('excluded')"><span>Excluded Walls</span><span class="sec-chev" id="sec-chev-excluded">›</span></div>
+      <div class="card-body" id="sec-excluded">
+        <div class="subsection-label">Excluded Walls<small>walls you're not painting — e.g. wallpaper that's staying. Each width × height comes off the painted wall area (and mist coat); leave empty to skip</small></div>
+        <div id="excluded-walls-list"></div>
+        <div class="field-row" style="cursor:pointer" onclick="addExcludedWall()"><div class="field-label" style="color:var(--accent);font-weight:600">+ Add excluded wall</div></div>
       </div>
     </div>
     <div class="card">
@@ -651,57 +627,12 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         </div>
       </div>
     </div>
-    <div class="card">
-      <div class="card-header sec-toggle" onclick="toggleFormSection('prep')"><span>Preparation</span><span class="sec-chev" id="sec-chev-prep">›</span></div>
-      <div class="card-body" id="sec-prep">
-        <div class="field-row">
-          <div class="field-label">Prep Level</div>
-          <div class="seg" id="seg-prep" style="flex:1.5">
-            <button class="seg-btn active" onclick="setPrep(10)">Minimal</button>
-            <button class="seg-btn" onclick="setPrep(25)">Standard</button>
-            <button class="seg-btn" onclick="setPrep(40)">Heavy</button>
-            <button class="seg-btn" onclick="setPrep(-1)">Custom</button>
-          </div>
-        </div>
-        <div class="field-row" id="prep-custom-row" style="display:none">
-          <div class="field-label">Custom prep %<small>uplift on room total</small></div>
-          <input type="number" class="field-input" id="r-prep-custom" placeholder="0" min="0" max="100" step="5" inputmode="numeric" oninput="previewRoom()">
-        </div>
-        <div class="toggle-row" style="border-top:1px solid var(--border)">
-          <div class="toggle-label">Self-priming paint<small>Woodwork other than doors/frames (skirting, sills, windows) — skips the primer coat, adds one extra topcoat instead</small></div>
-          <div class="toggle" id="tog-selfprimingwoodwork" onclick="toggleSelfPrimingWoodwork()"></div>
-        </div>
-        <div class="field-row" style="border-top:1px solid var(--border)">
-          <div class="field-label">Making Good<small>£ fixed cost for repairs</small></div>
-          <input type="number" class="field-input" id="r-making-good" placeholder="0" min="0" step="5" inputmode="decimal" oninput="previewRoom()">
-        </div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-header sec-toggle" onclick="toggleFormSection('mist')"><span>Mist Coat</span><span class="sec-chev" id="sec-chev-mist">›</span></div>
-      <div class="card-body" id="sec-mist">
-        <div class="toggle-row">
-          <div class="toggle-label">Mist coat — Walls<small>Adds a mist coat pass to walls</small></div>
-          <div class="toggle" id="tog-mw" onclick="toggleMist('mw')"></div>
-        </div>
-        <div class="toggle-row" style="border-top:1px solid var(--border)">
-          <div class="toggle-label">Mist coat — Ceiling<small>Adds a mist coat pass to ceiling</small></div>
-          <div class="toggle" id="tog-mc" onclick="toggleMist('mc')"></div>
-        </div>
-        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Manual area override<small>m² — for when only part is new plaster; blank uses the selected surface(s) above</small></div><input type="number" class="field-input" id="r-mist-area" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-header sec-toggle" onclick="toggleFormSection('spray')"><span>Spray Application</span><span class="sec-chev" id="sec-chev-spray">›</span></div>
-      <div class="card-body" id="sec-spray">
-        <div class="toggle-row">
-          <div class="toggle-label">Spray walls<small>Wall litres use the sprayed coverage rate, and this room's labour picks up the spray sundries bump. Labour time is unchanged</small></div>
-          <div class="toggle" id="tog-spray" onclick="toggleSprayWalls()"></div>
-        </div>
-        <div class="toggle-row" id="variation-row" style="border-top:1px solid var(--border);display:none">
-          <div class="toggle-label" style="color:var(--accent)">Variation<small>Extra scope on top of the accepted quote — listed under On Site › Variations. Turn off if this is a correction to the original quote</small></div>
-          <div class="toggle" id="tog-variation" onclick="toggleRoomVariation()"></div>
-        </div>
+    <div class="card" id="card-extras">
+      <div class="card-header sec-toggle" onclick="toggleFormSection('extras')"><span>Extras</span><span class="sec-chev" id="sec-chev-extras">›</span></div>
+      <div class="card-body" id="sec-extras">
+        <div class="field-row"><div class="field-label">Windows<small>total m² — woodwork; comes off wall area, painted only when Woodwork coats &gt; 0</small></div><input type="number" class="field-input" id="r-win" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+        <div class="field-row"><div class="field-label">Window sills<small>count — painted wooden sills on unpainted (plastic) windows</small></div><input type="number" class="field-input" id="r-sills" placeholder="0" min="0" step="1" inputmode="numeric" oninput="previewRoom()"></div>
+        <div class="field-row"><div class="field-label">Radiators<small>m²</small></div><input type="number" class="field-input" id="r-rads" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
       </div>
     </div>
     <div class="card">
@@ -756,6 +687,20 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         <div class="breakdown-row" id="wp-r-ceil-rolls-row" style="display:none;background:var(--accent-faint)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Ceiling rolls to order</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="wp-r-ceil-rolls">—</span></div>
       </div>
     </div>
+    <div class="card">
+      <div class="card-header sec-toggle" onclick="toggleFormSection('mist')"><span>Mist Coat</span><span class="sec-chev" id="sec-chev-mist">›</span></div>
+      <div class="card-body" id="sec-mist">
+        <div class="toggle-row">
+          <div class="toggle-label">Mist coat — Walls<small>Adds a mist coat pass to walls</small></div>
+          <div class="toggle" id="tog-mw" onclick="toggleMist('mw')"></div>
+        </div>
+        <div class="toggle-row" style="border-top:1px solid var(--border)">
+          <div class="toggle-label">Mist coat — Ceiling<small>Adds a mist coat pass to ceiling</small></div>
+          <div class="toggle" id="tog-mc" onclick="toggleMist('mc')"></div>
+        </div>
+        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Manual area override<small>m² — for when only part is new plaster; blank uses the selected surface(s) above</small></div><input type="number" class="field-input" id="r-mist-area" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+      </div>
+    </div>
     <div class="card searchable-card">
       <div class="card-header sec-toggle" onclick="toggleFormSection('panelling')"><span>Panelling</span><span class="sec-chev" id="sec-chev-panelling">›</span></div>
       <div class="card-body" id="sec-panelling">
@@ -778,6 +723,56 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Colour<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-panel" style="flex-wrap:wrap"></div></div>
         <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Product<small>no default — choose explicitly</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-panel-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('panel')" onfocus="onRoomRangeSearchInput('panel')"><div id="r-panel-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
         <div class="field-row" id="r-panel-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-panel-band" onchange="onRoomOverrideBandSelect('panel')"></select></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header sec-toggle" onclick="toggleFormSection('prep')"><span>Preparation</span><span class="sec-chev" id="sec-chev-prep">›</span></div>
+      <div class="card-body" id="sec-prep">
+        <div class="field-row">
+          <div class="field-label">Prep Level</div>
+          <div class="seg" id="seg-prep" style="flex:1.5">
+            <button class="seg-btn active" onclick="setPrep(10)">Minimal</button>
+            <button class="seg-btn" onclick="setPrep(25)">Standard</button>
+            <button class="seg-btn" onclick="setPrep(40)">Heavy</button>
+            <button class="seg-btn" onclick="setPrep(-1)">Custom</button>
+          </div>
+        </div>
+        <div class="field-row" id="prep-custom-row" style="display:none">
+          <div class="field-label">Custom prep %<small>uplift on room total</small></div>
+          <input type="number" class="field-input" id="r-prep-custom" placeholder="0" min="0" max="100" step="5" inputmode="numeric" oninput="previewRoom()">
+        </div>
+        <div class="toggle-row" style="border-top:1px solid var(--border)">
+          <div class="toggle-label">Self-priming paint<small>Woodwork other than doors/frames (skirting, sills, windows) — skips the primer coat, adds one extra topcoat instead</small></div>
+          <div class="toggle" id="tog-selfprimingwoodwork" onclick="toggleSelfPrimingWoodwork()"></div>
+        </div>
+        <div class="field-row" style="border-top:1px solid var(--border)">
+          <div class="field-label">Making Good<small>£ fixed cost for repairs</small></div>
+          <input type="number" class="field-input" id="r-making-good" placeholder="0" min="0" step="5" inputmode="decimal" oninput="previewRoom()">
+        </div>
+      </div>
+    </div>
+    <div class="card searchable-card">
+      <div class="card-header sec-toggle" onclick="toggleFormSection('paint')"><span>Paint &amp; Colour</span><span class="sec-chev" id="sec-chev-paint">›</span></div>
+      <div class="card-body" id="sec-paint">
+        <div class="subsection-label">Colour</div>
+        <div class="field-row"><div class="field-label">Wall<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-wall" style="flex-wrap:wrap"></div></div>
+        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Ceiling<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-ceiling" style="flex-wrap:wrap"></div></div>
+        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Woodwork<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-woodwork" style="flex-wrap:wrap"></div></div>
+        <div class="subsection-label">Wall Paint</div>
+        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-wall-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('wall')" onfocus="onRoomRangeSearchInput('wall')"><div id="r-wall-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
+        <div class="field-row" id="r-wall-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-wall-band" onchange="onRoomOverrideBandSelect('wall')"></select></div>
+        <div class="subsection-label">Ceiling Paint</div>
+        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-ceiling-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('ceiling')" onfocus="onRoomRangeSearchInput('ceiling')"><div id="r-ceiling-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
+        <div class="field-row" id="r-ceiling-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-ceiling-band" onchange="onRoomOverrideBandSelect('ceiling')"></select></div>
+        <div class="subsection-label">Woodwork Topcoat</div>
+        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-topcoat-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('topcoat')" onfocus="onRoomRangeSearchInput('topcoat')"><div id="r-topcoat-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
+        <div class="field-row" id="r-topcoat-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-topcoat-band" onchange="onRoomOverrideBandSelect('topcoat')"></select></div>
+        <div class="subsection-label">Woodwork Primer</div>
+        <div class="field-row"><div class="field-label">Product<small>defaults to Settings, or None</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-primer-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('primer')" onfocus="onRoomRangeSearchInput('primer')"><div id="r-primer-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
+        <div class="field-row" id="r-primer-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-primer-band" onchange="onRoomOverrideBandSelect('primer')"></select></div>
+        <div class="subsection-label">Mist Coat</div>
+        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-mist-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('mist')" onfocus="onRoomRangeSearchInput('mist')"><div id="r-mist-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
+        <div class="field-row" id="r-mist-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-mist-band" onchange="onRoomOverrideBandSelect('mist')"></select></div>
       </div>
     </div>
     <div class="card" id="hsl-results-card" style="display:none">
