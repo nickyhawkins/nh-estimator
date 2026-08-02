@@ -35,7 +35,7 @@ The app lives at your own web address (the one on your Render account). It's des
 - **iPhone:** open the app in Safari → tap the Share button → **Add to Home Screen**.
 - **Android:** open it in Chrome → menu (⋮) → **Add to Home screen** / **Install app**.
 
-There's no login — the app is yours alone, so guard the web address like you would any private page.
+If your copy of the app has a password set, you'll be asked for it the first time you open the app on a device — after that it stays signed in. If there's no password on your instance, guard the web address like you would any private page.
 
 ### Connect Xero (one-off)
 
@@ -319,7 +319,8 @@ Menu (☰) → **Settings**. Every number the calculator uses lives here, so a c
 
 | Section | What's in it |
 |---|---|
-| **Your Rates** | Day rate, hours per day, markup %, sundries %, spray sundries bump, deposit %, and how many days before an unanswered quote gets flagged |
+| **Business** | Your business name and logo — shown in the app header, on the sign-in screen and in the calendar feed |
+| **Your Rates** | Day rate, hours per day, markup %, sundries %, spray sundries bump, deposit %, commercial job adjustment, and how many days before an unanswered quote gets flagged |
 | **Scheduling** | Daily overhead minutes, schedule buffer, Work Saturdays, bank-holiday region, and the calendar feed |
 | **Coverage Rates** | m² per litre for each paint type — the heart of the materials maths |
 | **Time Rates** | Minutes per m² / per item for walls, ceilings, woodwork, doors, windows, radiators… the heart of the labour maths |
