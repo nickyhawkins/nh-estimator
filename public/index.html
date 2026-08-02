@@ -2893,11 +2893,10 @@ function renameJob(id) {
   renderHome(); renderJobs();
 }
 
-// PUT /api/jobs/:id replaces `data` wholesale (see routes/api.js), so any
-// save here that only sends SOME of the client-known data fields would
-// silently drop whichever ones it left out. Every call site that persists
-// part of job.data must go through this so xeroClient/xeroRef/contact/
-// xeroContactId/contactSyncedAt/materialsSeeded/kitchen always travel together.
+// PUT /api/jobs/:id merges `data` (see routes/api.js) rather than replacing
+// it, but this is still the one place that persists the Xero/status/schedule
+// fields together so xeroClient/xeroRef/contact/xeroContactId/
+// contactSyncedAt/materialsSeeded/kitchen stay consistent with each other.
 function persistJobData(job) {
   fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, freeVariations: job.freeVariations, variationCount: job.variationCount, notes: job.notes, kitchen: job.kitchen }) });
 }
