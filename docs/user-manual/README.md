@@ -62,8 +62,7 @@ The **bottom bar** is always visible and follows the life of a job, left to righ
 | Tab | What it's for |
 |---|---|
 | 🏠 **Home** | Dashboard and reminders |
-| 📐 **Measure** | Rooms and exterior items for the current job |
-| 🍳 **Kitchen** | Cabinet-spray calculator |
+| 📐 **Measure** | Everything measured for the current job — rooms, exterior items and the kitchen respray |
 | 🛠 **On Site** | Time, materials and variations while the job runs |
 | 📋 **Summary** | The priced quote, Xero, and job status |
 
@@ -75,11 +74,11 @@ The **menu (☰)**, top right on most screens, holds the job-admin screens: **Jo
 
 ## 3. Measuring up
 
-Open **📐 Measure**. This screen lists everything measured for the current job, split into **Interior** (rooms) and **Exterior** items, each showing its price and estimated days at a glance. The chip at the top keeps a running total for the whole job.
+Open **📐 Measure**. This screen lists everything measured for the current job — **Interior** rooms, **Exterior** items and the **Kitchen** respray — each showing its cost and estimated days at a glance. The figures on this screen are your *labour cost before markup* (the banner at the top says so); the chip in the top bar shows the customer-facing quote total, and Summary has the full customer-facing breakdown.
 
 ![Measure screen](images/03-measure.png)
 
-Tap the **`+` button** (bottom right) and choose what you're adding:
+Tap the **`+` button** (bottom right) and choose what you're adding — a room, an exterior item, or the kitchen:
 
 ![Add chooser](images/03b-add-chooser.png)
 
@@ -92,21 +91,20 @@ Tap the **`+` button** (bottom right) and choose what you're adding:
 The form works top to bottom, and only the top matters for a basic room:
 
 1. **Room Name** — e.g. "Living Room".
-2. **Dimensions** — length, width and height in metres (height starts at 2.4 m). The app works out wall and ceiling areas itself.
-3. **Coats** — walls, ceiling and woodwork each default to 2. Set any of them to 0 to skip that surface entirely (e.g. ceiling not being painted).
+2. **Dimensions** — length, width and height in metres (height starts at 2.4 m). The app works out wall and ceiling areas itself. (The **Staircase / HSL** toggle above swaps this card for staircase geometry — see [Staircases](#staircases-hall-stairs--landing) below.)
+3. **Coats** — walls, ceiling and woodwork each default to 2. Set any of them to 0 to skip that surface entirely (e.g. ceiling not being painted). The **Spray walls** toggle lives here too — flick it to price the walls for spraying rather than brush and roller.
 
 Then the optional sections, which you'll use as the room demands:
 
-- **Staircase / HSL** — flick this toggle for a hall/stairs/landing and the form swaps in staircase geometry. Covered in detail in [Staircases](#staircases-hall-stairs--landing) below.
-- **Excluded Walls** — walls you're *not* painting (a tiled wall, wallpaper that's staying). Add its width × height and it's deducted.
-- **Extras** — windows (m²), window sills, doors and radiators. Each adds its own time and paint.
-- **Preparation** — Minimal / Standard / Heavy, or a custom percentage. This scales labour. **Making Good** adds a fixed £ amount for repairs.
-- **Mist Coat** — for fresh plaster; tick walls and/or ceiling.
-- **Spray Application** — price the walls for spraying rather than brush and roller.
-- **Paint & Colour** — each surface takes your default product from Settings; override the product, colour band or colour here when a room is different.
 - **Feature Wall** — one wall in a different finish: paint, or wallpaper (standard, wide vinyl or mural).
+- **Excluded Walls** — walls you're *not* painting (a tiled wall, wallpaper that's staying). Add its width × height and it's deducted.
+- **Doors & Frames** — doors and their frames are priced separately, each with its own quantity and coats. Painting one side or both? The **Both sides** toggle prices the whole leaf; off, you're pricing just the face seen from this room — so a door between two painted rooms can be split across them.
+- **Extras** — windows (m²), window sills and radiators. Each adds its own time and paint.
 - **Wallpaper** — lining and finish paper for walls or ceiling, priced per roll with an automatic **rolls-to-order** count. Covered in detail in [Wallpaper](#wallpaper--rolls-to-order) below.
+- **Mist Coat** — for fresh plaster; tick walls and/or ceiling.
 - **Panelling** — wall panelling by area with its own coats, prep and colour.
+- **Preparation** — Minimal / Standard / Heavy, or a custom percentage. This scales labour. **Making Good** adds a fixed £ amount for repairs.
+- **Paint & Colour** — each surface takes your default product from Settings; override the product, colour band or colour here when a room is different.
 
 A **Preview** card at the bottom shows the wall/ceiling areas and this room's estimated cost and time as you type, so you can sanity-check before you leave the room. Tap **Save** (top right) when you're happy. To change a room later, tap it in the Measure list; **Delete Room** is at the bottom of the edit form.
 
@@ -191,7 +189,7 @@ Tap the **📝 button** (bottom left of Measure) any time to jot job notes — a
 
 ## 4. Kitchen cabinet respray
 
-The **🍳 Kitchen** tab is a dedicated calculator for cabinet spraying — one kitchen per job, saved automatically.
+On **Measure**, tap **`+` → Kitchen** to open the dedicated cabinet-spray calculator — one kitchen per job, saved automatically. Once it has anything in it, the kitchen appears as its own priced line in the Measure list and the quote.
 
 ![Kitchen screen](images/06-kitchen.png)
 
@@ -213,7 +211,8 @@ Open **📋 Summary** and the job becomes a priced quote:
 
 The hero card shows the **total quote**, days on site, and the markup applied. Below it:
 
-- **Labour** and **On Site days** at a glance.
+- **Labour** (before markup) and **On Site days** at a glance.
+- **Commercial job** — a toggle that adds a 10% uplift before markup, for commercial rather than domestic work.
 - **Markup / Discount** — this quote can override your default markup; enter a negative number for a discount.
 - **Payment** — the **deposit** due on acceptance (your default % from Settings) and the **balance**. Switch the payment plan to **Multi-week** to show weekly instalments across the job.
 
@@ -304,7 +303,7 @@ Review the lines, adjust anything, then send — the app writes **one draft invo
 
 ## 10. Colours
 
-Menu (☰) → **Colours** — the job's colour schedule. As you and the client settle on colours, note each one here: a label for where it goes, plus brand and colour name from the built-in library of common UK trade colours (Farrow & Ball, Dulux, Little Greene and more).
+Menu (☰) → **Colours** — the job's colour schedule. As you and the client settle on colours, note each one here: a label for where it goes, plus brand and colour name from the built-in library of common UK trade colours (Farrow & Ball, Dulux, Little Greene, RAL Classic and more).
 
 ![Colours screen](images/11-colours.png)
 
@@ -363,6 +362,6 @@ The **Clear Everything** button in Settings does exactly what it says across all
 
 ---
 
-*Manual for NH Estimator v2.0.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.2.5. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
