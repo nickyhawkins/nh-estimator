@@ -31,6 +31,10 @@ Edit `.env` and fill in:
 ```bash
 psql $DATABASE_URL -f db/setup.sql
 ```
+On the owner's personal instance only (the one with `DEBT_APP_ENABLED=true`), also run:
+```bash
+psql $DATABASE_URL -f db/setup-debt.sql
+```
 
 ### 4. Run locally
 ```bash

@@ -109,7 +109,7 @@ branding themes and templates. What's hard-coded is only in-app cosmetics:
 
 - [x] Spec agreed
 - [x] WS1 login (`routes/appLogin.js`, `public/login.html`; APP_PASSWORD env var)
-- [ ] WS2 debt-app flag
+- [x] WS2 debt-app flag (`DEBT_APP_ENABLED`, default off; debt tables + personal seed split into `db/setup-debt.sql`)
 - [ ] WS3 white-label
 - [ ] WS4 provisioning
 - [ ] WS5 release discipline
