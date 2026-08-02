@@ -48,8 +48,30 @@ Store certification lifts it if this ever scales.
 - Turn on **daily Postgres backups** for the new database (Render
   dashboard). The in-app JSON export is a user-level backup, not disaster
   recovery for someone else's business.
-- Once WS5 lands: confirm the service deploys from the **`stable`**
-  branch, not `main`.
+- Confirm the service deploys from the **`stable`** branch (the blueprint
+  sets this), not `main`.
+
+## Releases: main vs stable
+
+Two branches, two audiences:
+
+- **`main`** — the owner's own instance auto-deploys from here. Every
+  change lands on the owner's phone first and gets proven on real jobs.
+- **`stable`** — every customer instance deploys from here. It only ever
+  moves by promoting main once a change has survived real use:
+
+  ```bash
+  git push origin main:stable
+  ```
+
+  That one command releases to all customer instances (Render redeploys
+  each on the new commit). Never commit directly to stable, and never
+  point a customer instance at main — the whole point is that experiments
+  break the owner's app, not a customer's business.
+
+If a release goes wrong anyway: Render's dashboard can roll any service
+back to its previous deploy instantly, and `git push origin <good-sha>:stable --force-with-lease`
+re-points the branch while a fix is prepared.
 
 ## 4. Onboard the customer (with them, ~15 min)
 

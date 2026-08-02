@@ -112,4 +112,4 @@ branding themes and templates. What's hard-coded is only in-app cosmetics:
 - [x] WS2 debt-app flag (`DEBT_APP_ENABLED`, default off; debt tables + personal seed split into `db/setup-debt.sql`)
 - [x] WS3 white-label (Settings → Business card: name + logo; header, login page, PWA manifest name, ICS calendar name)
 - [x] WS4 provisioning (`render.yaml`, `npm run provision`, `/healthz`, `docs/NEW_INSTANCE.md`)
-- [ ] WS5 release discipline
+- [x] WS5 release discipline (`stable` branch created; blueprint pins it; promote via `git push origin main:stable` — see docs/NEW_INSTANCE.md "Releases")
