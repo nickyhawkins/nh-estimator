@@ -992,6 +992,10 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Finish paper<small>£ per roll hung</small></div><input type="number" class="field-input" id="s-wpfinish-rate" value="40" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Ceiling multiplier<small>% uplift on labour</small></div><input type="number" class="field-input" id="s-wpceil-mult" value="15" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Staircase multiplier<small>% uplift on labour</small></div><input type="number" class="field-input" id="s-wpstair-mult" value="25" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Staircase — spindle time<small>minutes per spindle, per coat</small></div><input type="number" class="field-input" id="s-wpstair-spindle-mins" value="5" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Staircase — newel time<small>minutes per newel post, per coat</small></div><input type="number" class="field-input" id="s-wpstair-newel-mins" value="5" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Staircase — string time<small>minutes per metre, per coat</small></div><input type="number" class="field-input" id="s-wpstair-string-mins" value="2" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Staircase — handrail time<small>minutes per metre, per coat</small></div><input type="number" class="field-input" id="s-wpstair-handrail-mins" value="3" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Trim allowance<small>cm added per drop, top+bottom</small></div><input type="number" class="field-input" id="s-wptrim" value="10" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Minimum price<small>£ floor per room's wallpaper labour</small></div><input type="number" class="field-input" id="s-wpmin-price" value="200" min="0" step="10" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Wide vinyl labour<small>£ per linear metre — feature wall only</small></div><input type="number" class="field-input" id="s-wpvinyl-labour-rate" value="18.6" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
@@ -2566,6 +2570,10 @@ var SETTINGS_FIELDS = [
   ['wpFinishRate',   's-wpfinish-rate', 40],
   ['wpCeilMultPct',  's-wpceil-mult',   15],
   ['wpStairMultPct', 's-wpstair-mult',  25],
+  ['wpStairSpindleMins',     's-wpstair-spindle-mins',     5],
+  ['wpStairNewelMins',       's-wpstair-newel-mins',       5],
+  ['wpStairStringMinsPerM',  's-wpstair-string-mins',      2],
+  ['wpStairHandrailMinsPerM','s-wpstair-handrail-mins',    3],
   ['wpTrimCm',       's-wptrim',        10],
   ['wpMinPrice',     's-wpmin-price',   200],
   ['wpVinylLabourRatePerM',    's-wpvinyl-labour-rate',    18.6],
@@ -10258,7 +10266,7 @@ function calcHSLNow() {
   var swc     = hslCoats.swc;
   var strLm   = totalSlope*2;
   var hrLm    = totalSlope;
-  var wMins   = (spindles>0||newels>0) ? (spindles*5+newels*5+strLm*2+hrLm*3)*swc : 0;
+  var wMins   = (spindles>0||newels>0) ? (spindles*settings.wpStairSpindleMins+newels*settings.wpStairNewelMins+strLm*settings.wpStairStringMinsPerM+hrLm*settings.wpStairHandrailMinsPerM)*swc : 0;
   var calcWoodCost = wMins*r2;
 
   // Skirting -- perimeter includes hall AND landings (previously this
@@ -10451,7 +10459,7 @@ function computeHSLOverrides() {
   var swc     =hslCoats.swc;
   var strLm   =totalSlope*2;
   var hrLm    =totalSlope;
-  var wMins   =(spindles>0||newels>0)?(spindles*5+newels*5+strLm*2+hrLm*3)*swc:0;
+  var wMins   =(spindles>0||newels>0)?(spindles*settings.wpStairSpindleMins+newels*settings.wpStairNewelMins+strLm*settings.wpStairStringMinsPerM+hrLm*settings.wpStairHandrailMinsPerM)*swc:0;
   var stairWoodStore = wMins*r2;
 
   var wallCost = wc>0 ? totalWall*wallMins(wc)*r2 : 0;
