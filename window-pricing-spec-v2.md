@@ -2,6 +2,8 @@
 
 **Status: COMPLETE** — reviewed against the live app 2026-07-20, shipped in commit `bde9c43`. Decided NOT to adopt the full flat size-band/sides-multiplier rewrite below (would disconnect windows from the day-rate model that drives every other price in the app). Instead built two targeted gaps into the existing Exterior casement/sash engine: a per-window access multiplier (ground/1st floor/ladder-tower) and a fuller per-window repair set (resin, reglaze, draught-proofing, plus sash-only cords/staff beads/parting beads). Not built (explicitly declined, not a gap): the flat size-band pricing matrix, `sidesMultiplier`, or any interior-window pricing — out of scope, exterior day-rate model was kept as-is.
 
+**Addendum 2026-07-25:** a size dimension was later added — but inside the day-rate minutes engine, not the flat price matrix declined above. Each window row now carries an S/M/L band (default medium) that multiplies the base mins only (small ×0.7, large ×1.4, editable), with the per-pane addition left unscaled so frame size and glazing-bar count aren't double-charged. Rationale: pane count alone couldn't distinguish a 2m² sash from a 1m² casement. This doesn't reverse the 2026-07-20 decision — the day-rate model is still the pricing engine.
+
 **For:** Nicky Hawkins Painter & Decorator estimating app
 **Feature:** Window pricing module (interior/exterior, casement, sash — including restoration)
 **Note:** Revises the original spec's reference pricing. The £130/sash figure sourced from a South West London decorator's site reads as legacy content republished under a 2026 date rather than current pricing — likely closer to 2018 vintage. Applied a ~38% uplift (UK CPI cumulative since 2018) to that and similar suspect figures below.
