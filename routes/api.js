@@ -577,6 +577,20 @@ router.get('/settings', async (req, res) => {
   }
 });
 
+// Branding for pre-auth surfaces (WS3): the login page needs the business
+// name/logo before any session exists, so this endpoint is on the login
+// gate's open list. It exposes nothing an instance owner doesn't already
+// put on every quote.
+router.get('/branding', async (req, res) => {
+  try {
+    const result = await db.query('SELECT data FROM settings WHERE id = 1');
+    const s = result.rows[0]?.data || {};
+    res.json({ businessName: s.businessName || '', logoDataUri: s.logoDataUri || null });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.put('/settings', async (req, res) => {
   try {
     await db.query(
@@ -739,7 +753,7 @@ router.get('/schedule.ics', async (req, res) => {
       'BEGIN:VCALENDAR',
       'VERSION:2.0',
       'PRODID:-//NH Estimator//Schedule//EN',
-      'X-WR-CALNAME:NH Jobs',
+      `X-WR-CALNAME:${icsEscape(s.businessName ? s.businessName + ' Jobs' : 'NH Jobs')}`,
       ...events,
       'END:VCALENDAR'
     ];

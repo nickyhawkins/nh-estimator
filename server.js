@@ -58,6 +58,21 @@ const { router: loginRouter, requireAuth } = require('./routes/appLogin');
 app.use(loginRouter);
 app.use(requireAuth);
 
+// Dynamic PWA manifest (WS3 white-labelling): the installed app's name
+// follows the instance's business name. Must sit ahead of express.static,
+// which would otherwise serve the checked-in manifest.json verbatim.
+// The static file stays as the template so icons/colours live in one place.
+const manifestTemplate = require('./public/manifest.json');
+app.get('/manifest.json', async (req, res) => {
+  let name = null;
+  try {
+    const result = await db.query('SELECT data FROM settings WHERE id = 1');
+    name = result.rows[0]?.data?.businessName || null;
+  } catch (err) { /* fall back to the stock name — installability beats freshness */ }
+  res.setHeader('Cache-Control', 'no-cache');
+  res.json({ ...manifestTemplate, name: name || manifestTemplate.name });
+});
+
 // Static files. Images get a long cache lifetime (they change rarely and the
 // filename can be bumped if they ever do); HTML stays no-cache so a deploy
 // shows up on the next load — no-cache still allows ETag revalidation, so an

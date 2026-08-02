@@ -284,7 +284,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
      Quick add stays rooms-only. -->
 <div id="screen-home" class="screen">
   <div class="topbar">
-    <img src="/logo.png" style="height:36px;width:auto;object-fit:contain" alt="Nicky Hawkins">
+    <span class="brand-slot" style="display:flex;align-items:center;min-width:0"><img class="brand-logo" src="/logo.png" style="height:36px;width:auto;max-width:150px;object-fit:contain" alt="Logo"><span class="brand-name" style="display:none;font-weight:700;color:var(--accent);font-size:15px;line-height:1.15;max-width:150px;overflow:hidden"></span></span>
     <!-- Kept visible in the top corner per Nicky (2026-07-14) -- the
          hamburger's "Jobs" row also shows this, but at-a-glance visibility of
          which job you're on, without opening the menu, was worth keeping. -->
@@ -359,7 +359,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
      status-changing action -- see the wiring next to each call site. -->
 <div id="screen-dash" class="screen active">
   <div class="topbar">
-    <img src="/logo.png" style="height:36px;width:auto;object-fit:contain" alt="Nicky Hawkins">
+    <span class="brand-slot" style="display:flex;align-items:center;min-width:0"><img class="brand-logo" src="/logo.png" style="height:36px;width:auto;max-width:150px;object-fit:contain" alt="Logo"><span class="brand-name" style="display:none;font-weight:700;color:var(--accent);font-size:15px;line-height:1.15;max-width:150px;overflow:hidden"></span></span>
     <div style="flex:1"></div>
     <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
   </div>
@@ -912,6 +912,22 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 <div id="screen-settings" class="screen">
   <div class="topbar"><div class="topbar-title">Settings</div></div>
   <div class="content">
+    <!-- White-label branding (MULTI_INSTANCE_PILOT_SPEC.md WS3). Both unset
+         means the stock /logo.png keeps rendering, so an un-branded
+         instance looks exactly as it always has. -->
+    <div class="card">
+      <div class="card-header">Business</div>
+      <div class="field-row"><div class="field-label">Business name<small>shown in the app header, on the login screen and in the calendar feed</small></div><input type="text" class="field-input" id="s-business-name" placeholder="e.g. J. Smith Decorating" autocapitalize="words" onchange="saveSettings();applyBranding()"></div>
+      <div class="field-row">
+        <div class="field-label">Logo<small>optional — shown instead of the name in the header</small></div>
+        <div style="display:flex;align-items:center;gap:10px;justify-content:flex-end;flex:1;min-width:0">
+          <img id="s-logo-preview" style="height:30px;width:auto;max-width:110px;object-fit:contain;display:none" alt="">
+          <button class="btn btn-ghost" style="padding:8px 12px;font-size:14px" onclick="document.getElementById('s-logo-file').click()">Upload…</button>
+          <button class="btn btn-ghost" id="s-logo-remove" style="padding:8px 12px;font-size:14px;color:var(--danger);display:none" onclick="removeLogo()">Remove</button>
+        </div>
+        <input type="file" id="s-logo-file" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="onLogoFileChange(this)">
+      </div>
+    </div>
     <div class="card">
       <div class="card-header">Your Rates</div>
       <div class="field-row"><div class="field-label">Day Rate<small>£ per day</small></div><input type="number" class="field-input" id="s-dr" value="300" min="0" step="10" inputmode="numeric" onchange="saveSettings()"></div>
@@ -1680,6 +1696,11 @@ function saveSettings() {
   next.icsKey = settings.icsKey || null;
   next.bankHolidayRegion = settings.bankHolidayRegion || 'england-and-wales';
   next.blockedDays = settings.blockedDays || {};
+  // Branding (WS3): name comes from its Settings input; the logo has no
+  // text input so it's carried from memory like materials/paymentType.
+  var bnEl = document.getElementById('s-business-name');
+  next.businessName = bnEl ? bnEl.value.trim() : (settings.businessName || '');
+  next.logoDataUri = settings.logoDataUri || null;
   settings = next;
   localStorage.setItem('pe-settings', JSON.stringify(settings));
   apiPut('/api/settings', settings);
@@ -2663,6 +2684,9 @@ function mergeSettings(raw) {
   // No Settings-screen number inputs, so handled here like paymentType.
   out.workSaturdays = !!raw.workSaturdays;
   out.icsEnabled = !!raw.icsEnabled;
+  // Branding (WS3): both empty = stock logo.png, today's look.
+  out.businessName = raw.businessName || '';
+  out.logoDataUri = raw.logoDataUri || null;
   out.icsKey = raw.icsKey || null;
   // gov.uk bank-holiday region (v1.16.0, default corrected v1.16.1 — Nicky
   // is in England; the July holiday on her phone was iOS's all-UK holiday
@@ -4818,12 +4842,73 @@ function goBack() {
 
 // ── Settings ───────────────────────────────────────────────────────────────
 
+// White-label branding (WS3). Precedence in the header: uploaded logo →
+// business name as text → the stock /logo.png (so an instance that never
+// touches the Business card looks exactly as before this feature).
+function applyBranding() {
+  var logo = settings.logoDataUri || null;
+  var name = settings.businessName || '';
+  document.querySelectorAll('.brand-slot').forEach(function(slot) {
+    var img = slot.querySelector('.brand-logo');
+    var txt = slot.querySelector('.brand-name');
+    if (!img || !txt) return;
+    if (logo) {
+      img.src = logo; img.alt = name || 'Logo';
+      img.style.display = 'block'; txt.style.display = 'none';
+    } else if (name) {
+      txt.textContent = name;
+      img.style.display = 'none'; txt.style.display = 'block';
+    } else {
+      img.src = '/logo.png'; img.alt = 'Logo';
+      img.style.display = 'block'; txt.style.display = 'none';
+    }
+  });
+  var prev = document.getElementById('s-logo-preview');
+  var rm = document.getElementById('s-logo-remove');
+  if (prev) { prev.src = logo || ''; prev.style.display = logo ? 'block' : 'none'; }
+  if (rm) rm.style.display = logo ? 'inline-block' : 'none';
+}
+
+// Downscale to a header-sized PNG before storing: the logo lives inside the
+// settings JSONB (so backup export/import carries it), which means keeping
+// it small matters more than keeping it print-quality.
+function onLogoFileChange(input) {
+  var file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  var img = new Image();
+  img.onload = function() {
+    var MAX_W = 400, MAX_H = 120;
+    var scale = Math.min(1, MAX_W / img.width, MAX_H / img.height);
+    var c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(img.width * scale));
+    c.height = Math.max(1, Math.round(img.height * scale));
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    var uri = c.toDataURL('image/png');
+    if (uri.length > 300 * 1024) { alert('That image is too complex for a header logo — try a simpler or smaller one.'); return; }
+    settings.logoDataUri = uri;
+    saveSettings();
+    applyBranding();
+  };
+  img.onerror = function() { alert("Couldn't read that image."); };
+  img.src = URL.createObjectURL(file);
+}
+
+function removeLogo() {
+  settings.logoDataUri = null;
+  saveSettings();
+  applyBranding();
+}
+
 function loadSettings() {
   // settings is always a complete mergeSettings() product, so no per-field
   // fallbacks needed here — every schema key is present.
   SETTINGS_FIELDS.forEach(function(f) {
     document.getElementById(f[1]).value = settings[f[0]];
   });
+  var bnEl = document.getElementById('s-business-name');
+  if (bnEl) bnEl.value = settings.businessName || '';
+  applyBranding();
   var togSat = document.getElementById('tog-worksat');
   if (togSat) togSat.classList.toggle('on', !!settings.workSaturdays);
   var togIcs = document.getElementById('tog-ics');

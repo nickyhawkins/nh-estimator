@@ -110,6 +110,6 @@ branding themes and templates. What's hard-coded is only in-app cosmetics:
 - [x] Spec agreed
 - [x] WS1 login (`routes/appLogin.js`, `public/login.html`; APP_PASSWORD env var)
 - [x] WS2 debt-app flag (`DEBT_APP_ENABLED`, default off; debt tables + personal seed split into `db/setup-debt.sql`)
-- [ ] WS3 white-label
+- [x] WS3 white-label (Settings → Business card: name + logo; header, login page, PWA manifest name, ICS calendar name)
 - [x] WS4 provisioning (`render.yaml`, `npm run provision`, `/healthz`, `docs/NEW_INSTANCE.md`)
 - [ ] WS5 release discipline

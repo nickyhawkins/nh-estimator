@@ -45,8 +45,8 @@
 </head>
 <body>
   <form class="card" method="POST" action="/auth/login" autocomplete="off">
-    <img class="logo" src="/logo.png" alt="" onerror="this.style.display='none'">
-    <h1>NH Estimator</h1>
+    <img class="logo" id="brand-logo" src="/logo.png" alt="" onerror="this.style.display='none'">
+    <h1 id="brand-title">NH Estimator</h1>
     <p class="sub">Enter the app password to sign in</p>
     <input type="password" name="password" placeholder="Password" autofocus
            autocapitalize="off" autocorrect="off" autocomplete="current-password" required>
@@ -58,6 +58,15 @@
     var err = new URLSearchParams(location.search).get('error');
     if (err === 'locked') document.getElementById('err-locked').style.display = 'block';
     else if (err) document.getElementById('err-wrong').style.display = 'block';
+
+    // White-label branding: uploaded logo → business name only (stock logo
+    // hidden) → stock logo + "NH Estimator" when nothing is configured.
+    fetch('/api/branding').then(function (r) { return r.json(); }).then(function (b) {
+      var img = document.getElementById('brand-logo');
+      if (b.businessName) document.getElementById('brand-title').textContent = b.businessName;
+      if (b.logoDataUri) img.src = b.logoDataUri;
+      else if (b.businessName) img.style.display = 'none';
+    }).catch(function () {});
   </script>
 </body>
 </html>

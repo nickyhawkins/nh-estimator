@@ -54,16 +54,20 @@ Store certification lifts it if this ever scales.
 ## 4. Onboard the customer (with them, ~15 min)
 
 1. Send them the URL and their password; they sign in once per device.
-2. **Install to home screen** — Safari share → Add to Home Screen
+2. Settings → **Business** → set their business name and upload their logo
+   — this brands the app header, the login screen, the installed app's
+   name and the calendar feed. Do this BEFORE they install to the home
+   screen so the install picks up their name.
+3. **Install to home screen** — Safari share → Add to Home Screen
    (iPhone) or Chrome ⋮ → Add to Home screen (Android).
-3. Settings → **Connect Xero** → sign into *their* Xero.
-4. Settings → Materials (Xero Items) → **Refresh from Xero**, then pick
+4. Settings → **Connect Xero** → sign into *their* Xero.
+5. Settings → Materials (Xero Items) → **Refresh from Xero**, then pick
    their default products per role.
-5. Settings → set **day rate, markup, deposit** and skim the coverage/time
+6. Settings → set **day rate, markup, deposit** and skim the coverage/time
    rates with them.
-6. Optional: Settings → Scheduling → **Calendar feed** on their phone
+7. Optional: Settings → Scheduling → **Calendar feed** on their phone
    calendar.
-7. Point them at the user manual: `docs/user-manual/` (or send the PDF).
+8. Point them at the user manual: `docs/user-manual/` (or send the PDF).
 
 ## 5. Offboarding a customer
 

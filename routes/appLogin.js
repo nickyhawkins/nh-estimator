@@ -49,7 +49,7 @@ function recordFail(ip) {
 //   its install or service-worker update cycle; none of them expose data.
 const OPEN_PATHS = new Set([
   '/login', '/login.html', '/auth/login', '/auth/logout',
-  '/api/schedule.ics',
+  '/api/schedule.ics', '/api/branding',
   '/logo.png', '/manifest.json', '/sw.js',
   '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png',
 ]);
