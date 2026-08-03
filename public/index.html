@@ -439,9 +439,40 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     </div>
     <div class="card" id="card-dimensions">
       <div class="card-header">Dimensions</div>
-      <div class="field-row"><div class="field-label">Length<small>metres</small></div><input type="number" class="field-input" id="r-l" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
-      <div class="field-row"><div class="field-label">Width<small>metres</small></div><input type="number" class="field-input" id="r-w" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
-      <div class="field-row"><div class="field-label">Height<small>metres</small></div><input type="number" class="field-input" id="r-h" value="2.4" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+      <div class="field-row">
+        <div class="field-label">Room shape<small>Perimeter / Segments for L-shapes &amp; odd rooms</small></div>
+        <div class="seg" id="seg-shape" style="flex:1.5">
+          <button class="seg-btn active" onclick="setRoomShape('box')">Standard</button>
+          <button class="seg-btn" onclick="setRoomShape('perimeter')">Perimeter</button>
+          <button class="seg-btn" onclick="setRoomShape('segments')">Segments</button>
+        </div>
+      </div>
+      <div id="shape-box-fields">
+        <div class="field-row"><div class="field-label">Length<small>metres</small></div><input type="number" class="field-input" id="r-l" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+        <div class="field-row"><div class="field-label">Width<small>metres</small></div><input type="number" class="field-input" id="r-w" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+      </div>
+      <div id="shape-perimeter-fields" style="display:none">
+        <div class="field-row"><div class="field-label">Wall perimeter<small>linear metres — total run of wall, measured round the room</small></div><input type="number" class="field-input" id="r-perim" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+      </div>
+      <div id="shape-segments-fields" style="display:none">
+        <div class="subsection-label">Room zones<small>rectangular zones (length × width) that make up the room — e.g. the two legs of an L-shape, or main room + alcove. Walls and ceiling both sum across zones</small></div>
+        <div id="segments-list"></div>
+        <div class="field-row" style="cursor:pointer" onclick="addSegment()"><div class="field-label" style="color:var(--accent);font-weight:600">+ Add zone</div></div>
+      </div>
+      <div class="field-row"><div class="field-label">Ceiling height<small>metres</small></div><input type="number" class="field-input" id="r-h" value="2.4" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+      <div class="toggle-row" id="row-sloped" style="border-top:1px solid var(--border)">
+        <div class="toggle-label">Sloped ceiling<small>Slope makes length × width wrong — type the measured ceiling area instead</small></div>
+        <div class="toggle" id="tog-sloped" onclick="toggleSlopedCeiling()"></div>
+      </div>
+      <div class="field-row" id="row-ceil-area" style="display:none"><div class="field-label">Ceiling area<small>m² — measured, since it doesn't follow from the walls</small></div><input type="number" class="field-input" id="r-ceil-area" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+    </div>
+    <div class="card searchable-card" id="card-shape-addons">
+      <div class="card-header sec-toggle" onclick="toggleFormSection('shapeaddons')"><span>Bay Window &amp; Alcove/Dormer</span><span class="sec-chev" id="sec-chev-shapeaddons">›</span></div>
+      <div class="card-body" id="sec-shapeaddons">
+        <div class="field-row"><div class="field-label">Bay window extra perimeter<small>linear metres — the extra wall run the bay adds vs a flat wall; added before the wall area calc</small></div><input type="number" class="field-input" id="r-bay-perim" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+        <div class="field-row"><div class="field-label">Alcove/dormer wall area<small>m² — extra wall added directly, for irregular geometry the perimeter can't capture</small></div><input type="number" class="field-input" id="r-extra-wall" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+        <div class="field-row"><div class="field-label">Alcove/dormer ceiling area<small>m² — extra ceiling added directly</small></div><input type="number" class="field-input" id="r-extra-ceil" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+      </div>
     </div>
     <div class="card" id="card-hsl-geometry" style="display:none">
       <div class="card-header">Number of Floors</div>
@@ -1399,7 +1430,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.2.5</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.3.0</div>
 </div>
 </div>
 
@@ -2745,6 +2776,13 @@ var panelItemsForm = [];
 // being painted (wallpaper that's staying, a mirrored/tiled wall, etc.),
 // subtracted from the room's wall area in calcRoom() rather than priced.
 var excludedWallsForm = [];
+// Odd-shaped room handling: shape mode ('box' | 'perimeter' | 'segments'),
+// the segments-mode zone rows (same form-local-array lifecycle as
+// panelItemsForm/excludedWallsForm above -- {id,l,w}), and the sloped-
+// ceiling flag that swaps the ceiling from calculated to typed area.
+var roomShapeModeForm = 'box';
+var segmentsForm = [];
+var slopedCeiling = false;
 var swCoats  = 2;
 var curTab   = 'dash';
 var inSub    = null; // 'room' | 'stair' | null
@@ -4724,6 +4762,14 @@ function goScreen(name) {
     renderPanelWallsList();
     excludedWallsForm = [];
     renderExcludedWallsList();
+    roomShapeModeForm = 'box'; segmentsForm = []; slopedCeiling = false;
+    renderSegmentsList();
+    document.getElementById('r-perim').value = '';
+    document.getElementById('r-ceil-area').value = '';
+    document.getElementById('r-bay-perim').value = '';
+    document.getElementById('r-extra-wall').value = '';
+    document.getElementById('r-extra-ceil').value = '';
+    applyRoomShapeUI();
     panelPrepPct = 10;
     document.querySelectorAll('#seg-panel-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===0);});
     document.getElementById('panel-prep-custom-row').style.display = 'none';
@@ -4917,6 +4963,53 @@ function doorFrameExtrasCost(doorQty, fireDoor, ironRemove, ironMask) {
   return fireDoorCost + ironCost;
 }
 
+// ── Room shape geometry ────────────────────────────────────────────────────
+// Odd-shaped room handling: three shape modes decide where the wall
+// perimeter and ceiling area come from, everything downstream of those two
+// figures (deductions, coats, prep, materials, commercial toggles) is
+// UNCHANGED and shared across modes.
+//   'box' (default, and every room saved before this feature): perimeter
+//     and ceiling from l/w exactly as always.
+//   'perimeter': the measured wall run is typed directly (perimeterLM) --
+//     for L-shapes/odd rooms where walls are easier to tape end-to-end than
+//     to decompose. Ceiling area is TYPED (ceilAreaManual), since ceiling
+//     shape doesn't follow from a perimeter figure.
+//   'segments': rectangular zones ({l,w} each) summed -- both perimeter and
+//     ceiling. Deliberately counts each zone's FULL perimeter: the shared
+//     edge where zones meet is usually still wall on part of its run, and
+//     the app's bias is to round generously, same as wallpaper.
+// bayPerimExtra (any mode) adds linear metres to the perimeter BEFORE the
+// wall area calc -- and therefore also feeds skirting length and the
+// perimeter-derived woodwork area, which is physically right (a bay has
+// skirting round it too).
+// slopedCeiling (box/segments modes) swaps the ceiling to the typed
+// ceilAreaManual figure, since flat l×w multiplication is wrong on a slope.
+// Perimeter mode types the ceiling anyway, so the flag is meaningless there.
+function roomShapePerimeter(r) {
+  var mode = r.shapeMode || 'box';
+  var base;
+  if (mode === 'perimeter') base = Math.max(+r.perimeterLM || 0, 0);
+  // Half-filled zone rows (l or w still 0) are skipped -- they're dropped
+  // on save (buildRoomFromForm's "0 to skip" filter), so counting them
+  // here would make the live preview drift from the saved room.
+  else if (mode === 'segments') base = (r.segments || []).reduce(function(s, z){
+    var zl = +z.l || 0, zw = +z.w || 0;
+    return s + (zl > 0 && zw > 0 ? (zl + zw) * 2 : 0);
+  }, 0);
+  else base = ((+r.l || 0) + (+r.w || 0)) * 2;
+  return base + Math.max(+r.bayPerimExtra || 0, 0);
+}
+function roomShapeCeilArea(r) {
+  var mode = r.shapeMode || 'box';
+  var base;
+  if (mode === 'perimeter' || r.slopedCeiling) base = Math.max(+r.ceilAreaManual || 0, 0);
+  else if (mode === 'segments') base = (r.segments || []).reduce(function(s, z){
+    return s + Math.max(+z.l || 0, 0) * Math.max(+z.w || 0, 0);
+  }, 0);  // l*w is 0 for a half-filled row anyway -- no skip needed
+  else base = (+r.l || 0) * (+r.w || 0);
+  return base + Math.max(+r.extraCeilArea || 0, 0);
+}
+
 // ── Room calc ──────────────────────────────────────────────────────────────
 function calcRoom(r) {
   migrateWPFields(r);
@@ -4934,7 +5027,14 @@ function calcRoom(r) {
   // already done) or a door only (frame is UPVC, say) doesn't change how
   // many doorway-sized holes are cut into the wall.
   var doorOpenings = Math.max(doorQty, frameQty);
-  var wallArea = r.wallAreaOverride ? +r.wallAreaOverride : Math.max((L*2+W*2)*H - doorOpenings*1.8 - win, 0);
+  // Shape-mode-aware geometry (see roomShapePerimeter/roomShapeCeilArea
+  // above) -- identical to the old (L*2+W*2)/L*W for box rooms, so nothing
+  // moves for existing quotes. extraWallArea (alcove/dormer add-on) joins
+  // the gross wall BEFORE the door/window deductions so the whole thing
+  // shares one floor at 0.
+  var perim = roomShapePerimeter(r);
+  var extraWallArea = Math.max(+r.extraWallArea || 0, 0);
+  var wallArea = r.wallAreaOverride ? +r.wallAreaOverride : Math.max(perim*H + extraWallArea - doorOpenings*1.8 - win, 0);
   // Excluded walls (e.g. wallpaper that's staying): each one's measured
   // width x height comes off the wall area HERE, before anything downstream
   // reads it -- paint labour, wall litres, mist coat and the feature-wall
@@ -4947,8 +5047,7 @@ function calcRoom(r) {
     return sum + Math.max(+x.width || 0, 0) * Math.max(+x.height || 0, 0);
   }, 0);
   wallArea = Math.max(wallArea - excludedWallArea, 0);
-  var ceilArea = r.ceilAreaOverride ? +r.ceilAreaOverride : L*W;
-  var perim    = (L+W)*2;
+  var ceilArea = r.ceilAreaOverride ? +r.ceilAreaOverride : roomShapeCeilArea(r);
   var r2       = rpm();
   var hpd      = settings.hpd;
   var mistWCost = mistW ? wallArea*settings.rMist*r2 : 0;
@@ -9006,9 +9105,34 @@ function roomWallpaperRolls(r, isCeil, type) {
   var rollLen=+r.wpRollLen||10.05, rollWidth=+r.wpRollWidth||0.53;
   var effectiveMatch = type==='lining' ? 'none' : (r.wpMatch||'none');
   var repeatMm=+r.wpRepeatMm||0;
+  var shapeMode = r.shapeMode || 'box';
+  // Segments-mode ceiling: each rectangular zone papered as its own run
+  // (its own drop direction and seams), so roll counts are computed
+  // per-zone and summed -- generous rounding per zone matches how it's
+  // actually hung. Sloped ceilings fall through to the typed-area path
+  // below instead (zone l×w no longer describes the real surface).
+  if (isCeil && shapeMode === 'segments' && !r.slopedCeiling) {
+    return (r.segments || []).reduce(function(sum, z){
+      var zl = Math.max(+z.l||0, 0), zw = Math.max(+z.w||0, 0);
+      if (zl <= 0 || zw <= 0) return sum;
+      var zc = calcWallpaperRolls(Math.max(zl,zw), Math.min(zl,zw), rollLen, rollWidth, effectiveMatch, repeatMm, settings.wpTrimCm, !!r.wpSpareRoll);
+      return sum + (zc ? zc.rolls : 0);
+    }, 0);
+  }
   var dropH, widthToCover;
-  if (isCeil) { dropH=Math.max(L,W); widthToCover=Math.min(L,W); }
-  else { dropH=H; widthToCover=(L+W)*2; }
+  if (isCeil) {
+    if (shapeMode === 'perimeter' || r.slopedCeiling) {
+      // Typed ceiling area: no l/w geometry to hang drops against, so
+      // approximate a square of the same area -- close enough for a roll
+      // count, and consistent with the feature's "round generously" bias.
+      var side = Math.sqrt(roomShapeCeilArea(r));
+      dropH = side; widthToCover = side;
+    } else { dropH=Math.max(L,W); widthToCover=Math.min(L,W); }
+  }
+  // Walls: drop height is the ceiling height in every mode; width to cover
+  // is the shape-aware perimeter (typed, summed zones, or (L+W)*2 --
+  // identical to before for box rooms), bay window extra included.
+  else { dropH=H; widthToCover=roomShapePerimeter(r); }
   var calc = calcWallpaperRolls(dropH, widthToCover, rollLen, rollWidth, effectiveMatch, repeatMm, settings.wpTrimCm, !!r.wpSpareRoll);
   return calc ? calc.rolls : 0;
 }
@@ -9499,6 +9623,101 @@ function setExcludedWallField(idx, field, value) {
   previewRoom();
 }
 
+// ── Room shape (odd-shaped room handling) ──────────────────────────────────
+// Shape mode picker + segments-zone list + sloped ceiling toggle. DOM sync
+// is split out of setRoomShape() (applyRoomShapeUI) so editRoom()/
+// goScreen('room') can restore the mode without firing a live preview
+// against half-restored dimension fields -- same reasoning as the feature
+// wall mode restore in editRoom().
+function setRoomShape(mode) {
+  roomShapeModeForm = mode;
+  applyRoomShapeUI();
+  previewRoom();
+}
+function applyRoomShapeUI() {
+  var mode = roomShapeModeForm;
+  document.querySelectorAll('#seg-shape .seg-btn').forEach(function(b,i){
+    b.classList.toggle('active', ['box','perimeter','segments'][i]===mode);
+  });
+  document.getElementById('shape-box-fields').style.display = mode==='box' ? 'block' : 'none';
+  document.getElementById('shape-perimeter-fields').style.display = mode==='perimeter' ? 'block' : 'none';
+  document.getElementById('shape-segments-fields').style.display = mode==='segments' ? 'block' : 'none';
+  // Perimeter mode ALWAYS types the ceiling area (its shape doesn't follow
+  // from a perimeter), so the sloped toggle would be redundant there --
+  // hidden, and the ceiling area row shows unconditionally instead.
+  document.getElementById('row-sloped').style.display = mode==='perimeter' ? 'none' : 'flex';
+  document.getElementById('tog-sloped').classList.toggle('on', slopedCeiling);
+  document.getElementById('row-ceil-area').style.display = (mode==='perimeter' || slopedCeiling) ? 'flex' : 'none';
+}
+function toggleSlopedCeiling() {
+  slopedCeiling = !slopedCeiling;
+  applyRoomShapeUI();
+  previewRoom();
+}
+
+// Segments-mode zone list -- same row template and add/remove/set lifecycle
+// as the excluded walls above, plus a running perimeter + ceiling total so
+// the summed figures are visible without hunting through the preview.
+function renderSegmentsList() {
+  var el = document.getElementById('segments-list');
+  if (!el) return;
+  el.innerHTML = segmentsForm.map(function(z, i) {
+    return '<div class="field-row">'+
+      '<div class="field-label">Zone '+(i+1)+'</div>'+
+      '<div style="display:flex;align-items:center;gap:6px">'+
+        '<input type="number" class="field-input" style="width:56px" value="'+z.l+'" min="0" step="0.1" inputmode="decimal" placeholder="L" onchange="setSegmentField('+i+',\'l\',this.value)">'+
+        '<span style="color:var(--text3)">×</span>'+
+        '<input type="number" class="field-input" style="width:56px" value="'+z.w+'" min="0" step="0.1" inputmode="decimal" placeholder="W" onchange="setSegmentField('+i+',\'w\',this.value)">'+
+        '<div onclick="removeSegment('+i+')" style="color:var(--danger);font-size:22px;padding:0 4px;cursor:pointer">×</div>'+
+      '</div>'+
+    '</div>';
+  }).join('') + (segmentsForm.length
+    ? '<div class="breakdown-row"><span class="breakdown-label">Wall perimeter</span><span class="breakdown-value" id="segments-perim-total">—</span></div>'+
+      '<div class="breakdown-row"><span class="breakdown-label">Ceiling area</span><span class="breakdown-value" id="segments-ceil-total">—</span></div>'
+    : '');
+  updateSegmentsTotals();
+}
+
+// Totals updated in place (not via a full re-render) so an L edit's
+// onchange can't rebuild the list out from under the W input the user is
+// about to tab into -- same reason as updateExcludedWallsTotal().
+function updateSegmentsTotals() {
+  var perimEl = document.getElementById('segments-perim-total');
+  var ceilEl = document.getElementById('segments-ceil-total');
+  if (!perimEl || !ceilEl) return;
+  // Half-filled rows excluded from both, matching roomShapePerimeter()'s
+  // skip and buildRoomFromForm's save filter.
+  var perimSum = 0, ceilSum = 0;
+  segmentsForm.forEach(function(z){
+    var l = +z.l || 0, w = +z.w || 0;
+    if (l <= 0 || w <= 0) return;
+    perimSum += (l + w) * 2;
+    ceilSum  += l * w;
+  });
+  perimEl.textContent = perimSum.toFixed(1) + ' lm';
+  ceilEl.textContent = fmtM(ceilSum);
+}
+
+function addSegment() {
+  segmentsForm.push({ id: uid(), l: 0, w: 0 });
+  renderSegmentsList();
+  previewRoom();
+}
+
+function removeSegment(idx) {
+  segmentsForm.splice(idx, 1);
+  renderSegmentsList();
+  previewRoom();
+}
+
+function setSegmentField(idx, field, value) {
+  var z = segmentsForm[idx];
+  if (!z) return;
+  z[field] = Math.max(0, +value || 0);
+  updateSegmentsTotals();
+  previewRoom();
+}
+
 function toggleMist(key) {
   if(key==='mw') { mistWall=!mistWall; document.getElementById('tog-mw').classList.toggle('on',mistWall); }
   if(key==='mc') { mistCeil=!mistCeil; document.getElementById('tog-mc').classList.toggle('on',mistCeil); }
@@ -9571,8 +9790,24 @@ function previewRoomNow() {
   var fwHeightVal=+document.getElementById('r-featurewall-height').value||0;
   var doorQtyVal=+document.getElementById('r-door-qty').value||0;
   var frameQtyVal=+document.getElementById('r-frame-qty').value||0;
-  if((L<=0||W<=0||H<=0) && !(fwWidthVal>0 && fwHeightVal>0) && !(doorQtyVal>0 || frameQtyVal>0)) { document.getElementById('room-preview').style.display='none'; return; }
+  // "Are the room's own dimensions filled in yet?" is mode-dependent:
+  // perimeter mode needs the typed wall run, segments mode needs at least
+  // one complete zone, box mode needs l/w as always -- all need a height.
+  var perimVal=+document.getElementById('r-perim').value||0;
+  var dimsOK;
+  if (roomShapeModeForm==='perimeter') dimsOK = perimVal>0 && H>0;
+  else if (roomShapeModeForm==='segments') dimsOK = H>0 && segmentsForm.some(function(z){ return +z.l>0 && +z.w>0; });
+  else dimsOK = L>0 && W>0 && H>0;
+  if(!dimsOK && !(fwWidthVal>0 && fwHeightVal>0) && !(doorQtyVal>0 || frameQtyVal>0)) { document.getElementById('room-preview').style.display='none'; return; }
   var r={l:L,w:W,h:H,wc:coats.wc,cc:coats.cc,xc:coats.xc,
+    shapeMode:roomShapeModeForm,
+    perimeterLM:perimVal,
+    ceilAreaManual:+document.getElementById('r-ceil-area').value||0,
+    segments:segmentsForm,
+    slopedCeiling:slopedCeiling,
+    bayPerimExtra:+document.getElementById('r-bay-perim').value||0,
+    extraWallArea:+document.getElementById('r-extra-wall').value||0,
+    extraCeilArea:+document.getElementById('r-extra-ceil').value||0,
     doorQty:+document.getElementById('r-door-qty').value||0,
     frameQty:+document.getElementById('r-frame-qty').value||0,
     doorCoats:doorCoats, frameCoats:frameCoats,
@@ -9631,7 +9866,9 @@ function previewRoomNow() {
   var rollLen = +document.getElementById('r-wp-roll-len').value||0;
   var rollWidth = +document.getElementById('r-wp-roll-width').value||0;
   var repeatMm = wpRepeatCmFromInput();
-  var wallWidthLM = (L+W)*2;
+  // Shape-aware: typed perimeter, summed zones or (L+W)*2, bay extra
+  // included -- same figure roomWallpaperRolls() costs labour from.
+  var wallWidthLM = roomShapePerimeter(r);
   if (wpwOn) {
     var wpwRollResult = wpSurfaceResult(wpWallLining, wpWallFinish, false, false, function(t){
       var match = t==='lining' ? 'none' : wpMatch;
@@ -9659,17 +9896,26 @@ function previewRoomNow() {
   // across the ceiling (fewer, longer drops), matching real hanging
   // practice.
   if (wpcOn) {
+    // Odd shapes (perimeter/segments mode, or a sloped ceiling) have no
+    // single L×W to derive one drop direction from -- roomWallpaperRolls()
+    // handles them (per-zone sums / square-of-same-area approximation), so
+    // route through it and show only the roll count; drop-length/drops
+    // stay hidden since a single figure would be meaningless there.
+    var oddCeil = roomShapeModeForm!=='box' || slopedCeiling;
     var ceilDrop = Math.max(L,W), ceilWidthToCover = Math.min(L,W);
     var wpcRollResult = wpSurfaceResult(wpCeilLining, wpCeilFinish, true, false, function(t){
+      if (oddCeil) return { rolls: roomWallpaperRolls(r, true, t) };
       var match = t==='lining' ? 'none' : wpMatch;
       return calcWallpaperRolls(ceilDrop, ceilWidthToCover, rollLen, rollWidth, match, repeatMm, settings.wpTrimCm, wpSpareRoll);
     });
     if (wpcRollResult.parts.length) {
-      document.getElementById('wp-r-ceil-droplen-row').style.display = 'flex';
-      document.getElementById('wp-r-ceil-drops-row').style.display = 'flex';
+      document.getElementById('wp-r-ceil-droplen-row').style.display = oddCeil ? 'none' : 'flex';
+      document.getElementById('wp-r-ceil-drops-row').style.display = oddCeil ? 'none' : 'flex';
       document.getElementById('wp-r-ceil-rolls-row').style.display = 'flex';
-      document.getElementById('wp-r-ceil-droplen').textContent = joinWPParts(wpcRollResult.parts, function(p){ return p.dropLength.toFixed(2)+' m'; });
-      document.getElementById('wp-r-ceil-drops').textContent = joinWPParts(wpcRollResult.parts, function(p){ return p.dropsPerRoll+' / '+p.dropsNeeded; });
+      if (!oddCeil) {
+        document.getElementById('wp-r-ceil-droplen').textContent = joinWPParts(wpcRollResult.parts, function(p){ return p.dropLength.toFixed(2)+' m'; });
+        document.getElementById('wp-r-ceil-drops').textContent = joinWPParts(wpcRollResult.parts, function(p){ return p.dropsPerRoll+' / '+p.dropsNeeded; });
+      }
       document.getElementById('wp-r-ceil-rolls').textContent = joinWPParts(wpcRollResult.parts, function(p){ return p.rolls; });
     }
   } else {
@@ -9760,6 +10006,19 @@ function editRoom(id) {
   renderPanelWallsList();
   excludedWallsForm = (r.excludedWalls || []).map(function(x){ return { id: x.id||uid(), width: +x.width||0, height: +x.height||0 }; });
   renderExcludedWallsList();
+  // Odd-shaped room handling -- applyRoomShapeUI() is DOM-only (no
+  // previewRoom() call), safe against the stale-dimensions problem the
+  // feature wall restore comment below describes.
+  roomShapeModeForm = r.shapeMode || 'box';
+  segmentsForm = (r.segments || []).map(function(z){ return { id: z.id||uid(), l: +z.l||0, w: +z.w||0 }; });
+  renderSegmentsList();
+  slopedCeiling = !!r.slopedCeiling;
+  document.getElementById('r-perim').value = r.perimeterLM || '';
+  document.getElementById('r-ceil-area').value = r.ceilAreaManual || '';
+  document.getElementById('r-bay-perim').value = r.bayPerimExtra || '';
+  document.getElementById('r-extra-wall').value = r.extraWallArea || '';
+  document.getElementById('r-extra-ceil').value = r.extraCeilArea || '';
+  applyRoomShapeUI();
   panelPrepPct = r.panelPrepPct != null ? r.panelPrepPct : 10;
   document.querySelectorAll('#seg-panel-prep .seg-btn').forEach(function(b,i){ b.classList.toggle('active', [10,25,40,-1][i]===panelPrepPct); });
   document.getElementById('r-panel-prep-custom').value = r.panelPrepCustom||'';
@@ -9958,6 +10217,19 @@ function buildRoomFromForm() {
     // save" rule as panelItems above.
     excludedWalls:excludedWallsForm.filter(function(x){ return (+x.width>0 && +x.height>0); }).map(function(x){ return { id:x.id, width:+x.width, height:+x.height }; }),
     l:+document.getElementById('r-l').value, w:+document.getElementById('r-w').value, h:+document.getElementById('r-h').value,
+    // Odd-shaped room handling -- 'box' saved as undefined so pre-feature
+    // rooms and standard rooms are indistinguishable (calcRoom() defaults
+    // a missing shapeMode to 'box').
+    shapeMode:roomShapeModeForm==='box'?undefined:roomShapeModeForm,
+    perimeterLM:+document.getElementById('r-perim').value||undefined,
+    ceilAreaManual:+document.getElementById('r-ceil-area').value||undefined,
+    // Zones with no length/width are empty placeholder rows -- skipped on
+    // save, same "0 to skip" rule as panelItems/excludedWalls above.
+    segments:segmentsForm.filter(function(z){ return (+z.l>0 && +z.w>0); }).map(function(z){ return { id:z.id, l:+z.l, w:+z.w }; }),
+    slopedCeiling:slopedCeiling||undefined,
+    bayPerimExtra:+document.getElementById('r-bay-perim').value||undefined,
+    extraWallArea:+document.getElementById('r-extra-wall').value||undefined,
+    extraCeilArea:+document.getElementById('r-extra-ceil').value||undefined,
     wc:coats.wc, cc:coats.cc, xc:coats.xc,
     win:+document.getElementById('r-win').value, sills:+document.getElementById('r-sills').value, rads:+document.getElementById('r-rads').value,
     doorQty:+document.getElementById('r-door-qty').value||0,
@@ -9995,6 +10267,13 @@ function buildRoomFromForm() {
     // before the staircase toggle was flipped) would make the saved total
     // silently drift below the staircase preview.
     room.excludedWalls = [];
+    // Shape mode / bay / alcove / sloped ceiling are normal-room concepts
+    // too -- staircase geometry supplies its own overrides, and calcHSLNow()
+    // knows nothing about these, so drop them for the same drift reason.
+    room.shapeMode = undefined; room.perimeterLM = undefined;
+    room.ceilAreaManual = undefined; room.segments = [];
+    room.slopedCeiling = undefined; room.bayPerimExtra = undefined;
+    room.extraWallArea = undefined; room.extraCeilArea = undefined;
     var hslOverrides = computeHSLOverrides();
     Object.keys(hslOverrides).forEach(function(k){ room[k] = hslOverrides[k]; });
   }
@@ -10024,6 +10303,8 @@ function captureRoomDraft() {
     var meaningful = document.getElementById('r-name').value.trim() ||
       +document.getElementById('r-l').value > 0 ||
       +document.getElementById('r-w').value > 0 ||
+      +document.getElementById('r-perim').value > 0 ||
+      segmentsForm.length > 0 ||
       roomIsStaircase || editId;
     if (!meaningful) return;
     localStorage.setItem('pe-room-draft', JSON.stringify({
@@ -10086,6 +10367,7 @@ function setRoomStaircase(on) {
   roomIsStaircase = on;
   document.getElementById('tog-staircase').classList.toggle('on', on);
   document.getElementById('card-dimensions').style.display = on ? 'none' : 'block';
+  document.getElementById('card-shape-addons').style.display = on ? 'none' : 'block';
   document.getElementById('card-excluded-walls').style.display = on ? 'none' : 'block';
   document.getElementById('card-hsl-geometry').style.display = on ? 'block' : 'none';
   document.getElementById('card-hsl-hall').style.display = on ? 'block' : 'none';
