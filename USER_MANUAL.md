@@ -1,6 +1,6 @@
 # NH Estimator — User Manual
 
-**For build v2.4.0** (5 August 2026). The build number you're running is shown at the bottom of the ☰ menu — if it doesn't match, the deploy hasn't landed yet.
+**For build v2.4.1** (5 August 2026). The build number you're running is shown at the bottom of the ☰ menu — if it doesn't match, the deploy hasn't landed yet.
 
 This is the how-to-use-it guide. For the developer changelog and feature history, see `FEATURES.md`.
 
@@ -8,6 +8,7 @@ This is the how-to-use-it guide. For the developer changelog and feature history
 
 ## What's new in this build
 
+- **Standalone rounding fix (v2.4.1).** The diary-day top-up now lands the labour charge exactly on diary days × day rate (a 1.6-day job rounding to 2 days at £300/day charges £600) — previously it could over-charge when the labour subtotal included cost with no time behind it, like the wallpaper minimum charge.
 - **Standalone job rounding (v2.4.0).** A new **Standalone Job** toggle on the Summary charges labour on full (or half) diary days instead of fractional calculated days — see [Standalone Job](#commercial-job--standalone-job) below.
 - **Odd-shaped rooms (v2.3.0).** The room form's Dimensions card now has a **room shape** choice — Standard, Perimeter, or Segments — plus bay window, alcove/dormer and sloped-ceiling add-ons, so L-shaped rooms, loft rooms and bays no longer need fudged L×W numbers.
 - **Bottom bar fix (v2.3.1).** The bottom navigation no longer floats mid-screen after the keyboard has been used.
@@ -109,7 +110,7 @@ The Summary is the customer-facing document:
 ### Commercial Job / Standalone Job
 
 - **Commercial Job** — adds the commercial % (default +10%) *before* markup, stacking with it.
-- **Standalone Job** *(new in v2.4.0)* — for jobs booked on their own, where a 1.6-day calculation still blocks out 2 diary days. With the toggle on, labour is charged on the calculated days rounded **up** to the next full day — or half day, per the "Standalone job rounding" setting under Your Rates. Both figures stay visible (e.g. *Calculated labour 1.6 days / Diary days charged 2 days*), and the top-up flows through commercial %, markup, the deposit plan, the Xero quote and the final invoice like any other labour. A job can be commercial, standalone, both or neither; existing quotes are untouched (default off).
+- **Standalone Job** *(new in v2.4.0)* — for jobs booked on their own, where a 1.6-day calculation still blocks out 2 diary days. With the toggle on, labour is charged at the diary days × your day rate, with the calculated days rounded **up** to the next full day — or half day, per the "Standalone job rounding" setting under Your Rates (a 1.6-day job at a £300 day rate charges 2 × £300 = £600; if the calculated labour already exceeds the full-day price, nothing is added — the rounding never discounts). Both figures stay visible (e.g. *Calculated labour 1.6 days / Diary days charged 2 days*), and the top-up flows through commercial %, markup, the deposit plan, the Xero quote and the final invoice like any other labour. A job can be commercial, standalone, both or neither; existing quotes are untouched (default off).
 
 - **Payment** — deposit is **25% of the quote or the materials+sundries cost, whichever is greater** (the % is in Settings). Jobs longer than a week get weekly instalments, derived from the *realistic* on-site days (working time plus the daily overhead and buffer from Settings → Scheduling), with week-commencing dates once the job is scheduled. The payment terms go onto the Xero quote.
 - **Colour Schedule** — the per-room colour listing, shared with the CSV export.
