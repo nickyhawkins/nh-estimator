@@ -718,7 +718,7 @@ router.get('/material-groups', async (req, res) => {
 
 // Create quote in Xero
 router.post('/create-quote', async (req, res) => {
-  const { clientName, jobName, xeroRef, rooms, exterior, kitchen, materials, settings, markup, markupType, commercial, commercialPct, paymentTerms, paymentSummary, contactId, newContact, updateQuoteId } = req.body;
+  const { clientName, jobName, xeroRef, rooms, exterior, kitchen, materials, settings, markup, markupType, commercial, commercialPct, standalone, standaloneTopUp, standaloneCalcDays, standaloneDiaryDays, paymentTerms, paymentSummary, contactId, newContact, updateQuoteId } = req.body;
 
   try {
     const accessToken = await getAccessToken();
@@ -761,7 +761,13 @@ router.post('/create-quote', async (req, res) => {
     // so "commercial first, then markup" holds for both markup modes here,
     // matching the app's own Summary breakdown exactly.
     const commercialMult = commercial ? 1 + ((commercialPct != null ? commercialPct : 10) / 100) : 1;
-    const afterCommercialBase = rawLabourSubtotal * commercialMult;
+    // Standalone diary-day rounding (client's standaloneInfo()): a raw
+    // pre-markup labour top-up that becomes its own 201 line below. It
+    // joins the markup-ratio base here (it's chargeable labour, same as
+    // the client's computeDepositPlan) but NOT the sundries base further
+    // down -- the quote's sundries % never applied to it client-side.
+    const standaloneAmount = standalone ? (+standaloneTopUp || 0) : 0;
+    const afterCommercialBase = (rawLabourSubtotal + standaloneAmount) * commercialMult;
     const markupRatioVal = markupType === 'fixed'
       ? (afterCommercialBase > 0 ? markup / afterCommercialBase : 0)
       : (markup / 100);
@@ -817,6 +823,25 @@ router.post('/create-quote', async (req, res) => {
         Description: 'Kitchen Cabinet Spraying',
         Quantity: 1,
         UnitAmount: fmt(kitchen.cost * mu),
+        AccountCode: '201'
+      });
+    }
+
+    // Standalone job diary-day rounding -- the labour top-up from charging
+    // full diary days rather than the fractional calculated days, as its
+    // own labelled line (after the per-room/exterior/kitchen labour it
+    // rounds up, before materials/sundries) so the client can see exactly
+    // what it covers. Same account and markup treatment as the labour
+    // lines above.
+    if (standaloneAmount > 0.005) {
+      const dayFig = (n) => (n % 1 === 0 ? n.toFixed(0) : n.toFixed(1));
+      const daysNote = (+standaloneCalcDays > 0 && +standaloneDiaryDays > 0)
+        ? ` (${(+standaloneCalcDays).toFixed(1)} days' work charged as ${dayFig(+standaloneDiaryDays)} full days on site)`
+        : '';
+      lineItems.push({
+        Description: 'Standalone job — diary day rounding' + daysNote,
+        Quantity: 1,
+        UnitAmount: fmt(standaloneAmount * mu),
         AccountCode: '201'
       });
     }
