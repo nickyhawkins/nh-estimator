@@ -29,7 +29,21 @@ try {
 // after switching tabs". visualViewport tracks the true visible height
 // directly, so we drive --vh from it instead of trusting dvh's first read.
 try {
+  // Never sync while the on-screen keyboard owns the viewport: focusing an
+  // input shrinks visualViewport.height by the keyboard's height, and copying
+  // that into --vh collapses #app -- so the sticky bottom nav's natural
+  // position rises to keyboard height and it floats mid-screen. WebKit should
+  // fire a restoring resize when the keyboard dismisses, but in standalone
+  // mode it sometimes never does, leaving --vh stuck at the shrunken value.
+  // Holding --vh steady while an editable element has focus means there's
+  // nothing to restore; the focusout re-polls below are belt and braces for
+  // any drift WebKit leaves behind after the dismiss animation.
+  var _editing = function() {
+    var el = document.activeElement, t = el && el.tagName;
+    return t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT' || (el && el.isContentEditable);
+  };
   var _setVh = function() {
+    if (_editing()) return;
     var h = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
     document.documentElement.style.setProperty('--vh', (h * 0.01) + 'px');
   };
@@ -45,6 +59,17 @@ try {
   // as "fixes itself after switching tabs". Re-poll a few times over the
   // first second so it's already correct before you'd ever notice.
   [50, 150, 300, 600, 1000].forEach(function(ms){ setTimeout(_setVh, ms); });
+  // Keyboard dismissal animates ~250ms and its resize events can land while
+  // the height is still transient (or not at all) -- re-poll through and past
+  // the animation once focus leaves a field. If focus just hopped to another
+  // field, _editing() makes these no-ops.
+  document.addEventListener('focusout', function(){
+    [100, 300, 600].forEach(function(ms){ setTimeout(_setVh, ms); });
+  });
+  // Returning from the app switcher is another spot where WebKit can skip
+  // the resize event for a height it changed while we were backgrounded.
+  window.addEventListener('pageshow', _setVh);
+  document.addEventListener('visibilitychange', function(){ if (!document.hidden) _setVh(); });
 } catch (e) {}
 </script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -439,16 +464,39 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
     </div>
     <div class="card" id="card-dimensions">
       <div class="card-header">Dimensions</div>
-      <div class="field-row"><div class="field-label">Length<small>metres</small></div><input type="number" class="field-input" id="r-l" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
-      <div class="field-row"><div class="field-label">Width<small>metres</small></div><input type="number" class="field-input" id="r-w" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
-      <div class="field-row"><div class="field-label">Height<small>metres</small></div><input type="number" class="field-input" id="r-h" value="2.4" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+      <div class="field-row">
+        <div class="field-label">Room shape<small>Perimeter / Segments for L-shapes &amp; odd rooms</small></div>
+        <div class="seg" id="seg-shape" style="flex:1.5">
+          <button class="seg-btn active" onclick="setRoomShape('box')">Standard</button>
+          <button class="seg-btn" onclick="setRoomShape('perimeter')">Perimeter</button>
+          <button class="seg-btn" onclick="setRoomShape('segments')">Segments</button>
+        </div>
+      </div>
+      <div id="shape-box-fields">
+        <div class="field-row"><div class="field-label">Length<small>metres</small></div><input type="number" class="field-input" id="r-l" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+        <div class="field-row"><div class="field-label">Width<small>metres</small></div><input type="number" class="field-input" id="r-w" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+      </div>
+      <div id="shape-perimeter-fields" style="display:none">
+        <div class="field-row"><div class="field-label">Wall perimeter<small>linear metres — total run of wall, measured round the room</small></div><input type="number" class="field-input" id="r-perim" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+      </div>
+      <div id="shape-segments-fields" style="display:none">
+        <div class="subsection-label">Room zones<small>rectangular zones (length × width) that make up the room — e.g. the two legs of an L-shape, or main room + alcove. Walls and ceiling both sum across zones</small></div>
+        <div id="segments-list"></div>
+        <div class="field-row" style="cursor:pointer" onclick="addSegment()"><div class="field-label" style="color:var(--accent);font-weight:600">+ Add zone</div></div>
+      </div>
+      <div class="field-row"><div class="field-label">Ceiling height<small>metres</small></div><input type="number" class="field-input" id="r-h" value="2.4" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+      <div class="toggle-row" id="row-sloped" style="border-top:1px solid var(--border)">
+        <div class="toggle-label">Sloped ceiling<small>Slope makes length × width wrong — type the measured ceiling area instead</small></div>
+        <div class="toggle" id="tog-sloped" onclick="toggleSlopedCeiling()"></div>
+      </div>
+      <div class="field-row" id="row-ceil-area" style="display:none"><div class="field-label">Ceiling area<small>m² — measured, since it doesn't follow from the walls</small></div><input type="number" class="field-input" id="r-ceil-area" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
     </div>
-    <div class="card" id="card-excluded-walls">
-      <div class="card-header sec-toggle" onclick="toggleFormSection('excluded')"><span>Excluded Walls</span><span class="sec-chev" id="sec-chev-excluded">›</span></div>
-      <div class="card-body" id="sec-excluded">
-        <div class="subsection-label">Excluded Walls<small>walls you're not painting — e.g. wallpaper that's staying. Each width × height comes off the painted wall area (and mist coat); leave empty to skip</small></div>
-        <div id="excluded-walls-list"></div>
-        <div class="field-row" style="cursor:pointer" onclick="addExcludedWall()"><div class="field-label" style="color:var(--accent);font-weight:600">+ Add excluded wall</div></div>
+    <div class="card searchable-card" id="card-shape-addons">
+      <div class="card-header sec-toggle" onclick="toggleFormSection('shapeaddons')"><span>Bay Window &amp; Alcove/Dormer</span><span class="sec-chev" id="sec-chev-shapeaddons">›</span></div>
+      <div class="card-body" id="sec-shapeaddons">
+        <div class="field-row"><div class="field-label">Bay window extra perimeter<small>linear metres — the extra wall run the bay adds vs a flat wall; added before the wall area calc</small></div><input type="number" class="field-input" id="r-bay-perim" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+        <div class="field-row"><div class="field-label">Alcove/dormer wall area<small>m² — extra wall added directly, for irregular geometry the perimeter can't capture</small></div><input type="number" class="field-input" id="r-extra-wall" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+        <div class="field-row"><div class="field-label">Alcove/dormer ceiling area<small>m² — extra ceiling added directly</small></div><input type="number" class="field-input" id="r-extra-ceil" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
       </div>
     </div>
     <div class="card" id="card-hsl-geometry" style="display:none">
@@ -511,6 +559,14 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Walls</div><div class="seg" id="seg-wc"><button class="seg-btn" onclick="setSeg('wc',0)">0</button><button class="seg-btn" onclick="setSeg('wc',1)">1</button><button class="seg-btn active" onclick="setSeg('wc',2)">2</button><button class="seg-btn" onclick="setSeg('wc',3)">3</button></div></div>
       <div class="field-row"><div class="field-label">Ceiling</div><div class="seg" id="seg-cc"><button class="seg-btn" onclick="setSeg('cc',0)">0</button><button class="seg-btn" onclick="setSeg('cc',1)">1</button><button class="seg-btn active" onclick="setSeg('cc',2)">2</button><button class="seg-btn" onclick="setSeg('cc',3)">3</button></div></div>
       <div class="field-row"><div class="field-label">Woodwork</div><div class="seg" id="seg-xc"><button class="seg-btn" onclick="setSeg('xc',0)">0</button><button class="seg-btn" onclick="setSeg('xc',1)">1</button><button class="seg-btn active" onclick="setSeg('xc',2)">2</button><button class="seg-btn" onclick="setSeg('xc',3)">3</button></div></div>
+      <div class="toggle-row" style="border-top:1px solid var(--border)">
+        <div class="toggle-label">Spray walls<small>Wall litres use the sprayed coverage rate, and this room's labour picks up the spray sundries bump. Labour time is unchanged</small></div>
+        <div class="toggle" id="tog-spray" onclick="toggleSprayWalls()"></div>
+      </div>
+      <div class="toggle-row" id="variation-row" style="border-top:1px solid var(--border);display:none">
+        <div class="toggle-label" style="color:var(--accent)">Variation<small>Extra scope on top of the accepted quote — listed under On Site › Variations. Turn off if this is a correction to the original quote</small></div>
+        <div class="toggle" id="tog-variation" onclick="toggleRoomVariation()"></div>
+      </div>
     </div>
     <div class="card searchable-card">
       <div class="card-header sec-toggle" onclick="toggleFormSection('featurewall')"><span>Feature Wall</span><span class="sec-chev" id="sec-chev-featurewall">›</span></div>
@@ -575,36 +631,12 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         </div>
       </div>
     </div>
-    <div class="card searchable-card">
-      <div class="card-header sec-toggle" onclick="toggleFormSection('paint')"><span>Paint &amp; Colour</span><span class="sec-chev" id="sec-chev-paint">›</span></div>
-      <div class="card-body" id="sec-paint">
-        <div class="subsection-label">Colour</div>
-        <div class="field-row"><div class="field-label">Wall<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-wall" style="flex-wrap:wrap"></div></div>
-        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Ceiling<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-ceiling" style="flex-wrap:wrap"></div></div>
-        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Woodwork<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-woodwork" style="flex-wrap:wrap"></div></div>
-        <div class="subsection-label">Wall Paint</div>
-        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-wall-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('wall')" onfocus="onRoomRangeSearchInput('wall')"><div id="r-wall-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
-        <div class="field-row" id="r-wall-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-wall-band" onchange="onRoomOverrideBandSelect('wall')"></select></div>
-        <div class="subsection-label">Ceiling Paint</div>
-        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-ceiling-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('ceiling')" onfocus="onRoomRangeSearchInput('ceiling')"><div id="r-ceiling-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
-        <div class="field-row" id="r-ceiling-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-ceiling-band" onchange="onRoomOverrideBandSelect('ceiling')"></select></div>
-        <div class="subsection-label">Woodwork Topcoat</div>
-        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-topcoat-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('topcoat')" onfocus="onRoomRangeSearchInput('topcoat')"><div id="r-topcoat-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
-        <div class="field-row" id="r-topcoat-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-topcoat-band" onchange="onRoomOverrideBandSelect('topcoat')"></select></div>
-        <div class="subsection-label">Woodwork Primer</div>
-        <div class="field-row"><div class="field-label">Product<small>defaults to Settings, or None</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-primer-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('primer')" onfocus="onRoomRangeSearchInput('primer')"><div id="r-primer-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
-        <div class="field-row" id="r-primer-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-primer-band" onchange="onRoomOverrideBandSelect('primer')"></select></div>
-        <div class="subsection-label">Mist Coat</div>
-        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-mist-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('mist')" onfocus="onRoomRangeSearchInput('mist')"><div id="r-mist-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
-        <div class="field-row" id="r-mist-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-mist-band" onchange="onRoomOverrideBandSelect('mist')"></select></div>
-      </div>
-    </div>
-    <div class="card" id="card-extras">
-      <div class="card-header sec-toggle" onclick="toggleFormSection('extras')"><span>Extras</span><span class="sec-chev" id="sec-chev-extras">›</span></div>
-      <div class="card-body" id="sec-extras">
-        <div class="field-row"><div class="field-label">Windows<small>total m² — woodwork; comes off wall area, painted only when Woodwork coats &gt; 0</small></div><input type="number" class="field-input" id="r-win" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
-        <div class="field-row"><div class="field-label">Window sills<small>count — painted wooden sills on unpainted (plastic) windows</small></div><input type="number" class="field-input" id="r-sills" placeholder="0" min="0" step="1" inputmode="numeric" oninput="previewRoom()"></div>
-        <div class="field-row"><div class="field-label">Radiators<small>m²</small></div><input type="number" class="field-input" id="r-rads" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+    <div class="card" id="card-excluded-walls">
+      <div class="card-header sec-toggle" onclick="toggleFormSection('excluded')"><span>Excluded Walls</span><span class="sec-chev" id="sec-chev-excluded">›</span></div>
+      <div class="card-body" id="sec-excluded">
+        <div class="subsection-label">Excluded Walls<small>walls you're not painting — e.g. wallpaper that's staying. Each width × height comes off the painted wall area (and mist coat); leave empty to skip</small></div>
+        <div id="excluded-walls-list"></div>
+        <div class="field-row" style="cursor:pointer" onclick="addExcludedWall()"><div class="field-label" style="color:var(--accent);font-weight:600">+ Add excluded wall</div></div>
       </div>
     </div>
     <div class="card">
@@ -651,57 +683,12 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         </div>
       </div>
     </div>
-    <div class="card">
-      <div class="card-header sec-toggle" onclick="toggleFormSection('prep')"><span>Preparation</span><span class="sec-chev" id="sec-chev-prep">›</span></div>
-      <div class="card-body" id="sec-prep">
-        <div class="field-row">
-          <div class="field-label">Prep Level</div>
-          <div class="seg" id="seg-prep" style="flex:1.5">
-            <button class="seg-btn active" onclick="setPrep(10)">Minimal</button>
-            <button class="seg-btn" onclick="setPrep(25)">Standard</button>
-            <button class="seg-btn" onclick="setPrep(40)">Heavy</button>
-            <button class="seg-btn" onclick="setPrep(-1)">Custom</button>
-          </div>
-        </div>
-        <div class="field-row" id="prep-custom-row" style="display:none">
-          <div class="field-label">Custom prep %<small>uplift on room total</small></div>
-          <input type="number" class="field-input" id="r-prep-custom" placeholder="0" min="0" max="100" step="5" inputmode="numeric" oninput="previewRoom()">
-        </div>
-        <div class="toggle-row" style="border-top:1px solid var(--border)">
-          <div class="toggle-label">Self-priming paint<small>Woodwork other than doors/frames (skirting, sills, windows) — skips the primer coat, adds one extra topcoat instead</small></div>
-          <div class="toggle" id="tog-selfprimingwoodwork" onclick="toggleSelfPrimingWoodwork()"></div>
-        </div>
-        <div class="field-row" style="border-top:1px solid var(--border)">
-          <div class="field-label">Making Good<small>£ fixed cost for repairs</small></div>
-          <input type="number" class="field-input" id="r-making-good" placeholder="0" min="0" step="5" inputmode="decimal" oninput="previewRoom()">
-        </div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-header sec-toggle" onclick="toggleFormSection('mist')"><span>Mist Coat</span><span class="sec-chev" id="sec-chev-mist">›</span></div>
-      <div class="card-body" id="sec-mist">
-        <div class="toggle-row">
-          <div class="toggle-label">Mist coat — Walls<small>Adds a mist coat pass to walls</small></div>
-          <div class="toggle" id="tog-mw" onclick="toggleMist('mw')"></div>
-        </div>
-        <div class="toggle-row" style="border-top:1px solid var(--border)">
-          <div class="toggle-label">Mist coat — Ceiling<small>Adds a mist coat pass to ceiling</small></div>
-          <div class="toggle" id="tog-mc" onclick="toggleMist('mc')"></div>
-        </div>
-        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Manual area override<small>m² — for when only part is new plaster; blank uses the selected surface(s) above</small></div><input type="number" class="field-input" id="r-mist-area" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-header sec-toggle" onclick="toggleFormSection('spray')"><span>Spray Application</span><span class="sec-chev" id="sec-chev-spray">›</span></div>
-      <div class="card-body" id="sec-spray">
-        <div class="toggle-row">
-          <div class="toggle-label">Spray walls<small>Wall litres use the sprayed coverage rate, and this room's labour picks up the spray sundries bump. Labour time is unchanged</small></div>
-          <div class="toggle" id="tog-spray" onclick="toggleSprayWalls()"></div>
-        </div>
-        <div class="toggle-row" id="variation-row" style="border-top:1px solid var(--border);display:none">
-          <div class="toggle-label" style="color:var(--accent)">Variation<small>Extra scope on top of the accepted quote — listed under On Site › Variations. Turn off if this is a correction to the original quote</small></div>
-          <div class="toggle" id="tog-variation" onclick="toggleRoomVariation()"></div>
-        </div>
+    <div class="card" id="card-extras">
+      <div class="card-header sec-toggle" onclick="toggleFormSection('extras')"><span>Extras</span><span class="sec-chev" id="sec-chev-extras">›</span></div>
+      <div class="card-body" id="sec-extras">
+        <div class="field-row"><div class="field-label">Windows<small>total m² — woodwork; comes off wall area, painted only when Woodwork coats &gt; 0</small></div><input type="number" class="field-input" id="r-win" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+        <div class="field-row"><div class="field-label">Window sills<small>count — painted wooden sills on unpainted (plastic) windows</small></div><input type="number" class="field-input" id="r-sills" placeholder="0" min="0" step="1" inputmode="numeric" oninput="previewRoom()"></div>
+        <div class="field-row"><div class="field-label">Radiators<small>m²</small></div><input type="number" class="field-input" id="r-rads" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
       </div>
     </div>
     <div class="card">
@@ -756,6 +743,20 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         <div class="breakdown-row" id="wp-r-ceil-rolls-row" style="display:none;background:var(--accent-faint)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Ceiling rolls to order</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="wp-r-ceil-rolls">—</span></div>
       </div>
     </div>
+    <div class="card">
+      <div class="card-header sec-toggle" onclick="toggleFormSection('mist')"><span>Mist Coat</span><span class="sec-chev" id="sec-chev-mist">›</span></div>
+      <div class="card-body" id="sec-mist">
+        <div class="toggle-row">
+          <div class="toggle-label">Mist coat — Walls<small>Adds a mist coat pass to walls</small></div>
+          <div class="toggle" id="tog-mw" onclick="toggleMist('mw')"></div>
+        </div>
+        <div class="toggle-row" style="border-top:1px solid var(--border)">
+          <div class="toggle-label">Mist coat — Ceiling<small>Adds a mist coat pass to ceiling</small></div>
+          <div class="toggle" id="tog-mc" onclick="toggleMist('mc')"></div>
+        </div>
+        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Manual area override<small>m² — for when only part is new plaster; blank uses the selected surface(s) above</small></div><input type="number" class="field-input" id="r-mist-area" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+      </div>
+    </div>
     <div class="card searchable-card">
       <div class="card-header sec-toggle" onclick="toggleFormSection('panelling')"><span>Panelling</span><span class="sec-chev" id="sec-chev-panelling">›</span></div>
       <div class="card-body" id="sec-panelling">
@@ -778,6 +779,56 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Colour<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-panel" style="flex-wrap:wrap"></div></div>
         <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Product<small>no default — choose explicitly</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-panel-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('panel')" onfocus="onRoomRangeSearchInput('panel')"><div id="r-panel-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
         <div class="field-row" id="r-panel-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-panel-band" onchange="onRoomOverrideBandSelect('panel')"></select></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header sec-toggle" onclick="toggleFormSection('prep')"><span>Preparation</span><span class="sec-chev" id="sec-chev-prep">›</span></div>
+      <div class="card-body" id="sec-prep">
+        <div class="field-row">
+          <div class="field-label">Prep Level</div>
+          <div class="seg" id="seg-prep" style="flex:1.5">
+            <button class="seg-btn active" onclick="setPrep(10)">Minimal</button>
+            <button class="seg-btn" onclick="setPrep(25)">Standard</button>
+            <button class="seg-btn" onclick="setPrep(40)">Heavy</button>
+            <button class="seg-btn" onclick="setPrep(-1)">Custom</button>
+          </div>
+        </div>
+        <div class="field-row" id="prep-custom-row" style="display:none">
+          <div class="field-label">Custom prep %<small>uplift on room total</small></div>
+          <input type="number" class="field-input" id="r-prep-custom" placeholder="0" min="0" max="100" step="5" inputmode="numeric" oninput="previewRoom()">
+        </div>
+        <div class="toggle-row" style="border-top:1px solid var(--border)">
+          <div class="toggle-label">Self-priming paint<small>Woodwork other than doors/frames (skirting, sills, windows) — skips the primer coat, adds one extra topcoat instead</small></div>
+          <div class="toggle" id="tog-selfprimingwoodwork" onclick="toggleSelfPrimingWoodwork()"></div>
+        </div>
+        <div class="field-row" style="border-top:1px solid var(--border)">
+          <div class="field-label">Making Good<small>£ fixed cost for repairs</small></div>
+          <input type="number" class="field-input" id="r-making-good" placeholder="0" min="0" step="5" inputmode="decimal" oninput="previewRoom()">
+        </div>
+      </div>
+    </div>
+    <div class="card searchable-card">
+      <div class="card-header sec-toggle" onclick="toggleFormSection('paint')"><span>Paint &amp; Colour</span><span class="sec-chev" id="sec-chev-paint">›</span></div>
+      <div class="card-body" id="sec-paint">
+        <div class="subsection-label">Colour</div>
+        <div class="field-row"><div class="field-label">Wall<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-wall" style="flex-wrap:wrap"></div></div>
+        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Ceiling<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-ceiling" style="flex-wrap:wrap"></div></div>
+        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Woodwork<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-woodwork" style="flex-wrap:wrap"></div></div>
+        <div class="subsection-label">Wall Paint</div>
+        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-wall-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('wall')" onfocus="onRoomRangeSearchInput('wall')"><div id="r-wall-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
+        <div class="field-row" id="r-wall-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-wall-band" onchange="onRoomOverrideBandSelect('wall')"></select></div>
+        <div class="subsection-label">Ceiling Paint</div>
+        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-ceiling-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('ceiling')" onfocus="onRoomRangeSearchInput('ceiling')"><div id="r-ceiling-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
+        <div class="field-row" id="r-ceiling-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-ceiling-band" onchange="onRoomOverrideBandSelect('ceiling')"></select></div>
+        <div class="subsection-label">Woodwork Topcoat</div>
+        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-topcoat-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('topcoat')" onfocus="onRoomRangeSearchInput('topcoat')"><div id="r-topcoat-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
+        <div class="field-row" id="r-topcoat-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-topcoat-band" onchange="onRoomOverrideBandSelect('topcoat')"></select></div>
+        <div class="subsection-label">Woodwork Primer</div>
+        <div class="field-row"><div class="field-label">Product<small>defaults to Settings, or None</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-primer-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('primer')" onfocus="onRoomRangeSearchInput('primer')"><div id="r-primer-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
+        <div class="field-row" id="r-primer-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-primer-band" onchange="onRoomOverrideBandSelect('primer')"></select></div>
+        <div class="subsection-label">Mist Coat</div>
+        <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-mist-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('mist')" onfocus="onRoomRangeSearchInput('mist')"><div id="r-mist-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
+        <div class="field-row" id="r-mist-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-mist-band" onchange="onRoomOverrideBandSelect('mist')"></select></div>
       </div>
     </div>
     <div class="card" id="hsl-results-card" style="display:none">
@@ -923,6 +974,12 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Hours Per Day</div><input type="number" class="field-input" id="s-hpd" value="7" min="1" max="12" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Markup<small>%</small></div><input type="number" class="field-input" id="s-mu" value="20" min="0" max="100" step="5" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Commercial job adjustment<small>% — default when a quote's Commercial job toggle is on, applied before markup/discount</small></div><input type="number" class="field-input" id="s-commercial-pct" value="10" min="-100" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Standalone job rounding<small>when a quote's Standalone job toggle is on, diary days round up to this</small></div>
+        <select class="field-input" id="s-standalone-rounding" style="width:auto;max-width:150px;text-align:left;font-family:'DM Sans',sans-serif" onchange="setStandaloneRounding(this.value)">
+          <option value="full">Full day</option>
+          <option value="half">Half day</option>
+        </select>
+      </div>
       <div class="field-row"><div class="field-label">Sundries &amp; Consumables<small>% of labour, before markup</small></div><input type="number" class="field-input" id="s-sundries" value="5" min="0" max="100" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Spray sundries bump<small>extra % on sprayed rooms' labour — masking film, tape &amp; paper</small></div><input type="number" class="field-input" id="s-sundriesspray" value="3" min="0" max="100" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Deposit<small>% of quote — or materials+sundries cost, whichever greater</small></div><input type="number" class="field-input" id="s-deposit-pct" value="25" min="0" max="100" step="5" inputmode="numeric" onchange="saveSettings()"></div>
@@ -976,6 +1033,10 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Window sills<small>mins per painted internal sill — for plastic windows with wooden sills</small></div><input type="number" class="field-input" id="s-rsill" value="15" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Mist coat<small>mins/m²</small></div><input type="number" class="field-input" id="s-rmist" value="2" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Panelling<small>mins/m² per coat — draft default, adjust to taste</small></div><input type="number" class="field-input" id="s-rpanel" value="6" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Staircase — spindle time<small>minutes per spindle, per coat</small></div><input type="number" class="field-input" id="s-wpstair-spindle-mins" value="5" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Staircase — newel time<small>minutes per newel post, per coat</small></div><input type="number" class="field-input" id="s-wpstair-newel-mins" value="5" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Staircase — string time<small>minutes per metre, per coat</small></div><input type="number" class="field-input" id="s-wpstair-string-mins" value="2" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Staircase — handrail time<small>minutes per metre, per coat</small></div><input type="number" class="field-input" id="s-wpstair-handrail-mins" value="3" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
     </div>
     <div class="card">
       <div class="card-header">Doors &amp; Frames</div>
@@ -1325,6 +1386,20 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Woodwork colour<small>windows, doors, fascia, sash</small></div><div class="seg" id="seg-colour-ext-woodwork" style="flex-wrap:wrap"></div></div>
       </div>
     </div>
+    <div class="card searchable-card">
+      <div class="card-header sec-toggle" onclick="toggleFormSection('ext-products')"><span>Paint Products</span><span class="sec-chev open" id="sec-chev-ext-products">›</span></div>
+      <div class="card-body open" id="sec-ext-products">
+      <div class="subsection-label">Masonry / Render</div>
+      <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-masonry-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('masonry')" onfocus="onRoomRangeSearchInput('masonry')"><div id="r-masonry-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
+      <div class="field-row" id="r-masonry-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-masonry-band" onchange="onRoomOverrideBandSelect('masonry')"></select></div>
+      <div class="subsection-label">Exterior Woodwork Topcoat</div>
+      <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-extTopcoat-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('extTopcoat')" onfocus="onRoomRangeSearchInput('extTopcoat')"><div id="r-extTopcoat-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
+      <div class="field-row" id="r-extTopcoat-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-extTopcoat-band" onchange="onRoomOverrideBandSelect('extTopcoat')"></select></div>
+      <div class="subsection-label">Exterior Woodwork Primer</div>
+      <div class="field-row"><div class="field-label">Product<small>defaults to Settings, or None</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-extPrimer-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('extPrimer')" onfocus="onRoomRangeSearchInput('extPrimer')"><div id="r-extPrimer-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
+      <div class="field-row" id="r-extPrimer-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-extPrimer-band" onchange="onRoomOverrideBandSelect('extPrimer')"></select></div>
+      </div>
+    </div>
     <div class="card" id="ext-preview-card" style="display:none">
       <div class="card-header">Preview</div>
       <div class="breakdown-row"><span class="breakdown-label">Estimated cost</span><span class="breakdown-value" style="color:var(--accent)" id="ext-prev-cost">—</span></div>
@@ -1386,7 +1461,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.2.4</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.4.2</div>
 </div>
 </div>
 
@@ -1646,6 +1721,7 @@ function saveSettings() {
   // that doesn't exist. Same pattern as materials above.
   next.paymentType = settings.paymentType || 'single';
   next.paymentWeeks = settings.paymentWeeks || null;
+  next.standaloneRounding = settings.standaloneRounding === 'half' ? 'half' : 'full';
   next.lastBackupExportAt = settings.lastBackupExportAt || null;
   next.workSaturdays = !!settings.workSaturdays;
   next.icsEnabled = !!settings.icsEnabled;
@@ -2218,7 +2294,7 @@ async function createXeroQuote(forceNew) {
     tcS += extTotal + kitchenTotal;
     ttS += extTimeTotal + kitchenTimeTotal;
     var onSiteDays = realisticDays(ttS);
-    var depositPlan = computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabourS);
+    var depositPlan = computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabourS, ttS);
     var paymentTerms = buildPaymentTermsText(depositPlan, activeJob() && activeJob().startDate);
     var paymentSummary = buildPaymentSummaryText(depositPlan);
 
@@ -2254,6 +2330,14 @@ async function createXeroQuote(forceNew) {
         markupType: effectiveMarkupType(),
         commercial: !!(activeJob() && activeJob().commercial),
         commercialPct: settings.commercialPct,
+        // Standalone diary-day rounding: the raw (pre-markup) top-up plus
+        // the two day figures for the quote line's description. The server
+        // adds it as its own labour line so the quote total still matches
+        // depositPlan.labourTotal above (see routes/xero.js).
+        standalone: depositPlan.standalone.on,
+        standaloneTopUp: depositPlan.standalone.topUp,
+        standaloneCalcDays: depositPlan.standalone.calcDays,
+        standaloneDiaryDays: depositPlan.standalone.diaryDays,
         paymentTerms: paymentTerms,
         paymentSummary: paymentSummary,
         contactId: linkedContactId,
@@ -2552,6 +2636,10 @@ var SETTINGS_FIELDS = [
   ['wpFinishRate',   's-wpfinish-rate', 40],
   ['wpCeilMultPct',  's-wpceil-mult',   15],
   ['wpStairMultPct', 's-wpstair-mult',  25],
+  ['wpStairSpindleMins',     's-wpstair-spindle-mins',     5],
+  ['wpStairNewelMins',       's-wpstair-newel-mins',       5],
+  ['wpStairStringMinsPerM',  's-wpstair-string-mins',      2],
+  ['wpStairHandrailMinsPerM','s-wpstair-handrail-mins',    3],
   ['wpTrimCm',       's-wptrim',        10],
   ['wpMinPrice',     's-wpmin-price',   200],
   ['wpVinylLabourRatePerM',    's-wpvinyl-labour-rate',    18.6],
@@ -2619,6 +2707,10 @@ function mergeSettings(raw) {
   // material and the mural rates are NOT seeded -- Nicky doesn't charge a
   // per-metre vinyl material rate, and no mural trade data exists yet.
   if (!out.wpVinylLabourRatePerM) out.wpVinylLabourRatePerM = 18.6;
+  // Standalone job rounding granularity ('full'/'half') -- a string with a
+  // select, not a scalar, so handled here like paymentType rather than in
+  // SETTINGS_FIELDS. Anything unrecognised (incl. old blobs) means 'full'.
+  out.standaloneRounding = raw.standaloneRounding === 'half' ? 'half' : 'full';
   out.kitchenRates = raw.kitchenRates || KITCHEN_RATE_DEFAULTS;
   out.materials    = raw.materials || {};
   out.paymentType  = raw.paymentType || 'single';
@@ -2728,6 +2820,13 @@ var panelItemsForm = [];
 // being painted (wallpaper that's staying, a mirrored/tiled wall, etc.),
 // subtracted from the room's wall area in calcRoom() rather than priced.
 var excludedWallsForm = [];
+// Odd-shaped room handling: shape mode ('box' | 'perimeter' | 'segments'),
+// the segments-mode zone rows (same form-local-array lifecycle as
+// panelItemsForm/excludedWallsForm above -- {id,l,w}), and the sloped-
+// ceiling flag that swaps the ceiling from calculated to typed area.
+var roomShapeModeForm = 'box';
+var segmentsForm = [];
+var slopedCeiling = false;
 var swCoats  = 2;
 var curTab   = 'dash';
 var inSub    = null; // 'room' | 'stair' | null
@@ -2871,13 +2970,12 @@ function renameJob(id) {
   renderHome(); renderJobs();
 }
 
-// PUT /api/jobs/:id replaces `data` wholesale (see routes/api.js), so any
-// save here that only sends SOME of the client-known data fields would
-// silently drop whichever ones it left out. Every call site that persists
-// part of job.data must go through this so xeroClient/xeroRef/contact/
-// xeroContactId/contactSyncedAt/materialsSeeded/kitchen always travel together.
+// PUT /api/jobs/:id merges `data` (see routes/api.js) rather than replacing
+// it, but this is still the one place that persists the Xero/status/schedule
+// fields together so xeroClient/xeroRef/contact/xeroContactId/
+// contactSyncedAt/materialsSeeded/kitchen stay consistent with each other.
 function persistJobData(job) {
-  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, freeVariations: job.freeVariations, variationCount: job.variationCount, notes: job.notes, kitchen: job.kitchen }) });
+  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, freeVariations: job.freeVariations, variationCount: job.variationCount, notes: job.notes, kitchen: job.kitchen }) });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -4008,6 +4106,71 @@ function setJobCommercial(on) {
   renderSummary(); renderHome(); renderExterior(); renderDash();
 }
 
+// Standalone job (diary-day rounding): a quote-level toggle, off by default
+// and independent of `commercial` above (a job can be both, either or
+// neither). Labour is calculated in fractional days from the minutes
+// breakdown, which averages out when several rooms/jobs are priced
+// together -- but a standalone job's 1.6 calculated days still blocks out
+// 2 full diary days, because the leftover 0.4 day can't be filled with
+// other work. So when the toggle is on, labour is CHARGED on the calculated
+// days rounded UP to the next full day (or half day, per
+// settings.standaloneRounding) at the day rate, while the calculated figure
+// stays visible on the Summary so the maths is never hidden. The top-up
+// brings the labour subtotal up TO diaryDays x day rate -- NOT
+// (diaryDays - calcDays) x day rate added on top, which over-charged
+// whenever the subtotal held cost with no time behind it (the wallpaper
+// minimum charge: a 1.6-day job with a £60 wp floor top-up billed £660
+// instead of 2 days x £300 = £600). If the subtotal already exceeds the
+// full-day price the top-up clamps to zero (rounding never discounts).
+// Added as its own labour amount inside computeDepositPlan() -- it goes
+// through commercial% and markup like any other labour, but NOT through
+// the sundries % (idle time burns no consumables).
+function standaloneDiaryDays(calcDays) {
+  var mult = settings.standaloneRounding === 'half' ? 2 : 1;
+  // Tiny epsilon so float noise on an exact day count (2.0000000001) can't
+  // round a clean 2-day job up to 3.
+  return Math.ceil(calcDays * mult - 1e-6) / mult;
+}
+// The whole standalone picture for a given calculated-days figure --
+// {on, calcDays, diaryDays, topUp}. Callers pass whichever working-days
+// figure matches the labour they're pricing (original scope for the quote)
+// PLUS that labour's raw (pre-markup) £ subtotal, so the top-up lands the
+// charge exactly on diaryDays x day rate rather than assuming the subtotal
+// was calcDays x day rate (it isn't when e.g. the wallpaper minimum charge
+// adds £ with no time behind it).
+// When the toggle is off (or there's no work) it returns on:false with a
+// zero top-up, so callers can add .topUp unconditionally.
+function standaloneInfo(calcDays, labourSubtotal) {
+  calcDays = +calcDays || 0;
+  labourSubtotal = +labourSubtotal || 0;
+  var job = activeJob();
+  if (!job || !job.standalone || calcDays <= 0) {
+    return { on: false, calcDays: calcDays, diaryDays: calcDays, topUp: 0 };
+  }
+  var diaryDays = standaloneDiaryDays(calcDays);
+  return { on: true, calcDays: calcDays, diaryDays: diaryDays,
+           topUp: Math.max(diaryDays * (settings.dr || 0) - labourSubtotal, 0) };
+}
+
+function setJobStandalone(on) {
+  var job = activeJob();
+  if (!job) return;
+  job.standalone = !!on;
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  renderSummary(); renderHome(); renderExterior(); renderDash();
+}
+
+// Settings-screen select for the rounding granularity -- set directly on
+// settings like setBankHolidayRegion(), since saveSettings() has no numeric
+// input to read it from.
+function setStandaloneRounding(mode) {
+  settings.standaloneRounding = mode === 'half' ? 'half' : 'full';
+  localStorage.setItem('pe-settings', JSON.stringify(settings));
+  apiPut('/api/settings', settings);
+  renderSummary();
+}
+
 // "+ 20% markup" / "− £50 discount" -- shared by the Total Quote strap-line
 // and the Labour breakdown row so both read the sign the same way.
 function markupSummaryLabel() {
@@ -4708,6 +4871,14 @@ function goScreen(name) {
     renderPanelWallsList();
     excludedWallsForm = [];
     renderExcludedWallsList();
+    roomShapeModeForm = 'box'; segmentsForm = []; slopedCeiling = false;
+    renderSegmentsList();
+    document.getElementById('r-perim').value = '';
+    document.getElementById('r-ceil-area').value = '';
+    document.getElementById('r-bay-perim').value = '';
+    document.getElementById('r-extra-wall').value = '';
+    document.getElementById('r-extra-ceil').value = '';
+    applyRoomShapeUI();
     panelPrepPct = 10;
     document.querySelectorAll('#seg-panel-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===0);});
     document.getElementById('panel-prep-custom-row').style.display = 'none';
@@ -4799,6 +4970,8 @@ function loadSettings() {
   if (togIcs) togIcs.classList.toggle('on', !!settings.icsEnabled);
   var bhSel = document.getElementById('s-bh-region');
   if (bhSel) bhSel.value = settings.bankHolidayRegion || 'england-and-wales';
+  var sdSel = document.getElementById('s-standalone-rounding');
+  if (sdSel) sdSel.value = settings.standaloneRounding === 'half' ? 'half' : 'full';
   renderIcsUrlRow();
   populateKitchenRatesTable();
   document.getElementById('s-kr-cornice-base').value = (settings.kitchenRates && settings.kitchenRates.cornice) ? settings.kitchenRates.cornice.base : 25;
@@ -4901,6 +5074,53 @@ function doorFrameExtrasCost(doorQty, fireDoor, ironRemove, ironMask) {
   return fireDoorCost + ironCost;
 }
 
+// ── Room shape geometry ────────────────────────────────────────────────────
+// Odd-shaped room handling: three shape modes decide where the wall
+// perimeter and ceiling area come from, everything downstream of those two
+// figures (deductions, coats, prep, materials, commercial toggles) is
+// UNCHANGED and shared across modes.
+//   'box' (default, and every room saved before this feature): perimeter
+//     and ceiling from l/w exactly as always.
+//   'perimeter': the measured wall run is typed directly (perimeterLM) --
+//     for L-shapes/odd rooms where walls are easier to tape end-to-end than
+//     to decompose. Ceiling area is TYPED (ceilAreaManual), since ceiling
+//     shape doesn't follow from a perimeter figure.
+//   'segments': rectangular zones ({l,w} each) summed -- both perimeter and
+//     ceiling. Deliberately counts each zone's FULL perimeter: the shared
+//     edge where zones meet is usually still wall on part of its run, and
+//     the app's bias is to round generously, same as wallpaper.
+// bayPerimExtra (any mode) adds linear metres to the perimeter BEFORE the
+// wall area calc -- and therefore also feeds skirting length and the
+// perimeter-derived woodwork area, which is physically right (a bay has
+// skirting round it too).
+// slopedCeiling (box/segments modes) swaps the ceiling to the typed
+// ceilAreaManual figure, since flat l×w multiplication is wrong on a slope.
+// Perimeter mode types the ceiling anyway, so the flag is meaningless there.
+function roomShapePerimeter(r) {
+  var mode = r.shapeMode || 'box';
+  var base;
+  if (mode === 'perimeter') base = Math.max(+r.perimeterLM || 0, 0);
+  // Half-filled zone rows (l or w still 0) are skipped -- they're dropped
+  // on save (buildRoomFromForm's "0 to skip" filter), so counting them
+  // here would make the live preview drift from the saved room.
+  else if (mode === 'segments') base = (r.segments || []).reduce(function(s, z){
+    var zl = +z.l || 0, zw = +z.w || 0;
+    return s + (zl > 0 && zw > 0 ? (zl + zw) * 2 : 0);
+  }, 0);
+  else base = ((+r.l || 0) + (+r.w || 0)) * 2;
+  return base + Math.max(+r.bayPerimExtra || 0, 0);
+}
+function roomShapeCeilArea(r) {
+  var mode = r.shapeMode || 'box';
+  var base;
+  if (mode === 'perimeter' || r.slopedCeiling) base = Math.max(+r.ceilAreaManual || 0, 0);
+  else if (mode === 'segments') base = (r.segments || []).reduce(function(s, z){
+    return s + Math.max(+z.l || 0, 0) * Math.max(+z.w || 0, 0);
+  }, 0);  // l*w is 0 for a half-filled row anyway -- no skip needed
+  else base = (+r.l || 0) * (+r.w || 0);
+  return base + Math.max(+r.extraCeilArea || 0, 0);
+}
+
 // ── Room calc ──────────────────────────────────────────────────────────────
 function calcRoom(r) {
   migrateWPFields(r);
@@ -4918,7 +5138,14 @@ function calcRoom(r) {
   // already done) or a door only (frame is UPVC, say) doesn't change how
   // many doorway-sized holes are cut into the wall.
   var doorOpenings = Math.max(doorQty, frameQty);
-  var wallArea = r.wallAreaOverride ? +r.wallAreaOverride : Math.max((L*2+W*2)*H - doorOpenings*1.8 - win, 0);
+  // Shape-mode-aware geometry (see roomShapePerimeter/roomShapeCeilArea
+  // above) -- identical to the old (L*2+W*2)/L*W for box rooms, so nothing
+  // moves for existing quotes. extraWallArea (alcove/dormer add-on) joins
+  // the gross wall BEFORE the door/window deductions so the whole thing
+  // shares one floor at 0.
+  var perim = roomShapePerimeter(r);
+  var extraWallArea = Math.max(+r.extraWallArea || 0, 0);
+  var wallArea = r.wallAreaOverride ? +r.wallAreaOverride : Math.max(perim*H + extraWallArea - doorOpenings*1.8 - win, 0);
   // Excluded walls (e.g. wallpaper that's staying): each one's measured
   // width x height comes off the wall area HERE, before anything downstream
   // reads it -- paint labour, wall litres, mist coat and the feature-wall
@@ -4931,8 +5158,7 @@ function calcRoom(r) {
     return sum + Math.max(+x.width || 0, 0) * Math.max(+x.height || 0, 0);
   }, 0);
   wallArea = Math.max(wallArea - excludedWallArea, 0);
-  var ceilArea = r.ceilAreaOverride ? +r.ceilAreaOverride : L*W;
-  var perim    = (L+W)*2;
+  var ceilArea = r.ceilAreaOverride ? +r.ceilAreaOverride : roomShapeCeilArea(r);
   var r2       = rpm();
   var hpd      = settings.hpd;
   var mistWCost = mistW ? wallArea*settings.rMist*r2 : 0;
@@ -5223,7 +5449,7 @@ function realisticDays(workingDays) {
 // multi-week derivation) through to deposit/balance/weekly instalments --
 // used by renderSummary() AND createXeroQuote() (for the quote's Terms
 // text) so the two can never show different figures for the same job.
-function computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabour) {
+function computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabour, workingDays) {
   var sundriesPct = (settings.sundriesPct||0)/100;
   // sprayLabour: summed labour of just the spray-toggled rooms (each room's
   // calcRoom().sprayLabour) -- masking film/tape/paper on top of normal
@@ -5231,7 +5457,16 @@ function computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabour) {
   // whole job's.
   var spraySundries = (sprayLabour||0) * (settings.sundriesSprayPct||0)/100;
   var sundries = tcS * sundriesPct + spraySundries;
-  var labourTotal = applyMarkupAmount(tcS+sundries);
+  // Standalone job diary-day rounding (see standaloneInfo()): the top-up is
+  // extra chargeable labour, so it sits inside the commercial%/markup base
+  // -- but deliberately NOT in the sundries base above (no consumables get
+  // used in the idle remainder of the last day). workingDays is the
+  // calculated-days figure matching tcS's scope; callers written before
+  // this param existed pass nothing, which safely means no top-up. tcS
+  // rides along so the top-up lands the charge exactly on diary days x
+  // day rate (see standaloneInfo()).
+  var standalone = standaloneInfo(workingDays, tcS);
+  var labourTotal = applyMarkupAmount(tcS+standalone.topUp+sundries);
   var total = labourTotal + materialsTotal;
 
   // Deposit: Nicky's actual Terms of Business read "25% of quotation or cost
@@ -5270,7 +5505,8 @@ function computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabour) {
     }
   }
 
-  return { sundries:sundries, spraySundries:spraySundries, labourTotal:labourTotal, total:total, deposit:deposit,
+  return { sundries:sundries, spraySundries:spraySundries, standalone:standalone,
+           labourTotal:labourTotal, total:total, deposit:deposit,
            depositBasis:depositBasis, balance:balance, paymentType:paymentType,
            paymentWeeks:paymentWeeks, weeklyRows:weeklyRows };
 }
@@ -5354,9 +5590,10 @@ function tin(l) {
 // Exterior roles (masonry / extTopcoat / extPrimer) reuse this exact engine
 // but source from extItems, not rooms -- masonry has its own colour number,
 // while extTopcoat + extPrimer share one "exterior woodwork" colour (same
-// logic as interior topcoat/primer sharing the woodwork colour). Exterior
-// items have no per-item range/band overrides, so they always fall to the
-// Settings default mapping.
+// logic as interior topcoat/primer sharing the woodwork colour). Like rooms,
+// an exterior item without its own range/band override falls to the
+// Settings default mapping -- overrideRange below reads r[role+'RangeOverride']
+// off whatever's in `items`, room or exterior item alike.
 var ROLE_COLOUR_FIELD = { wall: 'colourNumber', ceiling: 'ceilingColourNumber', topcoat: 'woodworkColourNumber', primer: 'woodworkColourNumber', mist: 'colourNumber', featurewall: 'featureWallColourNumber', panel: 'panelColourNumber', masonry: 'masonryColourNumber', extTopcoat: 'extWoodworkColourNumber', extPrimer: 'extWoodworkColourNumber' };
 // Roles charged by whole tin (tin-optimised) rather than per litre. Masonry
 // mirrors interior walls -- bought and charged in whole tins.
@@ -6824,6 +7061,16 @@ function buildFinalInvoiceModel() {
   }
   var muVal = effectiveMarkup();
   var fixed = effectiveMarkupType() === 'fixed';
+  // Standalone diary-day rounding: the quote charged this top-up as labour
+  // (see standaloneInfo()/computeDepositPlan()), so the invoice carries it
+  // as its own labour line -- droppable like any other -- and it joins the
+  // fixed-£ markup base below, exactly as the quote's figures had it. It
+  // stays OUT of rawOrig itself: sundries (rawOrig x %) never included it
+  // on the quote, and computeDepositPlan() re-adds it from ttOrig+rawOrig.
+  var standaloneInv = standaloneInfo(ttOrig, rawOrig);
+  if (standaloneInv.topUp > 0.005) {
+    labour.push({ id: 'standalone', desc: 'Standalone job — diary day rounding (' + standaloneInv.calcDays.toFixed(1) + ' → ' + (standaloneInv.diaryDays % 1 === 0 ? standaloneInv.diaryDays.toFixed(0) : standaloneInv.diaryDays.toFixed(1)) + ' days)', raw: standaloneInv.topUp });
+  }
   // Commercial job adjustment applies before markup here too, same order as
   // applyMarkupAmount() -- the invoice must reproduce the quote's figures
   // exactly (this whole function's premise), so it can't skip commercial%
@@ -6831,7 +7078,7 @@ function buildFinalInvoiceModel() {
   // applyMarkupAmount() (a manual per-line multiplier is needed here since
   // labour lines need their OWN £ amount, not just a job-wide total).
   var commercialMultInv = 1 + commercialRatio();
-  var afterCommercialRawOrig = rawOrig * commercialMultInv;
+  var afterCommercialRawOrig = (rawOrig + standaloneInv.topUp) * commercialMultInv;
   var muInv = commercialMultInv * (fixed ? 1 + (afterCommercialRawOrig > 0 ? muVal / afterCommercialRawOrig : 0) : 1 + muVal / 100);
   labour.forEach(function(l) { l.amount = l.raw * muInv; l.dropped = false; });
   // Xero-imported jobs (importAcceptedQuote()) stamp the already-agreed
@@ -6907,7 +7154,7 @@ function buildFinalInvoiceModel() {
   // Deduction prefills from the plan: what SHOULD have been invoiced.
   // Nicky corrects against what actually was — Xero knows the truth, and
   // reading it back is deliberate later-scope (spec).
-  var plan = computeDepositPlan(rawOrig, materialsSnapshotTotal(), realisticDays(ttOrig), sprayOrig);
+  var plan = computeDepositPlan(rawOrig, materialsSnapshotTotal(), realisticDays(ttOrig), sprayOrig, ttOrig);
   return {
     labour: labour, sundries: { amount: sundries, dropped: false },
     variations: variations, varSundries: { amount: varSundries, dropped: false },
@@ -7541,7 +7788,14 @@ var roomOverrides = {
   primer:  { range: '', band: '', none: false },
   mist:    { range: '', band: '' },
   featurewall: { range: '', band: '' },
-  panel: { range: '', band: '' }
+  panel: { range: '', band: '' },
+  // Exterior roles (edited on the exterior item form, not the room form) --
+  // same {range, band} shape, keyed into the SAME object since the picker
+  // machinery below (overrideIdPrefix/overrideState/etc.) is role-agnostic
+  // and only one of the room/exterior screens is ever being edited at once.
+  masonry: { range: '', band: '' },
+  extTopcoat: { range: '', band: '' },
+  extPrimer: { range: '', band: '' }
 };
 
 // Kitchen's product/band state isn't temp/form-local like the room roles
@@ -7639,7 +7893,7 @@ function hideRangeSearchDropdown(idPrefix) {
 }
 
 document.addEventListener('click', function(e) {
-  ['r-wall','r-ceiling','r-topcoat','r-primer','r-mist','r-featurewall','r-panel','k'].forEach(function(idPrefix) {
+  ['r-wall','r-ceiling','r-topcoat','r-primer','r-mist','r-featurewall','r-panel','r-masonry','r-extTopcoat','r-extPrimer','k'].forEach(function(idPrefix) {
     var input = document.getElementById(idPrefix+'-range');
     var dd = document.getElementById(idPrefix+'-range-dd');
     if (!input || !dd) return;
@@ -8231,6 +8485,10 @@ function resetExtForm() {
   extColourNumbers = { 'ext-masonry': 1, 'ext-woodwork': 1 };
   populateExtColourChips('ext-masonry');
   populateExtColourChips('ext-woodwork');
+  roomOverrides.masonry = { range: '', band: '' };
+  roomOverrides.extTopcoat = { range: '', band: '' };
+  roomOverrides.extPrimer = { range: '', band: '' };
+  ['masonry','extTopcoat','extPrimer'].forEach(populateRoomOverridePicker);
   extFormWindows = [];
   extFormSashWindows = [];
   renderExtWindowList('windows');
@@ -8354,6 +8612,9 @@ function getExtFormData() {
     texturedRender: exTexturedRender,
     masonryColourNumber: extColourNumbers['ext-masonry'],
     extWoodworkColourNumber: extColourNumbers['ext-woodwork'],
+    masonryRangeOverride: roomOverrides.masonry.range||undefined, masonryBandOverride: roomOverrides.masonry.band||undefined,
+    extTopcoatRangeOverride: roomOverrides.extTopcoat.range||undefined, extTopcoatBandOverride: roomOverrides.extTopcoat.band||undefined,
+    extPrimerRangeOverride: roomOverrides.extPrimer.range||undefined, extPrimerBandOverride: roomOverrides.extPrimer.band||undefined,
     prepPct: exPrepPct,
     prepCustom: +document.getElementById('ex-prep-custom').value||0,
     makingGood: +document.getElementById('ex-making-good').value||0
@@ -8384,6 +8645,10 @@ function editExtItem(id) {
   extColourNumbers = { 'ext-masonry': item.masonryColourNumber||1, 'ext-woodwork': item.extWoodworkColourNumber||1 };
   populateExtColourChips('ext-masonry');
   populateExtColourChips('ext-woodwork');
+  roomOverrides.masonry = { range: item.masonryRangeOverride || '', band: item.masonryBandOverride || '' };
+  roomOverrides.extTopcoat = { range: item.extTopcoatRangeOverride || '', band: item.extTopcoatBandOverride || '' };
+  roomOverrides.extPrimer = { range: item.extPrimerRangeOverride || '', band: item.extPrimerBandOverride || '' };
+  ['masonry','extTopcoat','extPrimer'].forEach(populateRoomOverridePicker);
   document.getElementById('extform-title').textContent = 'Edit Exterior';
   document.getElementById('ex-label').value = item.label||'';
   document.getElementById('ex-masonry').value = item.masonry||'';
@@ -8422,6 +8687,18 @@ function editExtItem(id) {
 }
 
 function saveExteriorItem() {
+  // Same band-required guard as saveRoom() -- an override with a range
+  // chosen must also have an explicit band, since band changes the price
+  // and can't be guessed. See MATERIALS_SPEC.md "Refinements".
+  var overrideRoleLabels = [['masonry','Masonry / Render'],['extTopcoat','Exterior Woodwork Topcoat'],['extPrimer','Exterior Woodwork Primer']];
+  for (var i = 0; i < overrideRoleLabels.length; i++) {
+    var role = overrideRoleLabels[i][0], label = overrideRoleLabels[i][1];
+    var ov = roomOverrides[role];
+    if (ov.range && ov.band == null) {
+      alert('Choose a colour band for the ' + label + ' override before saving — it changes the price and can\'t be guessed.');
+      return;
+    }
+  }
   var item = getExtFormData();
   item.id = editExtId || uid();
   item.emoji = '🏡';
@@ -8959,9 +9236,34 @@ function roomWallpaperRolls(r, isCeil, type) {
   var rollLen=+r.wpRollLen||10.05, rollWidth=+r.wpRollWidth||0.53;
   var effectiveMatch = type==='lining' ? 'none' : (r.wpMatch||'none');
   var repeatMm=+r.wpRepeatMm||0;
+  var shapeMode = r.shapeMode || 'box';
+  // Segments-mode ceiling: each rectangular zone papered as its own run
+  // (its own drop direction and seams), so roll counts are computed
+  // per-zone and summed -- generous rounding per zone matches how it's
+  // actually hung. Sloped ceilings fall through to the typed-area path
+  // below instead (zone l×w no longer describes the real surface).
+  if (isCeil && shapeMode === 'segments' && !r.slopedCeiling) {
+    return (r.segments || []).reduce(function(sum, z){
+      var zl = Math.max(+z.l||0, 0), zw = Math.max(+z.w||0, 0);
+      if (zl <= 0 || zw <= 0) return sum;
+      var zc = calcWallpaperRolls(Math.max(zl,zw), Math.min(zl,zw), rollLen, rollWidth, effectiveMatch, repeatMm, settings.wpTrimCm, !!r.wpSpareRoll);
+      return sum + (zc ? zc.rolls : 0);
+    }, 0);
+  }
   var dropH, widthToCover;
-  if (isCeil) { dropH=Math.max(L,W); widthToCover=Math.min(L,W); }
-  else { dropH=H; widthToCover=(L+W)*2; }
+  if (isCeil) {
+    if (shapeMode === 'perimeter' || r.slopedCeiling) {
+      // Typed ceiling area: no l/w geometry to hang drops against, so
+      // approximate a square of the same area -- close enough for a roll
+      // count, and consistent with the feature's "round generously" bias.
+      var side = Math.sqrt(roomShapeCeilArea(r));
+      dropH = side; widthToCover = side;
+    } else { dropH=Math.max(L,W); widthToCover=Math.min(L,W); }
+  }
+  // Walls: drop height is the ceiling height in every mode; width to cover
+  // is the shape-aware perimeter (typed, summed zones, or (L+W)*2 --
+  // identical to before for box rooms), bay window extra included.
+  else { dropH=H; widthToCover=roomShapePerimeter(r); }
   var calc = calcWallpaperRolls(dropH, widthToCover, rollLen, rollWidth, effectiveMatch, repeatMm, settings.wpTrimCm, !!r.wpSpareRoll);
   return calc ? calc.rolls : 0;
 }
@@ -9452,6 +9754,101 @@ function setExcludedWallField(idx, field, value) {
   previewRoom();
 }
 
+// ── Room shape (odd-shaped room handling) ──────────────────────────────────
+// Shape mode picker + segments-zone list + sloped ceiling toggle. DOM sync
+// is split out of setRoomShape() (applyRoomShapeUI) so editRoom()/
+// goScreen('room') can restore the mode without firing a live preview
+// against half-restored dimension fields -- same reasoning as the feature
+// wall mode restore in editRoom().
+function setRoomShape(mode) {
+  roomShapeModeForm = mode;
+  applyRoomShapeUI();
+  previewRoom();
+}
+function applyRoomShapeUI() {
+  var mode = roomShapeModeForm;
+  document.querySelectorAll('#seg-shape .seg-btn').forEach(function(b,i){
+    b.classList.toggle('active', ['box','perimeter','segments'][i]===mode);
+  });
+  document.getElementById('shape-box-fields').style.display = mode==='box' ? 'block' : 'none';
+  document.getElementById('shape-perimeter-fields').style.display = mode==='perimeter' ? 'block' : 'none';
+  document.getElementById('shape-segments-fields').style.display = mode==='segments' ? 'block' : 'none';
+  // Perimeter mode ALWAYS types the ceiling area (its shape doesn't follow
+  // from a perimeter), so the sloped toggle would be redundant there --
+  // hidden, and the ceiling area row shows unconditionally instead.
+  document.getElementById('row-sloped').style.display = mode==='perimeter' ? 'none' : 'flex';
+  document.getElementById('tog-sloped').classList.toggle('on', slopedCeiling);
+  document.getElementById('row-ceil-area').style.display = (mode==='perimeter' || slopedCeiling) ? 'flex' : 'none';
+}
+function toggleSlopedCeiling() {
+  slopedCeiling = !slopedCeiling;
+  applyRoomShapeUI();
+  previewRoom();
+}
+
+// Segments-mode zone list -- same row template and add/remove/set lifecycle
+// as the excluded walls above, plus a running perimeter + ceiling total so
+// the summed figures are visible without hunting through the preview.
+function renderSegmentsList() {
+  var el = document.getElementById('segments-list');
+  if (!el) return;
+  el.innerHTML = segmentsForm.map(function(z, i) {
+    return '<div class="field-row">'+
+      '<div class="field-label">Zone '+(i+1)+'</div>'+
+      '<div style="display:flex;align-items:center;gap:6px">'+
+        '<input type="number" class="field-input" style="width:56px" value="'+z.l+'" min="0" step="0.1" inputmode="decimal" placeholder="L" onchange="setSegmentField('+i+',\'l\',this.value)">'+
+        '<span style="color:var(--text3)">×</span>'+
+        '<input type="number" class="field-input" style="width:56px" value="'+z.w+'" min="0" step="0.1" inputmode="decimal" placeholder="W" onchange="setSegmentField('+i+',\'w\',this.value)">'+
+        '<div onclick="removeSegment('+i+')" style="color:var(--danger);font-size:22px;padding:0 4px;cursor:pointer">×</div>'+
+      '</div>'+
+    '</div>';
+  }).join('') + (segmentsForm.length
+    ? '<div class="breakdown-row"><span class="breakdown-label">Wall perimeter</span><span class="breakdown-value" id="segments-perim-total">—</span></div>'+
+      '<div class="breakdown-row"><span class="breakdown-label">Ceiling area</span><span class="breakdown-value" id="segments-ceil-total">—</span></div>'
+    : '');
+  updateSegmentsTotals();
+}
+
+// Totals updated in place (not via a full re-render) so an L edit's
+// onchange can't rebuild the list out from under the W input the user is
+// about to tab into -- same reason as updateExcludedWallsTotal().
+function updateSegmentsTotals() {
+  var perimEl = document.getElementById('segments-perim-total');
+  var ceilEl = document.getElementById('segments-ceil-total');
+  if (!perimEl || !ceilEl) return;
+  // Half-filled rows excluded from both, matching roomShapePerimeter()'s
+  // skip and buildRoomFromForm's save filter.
+  var perimSum = 0, ceilSum = 0;
+  segmentsForm.forEach(function(z){
+    var l = +z.l || 0, w = +z.w || 0;
+    if (l <= 0 || w <= 0) return;
+    perimSum += (l + w) * 2;
+    ceilSum  += l * w;
+  });
+  perimEl.textContent = perimSum.toFixed(1) + ' lm';
+  ceilEl.textContent = fmtM(ceilSum);
+}
+
+function addSegment() {
+  segmentsForm.push({ id: uid(), l: 0, w: 0 });
+  renderSegmentsList();
+  previewRoom();
+}
+
+function removeSegment(idx) {
+  segmentsForm.splice(idx, 1);
+  renderSegmentsList();
+  previewRoom();
+}
+
+function setSegmentField(idx, field, value) {
+  var z = segmentsForm[idx];
+  if (!z) return;
+  z[field] = Math.max(0, +value || 0);
+  updateSegmentsTotals();
+  previewRoom();
+}
+
 function toggleMist(key) {
   if(key==='mw') { mistWall=!mistWall; document.getElementById('tog-mw').classList.toggle('on',mistWall); }
   if(key==='mc') { mistCeil=!mistCeil; document.getElementById('tog-mc').classList.toggle('on',mistCeil); }
@@ -9524,8 +9921,24 @@ function previewRoomNow() {
   var fwHeightVal=+document.getElementById('r-featurewall-height').value||0;
   var doorQtyVal=+document.getElementById('r-door-qty').value||0;
   var frameQtyVal=+document.getElementById('r-frame-qty').value||0;
-  if((L<=0||W<=0||H<=0) && !(fwWidthVal>0 && fwHeightVal>0) && !(doorQtyVal>0 || frameQtyVal>0)) { document.getElementById('room-preview').style.display='none'; return; }
+  // "Are the room's own dimensions filled in yet?" is mode-dependent:
+  // perimeter mode needs the typed wall run, segments mode needs at least
+  // one complete zone, box mode needs l/w as always -- all need a height.
+  var perimVal=+document.getElementById('r-perim').value||0;
+  var dimsOK;
+  if (roomShapeModeForm==='perimeter') dimsOK = perimVal>0 && H>0;
+  else if (roomShapeModeForm==='segments') dimsOK = H>0 && segmentsForm.some(function(z){ return +z.l>0 && +z.w>0; });
+  else dimsOK = L>0 && W>0 && H>0;
+  if(!dimsOK && !(fwWidthVal>0 && fwHeightVal>0) && !(doorQtyVal>0 || frameQtyVal>0)) { document.getElementById('room-preview').style.display='none'; return; }
   var r={l:L,w:W,h:H,wc:coats.wc,cc:coats.cc,xc:coats.xc,
+    shapeMode:roomShapeModeForm,
+    perimeterLM:perimVal,
+    ceilAreaManual:+document.getElementById('r-ceil-area').value||0,
+    segments:segmentsForm,
+    slopedCeiling:slopedCeiling,
+    bayPerimExtra:+document.getElementById('r-bay-perim').value||0,
+    extraWallArea:+document.getElementById('r-extra-wall').value||0,
+    extraCeilArea:+document.getElementById('r-extra-ceil').value||0,
     doorQty:+document.getElementById('r-door-qty').value||0,
     frameQty:+document.getElementById('r-frame-qty').value||0,
     doorCoats:doorCoats, frameCoats:frameCoats,
@@ -9584,7 +9997,9 @@ function previewRoomNow() {
   var rollLen = +document.getElementById('r-wp-roll-len').value||0;
   var rollWidth = +document.getElementById('r-wp-roll-width').value||0;
   var repeatMm = wpRepeatCmFromInput();
-  var wallWidthLM = (L+W)*2;
+  // Shape-aware: typed perimeter, summed zones or (L+W)*2, bay extra
+  // included -- same figure roomWallpaperRolls() costs labour from.
+  var wallWidthLM = roomShapePerimeter(r);
   if (wpwOn) {
     var wpwRollResult = wpSurfaceResult(wpWallLining, wpWallFinish, false, false, function(t){
       var match = t==='lining' ? 'none' : wpMatch;
@@ -9612,17 +10027,26 @@ function previewRoomNow() {
   // across the ceiling (fewer, longer drops), matching real hanging
   // practice.
   if (wpcOn) {
+    // Odd shapes (perimeter/segments mode, or a sloped ceiling) have no
+    // single L×W to derive one drop direction from -- roomWallpaperRolls()
+    // handles them (per-zone sums / square-of-same-area approximation), so
+    // route through it and show only the roll count; drop-length/drops
+    // stay hidden since a single figure would be meaningless there.
+    var oddCeil = roomShapeModeForm!=='box' || slopedCeiling;
     var ceilDrop = Math.max(L,W), ceilWidthToCover = Math.min(L,W);
     var wpcRollResult = wpSurfaceResult(wpCeilLining, wpCeilFinish, true, false, function(t){
+      if (oddCeil) return { rolls: roomWallpaperRolls(r, true, t) };
       var match = t==='lining' ? 'none' : wpMatch;
       return calcWallpaperRolls(ceilDrop, ceilWidthToCover, rollLen, rollWidth, match, repeatMm, settings.wpTrimCm, wpSpareRoll);
     });
     if (wpcRollResult.parts.length) {
-      document.getElementById('wp-r-ceil-droplen-row').style.display = 'flex';
-      document.getElementById('wp-r-ceil-drops-row').style.display = 'flex';
+      document.getElementById('wp-r-ceil-droplen-row').style.display = oddCeil ? 'none' : 'flex';
+      document.getElementById('wp-r-ceil-drops-row').style.display = oddCeil ? 'none' : 'flex';
       document.getElementById('wp-r-ceil-rolls-row').style.display = 'flex';
-      document.getElementById('wp-r-ceil-droplen').textContent = joinWPParts(wpcRollResult.parts, function(p){ return p.dropLength.toFixed(2)+' m'; });
-      document.getElementById('wp-r-ceil-drops').textContent = joinWPParts(wpcRollResult.parts, function(p){ return p.dropsPerRoll+' / '+p.dropsNeeded; });
+      if (!oddCeil) {
+        document.getElementById('wp-r-ceil-droplen').textContent = joinWPParts(wpcRollResult.parts, function(p){ return p.dropLength.toFixed(2)+' m'; });
+        document.getElementById('wp-r-ceil-drops').textContent = joinWPParts(wpcRollResult.parts, function(p){ return p.dropsPerRoll+' / '+p.dropsNeeded; });
+      }
       document.getElementById('wp-r-ceil-rolls').textContent = joinWPParts(wpcRollResult.parts, function(p){ return p.rolls; });
     }
   } else {
@@ -9713,6 +10137,19 @@ function editRoom(id) {
   renderPanelWallsList();
   excludedWallsForm = (r.excludedWalls || []).map(function(x){ return { id: x.id||uid(), width: +x.width||0, height: +x.height||0 }; });
   renderExcludedWallsList();
+  // Odd-shaped room handling -- applyRoomShapeUI() is DOM-only (no
+  // previewRoom() call), safe against the stale-dimensions problem the
+  // feature wall restore comment below describes.
+  roomShapeModeForm = r.shapeMode || 'box';
+  segmentsForm = (r.segments || []).map(function(z){ return { id: z.id||uid(), l: +z.l||0, w: +z.w||0 }; });
+  renderSegmentsList();
+  slopedCeiling = !!r.slopedCeiling;
+  document.getElementById('r-perim').value = r.perimeterLM || '';
+  document.getElementById('r-ceil-area').value = r.ceilAreaManual || '';
+  document.getElementById('r-bay-perim').value = r.bayPerimExtra || '';
+  document.getElementById('r-extra-wall').value = r.extraWallArea || '';
+  document.getElementById('r-extra-ceil').value = r.extraCeilArea || '';
+  applyRoomShapeUI();
   panelPrepPct = r.panelPrepPct != null ? r.panelPrepPct : 10;
   document.querySelectorAll('#seg-panel-prep .seg-btn').forEach(function(b,i){ b.classList.toggle('active', [10,25,40,-1][i]===panelPrepPct); });
   document.getElementById('r-panel-prep-custom').value = r.panelPrepCustom||'';
@@ -9911,6 +10348,19 @@ function buildRoomFromForm() {
     // save" rule as panelItems above.
     excludedWalls:excludedWallsForm.filter(function(x){ return (+x.width>0 && +x.height>0); }).map(function(x){ return { id:x.id, width:+x.width, height:+x.height }; }),
     l:+document.getElementById('r-l').value, w:+document.getElementById('r-w').value, h:+document.getElementById('r-h').value,
+    // Odd-shaped room handling -- 'box' saved as undefined so pre-feature
+    // rooms and standard rooms are indistinguishable (calcRoom() defaults
+    // a missing shapeMode to 'box').
+    shapeMode:roomShapeModeForm==='box'?undefined:roomShapeModeForm,
+    perimeterLM:+document.getElementById('r-perim').value||undefined,
+    ceilAreaManual:+document.getElementById('r-ceil-area').value||undefined,
+    // Zones with no length/width are empty placeholder rows -- skipped on
+    // save, same "0 to skip" rule as panelItems/excludedWalls above.
+    segments:segmentsForm.filter(function(z){ return (+z.l>0 && +z.w>0); }).map(function(z){ return { id:z.id, l:+z.l, w:+z.w }; }),
+    slopedCeiling:slopedCeiling||undefined,
+    bayPerimExtra:+document.getElementById('r-bay-perim').value||undefined,
+    extraWallArea:+document.getElementById('r-extra-wall').value||undefined,
+    extraCeilArea:+document.getElementById('r-extra-ceil').value||undefined,
     wc:coats.wc, cc:coats.cc, xc:coats.xc,
     win:+document.getElementById('r-win').value, sills:+document.getElementById('r-sills').value, rads:+document.getElementById('r-rads').value,
     doorQty:+document.getElementById('r-door-qty').value||0,
@@ -9948,6 +10398,13 @@ function buildRoomFromForm() {
     // before the staircase toggle was flipped) would make the saved total
     // silently drift below the staircase preview.
     room.excludedWalls = [];
+    // Shape mode / bay / alcove / sloped ceiling are normal-room concepts
+    // too -- staircase geometry supplies its own overrides, and calcHSLNow()
+    // knows nothing about these, so drop them for the same drift reason.
+    room.shapeMode = undefined; room.perimeterLM = undefined;
+    room.ceilAreaManual = undefined; room.segments = [];
+    room.slopedCeiling = undefined; room.bayPerimExtra = undefined;
+    room.extraWallArea = undefined; room.extraCeilArea = undefined;
     var hslOverrides = computeHSLOverrides();
     Object.keys(hslOverrides).forEach(function(k){ room[k] = hslOverrides[k]; });
   }
@@ -9977,6 +10434,8 @@ function captureRoomDraft() {
     var meaningful = document.getElementById('r-name').value.trim() ||
       +document.getElementById('r-l').value > 0 ||
       +document.getElementById('r-w').value > 0 ||
+      +document.getElementById('r-perim').value > 0 ||
+      segmentsForm.length > 0 ||
       roomIsStaircase || editId;
     if (!meaningful) return;
     localStorage.setItem('pe-room-draft', JSON.stringify({
@@ -10039,6 +10498,7 @@ function setRoomStaircase(on) {
   roomIsStaircase = on;
   document.getElementById('tog-staircase').classList.toggle('on', on);
   document.getElementById('card-dimensions').style.display = on ? 'none' : 'block';
+  document.getElementById('card-shape-addons').style.display = on ? 'none' : 'block';
   document.getElementById('card-excluded-walls').style.display = on ? 'none' : 'block';
   document.getElementById('card-hsl-geometry').style.display = on ? 'block' : 'none';
   document.getElementById('card-hsl-hall').style.display = on ? 'block' : 'none';
@@ -10213,7 +10673,7 @@ function calcHSLNow() {
   var swc     = hslCoats.swc;
   var strLm   = totalSlope*2;
   var hrLm    = totalSlope;
-  var wMins   = (spindles>0||newels>0) ? (spindles*5+newels*5+strLm*2+hrLm*3)*swc : 0;
+  var wMins   = (spindles>0||newels>0) ? (spindles*settings.wpStairSpindleMins+newels*settings.wpStairNewelMins+strLm*settings.wpStairStringMinsPerM+hrLm*settings.wpStairHandrailMinsPerM)*swc : 0;
   var calcWoodCost = wMins*r2;
 
   // Skirting -- perimeter includes hall AND landings (previously this
@@ -10406,7 +10866,7 @@ function computeHSLOverrides() {
   var swc     =hslCoats.swc;
   var strLm   =totalSlope*2;
   var hrLm    =totalSlope;
-  var wMins   =(spindles>0||newels>0)?(spindles*5+newels*5+strLm*2+hrLm*3)*swc:0;
+  var wMins   =(spindles>0||newels>0)?(spindles*settings.wpStairSpindleMins+newels*settings.wpStairNewelMins+strLm*settings.wpStairStringMinsPerM+hrLm*settings.wpStairHandrailMinsPerM)*swc:0;
   var stairWoodStore = wMins*r2;
 
   var wallCost = wc>0 ? totalWall*wallMins(wc)*r2 : 0;
@@ -10792,7 +11252,10 @@ function renderSummary() {
   // Original-scope figures only: the deposit was taken against the accepted
   // quote and the weekly plan derives from ITS duration — variations settle
   // on the final invoice, never here.
-  var plan = computeDepositPlan(tcOrig, materialsTotal, onSiteDaysOrig, sprayOrig);
+  // ttOrig rides along as the calculated-days figure for standalone
+  // diary-day rounding — original scope, same as tcOrig (variations settle
+  // on the final invoice with no rounding of their own).
+  var plan = computeDepositPlan(tcOrig, materialsTotal, onSiteDaysOrig, sprayOrig, ttOrig);
 
   // Variations money — computed in the shared view (see its comment for
   // the fixed-£ markup rule).
@@ -10906,6 +11369,22 @@ function renderSummary() {
       '<div class="card-header">Commercial Job</div>'+
       '<div class="toggle-row"><div class="toggle-label">Commercial job<small>Applies '+(settings.commercialPct!=null?settings.commercialPct:10)+'% before markup/discount below</small></div>'+
         '<div class="toggle'+(activeJob()&&activeJob().commercial?' on':'')+'" onclick="setJobCommercial('+(activeJob()&&activeJob().commercial?'false':'true')+')"></div></div>'+
+    '</div>'+
+    // Standalone Job card -- same job-level toggle pattern and settings
+    // group as Commercial Job above; the two flags are independent (a job
+    // can be both). When on, both day figures render side by side so the
+    // calculated maths stays visible next to what's actually charged.
+    '<div class="card" style="margin-top:16px">'+
+      '<div class="card-header">Standalone Job</div>'+
+      '<div class="toggle-row"><div class="toggle-label">Standalone job<small>Charges labour for full diary days instead of calculated fractional days</small></div>'+
+        '<div class="toggle'+(activeJob()&&activeJob().standalone?' on':'')+'" onclick="setJobStandalone('+(activeJob()&&activeJob().standalone?'false':'true')+')"></div></div>'+
+      (plan.standalone.on?
+        '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label">Calculated labour</span>'+
+          '<span class="breakdown-value">'+plan.standalone.calcDays.toFixed(1)+' days</span></div>'+
+        '<div class="breakdown-row"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Diary days charged</span>'+
+          '<span class="breakdown-value" style="color:var(--accent)">'+(plan.standalone.diaryDays%1===0?plan.standalone.diaryDays.toFixed(0):plan.standalone.diaryDays.toFixed(1))+' days</span></div>'+
+        '<div style="padding:0 16px 12px;font-size:12px;color:var(--text2)">Standalone jobs are charged for full diary days since the remaining time can\'t be filled with other work. Rounding up to the nearest '+(settings.standaloneRounding==='half'?'half day':'full day')+' — change in Settings.</div>'
+      :'')+
     '</div>'+
     '<div class="card" style="margin-top:16px">'+
       '<div class="card-header">Markup / Discount</div>'+
@@ -11022,16 +11501,23 @@ function renderSummary() {
       // variation-only job showed a non-zero subtotal here against a £0.00
       // markup right below.
       '<span class="breakdown-value" style="color:var(--accent)">'+fmt(tcOrig)+'</span></div>'+
+    // Standalone diary-day rounding sits right under the labour subtotal
+    // it tops up -- shown pre-markup like that subtotal, with the
+    // calculated → charged days visible so the maths is never hidden.
+    (plan.standalone.topUp>0.005?'<div class="breakdown-row" style="border-top:1px solid var(--border)">'+
+      '<span class="breakdown-label">Standalone diary-day rounding<small style="display:block;font-weight:400;color:var(--text2)">'+plan.standalone.calcDays.toFixed(1)+' calculated → '+(plan.standalone.diaryDays%1===0?plan.standalone.diaryDays.toFixed(0):plan.standalone.diaryDays.toFixed(1))+' diary days charged</small></span>'+
+      '<span class="breakdown-value">'+fmt(plan.standalone.topUp)+'</span></div>':'')+
     (sundries>0?'<div class="breakdown-row" style="border-top:1px solid var(--border)">'+
       '<span class="breakdown-label">Sundries &amp; Consumables<small style="display:block;font-weight:400;color:var(--text2)">'+settings.sundriesPct+'% of labour'+(plan.spraySundries>0?' + '+settings.sundriesSprayPct+'% spray masking on sprayed areas':'')+'</small></span>'+
       '<span class="breakdown-value">'+fmt(sundries)+'</span></div>':'')+
     // Order of operations, per the Commercial Job card above: commercial%
     // applies first (to labour + sundries), THEN markup/discount on top of
     // that already-adjusted figure -- see applyMarkupAmount(). Both rows
-    // read from the same running total so the maths always matches labourTotal.
+    // read from the same running total (incl. any standalone top-up, which
+    // is labour like any other) so the maths always matches labourTotal.
     (activeJob()&&activeJob().commercial?'<div class="breakdown-row" style="border-top:1px solid var(--border)">'+
       '<span class="breakdown-label">Commercial adjustment<small style="display:block;font-weight:400;color:var(--text2)">'+(settings.commercialPct!=null?settings.commercialPct:10)+'% on labour + sundries, before markup/discount</small></span>'+
-      '<span class="breakdown-value">'+fmt(applyCommercialAmount(tcOrig+sundries)-(tcOrig+sundries))+'</span></div>':'')+
+      '<span class="breakdown-value">'+fmt(applyCommercialAmount(tcOrig+plan.standalone.topUp+sundries)-(tcOrig+plan.standalone.topUp+sundries))+'</span></div>':'')+
     '<div class="breakdown-row" style="border-top:1px solid var(--border)">'+
       '<span class="breakdown-label" style="font-weight:600;color:var(--text)">'+markupSummaryLabel()+'<small style="display:block;font-weight:400;color:var(--text2)">on labour + sundries'+(activeJob()&&activeJob().commercial?' + commercial adjustment':'')+'</small></span>'+
       '<span class="breakdown-value" style="color:var(--accent)">'+fmt(labourTotal)+'</span></div>'+
@@ -11114,8 +11600,17 @@ function exportCSV() {
   var kitchenTotal = kitchenCsvCalc.total, kitchenTimeTotal = kitchenCsvCalc.time;
   if(kitchenTotal>0){lines.push([q('Kitchen'),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(kitchenTotal.toFixed(2)),q(kitchenTimeTotal.toFixed(2))].join(','));}
   lines.push('');
-  var tcS=tc+extTotal+kitchenTotal; var total=applyMarkupAmount(tcS);
+  var tcS=tc+extTotal+kitchenTotal;
+  // Standalone diary-day rounding on the CSV's own scope (all rooms listed
+  // above, variations included) so its figures stay self-consistent.
+  var csvStandalone=standaloneInfo(tt+extTimeTotal+kitchenTimeTotal, tcS);
+  var total=applyMarkupAmount(tcS+csvStandalone.topUp);
   lines.push([q('Labour subtotal'),q(tcS.toFixed(2))].join(','));
+  if(csvStandalone.topUp>0.005){
+    lines.push([q('Standalone job — calculated days'),q(csvStandalone.calcDays.toFixed(2))].join(','));
+    lines.push([q('Standalone job — diary days charged'),q(csvStandalone.diaryDays.toFixed(2))].join(','));
+    lines.push([q('Standalone diary-day rounding (£, before markup)'),q(csvStandalone.topUp.toFixed(2))].join(','));
+  }
   if(activeJob() && activeJob().commercial) lines.push([q('Commercial job adjustment (%, applied before markup)'),q(settings.commercialPct!=null?settings.commercialPct:10)].join(','));
   lines.push([q(effectiveMarkupType()==='fixed'?'Markup/Discount (£, this quote)':'Markup/Discount (%, this quote)'),q(effectiveMarkup())].join(','));
   lines.push([q('Total quote (inc commercial adjustment + markup)'),q(total.toFixed(2))].join(','));
