@@ -974,6 +974,12 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Hours Per Day</div><input type="number" class="field-input" id="s-hpd" value="7" min="1" max="12" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Markup<small>%</small></div><input type="number" class="field-input" id="s-mu" value="20" min="0" max="100" step="5" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Commercial job adjustment<small>% — default when a quote's Commercial job toggle is on, applied before markup/discount</small></div><input type="number" class="field-input" id="s-commercial-pct" value="10" min="-100" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Standalone job rounding<small>when a quote's Standalone job toggle is on, diary days round up to this</small></div>
+        <select class="field-input" id="s-standalone-rounding" style="width:auto;max-width:150px;text-align:left;font-family:'DM Sans',sans-serif" onchange="setStandaloneRounding(this.value)">
+          <option value="full">Full day</option>
+          <option value="half">Half day</option>
+        </select>
+      </div>
       <div class="field-row"><div class="field-label">Sundries &amp; Consumables<small>% of labour, before markup</small></div><input type="number" class="field-input" id="s-sundries" value="5" min="0" max="100" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Spray sundries bump<small>extra % on sprayed rooms' labour — masking film, tape &amp; paper</small></div><input type="number" class="field-input" id="s-sundriesspray" value="3" min="0" max="100" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Deposit<small>% of quote — or materials+sundries cost, whichever greater</small></div><input type="number" class="field-input" id="s-deposit-pct" value="25" min="0" max="100" step="5" inputmode="numeric" onchange="saveSettings()"></div>
@@ -1455,7 +1461,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.3.1</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.4.0</div>
 </div>
 </div>
 
@@ -1715,6 +1721,7 @@ function saveSettings() {
   // that doesn't exist. Same pattern as materials above.
   next.paymentType = settings.paymentType || 'single';
   next.paymentWeeks = settings.paymentWeeks || null;
+  next.standaloneRounding = settings.standaloneRounding === 'half' ? 'half' : 'full';
   next.lastBackupExportAt = settings.lastBackupExportAt || null;
   next.workSaturdays = !!settings.workSaturdays;
   next.icsEnabled = !!settings.icsEnabled;
@@ -2287,7 +2294,7 @@ async function createXeroQuote(forceNew) {
     tcS += extTotal + kitchenTotal;
     ttS += extTimeTotal + kitchenTimeTotal;
     var onSiteDays = realisticDays(ttS);
-    var depositPlan = computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabourS);
+    var depositPlan = computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabourS, ttS);
     var paymentTerms = buildPaymentTermsText(depositPlan, activeJob() && activeJob().startDate);
     var paymentSummary = buildPaymentSummaryText(depositPlan);
 
@@ -2323,6 +2330,14 @@ async function createXeroQuote(forceNew) {
         markupType: effectiveMarkupType(),
         commercial: !!(activeJob() && activeJob().commercial),
         commercialPct: settings.commercialPct,
+        // Standalone diary-day rounding: the raw (pre-markup) top-up plus
+        // the two day figures for the quote line's description. The server
+        // adds it as its own labour line so the quote total still matches
+        // depositPlan.labourTotal above (see routes/xero.js).
+        standalone: depositPlan.standalone.on,
+        standaloneTopUp: depositPlan.standalone.topUp,
+        standaloneCalcDays: depositPlan.standalone.calcDays,
+        standaloneDiaryDays: depositPlan.standalone.diaryDays,
         paymentTerms: paymentTerms,
         paymentSummary: paymentSummary,
         contactId: linkedContactId,
@@ -2692,6 +2707,10 @@ function mergeSettings(raw) {
   // material and the mural rates are NOT seeded -- Nicky doesn't charge a
   // per-metre vinyl material rate, and no mural trade data exists yet.
   if (!out.wpVinylLabourRatePerM) out.wpVinylLabourRatePerM = 18.6;
+  // Standalone job rounding granularity ('full'/'half') -- a string with a
+  // select, not a scalar, so handled here like paymentType rather than in
+  // SETTINGS_FIELDS. Anything unrecognised (incl. old blobs) means 'full'.
+  out.standaloneRounding = raw.standaloneRounding === 'half' ? 'half' : 'full';
   out.kitchenRates = raw.kitchenRates || KITCHEN_RATE_DEFAULTS;
   out.materials    = raw.materials || {};
   out.paymentType  = raw.paymentType || 'single';
@@ -4087,6 +4106,61 @@ function setJobCommercial(on) {
   renderSummary(); renderHome(); renderExterior(); renderDash();
 }
 
+// Standalone job (diary-day rounding): a quote-level toggle, off by default
+// and independent of `commercial` above (a job can be both, either or
+// neither). Labour is calculated in fractional days from the minutes
+// breakdown, which averages out when several rooms/jobs are priced
+// together -- but a standalone job's 1.6 calculated days still blocks out
+// 2 full diary days, because the leftover 0.4 day can't be filled with
+// other work. So when the toggle is on, labour is CHARGED on the calculated
+// days rounded UP to the next full day (or half day, per
+// settings.standaloneRounding) at the day rate, while the calculated figure
+// stays visible on the Summary so the maths is never hidden. The top-up is
+// (diaryDays - calcDays) x day rate, added as its own labour amount inside
+// computeDepositPlan() -- it goes through commercial% and markup like any
+// other labour, but NOT through the sundries % (idle time burns no
+// consumables).
+function standaloneDiaryDays(calcDays) {
+  var mult = settings.standaloneRounding === 'half' ? 2 : 1;
+  // Tiny epsilon so float noise on an exact day count (2.0000000001) can't
+  // round a clean 2-day job up to 3.
+  return Math.ceil(calcDays * mult - 1e-6) / mult;
+}
+// The whole standalone picture for a given calculated-days figure --
+// {on, calcDays, diaryDays, topUp}. Callers pass whichever working-days
+// figure matches the labour they're pricing (original scope for the quote).
+// When the toggle is off (or there's no work) it returns on:false with a
+// zero top-up, so callers can add .topUp unconditionally.
+function standaloneInfo(calcDays) {
+  calcDays = +calcDays || 0;
+  var job = activeJob();
+  if (!job || !job.standalone || calcDays <= 0) {
+    return { on: false, calcDays: calcDays, diaryDays: calcDays, topUp: 0 };
+  }
+  var diaryDays = standaloneDiaryDays(calcDays);
+  return { on: true, calcDays: calcDays, diaryDays: diaryDays,
+           topUp: (diaryDays - calcDays) * (settings.dr || 0) };
+}
+
+function setJobStandalone(on) {
+  var job = activeJob();
+  if (!job) return;
+  job.standalone = !!on;
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  renderSummary(); renderHome(); renderExterior(); renderDash();
+}
+
+// Settings-screen select for the rounding granularity -- set directly on
+// settings like setBankHolidayRegion(), since saveSettings() has no numeric
+// input to read it from.
+function setStandaloneRounding(mode) {
+  settings.standaloneRounding = mode === 'half' ? 'half' : 'full';
+  localStorage.setItem('pe-settings', JSON.stringify(settings));
+  apiPut('/api/settings', settings);
+  renderSummary();
+}
+
 // "+ 20% markup" / "− £50 discount" -- shared by the Total Quote strap-line
 // and the Labour breakdown row so both read the sign the same way.
 function markupSummaryLabel() {
@@ -4886,6 +4960,8 @@ function loadSettings() {
   if (togIcs) togIcs.classList.toggle('on', !!settings.icsEnabled);
   var bhSel = document.getElementById('s-bh-region');
   if (bhSel) bhSel.value = settings.bankHolidayRegion || 'england-and-wales';
+  var sdSel = document.getElementById('s-standalone-rounding');
+  if (sdSel) sdSel.value = settings.standaloneRounding === 'half' ? 'half' : 'full';
   renderIcsUrlRow();
   populateKitchenRatesTable();
   document.getElementById('s-kr-cornice-base').value = (settings.kitchenRates && settings.kitchenRates.cornice) ? settings.kitchenRates.cornice.base : 25;
@@ -5363,7 +5439,7 @@ function realisticDays(workingDays) {
 // multi-week derivation) through to deposit/balance/weekly instalments --
 // used by renderSummary() AND createXeroQuote() (for the quote's Terms
 // text) so the two can never show different figures for the same job.
-function computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabour) {
+function computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabour, workingDays) {
   var sundriesPct = (settings.sundriesPct||0)/100;
   // sprayLabour: summed labour of just the spray-toggled rooms (each room's
   // calcRoom().sprayLabour) -- masking film/tape/paper on top of normal
@@ -5371,7 +5447,14 @@ function computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabour) {
   // whole job's.
   var spraySundries = (sprayLabour||0) * (settings.sundriesSprayPct||0)/100;
   var sundries = tcS * sundriesPct + spraySundries;
-  var labourTotal = applyMarkupAmount(tcS+sundries);
+  // Standalone job diary-day rounding (see standaloneInfo()): the top-up is
+  // extra chargeable labour, so it sits inside the commercial%/markup base
+  // -- but deliberately NOT in the sundries base above (no consumables get
+  // used in the idle remainder of the last day). workingDays is the
+  // calculated-days figure matching tcS's scope; callers written before
+  // this param existed pass nothing, which safely means no top-up.
+  var standalone = standaloneInfo(workingDays);
+  var labourTotal = applyMarkupAmount(tcS+standalone.topUp+sundries);
   var total = labourTotal + materialsTotal;
 
   // Deposit: Nicky's actual Terms of Business read "25% of quotation or cost
@@ -5410,7 +5493,8 @@ function computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabour) {
     }
   }
 
-  return { sundries:sundries, spraySundries:spraySundries, labourTotal:labourTotal, total:total, deposit:deposit,
+  return { sundries:sundries, spraySundries:spraySundries, standalone:standalone,
+           labourTotal:labourTotal, total:total, deposit:deposit,
            depositBasis:depositBasis, balance:balance, paymentType:paymentType,
            paymentWeeks:paymentWeeks, weeklyRows:weeklyRows };
 }
@@ -6965,6 +7049,16 @@ function buildFinalInvoiceModel() {
   }
   var muVal = effectiveMarkup();
   var fixed = effectiveMarkupType() === 'fixed';
+  // Standalone diary-day rounding: the quote charged this top-up as labour
+  // (see standaloneInfo()/computeDepositPlan()), so the invoice carries it
+  // as its own labour line -- droppable like any other -- and it joins the
+  // fixed-£ markup base below, exactly as the quote's figures had it. It
+  // stays OUT of rawOrig itself: sundries (rawOrig x %) never included it
+  // on the quote, and computeDepositPlan() re-adds it from ttOrig.
+  var standaloneInv = standaloneInfo(ttOrig);
+  if (standaloneInv.topUp > 0.005) {
+    labour.push({ id: 'standalone', desc: 'Standalone job — diary day rounding (' + standaloneInv.calcDays.toFixed(1) + ' → ' + (standaloneInv.diaryDays % 1 === 0 ? standaloneInv.diaryDays.toFixed(0) : standaloneInv.diaryDays.toFixed(1)) + ' days)', raw: standaloneInv.topUp });
+  }
   // Commercial job adjustment applies before markup here too, same order as
   // applyMarkupAmount() -- the invoice must reproduce the quote's figures
   // exactly (this whole function's premise), so it can't skip commercial%
@@ -6972,7 +7066,7 @@ function buildFinalInvoiceModel() {
   // applyMarkupAmount() (a manual per-line multiplier is needed here since
   // labour lines need their OWN £ amount, not just a job-wide total).
   var commercialMultInv = 1 + commercialRatio();
-  var afterCommercialRawOrig = rawOrig * commercialMultInv;
+  var afterCommercialRawOrig = (rawOrig + standaloneInv.topUp) * commercialMultInv;
   var muInv = commercialMultInv * (fixed ? 1 + (afterCommercialRawOrig > 0 ? muVal / afterCommercialRawOrig : 0) : 1 + muVal / 100);
   labour.forEach(function(l) { l.amount = l.raw * muInv; l.dropped = false; });
   // Xero-imported jobs (importAcceptedQuote()) stamp the already-agreed
@@ -7048,7 +7142,7 @@ function buildFinalInvoiceModel() {
   // Deduction prefills from the plan: what SHOULD have been invoiced.
   // Nicky corrects against what actually was — Xero knows the truth, and
   // reading it back is deliberate later-scope (spec).
-  var plan = computeDepositPlan(rawOrig, materialsSnapshotTotal(), realisticDays(ttOrig), sprayOrig);
+  var plan = computeDepositPlan(rawOrig, materialsSnapshotTotal(), realisticDays(ttOrig), sprayOrig, ttOrig);
   return {
     labour: labour, sundries: { amount: sundries, dropped: false },
     variations: variations, varSundries: { amount: varSundries, dropped: false },
@@ -11146,7 +11240,10 @@ function renderSummary() {
   // Original-scope figures only: the deposit was taken against the accepted
   // quote and the weekly plan derives from ITS duration — variations settle
   // on the final invoice, never here.
-  var plan = computeDepositPlan(tcOrig, materialsTotal, onSiteDaysOrig, sprayOrig);
+  // ttOrig rides along as the calculated-days figure for standalone
+  // diary-day rounding — original scope, same as tcOrig (variations settle
+  // on the final invoice with no rounding of their own).
+  var plan = computeDepositPlan(tcOrig, materialsTotal, onSiteDaysOrig, sprayOrig, ttOrig);
 
   // Variations money — computed in the shared view (see its comment for
   // the fixed-£ markup rule).
@@ -11260,6 +11357,22 @@ function renderSummary() {
       '<div class="card-header">Commercial Job</div>'+
       '<div class="toggle-row"><div class="toggle-label">Commercial job<small>Applies '+(settings.commercialPct!=null?settings.commercialPct:10)+'% before markup/discount below</small></div>'+
         '<div class="toggle'+(activeJob()&&activeJob().commercial?' on':'')+'" onclick="setJobCommercial('+(activeJob()&&activeJob().commercial?'false':'true')+')"></div></div>'+
+    '</div>'+
+    // Standalone Job card -- same job-level toggle pattern and settings
+    // group as Commercial Job above; the two flags are independent (a job
+    // can be both). When on, both day figures render side by side so the
+    // calculated maths stays visible next to what's actually charged.
+    '<div class="card" style="margin-top:16px">'+
+      '<div class="card-header">Standalone Job</div>'+
+      '<div class="toggle-row"><div class="toggle-label">Standalone job<small>Charges labour for full diary days instead of calculated fractional days</small></div>'+
+        '<div class="toggle'+(activeJob()&&activeJob().standalone?' on':'')+'" onclick="setJobStandalone('+(activeJob()&&activeJob().standalone?'false':'true')+')"></div></div>'+
+      (plan.standalone.on?
+        '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label">Calculated labour</span>'+
+          '<span class="breakdown-value">'+plan.standalone.calcDays.toFixed(1)+' days</span></div>'+
+        '<div class="breakdown-row"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Diary days charged</span>'+
+          '<span class="breakdown-value" style="color:var(--accent)">'+(plan.standalone.diaryDays%1===0?plan.standalone.diaryDays.toFixed(0):plan.standalone.diaryDays.toFixed(1))+' days</span></div>'+
+        '<div style="padding:0 16px 12px;font-size:12px;color:var(--text2)">Standalone jobs are charged for full diary days since the remaining time can\'t be filled with other work. Rounding up to the nearest '+(settings.standaloneRounding==='half'?'half day':'full day')+' — change in Settings.</div>'
+      :'')+
     '</div>'+
     '<div class="card" style="margin-top:16px">'+
       '<div class="card-header">Markup / Discount</div>'+
@@ -11376,16 +11489,23 @@ function renderSummary() {
       // variation-only job showed a non-zero subtotal here against a £0.00
       // markup right below.
       '<span class="breakdown-value" style="color:var(--accent)">'+fmt(tcOrig)+'</span></div>'+
+    // Standalone diary-day rounding sits right under the labour subtotal
+    // it tops up -- shown pre-markup like that subtotal, with the
+    // calculated → charged days visible so the maths is never hidden.
+    (plan.standalone.topUp>0.005?'<div class="breakdown-row" style="border-top:1px solid var(--border)">'+
+      '<span class="breakdown-label">Standalone diary-day rounding<small style="display:block;font-weight:400;color:var(--text2)">'+plan.standalone.calcDays.toFixed(1)+' calculated → '+(plan.standalone.diaryDays%1===0?plan.standalone.diaryDays.toFixed(0):plan.standalone.diaryDays.toFixed(1))+' diary days charged</small></span>'+
+      '<span class="breakdown-value">'+fmt(plan.standalone.topUp)+'</span></div>':'')+
     (sundries>0?'<div class="breakdown-row" style="border-top:1px solid var(--border)">'+
       '<span class="breakdown-label">Sundries &amp; Consumables<small style="display:block;font-weight:400;color:var(--text2)">'+settings.sundriesPct+'% of labour'+(plan.spraySundries>0?' + '+settings.sundriesSprayPct+'% spray masking on sprayed areas':'')+'</small></span>'+
       '<span class="breakdown-value">'+fmt(sundries)+'</span></div>':'')+
     // Order of operations, per the Commercial Job card above: commercial%
     // applies first (to labour + sundries), THEN markup/discount on top of
     // that already-adjusted figure -- see applyMarkupAmount(). Both rows
-    // read from the same running total so the maths always matches labourTotal.
+    // read from the same running total (incl. any standalone top-up, which
+    // is labour like any other) so the maths always matches labourTotal.
     (activeJob()&&activeJob().commercial?'<div class="breakdown-row" style="border-top:1px solid var(--border)">'+
       '<span class="breakdown-label">Commercial adjustment<small style="display:block;font-weight:400;color:var(--text2)">'+(settings.commercialPct!=null?settings.commercialPct:10)+'% on labour + sundries, before markup/discount</small></span>'+
-      '<span class="breakdown-value">'+fmt(applyCommercialAmount(tcOrig+sundries)-(tcOrig+sundries))+'</span></div>':'')+
+      '<span class="breakdown-value">'+fmt(applyCommercialAmount(tcOrig+plan.standalone.topUp+sundries)-(tcOrig+plan.standalone.topUp+sundries))+'</span></div>':'')+
     '<div class="breakdown-row" style="border-top:1px solid var(--border)">'+
       '<span class="breakdown-label" style="font-weight:600;color:var(--text)">'+markupSummaryLabel()+'<small style="display:block;font-weight:400;color:var(--text2)">on labour + sundries'+(activeJob()&&activeJob().commercial?' + commercial adjustment':'')+'</small></span>'+
       '<span class="breakdown-value" style="color:var(--accent)">'+fmt(labourTotal)+'</span></div>'+
@@ -11468,8 +11588,17 @@ function exportCSV() {
   var kitchenTotal = kitchenCsvCalc.total, kitchenTimeTotal = kitchenCsvCalc.time;
   if(kitchenTotal>0){lines.push([q('Kitchen'),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(kitchenTotal.toFixed(2)),q(kitchenTimeTotal.toFixed(2))].join(','));}
   lines.push('');
-  var tcS=tc+extTotal+kitchenTotal; var total=applyMarkupAmount(tcS);
+  var tcS=tc+extTotal+kitchenTotal;
+  // Standalone diary-day rounding on the CSV's own scope (all rooms listed
+  // above, variations included) so its figures stay self-consistent.
+  var csvStandalone=standaloneInfo(tt+extTimeTotal+kitchenTimeTotal);
+  var total=applyMarkupAmount(tcS+csvStandalone.topUp);
   lines.push([q('Labour subtotal'),q(tcS.toFixed(2))].join(','));
+  if(csvStandalone.topUp>0.005){
+    lines.push([q('Standalone job — calculated days'),q(csvStandalone.calcDays.toFixed(2))].join(','));
+    lines.push([q('Standalone job — diary days charged'),q(csvStandalone.diaryDays.toFixed(2))].join(','));
+    lines.push([q('Standalone diary-day rounding (£, before markup)'),q(csvStandalone.topUp.toFixed(2))].join(','));
+  }
   if(activeJob() && activeJob().commercial) lines.push([q('Commercial job adjustment (%, applied before markup)'),q(settings.commercialPct!=null?settings.commercialPct:10)].join(','));
   lines.push([q(effectiveMarkupType()==='fixed'?'Markup/Discount (£, this quote)':'Markup/Discount (%, this quote)'),q(effectiveMarkup())].join(','));
   lines.push([q('Total quote (inc commercial adjustment + markup)'),q(total.toFixed(2))].join(','));
