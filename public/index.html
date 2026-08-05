@@ -227,6 +227,8 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 .sync-dot{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block;margin-left:6px;background:#27ae60;transition:background .3s}
 .sync-dot.saving{background:#f39c12}
 .sync-dot.offline{background:#c0392b}
+/* Xero round-trip actions dim while offline (see blockIfOffline) */
+body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.app-offline .xero-live-btn{opacity:.5}
 .nav-menu-sync{padding:10px 14px;font-size:12px;border-top:1px solid var(--border);color:#27ae60}
 .nav-menu-sync.saving{color:#f39c12}
 .nav-menu-sync.offline{color:#c0392b}
@@ -911,6 +913,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
          entry point while the hamburger nav didn't exist yet -- Materials is
          now reached from there on every measuring screen, so this one is
          retired rather than left as a second, redundant path in. -->
+    <button onclick="openClientQuote()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:20px;padding:6px 14px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Quote ⤴</button>
     <button onclick="exportCSV()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:20px;padding:6px 14px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Export ↓</button>
     <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
   </div>
@@ -950,6 +953,10 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         <button id="xero-contact-sync-btn" onclick="syncContactToXero()" style="background:transparent;border:1px solid var(--border);color:var(--accent);border-radius:var(--rs);padding:8px 12px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;white-space:nowrap;flex:none">Sync to Xero</button>
       </div>
     </div>
+    <!-- Repeat client history (v2.5.0): previous jobs for the same client,
+         their colours, and access notes for the same address — rendered by
+         renderClientHistory(), hidden when there's no match. -->
+    <div id="client-history" style="display:none"></div>
     <button id="xero-quote-btn" onclick="createXeroQuote()" style="background:var(--accent);color:white;border:none;border-radius:var(--rs);padding:12px;font-size:15px;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer;width:100%">Send to Xero</button>
     <div id="xero-newquote-link" onclick="createXeroQuote(true)" style="display:none;text-align:center;font-size:12px;color:var(--text2);font-weight:600;cursor:pointer;text-decoration:underline;padding-top:2px">Send as a NEW quote instead</div>
     <div id="xero-panel-hide" style="display:none;text-align:center;font-size:12px;color:var(--text2);font-weight:600;cursor:pointer;padding-top:2px" onclick="collapseXeroPanel()">Hide client &amp; quote details ᐱ</div>
@@ -1545,28 +1552,191 @@ function syncThemeSeg() {
 function updateSyncStatus() {
   var state = (!navigator.onLine || !serverAvailable) ? 'offline'
             : (pendingWrites > 0 ? 'saving' : 'synced');
+  var queued = (typeof offlineQueue !== 'undefined' && offlineQueue.length) || 0;
+  var offlineMsg = queued
+    ? 'Offline — ' + queued + ' change' + (queued === 1 ? '' : 's') + ' queued on this phone'
+    : 'Offline — changes saved on this phone';
   document.querySelectorAll('.sync-dot').forEach(function(el) {
     el.classList.toggle('saving', state === 'saving');
     el.classList.toggle('offline', state === 'offline');
   });
+  // Body-level hook: Xero-round-trip buttons (Send to Xero, Sync to Xero,
+  // Build final invoice) dim while offline — they need a live server and
+  // simply say so when tapped, see blockIfOffline().
+  document.body.classList.toggle('app-offline', state === 'offline');
   var row = document.getElementById('nav-menu-sync');
   if (row) {
-    row.textContent = state === 'offline' ? 'Offline — changes saved on this phone'
+    row.textContent = state === 'offline' ? offlineMsg
                     : state === 'saving' ? 'Saving…' : 'All changes synced ✓';
     row.className = 'nav-menu-sync' + (state === 'synced' ? '' : ' ' + state);
   }
   var dashRow = document.getElementById('dash-sync');
   if (dashRow) {
-    dashRow.textContent = state === 'offline' ? 'Offline — changes saved on this phone'
+    dashRow.textContent = state === 'offline' ? offlineMsg
                          : state === 'saving' ? 'Saving…' : 'All changes synced ✓';
     dashRow.style.color = state === 'offline' ? 'var(--danger)' : state === 'saving' ? 'var(--warn)' : 'var(--success)';
   }
 }
-// Optimistic reset on reconnect: the next real write settles the truth.
-window.addEventListener('online', function() { serverAvailable = true; updateSyncStatus(); });
+// Optimistic reset on reconnect, then flush whatever queued while offline.
+window.addEventListener('online', function() { serverAvailable = true; updateSyncStatus(); flushOfflineQueue(); });
 window.addEventListener('offline', updateSyncStatus);
 
+// Gate for the actions that NEED a live round-trip (Xero quote/contact
+// sync, final invoice build): no offline mode for these, just an honest
+// reason — everything measurable/loggable keeps working and queues.
+function blockIfOffline(actionLabel) {
+  if (navigator.onLine && serverAvailable) return false;
+  alert(actionLabel + ' needs a live connection — it talks to the server/Xero directly, so there\'s no offline version of it.\n\nMeasuring and On Site logging keep working offline and will sync when you\'re back in signal.');
+  return true;
+}
+
+// ── Offline write queue (v2.5.0 offline resilience) ───────────────────────
+// Any write that fails on a NETWORK error (no signal on site, server down)
+// is queued here — persisted in localStorage so it survives the app being
+// closed in a dead spot — and replayed in order on reconnect. Same
+// last-write-wins model the sync dot already describes: a newer write to
+// the same path replaces the older queued one rather than stacking. HTTP
+// errors (the server answered and said no) are NOT queued — retrying those
+// verbatim would fail forever.
+var offlineQueue = [];
+try { offlineQueue = JSON.parse(localStorage.getItem('pe-offline-queue') || '[]'); } catch (e) {}
+var offlineFlushing = false;
+function persistOfflineQueue() { localStorage.setItem('pe-offline-queue', JSON.stringify(offlineQueue)); }
+function queueOfflineWrite(method, path, body) {
+  offlineQueue = offlineQueue.filter(function(q) { return !(q.method === method && q.path === path); });
+  offlineQueue.push({ method: method, path: path, body: body || null, at: new Date().toISOString() });
+  persistOfflineQueue();
+  updateSyncStatus();
+}
+function hasQueuedWrite(method, path) {
+  return offlineQueue.some(function(q) { return q.method === method && q.path === path; });
+}
+
+// Last KNOWN server copy of each job-scoped collection — separate from the
+// pe-* localStorage mirrors, which absorb local edits the moment they
+// happen. Updated on every successful fetch and every successful save
+// (after which server == client by definition). This is what lets the
+// reconnect flush tell "the server still holds what this device last saw"
+// apart from "another device wrote while we were offline".
+var serverShadow = {};
+try { serverShadow = JSON.parse(localStorage.getItem('pe-server-shadow') || '{}'); } catch (e) {}
+// Key-order-insensitive stringify for shadow comparison: the server stores
+// row data as JSONB, which does NOT preserve key order, so a byte-for-byte
+// JSON.stringify of "the same rooms" fetched back would false-positive as
+// a conflict on every reconnect. undefined-valued keys are skipped, same
+// as JSON.stringify does when the payload is actually sent.
+function stableStringify(v) {
+  if (Array.isArray(v)) return '[' + v.map(stableStringify).join(',') + ']';
+  if (v && typeof v === 'object') {
+    return '{' + Object.keys(v).filter(function(k) { return v[k] !== undefined; }).sort()
+      .map(function(k) { return JSON.stringify(k) + ':' + stableStringify(v[k]); }).join(',') + '}';
+  }
+  var s = JSON.stringify(v);
+  return s === undefined ? 'null' : s;
+}
+function noteServerCopy(coll, jobId, data) {
+  serverShadow[coll] = { jobId: jobId, json: stableStringify(data || []) };
+  try { localStorage.setItem('pe-server-shadow', JSON.stringify(serverShadow)); } catch (e) {}
+}
+
+function queuedPathCollection(path) {
+  var p = path.split('?')[0];
+  if (p.indexOf('/api/rooms') === 0) return 'rooms';
+  if (p.indexOf('/api/extitems') === 0) return 'extitems';
+  if (p.indexOf('/api/colours') === 0) return 'colours';
+  if (p.indexOf('/api/materials') === 0) return 'materials';
+  return null;
+}
+function queuedItemJobId(q) {
+  var m = /[?&]job_id=([^&]+)/.exec(q.path);
+  if (m) return decodeURIComponent(m[1]);
+  return (q.body && q.body.jobId) || null;
+}
+var OFFLINE_COLLECTIONS = {
+  rooms:    { path: '/api/rooms',    label: 'Rooms',          apply: function(d) { rooms = d || [];             localStorage.setItem('pe-rooms', JSON.stringify(rooms)); } },
+  extitems: { path: '/api/extitems', label: 'Exterior items', apply: function(d) { extItems = d || [];          localStorage.setItem('pe-extitems', JSON.stringify(extItems)); } },
+  colours:  { path: '/api/colours',  label: 'Colours',        apply: function(d) { colours = d || [];           localStorage.setItem('pe-colours', JSON.stringify(colours)); } },
+  materials:{ path: '/api/materials',label: 'Materials',      apply: function(d) { materialsSnapshot = d || []; localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot)); } }
+};
+
+// Replay the queue on reconnect. Before replaying, each queued collection
+// is checked against its shadow: if the server's copy moved while this
+// device was offline (edited from the other device), the SERVER wins —
+// existing behaviour, but now Nicky is TOLD it happened instead of
+// discovering it later. The queued writes for that collection are
+// discarded and the server copy adopted; everything else replays in order.
+async function flushOfflineQueue() {
+  if (offlineFlushing || !offlineQueue.length || !navigator.onLine) return;
+  offlineFlushing = true;
+  var conflicts = [];
+  try {
+    var collJobs = {};
+    offlineQueue.forEach(function(q) {
+      var c = queuedPathCollection(q.path);
+      var j = queuedItemJobId(q);
+      if (c && j) { collJobs[c] = collJobs[c] || {}; collJobs[c][j] = true; }
+    });
+    for (var c in collJobs) {
+      var shadow = serverShadow[c];
+      if (!shadow || !collJobs[c][shadow.jobId]) continue;
+      var jobId = shadow.jobId;
+      var server;
+      try { server = await apiGet(OFFLINE_COLLECTIONS[c].path + '?job_id=' + encodeURIComponent(jobId)); }
+      catch (e) { continue; } // can't check — replay as normal (last write wins)
+      if (stableStringify(server) !== shadow.json) {
+        conflicts.push(OFFLINE_COLLECTIONS[c].label);
+        offlineQueue = offlineQueue.filter(function(q) {
+          return !(queuedPathCollection(q.path) === c && queuedItemJobId(q) === jobId);
+        });
+        persistOfflineQueue();
+        if (jobId === activeJobId) OFFLINE_COLLECTIONS[c].apply(server);
+        noteServerCopy(c, jobId, server);
+      }
+    }
+    beginWrite();
+    try {
+      while (offlineQueue.length) {
+        var item = offlineQueue[0];
+        var opts = { method: item.method };
+        if (item.method !== 'DELETE') {
+          opts.headers = { 'Content-Type': 'application/json' };
+          opts.body = JSON.stringify(item.body);
+        }
+        try { await fetch(item.path, opts); }
+        catch (e) { serverAvailable = false; return; } // still offline — keep the rest queued
+        // Sent (2xx or a server rejection — either way replaying the same
+        // bytes again can't do better): off the queue.
+        offlineQueue.shift();
+        persistOfflineQueue();
+        serverAvailable = true;
+      }
+    } finally { endWrite(); }
+    // Server now matches this device for everything that flushed.
+    for (var c2 in collJobs) {
+      if (collJobs[c2][activeJobId] && conflicts.indexOf(OFFLINE_COLLECTIONS[c2].label) === -1) {
+        var cur = c2 === 'rooms' ? rooms : c2 === 'extitems' ? extItems : c2 === 'colours' ? colours : materialsSnapshot;
+        noteServerCopy(c2, activeJobId, cur);
+      }
+    }
+    if (conflicts.length) {
+      renderHome(); renderExterior(); renderColours(); renderSummary(); renderDash();
+      alert('Heads up — while this phone was offline, ' + conflicts.join(' and ') + ' for this job ' + (conflicts.length === 1 ? 'was' : 'were') + ' changed on the server (edited from the other device?).\n\nThe server\'s copy has been kept and is what you see now; this phone\'s offline edits to ' + (conflicts.length === 1 ? 'that section' : 'those sections') + ' were not applied. Everything else queued has synced.');
+    }
+  } finally {
+    offlineFlushing = false;
+    updateSyncStatus();
+  }
+}
+
 async function apiPut(path, data) {
+  // An older write to this same path is still queued: sending the new one
+  // live first would let the queued flush overwrite it moments later.
+  // Queue (last write wins) and let the flush deliver them in order.
+  if (hasQueuedWrite('PUT', path)) {
+    queueOfflineWrite('PUT', path, data);
+    flushOfflineQueue();
+    return;
+  }
   beginWrite();
   try {
     await fetch(path, {
@@ -1575,19 +1745,28 @@ async function apiPut(path, data) {
       body: JSON.stringify(data)
     });
     serverAvailable = true;
+    if (offlineQueue.length) flushOfflineQueue();
   } catch(e) {
     serverAvailable = false;
+    queueOfflineWrite('PUT', path, data);
   } finally {
     endWrite();
   }
 }
 async function apiDelete(path) {
+  if (hasQueuedWrite('DELETE', path)) {
+    queueOfflineWrite('DELETE', path, null);
+    flushOfflineQueue();
+    return;
+  }
   beginWrite();
   try {
     await fetch(path, { method: 'DELETE' });
     serverAvailable = true;
+    if (offlineQueue.length) flushOfflineQueue();
   } catch(e) {
     serverAvailable = false;
+    queueOfflineWrite('DELETE', path, null);
   } finally {
     endWrite();
   }
@@ -1604,19 +1783,39 @@ async function apiDelete(path) {
 // silently doesn't get billed — the exact failure this feature exists to
 // prevent. These throw on a network error AND on a non-2xx, and hand back the
 // parsed body so the caller can adopt the id the server actually stored.
+// Offline resilience note: a NETWORK failure (no signal on site) queues
+// the write and reports success optimistically — On Site entries are
+// exactly what gets logged in dead spots, and the queue + reconnect flush
+// is the delivery guarantee now. The strictness these helpers exist for is
+// preserved where it matters: a reachable server that REJECTS the write
+// (non-2xx) still throws so the caller alerts, and is never queued.
 async function apiPutStrict(path, data) {
+  if (hasQueuedWrite('PUT', path)) {
+    queueOfflineWrite('PUT', path, data);
+    flushOfflineQueue();
+    return { ok: true, queued: true };
+  }
   beginWrite();
   try {
-    const r = await fetch(path, {
-      method: 'PUT',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(data)
-    });
+    let r;
+    try {
+      r = await fetch(path, {
+        method: 'PUT',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(data)
+      });
+    } catch (netErr) {
+      serverAvailable = false;
+      queueOfflineWrite('PUT', path, data);
+      return { ok: true, queued: true };
+    }
+    serverAvailable = true;
     if (!r.ok) {
       let msg = 'HTTP ' + r.status;
       try { const b = await r.json(); if (b && b.error) msg = b.error; } catch (e) {}
       throw new Error(msg);
     }
+    if (offlineQueue.length) flushOfflineQueue();
     return await r.json();
   } finally {
     endWrite();
@@ -1624,10 +1823,24 @@ async function apiPutStrict(path, data) {
 }
 
 async function apiDeleteStrict(path) {
+  if (hasQueuedWrite('DELETE', path)) {
+    queueOfflineWrite('DELETE', path, null);
+    flushOfflineQueue();
+    return { ok: true, queued: true };
+  }
   beginWrite();
   try {
-    const r = await fetch(path, { method: 'DELETE' });
+    let r;
+    try {
+      r = await fetch(path, { method: 'DELETE' });
+    } catch (netErr) {
+      serverAvailable = false;
+      queueOfflineWrite('DELETE', path, null);
+      return { ok: true, queued: true };
+    }
+    serverAvailable = true;
     if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (offlineQueue.length) flushOfflineQueue();
     return await r.json();
   } finally {
     endWrite();
@@ -1653,7 +1866,11 @@ function saveRooms() {
   // -- previously a DELETE followed by one PUT per room, which was O(rooms)
   // round trips per edit and could leave the server's copy empty if a PUT
   // dropped after the DELETE landed. Same for the other three save*() below.
-  pendingSaves.rooms = apiPut('/api/rooms?job_id='+encodeURIComponent(activeJobId), { rooms: rooms });
+  // On success the server matches this device, so the offline-conflict
+  // shadow moves with it (see noteServerCopy) -- ditto the other three.
+  var jobId = activeJobId, payload = rooms;
+  pendingSaves.rooms = apiPut('/api/rooms?job_id='+encodeURIComponent(jobId), { rooms: rooms })
+    .then(function() { if (serverAvailable) noteServerCopy('rooms', jobId, payload); });
   return pendingSaves.rooms;
 }
 // Kitchen Cabinet Spray Calculator -- rate table shape. Draft v1 figures
@@ -2072,6 +2289,7 @@ function selectXeroContact(i) {
   saveJobXeroFields(); // programmatic .value set doesn't fire onchange
   hideXeroDropdown();
   updateXeroContactSyncStatus();
+  renderClientHistory();
   pullXeroContactDetails(c.contactId);
 }
 
@@ -2127,6 +2345,7 @@ function clearXeroContactLink() {
   }
   hideXeroDropdown();
   updateXeroContactSyncStatus();
+  renderClientHistory();
 }
 
 document.addEventListener('click', function(e){
@@ -2135,6 +2354,122 @@ document.addEventListener('click', function(e){
   if (!input || !dd) return;
   if (e.target !== input && !dd.contains(e.target)) hideXeroDropdown();
 });
+
+// ── Repeat client history (v2.5.0) ─────────────────────────────────────────
+// "Previous jobs with this client" on the Summary client panel: which jobs,
+// when, their status, the colours used (one glance instead of a re-type for
+// repeat schemes) and any access notes (📝) from prior jobs at the same
+// address. Matching: Xero contact ID where both jobs carry one; falls back
+// to client name + postcode for jobs entered/imported before a contact was
+// linked (a name-only match still counts when neither side has a postcode,
+// but two DIFFERENT postcodes never match — two Smiths in different houses
+// are two clients).
+function normPostcode(pc) { return String(pc || '').replace(/\s+/g, '').toUpperCase(); }
+
+function clientHistoryMatches() {
+  var job = activeJob();
+  if (!job) return [];
+  var contactId = job.xeroContactId || null;
+  var name = (job.xeroClient || '').trim().toLowerCase();
+  var pc = normPostcode(job.contact && job.contact.postcode);
+  return jobs.filter(function(j) {
+    if (j.id === job.id) return false;
+    if (contactId && j.xeroContactId && j.xeroContactId === contactId) return true;
+    if (!name) return false;
+    var jn = (j.xeroClient || '').trim().toLowerCase();
+    if (!jn || jn !== name) return false;
+    var jpc = normPostcode(j.contact && j.contact.postcode);
+    if (pc && jpc && pc !== jpc) return false;
+    return true;
+  }).sort(function(a, b) { return (b.updatedAt || '') < (a.updatedAt || '') ? -1 : 1; });
+}
+
+// Colours from prior jobs load per job on demand (other jobs' colours are
+// never in memory — same reasoning as the variationCount snapshot) and
+// cache for the session so retyping a name doesn't refetch.
+var clientHistoryColourCache = {};
+function fetchClientHistoryColours(jobId) {
+  var slot = document.getElementById('ch-colours-' + jobId);
+  if (!slot) return;
+  if (clientHistoryColourCache[jobId]) { fillClientHistoryColours(jobId, clientHistoryColourCache[jobId]); return; }
+  apiGet('/api/colours?job_id=' + encodeURIComponent(jobId)).then(function(d) {
+    clientHistoryColourCache[jobId] = d || [];
+    fillClientHistoryColours(jobId, clientHistoryColourCache[jobId]);
+  }).catch(function() { /* offline / gone — the row just shows without colours */ });
+}
+function fillClientHistoryColours(jobId, cols) {
+  var slot = document.getElementById('ch-colours-' + jobId);
+  if (!slot) return;
+  var named = (cols || []).filter(function(c) { return (c.label || '').trim(); });
+  if (!named.length) { slot.style.display = 'none'; return; }
+  slot.innerHTML = '🎨 ' + named.map(function(c) {
+    var extra = [c.brand, c.code].filter(Boolean).join(' ');
+    return escapeHtml(c.label) + (extra ? ' <span style="color:var(--text3)">(' + escapeHtml(extra) + ')</span>' : '');
+  }).join(' · ');
+  slot.style.display = 'block';
+}
+
+// Open a prior job from the strip — lands on ITS Summary (the strip's tap
+// target per the spec), or its notes when opened from an access-notes row.
+function openPrevJob(id) {
+  if (id === activeJobId) { goTab('summary'); return; }
+  switchJob(id).then(function() { goTab('summary'); });
+}
+function openPrevJobNotes(id) {
+  if (id === activeJobId) { openNotesPanel(); return; }
+  switchJob(id).then(function() { openNotesPanel(); });
+}
+
+function clientHistoryStatusLabel(j) {
+  var st = j.status || null;
+  return st === 'accepted' ? '<span style="color:var(--success)">Accepted</span>'
+    : st === 'completed' ? '<span style="color:var(--text3)">Completed</span>'
+    : st === 'invoiced' ? '<span style="color:var(--success)">Invoiced</span>'
+    : st === 'quoted' ? '<span style="color:var(--accent)">Quoted</span>'
+    : st === 'declined' ? '<span style="color:var(--danger)">Declined</span>' : 'Draft';
+}
+
+function renderClientHistory() {
+  var el = document.getElementById('client-history');
+  if (!el) return;
+  var job = activeJob();
+  var matches = clientHistoryMatches();
+  if (!job || !matches.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  var pc = normPostcode(job.contact && job.contact.postcode);
+  var shown = matches.slice(0, 5);
+  var rows = shown.map(function(j) {
+    var when = j.invoicedAt || j.completedAt || j.quotedAt || j.updatedAt;
+    var whenLabel = when ? new Date(when).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+    return '<div style="padding:8px 10px;border-top:1px solid var(--border);cursor:pointer" onclick="openPrevJob(\'' + j.id + '\')">'
+      + '<div style="display:flex;align-items:center;gap:8px">'
+        + '<div style="flex:1;min-width:0;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(j.name) + '</div>'
+        + '<div style="font-size:12px;flex:none">' + clientHistoryStatusLabel(j) + '</div>'
+        + (whenLabel ? '<div style="font-size:12px;color:var(--text2);flex:none">' + whenLabel + '</div>' : '')
+        + '<div style="color:var(--text3);font-size:14px;flex:none">›</div>'
+      + '</div>'
+      + '<div id="ch-colours-' + j.id + '" style="display:none;font-size:12px;color:var(--text2);margin-top:3px;line-height:1.5"></div>'
+    + '</div>';
+  }).join('');
+  // Access notes: prior jobs AT THE SAME ADDRESS with something in the
+  // site notepad — read-only snippet here, tap opens the old notes.
+  var noteRows = shown.filter(function(j) {
+    var jpc = normPostcode(j.contact && j.contact.postcode);
+    return pc && jpc === pc && j.notes && j.notes.trim();
+  }).map(function(j) {
+    var snippet = j.notes.trim().replace(/\s+/g, ' ');
+    if (snippet.length > 140) snippet = snippet.slice(0, 140) + '…';
+    return '<div style="padding:8px 10px;border-top:1px solid var(--border);font-size:12px;color:var(--text2);line-height:1.5">'
+      + '📝 <strong>' + escapeHtml(j.name) + '</strong> — “' + escapeHtml(snippet) + '” '
+      + '<span onclick="openPrevJobNotes(\'' + j.id + '\')" style="color:var(--accent);font-weight:600;cursor:pointer;white-space:nowrap">Open notes ›</span>'
+    + '</div>';
+  }).join('');
+  el.innerHTML = '<div style="background:var(--surface2);border-radius:var(--rs);overflow:hidden">'
+    + '<div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;padding:10px 10px 6px">Previous jobs with this client</div>'
+    + rows + noteRows
+  + '</div>';
+  el.style.display = 'block';
+  shown.forEach(function(j) { fetchClientHistoryColours(j.id); });
+}
 
 // ── Address autofill (Google Places via /api/address-*) ────────────────────
 // Same pattern as the contact autocomplete above: debounced suggestions
@@ -2234,6 +2569,7 @@ function updateXeroQuoteButton() {
 }
 
 async function createXeroQuote(forceNew) {
+  if (blockIfOffline('Sending a quote to Xero')) return;
   var btn = document.getElementById('xero-quote-btn');
   // Amend-in-place when the job's existing quote is still amendable (per
   // Nicky 2026-07-23 — same quote number, no duplicate documents in Xero);
@@ -2512,6 +2848,7 @@ async function initApp() {
       apiGet('/api/rooms?job_id='+encodeURIComponent(syncJobId)).then(function(serverRooms) {
         rooms = serverRooms || [];
         localStorage.setItem('pe-rooms', JSON.stringify(rooms));
+        noteServerCopy('rooms', syncJobId, rooms);
         renderHome();
       }).catch(function(e) {
         console.log('Rooms fetch failed — running from local cache:', e.message);
@@ -2520,6 +2857,7 @@ async function initApp() {
       apiGet('/api/extitems?job_id='+encodeURIComponent(syncJobId)).then(function(extData) {
         extItems = extData || [];
         localStorage.setItem('pe-extitems', JSON.stringify(extItems));
+        noteServerCopy('extitems', syncJobId, extItems);
         renderExterior();
         renderSummary();
       }).catch(function(e) {
@@ -2533,6 +2871,7 @@ async function initApp() {
         apiGet('/api/colours?job_id='+encodeURIComponent(syncJobId)).then(function(colourData) {
           colours = colourData || [];
           localStorage.setItem('pe-colours', JSON.stringify(colours));
+          noteServerCopy('colours', syncJobId, colours);
         }).catch(function(e) {
           console.log('Colours fetch failed — running from local cache:', e.message);
         }),
@@ -2555,6 +2894,7 @@ async function initApp() {
       apiGet('/api/materials?job_id='+encodeURIComponent(syncJobId)).then(function(materialsData) {
         materialsSnapshot = materialsData || [];
         localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot));
+        noteServerCopy('materials', syncJobId, materialsSnapshot);
       }).catch(function(e) {
         console.log('Materials snapshot fetch failed — running from local cache:', e.message);
       }),
@@ -2562,6 +2902,12 @@ async function initApp() {
       // opened) so the hamburger badge is correct from the very first paint.
       loadMaterialActuals().catch(function(e) {
         console.log('Material actuals fetch failed — badge will show as clear until Materials is opened:', e.message);
+      }),
+      // Labour log eagerly too: the profitability card (Summary, once
+      // Invoiced) prices actual labour as day rate × logged days, and must
+      // not read another job's log or an empty one on first paint.
+      loadLabourLog().catch(function(e) {
+        console.log('Labour log fetch failed — profitability shows no logged days until On Site is opened:', e.message);
       }),
       // Xero status, then (if connected) the material-groups cache --
       // populated at startup, not just on a manual Settings "Refresh from
@@ -2586,6 +2932,9 @@ async function initApp() {
     serverAvailable = false;
   }
   updateSyncStatus();
+  // Anything queued while the app was last offline (writes survive in
+  // localStorage across closes) goes out now that we're reachable again.
+  flushOfflineQueue();
   offerRoomDraftRestore();
 }
 
@@ -2852,18 +3201,22 @@ async function loadActiveJobData() {
     apiGet('/api/rooms?job_id='+encodeURIComponent(jobId)).then(function(d) {
       rooms = d || [];
       localStorage.setItem('pe-rooms', JSON.stringify(rooms));
+      noteServerCopy('rooms', jobId, rooms);
     }).catch(function() { rooms = []; }),
     apiGet('/api/extitems?job_id='+encodeURIComponent(jobId)).then(function(d) {
       extItems = d || [];
       localStorage.setItem('pe-extitems', JSON.stringify(extItems));
+      noteServerCopy('extitems', jobId, extItems);
     }).catch(function() { extItems = []; }),
     apiGet('/api/colours?job_id='+encodeURIComponent(jobId)).then(function(d) {
       colours = d || [];
       localStorage.setItem('pe-colours', JSON.stringify(colours));
+      noteServerCopy('colours', jobId, colours);
     }).catch(function() { colours = []; }),
     apiGet('/api/materials?job_id='+encodeURIComponent(jobId)).then(function(d) {
       materialsSnapshot = d || [];
       localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot));
+      noteServerCopy('materials', jobId, materialsSnapshot);
     }).catch(function() { materialsSnapshot = []; }),
     // Actuals are job-scoped too, and don't live in localStorage (see the "no
     // localStorage mirror" note in MATERIAL_TRACKING_SPEC.md) -- load them here
@@ -2871,7 +3224,10 @@ async function loadActiveJobData() {
     // outstanding count rather than leaving the old job's number on screen.
     apiGet('/api/actuals?job_id='+encodeURIComponent(jobId)).then(function(d) {
       materialActuals = d || [];
-    }).catch(function() { materialActuals = []; })
+    }).catch(function() { materialActuals = []; }),
+    // Labour log for the same reason as actuals above: no localStorage
+    // mirror, and the profitability card reads it on Summary.
+    loadLabourLog().catch(function() { labourLog = []; })
   ]);
   ensureDefaultColour();
   matReorderMode = false; // reorder mode is per-visit, not per-job state
@@ -2906,6 +3262,7 @@ function restoreJobIdentityFields() {
   var xpc = document.getElementById('xero-contact-postcode'); if (xpc) xpc.value = loadedContact.postcode || '';
   xeroSelectedContactId = (loadedJob && loadedJob.xeroContactId) || null;
   updateXeroContactSyncStatus();
+  renderClientHistory();
 }
 
 async function switchJob(id) {
@@ -2975,7 +3332,12 @@ function renameJob(id) {
 // fields together so xeroClient/xeroRef/contact/xeroContactId/
 // contactSyncedAt/materialsSeeded/kitchen stay consistent with each other.
 function persistJobData(job) {
-  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, freeVariations: job.freeVariations, variationCount: job.variationCount, notes: job.notes, kitchen: job.kitchen }) });
+  // apiPut rather than a bare fetch since the offline queue shipped: a
+  // status change / variation sign-off / note typed in a dead spot now
+  // queues and flushes on reconnect instead of silently never reaching
+  // the server. Last-write-wins per path matches this route's own merge
+  // semantics (the whole job blob is sent every time).
+  apiPut('/api/jobs/'+job.id, { xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, notes: job.notes, kitchen: job.kitchen });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -3900,27 +4262,81 @@ function renderScheduleMoveBanner() {
 // disagree (the repo's parallel-lists lesson). Pass precomputed calc
 // arrays when the caller already has them (renderSummary does); otherwise
 // they're computed fresh.
+
+// Sign-off status of any variation carrier (room / ext item / kitchen /
+// free line). Absent means 'pending' — every variation that existed before
+// sign-off shipped, and every new one, starts Pending until Nicky records
+// the client's answer. This is an internal record only (no Xero
+// round-trip): Approved/Declined change what the totals and the final
+// invoice do, Pending just gets called out for checking.
+function variationStatusOf(x) { return (x && x.variationStatus) || 'pending'; }
+
+// The VARIATION chip, everywhere it already appears (Measure/Exterior/
+// Kitchen rows, Summary breakdown): outline while the sign-off is Pending,
+// filled once Approved, struck-out outline if Declined — approval state at
+// a glance without opening the Variations card.
+function variationChipHtml(item) {
+  var st = variationStatusOf(item);
+  var base = 'font-size:10px;font-weight:700;letter-spacing:.03em;border-radius:8px;padding:1px 6px;text-decoration:none;white-space:nowrap';
+  if (st === 'approved') return ' <span style="'+base+';background:var(--accent);color:#fff" title="Variation — approved by client">VARIATION ✓</span>';
+  if (st === 'declined') return ' <span style="'+base+';border:1px solid var(--danger);color:var(--danger)" title="Variation — declined by client">VARIATION ✗</span>';
+  return ' <span style="'+base+';border:1px solid var(--accent);color:var(--accent)" title="Variation — pending client approval">VARIATION</span>';
+}
+
 function computeVariationsView(roomCalcs, extCalcs, kitchenCalc) {
   var job = activeJob();
   roomCalcs = roomCalcs || rooms.map(function(r){ return calcRoom(r); });
   extCalcs = extCalcs || extItems.map(function(it){ return calcExtItem(it); });
   kitchenCalc = kitchenCalc || calcKitchen(job && job.kitchen);
+  // Declined variations stay LISTED (struck through — the record that it
+  // was offered and turned down) but drop out of every money figure and
+  // the final invoice. Their TIME is left alone deliberately: a declined
+  // room still sits in the rooms list until it's deleted/unflagged, and
+  // the live time figures are a workload view, not a billing one.
   var varLabour=0, varTime=0, varSpray=0, varLines=[];
-  roomCalcs.forEach(function(c,ri){ if(rooms[ri].isVariation){ varLabour+=c.total; varTime+=c.time; varSpray+=c.sprayLabour||0; varLines.push({name:rooms[ri].name,raw:c.total}); }});
-  extCalcs.forEach(function(c,ei){ if(extItems[ei].isVariation){ varLabour+=c.total; varTime+=c.time; varSpray+=c.sprayLabour||0; varLines.push({name:extItems[ei].label||'Exterior',raw:c.total}); }});
+  // Approved-only aggregates ride along for the profitability view — the
+  // only variations money that provably belongs in a "what did this job
+  // really make" comparison is money the client actually agreed to.
+  var appLabour=0, appSpray=0;
+  var addLine = function(kind, id, name, raw, src) {
+    var st = variationStatusOf(src);
+    varLines.push({ kind:kind, id:id, name:name, raw:raw, status:st,
+      approvedAt: src.variationApprovedAt || null, note: src.variationApprovalNote || '' });
+    return st;
+  };
+  roomCalcs.forEach(function(c,ri){ if(rooms[ri].isVariation){
+    var st = addLine('room', rooms[ri].id, rooms[ri].name, c.total, rooms[ri]);
+    if (st !== 'declined') { varLabour+=c.total; varTime+=c.time; varSpray+=c.sprayLabour||0; }
+    if (st === 'approved') { appLabour+=c.total; appSpray+=c.sprayLabour||0; }
+  }});
+  extCalcs.forEach(function(c,ei){ if(extItems[ei].isVariation){
+    var st = addLine('ext', extItems[ei].id, extItems[ei].label||'Exterior', c.total, extItems[ei]);
+    if (st !== 'declined') { varLabour+=c.total; varTime+=c.time; varSpray+=c.sprayLabour||0; }
+    if (st === 'approved') { appLabour+=c.total; appSpray+=c.sprayLabour||0; }
+  }});
   var kitchenIsVar = !!(job && job.kitchen && job.kitchen.isVariation) && kitchenCalc.total>0.005;
-  if(kitchenIsVar){ varLabour+=kitchenCalc.total; varTime+=kitchenCalc.time; varLines.push({name:'Kitchen Cabinet Spraying',raw:kitchenCalc.total}); }
+  if(kitchenIsVar){
+    var kSt = addLine('kitchen', 'kitchen', 'Kitchen Cabinet Spraying', kitchenCalc.total, job.kitchen);
+    if (kSt !== 'declined') { varLabour+=kitchenCalc.total; varTime+=kitchenCalc.time; }
+    if (kSt === 'approved') appLabour+=kitchenCalc.total;
+  }
   // Free lines: 'hours' prices from the raw hourly rate (day rate /
   // hours-per-day) and gets markup+sundries like any labour; 'flat' is the
   // agreed price verbatim — no markup, no sundries, no time contribution.
   var freeVars = (job && job.freeVariations) || [];
   var hourlyRate = (settings.dr||0) / (settings.hpd||7);
   var freeHoursRaw=0, freeHoursDays=0, freeFlatSum=0;
+  var appHoursRaw=0, appFlatSum=0;
   freeVars.forEach(function(fv){
-    if(fv.mode==='flat'){ freeFlatSum += (+fv.amount||0); }
-    else { freeHoursRaw += (+fv.hours||0)*hourlyRate; freeHoursDays += (+fv.hours||0)/(settings.hpd||7); }
+    var st = variationStatusOf(fv);
+    if (st === 'declined') return;
+    if(fv.mode==='flat'){ freeFlatSum += (+fv.amount||0); if (st==='approved') appFlatSum += (+fv.amount||0); }
+    else { freeHoursRaw += (+fv.hours||0)*hourlyRate; freeHoursDays += (+fv.hours||0)/(settings.hpd||7);
+      if (st==='approved') appHoursRaw += (+fv.hours||0)*hourlyRate; }
   });
   var hasVariations = varLines.length>0 || freeVars.length>0;
+  var pendingCount = varLines.filter(function(l){ return l.status==='pending'; }).length
+    + freeVars.filter(function(fv){ return variationStatusOf(fv)==='pending'; }).length;
   // Sundries % on variation labour (plus the spray bump), then markup —
   // mirroring the main plan's composition. In fixed-£ markup mode
   // variations get NO markup: the fixed amount was the adjustment agreed
@@ -3930,10 +4346,14 @@ function computeVariationsView(roomCalcs, extCalcs, kitchenCalc) {
   // fixed-£ markup still never touches variations, only commercial does.
   var varMk = (1+commercialRatio()) * (effectiveMarkupType()==='fixed' ? 1 : 1 + (effectiveMarkup()/100));
   var variationsTotal = hasVariations ? (varLabour+freeHoursRaw+varSundries)*varMk + freeFlatSum : 0;
+  // Same composition again over the approved-only base (profitability view).
+  var appSundries = (appLabour+appHoursRaw) * (settings.sundriesPct||0)/100 + appSpray * (settings.sundriesSprayPct||0)/100;
+  var approvedTotal = (appLabour+appHoursRaw+appSundries)*varMk + appFlatSum;
   return { varLabour:varLabour, varTime:varTime, varSpray:varSpray, varLines:varLines,
     freeVars:freeVars, freeHoursRaw:freeHoursRaw, freeHoursDays:freeHoursDays, freeFlatSum:freeFlatSum,
     hasVariations:hasVariations, kitchenIsVar:kitchenIsVar,
-    varSundries:varSundries, varMk:varMk, variationsTotal:variationsTotal };
+    varSundries:varSundries, varMk:varMk, variationsTotal:variationsTotal,
+    pendingCount:pendingCount, approvedTotal:approvedTotal };
 }
 
 // ── Variations card (On Site screen — moved from Summary 2026-07-23 per
@@ -3946,21 +4366,100 @@ function computeVariationsView(roomCalcs, extCalcs, kitchenCalc) {
 var freeVarFormOpen = false;
 var freeVarMode = 'hours';
 
+// One variation line's sign-off row (VARIATION_SIGN_OFF): the tap targets
+// that move a line Pending → Approved (with an optional note + automatic
+// timestamp) or Declined, and back. Rendered under every line on the
+// Variations card. Internal record only — nothing here touches Xero.
+function variationSignoffHtml(kind, id, status, approvedAt, note) {
+  var arg = '\''+kind+'\',\''+id+'\'';
+  if (status === 'approved') {
+    var when = approvedAt ? new Date(approvedAt).toLocaleDateString('en-GB', { day:'numeric', month:'short' }) : '';
+    return '<small style="display:block;font-weight:600;color:var(--success);margin-top:3px;cursor:pointer" onclick="event.stopPropagation();resetVariationStatus('+arg+')" title="Tap to move back to Pending">✓ Approved by client'+(when?' · '+when:'')+'</small>'+
+      (note ? '<small style="display:block;font-weight:400;color:var(--text2);margin-top:1px">“'+escapeHtml(note)+'”</small>' : '');
+  }
+  if (status === 'declined') {
+    return '<small style="display:block;font-weight:600;color:var(--danger);margin-top:3px;cursor:pointer" onclick="event.stopPropagation();resetVariationStatus('+arg+')" title="Tap to move back to Pending">✗ Declined — not billed</small>';
+  }
+  var chip = 'display:inline-block;border:1px solid var(--accent);color:var(--accent);border-radius:10px;padding:2px 8px;font-size:11px;font-weight:600;cursor:pointer';
+  return '<small style="display:block;font-weight:600;color:var(--warn,#f39c12);margin-top:3px">Pending'+
+    ' <span style="'+chip+';margin-left:6px" onclick="event.stopPropagation();approveVariation('+arg+')">✓ Approved by client</span>'+
+    ' <span style="'+chip+';border-color:var(--border);color:var(--text2)" onclick="event.stopPropagation();declineVariation('+arg+')">✗ Declined</span></small>';
+}
+
+// Resolve a variation sign-off tap back to the object that carries the
+// flag and the save path that persists it — rooms/ext items ride their
+// collection saves, kitchen and free lines live on jobs.data.
+function findVariationEntry(kind, id) {
+  var job = activeJob();
+  if (kind === 'room') {
+    var r = rooms.find(function(x){ return x.id === id; });
+    return r ? { obj: r, save: function(){ saveRooms(); renderHome(); } } : null;
+  }
+  if (kind === 'ext') {
+    var it = extItems.find(function(x){ return x.id === id; });
+    return it ? { obj: it, save: function(){ saveExtItems(); renderExterior(); } } : null;
+  }
+  if (kind === 'kitchen') {
+    return (job && job.kitchen) ? { obj: job.kitchen, save: function(){ localStorage.setItem('pe-jobs', JSON.stringify(jobs)); persistJobData(job); } } : null;
+  }
+  if (kind === 'free') {
+    var fv = job && (job.freeVariations||[]).find(function(x){ return x.id === id; });
+    return fv ? { obj: fv, save: function(){ localStorage.setItem('pe-jobs', JSON.stringify(jobs)); persistJobData(job); } } : null;
+  }
+  return null;
+}
+function refreshAfterVariationStatusChange() {
+  renderActuals(); renderSummary(); renderJobs();
+}
+function approveVariation(kind, id) {
+  var t = findVariationEntry(kind, id); if (!t) return;
+  // prompt doubles as the confirm: Cancel aborts, OK (empty or not)
+  // approves. The timestamp is stamped automatically either way.
+  var note = prompt('Approved by client ✓\n\nOptional note (e.g. "agreed via text 14 Aug"):', t.obj.variationApprovalNote || '');
+  if (note === null) return;
+  t.obj.variationStatus = 'approved';
+  t.obj.variationApprovedAt = new Date().toISOString();
+  t.obj.variationApprovalNote = note.trim();
+  t.save();
+  refreshAfterVariationStatusChange();
+}
+function declineVariation(kind, id) {
+  var t = findVariationEntry(kind, id); if (!t) return;
+  if (!confirm('Mark this variation as Declined?\n\nIt stays listed as a record, but drops out of the variations total and the final invoice.')) return;
+  t.obj.variationStatus = 'declined';
+  t.obj.variationApprovedAt = null;
+  t.save();
+  refreshAfterVariationStatusChange();
+}
+function resetVariationStatus(kind, id) {
+  var t = findVariationEntry(kind, id); if (!t) return;
+  if (!confirm('Move this variation back to Pending?')) return;
+  t.obj.variationStatus = 'pending';
+  t.obj.variationApprovedAt = null;
+  t.obj.variationApprovalNote = '';
+  t.save();
+  refreshAfterVariationStatusChange();
+}
+
 function variationsCardHtml(v) {
   var varLines = v.varLines, freeVars = v.freeVars, varSundries = v.varSundries,
       varMk = v.varMk, variationsTotal = v.variationsTotal;
   var hasAny = varLines.length > 0 || freeVars.length > 0;
   if (!hasAny && !variationApplies()) return '';
   var rows = '';
+  var struck = 'text-decoration:line-through;color:var(--text3)';
   varLines.forEach(function(l) {
-    rows += '<div class="breakdown-row"><span class="breakdown-label">'+escapeHtml(l.name)+'<small style="display:block;font-weight:400;color:var(--text2)">measured item — edit from its own form</small></span>'+
-      '<span class="breakdown-value">'+fmt(l.raw*varMk)+'</span></div>';
+    rows += '<div class="breakdown-row"><span class="breakdown-label"><span'+(l.status==='declined'?' style="'+struck+'"':'')+'>'+escapeHtml(l.name)+'</span><small style="display:block;font-weight:400;color:var(--text2)">measured item — edit from its own form</small>'+
+      variationSignoffHtml(l.kind, l.id, l.status, l.approvedAt, l.note)+'</span>'+
+      '<span class="breakdown-value"'+(l.status==='declined'?' style="'+struck+'"':'')+'>'+fmt(l.raw*varMk)+'</span></div>';
   });
   freeVars.forEach(function(v) {
+    var st = variationStatusOf(v);
     var detail = v.mode === 'flat' ? 'agreed price' : (+v.hours||0)+'h × '+fmt((settings.dr||0)/(settings.hpd||7))+'/h';
     var amount = v.mode === 'flat' ? (+v.amount||0) : (+v.hours||0)*((settings.dr||0)/(settings.hpd||7))*varMk;
-    rows += '<div class="breakdown-row"><span class="breakdown-label">'+escapeHtml(v.label)+'<small style="display:block;font-weight:400;color:var(--text2)">'+detail+'</small></span>'+
-      '<span style="display:flex;align-items:center;gap:8px"><span class="breakdown-value">'+fmt(amount)+'</span>'+
+    rows += '<div class="breakdown-row"><span class="breakdown-label"><span'+(st==='declined'?' style="'+struck+'"':'')+'>'+escapeHtml(v.label)+'</span><small style="display:block;font-weight:400;color:var(--text2)">'+detail+'</small>'+
+      variationSignoffHtml('free', v.id, st, v.variationApprovedAt, v.variationApprovalNote)+'</span>'+
+      '<span style="display:flex;align-items:center;gap:8px"><span class="breakdown-value"'+(st==='declined'?' style="'+struck+'"':'')+'>'+fmt(amount)+'</span>'+
       '<span onclick="deleteFreeVariation(\''+v.id+'\')" style="color:var(--danger);font-size:18px;cursor:pointer;padding:0 2px">×</span></span></div>';
   });
   if (hasAny && varSundries > 0.005) {
@@ -4218,6 +4717,7 @@ function saveJobXeroFields() {
   job.xeroRef = document.getElementById('xero-ref').value.trim();
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   persistJobData(job);
+  renderClientHistory(); // typed-name fallback match may have appeared/gone
 }
 
 // Client phone/email/address -- saved locally per job the moment they're
@@ -4236,6 +4736,7 @@ function saveJobContactFields() {
   };
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   persistJobData(job);
+  renderClientHistory(); // postcode drives the name+postcode fallback + access notes
 }
 
 // Reflects this job's link/sync state under the client-details fields --
@@ -4266,6 +4767,7 @@ function updateXeroContactSyncStatus() {
 // convention that rests on). Independent of "Send to Xero": lets contact
 // info be kept current in Xero well before a quote is ready.
 async function syncContactToXero() {
+  if (blockIfOffline('Sync to Xero')) return;
   var job = activeJob();
   if (!job) return;
   var name = document.getElementById('xero-client').value.trim();
@@ -4339,7 +4841,11 @@ function renderJobRow(j) {
         (isQuoted ? ' <span style="color:var(--accent);font-size:12px;font-weight:700;text-decoration:none">· QUOTED</span>' : '')+
         (isAccepted ? ' <span style="color:var(--success);font-size:12px;font-weight:700;text-decoration:none">· ACCEPTED</span>' : '')+
         (isAccepted && j.xeroQuoteStatus === 'INVOICED' ? ' <span style="color:var(--text2);font-size:11px;font-weight:600;text-decoration:none">· invoiced in Xero</span>' : '')+
-        ((isAccepted||isCompleted||isInvoiced) && j.variationCount > 0 ? ' <span style="color:var(--accent);font-size:11px;font-weight:700;text-decoration:none" title="Variations">+'+j.variationCount+'</span>' : '')+
+        ((isAccepted||isCompleted||isInvoiced) && j.variationCount > 0
+          ? (j.variationPendingCount > 0
+            ? ' <span style="border:1px solid var(--accent);color:var(--accent);font-size:11px;font-weight:700;text-decoration:none;border-radius:8px;padding:0 5px" title="Variations — '+j.variationPendingCount+' pending client approval">+'+j.variationCount+'</span>'
+            : ' <span style="background:var(--accent);color:#fff;font-size:11px;font-weight:700;text-decoration:none;border-radius:8px;padding:0 5px" title="Variations — all signed off">+'+j.variationCount+'</span>')
+          : '')+
         (j.notes && j.notes.trim() ? ' <span title="Has site notes" style="font-size:11px;text-decoration:none">📝</span>' : '')+
         (isCompleted ? ' <span style="color:var(--text3);font-size:12px;font-weight:700;text-decoration:none">· COMPLETED</span>' : '')+
         (isInvoiced ? ' <span style="color:var(--success);font-size:12px;font-weight:700;text-decoration:none">· INVOICED</span>' : '')+
@@ -5969,7 +6475,9 @@ var materialsSnapshot = [];
 
 function saveMaterialsSnapshot() {
   localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot));
-  pendingSaves.materials = apiPut('/api/materials?job_id='+encodeURIComponent(activeJobId), { lines: materialsSnapshot });
+  var jobId = activeJobId, payload = materialsSnapshot;
+  pendingSaves.materials = apiPut('/api/materials?job_id='+encodeURIComponent(jobId), { lines: materialsSnapshot })
+    .then(function() { if (serverAvailable) noteServerCopy('materials', jobId, payload); });
   return pendingSaves.materials;
 }
 
@@ -6514,11 +7022,22 @@ async function openActuals() {
     // material_actuals but not yet labour_log (partial migration) should
     // still show the materials screen -- writes to the missing table will
     // alert via the strict helpers, same story as any un-migrated table.
+    // The catch keeps the in-memory copy when the FETCH itself died
+    // (offline) rather than wiping it -- only a reachable server saying
+    // "no rows" should ever empty the log.
     await Promise.all([
       loadMaterialActuals(),
-      loadLabourLog().catch(function() { labourLog = []; })
+      loadLabourLog().catch(function(e) { if (!(e instanceof TypeError)) labourLog = []; })
     ]);
   } catch (e) {
+    // Offline (fetch itself failed, not the server refusing): the copies
+    // loaded at startup/last visit are still in memory, and every edit
+    // queues + flushes on reconnect — being on site with no signal is
+    // exactly when this screen is needed most, so render, don't refuse.
+    if (!navigator.onLine || e instanceof TypeError || !serverAvailable) {
+      renderActuals();
+      return;
+    }
     if (el) el.innerHTML = '<div class="card" style="padding:16px;color:var(--danger)">Could not load actuals: '
       + escapeHtml(e.message) + '<div style="color:var(--text2);margin-top:6px;font-size:13px">Nothing has been saved or lost — reopen to retry.</div></div>';
     return;
@@ -6548,7 +7067,7 @@ function onSiteJobHeader() {
         + '<div style="font-size:12px;margin-top:2px"><span style="color:'+colour+';font-weight:600">'+statusLabel+'</span>'+schedule+'</div>'
       + '</div>'
       + (st === 'accepted' ? '<button onclick="completeJobOnSite()" style="background:var(--success);color:#fff;border:none;border-radius:var(--rs);padding:9px 12px;font-size:13px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;white-space:nowrap;flex:none">Mark Completed</button>' : '')
-      + (st === 'completed' ? '<button onclick="openFinalInvoice()" style="background:var(--accent);color:#fff;border:none;border-radius:var(--rs);padding:9px 12px;font-size:13px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;white-space:nowrap;flex:none">Build final invoice ›</button>' : '')
+      + (st === 'completed' ? '<button class="xero-live-btn" onclick="openFinalInvoice()" style="background:var(--accent);color:#fff;border:none;border-radius:var(--rs);padding:9px 12px;font-size:13px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;white-space:nowrap;flex:none">Build final invoice ›</button>' : '')
     + '</div></div>';
 }
 
@@ -7014,6 +7533,9 @@ function backFromFinalInvoice() {
   if (finalInvoiceReturnTab === 'actuals') openActuals(); else goTab('summary');
 }
 async function openFinalInvoice() {
+  // Needs a live round-trip regardless (fresh actuals load + a Xero write
+  // at the end) — no offline mode, just the reason.
+  if (blockIfOffline('Build final invoice')) return;
   var job = activeJob();
   if (!job) return;
   finalInvoiceReturnTab = curTab === 'actuals' ? 'actuals' : 'summary';
@@ -7110,32 +7632,43 @@ function buildFinalInvoiceModel() {
   // percent mode same as the main plan; fixed-£ markup still never touches
   // variations (see VARIATIONS_SPEC.md), only commercial does.
   var varMk = commercialMultInv * (fixed ? 1 : 1 + muVal / 100);
+  // Sign-off state rides onto each line (VARIATION sign-off): a Declined
+  // variation starts DROPPED (re-addable with ↩ like any dropped line, but
+  // never silently billed); a Pending one is billed but flagged — same
+  // "anything unconfirmed called out for checking first" pattern as the
+  // Materials unconfirmed list, enforced by the confirm in
+  // createFinalInvoice(). Declined lines also stay out of varRaw/varSpray
+  // so the variations sundries base matches what's actually billed.
   var variations = [], varRaw = 0, varSpray = 0;
   rooms.forEach(function(r, i) {
     if (!r.isVariation) return;
     var c = roomCalcs[i];
-    varRaw += c.total; varSpray += c.sprayLabour || 0;
-    variations.push({ id: 'vr' + i, desc: 'Variation: ' + r.name, amount: c.total * varMk, dropped: false });
+    var st = variationStatusOf(r);
+    if (st !== 'declined') { varRaw += c.total; varSpray += c.sprayLabour || 0; }
+    variations.push({ id: 'vr' + i, desc: 'Variation: ' + r.name, amount: c.total * varMk, dropped: st === 'declined', signoff: st, note: r.variationApprovalNote || '' });
   });
   extItems.forEach(function(it, i) {
     if (!it.isVariation) return;
     var c = extCalcs[i];
-    varRaw += c.total; varSpray += c.sprayLabour || 0;
-    variations.push({ id: 've' + i, desc: 'Variation: ' + (it.label || 'Exterior'), amount: c.total * varMk, dropped: false });
+    var st = variationStatusOf(it);
+    if (st !== 'declined') { varRaw += c.total; varSpray += c.sprayLabour || 0; }
+    variations.push({ id: 've' + i, desc: 'Variation: ' + (it.label || 'Exterior'), amount: c.total * varMk, dropped: st === 'declined', signoff: st, note: it.variationApprovalNote || '' });
   });
   if (kitchenIsVar) {
-    varRaw += kitchenCalc.total;
-    variations.push({ id: 'vk', desc: 'Variation: Kitchen Cabinet Spraying', amount: kitchenCalc.total * varMk, dropped: false });
+    var kSt = variationStatusOf(job.kitchen);
+    if (kSt !== 'declined') varRaw += kitchenCalc.total;
+    variations.push({ id: 'vk', desc: 'Variation: Kitchen Cabinet Spraying', amount: kitchenCalc.total * varMk, dropped: kSt === 'declined', signoff: kSt, note: (job.kitchen && job.kitchen.variationApprovalNote) || '' });
   }
   var hourlyRate = (settings.dr || 0) / (settings.hpd || 7);
   var freeHoursRaw = 0;
   ((job && job.freeVariations) || []).forEach(function(v) {
+    var st = variationStatusOf(v);
     if (v.mode === 'flat') {
-      variations.push({ id: 'vf' + v.id, desc: 'Variation: ' + v.label, amount: +v.amount || 0, dropped: false });
+      variations.push({ id: 'vf' + v.id, desc: 'Variation: ' + v.label, amount: +v.amount || 0, dropped: st === 'declined', signoff: st, note: v.variationApprovalNote || '' });
     } else {
       var raw = (+v.hours || 0) * hourlyRate;
-      freeHoursRaw += raw;
-      variations.push({ id: 'vf' + v.id, desc: 'Variation: ' + v.label, amount: raw * varMk, dropped: false });
+      if (st !== 'declined') freeHoursRaw += raw;
+      variations.push({ id: 'vf' + v.id, desc: 'Variation: ' + v.label, amount: raw * varMk, dropped: st === 'declined', signoff: st, note: v.variationApprovalNote || '' });
     }
   });
   var varSundries = ((varRaw + freeHoursRaw) * (settings.sundriesPct || 0) / 100 + varSpray * (settings.sundriesSprayPct || 0) / 100) * varMk;
@@ -7221,9 +7754,19 @@ function renderFinalInvoice() {
   var labourHtml = s.labour.map(function(l) { return lineRow('labour', l, 'as quoted'); }).join('')
     + (s.sundries.amount > 0.005 ? lineRow('sundries', Object.assign({ desc: 'Sundries & Consumables' }, s.sundries), '% of labour, as quoted') : '');
 
+  var pendingLive = s.variations.filter(function(l) { return l.signoff === 'pending' && !l.dropped; }).length;
   var varHtml = s.variations.length
-    ? s.variations.map(function(l) { return lineRow('variations', l, 'agreed extra'); }).join('')
+    ? s.variations.map(function(l) {
+        // Sign-off state per line: approved shows the record (note + who
+        // said yes), pending is flagged amber for review, declined explains
+        // why the line arrived pre-dropped.
+        var detail = l.signoff === 'approved' ? '✓ approved by client' + (l.note ? ' — ' + escapeHtml(l.note) : '')
+          : l.signoff === 'declined' ? 'declined by client — dropped (↩ restores it)'
+          : '<span style="color:var(--warn,#f39c12);font-weight:600">PENDING — never marked approved</span>';
+        return lineRow('variations', l, detail);
+      }).join('')
       + (s.varSundries.amount > 0.005 ? lineRow('varSundries', Object.assign({ desc: 'Sundries — variations' }, s.varSundries), '') : '')
+      + (pendingLive ? '<div style="font-size:12px;color:var(--warn,#f39c12);padding-top:8px">⚠ ' + pendingLive + ' variation line' + (pendingLive === 1 ? '' : 's') + ' still Pending — approve on the On Site screen (Variations card), or drop here.</div>' : '')
     : '<div style="font-size:13px;color:var(--text2);padding:4px 0">No variations on this job.</div>';
 
   var matHtml = s.materials.length
@@ -7265,10 +7808,17 @@ function renderFinalInvoice() {
 }
 
 async function createFinalInvoice() {
+  if (blockIfOffline('Creating the invoice in Xero')) return;
   var job = activeJob();
   if (!job || !finalInvState) return;
   var s = finalInvState;
   var t = finalInvTotals();
+  // Same "unconfirmed gets called out before invoicing" pattern as the
+  // Materials list: pending variations aren't blocked (the sign-off is an
+  // internal record and the client may well have agreed verbally), but
+  // they never slide onto an invoice without an explicit yes here.
+  var pendingLive = s.variations.filter(function(l) { return l.signoff === 'pending' && !l.dropped; }).length;
+  if (pendingLive && !confirm(pendingLive + ' variation line' + (pendingLive === 1 ? ' is' : 's are') + ' still Pending — never marked "Approved by client" on the On Site screen.\n\nInclude ' + (pendingLive === 1 ? 'it' : 'them') + ' on the invoice anyway?')) return;
   if (!confirm('Create a draft invoice in Xero for ' + fmt(t.gross) + ' (full amount)?\n\nApply the payments already received against it in Xero, then send.')) return;
   var btn = document.getElementById('fi-create-btn');
   btn.disabled = true; btn.textContent = 'Creating…';
@@ -7309,6 +7859,10 @@ async function createFinalInvoice() {
     // a quote.
     job.xeroInvoiceId = result.invoiceId || null;
     job.xeroInvoiceNumber = result.invoiceNumber || null;
+    // The invoice's gross total is the revenue side of the profitability
+    // card (Summary, once Invoiced) — recorded here because Xero is never
+    // read back for it (deliberate later-scope, same as the deductions).
+    job.finalInvoiceTotal = Math.round(t.gross * 100) / 100;
     setJobStatusById(job.id, 'invoiced'); // persists + pipeline hook
     alert('Invoice ' + (result.invoiceNumber || '') + ' created as a DRAFT in Xero ✓\n\nApply the payments already received against it there, review, then send.');
     goTab('summary');
@@ -7329,9 +7883,10 @@ var colourLibrary = [];
 
 function saveColours() {
   localStorage.setItem('pe-colours', JSON.stringify(colours));
-  pendingSaves.colours = apiPut('/api/colours?job_id='+encodeURIComponent(activeJobId), {
-    colours: colours.map(function(c) { return { number: c.number, label: c.label, brand: c.brand||'', code: c.code||'' }; })
-  });
+  var jobId = activeJobId;
+  var payload = colours.map(function(c) { return { number: c.number, label: c.label, brand: c.brand||'', code: c.code||'' }; });
+  pendingSaves.colours = apiPut('/api/colours?job_id='+encodeURIComponent(jobId), { colours: payload })
+    .then(function() { if (serverAvailable) noteServerCopy('colours', jobId, payload); });
   return pendingSaves.colours;
 }
 
@@ -8740,7 +9295,9 @@ function clearExteriorItems() {
 
 function saveExtItems() {
   localStorage.setItem('pe-extitems', JSON.stringify(extItems));
-  pendingSaves.extItems = apiPut('/api/extitems?job_id='+encodeURIComponent(activeJobId), { items: extItems });
+  var jobId = activeJobId, payload = extItems;
+  pendingSaves.extItems = apiPut('/api/extitems?job_id='+encodeURIComponent(jobId), { items: extItems })
+    .then(function() { if (serverAvailable) noteServerCopy('extitems', jobId, payload); });
   return pendingSaves.extItems;
 }
 
@@ -8769,7 +9326,7 @@ function _renderExteriorInner() {
     return swipeDeleteWrap('deleteExtItemFromList', item.id,
       '<div class="room-item" onclick="editExtItem(this.dataset.id)" data-id="'+item.id+'">'+
       '<div class="room-icon">'+item.emoji+'</div>'+
-      '<div class="room-info"><div class="room-name">'+item.label+(item.isVariation?' <span style="color:var(--accent);font-size:10px;font-weight:700;letter-spacing:.03em">VARIATION</span>':'')+'</div>'+
+      '<div class="room-info"><div class="room-name">'+item.label+(item.isVariation?variationChipHtml(item):'')+'</div>'+
       '<div class="room-meta">'+fmtD(c.time)+'</div></div>'+
       '<div class="room-cost">'+fmt(c.total)+'</div>'+
       '<div style="color:var(--text3);font-size:16px">›</div></div>');
@@ -8800,7 +9357,7 @@ function _renderKitchenInner() {
   list.style.display='block';
   cards.innerHTML = '<div class="room-item" onclick="goScreen(\'kitchen\')">'+
     '<div class="room-icon">🍳</div>'+
-    '<div class="room-info"><div class="room-name">Kitchen'+(k.isVariation?' <span style="color:var(--accent);font-size:10px;font-weight:700;letter-spacing:.03em">VARIATION</span>':'')+'</div>'+
+    '<div class="room-info"><div class="room-name">Kitchen'+(k.isVariation?variationChipHtml(k):'')+'</div>'+
     '<div class="room-meta">'+fmtD(kc.time)+'</div></div>'+
     '<div class="room-cost">'+fmt(kc.total)+'</div>'+
     '<div style="color:var(--text3);font-size:16px">›</div></div>';
@@ -8949,6 +9506,29 @@ function renderDash() {
     ? '📅 ' + fmtShortDate(job.startDate) + ' · ' + job.scheduledDays + 'd' : 'Not scheduled';
   var outstanding = null;
   try { outstanding = actualsTotals().outstanding; } catch (e) { /* actuals not loaded yet */ }
+  // Recently invoiced margins at a glance — reads each job's persisted
+  // profitSnapshot (written by the Summary profitability card), never other
+  // jobs' labour logs/actuals directly, same reasoning as scheduledDays.
+  var DAY = 86400000;
+  var recentInvoiced = jobs.filter(function(j) {
+    return j.status === 'invoiced' && j.invoicedAt && j.profitSnapshot
+      && (Date.now() - new Date(j.invoicedAt).getTime()) < 60 * DAY;
+  }).sort(function(a, b) { return a.invoicedAt < b.invoicedAt ? 1 : -1; }).slice(0, 3);
+  var profitLines = recentInvoiced.length
+    ? '<div class="card" style="margin-top:12px">'
+      + '<div class="card-header">Recently invoiced</div>'
+      + recentInvoiced.map(function(j) {
+          var s = j.profitSnapshot;
+          var col = s.margin >= 0 ? 'var(--success)' : 'var(--danger)';
+          return '<div class="field-row" style="cursor:pointer" onclick="attentionOpenJob(\'' + j.id + '\')">'
+            + '<div style="flex:1;min-width:0"><div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(j.name) + '</div>'
+            + '<div style="font-size:12px;color:var(--text2)">Invoiced ' + fmt(s.revenue) + ' · ' + new Date(j.invoicedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + '</div></div>'
+            + '<div style="text-align:right"><div style="font-weight:700;color:' + col + '">' + (s.margin >= 0 ? '+' : '−') + fmt(Math.abs(s.margin)) + '</div>'
+            + '<div style="font-size:12px;color:var(--text2)">' + s.marginPct + '% margin</div></div>'
+          + '</div>';
+        }).join('')
+      + '</div>'
+    : '';
   body.innerHTML =
     '<div class="card" style="cursor:pointer" onclick="goTab(\'summary\')">'
     + '<div style="padding:16px">'
@@ -8965,7 +9545,8 @@ function renderDash() {
         + '<div class="stat-value' + (outstanding > 0 ? ' ac' : '') + '">' + (outstanding === null ? '—' : outstanding) + '</div></div>'
       + '<div class="stat-card" style="cursor:pointer" onclick="goTab(\'schedule\')"><div class="stat-label">Next on site</div>'
         + '<div class="stat-value" style="font-size:14px;line-height:1.4">' + nextScheduledGlance() + '</div></div>'
-    + '</div>';
+    + '</div>'
+    + profitLines;
 }
 
 // Earliest accepted+scheduled job across ALL jobs, not just the active one
@@ -9065,7 +9646,7 @@ function renderHome() {
     return swipeDeleteWrap('deleteRoomFromList', r.id,
       '<div class="room-item" onclick="editRoom(this.dataset.id)" data-id="'+r.id+'">'+
       '<div class="room-icon">'+r.emoji+'</div>'+
-      '<div class="room-info"><div class="room-name">'+r.name+(r.isVariation?' <span style="color:var(--accent);font-size:10px;font-weight:700;letter-spacing:.03em">VARIATION</span>':'')+'</div>'+
+      '<div class="room-info"><div class="room-name">'+r.name+(r.isVariation?variationChipHtml(r):'')+'</div>'+
       '<div class="room-meta">'+r.l+'×'+r.w+'×'+r.h+'m · '+fmtD(c.time)+'</div></div>'+
       '<div class="room-cost">'+fmt(c.total)+'</div>'+
       '<button class="room-dup-btn" title="Duplicate room" onclick="event.stopPropagation();duplicateRoom(this.dataset.id)" data-id="'+r.id+'">⧉</button>'+
@@ -10997,6 +11578,62 @@ function toggleRoomBd(id) {
   if(chev) chev.classList.toggle('open',open);
 }
 
+// ── Job profitability (Summary card once Invoiced + Home glance line) ──────
+// Read-only calibration/reference view — deliberately feeds NOTHING back
+// into pricing. The labour cost basis is day rate × actual logged days
+// (Time on site), NOT the calculated estimate — that swap is exactly what
+// makes this a real profitability check rather than a restatement of the
+// quote. Materials are the On Site "as used" figures (actualsTotals().actTotal,
+// the same quantities the final invoice bills). Revenue is the recorded
+// final-invoice total where one was built here; a job invoiced directly in
+// Xero falls back to quoted + approved variations, and says so. Reuses the
+// existing Day Rate from Your Rates — no new Settings card.
+function computeProfitability(q) {
+  var days = labourLoggedTotal();
+  var labourCost = days * (settings.dr || 0);
+  var actualMaterials = 0;
+  try { actualMaterials = actualsTotals().actTotal; } catch (e) { /* actuals not loaded — treat as none logged */ }
+  var job = activeJob();
+  var hasInvoiceTotal = !!(job && job.finalInvoiceTotal != null && +job.finalInvoiceTotal > 0);
+  var revenue = hasInvoiceTotal ? +job.finalInvoiceTotal : q.quotedTotal + q.approvedVariations;
+  var cost = labourCost + actualMaterials;
+  var margin = revenue - cost;
+  return {
+    days: days, labourCost: labourCost, actualMaterials: actualMaterials,
+    quotedTotal: q.quotedTotal, approvedVariations: q.approvedVariations,
+    hasInvoiceTotal: hasInvoiceTotal, revenue: revenue, cost: cost,
+    margin: margin, marginPct: revenue > 0 ? margin / revenue * 100 : 0
+  };
+}
+
+function profitabilityCardHtml(p, vView, job) {
+  var row = function(label, small, value, opts) {
+    opts = opts || {};
+    return '<div class="breakdown-row"'+(opts.top ? ' style="border-top:1px solid var(--border)"' : '')+'>'+
+      '<span class="breakdown-label"'+(opts.bold ? ' style="font-weight:600;color:var(--text)"' : '')+'>'+label+
+      (small ? '<small style="display:block;font-weight:400;color:var(--text2)">'+small+'</small>' : '')+'</span>'+
+      '<span class="breakdown-value"'+(opts.colour ? ' style="color:'+opts.colour+'"' : '')+'>'+value+'</span></div>';
+  };
+  var marginColour = p.margin >= 0 ? 'var(--success)' : 'var(--danger)';
+  var revenueBasis = p.hasInvoiceTotal
+    ? 'final invoice' + (job && job.xeroInvoiceNumber ? ' ' + escapeHtml(job.xeroInvoiceNumber) : '')
+    : 'quoted + approved variations — no final invoice built in the app';
+  return '<div class="card" style="margin-top:16px">'+
+    '<div class="card-header">Job Profitability</div>'+
+    row('Quoted total', 'labour + materials, as quoted', fmt(p.quotedTotal))+
+    (p.approvedVariations > 0.005 ? row('Approved variations', 'client-approved extras', fmt(p.approvedVariations)) : '')+
+    row('Invoiced', revenueBasis, fmt(p.revenue), { top: true, bold: true })+
+    row('Actual labour', p.days > 0
+      ? (Math.round(p.days*10)/10) + ' day' + (p.days === 1 ? '' : 's') + ' logged × ' + fmt(settings.dr || 0) + ' day rate'
+      : 'no days logged — Time on site (On Site tab) feeds this', fmt(p.labourCost), { top: true })+
+    row('Actual materials', 'as used (On Site → Materials)', fmt(p.actualMaterials))+
+    row('Actual cost', 'labour + materials', fmt(p.cost), { bold: true })+
+    row('Margin', (Math.round(p.marginPct*10)/10) + '% of invoiced', fmt(p.margin), { top: true, bold: true, colour: marginColour })+
+    (vView && vView.pendingCount > 0 ? '<div style="padding:0 16px 8px;font-size:12px;color:var(--warn,#f39c12)">'+vView.pendingCount+' variation'+(vView.pendingCount===1?'':'s')+' still pending sign-off — not counted as approved.</div>' : '')+
+    '<div style="padding:0 16px 12px;font-size:12px;color:var(--text2)">Reference only — nothing here feeds back into pricing.</div>'+
+  '</div>';
+}
+
 // Entering the Summary tab: paint immediately from in-memory state, then
 // refresh exterior items from the server in the background (another device
 // may have edited them) and repaint only if they actually changed.
@@ -11146,7 +11783,7 @@ function renderSummary() {
     if((r.doorIronRemove||r.doorIronMask) && doorQtyForExtras>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ironmongery ('+(r.doorIronRemove?'remove &amp; refit':'mask in place')+')</span><span class="breakdown-sub-value">'+fmt(doorQtyForExtras*(r.doorIronRemove ? (settings.ironmongeryRemovePrice!=null?settings.ironmongeryRemovePrice:8) : (settings.ironmongeryMaskPrice!=null?settings.ironmongeryMaskPrice:4))*mk)+'</span></div>';
     return '<div class="room-item room-item-tap" onclick="toggleRoomBd(this.dataset.id)" data-id="'+id+'"  style="border-bottom:none">'+
       '<div class="room-icon">'+r.emoji+'</div>'+
-      '<div class="room-info"><div class="room-name">'+r.name+(r.isVariation?' <span style=\"color:var(--accent);font-size:10px;font-weight:700;letter-spacing:.03em\">VARIATION</span>':'')+'</div>'+
+      '<div class="room-info"><div class="room-name">'+r.name+(r.isVariation?variationChipHtml(r):'')+'</div>'+
       '<div class="room-meta">'+
       (r.isHSL
         ? 'Walls '+c.wallArea.toFixed(1)+'m² · '+fmtD(c.time)
@@ -11302,10 +11939,37 @@ function renderSummary() {
   // load for the ACTIVE job, so the list reads this snapshot instead
   // (same reasoning as scheduledDays). Written only when it changes.
   var varCount = varLines.length + freeVars.length;
-  if (statusJob && (statusJob.variationCount||0) !== varCount) {
+  // variationPendingCount rides along on the same snapshot: the "+N" chip
+  // renders outlined while any line still awaits the client's sign-off.
+  var varPending = vView.pendingCount;
+  if (statusJob && ((statusJob.variationCount||0) !== varCount || (statusJob.variationPendingCount||0) !== varPending)) {
     statusJob.variationCount = varCount;
+    statusJob.variationPendingCount = varPending;
     localStorage.setItem('pe-jobs', JSON.stringify(jobs));
     persistJobData(statusJob);
+  }
+
+  // Job profitability — only once Invoiced (before that the actuals are
+  // still moving and the comparison would just be noise). A compact
+  // snapshot persists onto jobs.data so Home can show recently invoiced
+  // margins without loading other jobs' labour logs/actuals — same
+  // persisted-snapshot reasoning as variationCount/scheduledDays above.
+  var profitCard = '';
+  if (jobStatus === 'invoiced' && statusJob) {
+    var prof = computeProfitability({ quotedTotal: total, approvedVariations: vView.approvedTotal });
+    profitCard = profitabilityCardHtml(prof, vView, statusJob);
+    var profSnap = {
+      revenue: Math.round(prof.revenue * 100) / 100,
+      cost: Math.round(prof.cost * 100) / 100,
+      margin: Math.round(prof.margin * 100) / 100,
+      marginPct: Math.round(prof.marginPct * 10) / 10,
+      days: Math.round(prof.days * 10) / 10
+    };
+    if (JSON.stringify(statusJob.profitSnapshot || null) !== JSON.stringify(profSnap)) {
+      statusJob.profitSnapshot = profSnap;
+      localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+      persistJobData(statusJob);
+    }
   }
 
   var pendingAddMat = snapshotFields(ADD_MAT_FIELD_IDS);
@@ -11321,7 +11985,7 @@ function renderSummary() {
         : jobStatus === 'completed'
           ? '<div class="field-label" style="color:var(--text3);text-decoration:line-through">✓ Completed<small style="text-decoration:none">'+(statusJob.completedAt ? new Date(statusJob.completedAt).toLocaleDateString() : '')+'</small></div>'+
             '<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">'+
-              '<button onclick="openFinalInvoice()" style="background:var(--accent);color:white;border:none;border-radius:var(--rs);padding:10px 16px;font-size:14px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;white-space:nowrap">Build final invoice ›</button>'+
+              '<button class="xero-live-btn" onclick="openFinalInvoice()" style="background:var(--accent);color:white;border:none;border-radius:var(--rs);padding:10px 16px;font-size:14px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;white-space:nowrap">Build final invoice ›</button>'+
               '<div onclick="invoiceJob()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Mark Invoiced (done elsewhere)</div>'+
               '<div onclick="unCompleteJob()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Back to Accepted</div>'+
               '<div onclick="moveJobToDraft()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Move to Draft</div>'+
@@ -11347,6 +12011,7 @@ function renderSummary() {
       '</div>'+
       (jobStatus === 'accepted' ? scheduleBlockHtml(statusJob) : '')+
     '</div>'+
+    profitCard+
     '<div class="hero" style="margin-top:16px">'+
       '<div class="hero-label">Total Quote</div>'+
       '<div class="hero-amount">'+fmt(total)+'</div>'+
@@ -11460,7 +12125,7 @@ function renderSummary() {
       if(+item.makingGood>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Making Good</span><span class="breakdown-sub-value">'+fmt(+item.makingGood)+'</span></div>';
       return '<div class="room-item room-item-tap" onclick="toggleRoomBd(this.dataset.id)" data-id="'+eid+'" style="border-bottom:none">'+
         '<div class="room-icon">🏡</div>'+
-        '<div class="room-info"><div class="room-name">'+item.label+(item.isVariation?' <span style=\"color:var(--accent);font-size:10px;font-weight:700;letter-spacing:.03em\">VARIATION</span>':'')+'</div>'+
+        '<div class="room-info"><div class="room-name">'+item.label+(item.isVariation?variationChipHtml(item):'')+'</div>'+
         '<div class="room-meta">'+fmtD(c.time)+(prepUp>0?' · '+prepLabel:'')+'</div></div>'+
         '<div class="room-cost">'+fmt(c.total*mk)+'</div>'+
         '<div class="room-chevron-icon" id="chev-'+eid+'">›</div>'+
@@ -11562,6 +12227,166 @@ function renderSummary() {
     '</div>'+
     (scheduleRows?'<div><div class="section-title" style="margin-bottom:8px">Colour Schedule</div><div class="card">'+scheduleRows+'</div></div>':'');
   restoreFields(pendingAddMat);
+}
+
+// ── Client-facing quote view (v2.5.0) ──────────────────────────────────────
+// "Quote ⤴" on Summary: a read-only, branded single page of the quote at
+// CUSTOMER-FACING prices (marked-up figures — never the Measure tab's raw
+// labour cost), for showing a client on-site or saving as a PDF before the
+// Xero quote formally goes out. Regenerated from live data on every open —
+// a MIRROR of Summary, never a snapshot, so a revised quote can't show
+// stale figures. Xero-free by design: Send to Xero stays the official
+// document; this is the kitchen-table version.
+//
+// Scope rules mirror createXeroQuote() exactly: variations are filtered
+// out (the quote is original scope; extras settle on the final invoice),
+// materials come from the editable snapshot's chargeable lines, and every
+// money figure derives from the same computeDepositPlan() the Summary and
+// the Xero quote share — the three can never disagree.
+function openClientQuote() {
+  var job = activeJob();
+  var quoteKitchen = (job && job.kitchen && !job.kitchen.isVariation) ? job.kitchen : null;
+  var quoteRooms = rooms.filter(function(r) { return !r.isVariation; });
+  var quoteExtItems = extItems.filter(function(it) { return !it.isVariation; });
+  var kitchenCalc = calcKitchen(quoteKitchen);
+  if (quoteRooms.length === 0 && quoteExtItems.length === 0 && kitchenCalc.total <= 0) {
+    alert('Nothing to preview yet — add rooms on the Measure tab first.');
+    return;
+  }
+  var w = window.open('', '_blank');
+  if (!w) { alert('Could not open the quote view — allow pop-ups for this app and try again.'); return; }
+  w.document.write(buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitchenCalc));
+  w.document.close();
+}
+
+function buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitchenCalc) {
+  var tcS = 0, ttS = 0, sprayS = 0;
+  var roomLines = quoteRooms.map(function(r) {
+    var c = calcRoom(r);
+    tcS += c.total; ttS += c.time; sprayS += c.sprayLabour || 0;
+    return { name: r.name, emoji: r.emoji || '', raw: c.total };
+  });
+  var extLines = quoteExtItems.map(function(it) {
+    var c = calcExtItem(it);
+    tcS += c.total; ttS += c.time; sprayS += c.sprayLabour || 0;
+    return { name: it.label || 'Exterior', emoji: '🏡', raw: c.total };
+  });
+  if (kitchenCalc.total > 0.005) {
+    tcS += kitchenCalc.total; ttS += kitchenCalc.time;
+  }
+  var chargeableMats = materialsSnapshot.filter(function(l) { return l.chargeable !== false; });
+  var materialsTotal = chargeableMats.reduce(function(s, l) { return s + (+l.quantity || 0) * (+l.unitAmount || 0); }, 0);
+  var plan = computeDepositPlan(tcS, materialsTotal, realisticDays(ttS), sprayS, ttS);
+  // One proportional multiplier turns each raw line into its customer
+  // price so the lines sum EXACTLY to plan.labourTotal, whatever mix of
+  // percent/fixed markup, commercial% and standalone top-up is in play —
+  // the same distribute-proportionally idea markupRatio() documents.
+  var rawBase = tcS + plan.standalone.topUp + plan.sundries;
+  var lineMult = rawBase > 0 ? plan.labourTotal / rawBase : 1;
+
+  var esc = escapeHtml;
+  var money = function(n) { return fmt(n); };
+  var lineRow = function(label, sub, amount) {
+    return '<div class="line"><div class="line-l"><div class="line-name">' + label + '</div>'
+      + (sub ? '<div class="line-sub">' + sub + '</div>' : '') + '</div>'
+      + '<div class="line-v">' + money(amount) + '</div></div>';
+  };
+
+  var workRows = roomLines.map(function(l) { return lineRow((l.emoji ? l.emoji + ' ' : '') + esc(l.name), '', l.raw * lineMult); }).join('')
+    + extLines.map(function(l) { return lineRow(l.emoji + ' ' + esc(l.name), 'exterior', l.raw * lineMult); }).join('')
+    + (kitchenCalc.total > 0.005 ? lineRow('🍳 Kitchen Cabinet Spraying', '', kitchenCalc.total * lineMult) : '')
+    + (plan.standalone.topUp > 0.005 ? lineRow('Standalone job — full diary days', plan.standalone.calcDays.toFixed(1) + ' calculated → ' + (plan.standalone.diaryDays % 1 === 0 ? plan.standalone.diaryDays.toFixed(0) : plan.standalone.diaryDays.toFixed(1)) + ' days charged', plan.standalone.topUp * lineMult) : '')
+    + (plan.sundries > 0.005 ? lineRow('Sundries &amp; Consumables', '', plan.sundries * lineMult) : '');
+
+  var matRows = chargeableMats.map(function(l) {
+    var lineTotal = (+l.quantity || 0) * (+l.unitAmount || 0);
+    if (lineTotal <= 0.005) return '';
+    return lineRow(esc(l.description), (+l.quantity || 0) + ' × ' + money(+l.unitAmount || 0), lineTotal);
+  }).join('');
+
+  var colourRows = quoteRooms.map(function(r) {
+    var line = roomColourSchedule(r);
+    return line ? '<div class="colour-row"><div class="colour-room">' + esc(r.name) + '</div><div class="colour-detail">' + esc(line) + '</div></div>' : '';
+  }).join('');
+
+  var paymentRows = lineRow('Deposit due on acceptance', esc(plan.depositBasis), plan.deposit);
+  if (plan.paymentType === 'multiweek' && plan.weeklyRows.length > 0) {
+    plan.weeklyRows.forEach(function(amt, i) {
+      var wc = job && job.startDate ? ' — w/c ' + fmtShortDate(instalmentDate(job.startDate, i)) : '';
+      paymentRows += lineRow('Week ' + (i + 1) + esc(wc), '', amt);
+    });
+  } else {
+    paymentRows += lineRow('Balance on completion', '', plan.balance);
+  }
+
+  var clientName = (job && job.xeroClient) || '';
+  var contact = (job && job.contact) || {};
+  var addressBits = [contact.street, contact.town, contact.postcode].filter(Boolean).join(', ');
+  var today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+
+  // Brand: steel blue / warm grey / white, Barlow, the business logo. The
+  // whole page is print-friendly — iOS's share sheet turns it into the PDF,
+  // desktop's print dialog does Save as PDF, matching Export ↓'s "hand the
+  // user a file" model without any server round-trip.
+  return '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+    + '<meta name="viewport" content="width=device-width, initial-scale=1">'
+    + '<title>Quote — ' + esc((job && job.name) || 'NH Estimator') + '</title>'
+    + '<link rel="preconnect" href="https://fonts.googleapis.com">'
+    + '<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&family=Barlow+Semi+Condensed:wght@600;700&display=swap" rel="stylesheet">'
+    + '<style>'
+    + ':root{--steel:#1e6497;--grey:#f4f2ee;--ink:#2b2b2b;--mut:#6b6b6b}'
+    + '*{box-sizing:border-box;margin:0;padding:0}'
+    + 'body{font-family:"Barlow",system-ui,sans-serif;background:var(--grey);color:var(--ink);line-height:1.45;-webkit-print-color-adjust:exact;print-color-adjust:exact}'
+    + '.page{max-width:720px;margin:0 auto;padding:24px 20px 48px}'
+    + '.toolbar{display:flex;gap:10px;justify-content:flex-end;padding:14px 0}'
+    + '.toolbar button{font-family:"Barlow",sans-serif;font-weight:600;font-size:14px;border-radius:20px;padding:9px 18px;cursor:pointer;border:1px solid var(--steel)}'
+    + '.toolbar .primary{background:var(--steel);color:#fff}'
+    + '.toolbar .ghost{background:#fff;color:var(--steel)}'
+    + '.head{background:var(--steel);color:#fff;border-radius:14px;padding:24px;display:flex;align-items:center;gap:18px}'
+    + '.head img{width:64px;height:64px;border-radius:12px;background:#fff;object-fit:contain;flex:none}'
+    + '.head h1{font-family:"Barlow Semi Condensed","Barlow",sans-serif;font-size:26px;font-weight:700;letter-spacing:.01em}'
+    + '.head .sub{font-size:14px;opacity:.85;margin-top:2px}'
+    + '.meta{display:flex;flex-wrap:wrap;gap:6px 24px;padding:16px 4px;font-size:14px;color:var(--mut)}'
+    + '.meta strong{color:var(--ink);font-weight:600}'
+    + '.card{background:#fff;border-radius:14px;padding:18px 20px;margin-top:14px;box-shadow:0 1px 3px rgba(0,0,0,.06)}'
+    + '.card h2{font-family:"Barlow Semi Condensed","Barlow",sans-serif;font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--steel);margin-bottom:10px}'
+    + '.line{display:flex;justify-content:space-between;align-items:baseline;gap:14px;padding:7px 0;border-bottom:1px solid #eee9e2}'
+    + '.line:last-child{border-bottom:none}'
+    + '.line-name{font-weight:500}'
+    + '.line-sub{font-size:12.5px;color:var(--mut)}'
+    + '.line-v{font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}'
+    + '.subtotal .line-name,.subtotal .line-v{font-weight:700}'
+    + '.colour-row{display:flex;gap:14px;padding:6px 0;border-bottom:1px solid #eee9e2;font-size:14px}'
+    + '.colour-row:last-child{border-bottom:none}'
+    + '.colour-room{flex:0 0 38%;font-weight:600}'
+    + '.colour-detail{color:var(--mut)}'
+    + '.total{background:var(--steel);color:#fff;border-radius:14px;padding:20px 22px;margin-top:14px;display:flex;justify-content:space-between;align-items:baseline}'
+    + '.total .label{font-size:14px;letter-spacing:.08em;text-transform:uppercase;opacity:.85}'
+    + '.total .amount{font-size:30px;font-weight:800;font-variant-numeric:tabular-nums}'
+    + '.terms{font-size:13px;color:var(--mut);margin-top:10px;padding:0 4px;line-height:1.55}'
+    + '.foot{font-size:12px;color:var(--mut);text-align:center;margin-top:26px}'
+    + '@media print{.toolbar{display:none}body{background:#fff}.page{padding:0}.card{box-shadow:none;border:1px solid #e5e0d8}}'
+    + '</style></head><body><div class="page">'
+    + '<div class="toolbar"><button class="ghost" onclick="window.close()">Close</button><button class="primary" onclick="window.print()">Print / Save as PDF</button></div>'
+    + '<div class="head"><img src="' + location.origin + '/logo.png" alt="logo">'
+      + '<div><h1>Nicky Hawkins</h1><div class="sub">Painting &amp; Decorating — Quotation</div></div></div>'
+    + '<div class="meta">'
+      + (clientName ? '<div><strong>For:</strong> ' + esc(clientName) + '</div>' : '')
+      + (addressBits ? '<div><strong>At:</strong> ' + esc(addressBits) + '</div>' : '')
+      + '<div><strong>Job:</strong> ' + esc((job && job.name) || '') + '</div>'
+      + '<div><strong>Date:</strong> ' + esc(today) + '</div>'
+    + '</div>'
+    + '<div class="card"><h2>The work</h2>' + workRows
+      + '<div class="line subtotal"><div class="line-l"><div class="line-name">Labour subtotal</div></div><div class="line-v">' + money(plan.labourTotal) + '</div></div></div>'
+    + (matRows ? '<div class="card"><h2>Materials</h2>' + matRows
+      + '<div class="line subtotal"><div class="line-l"><div class="line-name">Materials subtotal</div></div><div class="line-v">' + money(materialsTotal) + '</div></div>'
+      + '<div class="line-sub" style="padding-top:8px">Materials are estimated here and billed as actually used.</div></div>' : '')
+    + (colourRows ? '<div class="card"><h2>Colour schedule</h2>' + colourRows + '</div>' : '')
+    + '<div class="card"><h2>Payment</h2>' + paymentRows + '</div>'
+    + '<div class="total"><div class="label">Total quote</div><div class="amount">' + money(plan.total) + '</div></div>'
+    + '<div class="terms">' + esc(buildPaymentTermsText(plan, job && job.startDate)) + '</div>'
+    + '<div class="foot">Prepared ' + esc(today) + ' · Figures are live as of this preview — the formal quotation is issued separately.</div>'
+    + '</div></body></html>';
 }
 
 // ── Export CSV ─────────────────────────────────────────────────────────────
