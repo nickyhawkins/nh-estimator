@@ -37,6 +37,8 @@ The app lives at your own web address (the one on your Render account). It's des
 
 If your copy of the app has a password set, you'll be asked for it the first time you open the app on a device — after that it stays signed in. If there's no password on your instance, guard the web address like you would any private page.
 
+![Sign-in screen](images/16-login.png)
+
 ### Connect Xero (one-off)
 
 Almost everything works without Xero, but quoting and invoicing shine with it connected:
