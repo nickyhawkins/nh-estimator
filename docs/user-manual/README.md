@@ -93,7 +93,14 @@ Tap the **`+` button** (bottom right) and choose what you're adding — a room, 
 The form works top to bottom, and only the top matters for a basic room:
 
 1. **Room Name** — e.g. "Living Room".
-2. **Dimensions** — length, width and height in metres (height starts at 2.4 m). The app works out wall and ceiling areas itself. (The **Staircase / HSL** toggle above swaps this card for staircase geometry — see [Staircases](#staircases-hall-stairs--landing) below.)
+2. **Dimensions** — pick the **Room shape** first:
+   - **Standard** — length × width × height, for a plain rectangular room (the default).
+   - **Perimeter** — type the wall perimeter and ceiling height directly, plus the ceiling area, when the footprint doesn't reduce to L×W.
+   - **Segments** — build the room from rectangular zones (each L×W) that sum into the wall run and ceiling area — made for L-shapes and rooms with big alcoves.
+
+   In any mode, the **shape add-ons** cover the common awkward bits: bay window extra perimeter, alcove/dormer wall and ceiling area, and a sloped-ceiling toggle. So loft rooms and bays no longer need fudged numbers. (The **Staircase / HSL** toggle above swaps this card for staircase geometry — see [Staircases](#staircases-hall-stairs--landing) below.)
+
+![Segments mode — building an L-shaped room from zones](images/04b-room-shape.png)
 3. **Coats** — walls, ceiling and woodwork each default to 2. Set any of them to 0 to skip that surface entirely (e.g. ceiling not being painted). The **Spray walls** toggle lives here too — flick it to price the walls for spraying rather than brush and roller.
 
 Then the optional sections, which you'll use as the room demands:
@@ -215,6 +222,7 @@ The hero card shows the **total quote**, days on site, and the markup applied. B
 
 - **Labour** (before markup) and **On Site days** at a glance.
 - **Commercial job** — a toggle that adds a 10% uplift before markup, for commercial rather than domestic work.
+- **Standalone job** — for a job booked on its own, where 1.6 calculated days still blocks out 2 diary days: this toggle charges labour at whole diary days × your day rate (rounding up to a full or half day, per the setting in Your Rates). It never discounts — if the calculated labour already beats the rounded figure, nothing changes. Both figures stay visible on the quote maths, and the top-up flows through markup, deposit, Xero and the final invoice like any other labour. A job can be commercial, standalone, both or neither.
 - **Markup / Discount** — this quote can override your default markup; enter a negative number for a discount.
 - **Payment** — the **deposit** due on acceptance (your default % from Settings) and the **balance**. Switch the payment plan to **Multi-week** to show weekly instalments across the job.
 
@@ -322,7 +330,7 @@ Menu (☰) → **Settings**. Every number the calculator uses lives here, so a c
 | Section | What's in it |
 |---|---|
 | **Business** | Your business name and logo — shown in the app header, on the sign-in screen and in the calendar feed |
-| **Your Rates** | Day rate, hours per day, markup %, sundries %, spray sundries bump, deposit %, commercial job adjustment, and how many days before an unanswered quote gets flagged |
+| **Your Rates** | Day rate, hours per day, markup %, sundries %, spray sundries bump, deposit %, commercial job adjustment, standalone-job rounding (full or half days), and how many days before an unanswered quote gets flagged |
 | **Scheduling** | Daily overhead minutes, schedule buffer, Work Saturdays, bank-holiday region, and the calendar feed |
 | **Coverage Rates** | m² per litre for each paint type — the heart of the materials maths |
 | **Time Rates** | Minutes per m² / per item for walls, ceilings, woodwork, doors, windows, radiators… the heart of the labour maths |
@@ -365,6 +373,6 @@ The **Clear Everything** button in Settings does exactly what it says across all
 
 ---
 
-*Manual for NH Estimator v2.2.5. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.4.1. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
