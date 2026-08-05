@@ -81,7 +81,7 @@ router.put('/jobs/:id', async (req, res) => {
   const { name, ...data } = req.body;
   try {
     await db.query(`
-      UPDATE jobs SET name = COALESCE($2, name), data = $3, updated_at = NOW() WHERE id = $1
+      UPDATE jobs SET name = COALESCE($2, name), data = COALESCE(data, '{}'::jsonb) || $3, updated_at = NOW() WHERE id = $1
     `, [id, name || null, data]);
     res.json({ ok: true });
   } catch (err) {
