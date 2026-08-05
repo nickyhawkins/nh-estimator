@@ -2,7 +2,7 @@
 
 Paint estimating web app with Xero integration.
 
-See [NOTES.md](NOTES.md) for architecture notes and gotchas hit during development.
+See [USER_MANUAL.md](USER_MANUAL.md) for how to use the app, and [NOTES.md](NOTES.md) for architecture notes and gotchas hit during development.
 
 ## Setup
 
