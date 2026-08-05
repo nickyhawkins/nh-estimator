@@ -1,6 +1,6 @@
 # NH Estimator — User Manual
 
-**For build v2.4.1** (5 August 2026). The build number you're running is shown at the bottom of the ☰ menu — if it doesn't match, the deploy hasn't landed yet.
+**For build v2.4.2** (5 August 2026). The build number you're running is shown at the bottom of the ☰ menu — if it doesn't match, the deploy hasn't landed yet.
 
 This is the how-to-use-it guide. For the developer changelog and feature history, see `FEATURES.md`.
 
@@ -8,6 +8,7 @@ This is the how-to-use-it guide. For the developer changelog and feature history
 
 ## What's new in this build
 
+- **Standalone toggle now saves (v2.4.2).** The Standalone job toggle was switching itself off on the next app open — it was only ever saved on the device, never to the server, so the next sync wiped it (on any job, accepted or not). It now persists like every other job setting.
 - **Standalone rounding fix (v2.4.1).** The diary-day top-up now lands the labour charge exactly on diary days × day rate (a 1.6-day job rounding to 2 days at £300/day charges £600) — previously it could over-charge when the labour subtotal included cost with no time behind it, like the wallpaper minimum charge.
 - **Standalone job rounding (v2.4.0).** A new **Standalone Job** toggle on the Summary charges labour on full (or half) diary days instead of fractional calculated days — see [Standalone Job](#commercial-job--standalone-job) below.
 - **Odd-shaped rooms (v2.3.0).** The room form's Dimensions card now has a **room shape** choice — Standard, Perimeter, or Segments — plus bay window, alcove/dormer and sloped-ceiling add-ons, so L-shaped rooms, loft rooms and bays no longer need fudged L×W numbers.
