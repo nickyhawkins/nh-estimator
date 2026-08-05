@@ -1461,7 +1461,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.4.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.4.1</div>
 </div>
 </div>
 
@@ -4115,11 +4115,16 @@ function setJobCommercial(on) {
 // other work. So when the toggle is on, labour is CHARGED on the calculated
 // days rounded UP to the next full day (or half day, per
 // settings.standaloneRounding) at the day rate, while the calculated figure
-// stays visible on the Summary so the maths is never hidden. The top-up is
-// (diaryDays - calcDays) x day rate, added as its own labour amount inside
-// computeDepositPlan() -- it goes through commercial% and markup like any
-// other labour, but NOT through the sundries % (idle time burns no
-// consumables).
+// stays visible on the Summary so the maths is never hidden. The top-up
+// brings the labour subtotal up TO diaryDays x day rate -- NOT
+// (diaryDays - calcDays) x day rate added on top, which over-charged
+// whenever the subtotal held cost with no time behind it (the wallpaper
+// minimum charge: a 1.6-day job with a £60 wp floor top-up billed £660
+// instead of 2 days x £300 = £600). If the subtotal already exceeds the
+// full-day price the top-up clamps to zero (rounding never discounts).
+// Added as its own labour amount inside computeDepositPlan() -- it goes
+// through commercial% and markup like any other labour, but NOT through
+// the sundries % (idle time burns no consumables).
 function standaloneDiaryDays(calcDays) {
   var mult = settings.standaloneRounding === 'half' ? 2 : 1;
   // Tiny epsilon so float noise on an exact day count (2.0000000001) can't
@@ -4128,18 +4133,23 @@ function standaloneDiaryDays(calcDays) {
 }
 // The whole standalone picture for a given calculated-days figure --
 // {on, calcDays, diaryDays, topUp}. Callers pass whichever working-days
-// figure matches the labour they're pricing (original scope for the quote).
+// figure matches the labour they're pricing (original scope for the quote)
+// PLUS that labour's raw (pre-markup) £ subtotal, so the top-up lands the
+// charge exactly on diaryDays x day rate rather than assuming the subtotal
+// was calcDays x day rate (it isn't when e.g. the wallpaper minimum charge
+// adds £ with no time behind it).
 // When the toggle is off (or there's no work) it returns on:false with a
 // zero top-up, so callers can add .topUp unconditionally.
-function standaloneInfo(calcDays) {
+function standaloneInfo(calcDays, labourSubtotal) {
   calcDays = +calcDays || 0;
+  labourSubtotal = +labourSubtotal || 0;
   var job = activeJob();
   if (!job || !job.standalone || calcDays <= 0) {
     return { on: false, calcDays: calcDays, diaryDays: calcDays, topUp: 0 };
   }
   var diaryDays = standaloneDiaryDays(calcDays);
   return { on: true, calcDays: calcDays, diaryDays: diaryDays,
-           topUp: (diaryDays - calcDays) * (settings.dr || 0) };
+           topUp: Math.max(diaryDays * (settings.dr || 0) - labourSubtotal, 0) };
 }
 
 function setJobStandalone(on) {
@@ -5452,8 +5462,10 @@ function computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabour, workin
   // -- but deliberately NOT in the sundries base above (no consumables get
   // used in the idle remainder of the last day). workingDays is the
   // calculated-days figure matching tcS's scope; callers written before
-  // this param existed pass nothing, which safely means no top-up.
-  var standalone = standaloneInfo(workingDays);
+  // this param existed pass nothing, which safely means no top-up. tcS
+  // rides along so the top-up lands the charge exactly on diary days x
+  // day rate (see standaloneInfo()).
+  var standalone = standaloneInfo(workingDays, tcS);
   var labourTotal = applyMarkupAmount(tcS+standalone.topUp+sundries);
   var total = labourTotal + materialsTotal;
 
@@ -7054,8 +7066,8 @@ function buildFinalInvoiceModel() {
   // as its own labour line -- droppable like any other -- and it joins the
   // fixed-£ markup base below, exactly as the quote's figures had it. It
   // stays OUT of rawOrig itself: sundries (rawOrig x %) never included it
-  // on the quote, and computeDepositPlan() re-adds it from ttOrig.
-  var standaloneInv = standaloneInfo(ttOrig);
+  // on the quote, and computeDepositPlan() re-adds it from ttOrig+rawOrig.
+  var standaloneInv = standaloneInfo(ttOrig, rawOrig);
   if (standaloneInv.topUp > 0.005) {
     labour.push({ id: 'standalone', desc: 'Standalone job — diary day rounding (' + standaloneInv.calcDays.toFixed(1) + ' → ' + (standaloneInv.diaryDays % 1 === 0 ? standaloneInv.diaryDays.toFixed(0) : standaloneInv.diaryDays.toFixed(1)) + ' days)', raw: standaloneInv.topUp });
   }
@@ -11591,7 +11603,7 @@ function exportCSV() {
   var tcS=tc+extTotal+kitchenTotal;
   // Standalone diary-day rounding on the CSV's own scope (all rooms listed
   // above, variations included) so its figures stay self-consistent.
-  var csvStandalone=standaloneInfo(tt+extTimeTotal+kitchenTimeTotal);
+  var csvStandalone=standaloneInfo(tt+extTimeTotal+kitchenTimeTotal, tcS);
   var total=applyMarkupAmount(tcS+csvStandalone.topUp);
   lines.push([q('Labour subtotal'),q(tcS.toFixed(2))].join(','));
   if(csvStandalone.topUp>0.005){
