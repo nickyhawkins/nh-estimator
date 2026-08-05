@@ -29,7 +29,21 @@ try {
 // after switching tabs". visualViewport tracks the true visible height
 // directly, so we drive --vh from it instead of trusting dvh's first read.
 try {
+  // Never sync while the on-screen keyboard owns the viewport: focusing an
+  // input shrinks visualViewport.height by the keyboard's height, and copying
+  // that into --vh collapses #app -- so the sticky bottom nav's natural
+  // position rises to keyboard height and it floats mid-screen. WebKit should
+  // fire a restoring resize when the keyboard dismisses, but in standalone
+  // mode it sometimes never does, leaving --vh stuck at the shrunken value.
+  // Holding --vh steady while an editable element has focus means there's
+  // nothing to restore; the focusout re-polls below are belt and braces for
+  // any drift WebKit leaves behind after the dismiss animation.
+  var _editing = function() {
+    var el = document.activeElement, t = el && el.tagName;
+    return t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT' || (el && el.isContentEditable);
+  };
   var _setVh = function() {
+    if (_editing()) return;
     var h = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
     document.documentElement.style.setProperty('--vh', (h * 0.01) + 'px');
   };
@@ -45,6 +59,17 @@ try {
   // as "fixes itself after switching tabs". Re-poll a few times over the
   // first second so it's already correct before you'd ever notice.
   [50, 150, 300, 600, 1000].forEach(function(ms){ setTimeout(_setVh, ms); });
+  // Keyboard dismissal animates ~250ms and its resize events can land while
+  // the height is still transient (or not at all) -- re-poll through and past
+  // the animation once focus leaves a field. If focus just hopped to another
+  // field, _editing() makes these no-ops.
+  document.addEventListener('focusout', function(){
+    [100, 300, 600].forEach(function(ms){ setTimeout(_setVh, ms); });
+  });
+  // Returning from the app switcher is another spot where WebKit can skip
+  // the resize event for a height it changed while we were backgrounded.
+  window.addEventListener('pageshow', _setVh);
+  document.addEventListener('visibilitychange', function(){ if (!document.hidden) _setVh(); });
 } catch (e) {}
 </script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -1430,7 +1455,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.3.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.3.1</div>
 </div>
 </div>
 
