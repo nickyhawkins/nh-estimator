@@ -1,6 +1,6 @@
 # NH Estimator — User Manual
 
-**For build v2.4.1** (5 August 2026). The build number you're running is shown at the bottom of the ☰ menu — if it doesn't match, the deploy hasn't landed yet.
+**For build v2.5.0** (5 August 2026). The build number you're running is shown at the bottom of the ☰ menu — if it doesn't match, the deploy hasn't landed yet.
 
 This is the how-to-use-it guide. For the developer changelog and feature history, see `FEATURES.md`.
 
@@ -8,6 +8,12 @@ This is the how-to-use-it guide. For the developer changelog and feature history
 
 ## What's new in this build
 
+- **Variation sign-off (v2.5.0).** Every variation on the On Site Variations card now carries a status — Pending, Approved or Declined. Tap **✓ Approved by client** to record the client's yes (with an optional note like "agreed via text 14 Aug" — the date is stamped automatically). Declined variations stay listed as a record but drop out of the totals and the final invoice. The invoice builder calls out anything still Pending before it's allowed on. VARIATION chips show the state at a glance: outlined = pending, filled = approved.
+- **Job profitability (v2.5.0).** Once a job is Invoiced, the Summary shows a read-only profitability card: what was quoted, what was invoiced, and the real cost — your Day Rate × the days actually logged in Time on site, plus materials as used — with the margin in £ and %. Recently invoiced jobs also show their margin on Home. Reference only; it changes nothing about pricing.
+- **Works properly offline (v2.5.0).** In a dead spot, edits (rooms, coats, colours, notes, On Site days and materials) queue on the phone — the sync dot goes red and says how many changes are waiting — and send themselves when signal returns. If the job was meanwhile edited from another device, the server's copy is kept and the app tells you, rather than leaving it to be discovered. Send to Xero, Sync to Xero and Build final invoice need a live connection and simply say so when offline.
+- **Repeat client history (v2.5.0).** Picking or typing a client you've worked for before shows their previous jobs (tap to open), the colours used on them, and any access notes (📝) from earlier jobs at the same address, right on the Summary client panel.
+- **Client-facing quote view (v2.5.0).** A new **Quote ⤴** button on Summary (next to Export ↓) opens a branded, read-only one-page quote at customer prices — room by room, colour schedule, payment terms and total — for showing a client on site or saving/sending as a PDF before the official Xero quote goes out. It's rebuilt live each time, so it never shows stale figures.
+- **Standalone toggle now saves (v2.4.2).** The Standalone job toggle was switching itself off on the next app open — it was only ever saved on the device, never to the server, so the next sync wiped it (on any job, accepted or not). It now persists like every other job setting.
 - **Standalone rounding fix (v2.4.1).** The diary-day top-up now lands the labour charge exactly on diary days × day rate (a 1.6-day job rounding to 2 days at £300/day charges £600) — previously it could over-charge when the labour subtotal included cost with no time behind it, like the wallpaper minimum charge.
 - **Standalone job rounding (v2.4.0).** A new **Standalone Job** toggle on the Summary charges labour on full (or half) diary days instead of fractional calculated days — see [Standalone Job](#commercial-job--standalone-job) below.
 - **Odd-shaped rooms (v2.3.0).** The room form's Dimensions card now has a **room shape** choice — Standard, Perimeter, or Segments — plus bay window, alcove/dormer and sloped-ceiling add-ons, so L-shaped rooms, loft rooms and bays no longer need fudged L×W numbers.
