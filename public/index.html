@@ -1546,7 +1546,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.7.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.7.1</div>
 </div>
 </div>
 
@@ -5775,11 +5775,11 @@ function calcRoom(r) {
   // room's own colour. Not folded into excludedWallArea above because the
   // two lists serve different stories (a wall not being touched vs a wall
   // being priced elsewhere) and each shows its own m² total on the form.
-  // Ignored on HSL rooms for the same drift reason excludedWalls are
-  // dropped there (calcHSLNow()'s preview knows nothing about the
-  // deduction) -- but panelItems, unlike excludedWalls, legitimately
-  // survive in staircase mode (wainscoting under stairs), so the gate has
-  // to live here rather than on save.
+  // HSL rooms skip this NOT because the deduction doesn't apply to them,
+  // but because it already happened upstream: computeHSLOverrides() (and
+  // calcHSLNow()'s matching preview) subtract the flagged walls from the
+  // staircase's geometry-derived wall total via panelDeductAreaForm(), so
+  // wallAreaOverride arrives here net -- deducting again would double it.
   var panelDeductArea = r.isHSL ? 0 : (r.panelItems || []).reduce(function(sum, p){
     return sum + (p.deduct ? Math.max(+p.width || 0, 0) * Math.max(+p.height || 0, 0) : 0);
   }, 0);
@@ -10636,16 +10636,13 @@ function renderPanelWallsList() {
   var el = document.getElementById('panel-walls-list');
   if (!el) return;
   el.innerHTML = panelItemsForm.map(function(p, i) {
-    // "−m²" chip: this wall's w×h comes off the room's wall area (see the
-    // panelDeductArea deduction in calcRoom()), so a panelled room wall
-    // isn't priced as wall paint AND panelling. On by default for new
-    // walls; tap off for panelling that isn't on a measured room wall
-    // (bath panel, under-stairs). Too cramped in this row for the full
-    // .toggle switch, hence the chip. Hidden in staircase mode, where
-    // calcRoom() ignores the flag (wallAreaOverride comes from staircase
-    // geometry and calcHSLNow()'s preview knows nothing about the
-    // deduction) -- setRoomStaircase() re-renders this list on mode switch.
-    var chip = roomIsStaircase ? '' :
+    // "−m²" chip: this wall's w×h comes off the room's wall area (the
+    // panelDeductArea deduction in calcRoom(); panelDeductAreaForm() in the
+    // staircase preview/overrides), so a panelled room wall isn't priced as
+    // wall paint AND panelling. On by default for new walls; tap off for
+    // panelling that isn't on a measured room wall (bath panel, boxing-in).
+    // Too cramped in this row for the full .toggle switch, hence the chip.
+    var chip =
         '<div onclick="togglePanelWallDeduct('+i+')" title="Deduct this wall\'s m² from the room wall area" style="font-size:11px;font-weight:600;padding:4px 7px;border-radius:8px;cursor:pointer;white-space:nowrap;border:1px solid '+(p.deduct?'var(--accent);background:var(--accent);color:#fff':'var(--border);background:var(--surface2);color:var(--text3)')+'">−m²</div>';
     return '<div class="field-row">'+
       '<div class="field-label">Wall '+(i+1)+'</div>'+
@@ -10658,7 +10655,7 @@ function renderPanelWallsList() {
         '<div onclick="removePanelWall('+i+')" style="color:var(--danger);font-size:22px;padding:0 4px;cursor:pointer">×</div>'+
       '</div>'+
     '</div>';
-  }).join('') + (!roomIsStaircase && panelItemsForm.some(function(p){ return p.deduct; })
+  }).join('') + (panelItemsForm.some(function(p){ return p.deduct; })
     ? '<div class="breakdown-row"><span class="breakdown-label">Deducted from wall area</span><span class="breakdown-value" id="panel-deduct-total">—</span></div>'
     : '');
   updatePanelDeductTotal();
@@ -11515,11 +11512,6 @@ function setRoomStaircase(on) {
   document.getElementById('card-dimensions').style.display = on ? 'none' : 'block';
   document.getElementById('card-shape-addons').style.display = on ? 'none' : 'block';
   document.getElementById('card-excluded-walls').style.display = on ? 'none' : 'block';
-  // The panelling card stays visible either way (wainscoting under stairs
-  // is real), but its per-wall "−m²" deduct chip only makes sense against
-  // a normal room's wall area -- rebuild the list so the chip shows/hides
-  // with the mode (calcRoom() ignores the flag on HSL rooms regardless).
-  renderPanelWallsList();
   document.getElementById('card-hsl-geometry').style.display = on ? 'block' : 'none';
   document.getElementById('card-hsl-hall').style.display = on ? 'block' : 'none';
   document.getElementById('card-hsl-woodwork').style.display = on ? 'block' : 'none';
@@ -11616,6 +11608,19 @@ function roomCeilArea(l, w) { return l*w; }
 // itself (hall/stairs/landings) and the spindle/newel woodwork are unique to
 // a staircase. Mirrors computeHSLOverrides()'s math exactly so the preview
 // never drifts from what actually gets saved.
+// Flagged "−m²" panelling walls' total area, read from the form-local rows
+// -- ONE helper shared by calcHSLNow() and computeHSLOverrides() so the
+// staircase preview and the persisted overrides can never disagree about
+// how much comes off the wall total (the drift risk that used to keep the
+// deduct chip disabled in staircase mode entirely). Normal rooms don't use
+// this -- their deduction reads the saved room's panelItems inside
+// calcRoom() instead.
+function panelDeductAreaForm() {
+  return panelItemsForm.reduce(function(s, p){
+    return s + (p.deduct ? (+p.width || 0) * (+p.height || 0) : 0);
+  }, 0);
+}
+
 function calcHSLNow() {
   var r2  = rpm();
   var hpd = settings.hpd;
@@ -11680,6 +11685,15 @@ function calcHSLNow() {
     totalWall += land2Wall;
     totalCeil += land2Ceil;
   }
+
+  // Panelling walls flagged "−m²" come off the combined wall total here --
+  // BEFORE wall labour and mist read it -- exactly like a normal room's
+  // panelDeductArea in calcRoom(). Wainscoting up a stair wall is the
+  // classic case. The per-surface display rows below stay gross (they
+  // describe the geometry); only the Walls total and everything priced
+  // from it shrink. Wallpaper rolls are untouched, same as normal rooms
+  // (computeHSLWallpaperRolls prices from the geometry directly).
+  totalWall = Math.max(totalWall - panelDeductAreaForm(), 0);
 
   // Staircase woodwork (spindles/newels/strings/handrail) -- its own coat
   // count (hslCoats.swc), distinct from the general woodwork coats (xc)
@@ -11879,6 +11893,15 @@ function computeHSLOverrides() {
     totalWall += roomWallArea(l2l,l2w,l2h);
     totalCeil += roomCeilArea(l2l,l2w);
   }
+
+  // Flagged panelling walls off the wall total -- mirrors calcHSLNow()
+  // exactly (same shared helper), so the wallAreaOverride/wallCostStore
+  // saved here are already NET of the deduction. That's why calcRoom()'s
+  // own panelDeductArea skips HSL rooms: deducting there too would double
+  // it. Wall paint litres follow automatically (calcRoom() derives them
+  // from wallAreaOverride); the panelling's own litres/labour still come
+  // from calcPanel() as ever.
+  totalWall = Math.max(totalWall - panelDeductAreaForm(), 0);
 
   // Staircase woodwork (spindles/newels/strings/handrail) -- own coat count.
   var spindles=+document.getElementById('hsl-spindles').value||0;
