@@ -350,6 +350,15 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     <div id="kitchen-section-list" style="display:none">
       <div class="card" id="kitchen-section-cards"></div>
     </div>
+    <!-- Fitted Unit (bespoke built-ins): same single per-job form pattern
+         as Kitchen above -- shows once it has a real total, entered via +
+         chooser (goScreen('fittedunit')), no second one, no swipe delete. -->
+    <div class="section-title" id="fu-section-head" style="display:none">
+      <span>Fitted Unit</span>
+    </div>
+    <div id="fu-section-list" style="display:none">
+      <div class="card" id="fu-section-cards"></div>
+    </div>
   </div>
   <button class="fab-quick" onclick="quickAddRooms()">Quick add</button>
   <button class="fab" onclick="openAddChooser()">+</button>
@@ -359,6 +368,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       <div class="nav-menu-item" onclick="closeAddChooser();goScreen('room')"><div>🏠&ensp;Room</div><span class="nav-menu-arrow">›</span></div>
       <div class="nav-menu-item" onclick="closeAddChooser();showAddExterior()"><div>🏡&ensp;Exterior item</div><span class="nav-menu-arrow">›</span></div>
       <div class="nav-menu-item" onclick="closeAddChooser();goScreen('kitchen')"><div>🍳&ensp;Kitchen</div><span class="nav-menu-arrow">›</span></div>
+      <div class="nav-menu-item" onclick="closeAddChooser();goScreen('fittedunit')"><div>📚&ensp;Fitted Unit</div><span class="nav-menu-arrow">›</span></div>
     </div>
   </div>
   <!-- Per-job site notes (SITE_NOTES_SPEC.md Part 1, tucked away per Nicky
@@ -1134,6 +1144,14 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Glazed / Curved surcharge<small>% on the matching item/size base price</small></div><input type="number" class="field-input" id="s-kglazedpct" value="50" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Carcass spraying<small>% uplift on doors + drawers + end panels</small></div><input type="number" class="field-input" id="s-kcarcasspct" value="30" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
     </div>
+    <div class="card">
+      <div class="card-header">Fitted Unit / Shelving</div>
+      <div class="settings-note">Bespoke built-ins (bookcases, media units) are priced per shelf/bay/door, not by m². A "coat pass" is one trip over the unit — Bare/Primed prep sprays 3 passes (prime + 2 coats), Existing painted sprays 2. Cabinet doors use the interior door rate above. Starting defaults — calibrate against real jobs.</div>
+      <div class="field-row"><div class="field-label">Shelf spray time<small>mins per shelf, per coat pass — covers top, underside &amp; front edge in one time-based unit</small></div><input type="number" class="field-input" id="s-fu-shelfmins" value="6" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Bay carcass time<small>mins per bay, per coat pass — uprights, back &amp; face frame of one vertical section</small></div><input type="number" class="field-input" id="s-fu-baymins" value="15" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Area per shelf<small>m² paintable — all faces, for topcoat/primer litres</small></div><input type="number" class="field-input" id="s-fu-shelfarea" value="0.5" min="0.1" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Bay carcass area ×<small>on frontal area (height × width) per bay — covers back, sides &amp; frame, litres only</small></div><input type="number" class="field-input" id="s-fu-bayareafactor" value="1.5" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
+    </div>
     <button class="btn btn-danger" onclick="clearEverything()">Clear Everything</button>
     <div class="card">
       <div class="card-header">Xero Integration</div>
@@ -1242,6 +1260,66 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     <div class="card" id="kitchen-breakdown-card" style="display:none">
       <div class="card-header">Breakdown<small style="text-transform:none;letter-spacing:normal;font-weight:400"> — before markup, see Summary for the customer price</small></div>
       <div id="kitchen-breakdown"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ FITTED UNIT / SHELVING (bespoke built-ins: bookcases, media units) ══
+     Job-level, single config (job.fittedUnit), the same sub-screen pattern
+     as Kitchen above -- the screen IS the form, edited in place and
+     auto-saved on every change (no Save button, Back returns to Measure).
+     Priced by unit COUNT (shelves/bays/doors reuse the door/frame pricing
+     conventions), never by room m² -- see calcFittedUnit(). -->
+<div id="screen-fittedunit" class="screen">
+  <div class="topbar">
+    <button class="back-btn" onclick="goBack()">←</button>
+    <div class="topbar-title">Fitted Unit</div>
+    <div class="chip" id="fu-chip" style="display:none">£0</div>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
+  </div>
+  <div class="content">
+    <div class="card">
+      <div class="card-header">Unit<small style="text-transform:none;letter-spacing:normal;font-weight:400"> — open shelving &amp; cabinet doors, priced per shelf/bay/door</small></div>
+      <div class="toggle-row" id="fu-variation-row" style="display:none">
+        <div class="toggle-label" style="color:var(--accent)">Variation<small>Fitted unit added after the quote was accepted — listed under On Site › Variations</small></div>
+        <div class="toggle" id="tog-fu-variation" onclick="toggleFittedUnitVariation()"></div>
+      </div>
+      <div class="field-row"><div class="field-label">Bays<small>vertical sections</small></div><input type="number" class="field-input" id="fu-bays" placeholder="0" min="0" step="1" inputmode="numeric" onchange="onFittedUnitFieldChange('bayCount',this.value)"></div>
+      <div class="field-row"><div class="field-label">Height per bay<small>m — with bay count &amp; width, drives the carcass paint litres only</small></div><input type="number" class="field-input" id="fu-bay-h" placeholder="2.4" min="0" step="0.1" inputmode="decimal" onchange="onFittedUnitFieldChange('bayHeightM',this.value)"></div>
+      <div class="field-row"><div class="field-label">Width per bay<small>m</small></div><input type="number" class="field-input" id="fu-bay-w" placeholder="0.9" min="0" step="0.1" inputmode="decimal" onchange="onFittedUnitFieldChange('bayWidthM',this.value)"></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Shelves<small>total across all bays — fixed spray time each (top, underside &amp; front edge in one unit), see Settings</small></div><input type="number" class="field-input" id="fu-shelves" placeholder="0" min="0" step="1" inputmode="numeric" onchange="onFittedUnitFieldChange('shelfCount',this.value)"></div>
+      <div class="field-row"><div class="field-label">Cabinet doors<small>priced at the interior door rate, one face each</small></div><input type="number" class="field-input" id="fu-doors" placeholder="0" min="0" step="1" inputmode="numeric" onchange="onFittedUnitFieldChange('doorCount',this.value)"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Prep Level</div>
+      <div class="field-row">
+        <div class="field-label">Surface<small>Bare/Primed = full prime + 2 coats. Existing painted = light key-sand + topcoat only, no primer bought</small></div>
+        <div class="seg" id="seg-fu-prep" style="flex:1.5">
+          <button class="seg-btn active" onclick="setFittedUnitPrep('bare')">Bare / Primed</button>
+          <button class="seg-btn" onclick="setFittedUnitPrep('painted')">Existing painted</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Complexity / Masking</div>
+      <div class="field-row">
+        <div class="field-label">Uplift<small>recessed lighting, tight bays, electrics to mask off — % on labour time, stacked before markup like the commercial toggle</small></div>
+        <div class="seg" id="seg-fu-complexity">
+          <button class="seg-btn active" onclick="setFittedUnitComplexity(0)">None</button>
+          <button class="seg-btn" onclick="setFittedUnitComplexity(10)">+10%</button>
+          <button class="seg-btn" onclick="setFittedUnitComplexity(20)">+20%</button>
+        </div>
+      </div>
+    </div>
+    <div class="card searchable-card">
+      <div class="card-header">Colour &amp; Product</div>
+      <div class="field-row"><div class="field-label">Colour<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-fittedunit" style="flex-wrap:wrap"></div></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Product<small>topcoat — defaults to the woodwork topcoat in Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="fu-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('fittedunit')" onfocus="onRoomRangeSearchInput('fittedunit')"><div id="fu-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
+      <div class="field-row" id="fu-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="fu-band" onchange="onRoomOverrideBandSelect('fittedunit')"></select></div>
+    </div>
+    <div class="card" id="fu-breakdown-card" style="display:none">
+      <div class="card-header">Breakdown<small style="text-transform:none;letter-spacing:normal;font-weight:400"> — before markup, see Summary for the customer price</small></div>
+      <div id="fu-breakdown"></div>
     </div>
   </div>
 </div>
@@ -2585,6 +2663,7 @@ async function createXeroQuote(forceNew) {
     var quoteRooms = rooms.filter(function(r) { return !r.isVariation; });
     var quoteExtItems = extItems.filter(function(it) { return !it.isVariation; });
     var quoteKitchen = (activeJob() && activeJob().kitchen && !activeJob().kitchen.isVariation) ? activeJob().kitchen : null;
+    var quoteFittedUnit = (activeJob() && activeJob().fittedUnit && !activeJob().fittedUnit.isVariation) ? activeJob().fittedUnit : null;
 
     var tcS = 0, ttS = 0, sprayLabourS = 0;
     var roomData = quoteRooms.map(function(r) {
@@ -2604,6 +2683,10 @@ async function createXeroQuote(forceNew) {
     // matching how routes/xero.js turns it into one Xero line item.
     var kitchenXeroCalc = calcKitchen(quoteKitchen);
     var kitchenTotal = kitchenXeroCalc.total, kitchenTimeTotal = kitchenXeroCalc.time;
+    // Fitted Unit: same single per-job lump as kitchen -- one cost/time,
+    // one Xero line (see routes/xero.js).
+    var fuXeroCalc = calcFittedUnit(quoteFittedUnit);
+    var fuTotal = fuXeroCalc.total, fuTimeTotal = fuXeroCalc.time;
 
     // Materials sent to Xero come from the editable snapshot, not a fresh
     // live calculation -- that's the whole point of the snapshot (see
@@ -2627,8 +2710,8 @@ async function createXeroQuote(forceNew) {
     // paymentSummary is the same figures again, compact -- see
     // buildPaymentSummaryText() -- sent to the API's separate Summary
     // property so the template can bold just the numbers.
-    tcS += extTotal + kitchenTotal;
-    ttS += extTimeTotal + kitchenTimeTotal;
+    tcS += extTotal + kitchenTotal + fuTotal;
+    ttS += extTimeTotal + kitchenTimeTotal + fuTimeTotal;
     var onSiteDays = realisticDays(ttS);
     var depositPlan = computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabourS, ttS);
     var paymentTerms = buildPaymentTermsText(depositPlan, activeJob() && activeJob().startDate);
@@ -2660,6 +2743,7 @@ async function createXeroQuote(forceNew) {
         rooms: roomData,
         exterior: { cost: extTotal, items: exteriorData },
         kitchen: { cost: kitchenTotal },
+        fittedUnit: { cost: fuTotal },
         materials: materials,
         settings: settings,
         markup: effectiveMarkup(),
@@ -3031,7 +3115,11 @@ var SETTINGS_FIELDS = [
   ['extAreaGarage',  's-extareagarage',  6],
   ['extFasciaWidth', 's-extfasciawidth', 0.35],
   ['kitchenGlazedPct',  's-kglazedpct',  50],
-  ['kitchenCarcassPct', 's-kcarcasspct', 30]
+  ['kitchenCarcassPct', 's-kcarcasspct', 30],
+  ['fuShelfMins',      's-fu-shelfmins',      6],
+  ['fuBayMins',        's-fu-baymins',        15],
+  ['fuShelfAreaM2',    's-fu-shelfarea',      0.5],
+  ['fuBayAreaFactor',  's-fu-bayareafactor',  1.5]
 ];
 
 // Build a complete settings object from a raw blob (localStorage or the
@@ -3339,7 +3427,7 @@ function persistJobData(job) {
   // semantics (the whole job blob is sent every time).
   // NB `standalone` is v2.4.2's fix (the toggle never persisted without
   // it) — it must stay in this list.
-  apiPut('/api/jobs/'+job.id, { xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, notes: job.notes, kitchen: job.kitchen });
+  apiPut('/api/jobs/'+job.id, { xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, notes: job.notes, kitchen: job.kitchen, fittedUnit: job.fittedUnit });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -4285,11 +4373,12 @@ function variationChipHtml(item) {
   return ' <span style="'+base+';border:1px solid var(--accent);color:var(--accent)" title="Variation — pending client approval">VARIATION</span>';
 }
 
-function computeVariationsView(roomCalcs, extCalcs, kitchenCalc) {
+function computeVariationsView(roomCalcs, extCalcs, kitchenCalc, fittedUnitCalc) {
   var job = activeJob();
   roomCalcs = roomCalcs || rooms.map(function(r){ return calcRoom(r); });
   extCalcs = extCalcs || extItems.map(function(it){ return calcExtItem(it); });
   kitchenCalc = kitchenCalc || calcKitchen(job && job.kitchen);
+  fittedUnitCalc = fittedUnitCalc || calcFittedUnit(job && job.fittedUnit);
   // Declined variations stay LISTED (struck through — the record that it
   // was offered and turned down) but drop out of every money figure and
   // the final invoice. Their TIME is left alone deliberately: a declined
@@ -4322,6 +4411,13 @@ function computeVariationsView(roomCalcs, extCalcs, kitchenCalc) {
     if (kSt !== 'declined') { varLabour+=kitchenCalc.total; varTime+=kitchenCalc.time; }
     if (kSt === 'approved') appLabour+=kitchenCalc.total;
   }
+  // Fitted Unit: same job-level single-config handling as kitchen above.
+  var fittedUnitIsVar = !!(job && job.fittedUnit && job.fittedUnit.isVariation) && fittedUnitCalc.total>0.005;
+  if(fittedUnitIsVar){
+    var fuSt = addLine('fittedunit', 'fittedunit', 'Fitted Unit / Shelving', fittedUnitCalc.total, job.fittedUnit);
+    if (fuSt !== 'declined') { varLabour+=fittedUnitCalc.total; varTime+=fittedUnitCalc.time; }
+    if (fuSt === 'approved') appLabour+=fittedUnitCalc.total;
+  }
   // Free lines: 'hours' prices from the raw hourly rate (day rate /
   // hours-per-day) and gets markup+sundries like any labour; 'flat' is the
   // agreed price verbatim — no markup, no sundries, no time contribution.
@@ -4353,7 +4449,7 @@ function computeVariationsView(roomCalcs, extCalcs, kitchenCalc) {
   var approvedTotal = (appLabour+appHoursRaw+appSundries)*varMk + appFlatSum;
   return { varLabour:varLabour, varTime:varTime, varSpray:varSpray, varLines:varLines,
     freeVars:freeVars, freeHoursRaw:freeHoursRaw, freeHoursDays:freeHoursDays, freeFlatSum:freeFlatSum,
-    hasVariations:hasVariations, kitchenIsVar:kitchenIsVar,
+    hasVariations:hasVariations, kitchenIsVar:kitchenIsVar, fittedUnitIsVar:fittedUnitIsVar,
     varSundries:varSundries, varMk:varMk, variationsTotal:variationsTotal,
     pendingCount:pendingCount, approvedTotal:approvedTotal };
 }
@@ -4403,6 +4499,9 @@ function findVariationEntry(kind, id) {
   }
   if (kind === 'kitchen') {
     return (job && job.kitchen) ? { obj: job.kitchen, save: function(){ localStorage.setItem('pe-jobs', JSON.stringify(jobs)); persistJobData(job); } } : null;
+  }
+  if (kind === 'fittedunit') {
+    return (job && job.fittedUnit) ? { obj: job.fittedUnit, save: function(){ localStorage.setItem('pe-jobs', JSON.stringify(jobs)); persistJobData(job); } } : null;
   }
   if (kind === 'free') {
     var fv = job && (job.freeVariations||[]).find(function(x){ return x.id === id; });
@@ -5448,6 +5547,8 @@ function goScreen(name) {
     setRoomStaircase(false);
   } else if (name==='kitchen') {
     renderKitchen();
+  } else if (name==='fittedunit') {
+    renderFittedUnit();
   }
 }
 
@@ -6102,7 +6203,7 @@ function tin(l) {
 // an exterior item without its own range/band override falls to the
 // Settings default mapping -- overrideRange below reads r[role+'RangeOverride']
 // off whatever's in `items`, room or exterior item alike.
-var ROLE_COLOUR_FIELD = { wall: 'colourNumber', ceiling: 'ceilingColourNumber', topcoat: 'woodworkColourNumber', primer: 'woodworkColourNumber', mist: 'colourNumber', featurewall: 'featureWallColourNumber', panel: 'panelColourNumber', masonry: 'masonryColourNumber', extTopcoat: 'extWoodworkColourNumber', extPrimer: 'extWoodworkColourNumber' };
+var ROLE_COLOUR_FIELD = { wall: 'colourNumber', ceiling: 'ceilingColourNumber', topcoat: 'woodworkColourNumber', primer: 'woodworkColourNumber', mist: 'colourNumber', featurewall: 'featureWallColourNumber', panel: 'panelColourNumber', masonry: 'masonryColourNumber', extTopcoat: 'extWoodworkColourNumber', extPrimer: 'extWoodworkColourNumber', fittedunit: 'colourNumber', fittedunitPrimer: 'colourNumber' };
 // Roles charged by whole tin (tin-optimised) rather than per litre. Masonry
 // mirrors interior walls -- bought and charged in whole tins.
 var TIN_ROLES = { wall: true, masonry: true };
@@ -6126,6 +6227,20 @@ function computeRoleGroups(role, litresPerRoom, skipRoom, items) {
       mapping = r.wallRangeOverride
         ? { range: r.wallRangeOverride, band: r.wallBandOverride || '' }
         : (settings.materials || {}).wall || null;
+    }
+    // Fitted Unit topcoat: its own product picked on the Fitted Unit screen
+    // (job.fittedUnit.range/band, the kitchen persist-immediately pattern),
+    // else the Settings woodwork topcoat -- shelving is woodwork, so its
+    // default tin is the same one the rooms' skirting/doors come out of.
+    // The primer role has no per-unit picker at all: primer follows the
+    // Settings woodwork primer, same "no visible colour identity" reasoning
+    // as the interior primer role.
+    if (!overrideRange && role === 'fittedunit') {
+      mapping = r.range ? { range: r.range, band: r.band || '' }
+                        : (settings.materials || {}).topcoat || null;
+    }
+    if (!overrideRange && role === 'fittedunitPrimer') {
+      mapping = (settings.materials || {}).primer || null;
     }
     var num = r[colourField] || 1;
     var mapKey = mapping ? (mapping.range + '\x01' + mapping.band) : '\x01unmapped';
@@ -6377,9 +6492,20 @@ function computeMaterials() {
   var extTopcoatRows= buildRoleRows('Exterior Woodwork', 'extTopcoat', function(it) { return ew(it); }, function(it) { return ew(it) <= 0; }, extItems);
   var extPrimerRows = buildRoleRows('Exterior Primer', 'extPrimer', function(it) { return ep(it); }, function(it) { return ep(it) <= 0; }, extItems);
 
-  var allRows = wallRows.concat(ceilingRows, topcoatRows, primerRows, mistRows, featureWallRows, panelRows, masonryRows, extTopcoatRows, extPrimerRows);
+  // ── Fitted Unit roles: same engine, sourced from job.fittedUnit ─────────
+  // Litres come from calcFittedUnit()'s count-scaled assumed areas (per
+  // shelf / per bay / per door -- the exterior assumed-area idea), split
+  // topcoat vs primer by the unit's prep level: a 'painted' unit buys no
+  // primer at all, which is exactly its "reduced material multiplier".
+  var fuObj = activeJob() && activeJob().fittedUnit;
+  var fuMatCalc = calcFittedUnit(fuObj);
+  var fuItems = fuObj ? [fuObj] : [];
+  var fuTopcoatRows = buildRoleRows('Fitted Unit Topcoat', 'fittedunit', function() { return fuMatCalc.topcoatL; }, function() { return fuMatCalc.topcoatL <= 0; }, fuItems);
+  var fuPrimerRows  = buildRoleRows('Fitted Unit Primer', 'fittedunitPrimer', function() { return fuMatCalc.primerL; }, function() { return fuMatCalc.primerL <= 0; }, fuItems);
+
+  var allRows = wallRows.concat(ceilingRows, topcoatRows, primerRows, mistRows, featureWallRows, panelRows, masonryRows, extTopcoatRows, extPrimerRows, fuTopcoatRows, fuPrimerRows);
   var total = allRows.reduce(function(sum, r) { return sum + r.cost; }, 0);
-  return { wallRows: wallRows, ceilingRows: ceilingRows, topcoatRows: topcoatRows, primerRows: primerRows, mistRows: mistRows, featureWallRows: featureWallRows, panelRows: panelRows, masonryRows: masonryRows, extTopcoatRows: extTopcoatRows, extPrimerRows: extPrimerRows, total: total };
+  return { wallRows: wallRows, ceilingRows: ceilingRows, topcoatRows: topcoatRows, primerRows: primerRows, mistRows: mistRows, featureWallRows: featureWallRows, panelRows: panelRows, masonryRows: masonryRows, extTopcoatRows: extTopcoatRows, extPrimerRows: extPrimerRows, fuTopcoatRows: fuTopcoatRows, fuPrimerRows: fuPrimerRows, total: total };
 }
 
 // Exterior paint-litre estimation. Exterior items only capture counts and
@@ -6513,7 +6639,7 @@ function recalculateMaterialsSnapshot(precomputedMats) {
   // renderSummary()'s auto-seed passes in the mats it already computed for
   // this render; every other caller omits it and computes fresh.
   var mats = precomputedMats || computeMaterials();
-  var allRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows, mats.featureWallRows, mats.panelRows, mats.masonryRows, mats.extTopcoatRows, mats.extPrimerRows);
+  var allRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows, mats.featureWallRows, mats.panelRows, mats.masonryRows, mats.extTopcoatRows, mats.extPrimerRows, mats.fuTopcoatRows, mats.fuPrimerRows);
   materialsSnapshot = allRows.reduce(function(acc, row) {
     return acc.concat(row.lineItems.map(function(li) {
       // colourNumber/role are additive, carried from the row (buildRoleRows
@@ -7561,6 +7687,8 @@ function buildFinalInvoiceModel() {
   var extCalcs = extItems.map(function(it){ return calcExtItem(it); });
   var kitchenCalc = calcKitchen(job && job.kitchen);
   var kitchenIsVar = !!(job && job.kitchen && job.kitchen.isVariation) && kitchenCalc.total > 0.005;
+  var fuInvCalc = calcFittedUnit(job && job.fittedUnit);
+  var fuInvIsVar = !!(job && job.fittedUnit && job.fittedUnit.isVariation) && fuInvCalc.total > 0.005;
 
   // Original-scope raw labour — the same base createXeroQuote sends, so the
   // invoice's labour lines reproduce the quote's exactly (incl. fixed-£
@@ -7582,6 +7710,10 @@ function buildFinalInvoiceModel() {
   if (job && job.kitchen && !kitchenIsVar && kitchenCalc.total > 0.005) {
     rawOrig += kitchenCalc.total; ttOrig += kitchenCalc.time;
     labour.push({ id: 'k', desc: 'Kitchen Cabinet Spraying', raw: kitchenCalc.total });
+  }
+  if (job && job.fittedUnit && !fuInvIsVar && fuInvCalc.total > 0.005) {
+    rawOrig += fuInvCalc.total; ttOrig += fuInvCalc.time;
+    labour.push({ id: 'fu', desc: 'Fitted Unit / Shelving', raw: fuInvCalc.total });
   }
   var muVal = effectiveMarkup();
   var fixed = effectiveMarkupType() === 'fixed';
@@ -7660,6 +7792,11 @@ function buildFinalInvoiceModel() {
     var kSt = variationStatusOf(job.kitchen);
     if (kSt !== 'declined') varRaw += kitchenCalc.total;
     variations.push({ id: 'vk', desc: 'Variation: Kitchen Cabinet Spraying', amount: kitchenCalc.total * varMk, dropped: kSt === 'declined', signoff: kSt, note: (job.kitchen && job.kitchen.variationApprovalNote) || '' });
+  }
+  if (fuInvIsVar) {
+    var fuSt = variationStatusOf(job.fittedUnit);
+    if (fuSt !== 'declined') varRaw += fuInvCalc.total;
+    variations.push({ id: 'vfu', desc: 'Variation: Fitted Unit / Shelving', amount: fuInvCalc.total * varMk, dropped: fuSt === 'declined', signoff: fuSt, note: (job.fittedUnit && job.fittedUnit.variationApprovalNote) || '' });
   }
   var hourlyRate = (settings.dr || 0) / (settings.hpd || 7);
   var freeHoursRaw = 0;
@@ -7979,7 +8116,7 @@ function renderColours() {
   var cards = document.getElementById('colours-cards');
   empty.style.display = 'none'; list.style.display = 'block';
   var mats = computeMaterials();
-  var allMatRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows, mats.featureWallRows, mats.panelRows, mats.masonryRows, mats.extTopcoatRows, mats.extPrimerRows);
+  var allMatRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows, mats.featureWallRows, mats.panelRows, mats.masonryRows, mats.extTopcoatRows, mats.extPrimerRows, mats.fuTopcoatRows, mats.fuPrimerRows);
   cards.innerHTML = colours.slice().sort(function(a, b){ return a.number - b.number; }).map(function(c) {
     var bdId = 'colour-bd-' + c.number;
     var wallRooms = rooms.filter(function(r){ return (r.colourNumber||1)===c.number && +r.wc>0; }).map(function(r){ return r.name; });
@@ -8251,6 +8388,11 @@ function colourNumberOf(role) {
     var job = activeJob();
     return job ? ensureKitchenShape(job).colourNumber : 1;
   }
+  // Fitted Unit: same job-level persist-immediately story as kitchen.
+  if (role === 'fittedunit') {
+    var fuJob = activeJob();
+    return fuJob ? ensureFittedUnitShape(fuJob).colourNumber : 1;
+  }
   return roomColourNumbers[role];
 }
 function setColourNumberOf(role, number) {
@@ -8259,6 +8401,13 @@ function setColourNumberOf(role, number) {
     if (!job) return;
     ensureKitchenShape(job).colourNumber = number;
     saveKitchenJob();
+    return;
+  }
+  if (role === 'fittedunit') {
+    var fuJob = activeJob();
+    if (!fuJob) return;
+    ensureFittedUnitShape(fuJob).colourNumber = number;
+    saveFittedUnitJob();
     return;
   }
   roomColourNumbers[role] = number;
@@ -8291,7 +8440,7 @@ function addRoomColourInline(role) {
   setColourNumberOf(role, nextNumber);
   // The new colour is now available to the other pickers too, even
   // though only this one's selection actually changed.
-  ['wall','ceiling','woodwork','featurewall','panel','kitchen'].forEach(populateRoomColourChips);
+  ['wall','ceiling','woodwork','featurewall','panel','kitchen','fittedunit'].forEach(populateRoomColourChips);
 }
 
 // ── Exterior item colour chips ──────────────────────────────────────────────
@@ -8364,16 +8513,26 @@ var roomOverrides = {
 // twin, which is what Kitchen used to have (populateKitchenRangePicker/
 // onKitchenRangeSearchInput/selectKitchenRange/populateKitchenBandPicker/
 // onKitchenBandSelect).
-function overrideIdPrefix(role) { return role === 'kitchen' ? 'k' : 'r-'+role; }
+function overrideIdPrefix(role) { return role === 'kitchen' ? 'k' : role === 'fittedunit' ? 'fu' : 'r-'+role; }
 function overrideState(role) {
   if (role === 'kitchen') {
     var job = activeJob();
     return job ? ensureKitchenShape(job) : { range: '', band: null };
   }
+  // Fitted Unit: job.fittedUnit.range/band, persisted immediately -- the
+  // same job-level story as kitchen just above. Unlike kitchen it DOES
+  // have a Settings default to fall back to (the woodwork topcoat -- see
+  // computeRoleGroups' fittedunit fallback), hence the default placeholder
+  // wording in populateRoomOverridePicker below.
+  if (role === 'fittedunit') {
+    var fuJob = activeJob();
+    return fuJob ? ensureFittedUnitShape(fuJob) : { range: '', band: null };
+  }
   return roomOverrides[role];
 }
 function persistOverrideChange(role) {
   if (role === 'kitchen') saveKitchenJob();
+  if (role === 'fittedunit') saveFittedUnitJob();
 }
 
 function populateRoomOverridePicker(role) {
@@ -9017,6 +9176,186 @@ function updateKitchenTotals() {
   '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Kitchen total<small style="display:block;font-weight:400;color:var(--text2)">before markup</small></span><span class="breakdown-value" style="color:var(--accent)">'+fmt(c.total)+'</span></div>';
 }
 
+// ── Fitted Unit / Shelving calc ────────────────────────────────────────────
+// Job-level, single object (job.fittedUnit) -- the same per-job single-form
+// pattern as job.kitchen, NOT a room: a bespoke built-in (bookcase, media
+// unit) is priced by unit COUNT (shelves/bays/doors), never by wall m².
+// Unlike calcKitchen()'s flat £ rates, this calc is MINUTES-based like
+// rooms and doors: shelves are a fixed spray time each (top/underside/front
+// edge as one time-based unit -- fuShelfMins per coat pass), bays a fixed
+// carcass time each, and cabinet doors reuse the interior door rate pair
+// verbatim via doorMins(). Mins × rpm() means the complexity uplift can
+// stack on labour TIME before markup (same (1+pct) shape as
+// commercialRatio(), but per-item) and `time` feeds realisticDays()/
+// diary-day logic for real, where kitchen only approximates via total/dr.
+//
+// Prep level reuses the self-priming coat-swap idea: 'bare' (bare or
+// factory-primed joinery) = a full primer pass + 2 topcoats, 3 spray
+// passes and primer litres bought; 'painted' (already-painted unit) =
+// light key-sand + 2 topcoats, 2 passes and NO primer -- the "reduced
+// material multiplier" IS the dropped primer coat, exactly how the
+// self-priming toggles trade a primer coat elsewhere in this file.
+//
+// Materials follow the door/frame area×coats convention scaled to counts
+// (the exterior assumed-area precedent): per-shelf area and per-bay
+// carcass area come from Settings, doors use doorFaceAreaM2, all pooled
+// into topcoat/primer litres with calcRoom()'s same half-litre rounding
+// and 0.8 primer-volume proxy. Bay height/width exist ONLY for that
+// carcass litres estimate -- labour stays count-based by design.
+function calcFittedUnit(f) {
+  f = f || {};
+  var bays    = Math.max(0, +f.bayCount   || 0);
+  var shelves = Math.max(0, +f.shelfCount || 0);
+  var doors   = Math.max(0, +f.doorCount  || 0);
+  var bare = (f.prepLevel || 'bare') !== 'painted';
+  var topcoats = 2;
+  var passes = topcoats + (bare ? 1 : 0);
+  var shelfMins = shelves * (settings.fuShelfMins || 6) * passes;
+  var bayMins   = bays * (settings.fuBayMins || 15) * passes;
+  // doorMins() = flat door prep + coats × per-coat rate, per face -- the
+  // flat prep component doubles as the key-sand on a 'painted' unit, same
+  // as it covers a repaint's sand elsewhere. One face per door (cabinet
+  // doors are only ever painted from the front).
+  var doorMinsTotal = doors > 0 ? doors * doorMins(passes) : 0;
+  var baseMins = shelfMins + bayMins + doorMinsTotal;
+  var upliftPct = Math.max(0, +f.complexityUplift || 0);
+  var mins = baseMins * (1 + upliftPct / 100);
+  var r2 = rpm();
+  var total = mins * r2;
+  var time = mins / 60 / (settings.hpd || 7);
+  var shelfArea = settings.fuShelfAreaM2 != null ? settings.fuShelfAreaM2 : 0.5;
+  var bayAreaM2 = bays * Math.max(0, +f.bayHeightM || 0) * Math.max(0, +f.bayWidthM || 0)
+                  * (settings.fuBayAreaFactor != null ? settings.fuBayAreaFactor : 1.5);
+  var doorFaceArea = settings.doorFaceAreaM2 != null ? settings.doorFaceAreaM2 : 1.75;
+  var areaM2 = shelves * shelfArea + bayAreaM2 + doors * doorFaceArea;
+  // Primer basis mirrors topcoat coats (area × topcoats, then the 0.8
+  // volume proxy at conversion), matching otherWoodPrimerCoatM2/
+  // doorFrameAreaCoats() -- never a coat count of its own.
+  var topcoatCoatM2 = areaM2 * topcoats;
+  var primerCoatM2  = bare ? areaM2 * topcoats : 0;
+  var topcoatL = topcoatCoatM2 > 0 ? Math.ceil(topcoatCoatM2 / settings.cg * 2) / 2 : 0;
+  var primerL  = primerCoatM2  > 0 ? Math.ceil(primerCoatM2 / settings.cg * 0.8 * 2) / 2 : 0;
+  return { total: total, time: time,
+           shelfCost: shelfMins * r2, bayCost: bayMins * r2, doorCost: doorMinsTotal * r2,
+           upliftCost: baseMins * (upliftPct / 100) * r2, upliftPct: upliftPct,
+           passes: passes, topcoatL: topcoatL, primerL: primerL };
+}
+
+// ── Fitted Unit screen UI ──────────────────────────────────────────────────
+function ensureFittedUnitShape(job) {
+  if (!job.fittedUnit) job.fittedUnit = { bayCount: 0, bayHeightM: 2.4, bayWidthM: 0.9, shelfCount: 0, doorCount: 0, prepLevel: 'bare', complexityUplift: 0, colourNumber: 1, range: '', band: null };
+  var f = job.fittedUnit;
+  if (f.prepLevel == null) f.prepLevel = 'bare';
+  if (f.complexityUplift == null) f.complexityUplift = 0;
+  if (f.colourNumber == null) f.colourNumber = 1;
+  if (f.range == null) f.range = '';
+  return f;
+}
+
+function renderFittedUnit() {
+  var job = activeJob();
+  if (!job) return;
+  var f = ensureFittedUnitShape(job);
+  syncVariationRow('fu-variation-row', 'tog-fu-variation', !!f.isVariation);
+  document.getElementById('fu-bays').value    = f.bayCount || '';
+  document.getElementById('fu-bay-h').value   = f.bayHeightM || '';
+  document.getElementById('fu-bay-w').value   = f.bayWidthM || '';
+  document.getElementById('fu-shelves').value = f.shelfCount || '';
+  document.getElementById('fu-doors').value   = f.doorCount || '';
+  var prepVals = ['bare','painted'];
+  document.querySelectorAll('#seg-fu-prep .seg-btn').forEach(function(b,i){ b.classList.toggle('active', prepVals[i]===(f.prepLevel||'bare')); });
+  var upliftVals = [0,10,20];
+  document.querySelectorAll('#seg-fu-complexity .seg-btn').forEach(function(b,i){ b.classList.toggle('active', upliftVals[i]===(+f.complexityUplift||0)); });
+  populateRoomColourChips('fittedunit');
+  populateRoomOverridePicker('fittedunit');
+  updateFittedUnitTotals();
+}
+
+// No Save button (same pattern as Kitchen -- see saveKitchenJob()'s
+// comment): every change writes straight to job.fittedUnit and persists
+// via persistJobData()'s wholesale job.data PUT, which is also what makes
+// it serialise/sync -- and queue offline -- exactly like every other
+// job-data field. The calculated figures are stamped onto the object here
+// (spec's data model asks for them alongside the inputs) purely as a
+// serialised record -- pricing always recomputes live via calcFittedUnit(),
+// same as every other module, so they can never go stale in a quote.
+function saveFittedUnitJob() {
+  var job = activeJob();
+  if (!job) return;
+  if (job.fittedUnit) {
+    var c = calcFittedUnit(job.fittedUnit);
+    job.fittedUnit.calculatedLabour = Math.round(c.total * 100) / 100;
+    job.fittedUnit.calculatedMaterials = { topcoatL: c.topcoatL, primerL: c.primerL };
+    job.fittedUnit.total = job.fittedUnit.calculatedLabour;
+  }
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  updateFittedUnitTotals();
+}
+
+function onFittedUnitFieldChange(field, value) {
+  var job = activeJob(); if (!job) return;
+  var f = ensureFittedUnitShape(job);
+  f[field] = Math.max(0, +value || 0);
+  saveFittedUnitJob();
+}
+
+function setFittedUnitPrep(level) {
+  var job = activeJob(); if (!job) return;
+  var f = ensureFittedUnitShape(job);
+  f.prepLevel = level === 'painted' ? 'painted' : 'bare';
+  var prepVals = ['bare','painted'];
+  document.querySelectorAll('#seg-fu-prep .seg-btn').forEach(function(b,i){ b.classList.toggle('active', prepVals[i]===f.prepLevel); });
+  saveFittedUnitJob();
+}
+
+function setFittedUnitComplexity(pct) {
+  var job = activeJob(); if (!job) return;
+  var f = ensureFittedUnitShape(job);
+  f.complexityUplift = Math.max(0, +pct || 0);
+  var upliftVals = [0,10,20];
+  document.querySelectorAll('#seg-fu-complexity .seg-btn').forEach(function(b,i){ b.classList.toggle('active', upliftVals[i]===f.complexityUplift); });
+  saveFittedUnitJob();
+}
+
+// Same manual toggle as Kitchen (see toggleKitchenVariation()'s comment):
+// one persistent per-job form has no clean "added while accepted" moment
+// to auto-flag on.
+function toggleFittedUnitVariation() {
+  var job = activeJob(); if (!job) return;
+  var f = ensureFittedUnitShape(job);
+  f.isVariation = !f.isVariation;
+  document.getElementById('tog-fu-variation').classList.toggle('on', !!f.isVariation);
+  saveFittedUnitJob();
+  renderSummary();
+}
+
+function updateFittedUnitTotals() {
+  var job = activeJob(); if (!job || !job.fittedUnit) return;
+  var c = calcFittedUnit(job.fittedUnit);
+  var chip = document.getElementById('fu-chip');
+  if (chip) {
+    var marked = applyMarkupAmount(c.total);
+    chip.style.display = c.total>0 ? 'flex' : 'none';
+    chip.innerHTML = fmt(marked)+' <span style="font-weight:400;opacity:.75">quote</span>';
+  }
+  var card = document.getElementById('fu-breakdown-card');
+  var body = document.getElementById('fu-breakdown');
+  if (!card || !body) return;
+  var rows = [
+    ['Shelves ('+c.passes+' coat passes)', c.shelfCost],
+    ['Bay carcasses', c.bayCost],
+    ['Cabinet doors', c.doorCost],
+    ['Complexity/masking uplift (+'+c.upliftPct+'%)', c.upliftCost]
+  ].filter(function(r){ return r[1]>0; });
+  if (!rows.length) { card.style.display='none'; return; }
+  card.style.display='block';
+  body.innerHTML = rows.map(function(r) {
+    return '<div class="breakdown-row"><span class="breakdown-label">'+r[0]+'</span><span class="breakdown-value">'+fmt(r[1])+'</span></div>';
+  }).join('') +
+  '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Fitted unit total<small style="display:block;font-weight:400;color:var(--text2)">before markup · '+fmtD(c.time)+'</small></span><span class="breakdown-value" style="color:var(--accent)">'+fmt(c.total)+'</span></div>';
+}
+
 function setExtSeg(key, val) {
   extItemCoats[key] = val;
   document.querySelectorAll('#seg-'+key+' .seg-btn').forEach(function(b,i){b.classList.toggle('active',i+1===val);});
@@ -9353,7 +9692,7 @@ function _renderKitchenInner() {
   measureKitchenTotal = kc.total;
   if (!k || kc.total <= 0) {
     list.style.display='none';
-    updateMeasureChrome();
+    _renderFittedUnitInner();
     return;
   }
   list.style.display='block';
@@ -9362,6 +9701,32 @@ function _renderKitchenInner() {
     '<div class="room-info"><div class="room-name">Kitchen'+(k.isVariation?variationChipHtml(k):'')+'</div>'+
     '<div class="room-meta">'+fmtD(kc.time)+'</div></div>'+
     '<div class="room-cost">'+fmt(kc.total)+'</div>'+
+    '<div style="color:var(--text3);font-size:16px">›</div></div>';
+  _renderFittedUnitInner();
+}
+
+// Fitted Unit section of the combined Measure screen — the exact twin of
+// _renderKitchenInner() above (single per-job form, section shows once it
+// has a real total, no add/delete here). ensureFittedUnitShape() is NOT
+// called here either, so visiting Measure never creates job.fittedUnit.
+function _renderFittedUnitInner() {
+  var job = activeJob();
+  var list  = document.getElementById('fu-section-list');
+  var cards = document.getElementById('fu-section-cards');
+  var f = job && job.fittedUnit;
+  var fc = calcFittedUnit(f);
+  measureFittedUnitTotal = fc.total;
+  if (!f || fc.total <= 0) {
+    list.style.display='none';
+    updateMeasureChrome();
+    return;
+  }
+  list.style.display='block';
+  cards.innerHTML = '<div class="room-item" onclick="goScreen(\'fittedunit\')">'+
+    '<div class="room-icon">📚</div>'+
+    '<div class="room-info"><div class="room-name">Fitted Unit'+(f.isVariation?variationChipHtml(f):'')+'</div>'+
+    '<div class="room-meta">'+fmtD(fc.time)+'</div></div>'+
+    '<div class="room-cost">'+fmt(fc.total)+'</div>'+
     '<div style="color:var(--text3);font-size:16px">›</div></div>';
   updateMeasureChrome();
 }
@@ -9375,25 +9740,28 @@ function closeAddChooser() { document.getElementById('add-chooser').style.displa
 // Raw (pre-markup) totals from each half's last render, so the topbar chip
 // can show one combined figure. Markup is applied to the SUM — equivalent
 // to marking up each half since applyMarkupAmount is proportional.
-var measureRoomsTotal = 0, measureExtTotal = 0, measureKitchenTotal = 0;
+var measureRoomsTotal = 0, measureExtTotal = 0, measureKitchenTotal = 0, measureFittedUnitTotal = 0;
 function updateMeasureChrome() {
   var hasKitchen = measureKitchenTotal > 0;
-  var both = rooms.length === 0 && extItems.length === 0 && !hasKitchen;
+  var hasFittedUnit = measureFittedUnitTotal > 0;
+  var both = rooms.length === 0 && extItems.length === 0 && !hasKitchen && !hasFittedUnit;
   var empty = document.getElementById('measure-empty');
   if (empty) empty.style.display = both ? 'flex' : 'none';
   document.getElementById('rooms-section-head').style.display = rooms.length ? 'flex' : 'none';
   document.getElementById('ext-section-head').style.display = extItems.length ? 'flex' : 'none';
   document.getElementById('kitchen-section-head').style.display = hasKitchen ? 'block' : 'none';
+  document.getElementById('fu-section-head').style.display = hasFittedUnit ? 'block' : 'none';
   var chip = document.getElementById('home-chip'), sub = document.getElementById('home-sub');
   var note = document.getElementById('measure-cost-note');
   if (both) { chip.style.display = 'none'; sub.textContent = ''; if (note) note.style.display = 'none'; return; }
   if (note) note.style.display = 'block';
   chip.style.display = 'flex';
-  chip.innerHTML = fmt(applyMarkupAmount(measureRoomsTotal + measureExtTotal + measureKitchenTotal))+' <span style="font-weight:400;opacity:.75">quote</span>';
+  chip.innerHTML = fmt(applyMarkupAmount(measureRoomsTotal + measureExtTotal + measureKitchenTotal + measureFittedUnitTotal))+' <span style="font-weight:400;opacity:.75">quote</span>';
   var parts = [];
   if (rooms.length) parts.push(rooms.length + ' room' + (rooms.length === 1 ? '' : 's'));
   if (extItems.length) parts.push(extItems.length + ' ext');
   if (hasKitchen) parts.push('kitchen');
+  if (hasFittedUnit) parts.push('fitted unit');
   sub.textContent = parts.join(' · ');
 }
 
@@ -11664,6 +12032,9 @@ function renderSummary() {
   // guard can see it (BUG FIX: a kitchen-only job used to fall through to
   // the "no rooms yet" empty state and never render its own total at all).
   var kitchenCalc = calcKitchen(activeJob() && activeJob().kitchen);
+  // Fitted Unit: same "still a real total with zero rooms" reasoning as
+  // kitchen above -- a fitted-unit-only job must not fall into the empty state.
+  var fittedUnitCalc = calcFittedUnit(activeJob() && activeJob().fittedUnit);
   // lastSummaryTotals cleared on the empty path: an empty job renders no
   // Mark Accepted button so nothing can stamp from it, but a stale stash
   // from the PREVIOUS job must not linger either.
@@ -11673,14 +12044,14 @@ function renderSummary() {
   // jobs get their own compact summary instead. lastSummaryTotals stays
   // null: nothing engine-computed exists to stamp or schedule from.
   var impJob = activeJob();
-  if (rooms.length===0 && extItems.length===0 && kitchenCalc.total<=0
+  if (rooms.length===0 && extItems.length===0 && kitchenCalc.total<=0 && fittedUnitCalc.total<=0
       && impJob && impJob.acceptedSnapshot && impJob.acceptedSnapshot.importedFromXero) {
     empty.style.display='none'; data.style.display='block';
     lastSummaryTotals = null;
     data.innerHTML = importedJobSummaryHtml(impJob);
     return;
   }
-  if(rooms.length===0&&extItems.length===0&&kitchenCalc.total<=0){empty.style.display='flex';data.style.display='none';lastSummaryTotals=null;return;}
+  if(rooms.length===0&&extItems.length===0&&kitchenCalc.total<=0&&fittedUnitCalc.total<=0){empty.style.display='flex';data.style.display='none';lastSummaryTotals=null;return;}
   empty.style.display='none'; data.style.display='block';
   var tc=0,tt=0,sprayLabourS=0;
   // One calcRoom()/calcExtItem() evaluation per room/item for the whole
@@ -11700,7 +12071,7 @@ function renderSummary() {
   // markup/discount stack applyMarkupAmount() applies to the job total --
   // see its comment for the "commercial first, then markup" ordering.
   var commercialMult = 1 + commercialRatio();
-  var mu = markupRatio((rawRoomsTotal + rawExtTotal + kitchenCalc.total) * commercialMult);
+  var mu = markupRatio((rawRoomsTotal + rawExtTotal + kitchenCalc.total + fittedUnitCalc.total) * commercialMult);
   var rows=rooms.map(function(r,ri){
     var c=roomCalcs[ri]; tc+=c.total; tt+=c.time; sprayLabourS+=c.sprayLabour||0;
     // Per-element costs, read straight from calcRoom()'s return (the same
@@ -11802,7 +12173,8 @@ function renderSummary() {
   // kitchenCalc computed above (ahead of the empty-state guard) -- reused
   // here rather than calling calcKitchen() a second time.
   var kitchenTotal = kitchenCalc.total, kitchenTimeTotal = kitchenCalc.time;
-  var tcS=tc+extTotal+kitchenTotal; var ttS=tt+extTimeTotal+kitchenTimeTotal;
+  var fittedUnitTotal = fittedUnitCalc.total, fittedUnitTimeTotal = fittedUnitCalc.time;
+  var tcS=tc+extTotal+kitchenTotal+fittedUnitTotal; var ttS=tt+extTimeTotal+kitchenTimeTotal+fittedUnitTimeTotal;
 
   // ── Variations split (VARIATIONS_SPEC.md) ──
   // Flagged items are summed OUT of the quote-facing figures (deposit,
@@ -11813,7 +12185,7 @@ function renderSummary() {
   // /tins stay blind to the flag throughout (billed as actuals). All the
   // variation figures come from the ONE shared computation the On Site
   // card also renders from.
-  var vView = computeVariationsView(roomCalcs, extCalcs, kitchenCalc);
+  var vView = computeVariationsView(roomCalcs, extCalcs, kitchenCalc, fittedUnitCalc);
   var varLabour=vView.varLabour, varTime=vView.varTime, varSpray=vView.varSpray, varLines=vView.varLines;
   var freeVars=vView.freeVars, freeHoursDays=vView.freeHoursDays;
   var hasVariations=vView.hasVariations;
@@ -11840,7 +12212,7 @@ function renderSummary() {
     recalculateMaterialsSnapshot(mats);
   }
   var materialsTotal = materialsSnapshotTotal();
-  var allMatRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows, mats.featureWallRows, mats.panelRows, mats.masonryRows, mats.extTopcoatRows, mats.extPrimerRows);
+  var allMatRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows, mats.featureWallRows, mats.panelRows, mats.masonryRows, mats.extTopcoatRows, mats.extPrimerRows, mats.fuTopcoatRows, mats.fuPrimerRows);
   // Unmapped roles (no Xero product picked) have no real quantity/price to
   // make editable -- they stay exactly as before, a read-only litres/tin-
   // guess estimate contributing nothing to the total. Only rows that
@@ -12155,6 +12527,26 @@ function renderSummary() {
       '<div class="room-breakdown" id="kitchen-bd">'+ksub+'</div>'+
       '<div style="height:1px;background:var(--border)"></div>';
     })():'')+
+    (fittedUnitTotal>0?(function(){
+      var mk = commercialMult*(1+mu);
+      var fsub = [
+        ['Shelves ('+fittedUnitCalc.passes+' coat passes)', fittedUnitCalc.shelfCost],
+        ['Bay carcasses', fittedUnitCalc.bayCost],
+        ['Cabinet doors', fittedUnitCalc.doorCost],
+        ['Complexity/masking uplift (+'+fittedUnitCalc.upliftPct+'%)', fittedUnitCalc.upliftCost]
+      ].filter(function(r){ return r[1]>0; }).map(function(r){
+        return '<div class="breakdown-sub-row"><span class="breakdown-sub-label">'+r[0]+'</span><span class="breakdown-sub-value">'+fmt(r[1]*mk)+'</span></div>';
+      }).join('');
+      return '<div class="room-item room-item-tap" onclick="toggleRoomBd(this.dataset.id)" data-id="fu-bd" style="border-bottom:none">'+
+        '<div class="room-icon">📚</div>'+
+        '<div class="room-info"><div class="room-name">Fitted Unit</div>'+
+        '<div class="room-meta">'+fmtD(fittedUnitCalc.time)+'</div></div>'+
+        '<div class="room-cost">'+fmt(fittedUnitTotal*mk)+'</div>'+
+        '<div class="room-chevron-icon" id="chev-fu-bd">›</div>'+
+      '</div>'+
+      '<div class="room-breakdown" id="fu-bd">'+fsub+'</div>'+
+      '<div style="height:1px;background:var(--border)"></div>';
+    })():'')+
     '</div></div>'+
     '<div style="margin-top:16px"><div class="section-title" style="margin-bottom:8px">Cost Summary<small style="display:block;font-weight:400;text-transform:none;letter-spacing:normal;color:var(--text2)">Whole job, before materials</small></div>'+
     '<div class="card">'+
@@ -12248,20 +12640,22 @@ function renderSummary() {
 function openClientQuote() {
   var job = activeJob();
   var quoteKitchen = (job && job.kitchen && !job.kitchen.isVariation) ? job.kitchen : null;
+  var quoteFittedUnit = (job && job.fittedUnit && !job.fittedUnit.isVariation) ? job.fittedUnit : null;
   var quoteRooms = rooms.filter(function(r) { return !r.isVariation; });
   var quoteExtItems = extItems.filter(function(it) { return !it.isVariation; });
   var kitchenCalc = calcKitchen(quoteKitchen);
-  if (quoteRooms.length === 0 && quoteExtItems.length === 0 && kitchenCalc.total <= 0) {
+  var fittedUnitCalc = calcFittedUnit(quoteFittedUnit);
+  if (quoteRooms.length === 0 && quoteExtItems.length === 0 && kitchenCalc.total <= 0 && fittedUnitCalc.total <= 0) {
     alert('Nothing to preview yet — add rooms on the Measure tab first.');
     return;
   }
   var w = window.open('', '_blank');
   if (!w) { alert('Could not open the quote view — allow pop-ups for this app and try again.'); return; }
-  w.document.write(buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitchenCalc));
+  w.document.write(buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitchenCalc, fittedUnitCalc));
   w.document.close();
 }
 
-function buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitchenCalc) {
+function buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitchenCalc, fittedUnitCalc) {
   var tcS = 0, ttS = 0, sprayS = 0;
   var roomLines = quoteRooms.map(function(r) {
     var c = calcRoom(r);
@@ -12275,6 +12669,9 @@ function buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitc
   });
   if (kitchenCalc.total > 0.005) {
     tcS += kitchenCalc.total; ttS += kitchenCalc.time;
+  }
+  if (fittedUnitCalc.total > 0.005) {
+    tcS += fittedUnitCalc.total; ttS += fittedUnitCalc.time;
   }
   var chargeableMats = materialsSnapshot.filter(function(l) { return l.chargeable !== false; });
   var materialsTotal = chargeableMats.reduce(function(s, l) { return s + (+l.quantity || 0) * (+l.unitAmount || 0); }, 0);
@@ -12297,6 +12694,7 @@ function buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitc
   var workRows = roomLines.map(function(l) { return lineRow((l.emoji ? l.emoji + ' ' : '') + esc(l.name), '', l.raw * lineMult); }).join('')
     + extLines.map(function(l) { return lineRow(l.emoji + ' ' + esc(l.name), 'exterior', l.raw * lineMult); }).join('')
     + (kitchenCalc.total > 0.005 ? lineRow('🍳 Kitchen Cabinet Spraying', '', kitchenCalc.total * lineMult) : '')
+    + (fittedUnitCalc.total > 0.005 ? lineRow('📚 Fitted Unit / Shelving', '', fittedUnitCalc.total * lineMult) : '')
     + (plan.standalone.topUp > 0.005 ? lineRow('Standalone job — full diary days', plan.standalone.calcDays.toFixed(1) + ' calculated → ' + (plan.standalone.diaryDays % 1 === 0 ? plan.standalone.diaryDays.toFixed(0) : plan.standalone.diaryDays.toFixed(1)) + ' days charged', plan.standalone.topUp * lineMult) : '')
     + (plan.sundries > 0.005 ? lineRow('Sundries &amp; Consumables', '', plan.sundries * lineMult) : '');
 
@@ -12397,7 +12795,7 @@ function exportCSV() {
   // kitchen-only job (both legitimate -- neither requires a single room)
   // couldn't export a CSV at all. Checks all three sources, same as
   // renderSummary()'s empty-state guard.
-  if(rooms.length===0 && extItems.length===0 && calcKitchen(activeJob() && activeJob().kitchen).total<=0){alert('Nothing to export yet.');return;}
+  if(rooms.length===0 && extItems.length===0 && calcKitchen(activeJob() && activeJob().kitchen).total<=0 && calcFittedUnit(activeJob() && activeJob().fittedUnit).total<=0){alert('Nothing to export yet.');return;}
   var s=settings; var q=function(v){return '"'+String(v).replace(/"/g,'""')+'"';};
   var lines=[];
   lines.push([q('Nicky Hawkins Estimator')].join(','));
@@ -12426,11 +12824,14 @@ function exportCSV() {
   var kitchenCsvCalc = calcKitchen(activeJob() && activeJob().kitchen);
   var kitchenTotal = kitchenCsvCalc.total, kitchenTimeTotal = kitchenCsvCalc.time;
   if(kitchenTotal>0){lines.push([q('Kitchen'),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(kitchenTotal.toFixed(2)),q(kitchenTimeTotal.toFixed(2))].join(','));}
+  var fuCsvCalc = calcFittedUnit(activeJob() && activeJob().fittedUnit);
+  var fuCsvTotal = fuCsvCalc.total, fuCsvTimeTotal = fuCsvCalc.time;
+  if(fuCsvTotal>0){lines.push([q('Fitted Unit'),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(fuCsvTotal.toFixed(2)),q(fuCsvTimeTotal.toFixed(2))].join(','));}
   lines.push('');
-  var tcS=tc+extTotal+kitchenTotal;
+  var tcS=tc+extTotal+kitchenTotal+fuCsvTotal;
   // Standalone diary-day rounding on the CSV's own scope (all rooms listed
   // above, variations included) so its figures stay self-consistent.
-  var csvStandalone=standaloneInfo(tt+extTimeTotal+kitchenTimeTotal, tcS);
+  var csvStandalone=standaloneInfo(tt+extTimeTotal+kitchenTimeTotal+fuCsvTimeTotal, tcS);
   var total=applyMarkupAmount(tcS+csvStandalone.topUp);
   lines.push([q('Labour subtotal'),q(tcS.toFixed(2))].join(','));
   if(csvStandalone.topUp>0.005){
