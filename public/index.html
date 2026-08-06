@@ -1546,7 +1546,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.7.1</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.7.2</div>
 </div>
 </div>
 
@@ -7983,17 +7983,23 @@ async function createFinalInvoice() {
 
   var lines = [];
   s.labour.forEach(function(l) { if (!l.dropped) lines.push({ description: l.desc, quantity: 1, unitAmount: l.amount, accountCode: '201' }); });
-  if (!s.sundries.dropped && s.sundries.amount > 0.005) lines.push({ description: 'Sundries & Consumables', quantity: 1, unitAmount: s.sundries.amount, accountCode: '202' });
   s.variations.forEach(function(l) { if (!l.dropped) lines.push({ description: l.desc, quantity: 1, unitAmount: l.amount, accountCode: '201' }); });
-  if (s.variations.some(function(l) { return !l.dropped; }) && !s.varSundries.dropped && s.varSundries.amount > 0.005) {
-    lines.push({ description: 'Sundries — variations', quantity: 1, unitAmount: s.varSundries.amount, accountCode: '202' });
-  }
   var mats = s.materials.filter(function(l) { return !l.dropped; });
   if (mats.length) {
     lines.push({ description: 'MATERIALS' });
     mats.forEach(function(l) {
       lines.push({ description: l.desc, itemCode: l.itemCode || undefined, quantity: l.qty, unitAmount: l.unitAmount, accountCode: '202' });
     });
+  }
+  // Sundries LAST, at the bottom of the materials list -- the same "placed
+  // last on the quote (after materials), per request" rule the quote path
+  // (routes/xero.js create-quote) already follows; this invoice path used
+  // to push them straight after their labour lines instead. Both sundries
+  // lines sit together after the MATERIALS block: they're consumables
+  // (account 202), not labour, and that's where Nicky expects to read them.
+  if (!s.sundries.dropped && s.sundries.amount > 0.005) lines.push({ description: 'Sundries & Consumables', quantity: 1, unitAmount: s.sundries.amount, accountCode: '202' });
+  if (s.variations.some(function(l) { return !l.dropped; }) && !s.varSundries.dropped && s.varSundries.amount > 0.005) {
+    lines.push({ description: 'Sundries — variations', quantity: 1, unitAmount: s.varSundries.amount, accountCode: '202' });
   }
   // No deduction lines: per Nicky (2026-07-22), payments are applied in
   // Xero — the invoice goes out at the FULL amount and the deposit/
