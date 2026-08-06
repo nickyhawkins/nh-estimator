@@ -71,7 +71,7 @@ Cards top to bottom (some are collapsed — tap to open):
 - **Extras** — windows, radiators, and internal **window sills** (plastic windows with wooden sills).
 - **Wallpaper** — see [Wallpaper](#5-wallpaper) below.
 - **Mist Coat** — for new plaster; the **Manual area override** covers the "only part of it is new plaster" case.
-- **Panelling** — per-wall W×H rows, own coats (up to 4), own prep and own colour/product, independent of the room's settings.
+- **Panelling** — per-wall W×H rows, own coats (up to 4), own prep and own colour/product, independent of the room's settings. Each row's **−m² chip** (on by default for new walls) takes that wall's area off the room's wall area so it isn't also priced as wall paint — for half-height panelling enter just the panelled portion and the wall above stays in the room colour. Tap it off for panelling that isn't on a measured room wall (bath panel, under-stairs).
 - **Preparation** — the room's prep level; scales labour.
 - **Paint & Colour** — colour numbers per surface (walls / ceiling / woodwork / feature wall) and per-room **product overrides** for any of the roles when a room needs something other than your Settings defaults (primer can be set to "None").
 - **Preview** — the live estimated cost and time, updating as you type. It also shows for door/frame-only and feature-wall-only entries with no room dimensions.
