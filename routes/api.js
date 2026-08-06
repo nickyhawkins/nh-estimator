@@ -930,6 +930,10 @@ function templateJobData(d) {
     keep.kitchen = { ...d.kitchen };
     delete keep.kitchen.isVariation;
   }
+  if (d.fittedUnit) {
+    keep.fittedUnit = { ...d.fittedUnit };
+    delete keep.fittedUnit.isVariation;
+  }
   return keep;
 }
 const stripVariationFlag = (data) => {

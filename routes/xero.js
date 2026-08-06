@@ -718,7 +718,7 @@ router.get('/material-groups', async (req, res) => {
 
 // Create quote in Xero
 router.post('/create-quote', async (req, res) => {
-  const { clientName, jobName, xeroRef, rooms, exterior, kitchen, materials, settings, markup, markupType, commercial, commercialPct, standalone, standaloneTopUp, standaloneCalcDays, standaloneDiaryDays, paymentTerms, paymentSummary, contactId, newContact, updateQuoteId } = req.body;
+  const { clientName, jobName, xeroRef, rooms, exterior, kitchen, fittedUnit, materials, settings, markup, markupType, commercial, commercialPct, standalone, standaloneTopUp, standaloneCalcDays, standaloneDiaryDays, paymentTerms, paymentSummary, contactId, newContact, updateQuoteId } = req.body;
 
   try {
     const accessToken = await getAccessToken();
@@ -755,6 +755,7 @@ router.post('/create-quote', async (req, res) => {
     if (rooms) rooms.forEach(r => { rawLabourSubtotal += r.total; });
     if (exterior && exterior.cost > 0) rawLabourSubtotal += exterior.cost;
     if (kitchen && kitchen.cost > 0) rawLabourSubtotal += kitchen.cost;
+    if (fittedUnit && fittedUnit.cost > 0) rawLabourSubtotal += fittedUnit.cost;
     // Commercial job (estimating-app-edits.md): applies BEFORE markup/
     // discount, same order as the client's applyMarkupAmount() -- a flat £
     // markup's ratio is expressed against the commercial-adjusted base too,
@@ -823,6 +824,18 @@ router.post('/create-quote', async (req, res) => {
         Description: 'Kitchen Cabinet Spraying',
         Quantity: 1,
         UnitAmount: fmt(kitchen.cost * mu),
+        AccountCode: '201'
+      });
+    }
+
+    // Fitted Unit / Shelving -- same single per-job lump line as kitchen
+    // (job.fittedUnit is one config, not a list); the shelf/bay/door split
+    // is visible on the app's own Fitted Unit screen and Summary breakdown.
+    if (fittedUnit && fittedUnit.cost > 0) {
+      lineItems.push({
+        Description: 'Fitted Unit / Shelving',
+        Quantity: 1,
+        UnitAmount: fmt(fittedUnit.cost * mu),
         AccountCode: '201'
       });
     }
