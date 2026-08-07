@@ -251,8 +251,11 @@ Ships whole (table → API → view → add-missing → totals). ~~Reached from 
 - Labour lines carry over from the quote unchanged (quoted = billed). Only materials come from actuals.
 
 **Phase 3 — margin / calibration**
-- Cache `PurchaseDetails.UnitPrice` for accounts **311** (paint) and **314** (sundries) from the `/Items` call the app already makes — currently discarded by the `SalesDetails.AccountCode === '202'` filter. No new scope, no new request, no typing.
-- Margin per job = Σ(actual × 202) − Σ(actual × 311/314).
+
+> **Margin half BUILT 2026-08-07 (v2.11.0).** `groupMaterialItems()` keeps `purchasePrice` on both buckets, the client's `materialItemIndex` carries it, and the Job Profitability card (Summary, once Invoiced) prices used materials at Σ(actual × 311/314) with sell ÷ 1.2 as a flagged fallback for rows without a purchase price. Free-text rows are counted at face value with no markup assumed — "not in margin", per the rule below. The `/material-groups` server log reports how many items carried a purchase price: that's the live-payload verification (prices had only ever been seen in the CSV export). Cross-job calibration below remains unbuilt, still gated on history.
+
+- Cache `PurchaseDetails.UnitPrice` for accounts **311** (paint) and **314** (sundries) from the `/Items` call the app already makes — ~~currently discarded by the `SalesDetails.AccountCode === '202'` filter~~ **done (v2.11.0)**: the filter stays, `PurchaseDetails` is no longer discarded. No new scope, no new request, no typing.
+- Margin per job = Σ(actual × 202) − Σ(actual × 311/314). **Done (v2.11.0)** — surfaced as the Materials section of the Job Profitability card.
 - Cross-job calibration (is wall coverage really 11 m²/L? are the exterior assumed areas right?) needs history, so it lands naturally once Phase 1 has run on a few real jobs. Don't build it before there's data to look at.
 
 ## Xero notes

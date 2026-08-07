@@ -621,13 +621,21 @@ function groupMaterialItems(items) {
   const unmodellable = [];
   items.forEach(i => {
     const price = i.SalesDetails?.UnitPrice ?? null;
+    // The 311/314 purchase side, kept for the materials-margin view
+    // (material tracking Phase 3, MATERIAL_TRACKING_SPEC.md) — this line is
+    // the whole “lossy 202 filter” fix: the filter itself stays (every
+    // material item sells on 202), it just stops discarding PurchaseDetails.
+    // Which purchase ACCOUNT (311 paint / 314 sundries) is deliberately not
+    // carried — read whichever the item has, don't special-case (the spec's
+    // own rule); nothing downstream needs the account, only the price.
+    const purchasePrice = i.PurchaseDetails?.UnitPrice ?? null;
     // Code first, name second — see the bucket-order note above.
     if (SUNDRY_CODE_RE.test(i.Code || '')) {
       // Flat by design: no size, no band, no tin optimisation. The description
       // is the raw Xero name because that IS the product — there's no
       // range/band/size to rebuild it from, and a sundry's name is already
       // what it should read as on a quote.
-      sundries.push({ itemCode: i.Code, description: i.Name, price });
+      sundries.push({ itemCode: i.Code, description: i.Name, price, purchasePrice });
       return;
     }
     const { range, band, sizeL, trueL, isPerLitre } = parseItemName(i.Name);
@@ -637,7 +645,7 @@ function groupMaterialItems(items) {
     }
     if (!paint[range]) paint[range] = {};
     if (!paint[range][band]) paint[range][band] = [];
-    paint[range][band].push({ sizeL, trueL, price, itemCode: i.Code, isPerLitre });
+    paint[range][band].push({ sizeL, trueL, price, purchasePrice, itemCode: i.Code, isPerLitre });
   });
   Object.values(paint).forEach(bands =>
     Object.values(bands).forEach(sizes => sizes.sort((a, b) => a.sizeL - b.sizeL))
@@ -700,10 +708,17 @@ router.get('/material-groups', async (req, res) => {
     // means a parse regression is eating real paint, which is otherwise
     // silent. It is NOT expected to be zero, and treating it as an error
     // bucket is how the next LT-class bug would hide among the residents.
+    // The purchase-price count is the Phase 3 live-payload verification the
+    // specs demand (purchase prices had only ever been SEEN in the CSV
+    // export, never confirmed on the API): it should sit near the full item
+    // count. Zero means the API isn't returning PurchaseDetails after all
+    // and the profitability card is running entirely on its sell ÷ 1.2
+    // fallback — it says so on the card, but this line is where to confirm.
+    const withPurchase = salesItems.filter(i => +i.PurchaseDetails?.UnitPrice > 0).length;
     console.log(
       `Material groups: ${allItems.length} total items, ${salesItems.length} on account 202 -> ` +
       `${Object.keys(buckets.paint).length} paint ranges, ${buckets.sundries.length} sundries, ` +
-      `${buckets.unmodellable.length} unmodellable`
+      `${buckets.unmodellable.length} unmodellable; ${withPurchase}/${salesItems.length} carry a purchase price`
     );
     if (buckets.unmodellable.length) {
       console.log('  unmodellable: ' + buckets.unmodellable.map(u => u.itemCode).join(', '));
