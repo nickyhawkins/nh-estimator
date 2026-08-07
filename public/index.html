@@ -1620,7 +1620,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.10.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.11.0</div>
 </div>
 </div>
 
@@ -2718,8 +2718,13 @@ function rebuildMaterialItemIndex() {
   materialSundriesCache.forEach(function(item) {
     // Description verbatim from Xero -- never rebuilt from range/band/size,
     // which is what put "Quickgrip Adhesive ( 0.38ltr" on client quotes.
+    // purchasePrice (311/314 buy side, material tracking Phase 3) rides
+    // along where the server sent it — null against an older server or an
+    // item with no purchase details, and every consumer treats null as
+    // "cost unknown", so the two versions can mix freely.
     materialItemIndex.set(item.itemCode, {
       itemCode: item.itemCode, description: item.description, price: item.price,
+      purchasePrice: item.purchasePrice != null ? +item.purchasePrice : null,
       isSundry: true, isPerLitre: false
     });
   });
@@ -2729,7 +2734,8 @@ function rebuildMaterialItemIndex() {
         materialItemIndex.set(item.itemCode, {
           itemCode: item.itemCode,
           description: range + (band ? ' - ' + band : '') + ' ' + item.sizeL + 'ltr',
-          price: item.price, isSundry: false, isPerLitre: !!item.isPerLitre
+          price: item.price, isSundry: false, isPerLitre: !!item.isPerLitre,
+          purchasePrice: item.purchasePrice != null ? +item.purchasePrice : null
         });
       });
     });
@@ -7549,6 +7555,19 @@ function materialPriceFor(row) {
   return 0;
 }
 
+// The 311/314 buy price for a row: what the material actually costs
+// (material tracking Phase 3). Live index only — unlike the sell side there
+// is no snapshot copy and no typed override, and no ÷1.2 fallback HERE:
+// null means "cost unknown" and the caller decides what that means
+// (actualsTotals() approximates coded rows and takes free-text rows at
+// face value, each tallied so the profitability card can say so). A zero
+// purchase price in Xero reads as "not set", not "free" — treated as
+// unknown, same as the missing case.
+function materialPurchasePriceFor(row) {
+  var live = row.itemCode ? materialItemIndex.get(row.itemCode) : null;
+  return live && +live.purchasePrice > 0 ? +live.purchasePrice : null;
+}
+
 // What one unit of this row IS. Never assume tins: walls are whole tins,
 // ceiling/woodwork/mist are litres, and sundries are rolls, tubs and kilos with
 // the unit already in the Xero name. isSundry comes from the server's SUN rule
@@ -7764,13 +7783,38 @@ function actualsRowQuantity(row) {
 function actualsTotals() {
   var rows = buildActualsView();
   var estTotal = 0, actTotal = 0, outstanding = 0;
+  // Cost side (material tracking Phase 3): actCostTotal is what the used
+  // materials actually cost, priced per row at the real 311/314 purchase
+  // price where the live index has one. Rows it can't price for real are
+  // still counted — a cost total missing rows would understate silently —
+  // but each falls back differently and is tallied (in £ billed) so the
+  // profitability card can say what's approximate:
+  //   coded row, no purchase price (older server payload, or Xero really
+  //   doesn't return PurchaseDetails) -> sell ÷ 1.2, the price-list-wide
+  //   default markup, tallied in actApproxSell;
+  //   free-text row (no item code, price typed by hand) -> face value, no
+  //   markup assumed, tallied in actFreeTextSell — per the Phase 3 spec
+  //   these are "not in margin", never silently approximated.
+  var actCostTotal = 0, actApproxSell = 0, actFreeTextSell = 0;
   rows.forEach(function(r) {
     var price = materialPriceFor({ itemCode: r.itemCode, unitAmount: r.unitAmount });
+    var qty = actualsRowQuantity(r);
     estTotal += r.estimated * price;
-    actTotal += actualsRowQuantity(r) * price;
+    actTotal += qty * price;
+    var buy = materialPurchasePriceFor(r);
+    if (buy != null) {
+      actCostTotal += qty * buy;
+    } else if (r.itemCode) {
+      actCostTotal += qty * price / (1 + MATERIALS_MARKUP_PCT / 100);
+      actApproxSell += qty * price;
+    } else {
+      actCostTotal += qty * price;
+      actFreeTextSell += qty * price;
+    }
     if (!(r.actual && r.actual.bought)) outstanding++;
   });
-  return { rows: rows, estTotal: estTotal, actTotal: actTotal, outstanding: outstanding };
+  return { rows: rows, estTotal: estTotal, actTotal: actTotal, outstanding: outstanding,
+           actCostTotal: actCostTotal, actApproxSell: actApproxSell, actFreeTextSell: actFreeTextSell };
 }
 
 // Rendered rows, so the inline handlers can find a row by key without
@@ -12975,11 +13019,15 @@ function toggleRoomBd(id) {
 // recorded final-invoice total where one was built here; a job invoiced
 // directly in Xero falls back to quoted + approved variations, and says so.
 
-// Materials sell prices in Xero are trade cost × 1.2 across the price list
-// (SalesUnitPrice = PurchasesUnitPrice × 1.2 — see scripts/pricelists).
-// The purchase side isn't plumbed into the app (Phase 3,
-// MATERIAL_TRACKING_SPEC.md), so cost derives as sell ÷ 1.2 — exact for
-// nearly all items, slightly generous for the few on 10/15%.
+// FALLBACK materials markup, used only for a coded row the live index
+// can't price on the buy side (older server payload, or Xero not returning
+// PurchaseDetails). The real cost basis is the 311/314 purchase price per
+// item (material tracking Phase 3 — see materialPurchasePriceFor /
+// actualsTotals), which matters because this constant flatters the
+// premium brands: sell = cost × 1.2 holds across Tikkurila/Dulux/
+// Johnstone's/Crown/Zinsser, but Little Greene and F&B sit at 10% and
+// Benjamin Moore at 15%, so ÷ 1.2 overstates their markup by ~4–8% of
+// sell (≈ £10–16 on a designer 10L tin).
 var MATERIALS_MARKUP_PCT = 20;
 
 function computeProfitability(q) {
@@ -12995,10 +13043,17 @@ function computeProfitability(q) {
   var quotedDays = +q.quotedDays || 0;
   var days = labourLoggedTotal();
   var dayVariance = quotedDays > 0 && days > 0 ? Math.round((days - quotedDays) * 10) / 10 : null;
-  // Materials
-  var actualMaterials = 0;
-  try { actualMaterials = actualsTotals().actTotal; } catch (e) { /* actuals not loaded — treat as none logged */ }
-  var materialsCost = actualMaterials / (1 + MATERIALS_MARKUP_PCT / 100);
+  // Materials — cost at real 311/314 purchase prices per row, with the two
+  // fallback tallies riding along so the card can say what's approximate
+  // (see actualsTotals' comment for the per-row rules).
+  var actualMaterials = 0, materialsCost = 0, materialsApproxSell = 0, materialsFreeTextSell = 0;
+  try {
+    var at = actualsTotals();
+    actualMaterials = at.actTotal;
+    materialsCost = at.actCostTotal;
+    materialsApproxSell = at.actApproxSell;
+    materialsFreeTextSell = at.actFreeTextSell;
+  } catch (e) { /* actuals not loaded — treat as none logged */ }
   return {
     quotedTotal: q.quotedTotal, approvedVariations: q.approvedVariations,
     quotedAll: quotedAll, hasInvoiceTotal: hasInvoiceTotal,
@@ -13006,6 +13061,7 @@ function computeProfitability(q) {
     quotedDays: quotedDays, days: days, dayVariance: dayVariance,
     quotedMaterials: +q.quotedMaterials || 0,
     actualMaterials: actualMaterials, materialsCost: materialsCost,
+    materialsApproxSell: materialsApproxSell, materialsFreeTextSell: materialsFreeTextSell,
     markupBanked: actualMaterials - materialsCost
   };
 }
@@ -13073,13 +13129,24 @@ function profitabilityCardHtml(p, vView, job) {
     }
   }
 
-  // Materials — the markup slice on what was USED is banked regardless of
+  // Materials — the markup on what was USED is banked regardless of
   // whether the invoice was adjusted down (the saving passed on is the
-  // client's; the markup on real usage is not).
+  // client's; the markup on real usage is not). Cost is real purchase
+  // prices per item; the two fallback notes render only when some £ was
+  // actually priced without one, so the normal all-real case stays clean.
+  var costWhollyApprox = p.actualMaterials > 0.005 && p.materialsApproxSell >= p.actualMaterials - 0.005;
   var materials = section('Materials')+
     row('Quoted materials', 'with markup, as quoted', fmt(p.quotedMaterials))+
-    row('Actual materials cost', 'as used (On Site → Materials) — trade cost, sell ÷ 1.' + MATERIALS_MARKUP_PCT, fmt(p.materialsCost))+
-    row('Markup banked', MATERIALS_MARKUP_PCT + '% on materials used — banked whether or not the invoice was adjusted', fmt(p.markupBanked), { colour: 'var(--success)', bold: true });
+    row('Actual materials cost', 'as used (On Site → Materials)' + (costWhollyApprox ? ' — approximated, sell ÷ 1.2' : ' — at Xero purchase prices'), fmt(p.materialsCost))+
+    row('Markup banked', 'sell − cost on materials used — banked whether or not the invoice was adjusted', fmt(p.markupBanked), { colour: 'var(--success)', bold: true });
+  if (p.materialsApproxSell > 0.005 && !costWhollyApprox) {
+    materials += note(fmt(p.materialsApproxSell) + ' of materials have no Xero purchase price — their cost is approximated as sell ÷ 1.2. Refresh from Xero (☰ → Settings) may fill them in.');
+  } else if (costWhollyApprox) {
+    materials += note('No Xero purchase prices cached — all costs approximated as sell ÷ 1.2. Refresh from Xero (☰ → Settings) to price them for real.');
+  }
+  if (p.materialsFreeTextSell > 0.005) {
+    materials += note('Free-text lines (' + fmt(p.materialsFreeTextSell) + ' billed) have no purchase price — counted at face value, no markup assumed.');
+  }
 
   return '<div class="card" style="margin-top:16px">'+
     '<div class="card-header">Job Profitability</div>'+
