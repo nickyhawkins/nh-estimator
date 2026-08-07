@@ -1,6 +1,6 @@
 # NH Estimator — User Manual
 
-**For build v2.5.0** (5 August 2026). The build number you're running is shown at the bottom of the ☰ menu — if it doesn't match, the deploy hasn't landed yet.
+**For build v2.8.0** (7 August 2026). The build number you're running is shown at the bottom of the ☰ menu — if it doesn't match, the deploy hasn't landed yet.
 
 This is the how-to-use-it guide. For the developer changelog and feature history, see `FEATURES.md`.
 
@@ -8,6 +8,7 @@ This is the how-to-use-it guide. For the developer changelog and feature history
 
 ## What's new in this build
 
+- **Custom line items (v2.8.0).** The Measure **+** chooser has a new **Custom line** option for one-off items that don't fit any pricing model — "Install panelling — £450" as just a description and a price you type in, with an optional quantity (so "Extra sheet of ply — £40 × 2" works). Custom lines sit in their own section on Measure with a MANUAL tag so they never read as a calculation, are fully editable and swipe-deletable, and feed the quote total like any other line. Each line has an **Apply markup** toggle (on by default): on, the price joins the commercial/markup calculation like everything else; off, the price goes on the quote *exactly* as entered — for ad-hoc prices with the margin already baked in (a NO MARKUP tag shows on the line). They flow through to the Summary breakdown, the client-facing Quote ⤴ view, the Xero quote and the final invoice. No sundries % is added to them either way.
 - **Variation sign-off (v2.5.0).** Every variation on the On Site Variations card now carries a status — Pending, Approved or Declined. Tap **✓ Approved by client** to record the client's yes (with an optional note like "agreed via text 14 Aug" — the date is stamped automatically). Declined variations stay listed as a record but drop out of the totals and the final invoice. The invoice builder calls out anything still Pending before it's allowed on. VARIATION chips show the state at a glance: outlined = pending, filled = approved.
 - **Job profitability (v2.5.0).** Once a job is Invoiced, the Summary shows a read-only profitability card: what was quoted, what was invoiced, and the real cost — your Day Rate × the days actually logged in Time on site, plus materials as used — with the margin in £ and %. Recently invoiced jobs also show their margin on Home. Reference only; it changes nothing about pricing.
 - **Works properly offline (v2.5.0).** In a dead spot, edits (rooms, coats, colours, notes, On Site days and materials) queue on the phone — the sync dot goes red and says how many changes are waiting — and send themselves when signal returns. If the job was meanwhile edited from another device, the server's copy is kept and the app tells you, rather than leaving it to be discovered. Send to Xero, Sync to Xero and Build final invoice need a live connection and simply say so when offline.
@@ -51,7 +52,7 @@ Open **☰ → Jobs**. Each job holds its own rooms, exterior items, kitchen, co
 
 ## 3. Measuring a job
 
-On **Measure**, tap **+** and choose **Room**, **Exterior item** or **Kitchen**. **Quick add** lets you name every room first and measure on a second pass. The costs shown on Measure are your labour cost *before* markup — the customer-facing figure is on Summary.
+On **Measure**, tap **+** and choose **Room**, **Exterior item**, **Kitchen**, **Fitted Unit** or **Custom line**. **Quick add** lets you name every room first and measure on a second pass. The costs shown on Measure are your labour cost *before* markup — the customer-facing figure is on Summary.
 
 ### The room form
 
