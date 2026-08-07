@@ -930,9 +930,17 @@ function templateJobData(d) {
   ['materialsSeeded', 'markupOverride', 'markupType', 'commercial', 'templateId'].forEach(k => {
     if (d[k] !== undefined && d[k] !== null) keep[k] = d[k];
   });
+  // Custom line items are scope, same as rooms/kitchen -- they copy.
+  if (Array.isArray(d.customItems) && d.customItems.length > 0) {
+    keep.customItems = d.customItems;
+  }
   if (d.kitchen) {
     keep.kitchen = { ...d.kitchen };
     delete keep.kitchen.isVariation;
+  }
+  if (d.fittedUnit) {
+    keep.fittedUnit = { ...d.fittedUnit };
+    delete keep.fittedUnit.isVariation;
   }
   return keep;
 }

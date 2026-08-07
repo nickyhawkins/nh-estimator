@@ -718,7 +718,7 @@ router.get('/material-groups', async (req, res) => {
 
 // Create quote in Xero
 router.post('/create-quote', async (req, res) => {
-  const { clientName, jobName, xeroRef, rooms, exterior, kitchen, materials, settings, markup, markupType, commercial, commercialPct, paymentTerms, paymentSummary, contactId, newContact, updateQuoteId } = req.body;
+  const { clientName, jobName, xeroRef, rooms, exterior, kitchen, fittedUnit, custom, materials, settings, markup, markupType, commercial, commercialPct, standalone, standaloneTopUp, standaloneCalcDays, standaloneDiaryDays, paymentTerms, paymentSummary, contactId, newContact, updateQuoteId } = req.body;
 
   try {
     const accessToken = await getAccessToken();
@@ -755,13 +755,29 @@ router.post('/create-quote', async (req, res) => {
     if (rooms) rooms.forEach(r => { rawLabourSubtotal += r.total; });
     if (exterior && exterior.cost > 0) rawLabourSubtotal += exterior.cost;
     if (kitchen && kitchen.cost > 0) rawLabourSubtotal += kitchen.cost;
+    if (fittedUnit && fittedUnit.cost > 0) rawLabourSubtotal += fittedUnit.cost;
     // Commercial job (estimating-app-edits.md): applies BEFORE markup/
     // discount, same order as the client's applyMarkupAmount() -- a flat £
     // markup's ratio is expressed against the commercial-adjusted base too,
     // so "commercial first, then markup" holds for both markup modes here,
     // matching the app's own Summary breakdown exactly.
     const commercialMult = commercial ? 1 + ((commercialPct != null ? commercialPct : 10) / 100) : 1;
-    const afterCommercialBase = rawLabourSubtotal * commercialMult;
+    // Standalone diary-day rounding (client's standaloneInfo()): a raw
+    // pre-markup labour top-up that becomes its own 201 line below. It
+    // joins the markup-ratio base here (it's chargeable labour, same as
+    // the client's computeDepositPlan) but NOT the sundries base further
+    // down -- the quote's sundries % never applied to it client-side.
+    const standaloneAmount = standalone ? (+standaloneTopUp || 0) : 0;
+    // Custom line items (client's customItemsSplit()): the marked share
+    // takes commercial%+markup like labour, so it joins the fixed-£ ratio
+    // base here -- but NOT rawLabourSubtotal, whose other job is the
+    // sundries % base further down (typed-in prices carry no consumables).
+    // The flat share (markup toggled off client-side: margin already baked
+    // into the entered price) never sees mu at all -- its lines below go
+    // out exactly as entered.
+    const customItems = (custom && Array.isArray(custom.items)) ? custom.items : [];
+    const customMarkedTotal = custom ? (+custom.marked || 0) : 0;
+    const afterCommercialBase = (rawLabourSubtotal + standaloneAmount + customMarkedTotal) * commercialMult;
     const markupRatioVal = markupType === 'fixed'
       ? (afterCommercialBase > 0 ? markup / afterCommercialBase : 0)
       : (markup / 100);
@@ -821,6 +837,54 @@ router.post('/create-quote', async (req, res) => {
         Description: kitchen.description || 'Kitchen Cabinet Spraying',
         Quantity: 1,
         UnitAmount: fmt(kitchen.cost * mu),
+        AccountCode: '201'
+      });
+    }
+
+    // Fitted Unit / Shelving -- same single per-job lump line as kitchen
+    // (job.fittedUnit is one config, not a list); the shelf/bay/door split
+    // is visible on the app's own Fitted Unit screen and Summary breakdown.
+    if (fittedUnit && fittedUnit.cost > 0) {
+      lineItems.push({
+        Description: fittedUnit.description || 'Fitted Unit / Shelving',
+        Quantity: 1,
+        UnitAmount: fmt(fittedUnit.cost * mu),
+        AccountCode: '201'
+      });
+    }
+
+    // Custom line items -- itemised with their own description/qty/unit
+    // price, mirroring exterior's per-item lines. Marked lines get the
+    // same mu as every labour line above; markup-off lines go out at the
+    // entered price untouched (no commercial% either -- the client app
+    // adds them after applyMarkupAmount() entirely).
+    customItems.forEach(item => {
+      const qty = (+item.quantity > 0) ? +item.quantity : 1;
+      const unitPrice = +item.unitPrice || 0;
+      if (qty * unitPrice <= 0) return;
+      lineItems.push({
+        Description: item.description || 'Custom line',
+        Quantity: qty,
+        UnitAmount: fmt(item.applyMarkup === false ? unitPrice : unitPrice * mu),
+        AccountCode: '201'
+      });
+    });
+
+    // Standalone job diary-day rounding -- the labour top-up from charging
+    // full diary days rather than the fractional calculated days, as its
+    // own labelled line (after the per-room/exterior/kitchen labour it
+    // rounds up, before materials/sundries) so the client can see exactly
+    // what it covers. Same account and markup treatment as the labour
+    // lines above.
+    if (standaloneAmount > 0.005) {
+      const dayFig = (n) => (n % 1 === 0 ? n.toFixed(0) : n.toFixed(1));
+      const daysNote = (+standaloneCalcDays > 0 && +standaloneDiaryDays > 0)
+        ? ` (${(+standaloneCalcDays).toFixed(1)} days' work charged as ${dayFig(+standaloneDiaryDays)} full days on site)`
+        : '';
+      lineItems.push({
+        Description: 'Standalone job — diary day rounding' + daysNote,
+        Quantity: 1,
+        UnitAmount: fmt(standaloneAmount * mu),
         AccountCode: '201'
       });
     }

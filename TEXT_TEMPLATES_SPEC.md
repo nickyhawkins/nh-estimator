@@ -1,6 +1,6 @@
 # Quote & Invoice Text Templates — Spec
 
-**Status: BUILT 2026-08-07 (same day as scoping), v2.3.0.** Not to be confused with
+**Status: BUILT 2026-08-07 (same day as scoping), v2.9.0 — landed on top of v2.8.0 after a 27-commit catch-up merge.** Not to be confused with
 `JOB_TEMPLATES_SPEC.md`, which is job *duplication* — this is the 8 job-type
 *text* blocks that lived in iOS text-replacement shortcuts (";;paint" etc.),
 seeded verbatim from the reference copy Nicky supplied at build time.
@@ -31,12 +31,20 @@ seeded verbatim from the reference copy Nicky supplied at build time.
    (best-effort) — `{completedDate}` reads the last real on-site day, and the
    log was otherwise only loaded when the On Site screen opened.
 5. **Server passthrough**: `/auth/create-quote` reads
-   `room.description || room.name` (ditto exterior/kitchen) — the CLIENT
-   composes first-line-block/"same as above" because only it knows which
-   labour line is first across rooms/exterior/kitchen. Older clients
-   unaffected. `templateId` joined `templateJobData()`'s keep-list;
-   `textTemplates` joined `mergeSettings()`/`saveSettings()`'s carry-forwards
-   (both are whitelists — omission there would have silently wiped it).
+   `room.description || room.name` (ditto exterior/kitchen/fitted unit) —
+   the CLIENT composes first-line-block/"same as above" because only it
+   knows which labour line is first across rooms/exterior/kitchen/fitted
+   unit. Older clients unaffected. `templateId` joined `templateJobData()`'s
+   keep-list; `textTemplates` joined `mergeSettings()`/`saveSettings()`'s
+   carry-forwards (both are whitelists — omission there would have silently
+   wiped it).
+6. **v2.8.0-era lines** (from the catch-up merge): the Fitted Unit /
+   Shelving line joined the same-as-above chain (after kitchen, matching
+   the server's push order) and a fitted-unit-only job suggests the Fitted
+   Units template. Custom line items and the standalone diary-rounding
+   top-up are deliberately NOT in the chain — a custom item's description
+   IS its own text, and the top-up is a pricing note, not scope. A quote
+   with ONLY custom/standalone lines gets no block at all.
 
 Verified: 97-check node harness on the extracted renderer (pair/prefix/
 placeholder mechanics, gold renders of the Painting template against Nicky's
