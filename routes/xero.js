@@ -718,7 +718,7 @@ router.get('/material-groups', async (req, res) => {
 
 // Create quote in Xero
 router.post('/create-quote', async (req, res) => {
-  const { clientName, jobName, xeroRef, rooms, exterior, kitchen, fittedUnit, materials, settings, markup, markupType, commercial, commercialPct, standalone, standaloneTopUp, standaloneCalcDays, standaloneDiaryDays, paymentTerms, paymentSummary, contactId, newContact, updateQuoteId } = req.body;
+  const { clientName, jobName, xeroRef, rooms, exterior, kitchen, fittedUnit, custom, materials, settings, markup, markupType, commercial, commercialPct, standalone, standaloneTopUp, standaloneCalcDays, standaloneDiaryDays, paymentTerms, paymentSummary, contactId, newContact, updateQuoteId } = req.body;
 
   try {
     const accessToken = await getAccessToken();
@@ -768,7 +768,16 @@ router.post('/create-quote', async (req, res) => {
     // the client's computeDepositPlan) but NOT the sundries base further
     // down -- the quote's sundries % never applied to it client-side.
     const standaloneAmount = standalone ? (+standaloneTopUp || 0) : 0;
-    const afterCommercialBase = (rawLabourSubtotal + standaloneAmount) * commercialMult;
+    // Custom line items (client's customItemsSplit()): the marked share
+    // takes commercial%+markup like labour, so it joins the fixed-£ ratio
+    // base here -- but NOT rawLabourSubtotal, whose other job is the
+    // sundries % base further down (typed-in prices carry no consumables).
+    // The flat share (markup toggled off client-side: margin already baked
+    // into the entered price) never sees mu at all -- its lines below go
+    // out exactly as entered.
+    const customItems = (custom && Array.isArray(custom.items)) ? custom.items : [];
+    const customMarkedTotal = custom ? (+custom.marked || 0) : 0;
+    const afterCommercialBase = (rawLabourSubtotal + standaloneAmount + customMarkedTotal) * commercialMult;
     const markupRatioVal = markupType === 'fixed'
       ? (afterCommercialBase > 0 ? markup / afterCommercialBase : 0)
       : (markup / 100);
@@ -839,6 +848,23 @@ router.post('/create-quote', async (req, res) => {
         AccountCode: '201'
       });
     }
+
+    // Custom line items -- itemised with their own description/qty/unit
+    // price, mirroring exterior's per-item lines. Marked lines get the
+    // same mu as every labour line above; markup-off lines go out at the
+    // entered price untouched (no commercial% either -- the client app
+    // adds them after applyMarkupAmount() entirely).
+    customItems.forEach(item => {
+      const qty = (+item.quantity > 0) ? +item.quantity : 1;
+      const unitPrice = +item.unitPrice || 0;
+      if (qty * unitPrice <= 0) return;
+      lineItems.push({
+        Description: item.description || 'Custom line',
+        Quantity: qty,
+        UnitAmount: fmt(item.applyMarkup === false ? unitPrice : unitPrice * mu),
+        AccountCode: '201'
+      });
+    });
 
     // Standalone job diary-day rounding -- the labour top-up from charging
     // full diary days rather than the fractional calculated days, as its

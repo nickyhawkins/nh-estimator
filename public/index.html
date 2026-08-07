@@ -359,6 +359,16 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     <div id="fu-section-list" style="display:none">
       <div class="card" id="fu-section-cards"></div>
     </div>
+    <!-- Custom line items (ad-hoc description + price, no calc engine): a
+         per-job LIST like rooms/exterior (swipe delete, tap to edit), but
+         stored on the job object itself (job.customItems) like kitchen/
+         fittedUnit -- entered via the + chooser (showAddCustomItem). -->
+    <div class="section-title" id="custom-section-head" style="display:none">
+      <span>Custom Lines</span>
+    </div>
+    <div id="custom-section-list" style="display:none">
+      <div class="card" id="custom-cards"></div>
+    </div>
   </div>
   <button class="fab-quick" onclick="quickAddRooms()">Quick add</button>
   <button class="fab" onclick="openAddChooser()">+</button>
@@ -369,6 +379,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       <div class="nav-menu-item" onclick="closeAddChooser();showAddExterior()"><div>🏡&ensp;Exterior item</div><span class="nav-menu-arrow">›</span></div>
       <div class="nav-menu-item" onclick="closeAddChooser();goScreen('kitchen')"><div>🍳&ensp;Kitchen</div><span class="nav-menu-arrow">›</span></div>
       <div class="nav-menu-item" onclick="closeAddChooser();goScreen('fittedunit')"><div>📚&ensp;Fitted Unit</div><span class="nav-menu-arrow">›</span></div>
+      <div class="nav-menu-item" onclick="closeAddChooser();showAddCustomItem()"><div>✏️&ensp;Custom line</div><span class="nav-menu-arrow">›</span></div>
     </div>
   </div>
   <!-- Per-job site notes (SITE_NOTES_SPEC.md Part 1, tucked away per Nicky
@@ -1344,6 +1355,45 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
   <button class="fab" onclick="addColour()">+</button>
 </div>
 
+<!-- ══ ADD/EDIT CUSTOM LINE ══
+     A custom line item is just a description + price typed in directly --
+     no area/coat/labour engine behind it (see the Custom Lines section on
+     Measure). Same add/edit screen pattern as the exterior form: one screen,
+     editCustomId decides add vs edit, Save in the topbar, Delete only when
+     editing. The Apply-markup toggle exists because some ad-hoc prices
+     already have margin baked in -- ON by default so a custom line behaves
+     like every other line item unless deliberately switched. -->
+<div id="screen-customform" class="screen">
+  <div class="topbar">
+    <button class="back-btn" onclick="goBack()">←</button>
+    <div class="topbar-title" id="customform-title">Add Custom Line</div>
+    <button class="btn-ghost btn" onclick="saveCustomItem()" style="padding:8px 12px;font-size:15px">Save</button>
+  </div>
+  <div class="content">
+    <div class="card">
+      <div class="card-header">Custom Line<small style="text-transform:none;letter-spacing:normal;font-weight:400"> — manual description &amp; price, no calculation behind it</small></div>
+      <div class="field-row">
+        <div class="field-label">Description<small>e.g. Install panelling to hallway</small></div>
+        <input type="text" class="field-input wide" id="cu-desc" placeholder="e.g. Install panelling" autocorrect="off" oninput="previewCustomItem()">
+      </div>
+      <div class="field-row"><div class="field-label">Unit price<small>£ ex VAT, entered directly</small></div><input type="number" class="field-input" id="cu-price" placeholder="0" min="0" step="0.01" inputmode="decimal" oninput="previewCustomItem()"></div>
+      <div class="field-row"><div class="field-label">Quantity<small>default 1</small></div><input type="number" class="field-input" id="cu-qty" value="1" min="1" step="1" inputmode="numeric" oninput="previewCustomItem()"></div>
+      <div class="breakdown-row" style="border-top:1px solid var(--border);background:var(--accent-faint)">
+        <span class="breakdown-label" style="font-weight:600;color:var(--text)">Line total (ex markup)</span>
+        <span class="breakdown-value" style="color:var(--accent);font-weight:700" id="cu-total">—</span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Markup</div>
+      <div class="toggle-row">
+        <div class="toggle-label">Apply markup<small>On = joins the quote's commercial/markup calculation like any other line. Off = the price above goes on the quote exactly as entered (margin already baked in)</small></div>
+        <div class="toggle on" id="tog-cu-markup" onclick="toggleCustomApplyMarkup()"></div>
+      </div>
+    </div>
+    <button class="btn btn-danger" id="del-custom-btn" style="display:none" onclick="deleteCustomItem()">Delete</button>
+  </div>
+</div>
+
 <!-- ══ ADD/EDIT EXTERIOR ══ -->
 <div id="screen-extform" class="screen">
   <div class="topbar">
@@ -1546,7 +1596,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.7.2</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.8.0</div>
 </div>
 </div>
 
@@ -2687,6 +2737,15 @@ async function createXeroQuote(forceNew) {
     // one Xero line (see routes/xero.js).
     var fuXeroCalc = calcFittedUnit(quoteFittedUnit);
     var fuTotal = fuXeroCalc.total, fuTimeTotal = fuXeroCalc.time;
+    // Custom line items: itemised like exterior (each line keeps its own
+    // description/qty/price on the quote). The marked/flat split travels
+    // with them so routes/xero.js can put the marked share in the markup
+    // base and leave the flat share exactly as entered.
+    var customQuoteItems = jobCustomItems(activeJob()).map(function(it) {
+      return { description: it.description, quantity: (+it.quantity > 0) ? +it.quantity : 1,
+               unitPrice: +it.unitPrice || 0, applyMarkup: it.applyMarkup !== false };
+    });
+    var customQuoteSplit = customItemsSplit(activeJob());
 
     // Materials sent to Xero come from the editable snapshot, not a fresh
     // live calculation -- that's the whole point of the snapshot (see
@@ -2713,7 +2772,7 @@ async function createXeroQuote(forceNew) {
     tcS += extTotal + kitchenTotal + fuTotal;
     ttS += extTimeTotal + kitchenTimeTotal + fuTimeTotal;
     var onSiteDays = realisticDays(ttS);
-    var depositPlan = computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabourS, ttS);
+    var depositPlan = computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabourS, ttS, customQuoteSplit.marked, customQuoteSplit.flat);
     var paymentTerms = buildPaymentTermsText(depositPlan, activeJob() && activeJob().startDate);
     var paymentSummary = buildPaymentSummaryText(depositPlan);
 
@@ -2744,6 +2803,7 @@ async function createXeroQuote(forceNew) {
         exterior: { cost: extTotal, items: exteriorData },
         kitchen: { cost: kitchenTotal },
         fittedUnit: { cost: fuTotal },
+        custom: { items: customQuoteItems, marked: customQuoteSplit.marked, flat: customQuoteSplit.flat },
         materials: materials,
         settings: settings,
         markup: effectiveMarkup(),
@@ -3427,7 +3487,7 @@ function persistJobData(job) {
   // semantics (the whole job blob is sent every time).
   // NB `standalone` is v2.4.2's fix (the toggle never persisted without
   // it) — it must stay in this list.
-  apiPut('/api/jobs/'+job.id, { xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, notes: job.notes, kitchen: job.kitchen, fittedUnit: job.fittedUnit });
+  apiPut('/api/jobs/'+job.id, { xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, notes: job.notes, kitchen: job.kitchen, fittedUnit: job.fittedUnit, customItems: job.customItems });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -6077,7 +6137,18 @@ function realisticDays(workingDays) {
 // multi-week derivation) through to deposit/balance/weekly instalments --
 // used by renderSummary() AND createXeroQuote() (for the quote's Terms
 // text) so the two can never show different figures for the same job.
-function computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabour, workingDays) {
+// customMarked/customFlat: custom line items' raw £ (see customItemsSplit).
+// The marked share joins the commercial%+markup base alongside labour --
+// INSIDE the one applyMarkupAmount() call so a fixed-£ markup is still
+// added exactly once -- but deliberately NOT the sundries base (typed-in
+// prices aren't modelled labour; no consumables % applies) nor the
+// standalone top-up's labour subtotal. The flat share (markup toggled off:
+// margin already baked into the entered price) lands on the job total
+// verbatim, after markup. Callers written before these params existed pass
+// nothing, which safely means no custom items.
+function computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabour, workingDays, customMarked, customFlat) {
+  customMarked = +customMarked || 0;
+  customFlat = +customFlat || 0;
   var sundriesPct = (settings.sundriesPct||0)/100;
   // sprayLabour: summed labour of just the spray-toggled rooms (each room's
   // calcRoom().sprayLabour) -- masking film/tape/paper on top of normal
@@ -6094,8 +6165,8 @@ function computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabour, workin
   // rides along so the top-up lands the charge exactly on diary days x
   // day rate (see standaloneInfo()).
   var standalone = standaloneInfo(workingDays, tcS);
-  var labourTotal = applyMarkupAmount(tcS+standalone.topUp+sundries);
-  var total = labourTotal + materialsTotal;
+  var labourTotal = applyMarkupAmount(tcS+standalone.topUp+sundries+customMarked);
+  var total = labourTotal + customFlat + materialsTotal;
 
   // Deposit: Nicky's actual Terms of Business read "25% of quotation or cost
   // of materials, sundries and equipment, whichever the greater" -- so this
@@ -7746,6 +7817,12 @@ function buildFinalInvoiceModel() {
   if (standaloneInv.topUp > 0.005) {
     labour.push({ id: 'standalone', desc: 'Standalone job — diary day rounding (' + standaloneInv.calcDays.toFixed(1) + ' → ' + (standaloneInv.diaryDays % 1 === 0 ? standaloneInv.diaryDays.toFixed(0) : standaloneInv.diaryDays.toFixed(1)) + ' days)', raw: standaloneInv.topUp });
   }
+  // Custom line items, as the quote billed them: the marked share joins the
+  // fixed-£ markup base (same as the standalone top-up above), the flat
+  // share reproduces the entered price untouched. Neither joins rawOrig --
+  // the quote's sundries % never applied to typed-in prices. Lines pushed
+  // AFTER the muInv pass below with their own explicit amounts.
+  var customInvSplit = customItemsSplit(job);
   // Commercial job adjustment applies before markup here too, same order as
   // applyMarkupAmount() -- the invoice must reproduce the quote's figures
   // exactly (this whole function's premise), so it can't skip commercial%
@@ -7753,9 +7830,15 @@ function buildFinalInvoiceModel() {
   // applyMarkupAmount() (a manual per-line multiplier is needed here since
   // labour lines need their OWN £ amount, not just a job-wide total).
   var commercialMultInv = 1 + commercialRatio();
-  var afterCommercialRawOrig = (rawOrig + standaloneInv.topUp) * commercialMultInv;
+  var afterCommercialRawOrig = (rawOrig + standaloneInv.topUp + customInvSplit.marked) * commercialMultInv;
   var muInv = commercialMultInv * (fixed ? 1 + (afterCommercialRawOrig > 0 ? muVal / afterCommercialRawOrig : 0) : 1 + muVal / 100);
   labour.forEach(function(l) { l.amount = l.raw * muInv; l.dropped = false; });
+  jobCustomItems(job).forEach(function(it, i) {
+    var t = customItemTotal(it);
+    if (t <= 0.005) return;
+    labour.push({ id: 'cu' + i, desc: (it.description || 'Custom line') + (it.applyMarkup === false ? ' (fixed price)' : ''),
+      raw: t, amount: it.applyMarkup === false ? t : t * muInv, dropped: false });
+  });
   // Xero-imported jobs (importAcceptedQuote()) stamp the already-agreed
   // total onto acceptedSnapshot.estQuoteTotal with zero rooms, so rawOrig/
   // labour above see nothing for that scope even after real rooms get added
@@ -7845,7 +7928,7 @@ function buildFinalInvoiceModel() {
   // Deduction prefills from the plan: what SHOULD have been invoiced.
   // Nicky corrects against what actually was — Xero knows the truth, and
   // reading it back is deliberate later-scope (spec).
-  var plan = computeDepositPlan(rawOrig, materialsSnapshotTotal(), realisticDays(ttOrig), sprayOrig, ttOrig);
+  var plan = computeDepositPlan(rawOrig, materialsSnapshotTotal(), realisticDays(ttOrig), sprayOrig, ttOrig, customInvSplit.marked, customInvSplit.flat);
   return {
     labour: labour, sundries: { amount: sundries, dropped: false },
     variations: variations, varSundries: { amount: varSundries, dropped: false },
@@ -9743,7 +9826,7 @@ function _renderFittedUnitInner() {
   measureFittedUnitTotal = fc.total;
   if (!f || fc.total <= 0) {
     list.style.display='none';
-    updateMeasureChrome();
+    _renderCustomInner();
     return;
   }
   list.style.display='block';
@@ -9753,6 +9836,190 @@ function _renderFittedUnitInner() {
     '<div class="room-meta">'+fmtD(fc.time)+'</div></div>'+
     '<div class="room-cost">'+fmt(fc.total)+'</div>'+
     '<div style="color:var(--text3);font-size:16px">›</div></div>';
+  _renderCustomInner();
+}
+
+// ── Custom line items (ad-hoc description + price) ─────────────────────────
+// A quote sometimes needs a one-off line that fits no structured pricing
+// model -- "Install panelling — £450" -- just a description and a price
+// typed in directly, no area/coat/labour engine behind it. Stored ON the
+// job object (job.customItems, an array) like kitchen/fittedUnit rather
+// than as an own synced collection: persistJobData()'s offline-queued blob
+// carries them, so they ride the same offline story as job status/notes
+// with no new API route or table.
+// Shape per item: { id, type:'customLineItem', description, quantity,
+// unitPrice, total, applyMarkup }. total is stored as saved (qty x unit
+// price) purely so the serialised record is self-describing -- every live
+// figure recomputes via customItemTotal() so a stale total can never
+// disagree with qty x price.
+// applyMarkup (default ON): whether the line joins the quote's commercial%
+// + markup base like every other line item, or goes on the quote exactly
+// as entered (an ad-hoc price with margin already baked in). Either way a
+// custom line contributes NO time and NO sundries -- sundries % recovers
+// consumables on modelled labour, which this deliberately isn't.
+function jobCustomItems(job) {
+  job = job || activeJob();
+  return (job && Array.isArray(job.customItems)) ? job.customItems : [];
+}
+
+function customItemTotal(it) {
+  var qty = (+it.quantity > 0) ? +it.quantity : 1;
+  return qty * (+it.unitPrice || 0);
+}
+
+// Raw £ split by markup treatment -- 'marked' joins the same base
+// applyMarkupAmount() works on, 'flat' is added to the job total verbatim.
+function customItemsSplit(job) {
+  var marked = 0, flat = 0;
+  jobCustomItems(job).forEach(function(it) {
+    var t = customItemTotal(it);
+    if (it.applyMarkup === false) flat += t; else marked += t;
+  });
+  return { marked: marked, flat: flat, total: marked + flat };
+}
+
+// The small MANUAL tag on every custom line row -- same chip pattern as
+// variationChipHtml(), so a typed-in price never reads as a calculation
+// output (or a calculation error) next to the engine-priced rows.
+function manualChipHtml(it) {
+  var base = 'font-size:10px;font-weight:700;letter-spacing:.03em;border-radius:8px;padding:1px 6px;white-space:nowrap';
+  return ' <span style="'+base+';border:1px solid var(--text3);color:var(--text3)" title="Manual price — entered directly, no calculation behind it">MANUAL</span>'
+    + (it && it.applyMarkup === false ? ' <span style="'+base+';border:1px solid var(--warn,#f39c12);color:var(--warn,#f39c12)" title="Goes on the quote exactly as entered — no markup applied">NO MARKUP</span>' : '');
+}
+
+// One localStorage+server write for the whole list, via the same
+// persistJobData() blob every other job-level field uses (offline queue
+// included) -- there's no per-item endpoint to talk to.
+function saveCustomItems() {
+  var job = activeJob();
+  if (!job) return;
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+}
+
+var editCustomId = null;
+var customApplyMarkup = true;
+
+function openCustomForm() {
+  inSub = 'customform';
+  document.querySelectorAll('.screen').forEach(function(s){ s.classList.remove('active'); });
+  document.getElementById('screen-customform').classList.add('active');
+}
+
+function showAddCustomItem() {
+  editCustomId = null;
+  customApplyMarkup = true;
+  document.getElementById('customform-title').textContent = 'Add Custom Line';
+  document.getElementById('cu-desc').value = '';
+  document.getElementById('cu-price').value = '';
+  document.getElementById('cu-qty').value = '1';
+  document.getElementById('tog-cu-markup').classList.add('on');
+  document.getElementById('del-custom-btn').style.display = 'none';
+  previewCustomItem();
+  openCustomForm();
+}
+
+function editCustomItem(id) {
+  var it = jobCustomItems().find(function(x){ return x.id === id; });
+  if (!it) return;
+  editCustomId = id;
+  customApplyMarkup = it.applyMarkup !== false;
+  document.getElementById('customform-title').textContent = 'Edit Custom Line';
+  document.getElementById('cu-desc').value = it.description || '';
+  document.getElementById('cu-price').value = it.unitPrice != null ? it.unitPrice : '';
+  document.getElementById('cu-qty').value = (+it.quantity > 0) ? +it.quantity : 1;
+  document.getElementById('tog-cu-markup').classList.toggle('on', customApplyMarkup);
+  document.getElementById('del-custom-btn').style.display = 'block';
+  previewCustomItem();
+  openCustomForm();
+}
+
+function toggleCustomApplyMarkup() {
+  customApplyMarkup = !customApplyMarkup;
+  document.getElementById('tog-cu-markup').classList.toggle('on', customApplyMarkup);
+}
+
+function previewCustomItem() {
+  var qty = +document.getElementById('cu-qty').value;
+  if (!(qty > 0)) qty = 1;
+  var price = +document.getElementById('cu-price').value || 0;
+  document.getElementById('cu-total').textContent = fmt(qty * price);
+}
+
+function saveCustomItem() {
+  var job = activeJob();
+  if (!job) return;
+  var desc = document.getElementById('cu-desc').value.trim();
+  if (!desc) { alert('Give the custom line a description first.'); return; }
+  var qty = +document.getElementById('cu-qty').value;
+  if (!(qty > 0)) qty = 1;
+  var price = +document.getElementById('cu-price').value || 0;
+  var item = {
+    id: editCustomId || uid(),
+    type: 'customLineItem',
+    description: desc,
+    quantity: qty,
+    unitPrice: Math.round(price * 100) / 100,
+    total: Math.round(qty * price * 100) / 100,
+    applyMarkup: customApplyMarkup
+  };
+  if (!Array.isArray(job.customItems)) job.customItems = [];
+  if (editCustomId) {
+    var idx = job.customItems.findIndex(function(x){ return x.id === editCustomId; });
+    if (idx >= 0) job.customItems[idx] = item; else job.customItems.push(item);
+  } else {
+    job.customItems.push(item);
+  }
+  saveCustomItems();
+  goBack();
+}
+
+function deleteCustomItem() {
+  var job = activeJob();
+  if (!job || !editCustomId) return;
+  job.customItems = jobCustomItems(job).filter(function(x){ return x.id !== editCustomId; });
+  saveCustomItems();
+  goBack();
+}
+
+// Swipe-to-delete path for the Measure list -- same by-id entry point +
+// confirm rationale as deleteExtItemFromList.
+function deleteCustomItemFromList(id) {
+  if (!confirm('Delete this custom line?')) return;
+  var job = activeJob();
+  if (!job) return;
+  job.customItems = jobCustomItems(job).filter(function(x){ return x.id !== id; });
+  saveCustomItems();
+  renderHome();
+}
+
+// Custom Lines section of the combined Measure screen -- last link in the
+// render chain (rooms → exterior → kitchen → fitted unit → here), so it
+// closes with the shared updateMeasureChrome() the earlier links defer to.
+function _renderCustomInner() {
+  var job = activeJob();
+  var list  = document.getElementById('custom-section-list');
+  var cards = document.getElementById('custom-cards');
+  var items = jobCustomItems(job);
+  var split = customItemsSplit(job);
+  measureCustomMarkedTotal = split.marked;
+  measureCustomFlatTotal = split.flat;
+  if (items.length === 0) {
+    list.style.display='none';
+    updateMeasureChrome();
+    return;
+  }
+  list.style.display='block';
+  cards.innerHTML = items.map(function(it) {
+    var qty = (+it.quantity > 0) ? +it.quantity : 1;
+    return swipeDeleteWrap('deleteCustomItemFromList', it.id,
+      '<div class="room-item" onclick="editCustomItem(this.dataset.id)" data-id="'+it.id+'">'+
+      '<div class="room-icon">✏️</div>'+
+      '<div class="room-info"><div class="room-name">'+escapeHtml(it.description||'Custom line')+manualChipHtml(it)+'</div>'+
+      '<div class="room-meta">'+(qty !== 1 ? qty+' × '+fmt(+it.unitPrice||0) : 'manual price')+'</div></div>'+
+      '<div class="room-cost">'+fmt(customItemTotal(it))+'</div>'+
+      '<div style="color:var(--text3);font-size:16px">›</div></div>');
+  }).join('');
   updateMeasureChrome();
 }
 
@@ -9766,27 +10033,34 @@ function closeAddChooser() { document.getElementById('add-chooser').style.displa
 // can show one combined figure. Markup is applied to the SUM — equivalent
 // to marking up each half since applyMarkupAmount is proportional.
 var measureRoomsTotal = 0, measureExtTotal = 0, measureKitchenTotal = 0, measureFittedUnitTotal = 0;
+// Custom line items: raw £ split by markup treatment (see customItemsSplit)
+// -- the marked share joins the chip's applyMarkupAmount() base, the flat
+// share is added on top verbatim.
+var measureCustomMarkedTotal = 0, measureCustomFlatTotal = 0;
 function updateMeasureChrome() {
   var hasKitchen = measureKitchenTotal > 0;
   var hasFittedUnit = measureFittedUnitTotal > 0;
-  var both = rooms.length === 0 && extItems.length === 0 && !hasKitchen && !hasFittedUnit;
+  var customCount = jobCustomItems().length;
+  var both = rooms.length === 0 && extItems.length === 0 && !hasKitchen && !hasFittedUnit && customCount === 0;
   var empty = document.getElementById('measure-empty');
   if (empty) empty.style.display = both ? 'flex' : 'none';
   document.getElementById('rooms-section-head').style.display = rooms.length ? 'flex' : 'none';
   document.getElementById('ext-section-head').style.display = extItems.length ? 'flex' : 'none';
   document.getElementById('kitchen-section-head').style.display = hasKitchen ? 'block' : 'none';
   document.getElementById('fu-section-head').style.display = hasFittedUnit ? 'block' : 'none';
+  document.getElementById('custom-section-head').style.display = customCount ? 'block' : 'none';
   var chip = document.getElementById('home-chip'), sub = document.getElementById('home-sub');
   var note = document.getElementById('measure-cost-note');
   if (both) { chip.style.display = 'none'; sub.textContent = ''; if (note) note.style.display = 'none'; return; }
   if (note) note.style.display = 'block';
   chip.style.display = 'flex';
-  chip.innerHTML = fmt(applyMarkupAmount(measureRoomsTotal + measureExtTotal + measureKitchenTotal + measureFittedUnitTotal))+' <span style="font-weight:400;opacity:.75">quote</span>';
+  chip.innerHTML = fmt(applyMarkupAmount(measureRoomsTotal + measureExtTotal + measureKitchenTotal + measureFittedUnitTotal + measureCustomMarkedTotal) + measureCustomFlatTotal)+' <span style="font-weight:400;opacity:.75">quote</span>';
   var parts = [];
   if (rooms.length) parts.push(rooms.length + ' room' + (rooms.length === 1 ? '' : 's'));
   if (extItems.length) parts.push(extItems.length + ' ext');
   if (hasKitchen) parts.push('kitchen');
   if (hasFittedUnit) parts.push('fitted unit');
+  if (customCount) parts.push(customCount + ' custom');
   sub.textContent = parts.join(' · ');
 }
 
@@ -12133,6 +12407,10 @@ function renderSummary() {
   // Fitted Unit: same "still a real total with zero rooms" reasoning as
   // kitchen above -- a fitted-unit-only job must not fall into the empty state.
   var fittedUnitCalc = calcFittedUnit(activeJob() && activeJob().fittedUnit);
+  // Custom line items: same reasoning again -- a job holding only typed-in
+  // custom lines is a real quote. Split once here for every use below.
+  var customItems = jobCustomItems(activeJob());
+  var customSplit = customItemsSplit(activeJob());
   // lastSummaryTotals cleared on the empty path: an empty job renders no
   // Mark Accepted button so nothing can stamp from it, but a stale stash
   // from the PREVIOUS job must not linger either.
@@ -12142,14 +12420,14 @@ function renderSummary() {
   // jobs get their own compact summary instead. lastSummaryTotals stays
   // null: nothing engine-computed exists to stamp or schedule from.
   var impJob = activeJob();
-  if (rooms.length===0 && extItems.length===0 && kitchenCalc.total<=0 && fittedUnitCalc.total<=0
+  if (rooms.length===0 && extItems.length===0 && kitchenCalc.total<=0 && fittedUnitCalc.total<=0 && customItems.length===0
       && impJob && impJob.acceptedSnapshot && impJob.acceptedSnapshot.importedFromXero) {
     empty.style.display='none'; data.style.display='block';
     lastSummaryTotals = null;
     data.innerHTML = importedJobSummaryHtml(impJob);
     return;
   }
-  if(rooms.length===0&&extItems.length===0&&kitchenCalc.total<=0&&fittedUnitCalc.total<=0){empty.style.display='flex';data.style.display='none';lastSummaryTotals=null;return;}
+  if(rooms.length===0&&extItems.length===0&&kitchenCalc.total<=0&&fittedUnitCalc.total<=0&&customItems.length===0){empty.style.display='flex';data.style.display='none';lastSummaryTotals=null;return;}
   empty.style.display='none'; data.style.display='block';
   var tc=0,tt=0,sprayLabourS=0;
   // One calcRoom()/calcExtItem() evaluation per room/item for the whole
@@ -12169,7 +12447,11 @@ function renderSummary() {
   // markup/discount stack applyMarkupAmount() applies to the job total --
   // see its comment for the "commercial first, then markup" ordering.
   var commercialMult = 1 + commercialRatio();
-  var mu = markupRatio((rawRoomsTotal + rawExtTotal + kitchenCalc.total + fittedUnitCalc.total) * commercialMult);
+  // Marked custom lines join this base too (they take markup like any other
+  // line), so a fixed-£ markup keeps distributing across every "* mk" row
+  // below, custom rows included. Flat (markup-off) custom lines stay out --
+  // they never see mk at all.
+  var mu = markupRatio((rawRoomsTotal + rawExtTotal + kitchenCalc.total + fittedUnitCalc.total + customSplit.marked) * commercialMult);
   var rows=rooms.map(function(r,ri){
     var c=roomCalcs[ri]; tc+=c.total; tt+=c.time; sprayLabourS+=c.sprayLabour||0;
     // Per-element costs, read straight from calcRoom()'s return (the same
@@ -12364,7 +12646,7 @@ function renderSummary() {
   // ttOrig rides along as the calculated-days figure for standalone
   // diary-day rounding — original scope, same as tcOrig (variations settle
   // on the final invoice with no rounding of their own).
-  var plan = computeDepositPlan(tcOrig, materialsTotal, onSiteDaysOrig, sprayOrig, ttOrig);
+  var plan = computeDepositPlan(tcOrig, materialsTotal, onSiteDaysOrig, sprayOrig, ttOrig, customSplit.marked, customSplit.flat);
 
   // Variations money — computed in the shared view (see its comment for
   // the fixed-£ markup rule).
@@ -12645,6 +12927,23 @@ function renderSummary() {
       '<div class="room-breakdown" id="fu-bd">'+fsub+'</div>'+
       '<div style="height:1px;background:var(--border)"></div>';
     })():'')+
+    // Custom line items -- no expandable sub-breakdown (there's no
+    // calculation to break down; the price IS the entry), tap re-opens the
+    // editor instead. Marked lines show at customer price via the same mk
+    // every engine row uses; markup-off lines show exactly as entered.
+    (customItems.length>0?customItems.map(function(it){
+      var mk=commercialMult*(1+mu);
+      var t=customItemTotal(it);
+      var qty=(+it.quantity>0)?+it.quantity:1;
+      return '<div class="room-item" onclick="editCustomItem(this.dataset.id)" data-id="'+it.id+'" style="border-bottom:none">'+
+        '<div class="room-icon">✏️</div>'+
+        '<div class="room-info"><div class="room-name">'+escapeHtml(it.description||'Custom line')+manualChipHtml(it)+'</div>'+
+        '<div class="room-meta">'+(qty!==1?qty+' × '+fmt(+it.unitPrice||0):'manual price')+'</div></div>'+
+        '<div class="room-cost">'+fmt(it.applyMarkup===false?t:t*mk)+'</div>'+
+        '<div style="color:var(--text3);font-size:16px">›</div>'+
+      '</div>'+
+      '<div style="height:1px;background:var(--border)"></div>';
+    }).join(''):'')+
     '</div></div>'+
     '<div style="margin-top:16px"><div class="section-title" style="margin-bottom:8px">Cost Summary<small style="display:block;font-weight:400;text-transform:none;letter-spacing:normal;color:var(--text2)">Whole job, before materials</small></div>'+
     '<div class="card">'+
@@ -12667,17 +12966,31 @@ function renderSummary() {
     (sundries>0?'<div class="breakdown-row" style="border-top:1px solid var(--border)">'+
       '<span class="breakdown-label">Sundries &amp; Consumables<small style="display:block;font-weight:400;color:var(--text2)">'+settings.sundriesPct+'% of labour'+(plan.spraySundries>0?' + '+settings.sundriesSprayPct+'% spray masking on sprayed areas':'')+'</small></span>'+
       '<span class="breakdown-value">'+fmt(sundries)+'</span></div>':'')+
+    // Custom line items with markup ON sit inside the running total the
+    // commercial/markup rows below compound on -- shown raw here, exactly
+    // like the labour subtotal above them. (No sundries % on these: typed-in
+    // prices aren't modelled labour.)
+    (customSplit.marked>0?'<div class="breakdown-row" style="border-top:1px solid var(--border)">'+
+      '<span class="breakdown-label">Custom line items<small style="display:block;font-weight:400;color:var(--text2)">manual prices — take markup below, no sundries %</small></span>'+
+      '<span class="breakdown-value">'+fmt(customSplit.marked)+'</span></div>':'')+
     // Order of operations, per the Commercial Job card above: commercial%
     // applies first (to labour + sundries), THEN markup/discount on top of
     // that already-adjusted figure -- see applyMarkupAmount(). Both rows
     // read from the same running total (incl. any standalone top-up, which
-    // is labour like any other) so the maths always matches labourTotal.
+    // is labour like any other, and any marked custom lines) so the maths
+    // always matches labourTotal.
     (activeJob()&&activeJob().commercial?'<div class="breakdown-row" style="border-top:1px solid var(--border)">'+
       '<span class="breakdown-label">Commercial adjustment<small style="display:block;font-weight:400;color:var(--text2)">'+(settings.commercialPct!=null?settings.commercialPct:10)+'% on labour + sundries, before markup/discount</small></span>'+
-      '<span class="breakdown-value">'+fmt(applyCommercialAmount(tcOrig+plan.standalone.topUp+sundries)-(tcOrig+plan.standalone.topUp+sundries))+'</span></div>':'')+
+      '<span class="breakdown-value">'+fmt(applyCommercialAmount(tcOrig+plan.standalone.topUp+sundries+customSplit.marked)-(tcOrig+plan.standalone.topUp+sundries+customSplit.marked))+'</span></div>':'')+
     '<div class="breakdown-row" style="border-top:1px solid var(--border)">'+
-      '<span class="breakdown-label" style="font-weight:600;color:var(--text)">'+markupSummaryLabel()+'<small style="display:block;font-weight:400;color:var(--text2)">on labour + sundries'+(activeJob()&&activeJob().commercial?' + commercial adjustment':'')+'</small></span>'+
+      '<span class="breakdown-label" style="font-weight:600;color:var(--text)">'+markupSummaryLabel()+'<small style="display:block;font-weight:400;color:var(--text2)">on labour + sundries'+(customSplit.marked>0?' + custom lines':'')+(activeJob()&&activeJob().commercial?' + commercial adjustment':'')+'</small></span>'+
       '<span class="breakdown-value" style="color:var(--accent)">'+fmt(labourTotal)+'</span></div>'+
+    // Markup-off custom lines land AFTER the markup row, verbatim -- the
+    // entered price already has its margin baked in (that's what the
+    // toggle means), so nothing above may compound on it.
+    (customSplit.flat>0?'<div class="breakdown-row" style="border-top:1px solid var(--border)">'+
+      '<span class="breakdown-label">Custom line items — no markup<small style="display:block;font-weight:400;color:var(--text2)">entered prices, added to the total exactly as typed</small></span>'+
+      '<span class="breakdown-value">'+fmt(customSplit.flat)+'</span></div>':'')+
     '</div></div>'+
     '<div><div class="section-title" style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">Materials'+
       (materialsSnapshot.length > 1 ? '<span onclick="toggleMatReorder()" style="font-size:12px;font-weight:600;color:var(--accent);cursor:pointer;text-transform:none;letter-spacing:normal">'+(matReorderMode ? 'Done' : 'Reorder')+'</span>' : '')+
@@ -12743,7 +13056,7 @@ function openClientQuote() {
   var quoteExtItems = extItems.filter(function(it) { return !it.isVariation; });
   var kitchenCalc = calcKitchen(quoteKitchen);
   var fittedUnitCalc = calcFittedUnit(quoteFittedUnit);
-  if (quoteRooms.length === 0 && quoteExtItems.length === 0 && kitchenCalc.total <= 0 && fittedUnitCalc.total <= 0) {
+  if (quoteRooms.length === 0 && quoteExtItems.length === 0 && kitchenCalc.total <= 0 && fittedUnitCalc.total <= 0 && jobCustomItems(job).length === 0) {
     alert('Nothing to preview yet — add rooms on the Measure tab first.');
     return;
   }
@@ -12771,14 +13084,19 @@ function buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitc
   if (fittedUnitCalc.total > 0.005) {
     tcS += fittedUnitCalc.total; ttS += fittedUnitCalc.time;
   }
+  // Custom line items: no time, no sundries -- the marked share joins the
+  // markup base (via computeDepositPlan + rawBase below), the flat share
+  // prints verbatim after it.
+  var customItems = jobCustomItems(job);
+  var customSplit = customItemsSplit(job);
   var chargeableMats = materialsSnapshot.filter(function(l) { return l.chargeable !== false; });
   var materialsTotal = chargeableMats.reduce(function(s, l) { return s + (+l.quantity || 0) * (+l.unitAmount || 0); }, 0);
-  var plan = computeDepositPlan(tcS, materialsTotal, realisticDays(ttS), sprayS, ttS);
+  var plan = computeDepositPlan(tcS, materialsTotal, realisticDays(ttS), sprayS, ttS, customSplit.marked, customSplit.flat);
   // One proportional multiplier turns each raw line into its customer
   // price so the lines sum EXACTLY to plan.labourTotal, whatever mix of
   // percent/fixed markup, commercial% and standalone top-up is in play —
   // the same distribute-proportionally idea markupRatio() documents.
-  var rawBase = tcS + plan.standalone.topUp + plan.sundries;
+  var rawBase = tcS + plan.standalone.topUp + plan.sundries + customSplit.marked;
   var lineMult = rawBase > 0 ? plan.labourTotal / rawBase : 1;
 
   var esc = escapeHtml;
@@ -12793,6 +13111,15 @@ function buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitc
     + extLines.map(function(l) { return lineRow(l.emoji + ' ' + esc(l.name), 'exterior', l.raw * lineMult); }).join('')
     + (kitchenCalc.total > 0.005 ? lineRow('🍳 Kitchen Cabinet Spraying', '', kitchenCalc.total * lineMult) : '')
     + (fittedUnitCalc.total > 0.005 ? lineRow('📚 Fitted Unit / Shelving', '', fittedUnitCalc.total * lineMult) : '')
+    // Custom lines: marked ones ride the same proportional multiplier as
+    // every other work line; markup-off ones print the entered price
+    // untouched (lineMult would silently re-add margin they already carry).
+    + customItems.map(function(it) {
+        var t = customItemTotal(it);
+        var qty = (+it.quantity > 0) ? +it.quantity : 1;
+        var sub = qty !== 1 ? qty + ' × ' + money(+it.unitPrice || 0) : '';
+        return lineRow('✏️ ' + esc(it.description || 'Custom line'), sub, it.applyMarkup === false ? t : t * lineMult);
+      }).join('')
     + (plan.standalone.topUp > 0.005 ? lineRow('Standalone job — full diary days', plan.standalone.calcDays.toFixed(1) + ' calculated → ' + (plan.standalone.diaryDays % 1 === 0 ? plan.standalone.diaryDays.toFixed(0) : plan.standalone.diaryDays.toFixed(1)) + ' days charged', plan.standalone.topUp * lineMult) : '')
     + (plan.sundries > 0.005 ? lineRow('Sundries &amp; Consumables', '', plan.sundries * lineMult) : '');
 
@@ -12874,8 +13201,11 @@ function buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitc
       + '<div><strong>Job:</strong> ' + esc((job && job.name) || '') + '</div>'
       + '<div><strong>Date:</strong> ' + esc(today) + '</div>'
     + '</div>'
+    // Subtotal = plan.labourTotal (which already folds in marked custom
+    // lines) + the flat custom lines printed verbatim above -- so this line
+    // is exactly the sum of the rows the client can see in this card.
     + '<div class="card"><h2>The work</h2>' + workRows
-      + '<div class="line subtotal"><div class="line-l"><div class="line-name">Labour subtotal</div></div><div class="line-v">' + money(plan.labourTotal) + '</div></div></div>'
+      + '<div class="line subtotal"><div class="line-l"><div class="line-name">Labour subtotal</div></div><div class="line-v">' + money(plan.labourTotal + customSplit.flat) + '</div></div></div>'
     + (matRows ? '<div class="card"><h2>Materials</h2>' + matRows
       + '<div class="line subtotal"><div class="line-l"><div class="line-name">Materials subtotal</div></div><div class="line-v">' + money(materialsTotal) + '</div></div>'
       + '<div class="line-sub" style="padding-top:8px">Materials are estimated here and billed as actually used.</div></div>' : '')
@@ -12893,7 +13223,7 @@ function exportCSV() {
   // kitchen-only job (both legitimate -- neither requires a single room)
   // couldn't export a CSV at all. Checks all three sources, same as
   // renderSummary()'s empty-state guard.
-  if(rooms.length===0 && extItems.length===0 && calcKitchen(activeJob() && activeJob().kitchen).total<=0 && calcFittedUnit(activeJob() && activeJob().fittedUnit).total<=0){alert('Nothing to export yet.');return;}
+  if(rooms.length===0 && extItems.length===0 && calcKitchen(activeJob() && activeJob().kitchen).total<=0 && calcFittedUnit(activeJob() && activeJob().fittedUnit).total<=0 && jobCustomItems().length===0){alert('Nothing to export yet.');return;}
   var s=settings; var q=function(v){return '"'+String(v).replace(/"/g,'""')+'"';};
   var lines=[];
   lines.push([q('Nicky Hawkins Estimator')].join(','));
@@ -12925,13 +13255,25 @@ function exportCSV() {
   var fuCsvCalc = calcFittedUnit(activeJob() && activeJob().fittedUnit);
   var fuCsvTotal = fuCsvCalc.total, fuCsvTimeTotal = fuCsvCalc.time;
   if(fuCsvTotal>0){lines.push([q('Fitted Unit'),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(fuCsvTotal.toFixed(2)),q(fuCsvTimeTotal.toFixed(2))].join(','));}
+  // Custom line items: manual description + price rows, no time column --
+  // nothing is calculated for them.
+  var csvCustomItems = jobCustomItems();
+  var csvCustomSplit = customItemsSplit(activeJob());
+  csvCustomItems.forEach(function(it){
+    var csvQty=(+it.quantity>0)?+it.quantity:1;
+    lines.push([q('Custom: '+(it.description||'Custom line')+(it.applyMarkup===false?' (no markup)':'')),q(csvQty+' × '+(+it.unitPrice||0).toFixed(2)),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(''),q(customItemTotal(it).toFixed(2)),q('')].join(','));
+  });
   lines.push('');
   var tcS=tc+extTotal+kitchenTotal+fuCsvTotal;
   // Standalone diary-day rounding on the CSV's own scope (all rooms listed
   // above, variations included) so its figures stay self-consistent.
   var csvStandalone=standaloneInfo(tt+extTimeTotal+kitchenTimeTotal+fuCsvTimeTotal, tcS);
-  var total=applyMarkupAmount(tcS+csvStandalone.topUp);
+  // Marked custom lines join the markup base (same one applyMarkupAmount
+  // compounds on); markup-off ones land on the total verbatim after it.
+  var total=applyMarkupAmount(tcS+csvStandalone.topUp+csvCustomSplit.marked)+csvCustomSplit.flat;
   lines.push([q('Labour subtotal'),q(tcS.toFixed(2))].join(','));
+  if(csvCustomSplit.marked>0) lines.push([q('Custom line items (before markup)'),q(csvCustomSplit.marked.toFixed(2))].join(','));
+  if(csvCustomSplit.flat>0) lines.push([q('Custom line items (no markup, added after)'),q(csvCustomSplit.flat.toFixed(2))].join(','));
   if(csvStandalone.topUp>0.005){
     lines.push([q('Standalone job — calculated days'),q(csvStandalone.calcDays.toFixed(2))].join(','));
     lines.push([q('Standalone job — diary days charged'),q(csvStandalone.diaryDays.toFixed(2))].join(','));
