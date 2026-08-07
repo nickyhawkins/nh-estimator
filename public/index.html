@@ -1620,7 +1620,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.9.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.10.0</div>
 </div>
 </div>
 
@@ -10797,9 +10797,14 @@ function renderDash() {
     ? '📅 ' + fmtShortDate(job.startDate) + ' · ' + job.scheduledDays + 'd' : 'Not scheduled';
   var outstanding = null;
   try { outstanding = actualsTotals().outstanding; } catch (e) { /* actuals not loaded yet */ }
-  // Recently invoiced margins at a glance — reads each job's persisted
+  // Recently invoiced at a glance — reads each job's persisted
   // profitSnapshot (written by the Summary profitability card), never other
   // jobs' labour logs/actuals directly, same reasoning as scheduledDays.
+  // Shows the schedule story (day variance) + materials markup banked, the
+  // two real profit signals — NOT the old blended margin, which netted the
+  // day rate off as if it were a cost. Jobs invoiced before that rework
+  // still carry the old snapshot shape until their Summary is next opened,
+  // so the right-hand figures render only for the new shape.
   var DAY = 86400000;
   var recentInvoiced = jobs.filter(function(j) {
     return j.status === 'invoiced' && j.invoicedAt && j.profitSnapshot
@@ -10810,12 +10815,21 @@ function renderDash() {
       + '<div class="card-header">Recently invoiced</div>'
       + recentInvoiced.map(function(j) {
           var s = j.profitSnapshot;
-          var col = s.margin >= 0 ? 'var(--success)' : 'var(--danger)';
+          var right = '';
+          if (s.markupBanked != null) {
+            var v = s.dayVariance;
+            var schedStr, col;
+            if (v == null) { schedStr = '—'; col = 'var(--text2)'; }
+            else if (v === 0) { schedStr = 'On schedule'; col = 'var(--success)'; }
+            else if (v < 0) { schedStr = Math.abs(v) + 'd under'; col = 'var(--success)'; }
+            else { schedStr = v + 'd over'; col = 'var(--danger)'; }
+            right = '<div style="text-align:right"><div style="font-weight:700;color:' + col + '">' + schedStr + '</div>'
+              + '<div style="font-size:12px;color:var(--text2)">' + fmt(s.markupBanked) + ' markup banked</div></div>';
+          }
           return '<div class="field-row" style="cursor:pointer" onclick="attentionOpenJob(\'' + j.id + '\')">'
             + '<div style="flex:1;min-width:0"><div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(j.name) + '</div>'
             + '<div style="font-size:12px;color:var(--text2)">Invoiced ' + fmt(s.revenue) + ' · ' + new Date(j.invoicedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + '</div></div>'
-            + '<div style="text-align:right"><div style="font-weight:700;color:' + col + '">' + (s.margin >= 0 ? '+' : '−') + fmt(Math.abs(s.margin)) + '</div>'
-            + '<div style="font-size:12px;color:var(--text2)">' + s.marginPct + '% margin</div></div>'
+            + right
           + '</div>';
         }).join('')
       + '</div>'
@@ -12944,57 +12958,134 @@ function toggleRoomBd(id) {
 
 // ── Job profitability (Summary card once Invoiced + Home glance line) ──────
 // Read-only calibration/reference view — deliberately feeds NOTHING back
-// into pricing. The labour cost basis is day rate × actual logged days
-// (Time on site), NOT the calculated estimate — that swap is exactly what
-// makes this a real profitability check rather than a restatement of the
-// quote. Materials are the On Site "as used" figures (actualsTotals().actTotal,
-// the same quantities the final invoice bills). Revenue is the recorded
-// final-invoice total where one was built here; a job invoiced directly in
-// Xero falls back to quoted + approved variations, and says so. Reuses the
-// existing Day Rate from Your Rates — no new Settings card.
+// into pricing. Three separate questions, kept deliberately separate (the
+// old blended margin netted revenue against day rate × logged days as if
+// the day rate were a cost — but it's a sale price with the profit already
+// in it, so that framing understated every to-schedule job and made the
+// materials markup look like the only profit source):
+//   Billing   — quoted vs invoiced. A client-facing honesty check (was the
+//               saving passed on?), not a profitability figure.
+//   Schedule  — days the quote was priced on vs days logged (Time on site).
+//               On schedule = the full day-rate profit realised; under =
+//               bonus margin; over = the extra days' rate absorbed.
+//   Materials — quoted (sell prices, markup in) vs used, plus the markup
+//               slice banked on what was used.
+// Actual materials are the On Site "as used" figures (actualsTotals()
+// .actTotal, the same quantities the final invoice bills). Invoiced is the
+// recorded final-invoice total where one was built here; a job invoiced
+// directly in Xero falls back to quoted + approved variations, and says so.
+
+// Materials sell prices in Xero are trade cost × 1.2 across the price list
+// (SalesUnitPrice = PurchasesUnitPrice × 1.2 — see scripts/pricelists).
+// The purchase side isn't plumbed into the app (Phase 3,
+// MATERIAL_TRACKING_SPEC.md), so cost derives as sell ÷ 1.2 — exact for
+// nearly all items, slightly generous for the few on 10/15%.
+var MATERIALS_MARKUP_PCT = 20;
+
 function computeProfitability(q) {
+  var job = activeJob();
+  // Billing
+  var quotedAll = q.quotedTotal + q.approvedVariations;
+  var hasInvoiceTotal = !!(job && job.finalInvoiceTotal != null && +job.finalInvoiceTotal > 0);
+  var invoiced = hasInvoiceTotal ? +job.finalInvoiceTotal : quotedAll;
+  var billingDelta = hasInvoiceTotal ? invoiced - quotedAll : 0;
+  // Schedule — variance only exists once both sides are real: a quote with
+  // no stored day estimate (imported from Xero) or a job with nothing
+  // logged yet has nothing meaningful to compare.
+  var quotedDays = +q.quotedDays || 0;
   var days = labourLoggedTotal();
-  var labourCost = days * (settings.dr || 0);
+  var dayVariance = quotedDays > 0 && days > 0 ? Math.round((days - quotedDays) * 10) / 10 : null;
+  // Materials
   var actualMaterials = 0;
   try { actualMaterials = actualsTotals().actTotal; } catch (e) { /* actuals not loaded — treat as none logged */ }
-  var job = activeJob();
-  var hasInvoiceTotal = !!(job && job.finalInvoiceTotal != null && +job.finalInvoiceTotal > 0);
-  var revenue = hasInvoiceTotal ? +job.finalInvoiceTotal : q.quotedTotal + q.approvedVariations;
-  var cost = labourCost + actualMaterials;
-  var margin = revenue - cost;
+  var materialsCost = actualMaterials / (1 + MATERIALS_MARKUP_PCT / 100);
   return {
-    days: days, labourCost: labourCost, actualMaterials: actualMaterials,
     quotedTotal: q.quotedTotal, approvedVariations: q.approvedVariations,
-    hasInvoiceTotal: hasInvoiceTotal, revenue: revenue, cost: cost,
-    margin: margin, marginPct: revenue > 0 ? margin / revenue * 100 : 0
+    quotedAll: quotedAll, hasInvoiceTotal: hasInvoiceTotal,
+    invoiced: invoiced, billingDelta: billingDelta,
+    quotedDays: quotedDays, days: days, dayVariance: dayVariance,
+    quotedMaterials: +q.quotedMaterials || 0,
+    actualMaterials: actualMaterials, materialsCost: materialsCost,
+    markupBanked: actualMaterials - materialsCost
   };
 }
 
 function profitabilityCardHtml(p, vView, job) {
   var row = function(label, small, value, opts) {
     opts = opts || {};
-    return '<div class="breakdown-row"'+(opts.top ? ' style="border-top:1px solid var(--border)"' : '')+'>'+
+    return '<div class="breakdown-row">'+
       '<span class="breakdown-label"'+(opts.bold ? ' style="font-weight:600;color:var(--text)"' : '')+'>'+label+
       (small ? '<small style="display:block;font-weight:400;color:var(--text2)">'+small+'</small>' : '')+'</span>'+
       '<span class="breakdown-value"'+(opts.colour ? ' style="color:'+opts.colour+'"' : '')+'>'+value+'</span></div>';
   };
-  var marginColour = p.margin >= 0 ? 'var(--success)' : 'var(--danger)';
+  // Section strap inside the card — same type treatment as .card-header,
+  // without its border (the preceding row's border-bottom already rules it
+  // off). Billing / Schedule / Materials, in that order.
+  var section = function(title) {
+    return '<div style="padding:12px 16px 0;font-size:11px;font-weight:600;letter-spacing:.8px;color:var(--text2);text-transform:uppercase">'+title+'</div>';
+  };
+  var note = function(text, colour) {
+    return '<div style="padding:6px 16px 8px;font-size:12px;color:'+(colour||'var(--text2)')+'">'+text+'</div>';
+  };
+  var dayStr = function(n, signed) {
+    var r = Math.round(n * 10) / 10;
+    var abs = Math.abs(r);
+    return (signed && r > 0 ? '+' : '') + (signed && r < 0 ? '−' : '') + abs + ' day' + (abs === 1 ? '' : 's');
+  };
+
+  // Billing — the honesty check: did the client get billed what was quoted,
+  // and if not, was the difference deliberate (saving passed on)?
   var revenueBasis = p.hasInvoiceTotal
     ? 'final invoice' + (job && job.xeroInvoiceNumber ? ' ' + escapeHtml(job.xeroInvoiceNumber) : '')
     : 'quoted + approved variations — no final invoice built in the app';
-  return '<div class="card" style="margin-top:16px">'+
-    '<div class="card-header">Job Profitability</div>'+
+  var billingNote = '';
+  if (p.hasInvoiceTotal && Math.abs(p.billingDelta) >= 0.005) {
+    billingNote = p.billingDelta < 0
+      ? note('Invoiced ' + fmt(-p.billingDelta) + ' less than quoted — materials saving passed to client.')
+      : note('Invoiced ' + fmt(p.billingDelta) + ' more than quoted.');
+  }
+  var billing = section('Billing')+
     row('Quoted total', 'labour + materials, as quoted', fmt(p.quotedTotal))+
     (p.approvedVariations > 0.005 ? row('Approved variations', 'client-approved extras', fmt(p.approvedVariations)) : '')+
-    row('Invoiced', revenueBasis, fmt(p.revenue), { top: true, bold: true })+
-    row('Actual labour', p.days > 0
-      ? (Math.round(p.days*10)/10) + ' day' + (p.days === 1 ? '' : 's') + ' logged × ' + fmt(settings.dr || 0) + ' day rate'
-      : 'no days logged — Time on site (On Site tab) feeds this', fmt(p.labourCost), { top: true })+
-    row('Actual materials', 'as used (On Site → Materials)', fmt(p.actualMaterials))+
-    row('Actual cost', 'labour + materials', fmt(p.cost), { bold: true })+
-    row('Margin', (Math.round(p.marginPct*10)/10) + '% of invoiced', fmt(p.margin), { top: true, bold: true, colour: marginColour })+
-    (vView && vView.pendingCount > 0 ? '<div style="padding:0 16px 8px;font-size:12px;color:var(--warn,#f39c12)">'+vView.pendingCount+' variation'+(vView.pendingCount===1?'':'s')+' still pending sign-off — not counted as approved.</div>' : '')+
-    '<div style="padding:0 16px 12px;font-size:12px;color:var(--text2)">Reference only — nothing here feeds back into pricing.</div>'+
+    row('Invoiced', revenueBasis, fmt(p.invoiced), { bold: true })+
+    billingNote;
+
+  // Schedule — the day rate is a sale price, not a cost, so schedule
+  // performance IS the labour profit story: to-schedule realises it in
+  // full, early banks extra, late absorbs the overrun days' rate.
+  var schedule = section('Schedule')+
+    row('Quoted days', p.quotedDays > 0
+      ? 'the on-site estimate the quote was priced on'
+      : 'no day estimate stored for this quote', p.quotedDays > 0 ? dayStr(p.quotedDays) : '—')+
+    row('Days logged', p.days > 0
+      ? 'Time on site (On Site tab)'
+      : 'no days logged — Time on site (On Site tab) feeds this', dayStr(p.days));
+  if (p.dayVariance != null) {
+    var v = p.dayVariance;
+    var dr = settings.dr || 0;
+    var atRate = dr > 0 ? ' (' + fmt(Math.abs(v) * dr) + ' at your day rate)' : '';
+    if (v === 0) {
+      schedule += row('Day variance', 'On schedule — full day-rate profit realised', dayStr(0), { colour: 'var(--success)', bold: true });
+    } else if (v < 0) {
+      schedule += row('Day variance', dayStr(-v) + ' under quote — bonus margin' + atRate, dayStr(v, true), { colour: 'var(--success)', bold: true });
+    } else {
+      schedule += row('Day variance', dayStr(v) + ' over quote — ' + (v > 1 ? 'those days\' rate' : 'that day\'s rate') + ' absorbed' + atRate, dayStr(v, true), { colour: 'var(--danger)', bold: true });
+    }
+  }
+
+  // Materials — the markup slice on what was USED is banked regardless of
+  // whether the invoice was adjusted down (the saving passed on is the
+  // client's; the markup on real usage is not).
+  var materials = section('Materials')+
+    row('Quoted materials', 'with markup, as quoted', fmt(p.quotedMaterials))+
+    row('Actual materials cost', 'as used (On Site → Materials) — trade cost, sell ÷ 1.' + MATERIALS_MARKUP_PCT, fmt(p.materialsCost))+
+    row('Markup banked', MATERIALS_MARKUP_PCT + '% on materials used — banked whether or not the invoice was adjusted', fmt(p.markupBanked), { colour: 'var(--success)', bold: true });
+
+  return '<div class="card" style="margin-top:16px">'+
+    '<div class="card-header">Job Profitability</div>'+
+    billing + schedule + materials +
+    (vView && vView.pendingCount > 0 ? '<div style="padding:8px 16px 8px;font-size:12px;color:var(--warn,#f39c12)">'+vView.pendingCount+' variation'+(vView.pendingCount===1?'':'s')+' still pending sign-off — not counted as approved.</div>' : '')+
+    '<div style="padding:8px 16px 12px;font-size:12px;color:var(--text2)">Reference only — nothing here feeds back into pricing.</div>'+
   '</div>';
 }
 
@@ -13332,14 +13423,26 @@ function renderSummary() {
   // persisted-snapshot reasoning as variationCount/scheduledDays above.
   var profitCard = '';
   if (jobStatus === 'invoiced' && statusJob) {
-    var prof = computeProfitability({ quotedTotal: total, approvedVariations: vView.approvedTotal });
+    // Quoted days: the figure the quote was priced on — acceptedSnapshot's
+    // estOnSiteDays (frozen at acceptance, pure original scope, same source
+    // as the Time on site card's "of ~N"); live original-scope calc as the
+    // fallback for jobs accepted before snapshots shipped. Quoted materials:
+    // the snapshot total the quote billed (sell prices, markup in).
+    var profQuotedDays = statusJob.acceptedSnapshot && +statusJob.acceptedSnapshot.estOnSiteDays > 0
+      ? +statusJob.acceptedSnapshot.estOnSiteDays : onSiteDaysOrig;
+    var prof = computeProfitability({
+      quotedTotal: total, approvedVariations: vView.approvedTotal,
+      quotedDays: profQuotedDays, quotedMaterials: materialsTotal
+    });
     profitCard = profitabilityCardHtml(prof, vView, statusJob);
     var profSnap = {
-      revenue: Math.round(prof.revenue * 100) / 100,
-      cost: Math.round(prof.cost * 100) / 100,
-      margin: Math.round(prof.margin * 100) / 100,
-      marginPct: Math.round(prof.marginPct * 10) / 10,
-      days: Math.round(prof.days * 10) / 10
+      revenue: Math.round(prof.invoiced * 100) / 100,
+      quoted: Math.round(prof.quotedAll * 100) / 100,
+      billingDelta: Math.round(prof.billingDelta * 100) / 100,
+      quotedDays: Math.round(prof.quotedDays * 10) / 10,
+      days: Math.round(prof.days * 10) / 10,
+      dayVariance: prof.dayVariance,
+      markupBanked: Math.round(prof.markupBanked * 100) / 100
     };
     if (JSON.stringify(statusJob.profitSnapshot || null) !== JSON.stringify(profSnap)) {
       statusJob.profitSnapshot = profSnap;
