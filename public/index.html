@@ -894,6 +894,21 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
         <button id="xero-contact-sync-btn" onclick="syncContactToXero()" style="background:transparent;border:1px solid var(--border);color:var(--accent);border-radius:var(--rs);padding:8px 12px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;white-space:nowrap;flex:none">Sync to Xero</button>
       </div>
     </div>
+    <!-- Quote description block (TEXT_TEMPLATES_SPEC.md): rendered from the
+         job-type template, editable, goes on the FIRST labour line of the
+         quote; the other lines read "same as above". Live-until-edited —
+         see currentQuoteText(). -->
+    <div id="xero-template-card" style="display:flex;flex-direction:column;gap:8px;background:var(--surface2);border-radius:var(--rs);padding:10px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;flex:none">Quote description</div>
+        <select id="xero-template-select" onchange="onTemplatePick(this.value)" style="flex:1;min-width:0;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:13px;border-radius:var(--rs);padding:6px 8px;outline:none"></select>
+      </div>
+      <textarea id="xero-template-text" rows="7" oninput="updateTemplateCardNote()" onchange="onQuoteTextChange()" style="width:100%;box-sizing:border-box;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:13px;line-height:1.5;border-radius:var(--rs);padding:8px 12px;outline:none;resize:vertical"></textarea>
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline">
+        <div id="xero-template-note" style="font-size:11px;color:var(--text2);line-height:1.4;flex:1"></div>
+        <div id="xero-template-reset" style="display:none;font-size:12px;color:var(--accent);font-weight:600;cursor:pointer;white-space:nowrap" onclick="resetQuoteText()">↺ Reset to template</div>
+      </div>
+    </div>
     <button id="xero-quote-btn" onclick="createXeroQuote()" style="background:var(--accent);color:white;border:none;border-radius:var(--rs);padding:12px;font-size:15px;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer;width:100%">Send to Xero</button>
     <div id="xero-newquote-link" onclick="createXeroQuote(true)" style="display:none;text-align:center;font-size:12px;color:var(--text2);font-weight:600;cursor:pointer;text-decoration:underline;padding-top:2px">Send as a NEW quote instead</div>
     <div id="xero-panel-hide" style="display:none;text-align:center;font-size:12px;color:var(--text2);font-weight:600;cursor:pointer;padding-top:2px" onclick="collapseXeroPanel()">Hide client &amp; quote details ᐱ</div>
@@ -1096,6 +1111,15 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
       <div class="field-row"><div class="field-label">Ext woodwork primer<small>per litre · leave as — none — to skip</small></div><select class="field-input" id="mat-extPrimer" onchange="onMaterialSelect('extPrimer')"></select></div>
       <div class="field-row"><div class="field-label">— Colour band<small>&nbsp;</small></div><select class="field-input" id="mat-extPrimer-band" onchange="onBandSelect('extPrimer')" disabled></select></div>
       <div class="settings-note" id="materials-note">Connect Xero above, then tap Refresh to choose a default product range and colour band for each role (e.g. "Tikkurila Optiva 5" / "White"). These are job-wide defaults — override per room on the room screen if a room needs a different product or colour. Until a range is picked, the Summary shows an estimated litres/tins figure instead of a real price.</div>
+    </div>
+    <div class="card">
+      <div class="card-header">Quote &amp; Invoice Text</div>
+      <div class="settings-note">One template per job type. The quote version goes on the first line of the Xero quote (other lines read "same as above"); the invoice version prefills the final-invoice builder when the job's done. Syntax: <strong>{quote wording|invoice wording}</strong> where the two differ, lines starting <strong>Q:&nbsp;</strong> are quote-only, <strong>I:&nbsp;</strong> invoice-only, and {rooms}, {wallProduct}, {ceilingProduct}, {woodProduct}, {wallCoats}, {completedDate} fill in from the job automatically.</div>
+      <div id="text-templates-list"></div>
+      <div style="padding:12px 16px;display:flex;gap:8px;border-top:1px solid var(--border)">
+        <button onclick="addTextTemplate()" style="flex:1;background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">+ Add template</button>
+        <button onclick="resetTextTemplates()" style="flex:1;background:transparent;border:1px solid var(--border);color:var(--text2);border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Reset all to defaults</button>
+      </div>
     </div>
     <div class="card">
       <div class="card-header">Appearance</div>
@@ -1665,6 +1689,10 @@ function saveSettings() {
   next.icsKey = settings.icsKey || null;
   next.bankHolidayRegion = settings.bankHolidayRegion || 'england-and-wales';
   next.blockedDays = settings.blockedDays || {};
+  // Quote/invoice text templates (TEXT_TEMPLATES_SPEC.md) — edited in their
+  // own Settings card, not via a SETTINGS_FIELDS input, so carried forward
+  // here like materials/payment*. null = "using the built-in defaults".
+  next.textTemplates = settings.textTemplates || null;
   settings = next;
   localStorage.setItem('pe-settings', JSON.stringify(settings));
   apiPut('/api/settings', settings);
@@ -1770,6 +1798,7 @@ function updateXeroPanelCollapse() {
     panel.style.display = 'flex';
     bar.style.display = 'none';
     if (hideRow) hideRow.style.display = pastQuoting ? 'block' : 'none';
+    populateTemplateCard();
   }
   updateXeroQuoteButton();
 }
@@ -1780,6 +1809,469 @@ async function disconnectXero() {
   if (!confirm('Disconnect Xero?')) return;
   await fetch('/auth/disconnect', { method: 'POST' });
   updateXeroButton(false);
+}
+
+// ── Quote & invoice text templates (TEXT_TEMPLATES_SPEC.md) ────────────────
+// One body per job type, Option A single-source syntax: {quote|invoice}
+// inline pairs where wording differs, Q:/I: line prefixes for version-only
+// lines, {placeholder} values filled from live job data. The rendered quote
+// block goes on the FIRST labour line of the Xero quote; every other labour
+// line reads "{label} - same as above" — Nicky's existing manual convention,
+// reproduced verbatim. The invoice version prefills the final-invoice
+// builder the same way.
+//
+// The seeded bodies below are the ;;paint-era iOS shortcuts (reference copy
+// supplied 2026-08-07), converted to the pair syntax. They're DEFAULTS: the
+// first edit in Settings clones the whole set onto settings.textTemplates
+// and edits that; "Reset all" clears it back to these.
+var DEFAULT_TEXT_TEMPLATES = [
+  { id: 'painting', name: 'Painting', body: [
+    '{Painting of {rooms}:|Painting — {rooms}}',
+    '',
+    'Q: PROTECTION & PREPARATION',
+    'Q: All furniture and flooring will be fully protected prior to any work commencing. Surfaces will be thoroughly prepared including filling, sanding and caulking as required to ensure a smooth, quality finish.',
+    'Q:',
+    'Q: PAINTING & DECORATING',
+    'Q: Ceilings finished in {ceilingProduct}, walls in {wallProduct}, and all woodwork including skirtings, door frames and doors in {woodProduct}, each applied in {wallCoats} coats. All work carried out to a high standard using professional techniques and quality trade materials.',
+    'Q:',
+    'Q: COMPLETION',
+    'Q: On completion all protection will be removed and the areas left clean and tidy. A final inspection will be carried out to ensure you are completely happy with the finished result.',
+    'I: Surfaces prepared including filling, sanding and caulking as required.',
+    'I: Ceiling finished in {ceilingProduct}, walls in {wallProduct}, woodwork including skirtings, door frames and doors in {woodProduct}, {wallCoats} coats throughout.',
+    'I: Work completed on {completedDate}. Protection removed and area left clean on completion.'
+  ].join('\n') },
+  { id: 'wallpapering', name: 'Wallpapering', body: [
+    '{Wallpapering of {rooms}:|Wallpapering — {rooms}}',
+    '',
+    'Q: PROTECTION & PREPARATION',
+    'Q: All furniture and flooring will be fully protected prior to any work commencing. Walls will be thoroughly prepared including filling, sanding and caulking all joints and edges as required. All surfaces will be sized/lined prior to hanging to ensure correct adhesion and a quality finish throughout.',
+    'Q:',
+    'Q: WALLPAPERING',
+    'Q: [X] lengths of [paper name/supplier] to be hung to [room/feature wall], with seams carefully matched and trimmed for a consistent pattern throughout. All work carried out to a high standard using professional techniques and quality trade materials.',
+    'Q:',
+    'Q: COMPLETION',
+    'Q: On completion all protection will be removed, all trimmings cleared away and the areas left clean and tidy. A final inspection will be carried out to ensure you are completely happy with the finished result.',
+    'I: Walls prepared including filling, sanding and caulking, sized/lined prior to hanging.',
+    'I: [X] lengths of [paper name/supplier] hung to [room/feature wall], seams matched and trimmed for a consistent pattern throughout.',
+    'I: Work completed on {completedDate}. Protection removed, trimmings cleared and area left clean on completion.'
+  ].join('\n') },
+  { id: 'paint-paper', name: 'Painting & Papering', body: [
+    '{Painting and papering of {rooms}:|Painting and papering — {rooms}}',
+    '',
+    'Q: PROTECTION & PREPARATION',
+    'Q: All furniture and flooring will be fully protected prior to any work commencing. Surfaces will be thoroughly prepared including filling, sanding and caulking all joints and edges as required. Walls will be sized prior to hanging to ensure correct adhesion and a quality finish throughout.',
+    'Q:',
+    'Q: PAINTING & DECORATING',
+    'Q: Ceiling finished in {ceilingProduct}, remaining walls in {wallProduct}, and all woodwork including skirtings, door frames and doors in {woodProduct}, each applied in {wallCoats} coats.',
+    'Q:',
+    'Q: WALLPAPERING',
+    'Q: [X] lengths of [paper name/supplier] to be hung to [feature wall/walls], with seams carefully matched and trimmed for a consistent pattern throughout. All work carried out to a high standard using professional techniques and quality trade materials.',
+    'Q:',
+    'Q: COMPLETION',
+    'Q: On completion all protection will be removed, all trimmings cleared away and the areas left clean and tidy. A final inspection will be carried out to ensure you are completely happy with the finished result.',
+    'I: Surfaces prepared including filling, sanding and caulking, walls sized prior to hanging.',
+    'I: Ceiling finished in {ceilingProduct}, remaining walls in {wallProduct}, woodwork including skirtings, door frames and doors in {woodProduct}, {wallCoats} coats throughout.',
+    'I: [X] lengths of [paper name/supplier] hung to [feature wall/walls], seams matched and trimmed for a consistent pattern throughout.',
+    'I: Work completed on {completedDate}. Protection removed, trimmings cleared and area left clean on completion.'
+  ].join('\n') },
+  { id: 'fitted-units', name: 'Fitted Units & Shelving', body: [
+    '{Painting of fitted units, {rooms}:|Painting of fitted units — {rooms}}',
+    '',
+    'Q: PROTECTION & PREPARATION',
+    'Q: All surrounding surfaces, flooring and adjacent fittings will be fully protected prior to any work commencing. Unit doors, frames and shelving will be prepared including filling, sanding and priming as required to ensure a smooth, quality finish.',
+    'Q:',
+    'Q: PAINTING & DECORATING',
+    'Q: Fitted units to be painted with [X] coats of [product], [spray/brush] finish throughout. All doors, frames and shelving finished to a durable, professional-grade standard using quality trade materials.',
+    'Q:',
+    'Q: COMPLETION',
+    'Q: On completion all protection will be removed and the areas left clean and tidy. A final inspection will be carried out to ensure you are completely happy with the finished result.',
+    'I: Unit doors, frames and shelving prepared including filling, sanding and priming as required.',
+    'I: Fitted units painted with [X] coats of [product], [spray/brush] finish throughout.',
+    'I: Work completed on {completedDate}. Protection removed and area left clean on completion.'
+  ].join('\n') },
+  { id: 'fire-doors', name: 'Fire Doors & Ironmongery', body: [
+    '{Fire door works, {rooms}:|Fire door works — {rooms}}',
+    '',
+    'Q: PROTECTION & PREPARATION',
+    'Q: All surrounding surfaces and flooring will be fully protected prior to any work commencing. Ironmongery will be removed or masked, and door and frame surfaces prepared including filling, sanding and caulking as required.',
+    'Q:',
+    'Q: PAINTING & COMPLIANCE',
+    'Q: Fire door (both faces) and frame to be painted with [X] coats of [product]. Intumescent strips and cold smoke seals fitted/renewed as required to maintain FD30 fire rating. Ironmongery refitted on completion.',
+    'Q:',
+    'Q: COMPLETION',
+    'Q: On completion all protection will be removed and the areas left clean and tidy. A final inspection will be carried out to confirm fire compliance and finish quality.',
+    'I: Ironmongery removed or masked; door and frame surfaces prepared including filling, sanding and caulking as required.',
+    'I: Fire door (both faces) and frame painted with [X] coats of [product]. Intumescent strips and cold smoke seals fitted/renewed as required to maintain FD30 fire rating. Ironmongery refitted.',
+    'I: Work completed on {completedDate}. Protection removed and area left clean on completion.'
+  ].join('\n') },
+  { id: 'kitchen-spray', name: 'Kitchen Cabinet Spraying', body: [
+    '{Kitchen Cabinet Spraying:|Kitchen Cabinet Spraying}',
+    '',
+    'Q: PROTECTION & PREPARATION',
+    'Q: All surrounding surfaces, worktops, appliances and flooring will be fully protected prior to any work commencing. All cabinet doors and drawer fronts will be carefully removed and labelled. Surfaces will be thoroughly degreased, sanded and primed as required to ensure excellent adhesion and a factory-quality finish. Where new handles are to be fitted, existing holes will be filled and fresh ones drilled.',
+    'Q:',
+    'Q: SPRAYING',
+    'Q: Cabinet doors, drawer fronts and frames to be sprayed with [X] coats of [product] in [colour/finish], using professional airless spray equipment in controlled conditions for a smooth, even finish throughout. All work carried out using professional techniques and quality trade materials.',
+    'Q:',
+    'Q: REHANG & COMPLETION',
+    'Q: On completion all doors and drawer fronts will be carefully rehung and adjusted, all protection removed and the kitchen left clean and tidy. A final inspection will be carried out to ensure you are completely happy with the finished result.',
+    'I: All doors and drawer fronts removed and labelled; surfaces degreased, sanded and primed as required.',
+    'I: Cabinet doors, drawer fronts and frames sprayed with [X] coats of [product] in [colour/finish], airless-sprayed in controlled conditions for a smooth, even finish throughout.',
+    'I: Doors and drawer fronts rehung and adjusted. Work completed on {completedDate}. Protection removed and kitchen left clean on completion.'
+  ].join('\n') },
+  { id: 'ext-woodwork', name: 'Exterior Woodwork', body: [
+    '{Exterior Woodwork:|Exterior Woodwork}',
+    '',
+    'Q: PROTECTION & PREPARATION',
+    'Q: All surrounding surfaces will be fully protected prior to any work commencing. Woodwork will be thoroughly prepared including sanding, filling and priming of bare or damaged areas as required to ensure a smooth, lasting finish, with restoration and repairs carried out where necessary.',
+    'Q:',
+    'Q: PAINTING',
+    'Q: Exterior woodwork including [doors / windows / fascias / soffits] to be finished with [X] coats of {extWoodProduct} throughout. All work carried out to a high standard using professional techniques and quality trade materials suited to exterior conditions.',
+    'Q:',
+    'Q: COMPLETION',
+    'Q: On completion all protection will be removed and the areas left clean and tidy. A final inspection will be carried out to ensure you are completely happy with the finished result.',
+    'I: Woodwork prepared including sanding, filling and priming of bare or damaged areas, with restoration and repairs carried out where necessary.',
+    'I: Exterior woodwork including [doors / windows / fascias / soffits] finished with [X] coats of {extWoodProduct} throughout.',
+    'I: Work completed on {completedDate}. Protection removed and area left clean on completion.'
+  ].join('\n') },
+  { id: 'ext-render', name: 'Exterior Render', body: [
+    '{Exterior Render:|Exterior Render}',
+    '',
+    'Q: PROTECTION & PREPARATION',
+    'Q: All surrounding surfaces, windows, doors and landscaping will be fully protected prior to any work commencing. Render will be thoroughly inspected and any cracks, holes or defects filled and made good. Surfaces will be cleaned down and allowed to dry fully before painting commences.',
+    'Q:',
+    'Q: PAINTING',
+    'Q: Rendered surfaces to be painted with [X] coats of {masonryProduct} throughout, applied by brush, roller or airless spray to achieve an even, consistent finish. All work carried out to a high standard using professional techniques and quality trade materials.',
+    'Q:',
+    'Q: COMPLETION',
+    'Q: On completion all protection will be removed and the areas left clean and tidy. A final inspection will be carried out to ensure you are completely happy with the finished result.',
+    'I: Render inspected, cracks, holes and defects filled and made good; surfaces cleaned down prior to painting.',
+    'I: Rendered surfaces painted with [X] coats of {masonryProduct} throughout, applied for an even, consistent finish.',
+    'I: Work completed on {completedDate}. Protection removed and area left clean on completion.'
+  ].join('\n') }
+];
+
+function textTemplates() {
+  return (settings.textTemplates && settings.textTemplates.length) ? settings.textTemplates : DEFAULT_TEXT_TEMPLATES;
+}
+
+// The pure renderer — no app state, node-testable. Resolution order is
+// load-bearing: placeholders FIRST, so a pair may contain them (the seeded
+// headers do: "{Painting of {rooms}:|Painting — {rooms}}"); once {rooms} is
+// substituted the pair regex sees no inner braces and resolves cleanly. A
+// placeholder with no value stays literal — visible-and-editable on the
+// preview beats silently blank on a client document — BUT an unresolved
+// placeholder inside a pair leaves the whole pair raw, which is why the
+// core {rooms} value always resolves (job-name fallback) and product/date
+// placeholders live on plain Q:/I: lines in every seeded body.
+// Placeholder values never contain braces or pipes (room names could in
+// theory; nobody names a room "{a|b}", accepted).
+function renderTemplateText(body, mode, values) {
+  var out = String(body == null ? '' : body);
+  out = out.replace(/\{([a-zA-Z][a-zA-Z0-9]*)\}/g, function(m, key) {
+    return (values && values[key] != null) ? String(values[key]) : m;
+  });
+  out = out.replace(/\{([^{}|]*)\|([^{}]*)\}/g, function(m, q, i) {
+    return mode === 'invoice' ? i : q;
+  });
+  // Line-anchored prefix check (leading whitespace only) — "Q: " mid-sentence
+  // is real text. A bare "Q:" is a quote-only blank line (paragraph spacing
+  // inside a version-only block). Dropped lines are removed entirely, not
+  // left empty, so the other version doesn't inherit their gaps.
+  var keep = mode === 'invoice' ? 'I' : 'Q';
+  var lines = out.split(/\r?\n/).map(function(line) {
+    var m2 = line.match(/^(\s*)([QI]):(?: (.*))?$/);
+    if (!m2) return line;
+    if (m2[2] !== keep) return null;
+    return m2[1] + (m2[3] || '');
+  }).filter(function(l) { return l !== null; });
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').replace(/^\n+|\n+$/g, '');
+}
+
+// Leftover {placeholder} tokens after a render — surfaced as a warning on
+// the previews so an unfilled value is caught before it reaches a client.
+function unresolvedTemplateTokens(text) {
+  var seen = {};
+  (String(text).match(/\{[a-zA-Z][a-zA-Z0-9]*\}/g) || []).forEach(function(t) { seen[t] = true; });
+  return Object.keys(seen);
+}
+
+function englishJoin(names) {
+  if (names.length <= 1) return names.join('');
+  return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+}
+
+var LONG_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+function formatLongDate(iso) {
+  var p = String(iso).slice(0, 10).split('-');
+  if (p.length !== 3 || !+p[0]) return String(iso);
+  return (+p[2]) + ' ' + LONG_MONTHS[(+p[1]) - 1] + ' ' + p[0];
+}
+
+// Placeholder values from live job data — the point of the feature: the
+// products/coats were already entered while estimating, so a non-default
+// room needs no extra typing. Products read the FIRST non-variation room's
+// override, else the Settings role default (woodwork's role key is
+// 'topcoat' throughout the materials engine). Per-room deviations are what
+// the editable preview is for — deliberately no per-room resolution here.
+function buildTemplateValues(mode) {
+  var job = activeJob() || {};
+  var liveRooms = rooms.filter(function(r) { return !r.isVariation; });
+  var liveExt = extItems.filter(function(it) { return !it.isVariation; });
+  var first = liveRooms[0] || null;
+  var matsDef = settings.materials || {};
+  function roleProduct(overrideField, role) {
+    if (first && first[overrideField]) return first[overrideField];
+    return (matsDef[role] && matsDef[role].range) || null;
+  }
+  function extRoleProduct(overrideField, role) {
+    var withOv = liveExt.filter(function(it) { return it[overrideField]; })[0];
+    if (withOv) return withOv[overrideField];
+    return (matsDef[role] && matsDef[role].range) || null;
+  }
+  var names = liveRooms.map(function(r) { return r.name; }).filter(Boolean);
+  var vals = {
+    // {rooms} must ALWAYS resolve (see renderTemplateText's pair note) —
+    // job name is the fallback when there are no rooms (exterior/kitchen
+    // jobs), and it's the right text there anyway.
+    rooms: names.length ? englishJoin(names) : (job.name || 'the property'),
+    wallProduct: roleProduct('wallRangeOverride', 'wall'),
+    ceilingProduct: roleProduct('ceilingRangeOverride', 'ceiling'),
+    woodProduct: roleProduct('topcoatRangeOverride', 'topcoat'),
+    wallCoats: first && +first.wc > 0 ? +first.wc : null,
+    ceilingCoats: first && +first.cc > 0 ? +first.cc : null,
+    woodCoats: first && +first.xc > 0 ? +first.xc : null,
+    masonryProduct: extRoleProduct('masonryRangeOverride', 'masonry'),
+    extWoodProduct: extRoleProduct('extTopcoatRangeOverride', 'extTopcoat')
+  };
+  if (mode === 'invoice') {
+    // Last day actually on site beats the day the Completed button was
+    // tapped; labour_log is already loaded per active job.
+    var last = null;
+    (labourLog || []).forEach(function(l) { if (l.workDate && (!last || l.workDate > last)) last = l.workDate; });
+    if (!last && job.completedAt) last = String(job.completedAt).slice(0, 10);
+    vals.completedDate = last ? formatLongDate(last) : null;
+  }
+  return vals;
+}
+
+// Template guess from job content — a suggestion, not a lock: shown in the
+// picker, one tap to correct, and stamped onto the job the moment a quote
+// is sent (or the picker touched) so it never re-guesses afterwards.
+function suggestTemplateId() {
+  var job = activeJob() || {};
+  var liveRooms = rooms.filter(function(r) { return !r.isVariation; });
+  var liveExt = extItems.filter(function(it) { return !it.isVariation; });
+  var hasWp = liveRooms.some(function(r) {
+    return r.wpWallLining || r.wpWallFinish || r.wpCeilLining || r.wpCeilFinish ||
+      ((r.featureWallMode || 'paint') === 'wallpaper' && +r.featureWallArea > 0);
+  });
+  var hasPaint = liveRooms.some(function(r) { return +r.wc > 0 || +r.cc > 0 || +r.xc > 0; });
+  var hasKitchen = !!(job.kitchen && !job.kitchen.isVariation && calcKitchen(job.kitchen).total > 0.005);
+  var hasExt = liveExt.length > 0;
+  if (hasKitchen && !hasPaint && !hasWp && !hasExt) return 'kitchen-spray';
+  if (hasExt && !hasPaint && !hasWp && !hasKitchen) {
+    return liveExt.some(function(it) { return +it.masonry > 0; }) ? 'ext-render' : 'ext-woodwork';
+  }
+  if (hasWp && hasPaint) return 'paint-paper';
+  if (hasWp) return 'wallpapering';
+  return 'painting';
+}
+
+function effectiveTemplateId() {
+  var job = activeJob();
+  if (job && job.templateId && textTemplates().some(function(t) { return t.id === job.templateId; })) return job.templateId;
+  return suggestTemplateId();
+}
+
+function renderJobTemplate(mode) {
+  var id = effectiveTemplateId();
+  var tpl = textTemplates().find(function(t) { return t.id === id; });
+  if (!tpl) return '';
+  return renderTemplateText(tpl.body, mode, buildTemplateValues(mode));
+}
+
+// Live-until-edited: an untouched job always shows a FRESH render (tracks
+// room/product changes automatically); the first edit persists to
+// job.quoteText/invoiceText and sticks from then on — "Reset to template"
+// (null) is the explicit way back. Sending also stamps the text (see
+// createXeroQuote/createFinalInvoice): the sent document is now history and
+// its wording must not silently drift under later room edits.
+function currentQuoteText() {
+  var job = activeJob();
+  if (job && job.quoteText != null) return job.quoteText;
+  return renderJobTemplate('quote');
+}
+function currentInvoiceText() {
+  var job = activeJob();
+  if (job && job.invoiceText != null) return job.invoiceText;
+  return renderJobTemplate('invoice');
+}
+
+// ── Template card on the Summary quote panel ───────────────────────────────
+function populateTemplateCard() {
+  var sel = document.getElementById('xero-template-select');
+  var ta = document.getElementById('xero-template-text');
+  if (!sel || !ta) return;
+  var job = activeJob();
+  var effId = effectiveTemplateId();
+  sel.innerHTML = textTemplates().map(function(t) {
+    return '<option value="' + escapeHtml(t.id) + '"' + (t.id === effId ? ' selected' : '') + '>' + escapeHtml(t.name) + '</option>';
+  }).join('');
+  // Never clobber mid-edit: renderSummary() fires on all sorts of state
+  // changes while the cursor may be in this textarea.
+  if (document.activeElement !== ta) ta.value = currentQuoteText();
+  var reset = document.getElementById('xero-template-reset');
+  if (reset) reset.style.display = (job && job.quoteText != null) ? 'block' : 'none';
+  updateTemplateCardNote();
+}
+
+function updateTemplateCardNote() {
+  var note = document.getElementById('xero-template-note');
+  var ta = document.getElementById('xero-template-text');
+  if (!note || !ta) return;
+  var leftovers = unresolvedTemplateTokens(ta.value);
+  var msg = 'Goes on the first line of the quote — the other lines read \u201Csame as above\u201D.';
+  if (leftovers.length) msg += ' <span style="color:var(--warn);font-weight:600">Unfilled: ' + escapeHtml(leftovers.join(' ')) + '</span>';
+  if (ta.value.length > 3000) msg += ' <span style="color:' + (ta.value.length > 3800 ? 'var(--danger)' : 'var(--warn)') + ';font-weight:600">' + ta.value.length + ' / 4000 characters (Xero limit)</span>';
+  note.innerHTML = msg;
+}
+
+function onTemplatePick(id) {
+  var job = activeJob();
+  if (!job) return;
+  if ((job.quoteText != null || job.invoiceText != null) &&
+      !confirm('Switch template? This replaces the edited quote and invoice text for this job.')) {
+    populateTemplateCard();
+    return;
+  }
+  job.templateId = id;
+  job.quoteText = null;
+  job.invoiceText = null;
+  persistJobData(job);
+  populateTemplateCard();
+}
+
+function onQuoteTextChange() {
+  var job = activeJob();
+  var ta = document.getElementById('xero-template-text');
+  if (!job || !ta) return;
+  job.quoteText = ta.value;
+  // Stamp the suggestion too — an edit is a commitment to this template.
+  if (!job.templateId) job.templateId = effectiveTemplateId();
+  persistJobData(job);
+  populateTemplateCard();
+}
+
+function resetQuoteText() {
+  var job = activeJob();
+  if (!job) return;
+  if (!confirm('Reset the quote text to the template? Your edits to it will be lost.')) return;
+  job.quoteText = null;
+  persistJobData(job);
+  populateTemplateCard();
+}
+
+// ── Settings editor for the templates ──────────────────────────────────────
+// First edit clones the defaults onto settings.textTemplates; from then on
+// that array is the truth (mergeSettings/saveSettings carry it).
+function ensureOwnTemplates() {
+  if (!settings.textTemplates || !settings.textTemplates.length) {
+    settings.textTemplates = DEFAULT_TEXT_TEMPLATES.map(function(t) { return { id: t.id, name: t.name, body: t.body }; });
+  }
+  return settings.textTemplates;
+}
+
+var openTemplateId = null;
+var templatePreviewMode = 'edit'; // 'edit' | 'quote' | 'invoice' — for the open template
+var TEMPLATE_SAMPLE_VALUES = {
+  rooms: 'Living Room and Hallway', wallProduct: 'Tikkurila Optiva 5',
+  ceilingProduct: 'Tikkurila Anti Reflex 2', woodProduct: 'Tikkurila Helmi 30',
+  wallCoats: 2, ceilingCoats: 2, woodCoats: 2,
+  masonryProduct: '[masonry paint]', extWoodProduct: '[exterior wood paint]',
+  completedDate: '7 August 2026'
+};
+
+function renderTextTemplatesSettings() {
+  var el = document.getElementById('text-templates-list');
+  if (!el) return;
+  el.innerHTML = textTemplates().map(function(t) {
+    var open = openTemplateId === t.id;
+    var html = '<div style="border-top:1px solid var(--border)">' +
+      '<div onclick="toggleTemplateOpen(\'' + escapeHtml(t.id) + '\')" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;cursor:pointer">' +
+        '<div style="font-size:14px;font-weight:600">' + escapeHtml(t.name) + '</div>' +
+        '<div style="color:var(--text3);font-size:14px">' + (open ? '⌄' : '›') + '</div>' +
+      '</div>';
+    if (open) {
+      var previewing = templatePreviewMode !== 'edit';
+      html += '<div style="padding:0 16px 14px;display:flex;flex-direction:column;gap:8px">' +
+        '<input type="text" class="field-input" style="width:100%;box-sizing:border-box;text-align:left" value="' + escapeHtml(t.name) + '" onchange="onTemplateNameChange(\'' + escapeHtml(t.id) + '\', this.value)">' +
+        '<div class="seg" style="width:100%">' +
+          ['edit','quote','invoice'].map(function(m) {
+            return '<button class="seg-btn' + (templatePreviewMode === m ? ' active' : '') + '" onclick="setTemplatePreviewMode(\'' + m + '\')">' + (m === 'edit' ? 'Edit' : m === 'quote' ? 'Quote preview' : 'Invoice preview') + '</button>';
+          }).join('') +
+        '</div>' +
+        (previewing
+          ? '<div style="background:var(--surface2);border-radius:var(--rs);padding:10px;font-size:13px;line-height:1.5;white-space:pre-wrap">' + escapeHtml(renderTemplateText(t.body, templatePreviewMode, TEMPLATE_SAMPLE_VALUES)) + '</div>'
+          : '<textarea class="field-input" rows="14" style="width:100%;box-sizing:border-box;font-size:13px;line-height:1.5;resize:vertical;text-align:left;font-family:\'DM Sans\',sans-serif" onchange="onTemplateBodyChange(\'' + escapeHtml(t.id) + '\', this.value)">' + escapeHtml(t.body) + '</textarea>') +
+        '<div style="display:flex;justify-content:space-between;align-items:center">' +
+          '<div style="font-size:12px;color:var(--text2)">{quote wording|invoice wording} · lines starting \u201CQ: \u201D quote-only, \u201CI: \u201D invoice-only · {rooms} {wallProduct} {ceilingProduct} {woodProduct} {wallCoats} {completedDate} fill from the job</div>' +
+          '<div onclick="deleteTextTemplate(\'' + escapeHtml(t.id) + '\')" style="font-size:12px;color:var(--danger);font-weight:600;cursor:pointer;white-space:nowrap;padding-left:10px">Delete</div>' +
+        '</div>' +
+      '</div>';
+    }
+    return html + '</div>';
+  }).join('');
+}
+
+function toggleTemplateOpen(id) {
+  openTemplateId = openTemplateId === id ? null : id;
+  templatePreviewMode = 'edit';
+  renderTextTemplatesSettings();
+}
+function setTemplatePreviewMode(m) {
+  templatePreviewMode = m;
+  renderTextTemplatesSettings();
+}
+function onTemplateNameChange(id, name) {
+  var t = ensureOwnTemplates().find(function(x) { return x.id === id; });
+  if (!t || !name.trim()) return;
+  t.name = name.trim();
+  saveSettings();
+  renderTextTemplatesSettings();
+}
+function onTemplateBodyChange(id, body) {
+  var t = ensureOwnTemplates().find(function(x) { return x.id === id; });
+  if (!t) return;
+  t.body = body;
+  saveSettings();
+}
+function addTextTemplate() {
+  var name = (prompt('Name for the new template:') || '').trim();
+  if (!name) return;
+  var arr = ensureOwnTemplates();
+  var t = { id: uid(), name: name, body: '' };
+  arr.push(t);
+  saveSettings();
+  openTemplateId = t.id;
+  templatePreviewMode = 'edit';
+  renderTextTemplatesSettings();
+}
+function deleteTextTemplate(id) {
+  var arr = ensureOwnTemplates();
+  var t = arr.find(function(x) { return x.id === id; });
+  if (!t) return;
+  if (!confirm('Delete the "' + t.name + '" template?')) return;
+  settings.textTemplates = arr.filter(function(x) { return x.id !== id; });
+  saveSettings();
+  renderTextTemplatesSettings();
+}
+function resetTextTemplates() {
+  if (!confirm('Reset ALL templates to the built-in defaults? Any edits and added templates will be lost.')) return;
+  settings.textTemplates = null;
+  saveSettings();
+  openTemplateId = null;
+  renderTextTemplatesSettings();
 }
 
 // ── Materials mapping (Settings) ────────────────────────────────────────
@@ -2235,6 +2727,39 @@ async function createXeroQuote(forceNew) {
     var paymentTerms = buildPaymentTermsText(depositPlan, activeJob() && activeJob().startDate);
     var paymentSummary = buildPaymentSummaryText(depositPlan);
 
+    // Template block (TEXT_TEMPLATES_SPEC.md): the whole rendered quote
+    // description rides on the FIRST labour line; every later labour line
+    // — rooms, exterior items, Kitchen Cabinet Spraying alike — reads
+    // "{label} - same as above", Nicky's manual Xero convention kept
+    // verbatim. "First" = first line the server will actually push, which
+    // is why exterior only claims it when its total is > 0 (the server
+    // skips zero-total exterior items) and rooms always can (the server
+    // pushes every room). Server side just reads description || name.
+    var quoteBlock = (currentQuoteText() || '').trim();
+    var kitchenDescription;
+    if (quoteBlock) {
+      var blockAttached = false;
+      var withBlock = function(label) {
+        if (blockAttached) return label + ' - same as above';
+        blockAttached = true;
+        return label + '\n\n' + quoteBlock;
+      };
+      roomData.forEach(function(rd) { rd.description = withBlock(rd.name); });
+      exteriorData.forEach(function(ed) { if (ed.total > 0) ed.description = withBlock(ed.label || 'Exterior'); });
+      if (kitchenTotal > 0) kitchenDescription = withBlock('Kitchen Cabinet Spraying');
+      // Xero caps a LineItem Description at 4,000 characters — block loudly
+      // here rather than let Xero reject the quote (or worse, truncate).
+      var tooLong = roomData.concat(exteriorData).map(function(d) { return (d.description || '').length; })
+        .concat([(kitchenDescription || '').length])
+        .some(function(len) { return len > 4000; });
+      if (tooLong) {
+        alert('The quote description is over Xero’s 4,000-character line limit — shorten it and send again. Nothing was sent.');
+        btn.textContent = 'Send to Xero';
+        btn.disabled = false;
+        return;
+      }
+    }
+
     // Contact resolution now reads the job's PERSISTED link/details (see
     // saveJobContactFields()/syncContactToXero()) rather than a live DOM
     // form's visibility -- a job already linked or already synced reuses
@@ -2260,7 +2785,7 @@ async function createXeroQuote(forceNew) {
         xeroRef: xeroRef,
         rooms: roomData,
         exterior: { cost: extTotal, items: exteriorData },
-        kitchen: { cost: kitchenTotal },
+        kitchen: { cost: kitchenTotal, description: kitchenDescription },
         materials: materials,
         settings: settings,
         markup: effectiveMarkup(),
@@ -2304,6 +2829,14 @@ async function createXeroQuote(forceNew) {
           quoteJob.status = 'quoted';
           quoteJob.quotedAt = new Date().toISOString();
           renderJobs();
+        }
+        // Stamp the template + the exact text that went out: the sent quote
+        // is history now, so its wording must stop tracking later room
+        // edits (live-until-edited ends at send — see currentQuoteText()),
+        // and the suggestion must never re-guess under it.
+        if (quoteBlock) {
+          if (!quoteJob.templateId) quoteJob.templateId = effectiveTemplateId();
+          quoteJob.quoteText = quoteBlock;
         }
         localStorage.setItem('pe-jobs', JSON.stringify(jobs));
         persistJobData(quoteJob);
@@ -2657,6 +3190,10 @@ function mergeSettings(raw) {
   // day sheet. Global like workSaturdays — it's Nicky's availability, not
   // a job's. The ICS route folds these into its skip set too.
   out.blockedDays = raw.blockedDays || {};
+  // Quote/invoice text templates — null means "use DEFAULT_TEXT_TEMPLATES"
+  // (see textTemplates()), so the defaults can improve in later versions
+  // until the first edit pins a copy.
+  out.textTemplates = raw.textTemplates || null;
   return out;
 }
 
@@ -2893,7 +3430,7 @@ function renameJob(id) {
 // fields together so xeroClient/xeroRef/contact/xeroContactId/
 // contactSyncedAt/materialsSeeded/kitchen stay consistent with each other.
 function persistJobData(job) {
-  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, freeVariations: job.freeVariations, variationCount: job.variationCount, notes: job.notes, kitchen: job.kitchen }) });
+  fetch('/api/jobs/'+job.id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, freeVariations: job.freeVariations, variationCount: job.variationCount, notes: job.notes, kitchen: job.kitchen }) });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -4816,6 +5353,7 @@ function loadSettings() {
   var bhSel = document.getElementById('s-bh-region');
   if (bhSel) bhSel.value = settings.bankHolidayRegion || 'england-and-wales';
   renderIcsUrlRow();
+  renderTextTemplatesSettings();
   populateKitchenRatesTable();
   document.getElementById('s-kr-cornice-base').value = (settings.kitchenRates && settings.kitchenRates.cornice) ? settings.kitchenRates.cornice.base : 25;
   document.getElementById('s-kr-cornice-coat').value = (settings.kitchenRates && settings.kitchenRates.cornice) ? settings.kitchenRates.cornice.coat : 4;
@@ -6801,7 +7339,16 @@ async function openFinalInvoice() {
   var el = document.getElementById('finalinvoice-body');
   el.innerHTML = '<div class="card" style="padding:16px;color:var(--text2)">Loading actuals…</div>';
   try {
-    await loadMaterialActuals();
+    // Labour log alongside actuals: {completedDate} in the invoice text
+    // reads the last real on-site day, and the log is otherwise only
+    // loaded when the On Site screen opens — a fresh app-open straight
+    // into this builder would silently fall back to the Completed
+    // button's timestamp. Best-effort: a failed log fetch just means the
+    // fallback date, not a blocked builder.
+    await Promise.all([
+      loadMaterialActuals(),
+      loadLabourLog().catch(function() {})
+    ]);
   } catch (e) {
     el.innerHTML = '<div class="card" style="padding:16px;color:var(--danger)">Could not load the materials actuals: '
       + escapeHtml(e.message) + '<div style="color:var(--text2);margin-top:6px;font-size:13px">Nothing was changed — go back and retry.</div></div>';
@@ -6930,7 +7477,13 @@ function buildFinalInvoiceModel() {
     variations: variations, varSundries: { amount: varSundries, dropped: false },
     materials: materials, unconfirmedCount: inv.unconfirmed.length,
     deposit: Math.round(plan.deposit * 100) / 100, instalments: 0,
-    planWeekly: plan.weeklyRows
+    planWeekly: plan.weeklyRows,
+    // Invoice description block (TEXT_TEMPLATES_SPEC.md): the past-tense
+    // render of the job's template, prefilled here and editable in the
+    // review screen; goes on the first non-dropped labour line at create
+    // time, other labour lines read "same as above". Same live-until-edited
+    // semantics as the quote side (currentInvoiceText()).
+    invoiceText: currentInvoiceText()
   };
 }
 
@@ -6954,6 +7507,36 @@ function toggleFinalInvLine(section, id) {
   } else if (list) {
     list.dropped = !list.dropped;
   }
+  renderFinalInvoice();
+}
+
+// Invoice-description editing: state updates live on input (no re-render —
+// the cursor's in the textarea), persistence on change. Same live-until-
+// edited/stamp-on-create semantics as the quote text.
+function invoiceDescNoteText(text) {
+  var leftovers = unresolvedTemplateTokens(text);
+  var msg = 'Goes on the first labour line — the other labour lines read “same as above”.';
+  if (leftovers.length) msg += ' <span style="color:var(--warn);font-weight:600">Unfilled: ' + escapeHtml(leftovers.join(' ')) + '</span>';
+  if (text.length > 3000) msg += ' <span style="color:' + (text.length > 3800 ? 'var(--danger)' : 'var(--warn)') + ';font-weight:600">' + text.length + ' / 4000 characters (Xero limit)</span>';
+  return msg;
+}
+function onInvoiceTextInput(value) {
+  if (finalInvState) finalInvState.invoiceText = value;
+  var note = document.getElementById('fi-desc-note');
+  if (note) note.innerHTML = invoiceDescNoteText(value);
+}
+function onInvoiceTextChange(value) {
+  var job = activeJob();
+  if (finalInvState) finalInvState.invoiceText = value;
+  if (job) { job.invoiceText = value; persistJobData(job); }
+}
+function resetInvoiceText() {
+  var job = activeJob();
+  if (!job) return;
+  if (!confirm('Reset the invoice text to the template? Your edits to it will be lost.')) return;
+  job.invoiceText = null;
+  persistJobData(job);
+  if (finalInvState) finalInvState.invoiceText = currentInvoiceText();
   renderFinalInvoice();
 }
 
@@ -7011,8 +7594,16 @@ function renderFinalInvoice() {
     ? 'plan was ' + s.planWeekly.length + ' × ' + fmt(s.planWeekly[0])
     : 'none planned';
 
+  var descHtml =
+    '<textarea id="fi-desc-text" rows="6" oninput="onInvoiceTextInput(this.value)" onchange="onInvoiceTextChange(this.value)" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:\'DM Sans\',sans-serif;font-size:13px;line-height:1.5;border-radius:var(--rs);padding:8px 12px;outline:none;resize:vertical;margin-top:6px">'+escapeHtml(s.invoiceText || '')+'</textarea>'+
+    '<div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline;margin-top:6px">'+
+      '<div id="fi-desc-note" style="font-size:11px;color:var(--text2);line-height:1.4;flex:1">'+invoiceDescNoteText(s.invoiceText || '')+'</div>'+
+      ((activeJob() && activeJob().invoiceText != null) ? '<div onclick="resetInvoiceText()" style="font-size:12px;color:var(--accent);font-weight:600;cursor:pointer;white-space:nowrap">↺ Reset to template</div>' : '')+
+    '</div>';
+
   el.innerHTML =
     '<div style="font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.5">Labour as quoted · materials as used · variations at agreed prices. Drop lines with ×, correct the deductions against what was really invoiced, then create the draft.</div>'+
+    section('Invoice description', descHtml)+
     section('Labour — as quoted', labourHtml)+
     section('Variations', varHtml)+
     section('Materials — as used', matHtml + unconfirmedNote)+
@@ -7044,7 +7635,26 @@ async function createFinalInvoice() {
   btn.disabled = true; btn.textContent = 'Creating…';
 
   var lines = [];
-  s.labour.forEach(function(l) { if (!l.dropped) lines.push({ description: l.desc, quantity: 1, unitAmount: l.amount, accountCode: '201' }); });
+  // Template block on the first non-dropped labour line, "same as above" on
+  // the rest — mirrors createXeroQuote exactly. Variations keep their own
+  // agreed labels (a variation was priced as its own mini-agreement and
+  // should read as one), and materials/sundries are untouched.
+  var invBlock = (s.invoiceText || '').trim();
+  var invAttached = false;
+  s.labour.forEach(function(l) {
+    if (l.dropped) return;
+    var desc = l.desc;
+    if (invBlock) {
+      desc = invAttached ? l.desc + ' - same as above' : l.desc + '\n\n' + invBlock;
+      invAttached = true;
+    }
+    lines.push({ description: desc, quantity: 1, unitAmount: l.amount, accountCode: '201' });
+  });
+  if (lines.some(function(l) { return (l.description || '').length > 4000; })) {
+    alert('The invoice description is over Xero’s 4,000-character line limit — shorten it and try again. Nothing was sent.');
+    btn.disabled = false; btn.textContent = 'Create draft invoice in Xero';
+    return;
+  }
   if (!s.sundries.dropped && s.sundries.amount > 0.005) lines.push({ description: 'Sundries & Consumables', quantity: 1, unitAmount: s.sundries.amount, accountCode: '202' });
   s.variations.forEach(function(l) { if (!l.dropped) lines.push({ description: l.desc, quantity: 1, unitAmount: l.amount, accountCode: '201' }); });
   if (s.variations.some(function(l) { return !l.dropped; }) && !s.varSundries.dropped && s.varSundries.amount > 0.005) {
@@ -7079,6 +7689,9 @@ async function createFinalInvoice() {
     // a quote.
     job.xeroInvoiceId = result.invoiceId || null;
     job.xeroInvoiceNumber = result.invoiceNumber || null;
+    // Same stamp-on-send rule as the quote text: the created invoice is
+    // history, its wording stops tracking the template/rooms from here.
+    if (invBlock) job.invoiceText = invBlock;
     setJobStatusById(job.id, 'invoiced'); // persists + pipeline hook
     alert('Invoice ' + (result.invoiceNumber || '') + ' created as a DRAFT in Xero ✓\n\nApply the payments already received against it there, review, then send.');
     goTab('summary');

@@ -770,11 +770,15 @@ router.post('/create-quote', async (req, res) => {
     // Helper to format currency
     const fmt = (n) => Math.round(n * 100) / 100;
 
-    // Add each room
+    // Add each room. Description falls back to the bare name for older
+    // clients: the client composes the full text (template block on the
+    // first labour line, "same as above" on the rest — TEXT_TEMPLATES_
+    // SPEC.md) because only it knows which line is first across
+    // rooms/exterior/kitchen. This route stays a passthrough.
     if (rooms) {
       rooms.forEach(room => {
         lineItems.push({
-          Description: room.name,
+          Description: room.description || room.name,
           Quantity: 1,
           UnitAmount: fmt(room.total * mu),
           AccountCode: '201'
@@ -790,7 +794,7 @@ router.post('/create-quote', async (req, res) => {
       exterior.items.forEach(item => {
         if (item.total > 0) {
           lineItems.push({
-            Description: item.label || 'Exterior',
+            Description: item.description || item.label || 'Exterior',
             Quantity: 1,
             UnitAmount: fmt(item.total * mu),
             AccountCode: '201'
@@ -814,7 +818,7 @@ router.post('/create-quote', async (req, res) => {
     // the Xero quote only needs the one billable total.
     if (kitchen && kitchen.cost > 0) {
       lineItems.push({
-        Description: 'Kitchen Cabinet Spraying',
+        Description: kitchen.description || 'Kitchen Cabinet Spraying',
         Quantity: 1,
         UnitAmount: fmt(kitchen.cost * mu),
         AccountCode: '201'

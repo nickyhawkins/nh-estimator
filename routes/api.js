@@ -923,7 +923,11 @@ async function copyJobRows(entry, newJobId) {
 function templateJobData(d) {
   d = d || {};
   const keep = {};
-  ['materialsSeeded', 'markupOverride', 'markupType', 'commercial'].forEach(k => {
+  // templateId copies (a "TEMPLATE — 3-bed repaint" job's whole point is
+  // carrying its setup); quoteText/invoiceText deliberately do NOT — they
+  // may embed the source job's room names and completion date, and both
+  // regenerate from the template on the copy (TEXT_TEMPLATES_SPEC.md).
+  ['materialsSeeded', 'markupOverride', 'markupType', 'commercial', 'templateId'].forEach(k => {
     if (d[k] !== undefined && d[k] !== null) keep[k] = d[k];
   });
   if (d.kitchen) {
