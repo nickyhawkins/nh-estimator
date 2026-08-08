@@ -104,7 +104,9 @@ const DEBTS_INITIAL=[
 ];
 
 // ---------- State ----------
-let debts=[];
+let debts=[]; // live debts only — archived ones live in archivedDebts
+let archivedDebts=[]; // hidden from the plan/views, kept because history references their ids
+let archivedExpanded=false;
 let budget=2000;
 let sweepPct=50;
 let bizPot=0;
@@ -113,6 +115,7 @@ let savingsPot=0;
 let savingsPct=10;
 let incomeLog=[]; // {id, amount, bizAmt, perAmt, savedAmt, date}
 let paidThisCycle=[]; // array of debt ids paid
+let missedThisCycle=[]; // debt ids deliberately skipped this cycle — mutually exclusive with paidThisCycle
 let history=[]; // completed cycles, newest first — from debt_plan_cycle_history
 let view='cashflow';
 let tightThreshold=600;
@@ -169,7 +172,7 @@ function persist(...kinds){
 const PERSIST_BODIES={
   debts:()=>({debts,clientUpdatedAt:debtsUpdatedAt}),
   settings:()=>({budget,sweepPct,savingsPct,tightThreshold,lastMilestone,notifyDaysBefore,notificationsEnabled,clientUpdatedAt:settingsUpdatedAt}),
-  cashflow:()=>({bizPot,perPot,savingsPot,paidThisCycle,clientUpdatedAt:cashflowUpdatedAt})
+  cashflow:()=>({bizPot,perPot,savingsPot,paidThisCycle,missedThisCycle,clientUpdatedAt:cashflowUpdatedAt})
 };
 async function persistNow(){
   if(!loadedFromServer)return; // never push the fallback seed over real data
@@ -207,7 +210,8 @@ async function handleWriteResponse(res,kind){
       settingsUpdatedAt=body.updatedAt;
     }else if(kind==='cashflow'){
       bizPot=body.current.bizPot;perPot=body.current.perPot;savingsPot=body.current.savingsPot;
-      paidThisCycle=body.current.paidThisCycle;cashflowUpdatedAt=body.updatedAt;
+      paidThisCycle=body.current.paidThisCycle;missedThisCycle=body.current.missedThisCycle||[];
+      cashflowUpdatedAt=body.updatedAt;
     }
     conflictBanner="Updated on another device — your changes weren't saved. Refreshed to latest.";
     renderAll();
@@ -222,6 +226,7 @@ async function handleWriteResponse(res,kind){
 }
 function applyStatePayload(s){
   debts=s.debts;
+  archivedDebts=s.archivedDebts||[]; // ||[] — pre-feature offline snapshots lack it
   budget=s.settings.budget;
   sweepPct=s.settings.sweepPct;
   savingsPct=s.settings.savingsPct;
@@ -233,6 +238,7 @@ function applyStatePayload(s){
   perPot=s.cashflow.perPot;
   savingsPot=s.cashflow.savingsPot;
   paidThisCycle=s.cashflow.paidThisCycle;
+  missedThisCycle=s.cashflow.missedThisCycle||[]; // ||[] — pre-feature offline snapshots lack it
   incomeLog=s.incomeLog;
   debtsUpdatedAt=s.meta?.debtsUpdatedAt||null;
   settingsUpdatedAt=s.meta?.settingsUpdatedAt||null;
@@ -312,7 +318,10 @@ function formatBorrowedDate(d){
 function getCycleArchivePayload(){
   const cyclePayments=getCyclePayments();
   const debtsPaid=cyclePayments.filter(p=>paidThisCycle.includes(p.id)).map(p=>({id:p.id,name:p.name,amount:p.amount}));
-  return {debtsPaid,bizPotClose:bizPot,perPotClose:perPot};
+  // Only ids that are genuinely among this cycle's payments — a stale missed
+  // id (debt since cleared/edited away) shouldn't reach the history note.
+  const debtsMissed=missedThisCycle.filter(id=>cyclePayments.some(p=>p.id===id));
+  return {debtsPaid,debtsMissed,bizPotClose:bizPot,perPotClose:perPot};
 }
 
 // For free text (notes, loan sources) interpolated into innerHTML/attribute
@@ -385,8 +394,12 @@ function getMilestones(months){const m={};for(const mo of months)for(const p of 
 // Build the "this cycle" payment list from month 1 of the sim
 function getCurrentTarget(){
   // Mirrors the simulate() priority: clear arrears first (HIGHEST arrears first),
-  // otherwise snowball the smallest remaining balance. Excludes HMRC (id 11) and zero balances.
-  const active=debts.filter(d=>d.balance>0.005 && d.id!==11);
+  // otherwise snowball the smallest remaining balance. Excludes zero balances
+  // and any debt with no minimum payment AND no due date — i.e. nothing in
+  // the payment plan at all (HMRC pre-Time-to-Pay: min 0, due null; once an
+  // arrangement sets a min/due it joins the plan by itself). Data-driven so
+  // new debts behave sensibly — was a hardcoded `id !== 11`.
+  const active=debts.filter(d=>d.balance>0.005 && (d.min>0.005||d.due));
   const arrearsDebts=active.filter(d=>d.arrears>0.005);
   if(arrearsDebts.length){
     // highest arrears first — matches simulate()'s payment order
@@ -401,7 +414,7 @@ function getCyclePayments(){
   if(!m1)return [];
   return m1.payments.filter(p=>p.total>0.005).map(p=>{
     const debt=debts.find(d=>d.id===p.id);
-    return {id:p.id,name:p.name,amount:p.total,due:debt?.due??99,arrears:p.arrearsPaid>0.005,snowball:p.extra>0.005};
+    return {id:p.id,name:p.name,amount:p.total,due:debt?.due??99,arrears:p.arrearsPaid>0.005,snowball:p.extra>0.005,missed:missedThisCycle.includes(p.id)};
   }).sort((a,b)=>a.due-b.due);
 }
 
@@ -470,15 +483,20 @@ function renderAll(){
   // ---------- CASH FLOW (home) ----------
   if(view==='cashflow'){
     const cyclePayments=getCyclePayments();
-    const bizPayments=cyclePayments.filter(p=>{const d=debts.find(x=>x.id===p.id);return d&&d.account==='business';});
-    const perPayments=cyclePayments.filter(p=>{const d=debts.find(x=>x.id===p.id);return d&&d.account==='personal';});
+    // Missed debts stay in the rendered list (so the toggle can undo them)
+    // but drop out of every total — the pots don't reserve money for a
+    // payment that deliberately isn't happening.
+    const activeCycle=cyclePayments.filter(p=>!p.missed);
+    const missedCount=cyclePayments.length-activeCycle.length;
+    const bizPayments=activeCycle.filter(p=>{const d=debts.find(x=>x.id===p.id);return d&&d.account==='business';});
+    const perPayments=activeCycle.filter(p=>{const d=debts.find(x=>x.id===p.id);return d&&d.account==='personal';});
     const bizCycleTotal=bizPayments.reduce((s,p)=>s+p.amount,0);
     const perCycleTotal=perPayments.reduce((s,p)=>s+p.amount,0);
     const paidBizTotal=bizPayments.filter(p=>paidThisCycle.includes(p.id)).reduce((s,p)=>s+p.amount,0);
     const paidPerTotal=perPayments.filter(p=>paidThisCycle.includes(p.id)).reduce((s,p)=>s+p.amount,0);
     const bizStillNeeded=Math.max(0,bizCycleTotal-paidBizTotal);
     const perStillNeeded=Math.max(0,perCycleTotal-paidPerTotal);
-    const nextDue=cyclePayments.find(p=>!paidThisCycle.includes(p.id));
+    const nextDue=activeCycle.find(p=>!paidThisCycle.includes(p.id));
     const totalIn=incomeLog.reduce((s,e)=>s+e.amount,0);
 
     html+=`<div class="total-card" style="background:linear-gradient(135deg,#1a2535,#141a2e)">
@@ -554,8 +572,8 @@ function renderAll(){
       </div>`;
     }
 
-    // Surplus prompt — all payments done AND money left in pot
-    const allDone = cyclePayments.length>0 && cyclePayments.every(p=>paidThisCycle.includes(p.id));
+    // Surplus prompt — all (non-missed) payments done AND money left in pot
+    const allDone = activeCycle.length>0 && activeCycle.every(p=>paidThisCycle.includes(p.id));
     const targetForSurplus=getCurrentTarget();
     const surplus = targetForSurplus?.account==='business'?bizPot:perPot;
     if(allDone && surplus>0.005){
@@ -570,7 +588,7 @@ function renderAll(){
           <div style="background:#0f1117;border-radius:8px;padding:10px 12px;margin-bottom:12px">
             <div class="row">
               <div>
-                <div style="font-weight:600;font-size:15px">${target.name} ${isArr?'<span class="badge badge-red">ARREARS</span>':'<span class="badge badge-blue">SNOWBALL TARGET</span>'}</div>
+                <div style="font-weight:600;font-size:15px">${esc(target.name)} ${isArr?'<span class="badge badge-red">ARREARS</span>':'<span class="badge badge-blue">SNOWBALL TARGET</span>'}</div>
                 <div style="font-size:12px;color:#7c7f96;margin-top:2px">Current balance ${fmt(target.balance)}</div>
               </div>
               <div style="text-align:right">
@@ -579,7 +597,7 @@ function renderAll(){
               </div>
             </div>
           </div>
-          <button class="btn-primary" style="width:100%;background:#7db87d" onclick="applySurplus()">Send ${fmt(surplus)} to ${target.name}</button>
+          <button class="btn-primary" style="width:100%;background:#7db87d" onclick="applySurplus()">Send ${fmt(surplus)} to ${esc(target.name)}</button>
         </div>`;
       }
     }
@@ -603,7 +621,7 @@ function renderAll(){
     html+=`<div class="card">
       <div class="row" style="margin-bottom:8px">
         <h2 style="margin:0">This cycle's payments</h2>
-        <span style="font-size:12px;color:#7c7f96">${cyclePayments.filter(p=>paidThisCycle.includes(p.id)).length}/${cyclePayments.length} done · ${fmt(paidTotal2)} paid</span>
+        <span style="font-size:12px;color:#7c7f96">${activeCycle.filter(p=>paidThisCycle.includes(p.id)).length}/${activeCycle.length} done · ${fmt(paidTotal2)} paid${missedCount?` · <span style="color:#e0923b">${missedCount} missed</span>`:''}</span>
       </div>
       <div style="background:#0f1117;border-radius:6px;height:6px;overflow:hidden;margin-bottom:14px">
         <div style="width:${pctPaid}%;height:100%;background:#7db87d;border-radius:6px;transition:width .3s"></div>
@@ -612,26 +630,31 @@ function renderAll(){
       html+=`<div class="card-blue" style="border-radius:8px;padding:10px 12px;margin-bottom:12px;border:1px solid #2a3a5e">
         <div style="font-size:11px;color:#5b8def;text-transform:uppercase;letter-spacing:.06em">Next to pay</div>
         <div class="row" style="margin-top:4px">
-          <div><span style="font-weight:600;font-size:15px">${nextDue.name}</span> <span style="font-size:12px;color:#7c7f96">· due ${nextDue.due<99?ord(nextDue.due):'flexible'}</span></div>
+          <div><span style="font-weight:600;font-size:15px">${esc(nextDue.name)}</span> <span style="font-size:12px;color:#7c7f96">· due ${nextDue.due<99?ord(nextDue.due):'flexible'}</span></div>
           <div style="font-weight:700;color:#5b8def">${fmt(nextDue.amount)}</div>
         </div>
       </div>`;
     }
     cyclePayments.forEach((p,i)=>{
       const done=paidThisCycle.includes(p.id);
+      const missed=p.missed;
       const debt=debts.find(d=>d.id===p.id);
       html+=`<div style="display:flex;align-items:center;gap:12px;padding:10px 0;${i<cyclePayments.length-1?'border-bottom:1px solid #2a2d3e':''}">
-        <button class="check ${done?'done':''}" onclick="togglePaid(${p.id})">${done?'✓':''}</button>
+        <button class="check ${done?'done':''}" onclick="togglePaid(${p.id})" style="${missed?'opacity:.35':''}">${done?'✓':''}</button>
         <div style="flex:1">
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-            <span style="font-weight:600;${done?'color:#555;text-decoration:line-through':''}">${p.name}</span>
+            <span style="font-weight:600;${done?'color:#555;text-decoration:line-through':missed?'color:#7c7f96':''}">${esc(p.name)}</span>
             ${debt?.account==='business'?'<span class="badge" style="background:#2a1a0a;color:#e0923b">BIZ</span>':'<span class="badge" style="background:#0a1228;color:#5b8def">PER</span>'}
-            ${p.arrears&&!done?'<span class="badge badge-red">ARREARS</span>':''}
-            ${p.snowball&&!done?'<span class="badge badge-blue">SNOWBALL</span>':''}
+            ${missed?'<span class="badge" style="background:#3a2a0a;color:#e0923b">MISSED</span>':''}
+            ${p.arrears&&!done&&!missed?'<span class="badge badge-red">ARREARS</span>':''}
+            ${p.snowball&&!done&&!missed?'<span class="badge badge-blue">SNOWBALL</span>':''}
           </div>
-          <div style="font-size:11px;color:#555;margin-top:1px">${p.due<99?'Due '+ord(p.due):'Flexible date'}</div>
+          <div style="font-size:11px;color:#555;margin-top:1px">${missed?'Skipped this cycle — no budget set aside':(p.due<99?'Due '+ord(p.due):'Flexible date')}</div>
         </div>
-        <div style="font-weight:700;color:${done?'#555':'#e8e8ec'};${done?'text-decoration:line-through':''}">${fmt(p.amount)}</div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-weight:700;color:${done||missed?'#555':'#e8e8ec'};${done||missed?'text-decoration:line-through':''}">${fmt(p.amount)}</div>
+          ${done?'':`<button onclick="toggleMissed(${p.id})" style="background:none;border:none;padding:2px 0 0;font-size:10px;font-weight:600;color:${missed?'#e0923b':'#555'};text-decoration:underline">${missed?'undo missed':'missed this cycle?'}</button>`}
+        </div>
       </div>`;
     });
     html+=`<div style="display:flex;gap:8px;margin-top:14px">
@@ -669,7 +692,7 @@ function renderAll(){
     if(cycleIncome>0 && cycleIncome<tightThreshold*4.33){
       // This cycle looks tight - show triage
       const today=new Date().getDate();
-      const unpaid=cyclePayments.filter(p=>!paidThisCycle.includes(p.id));
+      const unpaid=cyclePayments.filter(p=>!paidThisCycle.includes(p.id)&&!p.missed);
       const withPriority=unpaid.map(p=>{
         const debt=debts.find(d=>d.id===p.id);
         const daysUntilDue=debt?.due?((debt.due-today+31)%31):30;
@@ -712,7 +735,7 @@ function renderAll(){
           </div>
           <div style="flex:1">
             <div style="display:flex;justify-content:space-between;align-items:flex-start">
-              <span style="font-weight:600;font-size:14px">${p.name}</span>
+              <span style="font-weight:600;font-size:14px">${esc(p.name)}</span>
               <span style="font-weight:700;color:${p.color};flex-shrink:0;margin-left:8px">${fmt(p.amount)}</span>
             </div>
             <div style="font-size:12px;color:#555;margin-top:2px">${p.advice}</div>
@@ -850,7 +873,7 @@ function renderAll(){
         const isSB=p.extra>0.005,isArr=p.arrearsPaid>0.005,isClr=p.cleared&&p.wasActive;
         const bg=isClr?'card-green':isSB||isArr?'card-blue':'';
         html+=`<div class="card ${bg}"><div class="row"><div style="display:flex;align-items:flex-start;gap:8px"><div class="dot" style="background:${COLORS[i%COLORS.length]}"></div><div>
-          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-weight:600;font-size:15px">${p.name}</span>${isSB?'<span class="badge badge-blue">SNOWBALL</span>':''}${isArr?'<span class="badge badge-red">CLEARING ARREARS</span>':''}${isClr?'<span class="badge badge-green">CLEARED ✓</span>':''}</div>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-weight:600;font-size:15px">${esc(p.name)}</span>${isSB?'<span class="badge badge-blue">SNOWBALL</span>':''}${isArr?'<span class="badge badge-red">CLEARING ARREARS</span>':''}${isClr?'<span class="badge badge-green">CLEARED ✓</span>':''}</div>
           <div style="font-size:12px;color:#7c7f96;margin-top:3px">${isSB?`Min <strong style="color:#e8e8ec">${fmt(p.minPaid)}</strong> + snowball <strong style="color:#5b8def">${fmt(p.extra)}</strong>`:''}${isArr?`Min <strong style="color:#e8e8ec">${fmt(p.minPaid)}</strong> + arrears <strong style="color:#e05c5c">${fmt(p.arrearsPaid)}</strong>`:''}${!isSB&&!isArr&&p.total>0.005?'Minimum payment':''}</div>
           ${debt?.due?`<div style="font-size:11px;color:#555;margin-top:2px">Due ${ord(debt.due)}</div>`:''}
           </div></div><div style="text-align:right;flex-shrink:0;margin-left:8px"><div style="font-size:22px;font-weight:700;color:${isClr?'#7db87d':isSB?'#5b8def':isArr?'#e05c5c':'#e8e8ec'}">${p.total>0.005?fmt(p.total):'—'}</div>${p.remaining>0.005?`<div style="font-size:11px;color:#555;margin-top:1px">${fmt(p.remaining)} left</div>`:''}</div></div></div>`;
@@ -865,7 +888,7 @@ function renderAll(){
     active.forEach((d,i)=>{
       const m=milestones[d.id];
       html+=`<div style="display:flex;gap:12px;margin-bottom:12px;align-items:flex-start"><div class="milestone-line"><div class="milestone-dot" style="background:${m?COLORS[i%COLORS.length]:'#2a2d3e'}">${i+1}</div>${i<active.length-1?'<div class="connector"></div>':''}</div>
-        <div class="card" style="flex:1;margin:0"><div class="row"><div><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span style="font-weight:600">${d.name}</span>${d.arrears>0?'<span class="badge badge-red">ARREARS</span>':''}</div>
+        <div class="card" style="flex:1;margin:0"><div class="row"><div><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span style="font-weight:600">${esc(d.name)}</span>${d.arrears>0?'<span class="badge badge-red">ARREARS</span>':''}</div>
         <div style="font-size:12px;color:#7c7f96;margin-top:3px;display:flex;gap:12px;flex-wrap:wrap"><span>${fmt(d.balance)}</span>${d.arrears>0?`<span style="color:#e05c5c">${fmt(d.arrears)} overdue</span>`:''}<span>${d.apr>0?d.apr+'% APR':'0%'}</span></div></div>
         <div style="text-align:right;flex-shrink:0;margin-left:10px"><div style="font-size:14px;font-weight:700;color:${m?'#7db87d':'#7c7f96'}">${m?getMonthLabel(m,true):'—'}</div>${m?`<div style="font-size:11px;color:#555">Month ${m}</div>`:''}</div></div></div></div>`;
     });
@@ -908,7 +931,7 @@ function renderAll(){
           <span>Balance at close: <strong style="color:#e8e8ec">${fmtS(cycleTotal)}</strong></span>
         </div>
         ${reduced>0.005?`<div style="background:#0f1117;border-radius:6px;height:5px;overflow:hidden;margin-bottom:6px"><div style="width:${Math.min(100,Math.max(2,(reduced/Math.max(prevTotal,1))*100))}%;height:100%;background:#7db87d"></div></div><div style="font-size:11px;color:#7db87d;${cleared.length?'margin-bottom:6px':''}">${fmt(reduced)} reduced this cycle</div>`:''}
-        ${cleared.length?`<div style="font-size:12px;color:#7db87d">🎉 Cleared: ${cleared.map(c=>c.name).join(', ')}</div>`:''}
+        ${cleared.length?`<div style="font-size:12px;color:#7db87d">🎉 Cleared: ${cleared.map(c=>esc(c.name)).join(', ')}</div>`:''}
       </div>`;
     });
   }
@@ -918,10 +941,27 @@ function renderAll(){
     html+=`<p class="desc">Update figures as things change. Tap Save to recalculate.</p>`;
     debts.forEach((d,i)=>{
       const ev=editDraft[d.id]||{balance:d.balance,apr:d.apr,min:d.min,arrears:d.arrears,due:d.due??'',account:d.account||'personal',note:d.note};
-      html+=`<div class="card" style="border-radius:12px;margin-bottom:12px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><div class="dot" style="background:${COLORS[i%COLORS.length]};margin-top:0"></div><span style="font-weight:700;font-size:15px">${d.name}</span>${d.arrears>0?'<span class="badge badge-red">ARREARS</span>':''}</div>
+      html+=`<div class="card" style="border-radius:12px;margin-bottom:12px"><div class="row" style="align-items:center;margin-bottom:12px"><div style="display:flex;align-items:center;gap:8px"><div class="dot" style="background:${COLORS[i%COLORS.length]};margin-top:0"></div><span style="font-weight:700;font-size:15px">${esc(d.name)}</span>${d.arrears>0?'<span class="badge badge-red">ARREARS</span>':''}</div><button onclick="openArchiveModal(${d.id})" style="background:none;border:none;color:#555;font-size:11px;font-weight:600;text-decoration:underline;padding:0;flex-shrink:0">archive</button></div>
       <div class="edit-grid">${[['balance','Balance (£)'],['arrears','Arrears (£)'],['apr','APR (%)'],['min','Min. Payment (£)'],['due','Due Date (day)']].map(([f,label])=>`<div><div class="field-label">${label}</div><input class="field-input" type="number" min="0" step="${f==='apr'?'0.1':f==='due'?'1':'0.01'}" value="${ev[f]}" oninput="updateDraft(${d.id},'${f}',this.value)"></div>`).join('')}<div><div class="field-label" style="color:${ev.account==='business'?'#e0923b':'#5b8def'}">Account</div><select class="field-input" style="background:#0f1117;color:#e8e8ec" onchange="updateDraft(${d.id},'account',this.value)"><option value="personal" ${ev.account==='personal'?'selected':''}>Personal</option><option value="business" ${ev.account==='business'?'selected':''}>Business</option></select></div><div style="grid-column:1/-1"><div class="field-label">Note</div><input class="field-input" type="text" value="${esc(ev.note||'')}" oninput="updateDraft(${d.id},'note',this.value)"></div></div></div>`;
     });
+    html+=`<button class="btn-ghost" style="width:100%;margin-bottom:12px;border-style:dashed" onclick="openAddDebtModal()">+ Add debt</button>`;
     html+=`<div style="display:flex;gap:10px;margin-top:4px"><button id="saveBtn" class="btn-primary" style="flex:1" onclick="applyEdits()">Save &amp; Recalculate</button><button class="btn-ghost" onclick="resetDebts()">Reset</button></div>`;
+    if(archivedDebts.length){
+      html+=`<div class="card" style="border-radius:12px;margin-top:16px">
+        <button onclick="archivedExpanded=!archivedExpanded;renderAll()" style="width:100%;background:none;border:none;color:#7c7f96;font-size:13px;font-weight:600;text-align:left;padding:0;cursor:pointer">${archivedExpanded?'▼':'▶'} Archived (${archivedDebts.length})</button>`;
+      if(archivedExpanded){
+        archivedDebts.forEach((d,i)=>{
+          html+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;${i<archivedDebts.length-1?'border-bottom:1px solid #2a2d3e':''};margin-top:${i===0?'12px':'0'}">
+            <div>
+              <span style="font-size:13px;color:#555">${esc(d.name)}</span>
+              <div style="font-size:11px;color:#555;margin-top:1px">${fmt(d.balance)}${d.note?` · ${esc(d.note)}`:''}</div>
+            </div>
+            <button onclick="restoreDebt(${d.id})" style="padding:5px 10px;border-radius:6px;border:1px solid #3a3d52;background:transparent;color:#7c7f96;font-size:11px;font-weight:600">Restore</button>
+          </div>`;
+        });
+      }
+      html+=`</div>`;
+    }
   }
 
   // ---------- OVERVIEW ----------
@@ -929,7 +969,7 @@ function renderAll(){
     html+=`<p class="desc">All debts at a glance.</p>`;
     debts.forEach((d,i)=>{
       html+=`<div class="card"><div class="row"><div style="display:flex;align-items:flex-start;gap:8px"><div class="dot" style="background:${COLORS[i%COLORS.length]}"></div><div>
-      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span style="font-weight:600;font-size:14px">${d.name}</span>${d.arrears>0?'<span class="badge badge-red">ARREARS</span>':''}</div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span style="font-weight:600;font-size:14px">${esc(d.name)}</span>${d.arrears>0?'<span class="badge badge-red">ARREARS</span>':''}</div>
       <div style="font-size:12px;color:#7c7f96;margin-top:3px;display:flex;gap:12px;flex-wrap:wrap">${d.apr>0?`<span>${d.apr}% APR</span>`:''}${d.min>0?`<span>Min: ${fmt(d.min)}</span>`:''}${d.due?`<span>Due: ${ord(d.due)}</span>`:''}${d.arrears>0?`<span style="color:#e05c5c">Arrears: ${fmt(d.arrears)}</span>`:''}</div>
       ${d.note?`<div style="font-size:11px;color:#555;margin-top:3px;font-style:italic">${esc(d.note)}</div>`:''}</div></div>
       <div style="font-size:18px;font-weight:700;color:${d.balance===0?'#3a4a3a':'#e8e8ec'};flex-shrink:0;margin-left:8px">${fmt(d.balance)}</div></div></div>`;
@@ -1019,8 +1059,10 @@ function renderAll(){
 
 // ---------- Cash flow actions ----------
 function getCycleTotals(){
-  // Calculate how much is needed from each account this cycle
-  const cp=getCyclePayments();
+  // Calculate how much is needed from each account this cycle. Missed debts
+  // are out — the sweep shouldn't set money aside for a payment that
+  // deliberately isn't happening.
+  const cp=getCyclePayments().filter(p=>!p.missed);
   const businessTotal=cp.filter(p=>{const d=debts.find(x=>x.id===p.id);return d&&d.account==='business';}).reduce((s,p)=>s+p.amount,0);
   const personalTotal=cp.filter(p=>{const d=debts.find(x=>x.id===p.id);return d&&d.account==='personal';}).reduce((s,p)=>s+p.amount,0);
   return {businessTotal,personalTotal};
@@ -1094,7 +1136,7 @@ function openLogModal(){
         </div>
       </div>
     </div>`;
-  setTimeout(()=>document.getElementById('logAmount').focus(),100);
+  setTimeout(()=>document.getElementById('logAmount')?.focus(),100); // ?. — modal may already be closed
 }
 function updateSweepPreview(){
   const amt=parseNum(document.getElementById('logAmount').value);
@@ -1194,8 +1236,27 @@ function togglePaid(id){
     paidThisCycle=paidThisCycle.filter(x=>x!==id);
     if(isBiz)bizPot+=p.amount; else perPot+=p.amount;
   }else{
+    missedThisCycle=missedThisCycle.filter(x=>x!==id); // paid and missed are mutually exclusive
     paidThisCycle.push(id);
     if(isBiz)bizPot=Math.max(0,bizPot-p.amount); else perPot=Math.max(0,perPot-p.amount);
+  }
+  persist('cashflow');renderAll();
+}
+function toggleMissed(id){
+  const cyclePayments=getCyclePayments();
+  const p=cyclePayments.find(x=>x.id===id);
+  if(!p)return;
+  if(missedThisCycle.includes(id)){
+    missedThisCycle=missedThisCycle.filter(x=>x!==id);
+  }else{
+    // Mutually exclusive with the paid tick: marking a paid debt missed
+    // un-pays it first, refunding the pot the payment came out of.
+    if(paidThisCycle.includes(id)){
+      const debt=debts.find(d=>d.id===id);
+      if(debt?.account==='business')bizPot+=p.amount; else perPot+=p.amount;
+      paidThisCycle=paidThisCycle.filter(x=>x!==id);
+    }
+    missedThisCycle=[...missedThisCycle,id];
   }
   persist('cashflow');renderAll();
 }
@@ -1246,7 +1307,9 @@ function openSyncBalances(){
   debts.forEach(d=>{
     if(d.balance<=0.005)return;
     let projected=d.balance;
-    if(m1){
+    // A missed debt had no payment this cycle, so its estimate stays at the
+    // current balance instead of assuming the plan's payment happened.
+    if(m1&&!missedThisCycle.includes(d.id)){
       const p=m1.payments.find(x=>x.id===d.id);
       if(p&&p.wasActive){ projected=p.remaining; }
     }
@@ -1259,7 +1322,7 @@ function renderSyncModal(){
   const rows=list.map(d=>`
     <div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #2a2d3e">
       <div style="flex:1">
-        <div style="font-weight:600;font-size:14px">${d.name}</div>
+        <div style="font-weight:600;font-size:14px">${esc(d.name)}</div>
         <div style="font-size:11px;color:#555">now ${fmt(d.balance)} → est. shown${d.arrears>0.005?` · ${fmt(d.arrears)} arrears`:''}</div>
       </div>
       <div style="width:120px">
@@ -1291,6 +1354,7 @@ async function confirmSync(){
   });
   // Clear the cycle too
   paidThisCycle=[];
+  missedThisCycle=[];
   incomeLog=[];
   syncDraft={};
   selectedMonth=1;
@@ -1307,6 +1371,7 @@ async function confirmSync(){
 async function confirmNewCycle(){
   const archivePayload=getCycleArchivePayload(); // must read before paidThisCycle/incomeLog clear
   paidThisCycle=[];
+  missedThisCycle=[];
   incomeLog=[];
   closeModal();renderAll();
   try{
@@ -1324,9 +1389,9 @@ function applySurplus(){
   document.getElementById('modalRoot').innerHTML=`
     <div class="modal-bg" onclick="if(event.target===this)closeModal()">
       <div class="modal">
-        <h2 style="font-size:18px;margin-bottom:12px">Send surplus to ${target.name}?</h2>
+        <h2 style="font-size:18px;margin-bottom:12px">Send surplus to ${esc(target.name)}?</h2>
         <div style="font-size:13px;color:#7c7f96;margin-bottom:18px;line-height:1.5">
-          This puts <strong style="color:#7db87d">${fmt(amount)}</strong> toward ${target.name}, dropping its balance from ${fmt(target.balance)} to <strong style="color:#7db87d">${fmt(Math.max(0,target.balance-amount))}</strong>. Your pot empties and the whole plan recalculates.
+          This puts <strong style="color:#7db87d">${fmt(amount)}</strong> toward ${esc(target.name)}, dropping its balance from ${fmt(target.balance)} to <strong style="color:#7db87d">${fmt(Math.max(0,target.balance-amount))}</strong>. Your pot empties and the whole plan recalculates.
         </div>
         <div style="display:flex;gap:10px">
           <button class="btn-primary" style="flex:1;background:#7db87d" onclick="confirmSurplus()">Yes, pay it off</button>
@@ -1522,6 +1587,124 @@ function applyEdits(){
   const btn=document.getElementById('saveBtn');if(btn){btn.textContent='✓ Saved';btn.style.background='#1a3a1a';btn.style.color='#7db87d';}
   setTimeout(()=>renderAll(),1000);
 }
+function openAddDebtModal(){
+  if(!loadedFromServer)return; // read-only until a real load (see loadFailed banner)
+  document.getElementById('modalRoot').innerHTML=`
+    <div class="modal-bg" onclick="if(event.target===this)closeModal()">
+      <div class="modal" style="max-height:85vh;overflow-y:auto">
+        <h2 style="font-size:18px;margin-bottom:6px">Add a debt</h2>
+        <div style="font-size:12px;color:#7c7f96;margin-bottom:16px;line-height:1.5">It joins the plan straight away — this cycle's payments, the schedule and the chart all recalculate.</div>
+        <div class="field-label">Name</div>
+        <input id="newDebtName" class="field-input" type="text" placeholder="e.g. Barclaycard" style="margin-bottom:14px">
+        <div class="edit-grid" style="margin-top:0;margin-bottom:14px">
+          <div><div class="field-label">Balance (£)</div><input id="newDebtBalance" class="field-input" type="number" inputmode="decimal" min="0" step="0.01"></div>
+          <div><div class="field-label">Arrears (£)</div><input id="newDebtArrears" class="field-input" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0"></div>
+          <div><div class="field-label">APR (%)</div><input id="newDebtApr" class="field-input" type="number" inputmode="decimal" min="0" step="0.1" placeholder="0"></div>
+          <div><div class="field-label">Min. Payment (£)</div><input id="newDebtMin" class="field-input" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0"></div>
+          <div><div class="field-label">Due Date (day)</div><input id="newDebtDue" class="field-input" type="number" min="1" max="31" step="1" placeholder="none"></div>
+          <div><div class="field-label">Account</div><select id="newDebtAccount" class="field-input" style="background:#0f1117;color:#e8e8ec"><option value="personal">Personal</option><option value="business">Business</option></select></div>
+        </div>
+        <div class="field-label">Note (optional)</div>
+        <input id="newDebtNote" class="field-input" type="text" style="margin-bottom:14px">
+        <div id="newDebtError" style="display:none;color:#e05c5c;font-size:12px;margin-bottom:12px"></div>
+        <div style="display:flex;gap:10px">
+          <button class="btn-primary" style="flex:1" onclick="confirmAddDebt()">Add debt</button>
+          <button class="btn-ghost" onclick="closeModal()">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+  setTimeout(()=>document.getElementById('newDebtName')?.focus(),100); // ?. — modal may already be closed
+}
+async function confirmAddDebt(){
+  const name=document.getElementById('newDebtName').value.trim();
+  const errEl=document.getElementById('newDebtError');
+  if(!name){errEl.textContent='Name is required';errEl.style.display='block';return;}
+  const dueRaw=document.getElementById('newDebtDue').value;
+  const debt={
+    name,
+    balance:parseNum(document.getElementById('newDebtBalance').value),
+    apr:parseNum(document.getElementById('newDebtApr').value),
+    min:parseNum(document.getElementById('newDebtMin').value),
+    arrears:parseNum(document.getElementById('newDebtArrears').value),
+    due:dueRaw===''?null:parseInt(dueRaw)||null,
+    account:document.getElementById('newDebtAccount').value,
+    note:document.getElementById('newDebtNote').value.trim()
+  };
+  closeModal();
+  try{
+    // The server assigns the id (plain INTEGER PK, no sequence) and returns
+    // the full row plus the fresh updated_at to adopt.
+    const res=await fetch('/debt/api/debts/add',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify({debt,clientUpdatedAt:debtsUpdatedAt})});
+    if(res.status===409){await handleWriteResponse(res,'debts');return;}
+    if(!res.ok)throw new Error('add debt failed: '+res.status);
+    const body=await res.json();
+    debts=[...debts,body.debt]; // new reference — the sim cache recalculates
+    debtsUpdatedAt=body.updatedAt;
+    selectedMonth=1;
+  }catch(err){saveError=true;console.error('Failed to add debt',err);}
+  renderAll();
+}
+function openArchiveModal(id){
+  const d=debts.find(x=>x.id===id);
+  if(!d)return;
+  const hasBalance=d.balance>0.005;
+  document.getElementById('modalRoot').innerHTML=`
+    <div class="modal-bg" onclick="if(event.target===this)closeModal()">
+      <div class="modal">
+        <h2 style="font-size:18px;margin-bottom:12px">Archive ${esc(d.name)}?</h2>
+        <div style="font-size:13px;color:#7c7f96;margin-bottom:18px;line-height:1.5">
+          It disappears from the plan, the payment list and the chart — but nothing is deleted. Its cycle history stays, and you can restore it from the bottom of this tab.
+          ${hasBalance?`<br><br><span style="color:#e0923b">⚠ It still has a balance of <strong>${fmt(d.balance)}</strong> — archiving takes it out of the payoff plan entirely.</span>`:''}
+        </div>
+        <div style="display:flex;gap:10px">
+          <button class="btn-primary" style="flex:1" onclick="confirmArchive(${id})">Yes, archive</button>
+          <button class="btn-ghost" onclick="closeModal()">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+}
+// Shared by archive and restore — hits the same endpoint with the flag
+// flipped. Returns the response body, or null after a 409 (state already
+// refreshed by handleWriteResponse).
+async function setDebtArchived(id,archived){
+  const res=await fetch('/debt/api/debts/'+id+'/archive',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify({archived,clientUpdatedAt:debtsUpdatedAt})});
+  if(res.status===409){await handleWriteResponse(res,'debts');return null;}
+  if(!res.ok)throw new Error('archive update failed: '+res.status);
+  return res.json();
+}
+async function confirmArchive(id){
+  if(!loadedFromServer){closeModal();return;}
+  closeModal();
+  try{
+    const body=await setDebtArchived(id,true);
+    if(!body){renderAll();return;}
+    debts=debts.filter(x=>x.id!==id);
+    archivedDebts=[...archivedDebts,body.debt];
+    debtsUpdatedAt=body.updatedAt;
+    delete editDraft[id];
+    selectedMonth=1;
+    // Out of this cycle too. Pots are left alone on purpose: a ticked
+    // payment really left the pot, and archiving doesn't undo that.
+    if(paidThisCycle.includes(id)||missedThisCycle.includes(id)){
+      paidThisCycle=paidThisCycle.filter(x=>x!==id);
+      missedThisCycle=missedThisCycle.filter(x=>x!==id);
+      persist('cashflow');
+    }
+  }catch(err){saveError=true;console.error('Failed to archive debt',err);}
+  renderAll();
+}
+async function restoreDebt(id){
+  if(!loadedFromServer)return;
+  try{
+    const body=await setDebtArchived(id,false);
+    if(!body){renderAll();return;}
+    archivedDebts=archivedDebts.filter(x=>x.id!==id);
+    debts=[...debts,body.debt].sort((a,b)=>a.id-b.id);
+    debtsUpdatedAt=body.updatedAt;
+    selectedMonth=1;
+  }catch(err){saveError=true;console.error('Failed to restore debt',err);}
+  renderAll();
+}
 function resetDebts(){
   document.getElementById('modalRoot').innerHTML=`
     <div class="modal-bg" onclick="if(event.target===this)closeModal()">
@@ -1590,7 +1773,7 @@ function openAddLoanModal(){
         </div>
       </div>
     </div>`;
-  setTimeout(()=>document.getElementById('loanSource').focus(),100);
+  setTimeout(()=>document.getElementById('loanSource')?.focus(),100); // ?. — modal may already be closed
 }
 function setLoanType(isSavings){
   loanIsSavings=isSavings;

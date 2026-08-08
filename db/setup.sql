@@ -265,6 +265,21 @@ ALTER TABLE debt_plan_settings ADD COLUMN IF NOT EXISTS cycle_started_at TIMESTA
 ALTER TABLE debt_plan_settings ADD COLUMN IF NOT EXISTS notify_days_before INTEGER NOT NULL DEFAULT 3;
 ALTER TABLE debt_plan_settings ADD COLUMN IF NOT EXISTS notifications_enabled BOOLEAN NOT NULL DEFAULT true;
 
+-- Debt ids deliberately skipped this cycle (mirror of paid_this_cycle's
+-- tick-list). A missed debt is excluded from the cycle's payment totals and
+-- the sweep split, and the ids are archived into cycle_history.notes as
+-- {"missed":[ids]} when the cycle closes. ALSO applied lazily by
+-- routes/debt.js on first API request (this file is not run on deploy),
+-- same as the debt_push_* tables below.
+ALTER TABLE debt_plan_cashflow ADD COLUMN IF NOT EXISTS missed_this_cycle JSONB NOT NULL DEFAULT '[]';
+
+-- Soft-delete for debts: debt_plan_cycle_history's debt_snapshot/debts_paid
+-- reference debt ids from past cycles, so a cleared (or abandoned) debt is
+-- archived rather than deleted — hidden from every live view, row and
+-- history intact. ALSO applied lazily by routes/debt.js, like
+-- missed_this_cycle above.
+ALTER TABLE debt_plan_debts ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT FALSE;
+
 -- Multi-device conflict detection: each write endpoint compares the
 -- client's last-known updated_at against the current value before writing,
 -- and 409s (with the fresh row) if another device wrote in between.
