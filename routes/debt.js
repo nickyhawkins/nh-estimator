@@ -21,6 +21,28 @@ router.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'debt.html'));
 });
 
+// Columns added after launch are applied lazily here (same pattern as
+// lib/debtPush.js's table creation) because db/setup.sql is not run
+// automatically on deploy. Both statements are idempotent; the promise is
+// reset on failure so a transient DB blip doesn't poison later requests.
+let schemaReady = null;
+function ensureSchema() {
+  if (!schemaReady) {
+    schemaReady = (async () => {
+      await db.query(`ALTER TABLE debt_plan_cashflow ADD COLUMN IF NOT EXISTS missed_this_cycle JSONB NOT NULL DEFAULT '[]'`);
+    })().catch(err => { schemaReady = null; throw err; });
+  }
+  return schemaReady;
+}
+router.use('/api', async (req, res, next) => {
+  try {
+    await ensureSchema();
+    next();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/api/state', async (req, res) => {
   try {
     const [debts, settings, cashflow, income] = await Promise.all([
@@ -45,7 +67,8 @@ router.get('/api/state', async (req, res) => {
       },
       cashflow: {
         bizPot: Number(c.biz_pot), perPot: Number(c.per_pot),
-        savingsPot: Number(c.savings_pot), paidThisCycle: c.paid_this_cycle
+        savingsPot: Number(c.savings_pot), paidThisCycle: c.paid_this_cycle,
+        missedThisCycle: c.missed_this_cycle
       },
       incomeLog: income.rows.map(e => ({
         id: e.id, amount: Number(e.amount), bizAmt: Number(e.biz_amt),
@@ -139,7 +162,7 @@ router.post('/api/settings', async (req, res) => {
 });
 
 router.post('/api/cashflow', async (req, res) => {
-  const { bizPot, perPot, savingsPot, paidThisCycle, clientUpdatedAt } = req.body;
+  const { bizPot, perPot, savingsPot, paidThisCycle, missedThisCycle, clientUpdatedAt } = req.body;
   try {
     const current = await db.query('SELECT * FROM debt_plan_cashflow WHERE id = 1');
     const c = current.rows[0];
@@ -149,15 +172,17 @@ router.post('/api/cashflow', async (req, res) => {
         message: 'Updated on another device',
         current: {
           bizPot: Number(c.biz_pot), perPot: Number(c.per_pot),
-          savingsPot: Number(c.savings_pot), paidThisCycle: c.paid_this_cycle
+          savingsPot: Number(c.savings_pot), paidThisCycle: c.paid_this_cycle,
+          missedThisCycle: c.missed_this_cycle
         },
         updatedAt: c.updated_at
       });
     }
 
     const result = await db.query(
-      `UPDATE debt_plan_cashflow SET biz_pot=$1, per_pot=$2, savings_pot=$3, paid_this_cycle=$4 WHERE id=1 RETURNING updated_at`,
-      [bizPot, perPot, savingsPot, JSON.stringify(paidThisCycle || [])]
+      `UPDATE debt_plan_cashflow SET biz_pot=$1, per_pot=$2, savings_pot=$3, paid_this_cycle=$4, missed_this_cycle=COALESCE($5, missed_this_cycle) WHERE id=1 RETURNING updated_at`,
+      [bizPot, perPot, savingsPot, JSON.stringify(paidThisCycle || []),
+        missedThisCycle === undefined ? null : JSON.stringify(missedThisCycle)]
     );
     res.json({ ok: true, updatedAt: result.rows[0].updated_at });
   } catch (err) {
@@ -196,12 +221,17 @@ router.delete('/api/income/:id', async (req, res) => {
 // the fresh updated_at for every table this touches, so the client can
 // adopt them instead of its next save tripping the stale-write guard.
 router.post('/api/new-cycle', async (req, res) => {
-  const { debts, debtsPaid, bizPotClose, perPotClose } = req.body;
+  const { debts, debtsPaid, debtsMissed, bizPotClose, perPotClose } = req.body;
   const client = await db.pool.connect();
   try {
     await client.query('BEGIN');
     const paidList = Array.isArray(debtsPaid) ? debtsPaid : [];
     const totalPaid = paidList.reduce((s, p) => s + Number(p.amount || 0), 0);
+    // Debts deliberately skipped this cycle, archived into the history row's
+    // notes column as structured JSON (not free text) so the History tab can
+    // render "N missed" later without a schema change.
+    const missedList = (Array.isArray(debtsMissed) ? debtsMissed : []).map(Number).filter(Number.isFinite);
+    const notes = missedList.length ? JSON.stringify({ missed: missedList }) : null;
 
     const incomeResult = await client.query('SELECT COALESCE(SUM(amount),0) AS total FROM debt_plan_income_log');
     const totalIncome = Number(incomeResult.rows[0].total);
@@ -232,13 +262,13 @@ router.post('/api/new-cycle', async (req, res) => {
 
     await client.query(
       `INSERT INTO debt_plan_cycle_history
-        (cycle_number, started_at, total_income, total_paid, biz_pot_close, per_pot_close, debts_paid, debt_snapshot)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [cycleNumber, startedAt, totalIncome, totalPaid, bizPotClose || 0, perPotClose || 0, JSON.stringify(paidList), JSON.stringify(debtSnapshot)]
+        (cycle_number, started_at, total_income, total_paid, biz_pot_close, per_pot_close, debts_paid, debt_snapshot, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [cycleNumber, startedAt, totalIncome, totalPaid, bizPotClose || 0, perPotClose || 0, JSON.stringify(paidList), JSON.stringify(debtSnapshot), notes]
     );
 
     await client.query('DELETE FROM debt_plan_income_log');
-    const cashflowResult = await client.query(`UPDATE debt_plan_cashflow SET paid_this_cycle = '[]' WHERE id = 1 RETURNING updated_at`);
+    const cashflowResult = await client.query(`UPDATE debt_plan_cashflow SET paid_this_cycle = '[]', missed_this_cycle = '[]' WHERE id = 1 RETURNING updated_at`);
     const newSettings = await client.query('UPDATE debt_plan_settings SET cycle_started_at = NOW() WHERE id = 1 RETURNING updated_at');
     const debtsMax = await client.query('SELECT MAX(updated_at) AS max FROM debt_plan_debts');
     await client.query('COMMIT');

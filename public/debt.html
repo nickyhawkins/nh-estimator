@@ -113,6 +113,7 @@ let savingsPot=0;
 let savingsPct=10;
 let incomeLog=[]; // {id, amount, bizAmt, perAmt, savedAmt, date}
 let paidThisCycle=[]; // array of debt ids paid
+let missedThisCycle=[]; // debt ids deliberately skipped this cycle — mutually exclusive with paidThisCycle
 let history=[]; // completed cycles, newest first — from debt_plan_cycle_history
 let view='cashflow';
 let tightThreshold=600;
@@ -169,7 +170,7 @@ function persist(...kinds){
 const PERSIST_BODIES={
   debts:()=>({debts,clientUpdatedAt:debtsUpdatedAt}),
   settings:()=>({budget,sweepPct,savingsPct,tightThreshold,lastMilestone,notifyDaysBefore,notificationsEnabled,clientUpdatedAt:settingsUpdatedAt}),
-  cashflow:()=>({bizPot,perPot,savingsPot,paidThisCycle,clientUpdatedAt:cashflowUpdatedAt})
+  cashflow:()=>({bizPot,perPot,savingsPot,paidThisCycle,missedThisCycle,clientUpdatedAt:cashflowUpdatedAt})
 };
 async function persistNow(){
   if(!loadedFromServer)return; // never push the fallback seed over real data
@@ -207,7 +208,8 @@ async function handleWriteResponse(res,kind){
       settingsUpdatedAt=body.updatedAt;
     }else if(kind==='cashflow'){
       bizPot=body.current.bizPot;perPot=body.current.perPot;savingsPot=body.current.savingsPot;
-      paidThisCycle=body.current.paidThisCycle;cashflowUpdatedAt=body.updatedAt;
+      paidThisCycle=body.current.paidThisCycle;missedThisCycle=body.current.missedThisCycle||[];
+      cashflowUpdatedAt=body.updatedAt;
     }
     conflictBanner="Updated on another device — your changes weren't saved. Refreshed to latest.";
     renderAll();
@@ -233,6 +235,7 @@ function applyStatePayload(s){
   perPot=s.cashflow.perPot;
   savingsPot=s.cashflow.savingsPot;
   paidThisCycle=s.cashflow.paidThisCycle;
+  missedThisCycle=s.cashflow.missedThisCycle||[]; // ||[] — pre-feature offline snapshots lack it
   incomeLog=s.incomeLog;
   debtsUpdatedAt=s.meta?.debtsUpdatedAt||null;
   settingsUpdatedAt=s.meta?.settingsUpdatedAt||null;
@@ -312,7 +315,10 @@ function formatBorrowedDate(d){
 function getCycleArchivePayload(){
   const cyclePayments=getCyclePayments();
   const debtsPaid=cyclePayments.filter(p=>paidThisCycle.includes(p.id)).map(p=>({id:p.id,name:p.name,amount:p.amount}));
-  return {debtsPaid,bizPotClose:bizPot,perPotClose:perPot};
+  // Only ids that are genuinely among this cycle's payments — a stale missed
+  // id (debt since cleared/edited away) shouldn't reach the history note.
+  const debtsMissed=missedThisCycle.filter(id=>cyclePayments.some(p=>p.id===id));
+  return {debtsPaid,debtsMissed,bizPotClose:bizPot,perPotClose:perPot};
 }
 
 // For free text (notes, loan sources) interpolated into innerHTML/attribute
@@ -401,7 +407,7 @@ function getCyclePayments(){
   if(!m1)return [];
   return m1.payments.filter(p=>p.total>0.005).map(p=>{
     const debt=debts.find(d=>d.id===p.id);
-    return {id:p.id,name:p.name,amount:p.total,due:debt?.due??99,arrears:p.arrearsPaid>0.005,snowball:p.extra>0.005};
+    return {id:p.id,name:p.name,amount:p.total,due:debt?.due??99,arrears:p.arrearsPaid>0.005,snowball:p.extra>0.005,missed:missedThisCycle.includes(p.id)};
   }).sort((a,b)=>a.due-b.due);
 }
 
@@ -470,15 +476,20 @@ function renderAll(){
   // ---------- CASH FLOW (home) ----------
   if(view==='cashflow'){
     const cyclePayments=getCyclePayments();
-    const bizPayments=cyclePayments.filter(p=>{const d=debts.find(x=>x.id===p.id);return d&&d.account==='business';});
-    const perPayments=cyclePayments.filter(p=>{const d=debts.find(x=>x.id===p.id);return d&&d.account==='personal';});
+    // Missed debts stay in the rendered list (so the toggle can undo them)
+    // but drop out of every total — the pots don't reserve money for a
+    // payment that deliberately isn't happening.
+    const activeCycle=cyclePayments.filter(p=>!p.missed);
+    const missedCount=cyclePayments.length-activeCycle.length;
+    const bizPayments=activeCycle.filter(p=>{const d=debts.find(x=>x.id===p.id);return d&&d.account==='business';});
+    const perPayments=activeCycle.filter(p=>{const d=debts.find(x=>x.id===p.id);return d&&d.account==='personal';});
     const bizCycleTotal=bizPayments.reduce((s,p)=>s+p.amount,0);
     const perCycleTotal=perPayments.reduce((s,p)=>s+p.amount,0);
     const paidBizTotal=bizPayments.filter(p=>paidThisCycle.includes(p.id)).reduce((s,p)=>s+p.amount,0);
     const paidPerTotal=perPayments.filter(p=>paidThisCycle.includes(p.id)).reduce((s,p)=>s+p.amount,0);
     const bizStillNeeded=Math.max(0,bizCycleTotal-paidBizTotal);
     const perStillNeeded=Math.max(0,perCycleTotal-paidPerTotal);
-    const nextDue=cyclePayments.find(p=>!paidThisCycle.includes(p.id));
+    const nextDue=activeCycle.find(p=>!paidThisCycle.includes(p.id));
     const totalIn=incomeLog.reduce((s,e)=>s+e.amount,0);
 
     html+=`<div class="total-card" style="background:linear-gradient(135deg,#1a2535,#141a2e)">
@@ -554,8 +565,8 @@ function renderAll(){
       </div>`;
     }
 
-    // Surplus prompt — all payments done AND money left in pot
-    const allDone = cyclePayments.length>0 && cyclePayments.every(p=>paidThisCycle.includes(p.id));
+    // Surplus prompt — all (non-missed) payments done AND money left in pot
+    const allDone = activeCycle.length>0 && activeCycle.every(p=>paidThisCycle.includes(p.id));
     const targetForSurplus=getCurrentTarget();
     const surplus = targetForSurplus?.account==='business'?bizPot:perPot;
     if(allDone && surplus>0.005){
@@ -603,7 +614,7 @@ function renderAll(){
     html+=`<div class="card">
       <div class="row" style="margin-bottom:8px">
         <h2 style="margin:0">This cycle's payments</h2>
-        <span style="font-size:12px;color:#7c7f96">${cyclePayments.filter(p=>paidThisCycle.includes(p.id)).length}/${cyclePayments.length} done · ${fmt(paidTotal2)} paid</span>
+        <span style="font-size:12px;color:#7c7f96">${activeCycle.filter(p=>paidThisCycle.includes(p.id)).length}/${activeCycle.length} done · ${fmt(paidTotal2)} paid${missedCount?` · <span style="color:#e0923b">${missedCount} missed</span>`:''}</span>
       </div>
       <div style="background:#0f1117;border-radius:6px;height:6px;overflow:hidden;margin-bottom:14px">
         <div style="width:${pctPaid}%;height:100%;background:#7db87d;border-radius:6px;transition:width .3s"></div>
@@ -619,19 +630,24 @@ function renderAll(){
     }
     cyclePayments.forEach((p,i)=>{
       const done=paidThisCycle.includes(p.id);
+      const missed=p.missed;
       const debt=debts.find(d=>d.id===p.id);
       html+=`<div style="display:flex;align-items:center;gap:12px;padding:10px 0;${i<cyclePayments.length-1?'border-bottom:1px solid #2a2d3e':''}">
-        <button class="check ${done?'done':''}" onclick="togglePaid(${p.id})">${done?'✓':''}</button>
+        <button class="check ${done?'done':''}" onclick="togglePaid(${p.id})" style="${missed?'opacity:.35':''}">${done?'✓':''}</button>
         <div style="flex:1">
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-            <span style="font-weight:600;${done?'color:#555;text-decoration:line-through':''}">${p.name}</span>
+            <span style="font-weight:600;${done?'color:#555;text-decoration:line-through':missed?'color:#7c7f96':''}">${p.name}</span>
             ${debt?.account==='business'?'<span class="badge" style="background:#2a1a0a;color:#e0923b">BIZ</span>':'<span class="badge" style="background:#0a1228;color:#5b8def">PER</span>'}
-            ${p.arrears&&!done?'<span class="badge badge-red">ARREARS</span>':''}
-            ${p.snowball&&!done?'<span class="badge badge-blue">SNOWBALL</span>':''}
+            ${missed?'<span class="badge" style="background:#3a2a0a;color:#e0923b">MISSED</span>':''}
+            ${p.arrears&&!done&&!missed?'<span class="badge badge-red">ARREARS</span>':''}
+            ${p.snowball&&!done&&!missed?'<span class="badge badge-blue">SNOWBALL</span>':''}
           </div>
-          <div style="font-size:11px;color:#555;margin-top:1px">${p.due<99?'Due '+ord(p.due):'Flexible date'}</div>
+          <div style="font-size:11px;color:#555;margin-top:1px">${missed?'Skipped this cycle — no budget set aside':(p.due<99?'Due '+ord(p.due):'Flexible date')}</div>
         </div>
-        <div style="font-weight:700;color:${done?'#555':'#e8e8ec'};${done?'text-decoration:line-through':''}">${fmt(p.amount)}</div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-weight:700;color:${done||missed?'#555':'#e8e8ec'};${done||missed?'text-decoration:line-through':''}">${fmt(p.amount)}</div>
+          ${done?'':`<button onclick="toggleMissed(${p.id})" style="background:none;border:none;padding:2px 0 0;font-size:10px;font-weight:600;color:${missed?'#e0923b':'#555'};text-decoration:underline">${missed?'undo missed':'missed this cycle?'}</button>`}
+        </div>
       </div>`;
     });
     html+=`<div style="display:flex;gap:8px;margin-top:14px">
@@ -669,7 +685,7 @@ function renderAll(){
     if(cycleIncome>0 && cycleIncome<tightThreshold*4.33){
       // This cycle looks tight - show triage
       const today=new Date().getDate();
-      const unpaid=cyclePayments.filter(p=>!paidThisCycle.includes(p.id));
+      const unpaid=cyclePayments.filter(p=>!paidThisCycle.includes(p.id)&&!p.missed);
       const withPriority=unpaid.map(p=>{
         const debt=debts.find(d=>d.id===p.id);
         const daysUntilDue=debt?.due?((debt.due-today+31)%31):30;
@@ -1019,8 +1035,10 @@ function renderAll(){
 
 // ---------- Cash flow actions ----------
 function getCycleTotals(){
-  // Calculate how much is needed from each account this cycle
-  const cp=getCyclePayments();
+  // Calculate how much is needed from each account this cycle. Missed debts
+  // are out — the sweep shouldn't set money aside for a payment that
+  // deliberately isn't happening.
+  const cp=getCyclePayments().filter(p=>!p.missed);
   const businessTotal=cp.filter(p=>{const d=debts.find(x=>x.id===p.id);return d&&d.account==='business';}).reduce((s,p)=>s+p.amount,0);
   const personalTotal=cp.filter(p=>{const d=debts.find(x=>x.id===p.id);return d&&d.account==='personal';}).reduce((s,p)=>s+p.amount,0);
   return {businessTotal,personalTotal};
@@ -1194,8 +1212,27 @@ function togglePaid(id){
     paidThisCycle=paidThisCycle.filter(x=>x!==id);
     if(isBiz)bizPot+=p.amount; else perPot+=p.amount;
   }else{
+    missedThisCycle=missedThisCycle.filter(x=>x!==id); // paid and missed are mutually exclusive
     paidThisCycle.push(id);
     if(isBiz)bizPot=Math.max(0,bizPot-p.amount); else perPot=Math.max(0,perPot-p.amount);
+  }
+  persist('cashflow');renderAll();
+}
+function toggleMissed(id){
+  const cyclePayments=getCyclePayments();
+  const p=cyclePayments.find(x=>x.id===id);
+  if(!p)return;
+  if(missedThisCycle.includes(id)){
+    missedThisCycle=missedThisCycle.filter(x=>x!==id);
+  }else{
+    // Mutually exclusive with the paid tick: marking a paid debt missed
+    // un-pays it first, refunding the pot the payment came out of.
+    if(paidThisCycle.includes(id)){
+      const debt=debts.find(d=>d.id===id);
+      if(debt?.account==='business')bizPot+=p.amount; else perPot+=p.amount;
+      paidThisCycle=paidThisCycle.filter(x=>x!==id);
+    }
+    missedThisCycle=[...missedThisCycle,id];
   }
   persist('cashflow');renderAll();
 }
@@ -1246,7 +1283,9 @@ function openSyncBalances(){
   debts.forEach(d=>{
     if(d.balance<=0.005)return;
     let projected=d.balance;
-    if(m1){
+    // A missed debt had no payment this cycle, so its estimate stays at the
+    // current balance instead of assuming the plan's payment happened.
+    if(m1&&!missedThisCycle.includes(d.id)){
       const p=m1.payments.find(x=>x.id===d.id);
       if(p&&p.wasActive){ projected=p.remaining; }
     }
@@ -1291,6 +1330,7 @@ async function confirmSync(){
   });
   // Clear the cycle too
   paidThisCycle=[];
+  missedThisCycle=[];
   incomeLog=[];
   syncDraft={};
   selectedMonth=1;
@@ -1307,6 +1347,7 @@ async function confirmSync(){
 async function confirmNewCycle(){
   const archivePayload=getCycleArchivePayload(); // must read before paidThisCycle/incomeLog clear
   paidThisCycle=[];
+  missedThisCycle=[];
   incomeLog=[];
   closeModal();renderAll();
   try{
