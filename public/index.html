@@ -1620,7 +1620,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.12.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.13.0</div>
 </div>
 </div>
 
@@ -4038,7 +4038,7 @@ function persistJobData(job) {
   // NB `standalone` is v2.4.2's fix (the toggle never persisted without
   // it) — it must stay in this list. templateId/quoteText/invoiceText are
   // the text-templates trio (TEXT_TEMPLATES_SPEC.md) — same deal.
-  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, notes: job.notes, kitchen: job.kitchen, fittedUnit: job.fittedUnit, customItems: job.customItems });
+  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, notes: job.notes, kitchen: job.kitchen, fittedUnit: job.fittedUnit, customItems: job.customItems });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -4168,28 +4168,57 @@ function syncQuoteStatusToXero(job, xeroStatus) {
 // 404 (quote gone from Xero) drops the dead link but leaves status alone.
 function syncQuoteAnswersFromXero() {
   var quotedJobs = jobs.filter(function(j) { return j.status === 'quoted' && j.xeroQuoteId; });
-  if (!quotedJobs.length) return;
-  var ids = quotedJobs.map(function(j) { return j.xeroQuoteId; });
+  // Variation quotes ride the same poll (sendVariationQuote): an answer the
+  // client gave through Xero's portal/email should show on the Variations
+  // card without being re-typed. Polled on any job that has one — variation
+  // quotes belong to accepted/completed jobs, never 'quoted' ones.
+  var varJobs = jobs.filter(function(j) { return j.variationQuoteId; });
+  var ids = quotedJobs.map(function(j) { return j.xeroQuoteId; })
+    .concat(varJobs.map(function(j) { return j.variationQuoteId; }));
+  if (!ids.length) return;
   fetch('/auth/quote-statuses?ids=' + encodeURIComponent(ids.join(',')))
     .then(function(resp) { return resp.json(); })
     .then(function(result) {
       if (!result.ok || !Array.isArray(result.statuses)) return;
       result.statuses.forEach(function(s) {
         var job = jobs.find(function(j) { return j.xeroQuoteId === s.quoteId; });
-        if (!job || job.status !== 'quoted') return; // the app's answer wins
-        if (s.status === 'ACCEPTED' || s.status === 'DECLINED' || s.status === 'INVOICED') {
-          // Record what Xero says BEFORE the status change, so the outward
-          // guard inside future toggles compares against the truth.
-          job.xeroQuoteStatus = s.status;
-          var newStatus = s.status === 'DECLINED' ? 'declined' : 'accepted';
-          setJobStatusById(job.id, newStatus, null, { skipXeroSync: true });
-        } else if (s.status === 'DELETED') {
-          job.xeroQuoteId = null;
-          job.xeroQuoteNumber = null;
-          job.xeroQuoteStatus = null;
-          localStorage.setItem('pe-jobs', JSON.stringify(jobs));
-          persistJobData(job);
-          renderJobs(); renderSummary();
+        if (job && job.status === 'quoted') { // the app's answer wins
+          if (s.status === 'ACCEPTED' || s.status === 'DECLINED' || s.status === 'INVOICED') {
+            // Record what Xero says BEFORE the status change, so the outward
+            // guard inside future toggles compares against the truth.
+            job.xeroQuoteStatus = s.status;
+            var newStatus = s.status === 'DECLINED' ? 'declined' : 'accepted';
+            setJobStatusById(job.id, newStatus, null, { skipXeroSync: true });
+          } else if (s.status === 'DELETED') {
+            job.xeroQuoteId = null;
+            job.xeroQuoteNumber = null;
+            job.xeroQuoteStatus = null;
+            localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+            persistJobData(job);
+            renderJobs(); renderSummary();
+          }
+        }
+        // Variation quote: only the synced status is recorded — the card
+        // shows Xero's answer and prompts the per-line ✓ taps, so the
+        // approved-by-client record (note + timestamp, approveVariation())
+        // stays a deliberate act, never a silent flip.
+        var vJob = jobs.find(function(j) { return j.variationQuoteId === s.quoteId; });
+        if (vJob) {
+          var vChanged = false;
+          if (s.status === 'DELETED') {
+            vJob.variationQuoteId = null;
+            vJob.variationQuoteNumber = null;
+            vJob.variationQuoteStatus = null;
+            vChanged = true;
+          } else if (s.status && s.status !== vJob.variationQuoteStatus) {
+            vJob.variationQuoteStatus = s.status;
+            vChanged = true;
+          }
+          if (vChanged) {
+            localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+            persistJobData(vJob);
+            renderActuals();
+          }
         }
       });
     })
@@ -5205,6 +5234,7 @@ function variationsCardHtml(v) {
         '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Variations subtotal<small style="display:block;font-weight:400;color:var(--text2)">job total incl. variations shows on Summary</small></span>'+
           '<span class="breakdown-value" style="color:var(--accent)">'+fmt(variationsTotal)+'</span></div>'
       : '<div style="padding:0 16px 4px;font-size:12px;color:var(--text2)">Mid-job extras land here — new rooms/exteriors added from now on are flagged automatically, or add a quick priced line below. Kept separate from the accepted quote; settled on the final invoice.</div>')+
+    (hasAny ? variationQuoteBlockHtml(v) : '')+
     form+
     (freeVarFormOpen ? '' : '<div style="padding:10px 16px'+(hasAny?';border-top:1px solid var(--border)':'')+'">'+
       '<div onclick="toggleFreeVarForm()" style="color:var(--accent);font-size:13px;font-weight:600;cursor:pointer">+ Add variation (hours or agreed £)</div>'+
@@ -5247,6 +5277,165 @@ function deleteFreeVariation(id) {
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   persistJobData(job);
   renderActuals(); renderSummary(); renderJobs();
+}
+
+// ── Variation quote (client-facing confirmation) ───────────────────────────
+// The "plausible later" from VARIATIONS_SPEC.md's Xero section: a small
+// SEPARATE Xero quote of just the still-Pending variation lines, so mid-job
+// extras can be shown or emailed for the client's yes without waiting for
+// the final invoice. Vital on jobs imported from Xero (importAcceptedQuote):
+// they have no measured rooms, so there is no app quote to re-send even if
+// re-sending were allowed. The MAIN quote is never touched — createXeroQuote
+// still filters variations out, job.xeroQuoteId is never overwritten (this
+// link lives in its own variationQuoteId/Number/Status fields) — and the
+// money still reaches Xero through the final-invoice builder; this document
+// is a display/approval vehicle only.
+
+// Same DRAFT/SENT amend-in-place rule as quoteIsUpdatable, against the
+// job's variation quote: re-sending pending lines updates the same document
+// (no duplicate quotes in Xero) until the client has answered it.
+function variationQuoteIsUpdatable(job) {
+  if (!job || !job.variationQuoteId) return false;
+  var st = job.variationQuoteStatus || 'DRAFT';
+  return st === 'DRAFT' || st === 'SENT';
+}
+
+// The pending-only line set for a variation quote: per-line pricing exactly
+// as the final invoice's variations section bills it (raw × varMk for
+// measured items and hours lines, flat £ verbatim), and the same sundries
+// composition as computeVariationsView — but scoped to lines still awaiting
+// the client's answer. Approved lines are already agreed (nothing to ask),
+// declined ones are dead; re-showing an approved line means tapping it back
+// to Pending first, which keeps the sign-off record honest.
+function buildVariationQuoteLines() {
+  var job = activeJob();
+  var varMk = (1 + commercialRatio()) * (effectiveMarkupType() === 'fixed' ? 1 : 1 + effectiveMarkup() / 100);
+  var items = [], sundriesBase = 0, spray = 0;
+  rooms.forEach(function(r) {
+    if (!r.isVariation || variationStatusOf(r) !== 'pending') return;
+    var c = calcRoom(r);
+    if (c.total <= 0.005) return;
+    sundriesBase += c.total; spray += c.sprayLabour || 0;
+    items.push({ description: 'Variation: ' + r.name, amount: c.total * varMk });
+  });
+  extItems.forEach(function(it) {
+    if (!it.isVariation || variationStatusOf(it) !== 'pending') return;
+    var c = calcExtItem(it);
+    if (c.total <= 0.005) return;
+    sundriesBase += c.total; spray += c.sprayLabour || 0;
+    items.push({ description: 'Variation: ' + (it.label || 'Exterior'), amount: c.total * varMk });
+  });
+  if (job && job.kitchen && job.kitchen.isVariation && variationStatusOf(job.kitchen) === 'pending') {
+    var kc = calcKitchen(job.kitchen);
+    if (kc.total > 0.005) { sundriesBase += kc.total; items.push({ description: 'Variation: Kitchen Cabinet Spraying', amount: kc.total * varMk }); }
+  }
+  if (job && job.fittedUnit && job.fittedUnit.isVariation && variationStatusOf(job.fittedUnit) === 'pending') {
+    var fc = calcFittedUnit(job.fittedUnit);
+    if (fc.total > 0.005) { sundriesBase += fc.total; items.push({ description: 'Variation: Fitted Unit / Shelving', amount: fc.total * varMk }); }
+  }
+  var hourlyRate = (settings.dr || 0) / (settings.hpd || 7);
+  ((job && job.freeVariations) || []).forEach(function(fv) {
+    if (variationStatusOf(fv) !== 'pending') return;
+    if (fv.mode === 'flat') {
+      if ((+fv.amount || 0) > 0.005) items.push({ description: 'Variation: ' + fv.label, amount: +fv.amount });
+    } else {
+      var raw = (+fv.hours || 0) * hourlyRate;
+      if (raw > 0.005) { sundriesBase += raw; items.push({ description: 'Variation: ' + fv.label, amount: raw * varMk }); }
+    }
+  });
+  // Same composition as computeVariationsView's varSundries (labour+hours
+  // base at the job's % plus the spray bump, all × varMk), over the pending
+  // lines only — the quote must price exactly what it shows.
+  var sundries = (sundriesBase * (settings.sundriesPct || 0) / 100 + spray * (settings.sundriesSprayPct || 0) / 100) * varMk;
+  var total = items.reduce(function(s, l) { return s + l.amount; }, 0) + sundries;
+  return { items: items, sundries: sundries, total: total };
+}
+
+// Sends (or amends) the variation quote in Xero. Rides /auth/create-quote's
+// custom-items path deliberately: applyMarkup:false lines go out exactly as
+// entered — and our amounts already carry commercial % + markup + sundries
+// via buildVariationQuoteLines() — while a payload with no rooms means the
+// server adds no sundries/standalone lines of its own (its bases are all
+// zero). Every line lands on account 201; the main quote books sundries on
+// 202, but a quote's account codes are invisible to the client and this
+// document is never converted to an invoice (the final-invoice builder
+// carries the variations with proper codes), so the mismatch is cosmetic.
+async function sendVariationQuote() {
+  if (blockIfOffline('Sending a variation quote to Xero')) return;
+  var job = activeJob();
+  if (!job) return;
+  var lines = buildVariationQuoteLines();
+  if (!lines.items.length) { alert('No pending variations to quote — every variation is already approved or declined.'); return; }
+  var updatable = variationQuoteIsUpdatable(job);
+  var listText = lines.items.map(function(l) { return '• ' + l.description + ' — ' + fmt(l.amount); }).join('\n')
+    + (lines.sundries > 0.005 ? '\n• Sundries & Consumables — ' + fmt(lines.sundries) : '');
+  if (!confirm((updatable ? 'Update variation quote ' + (job.variationQuoteNumber || '') + ' in Xero?' : 'Send a variation quote to Xero?')
+    + '\n\n' + listText + '\n\nTotal ' + fmt(lines.total)
+    + '\n\nIt goes to Xero as its own small draft quote of just the pending extras — show or email it from there. The original quote is never touched.')) return;
+  var btn = document.getElementById('var-quote-btn');
+  if (btn) { btn.disabled = true; btn.textContent = updatable ? 'Updating…' : 'Creating…'; }
+  try {
+    var customItems = lines.items.map(function(l) {
+      return { description: l.description, quantity: 1, unitPrice: Math.round(l.amount * 100) / 100, applyMarkup: false };
+    });
+    if (lines.sundries > 0.005) {
+      customItems.push({ description: 'Sundries & Consumables', quantity: 1, unitPrice: Math.round(lines.sundries * 100) / 100, applyMarkup: false });
+    }
+    var resp = await fetch('/auth/create-quote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clientName: job.xeroClient || job.name || 'Client',
+        jobName: job.name || '',
+        xeroRef: ((job.xeroRef || job.name || '') + ' — variations').trim(),
+        custom: { items: customItems, marked: 0, flat: lines.total },
+        markup: 0,
+        markupType: 'percent',
+        settings: { sundriesPct: 0 },
+        contactId: job.xeroContactId || null,
+        updateQuoteId: updatable ? job.variationQuoteId : undefined
+      })
+    });
+    var result = await resp.json();
+    if (!result.ok) throw new Error(result.error || 'Xero returned no detail');
+    job.variationQuoteId = result.quoteId || job.variationQuoteId;
+    job.variationQuoteNumber = result.quoteNumber || job.variationQuoteNumber;
+    job.variationQuoteStatus = result.updated ? (result.status || 'DRAFT') : 'DRAFT';
+    // Keep the resolved contact link, same as the main quote path — the
+    // next quote/sync for this client must reuse it, not duplicate it.
+    if (result.contactId) job.xeroContactId = result.contactId;
+    localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+    persistJobData(job);
+    renderActuals(); // rebuilds the card: fresh button state + the quote-number chip
+  } catch (err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Error — try again'; }
+    alert('Could not ' + (updatable ? 'update' : 'create') + ' the variation quote in Xero: ' + (err && err.message || 'unknown error'));
+  }
+}
+
+// The card's footer block for the variation quote: the send/update button
+// while lines await an answer, and the quote's number + synced Xero status
+// once one exists. Sign-off stays per-line above — an ACCEPTED answer from
+// Xero prompts the taps rather than flipping lines silently, so the
+// approved-by-client record (note + timestamp) is always deliberate.
+function variationQuoteBlockHtml(v) {
+  var job = activeJob();
+  if (!job) return '';
+  var bits = '';
+  if (v.pendingCount > 0) {
+    var updatable = variationQuoteIsUpdatable(job);
+    bits += '<button id="var-quote-btn" class="xero-live-btn" onclick="sendVariationQuote()" style="width:100%;background:var(--accent);color:white;border:none;border-radius:var(--rs);padding:10px;font-size:13px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer">'
+      + (updatable ? 'Update variation quote ' + escapeHtml(job.variationQuoteNumber || '') + ' in Xero' : 'Send variation quote to Xero') + '</button>'
+      + '<div style="font-size:11px;color:var(--text2);margin-top:6px">A separate small quote of just the pending lines — show or email it from Xero for the client\'s yes. The accepted quote is never touched.</div>';
+  }
+  if (job.variationQuoteNumber) {
+    var st = String(job.variationQuoteStatus || 'DRAFT').toLowerCase();
+    bits += '<div style="font-size:12px;margin-top:' + (v.pendingCount > 0 ? '8px' : '0') + ';color:' + (st === 'accepted' ? 'var(--success)' : 'var(--text2)') + ';font-weight:600">'
+      + (st === 'accepted' ? '✓ ' : '') + 'Variation quote ' + escapeHtml(job.variationQuoteNumber) + ' · ' + escapeHtml(st) + ' in Xero'
+      + (st === 'accepted' && v.pendingCount > 0 ? ' — tap ✓ on the lines above to record it' : '') + '</div>';
+  }
+  if (!bits) return '';
+  return '<div style="padding:12px 16px;border-top:1px solid var(--border)">' + bits + '</div>';
 }
 
 // This job's markup if it's been overridden on the Summary page, else the
@@ -5715,6 +5904,12 @@ async function importAcceptedQuote(i) {
 function importedJobSummaryHtml(job) {
   var snap = job.acceptedSnapshot || {};
   var st = job.status;
+  // Variations exist on imported jobs too (free lines keep the job roomless,
+  // so this compact view stays the one rendering) — without this row their
+  // money would be invisible everywhere but On Site. rooms/extItems are
+  // empty by this path's guard, so computeVariationsView() here only ever
+  // sees free lines; measured variations flip Summary to the full view.
+  var vv = computeVariationsView();
   var btnStyle = 'background:var(--text2);color:white;border:none;border-radius:var(--rs);padding:10px 16px;font-size:14px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;white-space:nowrap';
   var statusRow = '';
   if (st === 'accepted') {
@@ -5761,7 +5956,16 @@ function importedJobSummaryHtml(job) {
       figRow('Materials £', 'estMaterialsTotal', 'optional split')+
       '<div style="padding:0 16px 12px;font-size:12px;color:var(--text2)">Editable because this job was imported, not estimated here — update it if the scope or materials move.</div>'+
     '</div>'+
-    '<div style="margin-top:16px;font-size:12px;color:var(--text2);text-align:center;padding:0 16px">Imported from Xero — no measured rooms. Schedule it above and log days on On Site; invoicing for this job stays in Xero.</div>';
+    (vv.hasVariations
+      ? '<div class="card" style="margin-top:16px">'+
+          '<div class="field-row"><div class="field-label">Variations<small>'+
+            (vv.pendingCount > 0
+              ? vv.pendingCount + ' awaiting approval — quote & sign-off on On Site'
+              : 'agreed extras — settled on the final invoice')+
+          '</small></div><div style="font-weight:700;color:var(--accent)">'+fmt(vv.variationsTotal)+'</div></div>'+
+        '</div>'
+      : '')+
+    '<div style="margin-top:16px;font-size:12px;color:var(--text2);text-align:center;padding:0 16px">Imported from Xero — no measured rooms. Schedule it above and log days on On Site; extras go on there as variations (with their own small Xero quote for approval), and everything settles on the final invoice.</div>';
 }
 
 // Saves one hand-edited figure on an imported job's snapshot. Guarded to
@@ -13835,11 +14039,18 @@ function renderSummary() {
 // stale figures. Xero-free by design: Send to Xero stays the official
 // document; this is the kitchen-table version.
 //
-// Scope rules mirror createXeroQuote() exactly: variations are filtered
-// out (the quote is original scope; extras settle on the final invoice),
-// materials come from the editable snapshot's chargeable lines, and every
-// money figure derives from the same computeDepositPlan() the Summary and
-// the Xero quote share — the three can never disagree.
+// Scope rules mirror createXeroQuote() for the ORIGINAL sections: the
+// quote card is original scope only, materials come from the editable
+// snapshot's chargeable lines, and every money figure derives from the
+// same computeDepositPlan() the Summary and the Xero quote share — the
+// three can never disagree. Variations (v2.13.0) get their OWN clearly
+// separated card below it, priced by the same computeVariationsView()
+// the Variations card and Summary hero use — this page is the on-site
+// "quick view of the costs", and mid-job that conversation is mostly
+// ABOUT the extras. Declined lines stay off entirely (the struck-through
+// record is internal). Jobs imported from Xero (roomless by design) open
+// too: their agreed total renders as its own "Original quote" line, same
+// already-final lump treatment as the final-invoice builder gives it.
 function openClientQuote() {
   var job = activeJob();
   var quoteKitchen = (job && job.kitchen && !job.kitchen.isVariation) ? job.kitchen : null;
@@ -13848,17 +14059,21 @@ function openClientQuote() {
   var quoteExtItems = extItems.filter(function(it) { return !it.isVariation; });
   var kitchenCalc = calcKitchen(quoteKitchen);
   var fittedUnitCalc = calcFittedUnit(quoteFittedUnit);
-  if (quoteRooms.length === 0 && quoteExtItems.length === 0 && kitchenCalc.total <= 0 && fittedUnitCalc.total <= 0 && jobCustomItems(job).length === 0) {
+  var vv = computeVariationsView();
+  var importedBaseline = (job && job.acceptedSnapshot && job.acceptedSnapshot.importedFromXero)
+    ? (+job.acceptedSnapshot.estQuoteTotal || 0) : 0;
+  if (quoteRooms.length === 0 && quoteExtItems.length === 0 && kitchenCalc.total <= 0 && fittedUnitCalc.total <= 0
+      && jobCustomItems(job).length === 0 && !vv.hasVariations && importedBaseline <= 0.005) {
     alert('Nothing to preview yet — add rooms on the Measure tab first.');
     return;
   }
   var w = window.open('', '_blank');
   if (!w) { alert('Could not open the quote view — allow pop-ups for this app and try again.'); return; }
-  w.document.write(buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitchenCalc, fittedUnitCalc));
+  w.document.write(buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitchenCalc, fittedUnitCalc, vv, importedBaseline));
   w.document.close();
 }
 
-function buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitchenCalc, fittedUnitCalc) {
+function buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitchenCalc, fittedUnitCalc, vv, importedBaseline) {
   var tcS = 0, ttS = 0, sprayS = 0;
   var roomLines = quoteRooms.map(function(r) {
     var c = calcRoom(r);
@@ -13920,6 +14135,28 @@ function buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitc
     if (lineTotal <= 0.005) return '';
     return lineRow(esc(l.description), (+l.quantity || 0) + ' × ' + money(+l.unitAmount || 0), lineTotal);
   }).join('');
+
+  // Variations at the same customer prices the On Site card shows (raw ×
+  // varMk, flat lines verbatim, sundries on the variation base) — one
+  // composition, computeVariationsView(), everywhere. Declined lines are
+  // omitted: this page is client-facing, the declined record is internal.
+  var varRows = '';
+  if (vv && vv.hasVariations) {
+    var varStatusSub = function(st) { return st === 'approved' ? 'approved ✓' : 'awaiting approval'; };
+    vv.varLines.forEach(function(l) {
+      if (l.status === 'declined') return;
+      varRows += lineRow(esc(l.name), varStatusSub(l.status), l.raw * vv.varMk);
+    });
+    var varHourly = (settings.dr || 0) / (settings.hpd || 7);
+    vv.freeVars.forEach(function(fv) {
+      var st = variationStatusOf(fv);
+      if (st === 'declined') return;
+      var amount = fv.mode === 'flat' ? (+fv.amount || 0) : (+fv.hours || 0) * varHourly * vv.varMk;
+      if (amount <= 0.005) return;
+      varRows += lineRow(esc(fv.label), varStatusSub(st), amount);
+    });
+    if (vv.varSundries > 0.005) varRows += lineRow('Sundries &amp; Consumables', 'variations', vv.varSundries * vv.varMk);
+  }
 
   var colourRows = quoteRooms.map(function(r) {
     var line = roomColourSchedule(r);
@@ -13996,15 +14233,33 @@ function buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitc
     // Subtotal = plan.labourTotal (which already folds in marked custom
     // lines) + the flat custom lines printed verbatim above -- so this line
     // is exactly the sum of the rows the client can see in this card.
-    + '<div class="card"><h2>The work</h2>' + workRows
-      + '<div class="line subtotal"><div class="line-l"><div class="line-name">Labour subtotal</div></div><div class="line-v">' + money(plan.labourTotal + customSplit.flat) + '</div></div></div>'
+    // The card renders only when it has rows: an imported job's whole
+    // original scope is the "Original quote" card below instead, and an
+    // empty work card with a £0.00 subtotal would read as broken.
+    + (workRows ? '<div class="card"><h2>The work</h2>' + workRows
+      + '<div class="line subtotal"><div class="line-l"><div class="line-name">Labour subtotal</div></div><div class="line-v">' + money(plan.labourTotal + customSplit.flat) + '</div></div></div>' : '')
+    // Imported-from-Xero jobs: the agreed money IS the record (no measured
+    // rooms, importAcceptedQuote()) — one already-final line, no lineMult,
+    // same lump treatment as Summary's importedBaseline and the final
+    // invoice's "Original quote" line.
+    + (importedBaseline > 0.005 ? '<div class="card"><h2>Original quote</h2>'
+      + lineRow('As agreed' + (job && job.xeroQuoteNumber ? ' — ' + esc(job.xeroQuoteNumber) : ''), 'accepted in Xero', importedBaseline) + '</div>' : '')
+    + (varRows ? '<div class="card"><h2>Variations — extras beyond the original quote</h2>' + varRows
+      + '<div class="line subtotal"><div class="line-l"><div class="line-name">Variations subtotal</div></div><div class="line-v">' + money(vv.variationsTotal) + '</div></div>'
+      + '<div class="line-sub" style="padding-top:8px">Variations are billed on the final invoice.</div></div>' : '')
     + (matRows ? '<div class="card"><h2>Materials</h2>' + matRows
       + '<div class="line subtotal"><div class="line-l"><div class="line-name">Materials subtotal</div></div><div class="line-v">' + money(materialsTotal) + '</div></div>'
       + '<div class="line-sub" style="padding-top:8px">Materials are estimated here and billed as actually used.</div></div>' : '')
     + (colourRows ? '<div class="card"><h2>Colour schedule</h2>' + colourRows + '</div>' : '')
-    + '<div class="card"><h2>Payment</h2>' + paymentRows + '</div>'
-    + '<div class="total"><div class="label">Total quote</div><div class="amount">' + money(plan.total) + '</div></div>'
-    + '<div class="terms">' + esc(buildPaymentTermsText(plan, job && job.startDate)) + '</div>'
+    // Payment/terms come from computeDepositPlan over engine labour, which
+    // is zero on an imported job (that money's collection lives in Xero) —
+    // £0.00 deposit/balance rows would just look broken, so hide them.
+    + (plan.total > 0.005 ? '<div class="card"><h2>Payment</h2>' + paymentRows + '</div>' : '')
+    + '<div class="total"><div class="label">Total quote</div><div class="amount">' + money(plan.total + (importedBaseline || 0)) + '</div></div>'
+    // Same combined figure Summary's hero-sub shows, same fixed-gold rule
+    // (readable on the fixed steel background in both themes).
+    + (varRows ? '<div class="total" style="margin-top:8px"><div class="label" style="color:#ffd166;opacity:1">Job total incl. variations</div><div class="amount" style="font-size:24px">' + money(plan.total + (importedBaseline || 0) + vv.variationsTotal) + '</div></div>' : '')
+    + (plan.total > 0.005 ? '<div class="terms">' + esc(buildPaymentTermsText(plan, job && job.startDate)) + '</div>' : '')
     + '<div class="foot">Prepared ' + esc(today) + ' · Figures are live as of this preview — the formal quotation is issued separately.</div>'
     + '</div></body></html>';
 }
