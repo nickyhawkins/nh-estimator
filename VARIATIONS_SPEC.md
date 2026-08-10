@@ -26,6 +26,35 @@ the CSV export stay blind to the flag (they're live working views). Verified in 
 40-check Chromium smoke run: auto-flag default, original-scope Labour invariance,
 quote-resend exclusion, free-line CRUD/persistence, chips, pre-acceptance hiding.
 
+**Addendum 2026-08-10 (v2.13.0): the client-facing variation quote — the Xero
+section's "plausible later" — is BUILT.** Trigger was a job imported from Xero
+(`importAcceptedQuote()`): variations needing the client's yes, but no measured
+rooms, so no quote document existed to show — and `createXeroQuote()` rightly
+filters variations out of the main quote anyway. The Variations card (On Site)
+now carries **"Send variation quote to Xero"** whenever Pending lines exist: a
+small SEPARATE Xero DRAFT quote of *just the still-Pending lines* (approved =
+already agreed, declined = dead; re-showing an approved line means tapping it
+back to Pending first). Pricing is `buildVariationQuoteLines()` — per-line
+`raw × varMk` / flat-verbatim plus the pending-scoped sundries line, the exact
+composition `computeVariationsView()`/final invoice use. Transport rides
+`/auth/create-quote`'s custom-items path (`applyMarkup:false` = lines go out
+exactly as entered; a roomless payload means the server adds no lines of its
+own); all lines land on account 201, accepted as cosmetic since the document is
+never invoiced from Xero. The link lives in its own
+`variationQuoteId/Number/Status` fields — `xeroQuoteId` (the accepted quote's
+record) is never touched — with the same DRAFT/SENT amend-in-place rule as the
+main quote, so pending-line changes update one document rather than minting
+duplicates. The inward status poll (`syncQuoteAnswersFromXero`) watches it too:
+an ACCEPTED answer given through Xero's portal shows on the card and *prompts*
+the per-line ✓ taps — sign-off stays a deliberate act with note + timestamp,
+never a silent flip. `/auth/accepted-quotes` filters variation quotes out of
+the import list (an accepted one would otherwise offer to import as a "new
+job"). Imported jobs' compact Summary gained a variations subtotal row (free
+lines keep such jobs roomless, so the money was invisible outside On Site) and
+its footer now points at the variation-quote + final-invoice path. Money flow
+is unchanged: the variation quote is a display/approval vehicle only — billing
+still happens on the final invoice.
+
 **Addendum 2026-07-23 (v1.11.0, per Nicky's layout review):** the Variations card
 moved from Summary to the renamed **On Site** screen (was "Materials") — extras get
 agreed on site, in the same moment days are logged. Summary keeps the money (the

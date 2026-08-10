@@ -380,7 +380,14 @@ router.get('/accepted-quotes', async (req, res) => {
       }
     });
     const jobsResult = await db.query('SELECT data FROM jobs');
-    const linkedQuoteIds = new Set(jobsResult.rows.map(r => r.data && r.data.xeroQuoteId).filter(Boolean));
+    // Both quote links per job: the main quote AND the variation quote
+    // (sendVariationQuote in public/index.html — the small pending-extras
+    // confirmation document). A variation quote the client accepts through
+    // Xero would otherwise list here as an importable "new job" for work
+    // that's already a tracked variation on an existing one.
+    const linkedQuoteIds = new Set(jobsResult.rows
+      .flatMap(r => [r.data && r.data.xeroQuoteId, r.data && r.data.variationQuoteId])
+      .filter(Boolean));
     const quotes = (quotesRes.data.Quotes || [])
       .filter(q => !linkedQuoteIds.has(q.QuoteID))
       .map(q => {
