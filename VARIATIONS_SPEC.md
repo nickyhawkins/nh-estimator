@@ -55,6 +55,19 @@ its footer now points at the variation-quote + final-invoice path. Money flow
 is unchanged: the variation quote is a display/approval vehicle only — billing
 still happens on the final invoice.
 
+The in-app **Quote ⤴ page** (openClientQuote, v2.5.0) joined in the same
+build: it used to mirror createXeroQuote's variation filter wholesale and
+refused to open on roomless imported jobs ("add rooms first") — the exact
+on-site "show the client the costs" moment this whole addendum exists for. It
+now renders a separated "Variations — extras beyond the original quote" card
+(pending flagged *awaiting approval*, approved flagged ✓, declined omitted —
+client-facing page, internal record stays internal) priced by
+computeVariationsView(), a gold "Job total incl. variations" bar under the
+total (Summary's hero-sub rule), and on imported jobs an "Original quote — as
+agreed" line in place of the work card, with the £0 payment/terms cards hidden
+(that money's collection lives in Xero). The original-scope cards still mirror
+createXeroQuote() exactly.
+
 **Addendum 2026-07-23 (v1.11.0, per Nicky's layout review):** the Variations card
 moved from Summary to the renamed **On Site** screen (was "Materials") — extras get
 agreed on site, in the same moment days are logged. Summary keeps the money (the

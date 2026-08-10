@@ -14039,11 +14039,18 @@ function renderSummary() {
 // stale figures. Xero-free by design: Send to Xero stays the official
 // document; this is the kitchen-table version.
 //
-// Scope rules mirror createXeroQuote() exactly: variations are filtered
-// out (the quote is original scope; extras settle on the final invoice),
-// materials come from the editable snapshot's chargeable lines, and every
-// money figure derives from the same computeDepositPlan() the Summary and
-// the Xero quote share — the three can never disagree.
+// Scope rules mirror createXeroQuote() for the ORIGINAL sections: the
+// quote card is original scope only, materials come from the editable
+// snapshot's chargeable lines, and every money figure derives from the
+// same computeDepositPlan() the Summary and the Xero quote share — the
+// three can never disagree. Variations (v2.13.0) get their OWN clearly
+// separated card below it, priced by the same computeVariationsView()
+// the Variations card and Summary hero use — this page is the on-site
+// "quick view of the costs", and mid-job that conversation is mostly
+// ABOUT the extras. Declined lines stay off entirely (the struck-through
+// record is internal). Jobs imported from Xero (roomless by design) open
+// too: their agreed total renders as its own "Original quote" line, same
+// already-final lump treatment as the final-invoice builder gives it.
 function openClientQuote() {
   var job = activeJob();
   var quoteKitchen = (job && job.kitchen && !job.kitchen.isVariation) ? job.kitchen : null;
@@ -14052,17 +14059,21 @@ function openClientQuote() {
   var quoteExtItems = extItems.filter(function(it) { return !it.isVariation; });
   var kitchenCalc = calcKitchen(quoteKitchen);
   var fittedUnitCalc = calcFittedUnit(quoteFittedUnit);
-  if (quoteRooms.length === 0 && quoteExtItems.length === 0 && kitchenCalc.total <= 0 && fittedUnitCalc.total <= 0 && jobCustomItems(job).length === 0) {
+  var vv = computeVariationsView();
+  var importedBaseline = (job && job.acceptedSnapshot && job.acceptedSnapshot.importedFromXero)
+    ? (+job.acceptedSnapshot.estQuoteTotal || 0) : 0;
+  if (quoteRooms.length === 0 && quoteExtItems.length === 0 && kitchenCalc.total <= 0 && fittedUnitCalc.total <= 0
+      && jobCustomItems(job).length === 0 && !vv.hasVariations && importedBaseline <= 0.005) {
     alert('Nothing to preview yet — add rooms on the Measure tab first.');
     return;
   }
   var w = window.open('', '_blank');
   if (!w) { alert('Could not open the quote view — allow pop-ups for this app and try again.'); return; }
-  w.document.write(buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitchenCalc, fittedUnitCalc));
+  w.document.write(buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitchenCalc, fittedUnitCalc, vv, importedBaseline));
   w.document.close();
 }
 
-function buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitchenCalc, fittedUnitCalc) {
+function buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitchenCalc, fittedUnitCalc, vv, importedBaseline) {
   var tcS = 0, ttS = 0, sprayS = 0;
   var roomLines = quoteRooms.map(function(r) {
     var c = calcRoom(r);
@@ -14124,6 +14135,28 @@ function buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitc
     if (lineTotal <= 0.005) return '';
     return lineRow(esc(l.description), (+l.quantity || 0) + ' × ' + money(+l.unitAmount || 0), lineTotal);
   }).join('');
+
+  // Variations at the same customer prices the On Site card shows (raw ×
+  // varMk, flat lines verbatim, sundries on the variation base) — one
+  // composition, computeVariationsView(), everywhere. Declined lines are
+  // omitted: this page is client-facing, the declined record is internal.
+  var varRows = '';
+  if (vv && vv.hasVariations) {
+    var varStatusSub = function(st) { return st === 'approved' ? 'approved ✓' : 'awaiting approval'; };
+    vv.varLines.forEach(function(l) {
+      if (l.status === 'declined') return;
+      varRows += lineRow(esc(l.name), varStatusSub(l.status), l.raw * vv.varMk);
+    });
+    var varHourly = (settings.dr || 0) / (settings.hpd || 7);
+    vv.freeVars.forEach(function(fv) {
+      var st = variationStatusOf(fv);
+      if (st === 'declined') return;
+      var amount = fv.mode === 'flat' ? (+fv.amount || 0) : (+fv.hours || 0) * varHourly * vv.varMk;
+      if (amount <= 0.005) return;
+      varRows += lineRow(esc(fv.label), varStatusSub(st), amount);
+    });
+    if (vv.varSundries > 0.005) varRows += lineRow('Sundries &amp; Consumables', 'variations', vv.varSundries * vv.varMk);
+  }
 
   var colourRows = quoteRooms.map(function(r) {
     var line = roomColourSchedule(r);
@@ -14200,15 +14233,33 @@ function buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitc
     // Subtotal = plan.labourTotal (which already folds in marked custom
     // lines) + the flat custom lines printed verbatim above -- so this line
     // is exactly the sum of the rows the client can see in this card.
-    + '<div class="card"><h2>The work</h2>' + workRows
-      + '<div class="line subtotal"><div class="line-l"><div class="line-name">Labour subtotal</div></div><div class="line-v">' + money(plan.labourTotal + customSplit.flat) + '</div></div></div>'
+    // The card renders only when it has rows: an imported job's whole
+    // original scope is the "Original quote" card below instead, and an
+    // empty work card with a £0.00 subtotal would read as broken.
+    + (workRows ? '<div class="card"><h2>The work</h2>' + workRows
+      + '<div class="line subtotal"><div class="line-l"><div class="line-name">Labour subtotal</div></div><div class="line-v">' + money(plan.labourTotal + customSplit.flat) + '</div></div></div>' : '')
+    // Imported-from-Xero jobs: the agreed money IS the record (no measured
+    // rooms, importAcceptedQuote()) — one already-final line, no lineMult,
+    // same lump treatment as Summary's importedBaseline and the final
+    // invoice's "Original quote" line.
+    + (importedBaseline > 0.005 ? '<div class="card"><h2>Original quote</h2>'
+      + lineRow('As agreed' + (job && job.xeroQuoteNumber ? ' — ' + esc(job.xeroQuoteNumber) : ''), 'accepted in Xero', importedBaseline) + '</div>' : '')
+    + (varRows ? '<div class="card"><h2>Variations — extras beyond the original quote</h2>' + varRows
+      + '<div class="line subtotal"><div class="line-l"><div class="line-name">Variations subtotal</div></div><div class="line-v">' + money(vv.variationsTotal) + '</div></div>'
+      + '<div class="line-sub" style="padding-top:8px">Variations are billed on the final invoice.</div></div>' : '')
     + (matRows ? '<div class="card"><h2>Materials</h2>' + matRows
       + '<div class="line subtotal"><div class="line-l"><div class="line-name">Materials subtotal</div></div><div class="line-v">' + money(materialsTotal) + '</div></div>'
       + '<div class="line-sub" style="padding-top:8px">Materials are estimated here and billed as actually used.</div></div>' : '')
     + (colourRows ? '<div class="card"><h2>Colour schedule</h2>' + colourRows + '</div>' : '')
-    + '<div class="card"><h2>Payment</h2>' + paymentRows + '</div>'
-    + '<div class="total"><div class="label">Total quote</div><div class="amount">' + money(plan.total) + '</div></div>'
-    + '<div class="terms">' + esc(buildPaymentTermsText(plan, job && job.startDate)) + '</div>'
+    // Payment/terms come from computeDepositPlan over engine labour, which
+    // is zero on an imported job (that money's collection lives in Xero) —
+    // £0.00 deposit/balance rows would just look broken, so hide them.
+    + (plan.total > 0.005 ? '<div class="card"><h2>Payment</h2>' + paymentRows + '</div>' : '')
+    + '<div class="total"><div class="label">Total quote</div><div class="amount">' + money(plan.total + (importedBaseline || 0)) + '</div></div>'
+    // Same combined figure Summary's hero-sub shows, same fixed-gold rule
+    // (readable on the fixed steel background in both themes).
+    + (varRows ? '<div class="total" style="margin-top:8px"><div class="label" style="color:#ffd166;opacity:1">Job total incl. variations</div><div class="amount" style="font-size:24px">' + money(plan.total + (importedBaseline || 0) + vv.variationsTotal) + '</div></div>' : '')
+    + (plan.total > 0.005 ? '<div class="terms">' + esc(buildPaymentTermsText(plan, job && job.startDate)) + '</div>' : '')
     + '<div class="foot">Prepared ' + esc(today) + ' · Figures are live as of this preview — the formal quotation is issued separately.</div>'
     + '</div></body></html>';
 }
