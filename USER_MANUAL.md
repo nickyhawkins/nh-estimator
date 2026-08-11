@@ -143,6 +143,7 @@ On the Summary's client panel:
 **☰ → Schedule** (accepted jobs get a **Schedule ›** flow on their Summary, pre-filled with the next free slot). Three views: **List**, **Weeks** (12-week strip) and **Month**. Jobs draw as continuous coloured bars across their booked days; tap a bar for **Open / Move / Unschedule**, tap a day to peek or **start a job here**. Overlaps warn but don't block.
 
 - **Blocked days**: tap a day → "Block day(s)…" — from that day to an end date, one label (e.g. "Holiday"). Blocked days, weekends (unless **Work Saturdays** is on) and **UK bank holidays** (region set in Settings) don't count as working days anywhere — slot suggestions skip them and job bars stretch around them.
+- **One-off Saturday job**: you can put a single job on a Saturday without turning **Work Saturdays** on for everything. Tap the Saturday → **start a job here** (or move a job there) — the confirm says "Saturdays go ON for this job only". In the Summary **Schedule ›** form the same thing is a **Work Saturdays on this job only** tick-box, which ticks itself if you pick a Saturday start date. Automatic slot suggestions still never offer Saturdays; only that job's span uses them.
 - **Calendar feed**: toggle on in Settings → Scheduling, then subscribe your phone's calendar to the link (iOS: Settings → Calendar → Accounts → Add Subscribed Calendar). Jobs appear in your real calendar and update when they move; jobs split around days off show as separate events. One-way, app → phone.
 
 ## 12. On Site — running the job
