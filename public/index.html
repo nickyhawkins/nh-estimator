@@ -233,6 +233,10 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
 .nav-menu-sync.saving{color:#f39c12}
 .nav-menu-sync.offline{color:#c0392b}
 .nav-ham-badge{display:none;position:absolute;top:-2px;right:-4px;min-width:16px;height:16px;padding:0 4px;background:var(--danger,#c0392b);color:#fff;font-size:10px;font-weight:700;line-height:16px;text-align:center;border-radius:9px;font-family:'DM Sans',sans-serif}
+/* Shopping-list count on the Price Lookup basket button. Its own class, NOT
+   .nav-ham-badge: updateNavBadge() writes the outstanding-materials count
+   into every .nav-ham-badge span, and this badge counts something else. */
+.basket-badge{display:none;position:absolute;top:-2px;right:-4px;min-width:16px;height:16px;padding:0 4px;background:var(--accent);color:#fff;font-size:10px;font-weight:700;line-height:16px;text-align:center;border-radius:9px;font-family:'DM Sans',sans-serif}
 .nav-menu-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:300}
 .nav-menu-backdrop.open{display:block}
 .nav-menu-panel{position:fixed;top:calc(var(--st) + 8px);right:12px;width:230px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 8px 28px rgba(0,0,0,.2);z-index:301;overflow:hidden}
@@ -1391,7 +1395,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
   <div class="topbar">
     <button class="back-btn" onclick="goTab('dash')">←</button>
     <div class="topbar-title">Price Lookup</div>
-    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="goTab('shoplist')" title="Shopping list">🛒<span class="basket-badge" id="shoplist-badge"></span></button><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
   </div>
   <div class="content">
     <input type="search" class="field-input" id="pricelookup-search" placeholder="Search name or code…"
@@ -1407,12 +1411,53 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       <div class="empty-icon">⚠️</div>
       <div class="empty-title">Couldn't load prices</div>
       <div class="empty-sub" id="pricelookup-error-msg"></div>
-      <button class="btn" onclick="loadPriceLookupItems()">Try again</button>
+      <button onclick="loadPriceLookupItems()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:20px;padding:8px 18px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Try again</button>
     </div>
     <div class="card" id="pricelookup-card" style="display:none">
       <div class="card-header"><span id="pricelookup-count"></span><small style="text-transform:none;letter-spacing:normal;font-weight:400">inc VAT · <span style="opacity:.7">ex VAT</span></small></div>
       <div id="pricelookup-list"></div>
     </div>
+  </div>
+</div>
+
+<!-- ══ SHOPPING LIST ══
+     Companion to Price Lookup, reached from its 🛒 topbar button or the
+     hamburger. A flat, persistent, GLOBAL list (not job-scoped -- one shop
+     run buys for whatever's on) of things to pick up: rows arrive from a
+     Price Lookup row's + button (name/code/inc-VAT price snapshotted at add
+     time) or the free-text add row (no code, no price). Nothing here touches
+     Xero. Server-side table is the single source of truth (shopping_list --
+     NOT localStorage, per the app's don't-reintroduce-competing-truth rule);
+     writes ride the same offline queue as everything else. Tap a row to
+     tick it off -- ticked rows stay, crossed out, so mid-shop the list shows
+     what's already in the trolley; "Clear ticked" tidies up after. Swipe
+     (or the ✕ for mouse users) removes a row outright. -->
+<div id="screen-shoplist" class="screen">
+  <div class="topbar">
+    <button class="back-btn" onclick="goTab('pricelookup')">←</button>
+    <div class="topbar-title">Shopping List</div>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
+  </div>
+  <div class="content">
+    <div class="empty" id="shoplist-empty" style="display:none;flex:0 1 auto;padding:32px 20px">
+      <div class="empty-icon">🛒</div>
+      <div class="empty-title">Nothing to buy</div>
+      <div class="empty-sub">Add items from Price Lookup with +, or type one below</div>
+    </div>
+    <div class="card" id="shoplist-card" style="display:none">
+      <div id="shoplist-rows"></div>
+    </div>
+    <div class="card">
+      <div style="display:flex;gap:8px;padding:10px;align-items:center">
+        <input type="text" class="field-input" id="shoplist-add-input" placeholder="Add item… e.g. masking tape"
+               autocorrect="off" autocomplete="off"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();addShopFreeText();}"
+               style="flex:1;width:auto;text-align:left;padding:12px 14px;font-family:'DM Sans',sans-serif">
+        <button class="btn" onclick="addShopFreeText()" style="width:auto;margin:0;padding:12px 18px;flex-shrink:0;background:var(--accent);color:#fff">Add</button>
+      </div>
+    </div>
+    <button class="btn btn-ghost" id="shoplist-clear-btn" style="display:none" onclick="clearShopTicked()">Clear ticked</button>
+    <div id="shoplist-note" style="display:none;text-align:center;color:var(--text2);font-size:13px"></div>
   </div>
 </div>
 
@@ -1642,6 +1687,10 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     <div>🔍 Price Lookup</div>
     <span class="nav-menu-arrow">›</span>
   </div>
+  <div class="nav-menu-item" onclick="closeNavMenu();goTab('shoplist')">
+    <div>🛒 Shopping List</div>
+    <span class="nav-menu-arrow">›</span>
+  </div>
   <div class="nav-menu-item" onclick="closeNavMenu();goTab('schedule')">
     <div>Schedule</div>
     <span class="nav-menu-arrow">›</span>
@@ -1661,7 +1710,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.14.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.15.0</div>
 </div>
 </div>
 
@@ -6215,6 +6264,7 @@ function goTab(tab) {
   if (tab==='summary') refreshSummaryTab();
   if (tab==='colours') renderColours();
   if (tab==='pricelookup') renderPriceLookup();
+  if (tab==='shoplist') openShopList();
   if (tab==='jobs') renderJobs();
   if (tab==='schedule') renderScheduleStrip();
   // NB no renderActuals() here — actuals live only on the server, so the
@@ -9138,7 +9188,12 @@ function surfaceSummary(hasWalls, hasCeiling, hasWood, hasFeatureWall, hasPanel)
 // no debounce needed.
 var priceLookupItems = null;    // null = never loaded; [] = loaded, empty
 
+var priceLookupMatches = [];    // rows currently rendered, for the + buttons
+                                // (index into this, not serialised objects —
+                                // same trick as the material product search)
+
 function renderPriceLookup() {
+  ensureShopList();             // so the 🛒 badge is right without a visit
   if (priceLookupItems === null) loadPriceLookupItems();
   else filterPriceLookup();
 }
@@ -9165,13 +9220,14 @@ function filterPriceLookup() {
   var matches = !q ? priceLookupItems : priceLookupItems.filter(function(i) {
     return i.name.toLowerCase().indexOf(q) !== -1 || i.code.toLowerCase().indexOf(q) !== -1;
   });
+  priceLookupMatches = matches;
   document.getElementById('pricelookup-count').textContent =
     matches.length + (matches.length === 1 ? ' item' : ' items');
-  var html = matches.map(function(i) {
+  var html = matches.map(function(i, idx) {
     // The Xero price IS the till (inc-VAT) figure, shown big and untouched so
     // it can be checked against the shop receipt digit for digit; ex = ÷ 1.2.
-    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border)">'
-      + '<div style="min-width:0">'
+    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 12px 14px 16px;border-bottom:1px solid var(--border)">'
+      + '<div style="min-width:0;flex:1">'
       +   '<div style="font-weight:600;font-size:15px;color:var(--text)">' + escapeHtml(i.name) + '</div>'
       +   (i.code ? '<div style="font-size:12px;color:var(--text2);font-family:\'DM Mono\',monospace;margin-top:2px">' + escapeHtml(i.code) + '</div>' : '')
       + '</div>'
@@ -9179,6 +9235,8 @@ function filterPriceLookup() {
       +   '<div style="font-size:17px;font-weight:700;color:var(--accent)">' + fmt(i.price) + '</div>'
       +   '<div style="font-size:12px;color:var(--text2);margin-top:2px">' + fmt(i.price / 1.2) + ' ex</div>'
       + '</div>'
+      + '<button id="pl-add-' + idx + '" onclick="addShopFromLookup(' + idx + ')" title="Add to shopping list"'
+      +   ' style="flex-shrink:0;width:40px;height:40px;border-radius:20px;border:1px solid var(--accent-soft-border);background:var(--accent-soft-bg);color:var(--accent);font-size:20px;font-weight:600;line-height:1;cursor:pointer">+</button>'
       + '</div>';
   }).join('');
   if (!matches.length) {
@@ -9188,6 +9246,145 @@ function filterPriceLookup() {
   }
   document.getElementById('pricelookup-list').innerHTML = html;
   document.getElementById('pricelookup-card').style.display = 'block';
+}
+
+// ── Shopping list ───────────────────────────────────────────────────────────
+// Persistent pick-up list, companion to Price Lookup — see the screen
+// comment. The server's shopping_list table is the single source of truth;
+// this in-memory copy exists only to render from and is refreshed from the
+// server on every screen entry (stale copy shown instantly, server copy
+// replaces it when the fetch lands — same shape as the On Site screen).
+// Mutations update memory first, then write through apiPut/apiDelete so a
+// dead spot in the shop queues the write instead of losing it.
+var shopList = null;            // null = never fetched; [] = fetched, empty
+
+function ensureShopList() {
+  if (shopList !== null) { updateShopBadge(); return; }
+  shopList = [];
+  refreshShopList();
+}
+
+function refreshShopList() {
+  apiGet('/api/shopping').then(function(rows) {
+    shopList = rows;
+    renderShopList();
+    updateShopBadge();
+  }).catch(function(e) {
+    // Offline (or table not deployed yet): keep rendering the in-memory copy.
+    renderShopList();
+  });
+}
+
+function openShopList() {
+  if (shopList === null) shopList = [];
+  renderShopList();               // instant paint from memory
+  refreshShopList();              // then true up from the server
+}
+
+function updateShopBadge() {
+  var el = document.getElementById('shoplist-badge');
+  if (!el) return;
+  var n = (shopList || []).filter(function(i) { return !i.ticked; }).length;
+  if (n > 0) { el.textContent = n > 99 ? '99+' : n; el.style.display = 'inline-block'; }
+  else { el.style.display = 'none'; }
+}
+
+function renderShopList() {
+  var card = document.getElementById('shoplist-card');
+  var empty = document.getElementById('shoplist-empty');
+  var rows = document.getElementById('shoplist-rows');
+  var list = shopList || [];
+  var anyTicked = list.some(function(i) { return i.ticked; });
+  document.getElementById('shoplist-clear-btn').style.display = anyTicked ? 'flex' : 'none';
+  if (!list.length) {
+    card.style.display = 'none'; empty.style.display = 'flex';
+    updateShopBadge();
+    return;
+  }
+  empty.style.display = 'none'; card.style.display = 'block';
+  // Insertion order, ticked rows left IN PLACE (crossed out) rather than
+  // sunk to the bottom — mid-shop, rows keeping their position is what lets
+  // a half-done list still be scanned against the trolley at a glance.
+  rows.innerHTML = list.map(function(it) {
+    var dim = it.ticked ? ';opacity:.45' : '';
+    var row = '<div style="display:flex;align-items:center;gap:12px;padding:14px 12px 14px 16px;background:var(--surface);cursor:pointer" onclick="toggleShopTick(\'' + it.id + '\')">'
+      + '<div style="flex-shrink:0;width:26px;height:26px;border-radius:13px;border:2px solid ' + (it.ticked ? 'var(--accent);background:var(--accent)' : 'var(--border);background:transparent') + ';display:flex;align-items:center;justify-content:center;font-size:15px;color:#fff">' + (it.ticked ? '✓' : '') + '</div>'
+      + '<div style="flex:1;min-width:0' + dim + '">'
+      +   '<div style="font-weight:600;font-size:15px;color:var(--text)' + (it.ticked ? ';text-decoration:line-through' : '') + '">' + escapeHtml(it.name) + '</div>'
+      +   (it.code ? '<div style="font-size:12px;color:var(--text2);font-family:\'DM Mono\',monospace;margin-top:2px">' + escapeHtml(it.code) + '</div>' : '')
+      + '</div>'
+      + (it.price != null ? '<div style="flex-shrink:0;font-family:\'DM Mono\',monospace;font-size:15px;font-weight:600;color:var(--accent)' + dim + '">' + fmt(it.price) + '</div>' : '')
+      + '<div onclick="event.stopPropagation();removeShopItem(\'' + it.id + '\')" title="Remove" style="flex-shrink:0;color:var(--text3);font-size:16px;padding:6px 4px 6px 8px;cursor:pointer">✕</div>'
+      + '</div>';
+    return swipeDeleteWrap('removeShopItem', it.id, row);
+  }).join('');
+  updateShopBadge();
+}
+
+function shopItemPut(it) {
+  apiPut('/api/shopping/' + it.id, { name: it.name, code: it.code, price: it.price, ticked: it.ticked });
+}
+
+// + on a Price Lookup row. Re-adding something already on the list never
+// duplicates it: a ticked copy gets un-ticked (fresh need, same item), an
+// un-ticked copy is left alone. Either way the button flashes ✓ so there's
+// feedback without leaving the search.
+function addShopFromLookup(idx) {
+  var item = priceLookupMatches[idx];
+  if (!item) return;
+  ensureShopList();
+  var existing = shopList.find(function(i) { return i.code && i.code === item.code; });
+  if (existing) {
+    if (existing.ticked) { existing.ticked = false; shopItemPut(existing); }
+  } else {
+    var it = { id: uid(), name: item.name, code: item.code, price: item.price, ticked: false };
+    shopList.push(it);
+    shopItemPut(it);
+  }
+  updateShopBadge();
+  var btn = document.getElementById('pl-add-' + idx);
+  if (btn) {
+    btn.textContent = '✓';
+    btn.style.background = 'var(--accent)'; btn.style.color = '#fff';
+    setTimeout(function() {
+      btn.textContent = '+';
+      btn.style.background = 'var(--accent-soft-bg)'; btn.style.color = 'var(--accent)';
+    }, 900);
+  }
+}
+
+// Free-text add on the list itself — things that aren't in Xero (masking
+// tape, a specific brush). No code, no price, per the spec: name only.
+function addShopFreeText() {
+  var input = document.getElementById('shoplist-add-input');
+  var name = input.value.trim();
+  if (!name) return;
+  ensureShopList();
+  var it = { id: uid(), name: name, code: '', price: null, ticked: false };
+  shopList.push(it);
+  shopItemPut(it);
+  input.value = '';
+  renderShopList();
+}
+
+function toggleShopTick(id) {
+  var it = (shopList || []).find(function(i) { return i.id === id; });
+  if (!it) return;
+  it.ticked = !it.ticked;
+  shopItemPut(it);
+  renderShopList();
+}
+
+function removeShopItem(id) {
+  shopList = (shopList || []).filter(function(i) { return i.id !== id; });
+  apiDelete('/api/shopping/' + id);
+  renderShopList();
+}
+
+function clearShopTicked() {
+  shopList = (shopList || []).filter(function(i) { return !i.ticked; });
+  apiDelete('/api/shopping/ticked');
+  renderShopList();
 }
 
 function renderColours() {

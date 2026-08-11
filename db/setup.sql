@@ -196,6 +196,25 @@ CREATE TABLE IF NOT EXISTS labour_log (
 CREATE UNIQUE INDEX IF NOT EXISTS labour_log_job_date ON labour_log (job_id, work_date);
 CREATE INDEX IF NOT EXISTS labour_log_job ON labour_log (job_id);
 
+-- ── Shopping list ───────────────────────────────────────────────────────
+-- The Price Lookup screen's companion: a flat, GLOBAL list (not job-scoped
+-- -- a shop run buys for whatever's on) of things to pick up. Rows come from
+-- either a Price Lookup result ("Add to list": name/code/inc-VAT price
+-- copied in at add time -- a snapshot, deliberately not re-priced later) or
+-- free text ("+ Add item": masking tape, a specific brush -- no code, NULL
+-- price). Nothing here touches Xero. Ticked rows stay until "Clear ticked"
+-- so the list shows what's already in the trolley mid-shop. Client-generated
+-- ids + per-row PUT upsert, same contract as labour_log/material_actuals.
+CREATE TABLE IF NOT EXISTS shopping_list (
+  id VARCHAR PRIMARY KEY,
+  name VARCHAR NOT NULL,
+  item_code VARCHAR NOT NULL DEFAULT '',
+  price NUMERIC,                          -- inc VAT; NULL = free-text item, no price
+  ticked BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
 -- ── Debt Management App ─────────────────────────────────────────────────
 -- Fully separate personal debt-tracking tool, served from /debt, sharing
 -- only this Postgres instance with the paint app. Tables are namespaced

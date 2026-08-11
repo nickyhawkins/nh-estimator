@@ -565,6 +565,68 @@ router.delete('/labour/:id', async (req, res) => {
   }
 });
 
+// ── Shopping list ──────────────────────────────────────────────────────────
+// Global, not job-scoped — a shop run buys for whatever jobs are on. Server
+// is the single source of truth (no localStorage mirror by design); the
+// client holds an in-memory copy for rendering and writes per row through
+// the offline queue like everything else. Prices are a snapshot taken at
+// add time from Price Lookup — deliberately never re-priced against Xero.
+
+router.get('/shopping', async (req, res) => {
+  try {
+    const result = await db.query(
+      'SELECT id, name, item_code, price, ticked FROM shopping_list ORDER BY created_at ASC, id ASC'
+    );
+    res.json(result.rows.map(r => ({
+      id: r.id,
+      name: r.name,
+      code: r.item_code || '',
+      price: r.price == null ? null : +r.price,
+      ticked: !!r.ticked,
+    })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Registered BEFORE /shopping/:id so "ticked" can't be taken for a row id.
+router.delete('/shopping/ticked', async (req, res) => {
+  try {
+    await db.query('DELETE FROM shopping_list WHERE ticked = TRUE');
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/shopping/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, code, price, ticked } = req.body;
+  if (!name || !String(name).trim()) {
+    return res.status(400).json({ error: 'name is required' });
+  }
+  try {
+    await db.query(`
+      INSERT INTO shopping_list (id, name, item_code, price, ticked, updated_at)
+      VALUES ($1, $2, $3, $4, $5, NOW())
+      ON CONFLICT (id)
+      DO UPDATE SET name = $2, item_code = $3, price = $4, ticked = $5, updated_at = NOW()
+    `, [id, String(name).trim(), code || '', price == null ? null : +price, !!ticked]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/shopping/:id', async (req, res) => {
+  try {
+    await db.query('DELETE FROM shopping_list WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Settings ───────────────────────────────────────────────────────────────
 // Global — not job-scoped.
 
