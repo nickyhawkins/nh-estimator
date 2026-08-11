@@ -1710,7 +1710,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.16.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.17.0</div>
 </div>
 </div>
 
@@ -9355,11 +9355,19 @@ function renderShopList() {
   // a half-done list still be scanned against the trolley at a glance.
   rows.innerHTML = list.map(function(it) {
     var dim = it.ticked ? ';opacity:.45' : '';
+    // Job tags are display-only metadata — why the row is here, never a
+    // grouping/filter. One flat list is the whole point.
+    var tagsHtml = (it.jobTags && it.jobTags.length)
+      ? '<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px">' + it.jobTags.map(function(t) {
+          return '<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:9px;background:var(--accent-soft-bg);color:var(--accent)">' + escapeHtml(t) + '</span>';
+        }).join('') + '</div>'
+      : '';
     var row = '<div style="display:flex;align-items:center;gap:12px;padding:14px 12px 14px 16px;background:var(--surface);cursor:pointer" onclick="toggleShopTick(\'' + it.id + '\')">'
       + '<div style="flex-shrink:0;width:26px;height:26px;border-radius:13px;border:2px solid ' + (it.ticked ? 'var(--accent);background:var(--accent)' : 'var(--border);background:transparent') + ';display:flex;align-items:center;justify-content:center;font-size:15px;color:#fff">' + (it.ticked ? '✓' : '') + '</div>'
       + '<div style="flex:1;min-width:0' + dim + '">'
       +   '<div style="font-weight:600;font-size:15px;color:var(--text)' + (it.ticked ? ';text-decoration:line-through' : '') + '">' + escapeHtml(it.name) + '</div>'
       +   (it.code ? '<div style="font-size:12px;color:var(--text2);font-family:\'DM Mono\',monospace;margin-top:2px">' + escapeHtml(it.code) + '</div>' : '')
+      +   tagsHtml
       + '</div>'
       + (it.price != null ? '<div style="flex-shrink:0;font-family:\'DM Mono\',monospace;font-size:15px;font-weight:600;color:var(--accent)' + dim + '">' + fmt(it.price) + '</div>' : '')
       + '<div onclick="event.stopPropagation();removeShopItem(\'' + it.id + '\')" title="Remove" style="flex-shrink:0;color:var(--text3);font-size:16px;padding:6px 4px 6px 8px;cursor:pointer">✕</div>'
@@ -9370,26 +9378,53 @@ function renderShopList() {
 }
 
 function shopItemPut(it) {
-  apiPut('/api/shopping/' + it.id, { name: it.name, code: it.code, price: it.price, ticked: it.ticked });
+  apiPut('/api/shopping/' + it.id, { name: it.name, code: it.code, price: it.price, ticked: it.ticked, jobTags: it.jobTags || [] });
 }
 
-// + on a Price Lookup row. Re-adding something already on the list never
-// duplicates it: a ticked copy gets un-ticked (fresh need, same item), an
-// un-ticked copy is left alone. Either way the button flashes ✓ so there's
-// feedback without leaving the search.
+// THE one add-to-list path — every entry point (Price Lookup +, free-text
+// add, a job materials line) funnels through here so the dedupe rule can't
+// drift between them. Never duplicates: a coded item matches on code, a
+// free-text one on case-insensitive name. Re-adding un-ticks a ticked copy
+// (fresh need, same item) and leaves an un-ticked one alone; either way a
+// jobTag not already on the row is appended, so a tin needed by two jobs is
+// ONE line carrying both names. Only writes when something actually changed.
+function shopListAdd(name, code, price, jobTag) {
+  var existing = shopList.find(function(i) {
+    return code ? i.code === code
+                : !i.code && i.name.trim().toLowerCase() === name.trim().toLowerCase();
+  });
+  var it = existing || { id: uid(), name: name, code: code || '', price: price == null ? null : price, ticked: false, jobTags: [] };
+  var changed = !existing;
+  if (existing && existing.ticked) { existing.ticked = false; changed = true; }
+  if (jobTag) {
+    it.jobTags = it.jobTags || [];
+    if (it.jobTags.indexOf(jobTag) === -1) { it.jobTags.push(jobTag); changed = true; }
+  }
+  if (!existing) shopList.push(it);
+  if (changed) shopItemPut(it);
+  updateShopBadge();
+  return it;
+}
+
+// The materials add has to dedupe against the REAL list, so if it's never
+// been fetched this session, fetch before adding (the lookup/free-text
+// paths run on screens that already loaded it). Falls back to adding
+// against the empty in-memory list when offline — the server upsert is by
+// id, so the worst case is a duplicate line to swipe away, not lost data.
+function withShopList(fn) {
+  if (shopList !== null) { fn(); return; }
+  apiGet('/api/shopping').then(function(rows) { shopList = rows; fn(); })
+    .catch(function() { shopList = []; fn(); });
+}
+
+// + on a Price Lookup row. No job tag — a till-check search has no job
+// context. The button flashes ✓ so there's feedback without leaving the
+// search.
 function addShopFromLookup(idx) {
   var item = priceLookupMatches[idx];
   if (!item) return;
   ensureShopList();
-  var existing = shopList.find(function(i) { return i.code && i.code === item.code; });
-  if (existing) {
-    if (existing.ticked) { existing.ticked = false; shopItemPut(existing); }
-  } else {
-    var it = { id: uid(), name: item.name, code: item.code, price: item.price, ticked: false };
-    shopList.push(it);
-    shopItemPut(it);
-  }
-  updateShopBadge();
+  shopListAdd(item.name, item.code, item.price);
   var btn = document.getElementById('pl-add-' + idx);
   if (btn) {
     btn.textContent = '✓';
@@ -9408,11 +9443,27 @@ function addShopFreeText() {
   var name = input.value.trim();
   if (!name) return;
   ensureShopList();
-  var it = { id: uid(), name: name, code: '', price: null, ticked: false };
-  shopList.push(it);
-  shopItemPut(it);
+  shopListAdd(name, '', null);
   input.value = '';
   renderShopList();
+}
+
+// "Add to list" on a Summary materials-snapshot line. Deliberately opt-in
+// per line, never automatic — some of the estimate is usually already in
+// stock, so nothing reaches the list without a tap. Tags the row with the
+// job's NAME (snapshotted — must still read after a rename/delete) so the
+// list says why the tin is there. Per-litre-priced lines (kg/ltr-sold
+// products) go on WITHOUT a price: their unitAmount is per litre, not the
+// till price of anything, and a wrong figure at the till is worse than none.
+function addMaterialToShopList(lineId) {
+  var line = materialsSnapshot.find(function(l) { return l.id === lineId; });
+  if (!line) return;
+  var jobName = (activeJob() && activeJob().name) || '';
+  withShopList(function() {
+    shopListAdd(line.description, line.itemCode || '', line.isPerLitre ? null : (+line.unitAmount || null), jobName);
+    var tag = document.getElementById('mat-shop-' + lineId);
+    if (tag) { tag.textContent = '✓ On list'; tag.classList.add('on'); }
+  });
 }
 
 function toggleShopTick(id) {
@@ -13944,6 +13995,19 @@ function renderSummary() {
     var chargeableTag = l.custom
       ? '<div class="mat-chargeable-tag'+(isChargeable?' on':'')+'" onclick="toggleMaterialChargeable(\''+l.id+'\')">'+(isChargeable?'Chargeable':'Tracking only')+'</div>'
       : '';
+    // Opt-in add to the (global) shopping list — see addMaterialToShopList.
+    // "On list" is best-effort read-only state: shopList may simply not be
+    // fetched yet this session, in which case the chip just reads "Add to
+    // list" and tapping it is a harmless no-op re-add (shopListAdd dedupes).
+    var jobNameForTag = (activeJob() && activeJob().name) || '';
+    var onShopList = shopList !== null && shopList.some(function(i) {
+      return !i.ticked
+        && (l.itemCode ? i.code === l.itemCode : !i.code && i.name.trim().toLowerCase() === l.description.trim().toLowerCase())
+        && (!jobNameForTag || (i.jobTags || []).indexOf(jobNameForTag) !== -1);
+    });
+    var shopTag = '<div class="mat-chargeable-tag'+(onShopList?' on':'')+'" id="mat-shop-'+l.id+'"'
+      + (chargeableTag ? ' style="margin-left:6px"' : '')
+      + ' onclick="addMaterialToShopList(\''+l.id+'\')">'+(onShopList?'✓ On list':'🛒 Add to list')+'</div>';
     if (matReorderMode) {
       var arrowStyle = 'width:38px;height:38px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:var(--rs);background:var(--surface2);color:var(--accent);font-size:16px;cursor:pointer';
       return '<div class="mat-row"><div><div class="mat-label">'+escapeHtml(l.description)+'</div>'+
@@ -13955,7 +14019,7 @@ function renderSummary() {
     }
     return swipeDeleteWrap('deleteMaterialLine', l.id,
       '<div class="mat-row"><div><div class="mat-label">'+escapeHtml(l.description)+'</div>'+
-      '<div class="mat-detail">'+fmt(+l.unitAmount||0)+(l.isPerLitre?'/ltr':' each')+'</div>'+chargeableTag+'</div>'+
+      '<div class="mat-detail">'+fmt(+l.unitAmount||0)+(l.isPerLitre?'/ltr':' each')+'</div>'+chargeableTag+shopTag+'</div>'+
       '<div style="display:flex;align-items:center;gap:10px">'+
         '<input type="number" class="field-input" style="width:60px;padding:6px 8px;text-align:center" value="'+l.quantity+'" min="0" step="1" onchange="setMaterialLineQuantity(\''+l.id+'\',this.value)">'+
         '<div class="mat-val" style="width:72px;text-align:right">'+fmt(cost)+'</div>'+

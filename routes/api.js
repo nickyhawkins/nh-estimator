@@ -575,7 +575,7 @@ router.delete('/labour/:id', async (req, res) => {
 router.get('/shopping', async (req, res) => {
   try {
     const result = await db.query(
-      'SELECT id, name, item_code, price, ticked FROM shopping_list ORDER BY created_at ASC, id ASC'
+      'SELECT id, name, item_code, price, ticked, job_tags FROM shopping_list ORDER BY created_at ASC, id ASC'
     );
     res.json(result.rows.map(r => ({
       id: r.id,
@@ -583,6 +583,7 @@ router.get('/shopping', async (req, res) => {
       code: r.item_code || '',
       price: r.price == null ? null : +r.price,
       ticked: !!r.ticked,
+      jobTags: Array.isArray(r.job_tags) ? r.job_tags : [],
     })));
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -601,17 +602,22 @@ router.delete('/shopping/ticked', async (req, res) => {
 
 router.put('/shopping/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, code, price, ticked } = req.body;
+  const { name, code, price, ticked, jobTags } = req.body;
   if (!name || !String(name).trim()) {
     return res.status(400).json({ error: 'name is required' });
   }
+  // JSON.stringify, not the raw array: node-pg serialises a JS array as a
+  // Postgres array literal ({...}), which a jsonb column rejects.
+  const tags = JSON.stringify(
+    Array.isArray(jobTags) ? jobTags.filter(t => typeof t === 'string' && t.trim()) : []
+  );
   try {
     await db.query(`
-      INSERT INTO shopping_list (id, name, item_code, price, ticked, updated_at)
-      VALUES ($1, $2, $3, $4, $5, NOW())
+      INSERT INTO shopping_list (id, name, item_code, price, ticked, job_tags, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, NOW())
       ON CONFLICT (id)
-      DO UPDATE SET name = $2, item_code = $3, price = $4, ticked = $5, updated_at = NOW()
-    `, [id, String(name).trim(), code || '', price == null ? null : +price, !!ticked]);
+      DO UPDATE SET name = $2, item_code = $3, price = $4, ticked = $5, job_tags = $6, updated_at = NOW()
+    `, [id, String(name).trim(), code || '', price == null ? null : +price, !!ticked, tags]);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
