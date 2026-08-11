@@ -738,6 +738,56 @@ router.get('/material-groups', async (req, res) => {
   }
 });
 
+// ── Price Lookup: flat list of every account-202 sales item ────────────────
+// Unlike /material-groups this skips the range/band/size parsing entirely and
+// returns raw Name/Code/UnitPrice — the Price Lookup screen is a read-only
+// till check, so the unmodellable items (Isomat kg products etc.) must appear
+// here too. Same fetch, same cache shape and TTL as material-groups, held
+// separately so a ?fresh=1 on one doesn't evict the other.
+let salesItemsCache = null;          // { at: epoch-ms, body: [{name,code,price}] }
+const SALES_ITEMS_TTL_MS = 5 * 60 * 1000;
+
+router.get('/sales-items', async (req, res) => {
+  try {
+    if (!req.query.fresh && salesItemsCache && Date.now() - salesItemsCache.at < SALES_ITEMS_TTL_MS) {
+      return res.json(salesItemsCache.body);
+    }
+    const accessToken = await getAccessToken();
+    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    const tenantId = result.rows[0]?.xero_tenant_id;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
+    }
+
+    const itemsRes = await axios.get(`${XERO_API_URL}/Items`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Xero-Tenant-Id': tenantId,
+        Accept: 'application/json'
+      }
+    });
+
+    const allItems = itemsRes.data.Items || [];
+    const items = allItems
+      .filter(i => i.SalesDetails?.AccountCode === '202')
+      .map(i => ({
+        name: i.Name || i.Code || '',
+        code: i.Code || '',
+        // Xero's SalesDetails.UnitPrice is the till price — VAT already in it.
+        // The 20% split is done client-side; this stays the untouched figure
+        // so it can be checked against Xero digit for digit.
+        price: +i.SalesDetails?.UnitPrice || 0
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    console.log(`Sales items: ${items.length} on account 202 (of ${allItems.length} total)`);
+    salesItemsCache = { at: Date.now(), body: items };
+    res.json(items);
+  } catch (err) {
+    console.error('Sales items fetch error:', err.response?.data || err.message);
+    res.status(500).json({ error: xeroErrorMessage(err) });
+  }
+});
+
 // Create quote in Xero
 router.post('/create-quote', async (req, res) => {
   const { clientName, jobName, xeroRef, rooms, exterior, kitchen, fittedUnit, custom, materials, settings, markup, markupType, commercial, commercialPct, standalone, standaloneTopUp, standaloneCalcDays, standaloneDiaryDays, paymentTerms, paymentSummary, contactId, newContact, updateQuoteId } = req.body;
