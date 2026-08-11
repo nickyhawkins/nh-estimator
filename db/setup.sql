@@ -214,6 +214,15 @@ CREATE TABLE IF NOT EXISTS shopping_list (
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
+-- Source-job names (e.g. ["Ermine Street"]) for rows added from a job's
+-- materials list, so mid-shop the list says WHY a tin is on it. Metadata
+-- only -- the list itself stays one flat, global list, never fragmented
+-- into per-job views. Job NAMES, not ids, snapshotted at add time: the
+-- tag must still read after the job is renamed/deleted, and it's display-
+-- only so nothing joins on it. Adding an already-listed item (same code,
+-- or same free-text name) from another job appends its tag to the
+-- existing row rather than duplicating the line.
+ALTER TABLE shopping_list ADD COLUMN IF NOT EXISTS job_tags JSONB NOT NULL DEFAULT '[]';
 
 -- ── Debt Management App ─────────────────────────────────────────────────
 -- Fully separate personal debt-tracking tool, served from /debt, sharing
