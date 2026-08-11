@@ -1710,7 +1710,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.17.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.18.0</div>
 </div>
 </div>
 
@@ -4128,7 +4128,7 @@ function persistJobData(job) {
   // NB `standalone` is v2.4.2's fix (the toggle never persisted without
   // it) — it must stay in this list. templateId/quoteText/invoiceText are
   // the text-templates trio (TEXT_TEMPLATES_SPEC.md) — same deal.
-  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, notes: job.notes, kitchen: job.kitchen, fittedUnit: job.fittedUnit, customItems: job.customItems });
+  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, notes: job.notes, kitchen: job.kitchen, fittedUnit: job.fittedUnit, customItems: job.customItems });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -4381,14 +4381,18 @@ function setBankHolidayRegion(region) {
 // THE one working-day walker -- slot-finding, the strip, payment dates and
 // the server's ICS feed (its own copy, same rules) must all agree, and four
 // hand-rolled date loops is this repo's known duplicate-function failure
-// mode. Sundays never count; Saturdays only when workSaturdays; bank
-// holidays never count once the gov.uk list has loaded; nor do Nicky's own
-// blocked days (v1.17.0).
-function isWorkingDay(d, workSat) {
+// mode. Sundays never count; Saturdays only when workSat; bank holidays
+// never count once the gov.uk list has loaded; nor do Nicky's own blocked
+// days (v1.17.0). workAll (v2.18.0, per-job "every day") makes all of
+// those working EXCEPT blocked days — a manual any-day placement never
+// beats Nicky's own time off.
+function isWorkingDay(d, workSat, workAll) {
+  var iso = isoDate(d);
+  if (settings.blockedDays && settings.blockedDays[iso]) return false;
+  if (workAll) return true;
   var day = d.getDay();
   if (!((day >= 1 && day <= 5) || (workSat && day === 6))) return false;
-  var iso = isoDate(d);
-  return !bankHolidays[iso] && !(settings.blockedDays && settings.blockedDays[iso]);
+  return !bankHolidays[iso];
 }
 // Local-time ISO date -- toISOString() is UTC and would shift the date for
 // an evening tap in BST, booking tomorrow's job on the wrong day.
@@ -4401,12 +4405,12 @@ function parseIsoDate(iso) {
 }
 // The n working days a job starting startIso occupies, as ISO dates. A
 // non-working start rolls forward to the next working day first.
-function workingDaySpan(startIso, n, workSat) {
+function workingDaySpan(startIso, n, workSat, workAll) {
   var out = [];
   var d = parseIsoDate(startIso);
   var guard = 0;
   while (out.length < n && guard++ < 800) {
-    if (isWorkingDay(d, workSat)) out.push(isoDate(d));
+    if (isWorkingDay(d, workSat, workAll)) out.push(isoDate(d));
     d.setDate(d.getDate() + 1);
   }
   return out;
@@ -4414,9 +4418,12 @@ function workingDaySpan(startIso, n, workSat) {
 function jobWorkSat(job) {
   return job && job.workSaturdays != null ? !!job.workSaturdays : !!settings.workSaturdays;
 }
+function jobWorkAll(job) {
+  return !!(job && job.workAllDays);
+}
 function jobBookedDays(job) {
   if (!job || !job.startDate || !(+job.scheduledDays > 0)) return [];
-  return workingDaySpan(job.startDate, Math.ceil(+job.scheduledDays), jobWorkSat(job));
+  return workingDaySpan(job.startDate, Math.ceil(+job.scheduledDays), jobWorkSat(job), jobWorkAll(job));
 }
 // Only accepted jobs hold diary space: completed/invoiced work is done (it
 // drops off the strip and frees its days), and nothing earlier in the
@@ -4476,10 +4483,10 @@ function nextFreeSlot(requiredDays, excludeJobId, fromIso) {
 // span collide with, and by how many days. Overlaps are ALLOWED -- real
 // life has second-coat-drying overlaps; the warning shows the truth and
 // Nicky judges (same philosophy as the sundries control).
-function scheduleOverlap(startIso, days, excludeJobId, workSat) {
+function scheduleOverlap(startIso, days, excludeJobId, workSat, workAll) {
   var span = {};
   if (workSat == null) workSat = !!settings.workSaturdays;
-  workingDaySpan(startIso, Math.ceil(+days || 1), !!workSat).forEach(function(d) { span[d] = true; });
+  workingDaySpan(startIso, Math.ceil(+days || 1), !!workSat, !!workAll).forEach(function(d) { span[d] = true; });
   var worst = null;
   scheduledJobs().forEach(function(j) {
     if (j.id === excludeJobId) return;
@@ -4508,19 +4515,28 @@ function toggleScheduleRow() {
   scheduleRowOpen = !scheduleRowOpen;
   renderSummary();
 }
-// The form's effective Saturday rule: the checkbox when it's rendered
-// (global toggle off), else the global setting.
-function scheduleFormWorkSat() {
-  var satEl = document.getElementById('schedule-worksat');
-  return satEl ? satEl.checked : !!settings.workSaturdays;
+// The form's effective days-worked rule: the select when it's rendered,
+// else the global setting.
+function scheduleFormRule() {
+  var el = document.getElementById('schedule-workdays');
+  var v = el ? el.value : '';
+  return { workSat: v === 'sat' || !!settings.workSaturdays, workAll: v === 'all' };
 }
-// Picking a Saturday in the date field ticks the per-job override for you —
-// the point of choosing a Saturday is to work it, not to have the span
-// silently roll to Monday.
+// Picking a date the current rule wouldn't work switches the override for
+// you — the point of choosing that day is to work it, not to have the span
+// silently roll forward. Saturday needs only the Saturday override;
+// Sundays and bank holidays need Every day. A blocked day stays put (it
+// rolls forward on save, like always).
 function scheduleDateChanged() {
   var dateEl = document.getElementById('schedule-date');
-  var satEl = document.getElementById('schedule-worksat');
-  if (dateEl && dateEl.value && satEl && !satEl.checked && parseIsoDate(dateEl.value).getDay() === 6) satEl.checked = true;
+  var el = document.getElementById('schedule-workdays');
+  if (dateEl && dateEl.value && el && !(settings.blockedDays && settings.blockedDays[dateEl.value])) {
+    var rule = scheduleFormRule();
+    var d = parseIsoDate(dateEl.value);
+    if (!isWorkingDay(d, rule.workSat, rule.workAll)) {
+      el.value = d.getDay() === 6 && !bankHolidays[dateEl.value] && !settings.workSaturdays ? 'sat' : 'all';
+    }
+  }
   updateScheduleOverlapHint();
 }
 function updateScheduleOverlapHint() {
@@ -4528,7 +4544,8 @@ function updateScheduleOverlapHint() {
   var dateEl = document.getElementById('schedule-date');
   var daysEl = document.getElementById('schedule-days');
   if (!hintEl || !dateEl || !dateEl.value) return;
-  var overlap = scheduleOverlap(dateEl.value, +daysEl.value || 1, activeJobId, scheduleFormWorkSat());
+  var rule = scheduleFormRule();
+  var overlap = scheduleOverlap(dateEl.value, +daysEl.value || 1, activeJobId, rule.workSat, rule.workAll);
   hintEl.textContent = overlap ? '⚠ overlaps ' + overlap.name + ' by ' + overlap.days + ' day' + (overlap.days === 1 ? '' : 's') : '';
 }
 function confirmSchedule() {
@@ -4536,14 +4553,17 @@ function confirmSchedule() {
   var dateEl = document.getElementById('schedule-date');
   var daysEl = document.getElementById('schedule-days');
   if (!job || !dateEl || !dateEl.value) return;
-  // Checkbox → job-level override; unticked stores null (follow the
-  // setting), not false, so flipping the global toggle later still applies.
-  var satEl = document.getElementById('schedule-worksat');
-  if (satEl) job.workSaturdays = satEl.checked ? true : null;
-  // Normalise a non-working pick (e.g. a Saturday with the box unticked)
-  // to the day the span will actually start, so the "Starts" line and the
+  // Select → job-level override; "Usual" stores null (follow the setting),
+  // not false, so flipping the global toggle later still applies.
+  var wdEl = document.getElementById('schedule-workdays');
+  if (wdEl) {
+    job.workSaturdays = wdEl.value === 'sat' ? true : null;
+    job.workAllDays = wdEl.value === 'all' ? true : null;
+  }
+  // Normalise a non-working pick (e.g. a Sunday on the Usual rule) to the
+  // day the span will actually start, so the "Starts" line and the
   // calendar bar can't disagree.
-  job.startDate = workingDaySpan(dateEl.value, 1, jobWorkSat(job))[0] || dateEl.value;
+  job.startDate = workingDaySpan(dateEl.value, 1, jobWorkSat(job), jobWorkAll(job))[0] || dateEl.value;
   job.scheduledDays = Math.max(1, Math.ceil(+daysEl.value || 1));
   var titleEl = document.getElementById('schedule-title');
   job.scheduleTitle = titleEl && titleEl.value.trim() ? titleEl.value.trim() : null;
@@ -4578,14 +4598,18 @@ function scheduleBlockHtml(job) {
         '<input type="number" class="field-input" id="schedule-days" value="'+(job.scheduledDays || days)+'" min="1" step="1" inputmode="numeric" style="width:64px;text-align:center" onchange="updateScheduleOverlapHint()">'+
         '<span style="font-size:12px;color:var(--text2)">days</span>'+
       '</div>'+
-      // Per-job Saturday override (SCHEDULING_SPEC: job-level workSaturdays
-      // wins over the setting). Only shown while the global toggle is OFF —
-      // it lets one job sit on a Saturday without opening every Saturday up
-      // to the automatic slot-finder. Picking a Saturday date ticks it.
-      (settings.workSaturdays ? '' :
-        '<label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2);margin-bottom:8px;cursor:pointer">'+
-          '<input type="checkbox" id="schedule-worksat"'+(job.workSaturdays ? ' checked' : '')+' onchange="updateScheduleOverlapHint()">'+
-          'Work Saturdays on this job only</label>')+
+      // Per-job days-worked override (SCHEDULING_SPEC: job-level wins over
+      // the setting): Usual / +Saturdays / Every day. Lets one job sit on
+      // any day — a weekend or a bank holiday — without opening those days
+      // up to the automatic slot-finder. Picking such a date switches it.
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'+
+        '<span style="font-size:13px;color:var(--text2);flex:none">Days worked</span>'+
+        '<select class="field-input" id="schedule-workdays" style="flex:1" onchange="updateScheduleOverlapHint()">'+
+          '<option value="">Usual ('+(settings.workSaturdays ? 'Mon–Sat' : 'Mon–Fri')+')</option>'+
+          (settings.workSaturdays ? '' : '<option value="sat"'+(job.workAllDays ? '' : (job.workSaturdays ? ' selected' : ''))+'>+ Saturdays, this job only</option>')+
+          '<option value="all"'+(job.workAllDays ? ' selected' : '')+'>Every day, this job only</option>'+
+        '</select>'+
+      '</div>'+
       '<input type="text" class="field-input wide" id="schedule-title" value="'+escapeHtml(job.scheduleTitle||'')+'" placeholder="Calendar title (optional) — shows as “'+escapeHtml(job.name)+' — …”" autocorrect="off" style="margin-bottom:8px">'+
       '<div id="schedule-overlap-hint" style="font-size:12px;color:var(--danger);min-height:14px;margin-bottom:8px"></div>'+
       '<div style="display:flex;gap:8px">'+
@@ -5045,35 +5069,46 @@ function unblockRun(iso) {
   persistBlockedDays();
 }
 
-// A tapped Sat/Sun/holiday rolls forward to the next working day — same
-// rule workingDaySpan applies — and the confirm says so.
-function scheduleEffectiveStart(iso, workSat) {
-  var span = workingDaySpan(iso, 1, workSat);
+// A tapped day the job's rule doesn't work rolls forward to its next
+// working day — same rule workingDaySpan applies — and the confirm says so.
+function scheduleEffectiveStart(iso, workSat, workAll) {
+  var span = workingDaySpan(iso, 1, workSat, workAll);
   return span[0] || iso;
 }
-// Tapping a Saturday deliberately, while the global toggle is off, means
-// "this job works Saturdays" — set the job-level override rather than
-// rolling the start to Monday (the automatic slot-finder still never
-// offers Saturdays). Only when the Saturday actually holds as the start:
-// a blocked/bank-holiday Saturday still rolls forward like any other day.
-function scheduleSatOverride(iso, j) {
-  return parseIsoDate(iso).getDay() === 6 && !jobWorkSat(j) &&
-    scheduleEffectiveStart(iso, true) === iso;
+// Tapping a day the job's current rule wouldn't work means "work this job
+// then" — switch the job-level override rather than rolling the start
+// forward (the automatic slot-finder still only ever offers the global
+// setting's days). Returns what to switch on: 'sat' for a plain Saturday
+// (the narrower override), 'all' for a Sunday or bank holiday, null when
+// nothing's needed — or when the day is one of Nicky's own blocked days,
+// which manual placement never beats (it rolls forward like always).
+function scheduleDayOverride(iso, j) {
+  var d = parseIsoDate(iso);
+  if (isWorkingDay(d, jobWorkSat(j), jobWorkAll(j))) return null;
+  if (settings.blockedDays && settings.blockedDays[iso]) return null;
+  return d.getDay() === 6 && !bankHolidays[iso] ? 'sat' : 'all';
+}
+function scheduleOverrideNote(ovr) {
+  if (ovr === 'sat') return '\nSaturdays go ON for this job only.';
+  if (ovr === 'all') return '\nEvery day goes ON for this job only (weekends & bank holidays).';
+  return '';
 }
 function scheduleJobFromDay(jobId, iso) {
   var j = scheduleJobById(jobId);
   if (!j) return;
-  var satOverride = scheduleSatOverride(iso, j);
-  var workSat = satOverride || jobWorkSat(j);
-  var eff = scheduleEffectiveStart(iso, workSat);
+  var ovr = scheduleDayOverride(iso, j);
+  var workSat = ovr === 'sat' || jobWorkSat(j);
+  var workAll = ovr === 'all' || jobWorkAll(j);
+  var eff = scheduleEffectiveStart(iso, workSat, workAll);
   var days = defaultScheduleDays(j);
-  var overlap = scheduleOverlap(eff, days, j.id, workSat);
+  var overlap = scheduleOverlap(eff, days, j.id, workSat, workAll);
   var msg = 'Schedule ' + j.name + ' to start ' + fmtShortDate(eff) + ' (' + days + ' day' + (days === 1 ? '' : 's') + ')?' +
-    (satOverride ? '\nSaturdays go ON for this job only.' : '') +
+    scheduleOverrideNote(ovr) +
     (eff !== iso ? '\n(next working day after ' + fmtShortDate(iso) + ')' : '') +
     (overlap ? '\n⚠ overlaps ' + overlap.name + ' by ' + overlap.days + ' day' + (overlap.days === 1 ? '' : 's') : '');
   if (!confirm(msg)) return;
-  if (satOverride) j.workSaturdays = true;
+  if (ovr === 'sat') j.workSaturdays = true;
+  if (ovr === 'all') j.workAllDays = true;
   j.startDate = eff;
   j.scheduledDays = days;
   closeScheduleSheet();
@@ -5092,16 +5127,18 @@ function cancelScheduleMove() {
 function scheduleMoveTo(iso) {
   var j = scheduleJobById(scheduleMoveJobId);
   if (!j) return cancelScheduleMove();
-  var satOverride = scheduleSatOverride(iso, j);
-  var workSat = satOverride || jobWorkSat(j);
-  var eff = scheduleEffectiveStart(iso, workSat);
-  var overlap = scheduleOverlap(eff, j.scheduledDays, j.id, workSat);
+  var ovr = scheduleDayOverride(iso, j);
+  var workSat = ovr === 'sat' || jobWorkSat(j);
+  var workAll = ovr === 'all' || jobWorkAll(j);
+  var eff = scheduleEffectiveStart(iso, workSat, workAll);
+  var overlap = scheduleOverlap(eff, j.scheduledDays, j.id, workSat, workAll);
   var msg = 'Move ' + j.name + ' to start ' + fmtShortDate(eff) + '?' +
-    (satOverride ? '\nSaturdays go ON for this job only.' : '') +
+    scheduleOverrideNote(ovr) +
     (eff !== iso ? '\n(next working day after ' + fmtShortDate(iso) + ')' : '') +
     (overlap ? '\n⚠ overlaps ' + overlap.name + ' by ' + overlap.days + ' day' + (overlap.days === 1 ? '' : 's') : '');
   if (!confirm(msg)) return;
-  if (satOverride) j.workSaturdays = true;
+  if (ovr === 'sat') j.workSaturdays = true;
+  if (ovr === 'all') j.workAllDays = true;
   j.startDate = eff;
   scheduleMoveJobId = null;
   scheduleAfterWrite(j);
