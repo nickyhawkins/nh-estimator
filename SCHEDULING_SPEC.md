@@ -22,10 +22,14 @@ toggle generates the 128-bit key; one all-day multi-day VEVENT per scheduled acc
 job. Deliberate deviations: **Sundays are omitted from the strip entirely** (and
 Saturdays only appear when Work Saturdays is on) rather than rendered compressed-grey —
 same information, less noise on a phone; **job-level `workSaturdays` override is honoured
-by all the maths** and (since v2.16.0) has UI: a "Work Saturdays on this job only"
-tick-box in the Schedule form when the global toggle is off (auto-ticked by picking a
-Saturday date), and tapping/moving a job onto a Saturday sets it via the confirm —
-manual Saturday placement without opening Saturdays to the automatic slot-finder;
+by all the maths** and (since v2.16.0) has UI, generalised in v2.18.0 by a second
+job-level override **`workAllDays`** (every day counts — Sundays and bank holidays too —
+except Nicky's own blocked days, which manual placement never beats): the Schedule form's
+"Days worked" picker (Usual / + Saturdays / Every day, switching itself when a
+non-working start date is picked), and tapping/moving a job onto any non-working day
+sets the narrowest override via the confirm ('sat' for a plain Saturday, 'all'
+otherwise) — manual any-day placement without opening those days to the automatic
+slot-finder, which still only ever offers the global setting's days;
 **leaving
 `accepted` keeps `startDate`/`scheduledDays` stored** — the job just stops occupying
 days, and the schedule resurfaces if it's re-accepted. Verified in the 27-check Chromium

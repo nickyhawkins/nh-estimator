@@ -709,10 +709,13 @@ router.get('/bank-holidays', async (req, res) => {
 // workingDaySpan in public/index.html) — the two MUST agree on which days
 // a job occupies: Sundays never count, Saturdays only when workSaturdays
 // (job-level override wins over the setting), and bank holidays (v1.16.0)
-// are skipped. `holidays` is a Set of ISO dates for the settings region —
-// pass an empty Set when gov.uk is unreachable, which matches the client's
-// own no-data fallback.
-function icsWorkingDaySpan(startIso, n, workSat, holidays) {
+// are skipped. workAll (v2.18.0, the job-level workAllDays "every day"
+// override) counts every day EXCEPT blocked days — so `blocked` (Nicky's
+// own days off) is a separate Set from `holidays` (the gov.uk region
+// list), because manual any-day placement beats holidays but never her
+// blocks. Pass empty Sets when a source is unreachable, which matches the
+// client's own no-data fallback.
+function icsWorkingDaySpan(startIso, n, workSat, workAll, holidays, blocked) {
   const out = [];
   const p = startIso.split('-');
   const d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2], 12));
@@ -720,7 +723,8 @@ function icsWorkingDaySpan(startIso, n, workSat, holidays) {
   while (out.length < n && guard++ < 800) {
     const day = d.getUTCDay();
     const iso = d.toISOString().slice(0, 10);
-    if (((day >= 1 && day <= 5) || (workSat && day === 6)) && !(holidays && holidays.has(iso))) {
+    const usualDay = ((day >= 1 && day <= 5) || (workSat && day === 6)) && !(holidays && holidays.has(iso));
+    if ((workAll || usualDay) && !(blocked && blocked.has(iso))) {
       out.push(iso);
     }
     d.setUTCDate(d.getUTCDate() + 1);
@@ -767,13 +771,15 @@ router.get('/schedule.ics', async (req, res) => {
     const divisions = await getBankHolidays();
     const region = s.bankHolidayRegion || 'england-and-wales';
     const holidays = new Set(((divisions && divisions[region]) || []).map((e) => e.date));
-    // Nicky's own blocked days (v1.17.0) join the skip set — same walker rules.
-    for (const iso of Object.keys(s.blockedDays || {})) holidays.add(iso);
+    // Nicky's own blocked days (v1.17.0): their own skip Set, kept apart
+    // from bank holidays since v2.18.0 — a workAllDays job works holidays
+    // but never blocked days.
+    const blocked = new Set(Object.keys(s.blockedDays || {}));
     for (const row of jobsResult.rows) {
       const d = row.data || {};
       if (d.status !== 'accepted' || !d.startDate || !(+d.scheduledDays > 0)) continue;
       const workSat = d.workSaturdays != null ? !!d.workSaturdays : !!s.workSaturdays;
-      const span = icsWorkingDaySpan(d.startDate, Math.ceil(+d.scheduledDays), workSat, holidays);
+      const span = icsWorkingDaySpan(d.startDate, Math.ceil(+d.scheduledDays), workSat, !!d.workAllDays, holidays, blocked);
       if (!span.length) continue;
       // Event title: "job name — scheduleTitle" when a title was typed at
       // scheduling time (per Nicky 2026-07-22 — the title extends the name,
