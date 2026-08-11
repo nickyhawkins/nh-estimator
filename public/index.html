@@ -1379,6 +1379,43 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
   <button class="fab" onclick="addColour()">+</button>
 </div>
 
+<!-- ══ PRICE LOOKUP ══
+     Read-only till check: search EVERY account-202 Xero sales item by name
+     or code and see the inc-VAT price (what's actually paid at the till)
+     with ex-VAT alongside. Deliberately NOT the range/band/size materials
+     parsing used for quoting -- raw Xero Name/Code straight through, so the
+     unmodellable items appear here too. Xero's SalesUnitPrice already
+     includes VAT, so inc = the Xero figure untouched and ex = inc ÷ 1.2.
+     Not tied to any job or quote; nothing here writes anywhere. -->
+<div id="screen-pricelookup" class="screen">
+  <div class="topbar">
+    <button class="back-btn" onclick="goTab('dash')">←</button>
+    <div class="topbar-title">Price Lookup</div>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
+  </div>
+  <div class="content">
+    <input type="search" class="field-input" id="pricelookup-search" placeholder="Search name or code…"
+           autocorrect="off" autocapitalize="off" autocomplete="off" spellcheck="false"
+           oninput="filterPriceLookup()"
+           style="width:100%;text-align:left;padding:14px 16px;font-size:16px;font-family:'DM Sans',sans-serif">
+    <div class="empty" id="pricelookup-loading" style="display:none">
+      <div class="empty-icon">🔍</div>
+      <div class="empty-title">Loading prices…</div>
+      <div class="empty-sub">Fetching the item list from Xero</div>
+    </div>
+    <div class="empty" id="pricelookup-error" style="display:none">
+      <div class="empty-icon">⚠️</div>
+      <div class="empty-title">Couldn't load prices</div>
+      <div class="empty-sub" id="pricelookup-error-msg"></div>
+      <button class="btn" onclick="loadPriceLookupItems()">Try again</button>
+    </div>
+    <div class="card" id="pricelookup-card" style="display:none">
+      <div class="card-header"><span id="pricelookup-count"></span><small style="text-transform:none;letter-spacing:normal;font-weight:400">inc VAT · <span style="opacity:.7">ex VAT</span></small></div>
+      <div id="pricelookup-list"></div>
+    </div>
+  </div>
+</div>
+
 <!-- ══ ADD/EDIT CUSTOM LINE ══
      A custom line item is just a description + price typed in directly --
      no area/coat/labour engine behind it (see the Custom Lines section on
@@ -1601,6 +1638,10 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     <div>Colours</div>
     <span class="nav-menu-arrow">›</span>
   </div>
+  <div class="nav-menu-item" onclick="closeNavMenu();goTab('pricelookup')">
+    <div>🔍 Price Lookup</div>
+    <span class="nav-menu-arrow">›</span>
+  </div>
   <div class="nav-menu-item" onclick="closeNavMenu();goTab('schedule')">
     <div>Schedule</div>
     <span class="nav-menu-arrow">›</span>
@@ -1620,7 +1661,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.13.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.14.0</div>
 </div>
 </div>
 
@@ -6173,6 +6214,7 @@ function goTab(tab) {
   if (tab==='home') renderHome();
   if (tab==='summary') refreshSummaryTab();
   if (tab==='colours') renderColours();
+  if (tab==='pricelookup') renderPriceLookup();
   if (tab==='jobs') renderJobs();
   if (tab==='schedule') renderScheduleStrip();
   // NB no renderActuals() here — actuals live only on the server, so the
@@ -9085,6 +9127,67 @@ function surfaceSummary(hasWalls, hasCeiling, hasWood, hasFeatureWall, hasPanel)
   if (hasFeatureWall) summary = summary ? summary + ' + Feature wall' : 'Feature wall';
   if (hasPanel) summary = summary ? summary + ' + Panelling' : 'Panelling';
   return summary;
+}
+
+// ── Price Lookup (read-only till check) ─────────────────────────────────────
+// Flat search over every account-202 Xero sales item -- see the screen
+// comment. Items load lazily on first visit, NOT in initApp: this is an
+// occasional in-shop tool, so it must not slow every app open. Once loaded
+// they sit in memory for the session (the server holds its own 5-min cache
+// on top). Filtering is in-memory on every keystroke -- a few hundred items,
+// no debounce needed.
+var priceLookupItems = null;    // null = never loaded; [] = loaded, empty
+
+function renderPriceLookup() {
+  if (priceLookupItems === null) loadPriceLookupItems();
+  else filterPriceLookup();
+}
+
+function loadPriceLookupItems() {
+  document.getElementById('pricelookup-loading').style.display = 'flex';
+  document.getElementById('pricelookup-error').style.display = 'none';
+  document.getElementById('pricelookup-card').style.display = 'none';
+  apiGet('/auth/sales-items').then(function(items) {
+    priceLookupItems = items;
+    document.getElementById('pricelookup-loading').style.display = 'none';
+    filterPriceLookup();
+  }).catch(function(e) {
+    document.getElementById('pricelookup-loading').style.display = 'none';
+    document.getElementById('pricelookup-error').style.display = 'flex';
+    document.getElementById('pricelookup-error-msg').textContent =
+      'Check the signal (and that Xero is connected in Settings), then try again.';
+  });
+}
+
+function filterPriceLookup() {
+  if (priceLookupItems === null) return;   // typed before the first load landed
+  var q = document.getElementById('pricelookup-search').value.trim().toLowerCase();
+  var matches = !q ? priceLookupItems : priceLookupItems.filter(function(i) {
+    return i.name.toLowerCase().indexOf(q) !== -1 || i.code.toLowerCase().indexOf(q) !== -1;
+  });
+  document.getElementById('pricelookup-count').textContent =
+    matches.length + (matches.length === 1 ? ' item' : ' items');
+  var html = matches.map(function(i) {
+    // The Xero price IS the till (inc-VAT) figure, shown big and untouched so
+    // it can be checked against the shop receipt digit for digit; ex = ÷ 1.2.
+    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--border)">'
+      + '<div style="min-width:0">'
+      +   '<div style="font-weight:600;font-size:15px;color:var(--text)">' + escapeHtml(i.name) + '</div>'
+      +   (i.code ? '<div style="font-size:12px;color:var(--text2);font-family:\'DM Mono\',monospace;margin-top:2px">' + escapeHtml(i.code) + '</div>' : '')
+      + '</div>'
+      + '<div style="text-align:right;flex-shrink:0;font-family:\'DM Mono\',monospace">'
+      +   '<div style="font-size:17px;font-weight:700;color:var(--accent)">' + fmt(i.price) + '</div>'
+      +   '<div style="font-size:12px;color:var(--text2);margin-top:2px">' + fmt(i.price / 1.2) + ' ex</div>'
+      + '</div>'
+      + '</div>';
+  }).join('');
+  if (!matches.length) {
+    html = '<div style="padding:20px 16px;color:var(--text2);font-size:14px;text-align:center">'
+      + (q ? 'No items match “' + escapeHtml(q) + '”' : 'No sales items found in Xero')
+      + '</div>';
+  }
+  document.getElementById('pricelookup-list').innerHTML = html;
+  document.getElementById('pricelookup-card').style.display = 'block';
 }
 
 function renderColours() {
