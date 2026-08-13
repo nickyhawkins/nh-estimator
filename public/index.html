@@ -1077,16 +1077,17 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       <div class="settings-note">The rates above are the Standard / default figures — used whenever a surface's product has no per-product entry below, so nothing changes until you add one.</div>
       <!-- Per-product coverage rates (PRODUCT_COVERAGE_SPEC.md): additive
            list — add a product's real m²/L when it's first used on a job.
-           Product comes from the Xero sales items (via the materials cache,
-           so the item code is captured and the range name matches the
-           product pickers); duplicates per product+surface are blocked in
+           Product comes from the material RANGES (the same range/band
+           grouping the materials list and room pickers use), never a single
+           Xero tin — coverage per litre doesn't change between pack sizes
+           of one product; duplicates per range+surface are blocked in
            addCoverageRate() rather than silently stacking. -->
       <div style="border-top:2px solid var(--border)">
         <div class="card-header" style="border-bottom:none;padding-bottom:0">Per-Product Rates</div>
         <div id="coverage-rates-list"></div>
         <div style="padding:12px 16px;display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--border)">
           <div style="position:relative">
-            <input type="text" class="field-input" style="width:100%;text-align:left" id="cov-add-product" placeholder="Search product (name or code)…" autocorrect="off" autocomplete="off" oninput="onCoverageProductInput()" onfocus="onCoverageProductInput()">
+            <input type="text" class="field-input" style="width:100%;text-align:left" id="cov-add-product" placeholder="Product range — tap to choose…" autocorrect="off" autocomplete="off" oninput="onCoverageProductInput()" onfocus="onCoverageProductInput()">
             <div id="cov-add-product-dd" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div>
           </div>
           <div style="display:flex;gap:8px">
@@ -3958,9 +3959,10 @@ function mergeSettings(raw) {
   // until the first edit pins a copy.
   out.textTemplates = raw.textTemplates || null;
   // Per-product coverage rates (PRODUCT_COVERAGE_SPEC.md) — an additive
-  // list of { id, itemCode, itemName, range, surface, rate, coats }
-  // entries, edited in their own Settings card. Empty list = every surface
-  // uses the flat rates above, exactly the pre-feature behaviour.
+  // list of { id, range, surface, rate, coats } entries keyed by material
+  // group (v2.19.0 entries also carry itemCode/itemName — ignored), edited
+  // in their own Settings card. Empty list = every surface uses the flat
+  // rates above, exactly the pre-feature behaviour.
   out.coverageRates = Array.isArray(raw.coverageRates) ? raw.coverageRates : [];
   return out;
 }
@@ -7384,13 +7386,15 @@ var ROLE_COLOUR_FIELD = { wall: 'colourNumber', ceiling: 'ceilingColourNumber', 
 
 // ── Product coverage rates (PRODUCT_COVERAGE_SPEC.md) ──────────────────────
 // settings.coverageRates: additive list of per-product m²-per-litre entries
-// { id, itemCode, itemName, range, surface, rate, coats }. The product is a
-// real Xero sales item picked in Settings (name/code captured verbatim), but
-// MATCHING is by its parsed range — every colour band and tin size of one
-// product spreads the same, and the range is exactly the product identity
-// the role pickers / computeRoleGroups already deal in. Surfaces reuse the
-// flat-rate categories from the Coverage Rates card, so every flat rate has
-// a per-product counterpart that can override it.
+// { id, range, surface, rate, coats }. The product is a material GROUP —
+// a range picked in Settings from the same range/band grouping the
+// materials list and room pickers use — never an individual Xero tin:
+// every colour band and tin size of one product spreads the same, and the
+// range is exactly the product identity the role pickers /
+// computeRoleGroups already deal in. (Entries saved by the v2.19.0
+// item-picked form also carry itemCode/itemName — harmless, ignored.)
+// Surfaces reuse the flat-rate categories from the Coverage Rates card, so
+// every flat rate has a per-product counterpart that can override it.
 // No sprayed variants here by design: spraying is a single global uplift %
 // on top of whichever rate applies (see calcRoom()'s sprayMult), never a
 // second per-product figure to keep accurate.
@@ -7440,21 +7444,6 @@ function effectiveRoleRange(r, role) {
   return (((settings.materials || {})[role]) || {}).range || '';
 }
 
-// Which range a Xero item code lives in, via the already-grouped materials
-// cache — no client-side name parsing. Null for sundries/unmodellable items
-// (which genuinely can't carry a coverage rate) or a stale/empty cache.
-function rangeForItemCode(code) {
-  var ranges = Object.keys(materialGroupsCache);
-  for (var i = 0; i < ranges.length; i++) {
-    var bands = materialGroupsCache[ranges[i]];
-    for (var band in bands) {
-      for (var j = 0; j < bands[band].length; j++) {
-        if (bands[band][j].itemCode === code) return ranges[i];
-      }
-    }
-  }
-  return null;
-}
 // Roles charged by whole tin (tin-optimised) rather than per litre. Masonry
 // mirrors interior walls -- bought and charged in whole tins.
 var TIN_ROLES = { wall: true, masonry: true };
@@ -8027,13 +8016,13 @@ function hideMaterialProductDropdown(idPrefix) {
 }
 
 // ── Coverage Rates settings card (PRODUCT_COVERAGE_SPEC.md) ────────────────
-// Add/edit/delete over settings.coverageRates. The product search reuses
-// materialItemIndex (the same account-202 Xero sales items Price Lookup
-// shows, minus sundries — paste and lining paper have no coverage), so the
-// item code is captured automatically and the derived range name always
-// matches what the role pickers / computeRoleGroups deal in.
+// Add/edit/delete over settings.coverageRates. The product picker lists the
+// material RANGES (Object.keys(materialGroupsCache) — the same range/band
+// grouping the materials list and room pickers deal in), never individual
+// Xero tins: coverage per litre doesn't change between pack sizes of one
+// product, and which tin gets bought stays the tin-optimiser's job.
 var coverageProductMatches = [];
-var coverageAddSelection = null;   // { itemCode, itemName, range } once picked
+var coverageAddSelection = null;   // { range } once picked
 
 function onCoverageProductInput() {
   coverageAddSelection = null;     // typing invalidates any earlier pick
@@ -8041,43 +8030,32 @@ function onCoverageProductInput() {
   var dd = document.getElementById('cov-add-product-dd');
   if (!input || !dd) return;
   var q = input.value.trim().toLowerCase();
-  if (!q) { dd.style.display = 'none'; return; }
-  var matches = [];
-  materialItemIndex.forEach(function(item) {
-    if (!item.isSundry && matches.length < 30 &&
-        (item.description.toLowerCase().indexOf(q) !== -1 || item.itemCode.toLowerCase().indexOf(q) !== -1)) matches.push(item);
-  });
+  // Empty query shows the whole range list (it's a dropdown first, a
+  // filter second) — same source list the room product pickers build from.
+  var ranges = Object.keys(materialGroupsCache).sort();
+  var matches = q ? ranges.filter(function(r) { return r.toLowerCase().indexOf(q) !== -1; }) : ranges;
   coverageProductMatches = matches;
-  dd.innerHTML = matches.map(function(item, i) {
-    return '<div style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:14px" onmousedown="event.preventDefault()" onclick="selectCoverageProduct('+i+')">'
-      + '<div style="font-weight:600;color:var(--text)">' + escapeHtml(item.description) + '</div>'
-      + '<div style="font-size:12px;color:var(--text2);font-family:\'DM Mono\',monospace">' + escapeHtml(item.itemCode) + '</div>'
+  dd.innerHTML = matches.map(function(range, i) {
+    return '<div style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:14px;font-weight:600;color:var(--text)" onmousedown="event.preventDefault()" onclick="selectCoverageProduct('+i+')">'
+      + escapeHtml(range)
       + '</div>';
   }).join('') || '<div style="padding:10px 12px;color:var(--text2);font-size:13px">'
-      + (materialItemIndex.size ? 'No matching paint items' : 'Connect Xero and tap "Refresh from Xero" in Materials first')
+      + (ranges.length ? 'No matching product ranges' : 'Connect Xero and tap "Refresh from Xero" in Materials first')
       + '</div>';
   dd.style.display = 'block';
 }
 
 function selectCoverageProduct(i) {
-  var item = coverageProductMatches[i];
-  if (!item) return;
-  // Non-sundry index items always came out of materialGroupsCache, so the
-  // range lookup only fails on a cache that's been refreshed out from under
-  // us mid-pick — surface it rather than storing an unmatchable entry.
-  var range = rangeForItemCode(item.itemCode);
-  if (!range) {
-    alert('Couldn’t match that item to a product range — tap "Refresh from Xero" in Materials, then try again.');
-    return;
-  }
-  coverageAddSelection = { itemCode: item.itemCode, itemName: item.description, range: range };
-  document.getElementById('cov-add-product').value = item.description;
+  var range = coverageProductMatches[i];
+  if (!range) return;
+  coverageAddSelection = { range: range };
+  document.getElementById('cov-add-product').value = range;
   document.getElementById('cov-add-product-dd').style.display = 'none';
 }
 
 function addCoverageRate() {
   var sel = coverageAddSelection;
-  if (!sel) { alert('Pick a product from the search list first — coverage rates always attach to a real Xero item.'); return; }
+  if (!sel) { alert('Pick a product range from the list first — a coverage rate belongs to the whole product group, every colour and tin size of it.'); return; }
   var surface = document.getElementById('cov-add-surface').value;
   var rate = +document.getElementById('cov-add-rate').value;
   if (!(rate > 0)) { alert('Enter the coverage rate (m² per litre).'); return; }
@@ -8085,17 +8063,15 @@ function addCoverageRate() {
   var coats = coatsRaw === '' ? null : Math.min(3, Math.max(0, Math.round(+coatsRaw)));
   if (!settings.coverageRates) settings.coverageRates = [];
   var list = settings.coverageRates;
-  // One rate per product+surface — a second entry would silently shadow (or
-  // be shadowed by) the first, so surface the clash instead. Checked by
-  // range as well as item code: two different tins of the same product ARE
-  // the same coverage rate.
+  // One rate per product group+surface — a second entry would silently
+  // shadow (or be shadowed by) the first, so surface the clash instead.
   var dup = null;
-  list.forEach(function(e) { if (!dup && e.surface === surface && (e.itemCode === sel.itemCode || e.range === sel.range)) dup = e; });
+  list.forEach(function(e) { if (!dup && e.surface === surface && e.range === sel.range) dup = e; });
   if (dup) {
     alert('“' + dup.range + '” already has a ' + coverageSurfaceLabel(surface) + ' rate (' + dup.rate + ' m²/L). Edit or delete that entry instead of adding a second one.');
     return;
   }
-  list.push({ id: uid(), itemCode: sel.itemCode, itemName: sel.itemName, range: sel.range, surface: surface, rate: rate, coats: coats });
+  list.push({ id: uid(), range: sel.range, surface: surface, rate: rate, coats: coats });
   saveSettings();
   coverageAddSelection = null;
   document.getElementById('cov-add-product').value = '';
@@ -8148,7 +8124,7 @@ function renderCoverageRates() {
     + list.map(function(e) {
       return '<div class="field-row" style="gap:8px">'
         + '<div class="field-label" style="min-width:0">' + escapeHtml(e.range)
-        +   '<small>' + escapeHtml(coverageSurfaceLabel(e.surface)) + ' · ' + escapeHtml(e.itemCode || '') + '</small></div>'
+        +   '<small>' + escapeHtml(coverageSurfaceLabel(e.surface)) + '</small></div>'
         + '<input type="number" class="field-input" style="width:74px" value="' + (+e.rate) + '" min="0.5" step="0.5" inputmode="decimal" title="m² per litre" onchange="updateCoverageRate(\'' + e.id + '\',\'rate\',this.value)">'
         + '<input type="number" class="field-input" style="width:56px" value="' + (e.coats != null ? e.coats : '') + '" placeholder="—" min="0" max="3" step="1" inputmode="numeric" title="Default coats — optional" onchange="updateCoverageRate(\'' + e.id + '\',\'coats\',this.value)">'
         + '<button onclick="deleteCoverageRate(\'' + e.id + '\')" title="Delete" style="flex-shrink:0;width:32px;height:32px;border-radius:16px;border:1px solid var(--danger-soft-border);background:var(--danger-soft-bg);color:var(--danger);font-size:14px;line-height:1;cursor:pointer">✕</button>'
