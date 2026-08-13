@@ -706,8 +706,9 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
           <div class="toggle" id="tog-firedoor" onclick="toggleFireDoor()"></div>
         </div>
         <div class="toggle-row" style="border-top:1px solid var(--border)">
-          <div class="toggle-label">Self-priming paint<small>Skips the primer coat, adds one extra topcoat instead</small></div>
+          <div class="toggle-label">Self-priming paint<small>Skips the primer coat, adds one extra topcoat instead — set per product in Settings → Coverage Rates once the woodwork paint has an entry there</small></div>
           <div class="toggle" id="tog-doorselfpriming" onclick="toggleDoorSelfPriming()"></div>
+          <span id="driven-doorselfpriming" style="display:none;flex-shrink:0;font-size:12px;font-weight:600;color:var(--text2);text-align:right;max-width:45%"></span>
         </div>
         <div class="toggle-row" style="border-top:1px solid var(--border)">
           <div class="toggle-label">Remove &amp; refit ironmongery<small>Handles/hinges/locks taken off and refitted</small></div>
@@ -834,8 +835,9 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
           <input type="number" class="field-input" id="r-prep-custom" placeholder="0" min="0" max="100" step="5" inputmode="numeric" oninput="previewRoom()">
         </div>
         <div class="toggle-row" style="border-top:1px solid var(--border)">
-          <div class="toggle-label">Self-priming paint<small>Woodwork other than doors/frames (skirting, sills, windows) — skips the primer coat, adds one extra topcoat instead</small></div>
+          <div class="toggle-label">Self-priming paint<small>Woodwork other than doors/frames (skirting, sills, windows) — skips the primer coat, adds one extra topcoat instead; set per product in Settings → Coverage Rates once the woodwork paint has an entry there</small></div>
           <div class="toggle" id="tog-selfprimingwoodwork" onclick="toggleSelfPrimingWoodwork()"></div>
+          <span id="driven-selfprimingwoodwork" style="display:none;flex-shrink:0;font-size:12px;font-weight:600;color:var(--text2);text-align:right;max-width:45%"></span>
         </div>
         <div class="field-row" style="border-top:1px solid var(--border)">
           <div class="field-label">Making Good<small>£ fixed cost for repairs</small></div>
@@ -1091,13 +1093,20 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
             <div id="cov-add-product-dd" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div>
           </div>
           <div style="display:flex;gap:8px">
-            <select class="field-input" id="cov-add-surface" style="flex:1.4;text-align:left"></select>
+            <select class="field-input" id="cov-add-surface" style="flex:1.4;text-align:left" onchange="onCoverageAddSurfaceChange()"></select>
             <input type="number" class="field-input" id="cov-add-rate" placeholder="m²/L" min="0.5" step="0.5" inputmode="decimal" style="flex:1;width:auto">
             <input type="number" class="field-input" id="cov-add-coats" placeholder="coats" min="0" max="3" step="1" inputmode="numeric" style="flex:1;width:auto" title="Default coats — optional">
           </div>
+          <!-- Woodwork + panelling only (SELF_PRIMING_SURFACES): those are
+               the surfaces that buy primer -- walls have the mist-coat
+               model -- so the flag would be dead weight anywhere else. -->
+          <div class="toggle-row" id="cov-add-selfpriming-row" style="display:none;padding:10px 0 0;border:none">
+            <div class="toggle-label">Self-priming<small>Primes as it goes — woodwork/fitted units on this product skip the separate primer (one extra topcoat coat instead) and panelling buys none; off, primer is added automatically. Replaces the rooms' manual Self-priming toggles</small></div>
+            <div class="toggle" id="tog-cov-selfpriming" onclick="toggleCoverageAddSelfPriming()"></div>
+          </div>
           <button onclick="addCoverageRate()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">+ Add product rate</button>
         </div>
-        <div class="settings-note">Add a product's real coverage (m² per litre) when you first use it on a job — no need to fill the whole catalogue. Coats is an optional default applied when the product is picked on a room. Rooms using that product (picked on the room, or as the Settings default in Materials below) then calculate litres from its rate on every future quote; products without an entry keep using the standard rates above.</div>
+        <div class="settings-note">Add a product's real coverage (m² per litre) when you first use it on a job — no need to fill the whole catalogue. Coats is an optional default applied when the product is picked on a room. Rooms using that product (picked on the room, or as the Settings default in Materials below) then calculate litres from its rate on every future quote; products without an entry keep using the standard rates above. A woodwork or panelling entry's Self-priming tick drives the primer everywhere that product is used — woodwork (incl. doors/frames and fitted units): ticked means no primer line (one extra topcoat coat instead), unticked means primer is added automatically, whatever the room's own toggles said; panelling: unticked adds a panel primer that was never bought before, ticked (or no entry) keeps panelling primer-free as it's always been.</div>
       </div>
     </div>
     <div class="card">
@@ -1383,7 +1392,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     <div class="card">
       <div class="card-header">Prep Level</div>
       <div class="field-row">
-        <div class="field-label">Surface<small>Bare/Primed = full prime + 2 coats. Existing painted = light key-sand + topcoat only, no primer bought</small></div>
+        <div class="field-label">Surface<small>Bare/Primed = full prime + 2 coats. Existing painted = light key-sand + topcoat only, no primer bought. A self-priming topcoat (Settings → Coverage Rates) skips the primer buy on Bare too — extra topcoat litres instead</small></div>
         <div class="seg" id="seg-fu-prep" style="flex:1.5">
           <button class="seg-btn active" onclick="setFittedUnitPrep('bare')">Bare / Primed</button>
           <button class="seg-btn" onclick="setFittedUnitPrep('painted')">Existing painted</button>
@@ -3959,10 +3968,11 @@ function mergeSettings(raw) {
   // until the first edit pins a copy.
   out.textTemplates = raw.textTemplates || null;
   // Per-product coverage rates (PRODUCT_COVERAGE_SPEC.md) — an additive
-  // list of { id, range, surface, rate, coats } entries keyed by material
-  // group (v2.19.0 entries also carry itemCode/itemName — ignored), edited
-  // in their own Settings card. Empty list = every surface uses the flat
-  // rates above, exactly the pre-feature behaviour.
+  // list of { id, range, surface, rate, coats, selfPriming } entries keyed
+  // by material group (v2.19.0 entries also carry itemCode/itemName —
+  // ignored; entries saved before selfPriming existed read as false, i.e.
+  // primer needed), edited in their own Settings card. Empty list = every
+  // surface uses the flat rates above, exactly the pre-feature behaviour.
   out.coverageRates = Array.isArray(raw.coverageRates) ? raw.coverageRates : [];
   return out;
 }
@@ -7088,19 +7098,36 @@ function calcRoom(r) {
   // alongside skirting/sills -- gated on xc, so 0 woodwork coats means no
   // window paint either.
   var wdA = r.woodAreaOverride != null ? +r.woodAreaOverride : perim*0.15 + sills*0.25 + win;
-  // Self-priming paint (own toggle for the "other woodwork" bucket --
-  // skirting/sills/windows -- distinct from primerNone, which is a product
-  // choice, not a coat swap): one extra topcoat coat-equivalent instead of a
-  // primer coat. Doors/frames carry their own independent self-priming flag
-  // via doorFrameAreaCoats() below.
-  var selfPrimingWoodwork = !!r.selfPrimingWoodwork;
+  // Self-priming (PRODUCT_COVERAGE_SPEC.md): when the room's effective
+  // topcoat product has a woodwork Coverage Rates entry, that entry's
+  // Self-priming flag decides the coat swap for BOTH woodwork buckets --
+  // other woodwork (skirting/sills/windows) and doors/frames paint from
+  // the same topcoat tin, so the product answers for both, and the room's
+  // manual toggles are overridden (their rows hide in the form --
+  // updateSelfPrimingDrivenUI). No entry = the manual toggles exactly as
+  // before, no regression. The swap itself is unchanged either way: one
+  // extra topcoat coat-equivalent instead of a primer coat (distinct from
+  // primerNone, which is a product choice, not a coat swap).
+  var drivenSelfPriming = coverageSelfPrimingFor(effectiveRoleRange(r, 'topcoat'), 'woodwork');
+  var selfPrimingWoodwork = drivenSelfPriming != null ? drivenSelfPriming : !!r.selfPrimingWoodwork;
+  var doorSelfPriming     = drivenSelfPriming != null ? drivenSelfPriming : !!r.doorSelfPriming;
   var otherWoodTopcoatCoatM2 = xc>0 ? wdA * (xc + (selfPrimingWoodwork?1:0)) : 0;
   var otherWoodPrimerCoatM2  = (xc>0 && !r.primerNone && !selfPrimingWoodwork) ? wdA*xc : 0;
-  var doorFrameAreas = doorFrameAreaCoats(doorQty, frameQty, doorCoats, frameCoats, !!r.doorFireDoor, !!r.doorSelfPriming, !!r.doorBothSides);
+  var doorFrameAreas = doorFrameAreaCoats(doorQty, frameQty, doorCoats, frameCoats, !!r.doorFireDoor, doorSelfPriming, !!r.doorBothSides);
   var totalTopcoatCoatM2 = otherWoodTopcoatCoatM2 + doorFrameAreas.topcoatCoatM2;
   // primerNone is a room-wide "don't buy a primer product" choice, so it
   // zeroes the door/frame share too, same as it always zeroed the whole room.
   var totalPrimerCoatM2 = otherWoodPrimerCoatM2 + (r.primerNone ? 0 : doorFrameAreas.primerCoatM2);
+  // Panelling primer: panels never bought primer before the per-product
+  // flag, so the flag is its ONLY source -- a panel product entry with
+  // Self-priming OFF adds primer on the panel's own area × coats basis
+  // (bare MDF/timber wainscoting under ordinary paint needs it); flag ON
+  // or no entry keeps the historical no-primer behaviour, so nothing moves
+  // until a panel product is on record. No coat swap on the topcoat side
+  // either way (panel coats are typed per wall, and there's no primer coat
+  // being replaced), and primerNone still vetoes like everywhere else.
+  var panelSelfPriming = coverageSelfPrimingFor(effectiveRoleRange(r, 'panel'), 'panel');
+  var panelPrimerCoatM2 = (panelSelfPriming === false && !r.primerNone) ? panelResult.panelAreaCoats : 0;
   var glossCov = coverageRateFor(effectiveRoleRange(r, 'topcoat'), 'woodwork') || settings.cg;
   var gL  = totalTopcoatCoatM2>0 ? Math.ceil(totalTopcoatCoatM2/glossCov*woodSprayMult*2)/2 : 0;
   // Primer litres -- moved in from computeMaterials()'s buildRoleRows(),
@@ -7112,12 +7139,18 @@ function calcRoom(r) {
   // The 0.8 exists to guess a primer's spread off the TOPCOAT's rate; a
   // primer product with its own coverage entry replaces that whole proxy
   // with the real figure (area ÷ its rate, no 0.8).
-  // Primer goes on the same way the woodwork topcoat does, so it shares the
-  // woodwork spray toggle's uplift in both branches.
+  // Primer goes on the same way the woodwork topcoat does, so the woodwork
+  // share carries the woodwork spray toggle's uplift in both branches; the
+  // panel share joins WITHOUT it (panel litres never take a spray uplift --
+  // panelL above has none either), folded in before the one rounding so the
+  // room still buys a single primer figure. Multiplying the m² by the
+  // uplift before conversion is identical to multiplying the litres after,
+  // so woodwork-only rooms round out byte-identically to before.
   var primerCov = coverageRateFor(effectiveRoleRange(r, 'primer'), 'woodwork');
-  var primerL = totalPrimerCoatM2>0
-    ? (primerCov ? Math.ceil(totalPrimerCoatM2/primerCov*woodSprayMult*2)/2
-                 : Math.ceil(totalPrimerCoatM2/settings.cg*0.8*woodSprayMult*2)/2)
+  var primerCoatM2Eff = totalPrimerCoatM2*woodSprayMult + panelPrimerCoatM2;
+  var primerL = primerCoatM2Eff>0
+    ? (primerCov ? Math.ceil(primerCoatM2Eff/primerCov*2)/2
+                 : Math.ceil(primerCoatM2Eff/settings.cg*0.8*2)/2)
     : 0;
   // Manual override only applies to the paint quantity (only part of the
   // room may be new plaster) -- the time cost above stays on the full
@@ -7181,7 +7214,11 @@ function calcPanel(panelItems, panelPrepPct, panelPrepCustom, r2, covOverride) {
   var panelPrepUp = panelPrepPct >= 0 ? panelPrepPct : (+panelPrepCustom||0);
   var panelCost = panelMinsCost * (1 + panelPrepUp/100);
   var panelL = panelAreaCoats>0 ? Math.ceil(panelAreaCoats/(covOverride || settings.cPanel)*2)/2 : 0;
-  return { panelCost:panelCost, panelL:panelL, panelArea:panelArea, panelRawCost:panelMinsCost, panelPrepUp:panelPrepUp };
+  // panelAreaCoats rides along as the primer basis for a panel product
+  // whose coverage entry says Self-priming OFF (see calcRoom()'s
+  // panelPrimerCoatM2) -- same area × coats shape the woodwork primer
+  // bases use.
+  return { panelCost:panelCost, panelL:panelL, panelArea:panelArea, panelAreaCoats:panelAreaCoats, panelRawCost:panelMinsCost, panelPrepUp:panelPrepUp };
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -7386,7 +7423,7 @@ var ROLE_COLOUR_FIELD = { wall: 'colourNumber', ceiling: 'ceilingColourNumber', 
 
 // ── Product coverage rates (PRODUCT_COVERAGE_SPEC.md) ──────────────────────
 // settings.coverageRates: additive list of per-product m²-per-litre entries
-// { id, range, surface, rate, coats }. The product is a material GROUP —
+// { id, range, surface, rate, coats, selfPriming }. The product is a material GROUP —
 // a range picked in Settings from the same range/band grouping the
 // materials list and room pickers use — never an individual Xero tin:
 // every colour band and tin size of one product spreads the same, and the
@@ -7431,6 +7468,34 @@ function coverageRateFor(range, surface) {
   }
   return null;
 }
+
+// Whether a product primes as it goes, from its coverage entry on the
+// given surface: true/false when the product has an entry (the entry's
+// Self-priming flag — false for entries saved before the flag existed),
+// null when it has none. null = "no product on record", so the surface
+// behaves exactly as before the flag existed: rooms' woodwork keeps its
+// manual self-priming toggles, panelling and fitted units keep buying (or
+// not buying) primer the way they always did. A non-null answer DRIVES
+// the decision — on woodwork it overrides both manual toggles
+// (doors/frames and other woodwork paint from the same topcoat tin, so
+// one product answers for both), on panelling it adds/withholds the panel
+// primer, on a fitted unit (woodwork surface — units paint in the
+// Settings woodwork world) it decides whether a Bare unit buys primer or
+// swaps in an extra topcoat pass's worth. Surfaces beyond
+// woodwork/panel never prime (walls have the mist-coat model instead), so
+// their entries always store false and nothing asks.
+function coverageSelfPrimingFor(range, surface) {
+  if (!range) return null;
+  var list = settings.coverageRates || [];
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].range === range && list[i].surface === surface && +list[i].rate > 0) return list[i].selfPriming === true;
+  }
+  return null;
+}
+// The surfaces whose products can meaningfully self-prime — the ones that
+// buy primer through the coverage formula. Gates the Settings toggle/tick
+// so the flag can't be set where nothing would ever read it.
+var SELF_PRIMING_SURFACES = { woodwork: true, panel: true };
 
 // A room's effective product range for a role: its own override, else the
 // Settings default — the SAME resolution computeRoleGroups uses for
@@ -8023,6 +8088,20 @@ function hideMaterialProductDropdown(idPrefix) {
 // product, and which tin gets bought stays the tin-optimiser's job.
 var coverageProductMatches = [];
 var coverageAddSelection = null;   // { range } once picked
+var coverageAddSelfPriming = false;
+
+// Self-priming only means anything on the surfaces that buy primer
+// (woodwork + panelling -- SELF_PRIMING_SURFACES), so its toggle row only
+// shows for those.
+function onCoverageAddSurfaceChange() {
+  var row = document.getElementById('cov-add-selfpriming-row');
+  if (row) row.style.display = SELF_PRIMING_SURFACES[document.getElementById('cov-add-surface').value] ? 'flex' : 'none';
+}
+
+function toggleCoverageAddSelfPriming() {
+  coverageAddSelfPriming = !coverageAddSelfPriming;
+  document.getElementById('tog-cov-selfpriming').classList.toggle('on', coverageAddSelfPriming);
+}
 
 function onCoverageProductInput() {
   coverageAddSelection = null;     // typing invalidates any earlier pick
@@ -8071,9 +8150,16 @@ function addCoverageRate() {
     alert('“' + dup.range + '” already has a ' + coverageSurfaceLabel(surface) + ' rate (' + dup.rate + ' m²/L). Edit or delete that entry instead of adding a second one.');
     return;
   }
-  list.push({ id: uid(), range: sel.range, surface: surface, rate: rate, coats: coats });
+  // selfPriming is only ever true on woodwork/panelling entries (the
+  // surface toggle row is hidden elsewhere, and the flag is meaningless on
+  // surfaces that never prime -- see coverageSelfPrimingFor); stored false
+  // rather than omitted so the driven room UI can trust the field exists
+  // on new entries.
+  list.push({ id: uid(), range: sel.range, surface: surface, rate: rate, coats: coats, selfPriming: !!SELF_PRIMING_SURFACES[surface] && coverageAddSelfPriming });
   saveSettings();
   coverageAddSelection = null;
+  coverageAddSelfPriming = false;
+  document.getElementById('tog-cov-selfpriming').classList.remove('on');
   document.getElementById('cov-add-product').value = '';
   document.getElementById('cov-add-rate').value = '';
   document.getElementById('cov-add-coats').value = '';
@@ -8091,6 +8177,10 @@ function updateCoverageRate(id, field, value) {
     entry.rate = rate;
   } else if (field === 'coats') {
     entry.coats = value === '' ? null : Math.min(3, Math.max(0, Math.round(+value)));
+  } else if (field === 'selfPriming') {
+    // Checkbox in the row -- rooms whose topcoat is this product follow the
+    // flag immediately, no per-room re-toggling.
+    entry.selfPriming = value === true;
   }
   saveSettings();
   renderCoverageRates();
@@ -8120,13 +8210,19 @@ function renderCoverageRates() {
     return;
   }
   listEl.innerHTML = '<div style="display:flex;justify-content:flex-end;gap:8px;padding:10px 16px 0;font-size:11px;color:var(--text2)">'
-      + '<span style="width:74px;text-align:center">m²/L</span><span style="width:56px;text-align:center">coats</span><span style="width:32px"></span></div>'
+      + '<span style="width:74px;text-align:center">m²/L</span><span style="width:48px;text-align:center">coats</span><span style="width:44px;text-align:center" title="Self-priming">primes</span><span style="width:32px"></span></div>'
     + list.map(function(e) {
+      // Self-priming tick on woodwork/panelling rows only (the surfaces
+      // that buy primer); others get a same-width spacer so columns line up.
+      var primesCell = SELF_PRIMING_SURFACES[e.surface]
+        ? '<span style="flex-shrink:0;width:44px;text-align:center"><input type="checkbox"' + (e.selfPriming === true ? ' checked' : '') + ' style="width:18px;height:18px;accent-color:var(--accent);vertical-align:middle" title="Self-priming — surfaces on this product skip the separate primer" onchange="updateCoverageRate(\'' + e.id + '\',\'selfPriming\',this.checked)"></span>'
+        : '<span style="flex-shrink:0;width:44px"></span>';
       return '<div class="field-row" style="gap:8px">'
         + '<div class="field-label" style="min-width:0">' + escapeHtml(e.range)
-        +   '<small>' + escapeHtml(coverageSurfaceLabel(e.surface)) + '</small></div>'
+        +   '<small>' + escapeHtml(coverageSurfaceLabel(e.surface)) + (SELF_PRIMING_SURFACES[e.surface] && e.selfPriming === true ? ' · self-priming' : '') + '</small></div>'
         + '<input type="number" class="field-input" style="width:74px" value="' + (+e.rate) + '" min="0.5" step="0.5" inputmode="decimal" title="m² per litre" onchange="updateCoverageRate(\'' + e.id + '\',\'rate\',this.value)">'
-        + '<input type="number" class="field-input" style="width:56px" value="' + (e.coats != null ? e.coats : '') + '" placeholder="—" min="0" max="3" step="1" inputmode="numeric" title="Default coats — optional" onchange="updateCoverageRate(\'' + e.id + '\',\'coats\',this.value)">'
+        + '<input type="number" class="field-input" style="width:48px" value="' + (e.coats != null ? e.coats : '') + '" placeholder="—" min="0" max="3" step="1" inputmode="numeric" title="Default coats — optional" onchange="updateCoverageRate(\'' + e.id + '\',\'coats\',this.value)">'
+        + primesCell
         + '<button onclick="deleteCoverageRate(\'' + e.id + '\')" title="Delete" style="flex-shrink:0;width:32px;height:32px;border-radius:16px;border:1px solid var(--danger-soft-border);background:var(--danger-soft-bg);color:var(--danger);font-size:14px;line-height:1;cursor:pointer">✕</button>'
         + '</div>';
     }).join('');
@@ -10328,6 +10424,30 @@ function populateRoomOverridePicker(role) {
                          : 'Use default (Settings)';
   rangeInput.value = state.none ? 'None' : (state.range || '');
   populateRoomOverrideBandPicker(role);
+  // The topcoat product decides whether the room's self-priming toggles are
+  // manual or product-driven -- refresh those rows on every repopulation
+  // (fresh form, room load, and every pick via selectRoomRange).
+  if (role === 'topcoat') updateSelfPrimingDrivenUI();
+}
+
+// Product-driven self-priming (PRODUCT_COVERAGE_SPEC.md): when the form's
+// effective topcoat product (override, else the Settings Materials default
+// -- the same resolution calcRoom's driven flag uses) has a woodwork
+// coverage entry, the two manual Self-priming toggle rows swap their
+// toggles for a "set by the product" note, since calcRoom ignores the
+// manual flags in that state. The stored per-room flags are untouched
+// underneath -- delete the product's entry and the toggles come back with
+// their old values, nothing lost.
+function updateSelfPrimingDrivenUI() {
+  var range = roomOverrides.topcoat.range || (((settings.materials || {}).topcoat) || {}).range || '';
+  var driven = coverageSelfPrimingFor(range, 'woodwork');
+  [['tog-doorselfpriming', 'driven-doorselfpriming'], ['tog-selfprimingwoodwork', 'driven-selfprimingwoodwork']].forEach(function(p) {
+    var tog = document.getElementById(p[0]), note = document.getElementById(p[1]);
+    if (!tog || !note) return;
+    tog.style.display = driven == null ? '' : 'none';
+    note.style.display = driven == null ? 'none' : '';
+    if (driven != null) note.textContent = (driven ? 'On' : 'Off') + ' — ' + range;
+  });
 }
 
 // Search-as-you-type replacement for the old range <select> -- see
@@ -11076,18 +11196,27 @@ function calcFittedUnit(f) {
                   * (settings.fuBayAreaFactor != null ? settings.fuBayAreaFactor : 1.5);
   var doorFaceArea = settings.doorFaceAreaM2 != null ? settings.doorFaceAreaM2 : 1.75;
   var areaM2 = shelves * shelfArea + bayAreaM2 + doors * doorFaceArea * doorSizeMult;
+  // Self-priming (PRODUCT_COVERAGE_SPEC.md): the unit's effective topcoat
+  // product's woodwork entry drives the primer the same way it drives
+  // rooms -- flag ON + Bare prep swaps the primer buy for one extra
+  // topcoat coat-equivalent (the priming PASS and its labour stay: bare
+  // wood still gets three trips, the first is just the self-priming
+  // topcoat), flag OFF or no entry buys primer exactly as before. Painted
+  // prep never primes regardless -- the prep level still owns that.
+  var fuRange = f.range || (((settings.materials || {}).topcoat) || {}).range;
+  var fuSelfPriming = coverageSelfPrimingFor(fuRange, 'woodwork') === true;
   // Primer basis mirrors topcoat coats (area × topcoats, then the 0.8
   // volume proxy at conversion), matching otherWoodPrimerCoatM2/
   // doorFrameAreaCoats() -- never a coat count of its own.
-  var topcoatCoatM2 = areaM2 * topcoats;
-  var primerCoatM2  = bare ? areaM2 * topcoats : 0;
+  var topcoatCoatM2 = areaM2 * (topcoats + (bare && fuSelfPriming ? 1 : 0));
+  var primerCoatM2  = (bare && !fuSelfPriming) ? areaM2 * topcoats : 0;
   // Product coverage: the unit's effective topcoat product (its own range
   // pick, else the Settings woodwork topcoat -- computeRoleGroups'
   // fittedunit fallback) against the woodwork surface; primer follows the
   // Settings primer product (no per-unit primer picker). Same
   // entry-then-flat resolution and no-0.8-with-a-real-rate rule as
   // calcRoom()'s gL/primerL.
-  var fuTopcoatCov = coverageRateFor(f.range || (((settings.materials || {}).topcoat) || {}).range, 'woodwork') || settings.cg;
+  var fuTopcoatCov = coverageRateFor(fuRange, 'woodwork') || settings.cg;
   var fuPrimerCov  = coverageRateFor((((settings.materials || {}).primer) || {}).range, 'woodwork');
   // Sprayed finish toggle (default off): same litres-only uplift as the
   // room spray toggles, on top of whichever rate resolved above.
