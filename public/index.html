@@ -1776,7 +1776,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.25.2</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.26.0</div>
 </div>
 </div>
 
@@ -7705,9 +7705,41 @@ function materialRow(label, litres, mapping, isWall) {
 // only needs to disambiguate by colour). Shared by all four roles now that
 // each can be overridden per room, not just wall.
 function buildRoleRows(label, role, litresPerRoom, skipRoom, items, nameOf) {
+  return roleRowsFromGroups(label, role, computeRoleGroups(role, litresPerRoom, skipRoom, items), items, nameOf);
+}
+
+// Same-paint pooling across roles (v2.26.0): a fitted unit whose topcoat
+// resolves to the SAME range + band + colour as the rooms' woodwork
+// topcoat is drawing on the same tins -- two rows would each round up to
+// their own tin combination and the job buys more paint than the pooled
+// need (a 4L room row and a 6L unit row bought 5L + 5L+1L = 11L where one
+// 10L pool buys 2×5L). Fold each matching group's litres into the host
+// role's group -- one rounding, one tin optimisation -- exactly
+// featureWallSharesWallPaint()'s reasoning at the role level. Unmatched
+// groups return unchanged and keep their own rows. Host groups are
+// mutated in place; the pooled unit names ride along so the row's label
+// can say who it now covers.
+function poolSamePaintGroups(baseGroups, addGroups, nameOf) {
+  var leftover = [];
+  (addGroups || []).forEach(function(g) {
+    var host = g.mapping ? (baseGroups || []).filter(function(b) {
+      return b.mapping && b.mapping.range === g.mapping.range
+        && (b.mapping.band || '') === (g.mapping.band || '')
+        && b.colourNumber === g.colourNumber;
+    })[0] : null;
+    if (!host) { leftover.push(g); return; }
+    host.litres += g.litres;
+    host.pooledNames = (host.pooledNames || []).concat((g.items || []).map(nameOf || function() { return 'Fitted Unit'; }));
+  });
+  return leftover;
+}
+
+// The groups→rows half of buildRoleRows, split out so computeMaterials
+// can pool groups across roles before the rows (and their one-shot tin
+// optimisation) are built.
+function roleRowsFromGroups(label, role, groups, items, nameOf) {
   var colourLabels = {};
   colours.forEach(function(c) { colourLabels[c.number] = c.label; });
-  var groups = computeRoleGroups(role, litresPerRoom, skipRoom, items);
   return groups.map(function(g) {
     var suffix = groups.length > 1
       ? ' — Colour ' + g.colourNumber + (colourLabels[g.colourNumber] ? ' (' + colourLabels[g.colourNumber] + ')' : '')
@@ -7718,6 +7750,11 @@ function buildRoleRows(label, role, litresPerRoom, skipRoom, items, nameOf) {
     // one item overall: a single unit's rows read exactly as before.
     if (nameOf && (items || []).length > 1 && g.items && g.items.length) {
       suffix += ' (' + escapeHtml(g.items.map(nameOf).join(', ')) + ')';
+    }
+    // Litres pooled in from another role (poolSamePaintGroups) -- say so,
+    // or the row's quantity reads too big for the label it carries.
+    if (g.pooledNames && g.pooledNames.length) {
+      suffix += ' (incl. ' + escapeHtml(g.pooledNames.join(', ')) + ')';
     }
     var row = materialRow(label + suffix, g.litres, g.mapping, !!TIN_ROLES[role]);
     // Additive fields, only consumed by the Colours tab's paint-quantity
@@ -7784,7 +7821,11 @@ function computeMaterials() {
   // their own Feature Wall row below.
   var wallRows    = buildRoleRows('Wall Emulsion', 'wall', function(r) { return featureWallSharesWallPaint(r) ? cr(r).wallLCombined : cr(r).wallL; });
   var ceilingRows = buildRoleRows('Ceiling Emulsion', 'ceiling', function(r) { return cr(r).ceilL; });
-  var topcoatRows = buildRoleRows('Woodwork Topcoat', 'topcoat', function(r) { return cr(r).glossL; });
+  // Topcoat/primer are computed as GROUPS here and only become rows after
+  // the fitted-unit section below has had the chance to pool same-paint
+  // litres into them (poolSamePaintGroups) -- rows are where the one-shot
+  // tin optimisation happens, so pooling must land first.
+  var topcoatGroups = computeRoleGroups('topcoat', function(r) { return cr(r).glossL; });
   // Primer litres: calcRoom()'s own primerL, which already accounts for
   // primerNone (room-wide "don't buy primer product" — zeroes everything)
   // AND each item's independent self-priming flag (doors/frames/other-
@@ -7794,7 +7835,7 @@ function computeMaterials() {
   // exclusion; that per-room-only granularity couldn't represent "this
   // room's doors are self-priming but its skirting isn't", so the real math
   // moved into calcRoom() where each item's effective coats are known.
-  var primerRows  = buildRoleRows('Woodwork Primer', 'primer', function(r) { return cr(r).primerL; }, function(r) { return cr(r).primerL <= 0; });
+  var primerGroups = computeRoleGroups('primer', function(r) { return cr(r).primerL; }, function(r) { return cr(r).primerL <= 0; });
   // Mist coat is opt-in per room (off by default), so most jobs have no
   // rooms using it at all -- skip any room contributing zero mist litres
   // rather than let it join a "0.0L" group, so an unused product never
@@ -7835,19 +7876,36 @@ function computeMaterials() {
     if (!c) { c = calcFittedUnit(f); fuUnitCalcs.set(f, c); }
     return c;
   };
-  var fuTopcoatRows = buildRoleRows('Fitted Unit Topcoat', 'fittedunit', function(f) { return fuc(f).topcoatL; }, function(f) { return fuc(f).topcoatL <= 0; }, fuUnits, fittedUnitName);
-  var fuPrimerRows  = buildRoleRows('Fitted Unit Primer', 'fittedunitPrimer', function(f) { return fuc(f).primerL; }, function(f) { return fuc(f).primerL <= 0; }, fuUnits, fittedUnitName);
+  var fuTopcoatGroups = computeRoleGroups('fittedunit', function(f) { return fuc(f).topcoatL; }, function(f) { return fuc(f).topcoatL <= 0; }, fuUnits);
+  var fuPrimerGroups  = computeRoleGroups('fittedunitPrimer', function(f) { return fuc(f).primerL; }, function(f) { return fuc(f).primerL <= 0; }, fuUnits);
   // Sanity tripwire (v2.25.2, from the doubled-Bradite bug): the litres
-  // the fitted-unit rows are about to buy, checked against the units' own
-  // un-rounded area×coats÷coverage baseline. Half-litre rounding adds at
-  // most 0.5L per row, so anything past 1.5× + 1L means litres are being
-  // counted more than once (e.g. topcoat + primer resolving to the same
-  // tins again). Dev-facing only -- a console line, never UI.
+  // the fitted-unit groups are about to buy, checked against the units'
+  // own un-rounded area×coats÷coverage baseline. Half-litre rounding adds
+  // at most 0.5L per group, so anything past 1.5× + 1L means litres are
+  // being counted more than once (e.g. topcoat + primer resolving to the
+  // same tins again). Measured pre-pooling -- pooling moves litres to the
+  // woodwork rows but never changes the amount. Dev-facing only.
   var fuBaselineL = fuUnits.reduce(function(s, f) { return s + (fuc(f).baselineL || 0); }, 0);
-  var fuBoughtL = fuTopcoatRows.concat(fuPrimerRows).reduce(function(s, r) { return s + (r.litres || 0); }, 0);
+  var fuBoughtL = fuTopcoatGroups.concat(fuPrimerGroups).reduce(function(s, g) { return s + (g.litres || 0); }, 0);
   if (fuBaselineL > 0 && fuBoughtL > fuBaselineL * 1.5 + 1) {
     console.warn('Fitted unit materials: buying ' + fuBoughtL.toFixed(1) + 'L against a ~' + fuBaselineL.toFixed(1) + 'L area×coverage baseline — litres are likely being double-counted');
   }
+  // Units sharing the rooms' woodwork paint (same range+band+colour) pool
+  // into the Woodwork Topcoat/Primer groups -- one line, one tin
+  // optimisation (v2.26.0, the "5L + 5L+1L where 2×5L covers it" fix);
+  // units on their own product/colour keep their own rows via leftover.
+  var fuTopcoatLeft = poolSamePaintGroups(topcoatGroups, fuTopcoatGroups, fittedUnitName);
+  var fuPrimerLeft  = poolSamePaintGroups(primerGroups,  fuPrimerGroups,  fittedUnitName);
+  // A unit primer that IS the rooms' woodwork topcoat paint (primer set to
+  // a topcoat product, unit topcoat on something else) pools there too --
+  // same tins. Can't double-name a unit: when its topcoat already pooled
+  // into that host, its primer range equalled its own topcoat range, and
+  // calcFittedUnit()'s same-tin guard has already zeroed the primer litres.
+  fuPrimerLeft = poolSamePaintGroups(topcoatGroups, fuPrimerLeft, fittedUnitName);
+  var topcoatRows = roleRowsFromGroups('Woodwork Topcoat', 'topcoat', topcoatGroups, rooms);
+  var primerRows  = roleRowsFromGroups('Woodwork Primer', 'primer', primerGroups, rooms);
+  var fuTopcoatRows = roleRowsFromGroups('Fitted Unit Topcoat', 'fittedunit', fuTopcoatLeft, fuUnits, fittedUnitName);
+  var fuPrimerRows  = roleRowsFromGroups('Fitted Unit Primer', 'fittedunitPrimer', fuPrimerLeft, fuUnits, fittedUnitName);
 
   var allRows = wallRows.concat(ceilingRows, topcoatRows, primerRows, mistRows, featureWallRows, panelRows, masonryRows, extTopcoatRows, extPrimerRows, fuTopcoatRows, fuPrimerRows);
   var total = allRows.reduce(function(sum, r) { return sum + r.cost; }, 0);
