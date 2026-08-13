@@ -1,6 +1,12 @@
 # Product Coverage Rate Settings
 
-**Status: BUILT 2026-08-13 (v2.19.0).** As-built notes follow the original spec below.
+**Status: BUILT 2026-08-13 (v2.19.0); revised 2026-08-13 (v2.22.0).** As-built notes
+follow the spec below. The v2.22.0 revision changed where the Settings product
+picker sources from: material **groups/ranges** directly (e.g. "Tikkurila Optiva 5"),
+not individual Xero sales items — coverage per litre doesn't change between pack
+sizes of the same product, so there was nothing for the item pick to add. The spec
+text below is the revised version; matching, calc and spraying were already
+group-level and are unchanged.
 
 ## Purpose
 
@@ -14,9 +20,10 @@ needs it on a job, not upfront.
 New settings section, e.g. "Coverage Rates."
 
 - A simple table of entries, each with:
-  - Product (dropdown, sourced from the same Xero sales items list used by Price
-    Lookup — not free text, so naming stays consistent and the item code is captured
-    automatically)
+  - Product (dropdown, sourced from material groups/ranges — the same range/band
+    grouping already used for the materials list, e.g. "Tikkurila Optiva 5",
+    "Dulux Velvet Matt" — not individual Xero SKUs, since coverage per litre doesn't
+    change between pack sizes of the same product)
   - Surface type (dropdown, reusing the existing categories: wall / woodwork /
     ceiling / etc.)
   - Coverage rate (sqm per litre — same unit the current flat-rate calc already uses)
@@ -24,18 +31,18 @@ New settings section, e.g. "Coverage Rates."
 - Add / edit / delete entries here at any time.
 - No requirement to populate every product up front — the list only needs what's
   actually been used on a job so far.
-- Because the product comes from the Xero list, a given Xero item code should only be
-  linkable to one coverage rate per surface type — surface it clearly if Nicky tries
-  to add a duplicate rather than silently creating a second entry.
+- A given material group should only be linkable to one coverage rate per surface
+  type — surface it clearly if Nicky tries to add a duplicate rather than silently
+  creating a second entry.
 
 ## Quoting integration
 
 - Wherever a surface type is currently chosen for a room/area, add a product dropdown
   populated from Coverage Rates entries matching that surface type, plus a
   "Standard / default" option.
-- Product selected → use its coverage rate for the material quantity calculation, and
-  since it's the real Xero item, its name/code carries through cleanly to the
-  materials list and quote output.
+- Product group selected → use its coverage rate for the material quantity
+  calculation. Actual pack size for purchasing/materials list stays governed by the
+  existing size logic — the coverage rate itself just applies at the group level.
 - "Standard / default" or nothing selected → fall back to today's flat sqm rate for
   that surface type exactly as now. No regression for surfaces without a
   product-specific entry yet.
@@ -85,17 +92,18 @@ surface/area.
 ### Data model
 
 `settings.coverageRates` — an array on the existing settings blob (no DB changes),
-each entry `{ id, itemCode, itemName, range, surface, rate, coats }`:
+each entry `{ id, range, surface, rate, coats }`:
 
-- **itemCode / itemName** — the real Xero sales item picked in Settings, verbatim.
-- **range** — the item's parsed product range (looked up by code in
-  `materialGroupsCache`, the `/auth/material-groups` grouping — no client-side name
-  parsing). **Matching at calc time is by range**: every colour band and tin size of
-  one product spreads the same, and the range is exactly the product identity the
-  room's product pickers and `computeRoleGroups()` already deal in. This is what
-  makes "its name/code carries through cleanly to the materials list and quote
-  output" true for free — the litres feed the same range/band → tin-optimiser →
-  Xero-line machinery as ever.
+- **range** — the material group picked in Settings, straight from
+  `materialGroupsCache` (the `/auth/material-groups` grouping — the same range/band
+  grouping the materials list and room pickers use). **Matching at calc time is by
+  range**: every colour band and tin size of one product spreads the same, and the
+  range is exactly the product identity the room's product pickers and
+  `computeRoleGroups()` already deal in — the litres feed the same range/band →
+  tin-optimiser → Xero-line machinery as ever, so pack size stays the existing size
+  logic's job. (v2.19.0 originally had the picker choose a Xero sales item and
+  derive its range; v2.22.0 removed the item step — entries saved by that form
+  still carry `itemCode`/`itemName`, harmless and ignored.)
 - **surface** — one per flat-rate category: `wall`, `ceiling`, `woodwork`, `mist`,
   `panel` (`COVERAGE_SURFACES`). **No sprayed variants by design** — spraying is
   the global uplift, never a second per-product figure.
@@ -105,11 +113,11 @@ each entry `{ id, itemCode, itemName, range, surface, rate, coats }`:
 
 Inside the existing Coverage Rates card (the flat fields stay and are labelled as
 the Standard / default figures): a Per-Product Rates list with inline rate/coats
-editing and ✕ delete, plus an add form — product search over `materialItemIndex`
-(same account-202 items as Price Lookup, **minus sundries**, which have no
-coverage), surface select, rate, optional coats. Duplicates per product+surface are
-blocked **by item code and by range** with an alert naming the existing entry
-(`addCoverageRate()`), never silently stacked.
+editing and ✕ delete, plus an add form — a product-range picker over
+`Object.keys(materialGroupsCache)` (tap for the full group list, type to filter;
+sundries never appear because they aren't ranges), surface select, rate, optional
+coats. Duplicates per group+surface are blocked with an alert naming the existing
+entry (`addCoverageRate()`), never silently stacked.
 
 ### The room "product dropdown" is the existing per-room product picker
 
