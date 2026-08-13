@@ -1016,6 +1016,16 @@ function templateJobData(d) {
     keep.fittedUnit = { ...d.fittedUnit };
     delete keep.fittedUnit.isVariation;
   }
+  // Fitted units list (v2.19.0) -- scope like the legacy single object
+  // above: every unit copies (name included), each minus its variation
+  // flag, same as rooms' stripVariationFlag below.
+  if (Array.isArray(d.fittedUnits) && d.fittedUnits.length > 0) {
+    keep.fittedUnits = d.fittedUnits.map((u) => {
+      const copy = { ...u };
+      delete copy.isVariation;
+      return copy;
+    });
+  }
   return keep;
 }
 const stripVariationFlag = (data) => {

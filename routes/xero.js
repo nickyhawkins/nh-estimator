@@ -913,10 +913,24 @@ router.post('/create-quote', async (req, res) => {
       });
     }
 
-    // Fitted Unit / Shelving -- same single per-job lump line as kitchen
-    // (job.fittedUnit is one config, not a list); the shelf/bay/door split
-    // is visible on the app's own Fitted Unit screen and Summary breakdown.
-    if (fittedUnit && fittedUnit.cost > 0) {
+    // Fitted Units -- one line per named unit (v2.19.0, job.fittedUnits is
+    // a list now), mirroring exterior's per-item lines so two alcove units
+    // read apart on the quote. Falls back to the old single lump line if an
+    // older client sends only fittedUnit.cost with no itemised array. The
+    // shelf/bay/door split stays visible on the app's own Fitted Unit
+    // screen and Summary breakdown.
+    if (fittedUnit && fittedUnit.items && fittedUnit.items.length > 0) {
+      fittedUnit.items.forEach(item => {
+        if (item.total > 0) {
+          lineItems.push({
+            Description: item.description || item.name || 'Fitted Unit / Shelving',
+            Quantity: 1,
+            UnitAmount: fmt(item.total * mu),
+            AccountCode: '201'
+          });
+        }
+      });
+    } else if (fittedUnit && fittedUnit.cost > 0) {
       lineItems.push({
         Description: fittedUnit.description || 'Fitted Unit / Shelving',
         Quantity: 1,
