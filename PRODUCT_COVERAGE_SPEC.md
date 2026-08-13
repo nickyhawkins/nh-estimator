@@ -55,6 +55,9 @@ surface/area.
   needing spray-specific data per item.
 - No separate "spray rate" field anywhere in the Coverage Rates list — this stays a
   single global multiplier, not another per-product setting to maintain.
+- Per-surface defaults (2026-08-13 follow-up): kitchens, ceilings and woodwork are
+  sprayed by default; walls and fitted units are sometimes sprayed and sometimes
+  not, so their toggles default off.
 
 ## Non-goals
 
@@ -139,20 +142,38 @@ always describe the same product). Entry found → its rate; none → the flat r
 - `calcPanel()` (rate resolved by the caller, passed in), `calcFittedUnit()`
   (unit's own range else Settings topcoat; primer follows Settings primer).
 
-### Spraying = one global uplift
+### Spraying = one global uplift, one toggle per surface
 
-The existing per-room **Spray walls** toggle is the spec's Spraying toggle (it's
-already per surface/area — this room's walls; exterior render keeps its own Spray
-render model, see below). When on, `calcRoom()` multiplies wall litres (main +
-feature wall) by the **Spraying uplift %** — a single Settings field
-(`sprayUpliftPct`, default **30**, in the Coverage Rates card) — on top of
-whichever rate applies, flat or per-product. The old **"Wall Emulsion — Sprayed"
-flat rate (`cwSpray`) is gone**, and there is deliberately no sprayed surface in
-the coverage list. The spray *sundries* bump (extra masking consumables on labour)
-is a separate, unchanged mechanism.
+The **Spraying uplift %** is a single Settings field (`sprayUpliftPct`, default
+**30**, in the Coverage Rates card); there is deliberately no sprayed surface in
+the coverage list and the old **"Wall Emulsion — Sprayed"** flat rate (`cwSpray`)
+is gone. A surface's toggle multiplies its litres by the uplift on top of
+whichever rate applies, flat or per-product:
 
-**One-time recalibration:** sprayed rooms used to fork 13→9 m²/L (≈+44% litres);
-they now get +30% on the rolled rate. Old settings blobs' `cwSpray` is dropped on
+- **Spray walls** (per room, default **off**) — main + feature wall litres. Still
+  the trigger for the spray *sundries* bump on labour (extra masking consumables),
+  which is a separate, unchanged mechanism.
+- **Spray ceiling** (per room, default **on**) — ceiling litres.
+- **Spray woodwork** (per room, default **on**) — topcoat AND primer litres
+  (primer goes on the same way the topcoat does).
+- **Sprayed finish** (Fitted Unit form, default **off**) — the unit's topcoat and
+  primer litres; the unit's labour rates already price the spray passes.
+- **Kitchens: no toggle.** The kitchen module is already the cabinet *spray*
+  calculator — flat per-piece pricing, no litres formula, spraying inherent.
+- Exterior render keeps its own pre-existing Spray render / sprayed-masonry-rate
+  model, untouched.
+
+Missing fields on saved rooms read as the defaults (`!== false` for the two
+default-on toggles), so old rooms mean "sprayed" without migration.
+
+**One-time recalibration, handled automatically:** the flat Ceiling (13) and
+Gloss/Satinwood (7) rates were calibrated as SPRAYED effective figures, but with
+the default-on toggles they now mean the un-sprayed base. `mergeSettings()`
+converts blobs saved before the uplift model (detected by the missing
+`sprayUpliftPct`) ×1.3 once — 13→17, 7→9, rounded to the fields' 0.5 step — so
+sprayed-by-default litres land exactly where those blobs' old figures put them.
+Fresh-install defaults are the converted figures (17/9). Wall spraying itself
+moves from the old 13→9 rate fork (≈+44%) to +30%, and `cwSpray` is dropped on
 load.
 
 Deliberate details:
@@ -176,3 +197,8 @@ plus a Chromium DOM smoke test; see spec Test section)
 4. Spray on + default rate → litres = rolled figure × 1.3 (pre-rounding).
 5. Spray on + product rate → ×1.3 on the product's rate, not the default's;
    uplift setting itself respected when changed.
+6. Per-surface defaults: a room with no spray fields gets ×1.3 on ceiling,
+   topcoat and primer litres but flat walls/mist; explicit off = flat; fitted
+   unit off by default, ×1.3 on topcoat+primer when Sprayed finish is on.
+7. Settings migration: pre-uplift blob {cc:13, cg:7} → 17/9; a blob carrying
+   sprayUpliftPct is untouched; cw never converts.

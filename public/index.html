@@ -590,6 +590,14 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
         <div class="toggle-label">Spray walls<small>Adds the Settings spraying uplift % to wall litres (on top of the standard or per-product rate), and this room's labour picks up the spray sundries bump. Labour time is unchanged</small></div>
         <div class="toggle" id="tog-spray" onclick="toggleSprayWalls()"></div>
       </div>
+      <div class="toggle-row">
+        <div class="toggle-label">Spray ceiling<small>On by default — ceilings are normally sprayed. Adds the spraying uplift % to ceiling litres; turn off for a rolled ceiling</small></div>
+        <div class="toggle on" id="tog-sprayceil" onclick="toggleSprayCeiling()"></div>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-label">Spray woodwork<small>On by default — woodwork is normally sprayed. Adds the spraying uplift % to topcoat &amp; primer litres; turn off for brushed woodwork</small></div>
+        <div class="toggle on" id="tog-spraywood" onclick="toggleSprayWoodwork()"></div>
+      </div>
       <div class="toggle-row" id="variation-row" style="border-top:1px solid var(--border);display:none">
         <div class="toggle-label" style="color:var(--accent)">Variation<small>Extra scope on top of the accepted quote — listed under On Site › Variations. Turn off if this is a correction to the original quote</small></div>
         <div class="toggle" id="tog-variation" onclick="toggleRoomVariation()"></div>
@@ -1060,9 +1068,9 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     <div class="card">
       <div class="card-header">Coverage Rates</div>
       <div class="field-row"><div class="field-label">Wall Emulsion<small>m² per litre — rolled</small></div><input type="number" class="field-input" id="s-cw" value="13" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Spraying uplift<small>% extra litres when a Spray toggle is on — applied on top of the standard or per-product rate, one global figure rather than a sprayed rate per product</small></div><input type="number" class="field-input" id="s-sprayuplift" value="30" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Ceiling Emulsion<small>m² per litre</small></div><input type="number" class="field-input" id="s-cc" value="13" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Gloss / Satinwood<small>m² per litre</small></div><input type="number" class="field-input" id="s-cg" value="7" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Spraying uplift<small>% extra litres when a surface's Spray toggle is on (walls off, ceiling &amp; woodwork on by default; fitted unit has its own) — applied on top of the standard or per-product rate, one global figure rather than a sprayed rate per product</small></div><input type="number" class="field-input" id="s-sprayuplift" value="30" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Ceiling Emulsion<small>m² per litre — un-sprayed base; rooms' Spray ceiling toggle (on by default) adds the uplift below on top</small></div><input type="number" class="field-input" id="s-cc" value="17" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Gloss / Satinwood<small>m² per litre — un-sprayed base; rooms' Spray woodwork toggle (on by default) adds the uplift below on top</small></div><input type="number" class="field-input" id="s-cg" value="9" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Mist Coat<small>m² per litre — thinned product</small></div><input type="number" class="field-input" id="s-cmist" value="15" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Panelling<small>m² per litre per coat — draft default, check against your usual product</small></div><input type="number" class="field-input" id="s-cpanel" value="8" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="settings-note">The rates above are the Standard / default figures — used whenever a surface's product has no per-product entry below, so nothing changes until you add one.</div>
@@ -1361,6 +1369,10 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
           <button class="seg-btn active" onclick="setFittedUnitPrep('bare')">Bare / Primed</button>
           <button class="seg-btn" onclick="setFittedUnitPrep('painted')">Existing painted</button>
         </div>
+      </div>
+      <div class="toggle-row" style="border-top:1px solid var(--border)">
+        <div class="toggle-label">Sprayed finish<small>Off by default — fitted units are only sometimes sprayed. Adds the Settings spraying uplift % to topcoat &amp; primer litres. Labour is unchanged (spray time is what the per-item rates already price)</small></div>
+        <div class="toggle" id="tog-fu-spray" onclick="toggleFittedUnitSpray()"></div>
       </div>
     </div>
     <div class="card">
@@ -3772,8 +3784,14 @@ var SETTINGS_FIELDS = [
   // spraying section. Old blobs' cwSpray is deliberately dropped; sprayed
   // rooms recalibrate from 13→9 (+44%) to the uplift's default +30%.
   ['sprayUpliftPct', 's-sprayuplift',  30],
-  ['cc',           's-cc',            13,  'covCeil'],
-  ['cg',           's-cg',            7,   'covGloss'],
+  // cc/cg are BASE (un-sprayed) rates now that ceilings/woodwork carry
+  // their own default-ON spray toggles. Their old defaults (13/7) were
+  // calibrated AS SPRAYED figures (see calcRoom's history), so the new
+  // defaults are the ×1.3 un-sprayed equivalents — sprayed-by-default
+  // litres land where they always did. Saved pre-uplift blobs get the
+  // same one-time conversion in mergeSettings below.
+  ['cc',           's-cc',            17,  'covCeil'],
+  ['cg',           's-cg',            9,   'covGloss'],
   ['cMist',        's-cmist',         15],
   ['cPanel',       's-cpanel',        8],
   ['rWall',        's-rwall',         3],
@@ -3873,6 +3891,21 @@ function mergeSettings(raw) {
   // material and the mural rates are NOT seeded -- Nicky doesn't charge a
   // per-metre vinyl material rate, and no mural trade data exists yet.
   if (!out.wpVinylLabourRatePerM) out.wpVinylLabourRatePerM = 18.6;
+  // One-time conversion for blobs saved BEFORE the spraying-uplift model
+  // (they lack sprayUpliftPct — the marker this model stamps on first
+  // save): their ceiling/gloss rates were calibrated as SPRAYED effective
+  // figures, but cc/cg now mean the un-sprayed base with the default-ON
+  // spray toggles multiplying litres by the uplift. Convert ×1.3 (the
+  // uplift's default), rounded to the fields' 0.5 step, so a room's
+  // sprayed-by-default litres come out exactly where that blob's old
+  // figures put them. Idempotent: the first saveSettings() writes
+  // sprayUpliftPct, and this branch never fires again. cw stays put (it
+  // was always the rolled figure — spraying walls was cwSpray's job) and
+  // mist/panel keep their toggle-less meaning.
+  if (raw.sprayUpliftPct == null) {
+    if (raw.cc != null || raw.covCeil != null) out.cc = Math.round(out.cc * 1.3 * 2) / 2;
+    if (raw.cg != null || raw.covGloss != null) out.cg = Math.round(out.cg * 1.3 * 2) / 2;
+  }
   // Standalone job rounding granularity ('full'/'half') -- a string with a
   // select, not a scalar, so handled here like paymentType rather than in
   // SETTINGS_FIELDS. Anything unrecognised (incl. old blobs) means 'full'.
@@ -3926,6 +3959,12 @@ var coats    = {wc:2, cc:2, xc:2};
 var mistWall = false;
 var mistCeil = false;
 var sprayWalls = false;
+// Per-surface spray toggles (PRODUCT_COVERAGE_SPEC.md spraying section):
+// ceilings and woodwork are sprayed BY DEFAULT (that's the normal method),
+// walls only sometimes -- so these two default true where sprayWalls
+// defaults false. A missing field on a saved room means the default too
+// (`!== false` reads throughout), so old rooms read as sprayed.
+var sprayCeiling = true, sprayWoodwork = true;
 // Variations (VARIATIONS_SPEC.md): the form-side halves of the isVariation
 // flag. A variation is a NORMAL room/exterior item with this flag on --
 // nothing in the calc engine forks on it; only Summary's totalling and the
@@ -6471,7 +6510,7 @@ function goScreen(name) {
   document.getElementById('screen-'+name).classList.add('active');
   if (name==='room') {
     resetFormSections();
-    editId=null; coats={wc:2,cc:2,xc:2}; mistWall=false; mistCeil=false; sprayWalls=false; prepPct=10;
+    editId=null; coats={wc:2,cc:2,xc:2}; mistWall=false; mistCeil=false; sprayWalls=false; sprayCeiling=true; sprayWoodwork=true; prepPct=10;
     doorCoats=2; frameCoats=2; doorFramePrepPct=10;
     doorFireDoor=false; doorSelfPriming=false; doorIronRemove=false; doorIronMask=false;
     doorBothSides=false; selfPrimingWoodwork=false;
@@ -6538,6 +6577,8 @@ function goScreen(name) {
     document.getElementById('tog-mw').classList.remove('on');
     document.getElementById('tog-mc').classList.remove('on');
     document.getElementById('tog-spray').classList.remove('on');
+    document.getElementById('tog-sprayceil').classList.add('on');
+    document.getElementById('tog-spraywood').classList.add('on');
     wpWallLining=false; wpWallFinish=false; wpCeilLining=false; wpCeilFinish=false;
     ['wpw','wpc'].forEach(function(k){
       document.querySelectorAll('#seg-'+k+' .seg-btn').forEach(function(b){b.classList.remove('active');});
@@ -6876,7 +6917,13 @@ function calcRoom(r) {
   // wall product (override, else Settings default) has a Coverage Rates
   // entry for this surface, THAT m²/L wins; no entry means the flat rate,
   // exactly as before.
-  var sprayMult = r.sprayWalls ? 1 + (settings.sprayUpliftPct != null ? settings.sprayUpliftPct : 30)/100 : 1;
+  // Per-surface spray toggles: walls default OFF (only sometimes sprayed),
+  // ceiling and woodwork default ON (normally sprayed -- `!== false` so a
+  // room saved before these fields existed reads as the default too).
+  var upliftMult = 1 + (settings.sprayUpliftPct != null ? settings.sprayUpliftPct : 30)/100;
+  var sprayMult = r.sprayWalls ? upliftMult : 1;
+  var ceilSprayMult = r.sprayCeiling !== false ? upliftMult : 1;
+  var woodSprayMult = r.sprayWoodwork !== false ? upliftMult : 1;
   var wallCov = coverageRateFor(effectiveRoleRange(r, 'wall'), 'wall') || settings.cw;
   // Feature wall: its own effective product (own override, else the wall's)
   // via effectiveRoleRange's featurewall chain -- so a feature wall in a
@@ -6992,7 +7039,7 @@ function calcRoom(r) {
   // Ceiling/woodwork/mist litres: same product-coverage-then-flat resolution
   // as wallCov above, per role.
   var ceilCov = coverageRateFor(effectiveRoleRange(r, 'ceiling'), 'ceiling') || settings.cc;
-  var cL  = cc>0 ? Math.ceil(ceilArea*cc/ceilCov*2)/2 : 0;
+  var cL  = cc>0 ? Math.ceil(ceilArea*cc/ceilCov*ceilSprayMult*2)/2 : 0;
   // woodAreaOverride: same pattern as wallAreaOverride/ceilAreaOverride above
   // -- staircase/HSL rooms set this to the REAL skirting+spindle+newel
   // surface area (computeHSLOverrides()), since the generic perim*0.15
@@ -7020,7 +7067,7 @@ function calcRoom(r) {
   // zeroes the door/frame share too, same as it always zeroed the whole room.
   var totalPrimerCoatM2 = otherWoodPrimerCoatM2 + (r.primerNone ? 0 : doorFrameAreas.primerCoatM2);
   var glossCov = coverageRateFor(effectiveRoleRange(r, 'topcoat'), 'woodwork') || settings.cg;
-  var gL  = totalTopcoatCoatM2>0 ? Math.ceil(totalTopcoatCoatM2/glossCov*2)/2 : 0;
+  var gL  = totalTopcoatCoatM2>0 ? Math.ceil(totalTopcoatCoatM2/glossCov*woodSprayMult*2)/2 : 0;
   // Primer litres -- moved in from computeMaterials()'s buildRoleRows(),
   // which used to do `glossL * 0.8` for the WHOLE room; primer exclusion is
   // now per-item (door/frame/other-woodwork can each be self-priming
@@ -7030,10 +7077,12 @@ function calcRoom(r) {
   // The 0.8 exists to guess a primer's spread off the TOPCOAT's rate; a
   // primer product with its own coverage entry replaces that whole proxy
   // with the real figure (area ÷ its rate, no 0.8).
+  // Primer goes on the same way the woodwork topcoat does, so it shares the
+  // woodwork spray toggle's uplift in both branches.
   var primerCov = coverageRateFor(effectiveRoleRange(r, 'primer'), 'woodwork');
   var primerL = totalPrimerCoatM2>0
-    ? (primerCov ? Math.ceil(totalPrimerCoatM2/primerCov*2)/2
-                 : Math.ceil(totalPrimerCoatM2/settings.cg*0.8*2)/2)
+    ? (primerCov ? Math.ceil(totalPrimerCoatM2/primerCov*woodSprayMult*2)/2
+                 : Math.ceil(totalPrimerCoatM2/settings.cg*0.8*woodSprayMult*2)/2)
     : 0;
   // Manual override only applies to the paint quantity (only part of the
   // room may be new plaster) -- the time cost above stays on the full
@@ -10975,10 +11024,13 @@ function calcFittedUnit(f) {
   // calcRoom()'s gL/primerL.
   var fuTopcoatCov = coverageRateFor(f.range || (((settings.materials || {}).topcoat) || {}).range, 'woodwork') || settings.cg;
   var fuPrimerCov  = coverageRateFor((((settings.materials || {}).primer) || {}).range, 'woodwork');
-  var topcoatL = topcoatCoatM2 > 0 ? Math.ceil(topcoatCoatM2 / fuTopcoatCov * 2) / 2 : 0;
+  // Sprayed finish toggle (default off): same litres-only uplift as the
+  // room spray toggles, on top of whichever rate resolved above.
+  var fuSprayMult = f.sprayUnit ? 1 + (settings.sprayUpliftPct != null ? settings.sprayUpliftPct : 30)/100 : 1;
+  var topcoatL = topcoatCoatM2 > 0 ? Math.ceil(topcoatCoatM2 / fuTopcoatCov * fuSprayMult * 2) / 2 : 0;
   var primerL  = primerCoatM2  > 0
-    ? (fuPrimerCov ? Math.ceil(primerCoatM2 / fuPrimerCov * 2) / 2
-                   : Math.ceil(primerCoatM2 / settings.cg * 0.8 * 2) / 2)
+    ? (fuPrimerCov ? Math.ceil(primerCoatM2 / fuPrimerCov * fuSprayMult * 2) / 2
+                   : Math.ceil(primerCoatM2 / settings.cg * 0.8 * fuSprayMult * 2) / 2)
     : 0;
   return { total: total, time: time,
            shelfCost: shelfMins * r2, bayCost: bayMins * r2, doorCost: doorMinsTotal * r2,
@@ -10988,12 +11040,13 @@ function calcFittedUnit(f) {
 
 // ── Fitted Unit screen UI ──────────────────────────────────────────────────
 function ensureFittedUnitShape(job) {
-  if (!job.fittedUnit) job.fittedUnit = { bayCount: 0, bayHeightM: 2.4, bayWidthM: 0.9, shelfCount: 0, doorCount: 0, prepLevel: 'bare', complexityUplift: 0, colourNumber: 1, range: '', band: null };
+  if (!job.fittedUnit) job.fittedUnit = { bayCount: 0, bayHeightM: 2.4, bayWidthM: 0.9, shelfCount: 0, doorCount: 0, prepLevel: 'bare', complexityUplift: 0, colourNumber: 1, range: '', band: null, sprayUnit: false };
   var f = job.fittedUnit;
   if (f.prepLevel == null) f.prepLevel = 'bare';
   if (f.complexityUplift == null) f.complexityUplift = 0;
   if (f.colourNumber == null) f.colourNumber = 1;
   if (f.range == null) f.range = '';
+  if (f.sprayUnit == null) f.sprayUnit = false;
   return f;
 }
 
@@ -11007,6 +11060,7 @@ function renderFittedUnit() {
   document.getElementById('fu-bay-w').value   = f.bayWidthM || '';
   document.getElementById('fu-shelves').value = f.shelfCount || '';
   document.getElementById('fu-doors').value   = f.doorCount || '';
+  document.getElementById('tog-fu-spray').classList.toggle('on', !!f.sprayUnit);
   var prepVals = ['bare','painted'];
   document.querySelectorAll('#seg-fu-prep .seg-btn').forEach(function(b,i){ b.classList.toggle('active', prepVals[i]===(f.prepLevel||'bare')); });
   var upliftVals = [0,10,20];
@@ -11066,6 +11120,18 @@ function setFittedUnitComplexity(pct) {
 // Same manual toggle as Kitchen (see toggleKitchenVariation()'s comment):
 // one persistent per-job form has no clean "added while accepted" moment
 // to auto-flag on.
+// Sprayed finish: materials-only, like the room spray toggles -- the
+// fitted-unit labour rates already price the spray passes, so only litres
+// carry the uplift. Default OFF (units are only sometimes sprayed, unlike
+// ceilings/woodwork), so plain falsy reads suffice -- no `!== false`.
+function toggleFittedUnitSpray() {
+  var job = activeJob(); if (!job) return;
+  var f = ensureFittedUnitShape(job);
+  f.sprayUnit = !f.sprayUnit;
+  document.getElementById('tog-fu-spray').classList.toggle('on', !!f.sprayUnit);
+  saveFittedUnitJob();
+}
+
 function toggleFittedUnitVariation() {
   var job = activeJob(); if (!job) return;
   var f = ensureFittedUnitShape(job);
@@ -12799,6 +12865,14 @@ function toggleSprayWalls() {
   sprayWalls=!sprayWalls; document.getElementById('tog-spray').classList.toggle('on',sprayWalls);
   previewRoom();
 }
+function toggleSprayCeiling() {
+  sprayCeiling=!sprayCeiling; document.getElementById('tog-sprayceil').classList.toggle('on',sprayCeiling);
+  previewRoom();
+}
+function toggleSprayWoodwork() {
+  sprayWoodwork=!sprayWoodwork; document.getElementById('tog-spraywood').classList.toggle('on',sprayWoodwork);
+  previewRoom();
+}
 // Whether "variation" is a meaningful concept for the active job right now:
 // only once the quote is accepted (or later). Before that the toggle rows
 // don't render at all -- there's no accepted quote to be a variation OF.
@@ -12892,6 +12966,7 @@ function previewRoomNow() {
     sills:+document.getElementById('r-sills').value,
     rads:+document.getElementById('r-rads').value,
     mistWall:mistWall, mistCeil:mistCeil, sprayWalls:sprayWalls,
+    sprayCeiling:sprayCeiling, sprayWoodwork:sprayWoodwork,
     wpWallLining:wpWallLining, wpWallFinish:wpWallFinish,
     wpCeilLining:wpCeilLining, wpCeilFinish:wpCeilFinish,
     wpRollLen:+document.getElementById('r-wp-roll-len').value||10.05,
@@ -13172,6 +13247,11 @@ function editRoom(id) {
   document.getElementById('tog-mc').classList.toggle('on',mistCeil);
   sprayWalls=!!r.sprayWalls;
   document.getElementById('tog-spray').classList.toggle('on',sprayWalls);
+  // Missing on old rooms = the default (sprayed) -- see the globals' comment.
+  sprayCeiling = r.sprayCeiling !== false;
+  sprayWoodwork = r.sprayWoodwork !== false;
+  document.getElementById('tog-sprayceil').classList.toggle('on',sprayCeiling);
+  document.getElementById('tog-spraywood').classList.toggle('on',sprayWoodwork);
   roomIsVariation=!!r.isVariation;
   syncVariationRow('variation-row', 'tog-variation', roomIsVariation);
   prepPct = r.prepPct != null ? r.prepPct : 10;
@@ -13326,6 +13406,7 @@ function buildRoomFromForm() {
     doorIronRemove:doorIronRemove, doorIronMask:doorIronMask,
     doorBothSides:doorBothSides, selfPrimingWoodwork:selfPrimingWoodwork,
     mistWall:mistWall, mistCeil:mistCeil, sprayWalls:sprayWalls,
+    sprayCeiling:sprayCeiling, sprayWoodwork:sprayWoodwork,
     isVariation:roomIsVariation,
     wpWallLining:wpWallLining, wpWallFinish:wpWallFinish,
     wpCeilLining:wpCeilLining, wpCeilFinish:wpCeilFinish,
