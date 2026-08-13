@@ -1065,6 +1065,30 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       <div class="field-row"><div class="field-label">Gloss / Satinwood<small>m² per litre</small></div><input type="number" class="field-input" id="s-cg" value="7" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Mist Coat<small>m² per litre — thinned product</small></div><input type="number" class="field-input" id="s-cmist" value="15" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Panelling<small>m² per litre per coat — draft default, check against your usual product</small></div><input type="number" class="field-input" id="s-cpanel" value="8" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="settings-note">The rates above are the Standard / default figures — used whenever a surface's product has no per-product entry below, so nothing changes until you add one.</div>
+      <!-- Per-product coverage rates (PRODUCT_COVERAGE_SPEC.md): additive
+           list — add a product's real m²/L when it's first used on a job.
+           Product comes from the Xero sales items (via the materials cache,
+           so the item code is captured and the range name matches the
+           product pickers); duplicates per product+surface are blocked in
+           addCoverageRate() rather than silently stacking. -->
+      <div style="border-top:2px solid var(--border)">
+        <div class="card-header" style="border-bottom:none;padding-bottom:0">Per-Product Rates</div>
+        <div id="coverage-rates-list"></div>
+        <div style="padding:12px 16px;display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--border)">
+          <div style="position:relative">
+            <input type="text" class="field-input" style="width:100%;text-align:left" id="cov-add-product" placeholder="Search product (name or code)…" autocorrect="off" autocomplete="off" oninput="onCoverageProductInput()" onfocus="onCoverageProductInput()">
+            <div id="cov-add-product-dd" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <select class="field-input" id="cov-add-surface" style="flex:1.4;text-align:left"></select>
+            <input type="number" class="field-input" id="cov-add-rate" placeholder="m²/L" min="0.5" step="0.5" inputmode="decimal" style="flex:1;width:auto">
+            <input type="number" class="field-input" id="cov-add-coats" placeholder="coats" min="0" max="3" step="1" inputmode="numeric" style="flex:1;width:auto" title="Default coats — optional">
+          </div>
+          <button onclick="addCoverageRate()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">+ Add product rate</button>
+        </div>
+        <div class="settings-note">Add a product's real coverage (m² per litre) when you first use it on a job — no need to fill the whole catalogue. Coats is an optional default applied when the product is picked on a room. Rooms using that product (picked on the room, or as the Settings default in Materials below) then calculate litres from its rate on every future quote; products without an entry keep using the standard rates above.</div>
+      </div>
     </div>
     <div class="card">
       <div class="card-header">Time Rates</div>
@@ -1710,7 +1734,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.18.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.19.0</div>
 </div>
 </div>
 
@@ -2191,6 +2215,10 @@ function saveSettings() {
   // own Settings card, not via a SETTINGS_FIELDS input, so carried forward
   // here like materials/payment*. null = "using the built-in defaults".
   next.textTemplates = settings.textTemplates || null;
+  // Per-product coverage rates — edited via their own card's add/edit/delete
+  // handlers (which mutate settings.coverageRates then call saveSettings()),
+  // so carried forward from memory like materials/textTemplates.
+  next.coverageRates = settings.coverageRates || [];
   settings = next;
   localStorage.setItem('pe-settings', JSON.stringify(settings));
   apiPut('/api/settings', settings);
@@ -3869,6 +3897,11 @@ function mergeSettings(raw) {
   // (see textTemplates()), so the defaults can improve in later versions
   // until the first edit pins a copy.
   out.textTemplates = raw.textTemplates || null;
+  // Per-product coverage rates (PRODUCT_COVERAGE_SPEC.md) — an additive
+  // list of { id, itemCode, itemName, range, surface, rate, coats }
+  // entries, edited in their own Settings card. Empty list = every surface
+  // uses the flat rates above, exactly the pre-feature behaviour.
+  out.coverageRates = Array.isArray(raw.coverageRates) ? raw.coverageRates : [];
   return out;
 }
 
@@ -6581,6 +6614,7 @@ function loadSettings() {
   document.getElementById('s-kr-plinth-base').value  = (settings.kitchenRates && settings.kitchenRates.plinth) ? settings.kitchenRates.plinth.base : 18;
   document.getElementById('s-kr-plinth-coat').value  = (settings.kitchenRates && settings.kitchenRates.plinth) ? settings.kitchenRates.plinth.coat : 3;
   renderMaterialsSettings();
+  renderCoverageRates();
 }
 
 // ── Rate functions ──────────────────────────────────────────────────────────
@@ -6829,9 +6863,26 @@ function calcRoom(r) {
   // stays on wallMins() -- spraying's application speed vs masking time is
   // treated as a wash. Ceiling/woodwork/mist coverage rates already assume
   // spraying (that's how they were calibrated), so ONLY the wall rate forks.
-  var wallCov = r.sprayWalls ? (settings.cwSpray || settings.cw) : settings.cw;
+  // Product coverage (PRODUCT_COVERAGE_SPEC.md): when the room's effective
+  // wall product (override, else Settings default) has a Coverage Rates
+  // entry for this surface, THAT m²/L wins; no entry means the flat rate,
+  // exactly as before. A sprayed room only matches an entry saved for the
+  // sprayed surface -- a rolled entry never leaks into a sprayed room
+  // (sprayed consumption is its own calibration), so spray-with-no-entry
+  // still falls back to the flat sprayed rate.
+  var wallSurface = r.sprayWalls ? 'wallSpray' : 'wall';
+  var wallFlatCov = r.sprayWalls ? (settings.cwSpray || settings.cw) : settings.cw;
+  var wallCov = coverageRateFor(effectiveRoleRange(r, 'wall'), wallSurface) || wallFlatCov;
+  // Feature wall: its own effective product (own override, else the wall's)
+  // via effectiveRoleRange's featurewall chain -- so a feature wall in a
+  // different product gets that product's rate, while an untouched one
+  // resolves to the wall product and lands on wallCov's figure anyway. A
+  // feature-wall product with no entry falls to the FLAT rate, not the wall
+  // product's rate -- a different product knows nothing of the wall paint's
+  // spread.
+  var fwCov = coverageRateFor(effectiveRoleRange(r, 'featurewall'), wallSurface) || wallFlatCov;
   var wL  = wc>0 ? Math.ceil(mainWallPaintArea*wc/wallCov*2)/2 : 0;
-  var fwL = (!fwWallpaper && featureWallArea>0 && wc>0) ? Math.ceil(featureWallArea*wc/wallCov*2)/2 : 0;
+  var fwL = (!fwWallpaper && featureWallArea>0 && wc>0) ? Math.ceil(featureWallArea*wc/fwCov*2)/2 : 0;
   // Litres for main walls + painted feature wall as ONE bucket of paint --
   // used by computeMaterials() instead of wL/fwL when the feature wall is
   // the same colour AND product as the main walls (see
@@ -6886,7 +6937,8 @@ function calcRoom(r) {
   // calcPanel() below), mirroring calcKitchen()/calcExtItem()'s shape,
   // rather than living inline here alongside everything else this function
   // already juggles. See estimating-app-edits.md #7.
-  var panelResult = calcPanel(r.panelItems, r.panelPrepPct, r.panelPrepCustom, r2);
+  var panelResult = calcPanel(r.panelItems, r.panelPrepPct, r.panelPrepCustom, r2,
+    coverageRateFor(effectiveRoleRange(r, 'panel'), 'panel'));
   var panelCost = panelResult.panelCost, panelL = panelResult.panelL,
       panelArea = panelResult.panelArea, panelMinsCost = panelResult.panelRawCost,
       panelPrepUp = panelResult.panelPrepUp;
@@ -6932,7 +6984,10 @@ function calcRoom(r) {
   var wpMinFloor = settings.wpMinPrice!=null ? settings.wpMinPrice : 200;
   var wpMinTopUp = (wpRawCost > 0 && wpRawCost < wpMinFloor) ? (wpMinFloor - wpRawCost) : 0;
   var total = preFloorTotal + wpMinTopUp;
-  var cL  = cc>0 ? Math.ceil(ceilArea*cc/settings.cc*2)/2 : 0;
+  // Ceiling/woodwork/mist litres: same product-coverage-then-flat resolution
+  // as wallCov above, per role.
+  var ceilCov = coverageRateFor(effectiveRoleRange(r, 'ceiling'), 'ceiling') || settings.cc;
+  var cL  = cc>0 ? Math.ceil(ceilArea*cc/ceilCov*2)/2 : 0;
   // woodAreaOverride: same pattern as wallAreaOverride/ceilAreaOverride above
   // -- staircase/HSL rooms set this to the REAL skirting+spindle+newel
   // surface area (computeHSLOverrides()), since the generic perim*0.15
@@ -6959,20 +7014,29 @@ function calcRoom(r) {
   // primerNone is a room-wide "don't buy a primer product" choice, so it
   // zeroes the door/frame share too, same as it always zeroed the whole room.
   var totalPrimerCoatM2 = otherWoodPrimerCoatM2 + (r.primerNone ? 0 : doorFrameAreas.primerCoatM2);
-  var gL  = totalTopcoatCoatM2>0 ? Math.ceil(totalTopcoatCoatM2/settings.cg*2)/2 : 0;
+  var glossCov = coverageRateFor(effectiveRoleRange(r, 'topcoat'), 'woodwork') || settings.cg;
+  var gL  = totalTopcoatCoatM2>0 ? Math.ceil(totalTopcoatCoatM2/glossCov*2)/2 : 0;
   // Primer litres -- moved in from computeMaterials()'s buildRoleRows(),
   // which used to do `glossL * 0.8` for the WHOLE room; primer exclusion is
   // now per-item (door/frame/other-woodwork can each be self-priming
   // independently) so the real math has to live here, where each item's
   // effective coats are already known. Same 0.8-of-topcoat-volume proxy and
   // coverage rate as before, just computed per-item then summed.
-  var primerL = totalPrimerCoatM2>0 ? Math.ceil(totalPrimerCoatM2/settings.cg*0.8*2)/2 : 0;
+  // The 0.8 exists to guess a primer's spread off the TOPCOAT's rate; a
+  // primer product with its own coverage entry replaces that whole proxy
+  // with the real figure (area ÷ its rate, no 0.8).
+  var primerCov = coverageRateFor(effectiveRoleRange(r, 'primer'), 'woodwork');
+  var primerL = totalPrimerCoatM2>0
+    ? (primerCov ? Math.ceil(totalPrimerCoatM2/primerCov*2)/2
+                 : Math.ceil(totalPrimerCoatM2/settings.cg*0.8*2)/2)
+    : 0;
   // Manual override only applies to the paint quantity (only part of the
   // room may be new plaster) -- the time cost above stays on the full
   // toggle-selected area(s), since prepping/accessing the room still takes
   // roughly as long regardless of how much of it actually gets mist paint.
   var mistArea = (r.mistAreaOverride && +r.mistAreaOverride > 0) ? +r.mistAreaOverride : ((mistW?wallArea:0) + (mistC?ceilArea:0));
-  var mL  = mistArea>0 ? Math.ceil(mistArea/settings.cMist*2)/2 : 0;
+  var mistCov = coverageRateFor(effectiveRoleRange(r, 'mist'), 'mist') || settings.cMist;
+  var mL  = mistArea>0 ? Math.ceil(mistArea/mistCov*2)/2 : 0;
   return {total:total, time:time, wallArea:wallArea, ceilArea:ceilArea,
            // Per-element labour costs, exposed so renderSummary()'s breakdown
            // reads the SAME figures the total is built from instead of
@@ -7011,7 +7075,10 @@ function calcRoom(r) {
 // review, #4). Floor stays at 0 (unchanged from before): a wall explicitly
 // entered with 0 coats is a deliberate "measured but not priced yet" state,
 // not an error to correct.
-function calcPanel(panelItems, panelPrepPct, panelPrepCustom, r2) {
+// covOverride: the room's panel product coverage rate where one exists
+// (resolved by the caller, which has the room object), else null for the
+// flat Panelling rate.
+function calcPanel(panelItems, panelPrepPct, panelPrepCustom, r2, covOverride) {
   panelItems = panelItems || [];
   var panelArea = 0, panelAreaCoats = 0, panelMinsCost = 0;
   panelItems.forEach(function(p) {
@@ -7024,7 +7091,7 @@ function calcPanel(panelItems, panelPrepPct, panelPrepCustom, r2) {
   });
   var panelPrepUp = panelPrepPct >= 0 ? panelPrepPct : (+panelPrepCustom||0);
   var panelCost = panelMinsCost * (1 + panelPrepUp/100);
-  var panelL = panelAreaCoats>0 ? Math.ceil(panelAreaCoats/settings.cPanel*2)/2 : 0;
+  var panelL = panelAreaCoats>0 ? Math.ceil(panelAreaCoats/(covOverride || settings.cPanel)*2)/2 : 0;
   return { panelCost:panelCost, panelL:panelL, panelArea:panelArea, panelRawCost:panelMinsCost, panelPrepUp:panelPrepUp };
 }
 
@@ -7227,6 +7294,78 @@ function tin(l) {
 // Settings default mapping -- overrideRange below reads r[role+'RangeOverride']
 // off whatever's in `items`, room or exterior item alike.
 var ROLE_COLOUR_FIELD = { wall: 'colourNumber', ceiling: 'ceilingColourNumber', topcoat: 'woodworkColourNumber', primer: 'woodworkColourNumber', mist: 'colourNumber', featurewall: 'featureWallColourNumber', panel: 'panelColourNumber', masonry: 'masonryColourNumber', extTopcoat: 'extWoodworkColourNumber', extPrimer: 'extWoodworkColourNumber', fittedunit: 'colourNumber', fittedunitPrimer: 'colourNumber' };
+
+// ── Product coverage rates (PRODUCT_COVERAGE_SPEC.md) ──────────────────────
+// settings.coverageRates: additive list of per-product m²-per-litre entries
+// { id, itemCode, itemName, range, surface, rate, coats }. The product is a
+// real Xero sales item picked in Settings (name/code captured verbatim), but
+// MATCHING is by its parsed range — every colour band and tin size of one
+// product spreads the same, and the range is exactly the product identity
+// the role pickers / computeRoleGroups already deal in. Surfaces reuse the
+// flat-rate categories from the Coverage Rates card, so every flat rate has
+// a per-product counterpart that can override it.
+var COVERAGE_SURFACES = [
+  ['wall',      'Wall'],
+  ['wallSpray', 'Wall — sprayed'],
+  ['ceiling',   'Ceiling'],
+  ['woodwork',  'Woodwork'],
+  ['mist',      'Mist coat'],
+  ['panel',     'Panelling']
+];
+function coverageSurfaceLabel(surface) {
+  for (var i = 0; i < COVERAGE_SURFACES.length; i++) {
+    if (COVERAGE_SURFACES[i][0] === surface) return COVERAGE_SURFACES[i][1];
+  }
+  return surface;
+}
+// Which coverage surface a material role's litres are calculated against.
+// primer maps to woodwork like topcoat: a primer product's own entry is a
+// real coverage figure for the woodwork it goes on. Exterior roles and
+// kitchen are deliberately absent — exterior litres run on assumed-area
+// calibrations with their own Settings rates, and kitchens don't buy litres
+// through the coverage formula at all.
+var ROLE_COVERAGE_SURFACE = { wall: 'wall', featurewall: 'wall', ceiling: 'ceiling', topcoat: 'woodwork', primer: 'woodwork', mist: 'mist', panel: 'panel', fittedunit: 'woodwork' };
+
+// The m²/L for a product range on a surface, or null when no entry exists.
+// Callers fall back to the flat Settings rate — the "Standard / default"
+// path, byte-identical to the pre-coverage behaviour, so a job whose
+// products have no entries yet prices exactly as before.
+function coverageRateFor(range, surface) {
+  if (!range) return null;
+  var list = settings.coverageRates || [];
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].range === range && list[i].surface === surface && +list[i].rate > 0) return +list[i].rate;
+  }
+  return null;
+}
+
+// A room's effective product range for a role: its own override, else the
+// Settings default — the SAME resolution computeRoleGroups uses for
+// pricing, so the litres a coverage rate produces and the tins those litres
+// buy always describe the same product. featurewall mirrors
+// computeRoleGroups' fallback chain (wall override, then Settings wall).
+function effectiveRoleRange(r, role) {
+  var override = r[role + 'RangeOverride'];
+  if (override) return override;
+  if (role === 'featurewall') return r.wallRangeOverride || (((settings.materials || {}).wall) || {}).range || '';
+  return (((settings.materials || {})[role]) || {}).range || '';
+}
+
+// Which range a Xero item code lives in, via the already-grouped materials
+// cache — no client-side name parsing. Null for sundries/unmodellable items
+// (which genuinely can't carry a coverage rate) or a stale/empty cache.
+function rangeForItemCode(code) {
+  var ranges = Object.keys(materialGroupsCache);
+  for (var i = 0; i < ranges.length; i++) {
+    var bands = materialGroupsCache[ranges[i]];
+    for (var band in bands) {
+      for (var j = 0; j < bands[band].length; j++) {
+        if (bands[band][j].itemCode === code) return ranges[i];
+      }
+    }
+  }
+  return null;
+}
 // Roles charged by whole tin (tin-optimised) rather than per litre. Masonry
 // mirrors interior walls -- bought and charged in whole tins.
 var TIN_ROLES = { wall: true, masonry: true };
@@ -7778,6 +7917,143 @@ function hideMaterialProductDropdown(idPrefix) {
   var dd = document.getElementById(idPrefix+'-product-dd');
   if (dd) dd.style.display = 'none';
 }
+
+// ── Coverage Rates settings card (PRODUCT_COVERAGE_SPEC.md) ────────────────
+// Add/edit/delete over settings.coverageRates. The product search reuses
+// materialItemIndex (the same account-202 Xero sales items Price Lookup
+// shows, minus sundries — paste and lining paper have no coverage), so the
+// item code is captured automatically and the derived range name always
+// matches what the role pickers / computeRoleGroups deal in.
+var coverageProductMatches = [];
+var coverageAddSelection = null;   // { itemCode, itemName, range } once picked
+
+function onCoverageProductInput() {
+  coverageAddSelection = null;     // typing invalidates any earlier pick
+  var input = document.getElementById('cov-add-product');
+  var dd = document.getElementById('cov-add-product-dd');
+  if (!input || !dd) return;
+  var q = input.value.trim().toLowerCase();
+  if (!q) { dd.style.display = 'none'; return; }
+  var matches = [];
+  materialItemIndex.forEach(function(item) {
+    if (!item.isSundry && matches.length < 30 &&
+        (item.description.toLowerCase().indexOf(q) !== -1 || item.itemCode.toLowerCase().indexOf(q) !== -1)) matches.push(item);
+  });
+  coverageProductMatches = matches;
+  dd.innerHTML = matches.map(function(item, i) {
+    return '<div style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:14px" onmousedown="event.preventDefault()" onclick="selectCoverageProduct('+i+')">'
+      + '<div style="font-weight:600;color:var(--text)">' + escapeHtml(item.description) + '</div>'
+      + '<div style="font-size:12px;color:var(--text2);font-family:\'DM Mono\',monospace">' + escapeHtml(item.itemCode) + '</div>'
+      + '</div>';
+  }).join('') || '<div style="padding:10px 12px;color:var(--text2);font-size:13px">'
+      + (materialItemIndex.size ? 'No matching paint items' : 'Connect Xero and tap "Refresh from Xero" in Materials first')
+      + '</div>';
+  dd.style.display = 'block';
+}
+
+function selectCoverageProduct(i) {
+  var item = coverageProductMatches[i];
+  if (!item) return;
+  // Non-sundry index items always came out of materialGroupsCache, so the
+  // range lookup only fails on a cache that's been refreshed out from under
+  // us mid-pick — surface it rather than storing an unmatchable entry.
+  var range = rangeForItemCode(item.itemCode);
+  if (!range) {
+    alert('Couldn’t match that item to a product range — tap "Refresh from Xero" in Materials, then try again.');
+    return;
+  }
+  coverageAddSelection = { itemCode: item.itemCode, itemName: item.description, range: range };
+  document.getElementById('cov-add-product').value = item.description;
+  document.getElementById('cov-add-product-dd').style.display = 'none';
+}
+
+function addCoverageRate() {
+  var sel = coverageAddSelection;
+  if (!sel) { alert('Pick a product from the search list first — coverage rates always attach to a real Xero item.'); return; }
+  var surface = document.getElementById('cov-add-surface').value;
+  var rate = +document.getElementById('cov-add-rate').value;
+  if (!(rate > 0)) { alert('Enter the coverage rate (m² per litre).'); return; }
+  var coatsRaw = document.getElementById('cov-add-coats').value;
+  var coats = coatsRaw === '' ? null : Math.min(3, Math.max(0, Math.round(+coatsRaw)));
+  if (!settings.coverageRates) settings.coverageRates = [];
+  var list = settings.coverageRates;
+  // One rate per product+surface — a second entry would silently shadow (or
+  // be shadowed by) the first, so surface the clash instead. Checked by
+  // range as well as item code: two different tins of the same product ARE
+  // the same coverage rate.
+  var dup = null;
+  list.forEach(function(e) { if (!dup && e.surface === surface && (e.itemCode === sel.itemCode || e.range === sel.range)) dup = e; });
+  if (dup) {
+    alert('“' + dup.range + '” already has a ' + coverageSurfaceLabel(surface) + ' rate (' + dup.rate + ' m²/L). Edit or delete that entry instead of adding a second one.');
+    return;
+  }
+  list.push({ id: uid(), itemCode: sel.itemCode, itemName: sel.itemName, range: sel.range, surface: surface, rate: rate, coats: coats });
+  saveSettings();
+  coverageAddSelection = null;
+  document.getElementById('cov-add-product').value = '';
+  document.getElementById('cov-add-rate').value = '';
+  document.getElementById('cov-add-coats').value = '';
+  renderCoverageRates();
+}
+
+function updateCoverageRate(id, field, value) {
+  var entry = (settings.coverageRates || []).filter(function(e) { return e.id === id; })[0];
+  if (!entry) return;
+  if (field === 'rate') {
+    var rate = +value;
+    // A blank/zero rate is never a real calibration — repaint the stored
+    // value rather than storing something coverageRateFor() would ignore.
+    if (!(rate > 0)) { renderCoverageRates(); return; }
+    entry.rate = rate;
+  } else if (field === 'coats') {
+    entry.coats = value === '' ? null : Math.min(3, Math.max(0, Math.round(+value)));
+  }
+  saveSettings();
+  renderCoverageRates();
+}
+
+function deleteCoverageRate(id) {
+  var entry = (settings.coverageRates || []).filter(function(e) { return e.id === id; })[0];
+  if (!entry) return;
+  if (!confirm('Delete the ' + coverageSurfaceLabel(entry.surface) + ' rate for “' + entry.range + '”? Surfaces using it fall back to the standard rate.')) return;
+  settings.coverageRates = settings.coverageRates.filter(function(e) { return e.id !== id; });
+  saveSettings();
+  renderCoverageRates();
+}
+
+function renderCoverageRates() {
+  var listEl = document.getElementById('coverage-rates-list');
+  var surfaceSel = document.getElementById('cov-add-surface');
+  if (!listEl || !surfaceSel) return;
+  if (!surfaceSel.options.length) {
+    surfaceSel.innerHTML = COVERAGE_SURFACES.map(function(s) { return '<option value="' + s[0] + '">' + s[1] + '</option>'; }).join('');
+  }
+  var list = (settings.coverageRates || []).slice().sort(function(a, b) {
+    return a.range === b.range ? String(a.surface).localeCompare(String(b.surface)) : String(a.range).localeCompare(String(b.range));
+  });
+  if (!list.length) {
+    listEl.innerHTML = '<div class="settings-note" style="padding-bottom:0">No per-product rates yet — add the first one below when a job needs a product’s real coverage.</div>';
+    return;
+  }
+  listEl.innerHTML = '<div style="display:flex;justify-content:flex-end;gap:8px;padding:10px 16px 0;font-size:11px;color:var(--text2)">'
+      + '<span style="width:74px;text-align:center">m²/L</span><span style="width:56px;text-align:center">coats</span><span style="width:32px"></span></div>'
+    + list.map(function(e) {
+      return '<div class="field-row" style="gap:8px">'
+        + '<div class="field-label" style="min-width:0">' + escapeHtml(e.range)
+        +   '<small>' + escapeHtml(coverageSurfaceLabel(e.surface)) + ' · ' + escapeHtml(e.itemCode || '') + '</small></div>'
+        + '<input type="number" class="field-input" style="width:74px" value="' + (+e.rate) + '" min="0.5" step="0.5" inputmode="decimal" title="m² per litre" onchange="updateCoverageRate(\'' + e.id + '\',\'rate\',this.value)">'
+        + '<input type="number" class="field-input" style="width:56px" value="' + (e.coats != null ? e.coats : '') + '" placeholder="—" min="0" max="3" step="1" inputmode="numeric" title="Default coats — optional" onchange="updateCoverageRate(\'' + e.id + '\',\'coats\',this.value)">'
+        + '<button onclick="deleteCoverageRate(\'' + e.id + '\')" title="Delete" style="flex-shrink:0;width:32px;height:32px;border-radius:16px;border:1px solid var(--danger-soft-border);background:var(--danger-soft-bg);color:var(--danger);font-size:14px;line-height:1;cursor:pointer">✕</button>'
+        + '</div>';
+    }).join('');
+}
+
+document.addEventListener('click', function(e) {
+  var input = document.getElementById('cov-add-product');
+  var dd = document.getElementById('cov-add-product-dd');
+  if (!input || !dd) return;
+  if (e.target !== input && !dd.contains(e.target)) dd.style.display = 'none';
+});
 
 document.addEventListener('click', function(e){
   ['add-mat','act-add'].forEach(function(idPrefix){
@@ -9979,7 +10255,18 @@ function roomRangeSearchOptions(role) {
                                          : role === 'featurewall' ? 'Same as walls'
                                          : 'Use default (Settings)' }];
   if (role === 'primer') options.push({ type: 'none', label: 'None' });
-  return options.concat(Object.keys(materialGroupsCache).sort().map(function(r) { return { type: 'range', label: r }; }));
+  // Products with a Coverage Rates entry for this role's surface float to
+  // the top, annotated with their m²/L (rendered by onRoomRangeSearchInput)
+  // -- the set-up products are the quick picks, but every range stays
+  // selectable below them, so a product without an entry yet still works
+  // (its litres just use the flat rate). Rolled figure shown for walls;
+  // stable sort keeps each half alphabetical.
+  var surface = ROLE_COVERAGE_SURFACE[role];
+  var ranges = Object.keys(materialGroupsCache).sort().map(function(r) {
+    return { type: 'range', label: r, rate: surface ? coverageRateFor(r, surface) : null };
+  });
+  if (surface) ranges.sort(function(a, b) { return (b.rate ? 1 : 0) - (a.rate ? 1 : 0); });
+  return options.concat(ranges);
 }
 
 function onRoomRangeSearchInput(role) {
@@ -9993,7 +10280,8 @@ function onRoomRangeSearchInput(role) {
   rangeSearchMatches[idPrefix] = matches;
   dd.innerHTML = matches.map(function(o, i) {
     var pinnedStyle = o.type === 'range' ? 'color:var(--text)' : 'color:var(--text2);font-style:italic';
-    return '<div style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:14px;'+pinnedStyle+'" onmousedown="event.preventDefault()" onclick="selectRoomRange(\''+role+'\','+i+')">'+escapeHtml(o.label)+'</div>';
+    var rateSuffix = o.rate ? ' <span style="color:var(--text2);font-size:12px">· '+o.rate+' m²/L</span>' : '';
+    return '<div style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:14px;'+pinnedStyle+'" onmousedown="event.preventDefault()" onclick="selectRoomRange(\''+role+'\','+i+')">'+escapeHtml(o.label)+rateSuffix+'</div>';
   }).join('') || '<div style="padding:10px 12px;color:var(--text2);font-size:13px">No matching product ranges</div>';
   dd.style.display = 'block';
 }
@@ -10006,6 +10294,11 @@ function selectRoomRange(role, i) {
   if (option.type === 'none') { state.none = true; state.range = ''; }
   else if (option.type === 'default') { state.none = false; state.range = ''; }
   else { state.none = false; state.range = option.label; }
+  // Coverage entry default coats: picking a product whose Coverage Rates
+  // entry carries a coat count sets this surface's coats seg -- a starting
+  // point, still overridable by tapping the seg as ever. Only fires on a
+  // real product pick, never on default/none.
+  if (option.type === 'range') applyCoverageDefaultCoats(role, option.label);
   hideRangeSearchDropdown(idPrefix);
   // Resolve the band BEFORE persisting, not after -- populateRoomOverridePicker
   // (via populateRoomOverrideBandPicker) auto-fills state.band for a
@@ -10015,6 +10308,33 @@ function selectRoomRange(role, i) {
   // PREVIOUS range, one save behind the truth, until the next save fires.
   populateRoomOverridePicker(role);
   persistOverrideChange(role);
+}
+
+// Room-form roles whose coats live in the wc/cc/xc seg — the only places a
+// coverage entry's default coat count can meaningfully land. Feature wall
+// shares wc (no seg of its own), panelling's coats are per-wall rows, mist
+// is always one coat, doors/frames have their own independent segs.
+var ROLE_COATS_SEG = { wall: 'wc', ceiling: 'cc', topcoat: 'xc' };
+function applyCoverageDefaultCoats(role, range) {
+  var seg = ROLE_COATS_SEG[role];
+  if (!seg) return;
+  // Wall coats are the same rolled or sprayed, so accept whichever wall
+  // entry exists — preferring the one matching the form's current spray
+  // state when both do.
+  var surfaces = role === 'wall'
+    ? (sprayWalls ? ['wallSpray', 'wall'] : ['wall', 'wallSpray'])
+    : [ROLE_COVERAGE_SURFACE[role]];
+  var list = settings.coverageRates || [];
+  for (var s = 0; s < surfaces.length; s++) {
+    for (var i = 0; i < list.length; i++) {
+      var e = list[i];
+      if (e.range === range && e.surface === surfaces[s] && e.coats != null && e.coats !== '') {
+        var c = Math.min(3, Math.max(0, Math.round(+e.coats)));
+        if (!isNaN(c)) setSeg(seg, c);
+        return;
+      }
+    }
+  }
 }
 
 function hideRangeSearchDropdown(idPrefix) {
@@ -10647,8 +10967,19 @@ function calcFittedUnit(f) {
   // doorFrameAreaCoats() -- never a coat count of its own.
   var topcoatCoatM2 = areaM2 * topcoats;
   var primerCoatM2  = bare ? areaM2 * topcoats : 0;
-  var topcoatL = topcoatCoatM2 > 0 ? Math.ceil(topcoatCoatM2 / settings.cg * 2) / 2 : 0;
-  var primerL  = primerCoatM2  > 0 ? Math.ceil(primerCoatM2 / settings.cg * 0.8 * 2) / 2 : 0;
+  // Product coverage: the unit's effective topcoat product (its own range
+  // pick, else the Settings woodwork topcoat -- computeRoleGroups'
+  // fittedunit fallback) against the woodwork surface; primer follows the
+  // Settings primer product (no per-unit primer picker). Same
+  // entry-then-flat resolution and no-0.8-with-a-real-rate rule as
+  // calcRoom()'s gL/primerL.
+  var fuTopcoatCov = coverageRateFor(f.range || (((settings.materials || {}).topcoat) || {}).range, 'woodwork') || settings.cg;
+  var fuPrimerCov  = coverageRateFor((((settings.materials || {}).primer) || {}).range, 'woodwork');
+  var topcoatL = topcoatCoatM2 > 0 ? Math.ceil(topcoatCoatM2 / fuTopcoatCov * 2) / 2 : 0;
+  var primerL  = primerCoatM2  > 0
+    ? (fuPrimerCov ? Math.ceil(primerCoatM2 / fuPrimerCov * 2) / 2
+                   : Math.ceil(primerCoatM2 / settings.cg * 0.8 * 2) / 2)
+    : 0;
   return { total: total, time: time,
            shelfCost: shelfMins * r2, bayCost: bayMins * r2, doorCost: doorMinsTotal * r2,
            upliftCost: baseMins * (upliftPct / 100) * r2, upliftPct: upliftPct,
@@ -12579,6 +12910,17 @@ function previewRoomNow() {
     fwVinylRollWidthCm:+document.getElementById('r-fw-vinyl-rollwidth').value||137,
     panelItems:panelItemsForm, panelPrepPct:panelPrepPct,
     panelPrepCustom:+document.getElementById('r-panel-prep-custom').value,
+    // Product overrides, so the preview's calcRoom() resolves the same
+    // coverage rates the saved room will (litres don't show on the preview
+    // card, but Summary reads the same calc — keep the inputs identical).
+    wallRangeOverride:roomOverrides.wall.range||undefined,
+    ceilingRangeOverride:roomOverrides.ceiling.range||undefined,
+    topcoatRangeOverride:roomOverrides.topcoat.range||undefined,
+    primerRangeOverride:roomOverrides.primer.none?undefined:(roomOverrides.primer.range||undefined),
+    primerNone:roomOverrides.primer.none||undefined,
+    mistRangeOverride:roomOverrides.mist.range||undefined,
+    featurewallRangeOverride:roomOverrides.featurewall.range||undefined,
+    panelRangeOverride:roomOverrides.panel.range||undefined,
     excludedWalls:excludedWallsForm};
   var c=calcRoom(r);
   document.getElementById('room-preview').style.display='block';

@@ -166,7 +166,7 @@ From On Site (on a completed job), **Build final invoice** assembles: labour as 
 |---|---|
 | **Your Rates** | Day rate, hours/day, default markup %, commercial %, standalone rounding (full/half day), sundries %, spray sundries bump, deposit %, chase-quotes-after days |
 | **Scheduling** | Daily overhead mins, schedule buffer %, Work Saturdays, bank-holiday region, calendar feed |
-| **Coverage Rates** | m²/litre per product type (walls rolled & sprayed, ceiling, gloss, mist, panelling) |
+| **Coverage Rates** | Standard m²/litre per surface (walls rolled & sprayed, ceiling, gloss, mist, panelling), plus **per-product rates**: pick a real Xero paint item, a surface and its true m²/litre (and an optional default coat count) — any room using that product (picked on the room or as the Materials default) then calculates litres from the product's own rate; products without an entry keep the standard rate |
 | **Time Rates** | mins/m² (or per item) for every surface, doors/frames, sills, mist, panelling, staircase parts |
 | **Doors & Frames** | Paintable areas per face, fire-door edge area & surcharge, ironmongery prices |
 | **Wallpaper Rates** | Per-roll rates, ceiling/staircase multipliers, trim allowance, minimum price, wide vinyl & mural rates |
