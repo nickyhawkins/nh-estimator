@@ -42,6 +42,20 @@ New settings section, e.g. "Coverage Rates."
 - Once a product's coverage rate is set up here, it's selectable and self-consistent
   on every future quote — no re-entering rates job to job.
 
+## Spraying toggle
+
+Rather than tracking a separate spray-specific coverage rate per product (too fiddly
+to keep accurate across products), add a simple **"Spraying"** toggle per
+surface/area.
+
+- When on, apply a flat +30% to material quantity on top of whatever coverage rate
+  is already in play — default flat rate or a product-specific rate from the list
+  above, whichever applies.
+- Not exact, but a reasonable approximation that works across products without
+  needing spray-specific data per item.
+- No separate "spray rate" field anywhere in the Coverage Rates list — this stays a
+  single global multiplier, not another per-product setting to maintain.
+
 ## Non-goals
 
 - Not merged with the Xero price lookup/shopping list — coverage (how far it goes)
@@ -56,6 +70,10 @@ New settings section, e.g. "Coverage Rates."
 - Add "Dulux Velvet Matt" as a wall product with a different coverage rate, select it
   on a room, confirm material quantity changes accordingly.
 - Repeat for a woodwork product.
+- Toggle Spraying on for a wall using the default rate → material quantity is 30%
+  higher than with it off.
+- Toggle Spraying on for a wall using a product-specific rate → the 30% applies on
+  top of that product's rate, not the default.
 
 ---
 
@@ -75,8 +93,9 @@ each entry `{ id, itemCode, itemName, range, surface, rate, coats }`:
   makes "its name/code carries through cleanly to the materials list and quote
   output" true for free — the litres feed the same range/band → tin-optimiser →
   Xero-line machinery as ever.
-- **surface** — one per flat-rate category: `wall`, `wallSpray`, `ceiling`,
-  `woodwork`, `mist`, `panel` (`COVERAGE_SURFACES`).
+- **surface** — one per flat-rate category: `wall`, `ceiling`, `woodwork`, `mist`,
+  `panel` (`COVERAGE_SURFACES`). **No sprayed variants by design** — spraying is
+  the global uplift, never a second per-product figure.
 - **rate** — m² per litre. **coats** — optional default (null = none).
 
 ### Settings UI
@@ -120,23 +139,40 @@ always describe the same product). Entry found → its rate; none → the flat r
 - `calcPanel()` (rate resolved by the caller, passed in), `calcFittedUnit()`
   (unit's own range else Settings topcoat; primer follows Settings primer).
 
+### Spraying = one global uplift
+
+The existing per-room **Spray walls** toggle is the spec's Spraying toggle (it's
+already per surface/area — this room's walls; exterior render keeps its own Spray
+render model, see below). When on, `calcRoom()` multiplies wall litres (main +
+feature wall) by the **Spraying uplift %** — a single Settings field
+(`sprayUpliftPct`, default **30**, in the Coverage Rates card) — on top of
+whichever rate applies, flat or per-product. The old **"Wall Emulsion — Sprayed"
+flat rate (`cwSpray`) is gone**, and there is deliberately no sprayed surface in
+the coverage list. The spray *sundries* bump (extra masking consumables on labour)
+is a separate, unchanged mechanism.
+
+**One-time recalibration:** sprayed rooms used to fork 13→9 m²/L (≈+44% litres);
+they now get +30% on the rolled rate. Old settings blobs' `cwSpray` is dropped on
+load.
+
 Deliberate details:
 
-- **Sprayed walls only match a `wallSpray` entry.** A rolled figure never leaks
-  into a sprayed room (sprayed consumption is its own calibration); no entry falls
-  back to the flat sprayed rate as always.
 - **A primer product with its own entry replaces the 0.8 proxy.** The flat path
   guesses primer volume as 0.8 × the *topcoat's* coverage; a real primer rate is
   used directly (area ÷ rate).
 - **Exterior and kitchen are untouched.** Exterior litres run on assumed-area
-  calibrations with their own Settings rates (a different concern from measured-m²
-  coverage), kitchens don't buy litres through the coverage formula at all.
+  calibrations with their own Settings rates — including exterior masonry's own
+  smooth/textured × rolled/sprayed rate grid, which predates this feature and
+  stays as-is; kitchens don't buy litres through the coverage formula at all.
 
-### Tests (automated, Playwright against the served page — see spec Test section)
+### Tests (automated — extracted-function harness over the real app script,
+plus a Chromium DOM smoke test; see spec Test section)
 
 1. No coverage entries → `calcRoom` litres identical to flat-rate figures (walls,
    ceiling, woodwork, primer, mist) — no regression.
 2. Wall entry for the room's product (override and Settings-default paths) →
    `wallL` moves to the product's rate; rooms on other products unchanged.
 3. Woodwork entry → `glossL` moves accordingly.
-4. Sprayed room ignores the rolled entry, uses `wallSpray` entry when present.
+4. Spray on + default rate → litres = rolled figure × 1.3 (pre-rounding).
+5. Spray on + product rate → ×1.3 on the product's rate, not the default's;
+   uplift setting itself respected when changed.

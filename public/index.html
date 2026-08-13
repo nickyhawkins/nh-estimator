@@ -587,7 +587,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       <div class="field-row"><div class="field-label">Ceiling</div><div class="seg" id="seg-cc"><button class="seg-btn" onclick="setSeg('cc',0)">0</button><button class="seg-btn" onclick="setSeg('cc',1)">1</button><button class="seg-btn active" onclick="setSeg('cc',2)">2</button><button class="seg-btn" onclick="setSeg('cc',3)">3</button></div></div>
       <div class="field-row"><div class="field-label">Woodwork</div><div class="seg" id="seg-xc"><button class="seg-btn" onclick="setSeg('xc',0)">0</button><button class="seg-btn" onclick="setSeg('xc',1)">1</button><button class="seg-btn active" onclick="setSeg('xc',2)">2</button><button class="seg-btn" onclick="setSeg('xc',3)">3</button></div></div>
       <div class="toggle-row" style="border-top:1px solid var(--border)">
-        <div class="toggle-label">Spray walls<small>Wall litres use the sprayed coverage rate, and this room's labour picks up the spray sundries bump. Labour time is unchanged</small></div>
+        <div class="toggle-label">Spray walls<small>Adds the Settings spraying uplift % to wall litres (on top of the standard or per-product rate), and this room's labour picks up the spray sundries bump. Labour time is unchanged</small></div>
         <div class="toggle" id="tog-spray" onclick="toggleSprayWalls()"></div>
       </div>
       <div class="toggle-row" id="variation-row" style="border-top:1px solid var(--border);display:none">
@@ -1060,7 +1060,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     <div class="card">
       <div class="card-header">Coverage Rates</div>
       <div class="field-row"><div class="field-label">Wall Emulsion<small>m² per litre — rolled</small></div><input type="number" class="field-input" id="s-cw" value="13" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Wall Emulsion — Sprayed<small>m² per litre — used when a room's Spray walls toggle is on</small></div><input type="number" class="field-input" id="s-cwspray" value="9" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Spraying uplift<small>% extra litres when a Spray toggle is on — applied on top of the standard or per-product rate, one global figure rather than a sprayed rate per product</small></div><input type="number" class="field-input" id="s-sprayuplift" value="30" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Ceiling Emulsion<small>m² per litre</small></div><input type="number" class="field-input" id="s-cc" value="13" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Gloss / Satinwood<small>m² per litre</small></div><input type="number" class="field-input" id="s-cg" value="7" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Mist Coat<small>m² per litre — thinned product</small></div><input type="number" class="field-input" id="s-cmist" value="15" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
@@ -3766,7 +3766,12 @@ var SETTINGS_FIELDS = [
   ['overheadMins', 's-overhead-mins', 45],
   ['bufferPct',    's-buffer-pct',    0],
   ['cw',           's-cw',            13,  'covWall'],
-  ['cwSpray',      's-cwspray',       9],
+  // sprayUpliftPct replaced cwSpray ("Wall Emulsion — Sprayed", default 9):
+  // spraying is now a flat % on top of whatever rate is in play (flat or
+  // per-product) instead of its own rate — per PRODUCT_COVERAGE_SPEC.md's
+  // spraying section. Old blobs' cwSpray is deliberately dropped; sprayed
+  // rooms recalibrate from 13→9 (+44%) to the uplift's default +30%.
+  ['sprayUpliftPct', 's-sprayuplift',  30],
   ['cc',           's-cc',            13,  'covCeil'],
   ['cg',           's-cg',            7,   'covGloss'],
   ['cMist',        's-cmist',         15],
@@ -6858,21 +6863,21 @@ function calcRoom(r) {
   // coats, like the rest of the woodwork.
   var sillCost = sills>0 && xc>0 ? sills*sillMins()*r2 : 0;
   // Spray walls toggle: a MATERIALS-ONLY switch. Sprayed walls burn through
-  // paint faster (overspray, heavier film build), so litres divide by the
-  // sprayed coverage rate instead of the rolled one. Labour deliberately
-  // stays on wallMins() -- spraying's application speed vs masking time is
-  // treated as a wash. Ceiling/woodwork/mist coverage rates already assume
-  // spraying (that's how they were calibrated), so ONLY the wall rate forks.
+  // paint faster (overspray, heavier film build), so litres carry the
+  // global spraying uplift % (Settings, default +30) on top of whatever
+  // coverage rate is in play -- flat or per-product alike, per
+  // PRODUCT_COVERAGE_SPEC.md's spraying section. Deliberately ONE global
+  // multiplier, never a sprayed rate per product (too fiddly to keep
+  // accurate across products) -- which is also why the old "Wall Emulsion
+  // -- Sprayed" flat rate is gone. Labour deliberately stays on wallMins()
+  // -- spraying's application speed vs masking time is treated as a wash.
+  // Ceiling/woodwork/mist have no spray toggle, so only walls uplift.
   // Product coverage (PRODUCT_COVERAGE_SPEC.md): when the room's effective
   // wall product (override, else Settings default) has a Coverage Rates
   // entry for this surface, THAT m²/L wins; no entry means the flat rate,
-  // exactly as before. A sprayed room only matches an entry saved for the
-  // sprayed surface -- a rolled entry never leaks into a sprayed room
-  // (sprayed consumption is its own calibration), so spray-with-no-entry
-  // still falls back to the flat sprayed rate.
-  var wallSurface = r.sprayWalls ? 'wallSpray' : 'wall';
-  var wallFlatCov = r.sprayWalls ? (settings.cwSpray || settings.cw) : settings.cw;
-  var wallCov = coverageRateFor(effectiveRoleRange(r, 'wall'), wallSurface) || wallFlatCov;
+  // exactly as before.
+  var sprayMult = r.sprayWalls ? 1 + (settings.sprayUpliftPct != null ? settings.sprayUpliftPct : 30)/100 : 1;
+  var wallCov = coverageRateFor(effectiveRoleRange(r, 'wall'), 'wall') || settings.cw;
   // Feature wall: its own effective product (own override, else the wall's)
   // via effectiveRoleRange's featurewall chain -- so a feature wall in a
   // different product gets that product's rate, while an untouched one
@@ -6880,15 +6885,15 @@ function calcRoom(r) {
   // feature-wall product with no entry falls to the FLAT rate, not the wall
   // product's rate -- a different product knows nothing of the wall paint's
   // spread.
-  var fwCov = coverageRateFor(effectiveRoleRange(r, 'featurewall'), wallSurface) || wallFlatCov;
-  var wL  = wc>0 ? Math.ceil(mainWallPaintArea*wc/wallCov*2)/2 : 0;
-  var fwL = (!fwWallpaper && featureWallArea>0 && wc>0) ? Math.ceil(featureWallArea*wc/fwCov*2)/2 : 0;
+  var fwCov = coverageRateFor(effectiveRoleRange(r, 'featurewall'), 'wall') || settings.cw;
+  var wL  = wc>0 ? Math.ceil(mainWallPaintArea*wc/wallCov*sprayMult*2)/2 : 0;
+  var fwL = (!fwWallpaper && featureWallArea>0 && wc>0) ? Math.ceil(featureWallArea*wc/fwCov*sprayMult*2)/2 : 0;
   // Litres for main walls + painted feature wall as ONE bucket of paint --
   // used by computeMaterials() instead of wL/fwL when the feature wall is
   // the same colour AND product as the main walls (see
   // featureWallSharesWallPaint), so the half-litre round-up happens once
   // over the combined area rather than once per part.
-  var wLCombined = (!fwWallpaper && wc>0) ? Math.ceil((mainWallPaintArea+featureWallArea)*wc/wallCov*2)/2 : wL;
+  var wLCombined = (!fwWallpaper && wc>0) ? Math.ceil((mainWallPaintArea+featureWallArea)*wc/wallCov*sprayMult*2)/2 : wL;
   // Normally painting the feature wall is already covered by wallCost
   // above, since that's costed on the FULL wallArea regardless of the
   // colour carve-out -- no extra labour needed for a real room. But a
@@ -7304,9 +7309,11 @@ var ROLE_COLOUR_FIELD = { wall: 'colourNumber', ceiling: 'ceilingColourNumber', 
 // the role pickers / computeRoleGroups already deal in. Surfaces reuse the
 // flat-rate categories from the Coverage Rates card, so every flat rate has
 // a per-product counterpart that can override it.
+// No sprayed variants here by design: spraying is a single global uplift %
+// on top of whichever rate applies (see calcRoom()'s sprayMult), never a
+// second per-product figure to keep accurate.
 var COVERAGE_SURFACES = [
   ['wall',      'Wall'],
-  ['wallSpray', 'Wall — sprayed'],
   ['ceiling',   'Ceiling'],
   ['woodwork',  'Woodwork'],
   ['mist',      'Mist coat'],
@@ -10317,22 +10324,15 @@ function selectRoomRange(role, i) {
 var ROLE_COATS_SEG = { wall: 'wc', ceiling: 'cc', topcoat: 'xc' };
 function applyCoverageDefaultCoats(role, range) {
   var seg = ROLE_COATS_SEG[role];
-  if (!seg) return;
-  // Wall coats are the same rolled or sprayed, so accept whichever wall
-  // entry exists — preferring the one matching the form's current spray
-  // state when both do.
-  var surfaces = role === 'wall'
-    ? (sprayWalls ? ['wallSpray', 'wall'] : ['wall', 'wallSpray'])
-    : [ROLE_COVERAGE_SURFACE[role]];
+  var surface = ROLE_COVERAGE_SURFACE[role];
+  if (!seg || !surface) return;
   var list = settings.coverageRates || [];
-  for (var s = 0; s < surfaces.length; s++) {
-    for (var i = 0; i < list.length; i++) {
-      var e = list[i];
-      if (e.range === range && e.surface === surfaces[s] && e.coats != null && e.coats !== '') {
-        var c = Math.min(3, Math.max(0, Math.round(+e.coats)));
-        if (!isNaN(c)) setSeg(seg, c);
-        return;
-      }
+  for (var i = 0; i < list.length; i++) {
+    var e = list[i];
+    if (e.range === range && e.surface === surface && e.coats != null && e.coats !== '') {
+      var c = Math.min(3, Math.max(0, Math.round(+e.coats)));
+      if (!isNaN(c)) setSeg(seg, c);
+      return;
     }
   }
 }

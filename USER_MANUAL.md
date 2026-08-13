@@ -67,7 +67,7 @@ Cards top to bottom (some are collapsed — tap to open):
   - **Segments** — build the room from rectangular zones (L×W each) that sum to the wall run and ceiling area — for L-shapes and rooms with big alcoves.
 - **Bay Window & Alcove/Dormer** — add-ons in any shape mode: extra bay perimeter (joins the wall run, so skirting and wallpaper pick it up too), extra wall/ceiling m² for alcoves and dormers, and a **sloped ceiling** toggle that swaps the ceiling from calculated to a measured figure.
 - **Staircase / HSL toggle** — turns the room into a hall/stairs/landing job; see [Staircases](#4-staircases-hsl).
-- **Coats** — wall, ceiling and woodwork coat counts, plus **Spray walls** (uses the sprayed coverage rate and adds the spray sundries bump for the extra masking).
+- **Coats** — wall, ceiling and woodwork coat counts, plus **Spray walls** (adds the Settings spraying uplift % to wall litres — on top of the standard or per-product rate — and adds the spray sundries bump for the extra masking).
 - **Feature Wall** — price one wall separately, in **paint** (own colour/product, carved out of the main walls) or **wallpaper** (excluded from paint entirely, priced by the roll).
 - **Excluded Walls** — width × height rows for walls you're not painting (wallpaper staying up, etc.); the area comes off everything downstream.
 - **Doors & Frames** — doors and frames are separate line items, each with its own quantity, coats and prep. Per line: **Fire door** (FD30/FD60 surcharge, edges included in the paint calc), **ironmongery** (remove & refit, or mask in place), **Self-priming paint** (swaps the primer coat for an extra topcoat in the litres calc), and **Both sides** (price the whole leaf as one line). A door between two rooms is normally priced once per room — one face each.
@@ -166,7 +166,7 @@ From On Site (on a completed job), **Build final invoice** assembles: labour as 
 |---|---|
 | **Your Rates** | Day rate, hours/day, default markup %, commercial %, standalone rounding (full/half day), sundries %, spray sundries bump, deposit %, chase-quotes-after days |
 | **Scheduling** | Daily overhead mins, schedule buffer %, Work Saturdays, bank-holiday region, calendar feed |
-| **Coverage Rates** | Standard m²/litre per surface (walls rolled & sprayed, ceiling, gloss, mist, panelling), plus **per-product rates**: pick a real Xero paint item, a surface and its true m²/litre (and an optional default coat count) — any room using that product (picked on the room or as the Materials default) then calculates litres from the product's own rate; products without an entry keep the standard rate |
+| **Coverage Rates** | Standard m²/litre per surface (walls, ceiling, gloss, mist, panelling) and the **spraying uplift %** (one global figure — extra litres when a Spray toggle is on, applied on top of whichever rate is in play), plus **per-product rates**: pick a real Xero paint item, a surface and its true m²/litre (and an optional default coat count) — any room using that product (picked on the room or as the Materials default) then calculates litres from the product's own rate; products without an entry keep the standard rate |
 | **Time Rates** | mins/m² (or per item) for every surface, doors/frames, sills, mist, panelling, staircase parts |
 | **Doors & Frames** | Paintable areas per face, fire-door edge area & surcharge, ironmongery prices |
 | **Wallpaper Rates** | Per-roll rates, ceiling/staircase multipliers, trim allowance, minimum price, wide vinyl & mural rates |
