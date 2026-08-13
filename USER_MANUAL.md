@@ -54,7 +54,7 @@ Open **☰ → Jobs**. Each job holds its own rooms, exterior items, kitchen, co
 
 ## 3. Measuring a job
 
-On **Measure**, tap **+** and choose **Room**, **Exterior item**, **Kitchen**, **Fitted Unit** or **Custom line**. **Quick add** lets you name every room first and measure on a second pass. The costs shown on Measure are your labour cost *before* markup — the customer-facing figure is on Summary.
+On **Measure**, tap **+** and choose **Room**, **Exterior item**, **Kitchen**, **Fitted Unit** or **Custom line**. You can add several fitted units to one job — each gets an auto-numbered name ("Fitted Unit 1", "Fitted Unit 2") you can rename (e.g. "Left alcove", "Media wall unit") so they read apart on the quote, materials and client view. **Quick add** lets you name every room first and measure on a second pass. The costs shown on Measure are your labour cost *before* markup — the customer-facing figure is on Summary.
 
 ### The room form
 
