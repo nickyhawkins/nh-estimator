@@ -913,7 +913,7 @@ router.post('/create-quote', async (req, res) => {
       });
     }
 
-    // Fitted Units -- one line per named unit (v2.19.0, job.fittedUnits is
+    // Fitted Units -- one line per named unit (v2.20.0, job.fittedUnits is
     // a list now), mirroring exterior's per-item lines so two alcove units
     // read apart on the quote. Falls back to the old single lump line if an
     // older client sends only fittedUnit.cost with no itemised array. The

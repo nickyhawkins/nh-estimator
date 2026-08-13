@@ -1016,7 +1016,7 @@ function templateJobData(d) {
     keep.fittedUnit = { ...d.fittedUnit };
     delete keep.fittedUnit.isVariation;
   }
-  // Fitted units list (v2.19.0) -- scope like the legacy single object
+  // Fitted units list (v2.20.0) -- scope like the legacy single object
   // above: every unit copies (name included), each minus its variation
   // flag, same as rooms' stripVariationFlag below.
   if (Array.isArray(d.fittedUnits) && d.fittedUnits.length > 0) {
