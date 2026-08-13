@@ -1776,7 +1776,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.25.1</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.25.2</div>
 </div>
 </div>
 
@@ -7422,6 +7422,12 @@ function tin(l) {
 // Settings default mapping -- overrideRange below reads r[role+'RangeOverride']
 // off whatever's in `items`, room or exterior item alike.
 var ROLE_COLOUR_FIELD = { wall: 'colourNumber', ceiling: 'ceilingColourNumber', topcoat: 'woodworkColourNumber', primer: 'woodworkColourNumber', mist: 'colourNumber', featurewall: 'featureWallColourNumber', panel: 'panelColourNumber', masonry: 'masonryColourNumber', extTopcoat: 'extWoodworkColourNumber', extPrimer: 'extWoodworkColourNumber', fittedunit: 'colourNumber', fittedunitPrimer: 'colourNumber' };
+// Display names per role, for the On Site per-part breakdown (v2.25.2):
+// when one product row pools lines from more than one role, colour alone
+// can't tell them apart ("Colour 2 · 1 · Colour 2 · 1" told Nicky nothing
+// about WHY the tins doubled) -- the role name is what makes the split
+// legible. Matches the row labels buildRoleRows is called with.
+var ROLE_LABELS = { wall: 'Walls', ceiling: 'Ceiling', topcoat: 'Woodwork', primer: 'Woodwork Primer', mist: 'Mist Coat', featurewall: 'Feature Wall', panel: 'Panelling', masonry: 'Masonry', extTopcoat: 'Ext Woodwork', extPrimer: 'Ext Primer', fittedunit: 'Fitted Unit', fittedunitPrimer: 'Fitted Unit Primer' };
 
 // ── Product coverage rates (PRODUCT_COVERAGE_SPEC.md) ──────────────────────
 // settings.coverageRates: additive list of per-product m²-per-litre entries
@@ -7719,6 +7725,9 @@ function buildRoleRows(label, role, litresPerRoom, skipRoom, items, nameOf) {
     // only ever read .html/.cost/.lineItems, so this is safe to attach.
     row.colourNumber = g.colourNumber;
     row.role = role;
+    // The group's litres requirement -- additive like colourNumber/role,
+    // consumed only by computeMaterials' fitted-unit sanity check.
+    row.litres = g.litres;
     return row;
   });
 }
@@ -7828,6 +7837,17 @@ function computeMaterials() {
   };
   var fuTopcoatRows = buildRoleRows('Fitted Unit Topcoat', 'fittedunit', function(f) { return fuc(f).topcoatL; }, function(f) { return fuc(f).topcoatL <= 0; }, fuUnits, fittedUnitName);
   var fuPrimerRows  = buildRoleRows('Fitted Unit Primer', 'fittedunitPrimer', function(f) { return fuc(f).primerL; }, function(f) { return fuc(f).primerL <= 0; }, fuUnits, fittedUnitName);
+  // Sanity tripwire (v2.25.2, from the doubled-Bradite bug): the litres
+  // the fitted-unit rows are about to buy, checked against the units' own
+  // un-rounded area×coats÷coverage baseline. Half-litre rounding adds at
+  // most 0.5L per row, so anything past 1.5× + 1L means litres are being
+  // counted more than once (e.g. topcoat + primer resolving to the same
+  // tins again). Dev-facing only -- a console line, never UI.
+  var fuBaselineL = fuUnits.reduce(function(s, f) { return s + (fuc(f).baselineL || 0); }, 0);
+  var fuBoughtL = fuTopcoatRows.concat(fuPrimerRows).reduce(function(s, r) { return s + (r.litres || 0); }, 0);
+  if (fuBaselineL > 0 && fuBoughtL > fuBaselineL * 1.5 + 1) {
+    console.warn('Fitted unit materials: buying ' + fuBoughtL.toFixed(1) + 'L against a ~' + fuBaselineL.toFixed(1) + 'L area×coverage baseline — litres are likely being double-counted');
+  }
 
   var allRows = wallRows.concat(ceilingRows, topcoatRows, primerRows, mistRows, featureWallRows, panelRows, masonryRows, extTopcoatRows, extPrimerRows, fuTopcoatRows, fuPrimerRows);
   var total = allRows.reduce(function(sum, r) { return sum + r.cost; }, 0);
@@ -8771,9 +8791,15 @@ function renderActuals() {
     // than one group (see buildRoleRows), so this is the only place a
     // single-colour job's tins are ever labelled with their colour.
     var parts = (r.parts || []).filter(function(p) { return p.quantity > 0; });
+    // Only name roles when the row actually spans more than one (v2.25.2)
+    // -- the common one-role case keeps its familiar colour-only label.
+    var partRoles = {};
+    parts.forEach(function(p) { if (p.role) partRoles[p.role] = true; });
+    var showRoles = Object.keys(partRoles).length > 1;
     var detail = parts.length > 1
       ? parts.map(function(p) {
-          return 'Colour ' + p.colourNumber + (colourLabels[p.colourNumber] ? ' (' + colourLabels[p.colourNumber] + ')' : '') + ' · ' + (Math.round(p.quantity * 100) / 100);
+          return (showRoles && ROLE_LABELS[p.role] ? ROLE_LABELS[p.role] + ' — ' : '')
+            + 'Colour ' + p.colourNumber + (colourLabels[p.colourNumber] ? ' (' + colourLabels[p.colourNumber] + ')' : '') + ' · ' + (Math.round(p.quantity * 100) / 100);
         }).join('  ·  ')
       : (parts.length === 1
           ? 'Colour ' + parts[0].colourNumber + (colourLabels[parts[0].colourNumber] ? ' (' + colourLabels[parts[0].colourNumber] + ')' : '')
@@ -11223,6 +11249,19 @@ function calcFittedUnit(f) {
   // prep never primes regardless -- the prep level still owns that.
   var fuRange = f.range || (((settings.materials || {}).topcoat) || {}).range;
   var fuSelfPriming = coverageSelfPrimingFor(fuRange, 'woodwork') === true;
+  // Same-tin guard (v2.25.2 bug fix): when the Settings woodwork PRIMER
+  // product is the same range as this unit's topcoat, a "primer" buy is a
+  // second helping of the very same paint -- the Fitted Unit Primer role
+  // would resolve to the same Xero tins as the topcoat row and the job
+  // buys the product twice (seen in the field as doubled Bradite tins with
+  // a "Colour 2 · 1 · Colour 2 · 1" label; the coverage entry's
+  // self-priming tick doesn't protect here whenever the lookup misses --
+  // range renamed, entry added later, unit range differing from Settings).
+  // Treat it as self-priming regardless of the entry: bare units get the
+  // extra topcoat coat-equivalent (the substitution, once) and buy no
+  // separate primer. A DIFFERENT primer product is untouched.
+  var fuPrimerRange = (((settings.materials || {}).primer) || {}).range;
+  if (!fuSelfPriming && fuPrimerRange && fuPrimerRange === fuRange) fuSelfPriming = true;
   // Primer basis mirrors topcoat coats (area × topcoats, then the 0.8
   // volume proxy at conversion), matching otherWoodPrimerCoatM2/
   // doorFrameAreaCoats() -- never a coat count of its own.
@@ -11240,15 +11279,21 @@ function calcFittedUnit(f) {
   // room spray toggles, on top of whichever rate resolved above.
   var fuSprayMult = f.sprayUnit ? 1 + (settings.sprayUpliftPct != null ? settings.sprayUpliftPct : 30)/100 : 1;
   var topcoatL = topcoatCoatM2 > 0 ? Math.ceil(topcoatCoatM2 / fuTopcoatCov * fuSprayMult * 2) / 2 : 0;
-  var primerL  = primerCoatM2  > 0
-    ? (fuPrimerCov ? Math.ceil(primerCoatM2 / fuPrimerCov * fuSprayMult * 2) / 2
-                   : Math.ceil(primerCoatM2 / settings.cg * 0.8 * fuSprayMult * 2) / 2)
+  var rawPrimerL = primerCoatM2 > 0
+    ? (fuPrimerCov ? primerCoatM2 / fuPrimerCov : primerCoatM2 / settings.cg * 0.8) * fuSprayMult
     : 0;
+  var primerL = rawPrimerL > 0 ? Math.ceil(rawPrimerL * 2) / 2 : 0;
   return { total: total, time: time,
            shelfCost: shelfMins * r2, bayCost: bayMins * r2, doorCost: doorMinsTotal * r2,
            doorSizeMult: doorSizeMult,
            upliftCost: baseMins * (upliftPct / 100) * r2, upliftPct: upliftPct,
-           passes: passes, topcoatL: topcoatL, primerL: primerL };
+           passes: passes, topcoatL: topcoatL, primerL: primerL,
+           // baselineL: the un-rounded litres requirement (coat-m² over the
+           // resolved rates, spray included). Not used for pricing -- it's
+           // the reference computeMaterials' sanity check compares bought
+           // litres against, to flag double-counting regressions early.
+           areaM2: areaM2,
+           baselineL: topcoatCoatM2 / fuTopcoatCov * fuSprayMult + rawPrimerL };
 }
 
 // ── Fitted Unit list + screen UI ────────────────────────────────────────────
