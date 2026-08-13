@@ -1212,8 +1212,8 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       <div class="settings-note">Bespoke built-ins (bookcases, media units) are priced per shelf/bay/door, not by m². A "coat pass" is one trip over the unit — Bare/Primed prep sprays 3 passes (prime + 2 coats), Existing painted sprays 2. Cabinet doors use the interior door rate above. Starting defaults — calibrate against real jobs.</div>
       <div class="field-row"><div class="field-label">Shelf spray time<small>mins per shelf, per coat pass — covers top, underside &amp; front edge in one time-based unit</small></div><input type="number" class="field-input" id="s-fu-shelfmins" value="6" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Bay carcass time<small>mins per bay, per coat pass — uprights, back &amp; face frame of one vertical section</small></div><input type="number" class="field-input" id="s-fu-baymins" value="15" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Area per shelf<small>m² paintable — all faces, for topcoat/primer litres</small></div><input type="number" class="field-input" id="s-fu-shelfarea" value="0.5" min="0.1" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Bay carcass area ×<small>on frontal area (height × width) per bay — covers back, sides &amp; frame, litres only</small></div><input type="number" class="field-input" id="s-fu-bayareafactor" value="1.5" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Area per shelf<small>m² paintable — fallback only since v2.22.0: units with a Depth compute the real shelf area (2 × bay width × depth) instead</small></div><input type="number" class="field-input" id="s-fu-shelfarea" value="0.5" min="0.1" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Bay carcass area ×<small>on frontal area (height × width) per bay — fallback only since v2.22.0: units with a Depth compute the real carcass area (back + sides + top/bottom) instead. Litres only</small></div><input type="number" class="field-input" id="s-fu-bayareafactor" value="1.5" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
     </div>
     <button class="btn btn-danger" onclick="clearEverything()">Clear Everything</button>
     <div class="card">
@@ -1362,7 +1362,8 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
            units in one room read apart on the quote/materials/client view. -->
       <div class="field-row"><div class="field-label">Name<small>shown on the quote breakdown, materials &amp; client view — e.g. "Left alcove"</small></div><input type="text" class="field-input" id="fu-name" placeholder="Fitted Unit 1" onchange="onFittedUnitNameChange(this.value)"></div>
       <div class="field-row"><div class="field-label">Bays<small>vertical sections</small></div><input type="number" class="field-input" id="fu-bays" placeholder="0" min="0" step="1" inputmode="numeric" onchange="onFittedUnitFieldChange('bayCount',this.value)"></div>
-      <div class="field-row"><div class="field-label">Height per bay<small>m — one shared height for every bay (fitted units are near-always a single consistent height — say if a per-bay height is ever needed). With the bay widths below, drives the carcass paint litres only</small></div><input type="number" class="field-input" id="fu-bay-h" placeholder="2.4" min="0" step="0.1" inputmode="decimal" onchange="onFittedUnitFieldChange('bayHeightM',this.value)"></div>
+      <div class="field-row"><div class="field-label">Height per bay<small>m — one shared height for every bay (fitted units are near-always a single consistent height — say if a per-bay height is ever needed). With depth &amp; the bay widths below, drives the paint litres only</small></div><input type="number" class="field-input" id="fu-bay-h" placeholder="2.4" min="0" step="0.1" inputmode="decimal" onchange="onFittedUnitFieldChange('bayHeightM',this.value)"></div>
+      <div class="field-row"><div class="field-label">Depth<small>m — internal carcass depth, front to back, shared by every bay. Litres then use the real painted area per bay (back + both sides + top &amp; bottom) and per shelf (top &amp; underside), instead of the old flat guesses</small></div><input type="number" class="field-input" id="fu-bay-d" placeholder="0.35" min="0" step="0.05" inputmode="decimal" onchange="onFittedUnitFieldChange('bayDepthM',this.value)"></div>
       <!-- Per-bay widths (v2.21.0): one input per bay, count driven by the
            Bays field above -- uneven layouts (a wide TV recess between
            narrower shelf bays) couldn't be entered on the old single
@@ -1764,7 +1765,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.21.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.22.0</div>
 </div>
 </div>
 
@@ -11042,8 +11043,8 @@ function updateKitchenTotals() {
 // (the exterior assumed-area precedent): per-shelf area and per-bay
 // carcass area come from Settings, doors use doorFaceAreaM2, all pooled
 // into topcoat/primer litres with calcRoom()'s same half-litre rounding
-// and 0.8 primer-volume proxy. Bay height/widths exist ONLY for that
-// carcass litres estimate -- labour stays count-based by design. Since
+// and 0.8 primer-volume proxy. Bay height/depth/widths exist ONLY for
+// that litres estimate -- labour stays count-based by design. Since
 // v2.21.0 widths are PER BAY (f.bayWidthsM via fittedUnitBayWidths(), so
 // a wide TV recess and its narrow flanking bays each contribute their
 // real area, Σ(bayWidth × height) not bayCount × oneWidth × height), and
@@ -11092,12 +11093,28 @@ function calcFittedUnit(f) {
   var r2 = rpm();
   var total = mins * r2;
   var time = mins / 60 / (settings.hpd || 7);
-  var shelfArea = settings.fuShelfAreaM2 != null ? settings.fuShelfAreaM2 : 0.5;
-  // Σ(bayWidth × height): each bay's real width, so uneven layouts stop
-  // over/under-buying carcass litres (height stays shared -- see the form).
+  // Carcass + shelf areas (litres only -- labour stays count-based).
+  // With a depth (v2.22.0) the painted area is real geometry per bay:
+  // back (w×h) + both interior side faces (2×d×h -- a divider between two
+  // bays is painted on both faces, so counting two sides per bay is the
+  // painted-surface truth, not double-counting) + top & bottom (2×w×d).
+  // Shelves become top + underside at the unit's own dimensions
+  // (2 × avg bay width × depth; the front edge is a rounding error).
+  // The old flat guesses -- frontal × fuBayAreaFactor and the fixed
+  // fuShelfAreaM2 -- had no depth to work from and ran well under on any
+  // normal-depth unit; they survive ONLY as the fallback for units saved
+  // before the depth field existed (no bayDepthM → identical litres to
+  // before, until the unit is reopened and picks up a depth).
+  var bayH = Math.max(0, +f.bayHeightM || 0);
+  var bayD = Math.max(0, +f.bayDepthM || 0);
   var bayWidthSumM = fittedUnitBayWidths(f).reduce(function(s, w) { return s + w; }, 0);
-  var bayAreaM2 = bayWidthSumM * Math.max(0, +f.bayHeightM || 0)
-                  * (settings.fuBayAreaFactor != null ? settings.fuBayAreaFactor : 1.5);
+  var bayAreaM2 = bayD > 0
+    ? bayWidthSumM * bayH + bays * 2 * bayD * bayH + 2 * bayD * bayWidthSumM
+    : bayWidthSumM * bayH * (settings.fuBayAreaFactor != null ? settings.fuBayAreaFactor : 1.5);
+  var avgBayW = bays > 0 ? bayWidthSumM / bays : 0;
+  var shelfArea = (bayD > 0 && avgBayW > 0)
+    ? 2 * avgBayW * bayD
+    : (settings.fuShelfAreaM2 != null ? settings.fuShelfAreaM2 : 0.5);
   var doorFaceArea = settings.doorFaceAreaM2 != null ? settings.doorFaceAreaM2 : 1.75;
   var areaM2 = shelves * shelfArea + bayAreaM2 + doors * doorFaceArea * doorSizeMult;
   // Primer basis mirrors topcoat coats (area × topcoats, then the 0.8
@@ -11181,6 +11198,12 @@ function ensureFittedUnitDefaults(f) {
   if (!Array.isArray(f.bayWidthsM)) f.bayWidthsM = fittedUnitBayWidths(f);
   syncFittedUnitBayWidths(f);
   if (f.doorSize == null) f.doorSize = 'standard';
+  // v2.22.0: depth. Deliberately set on first open (not left null) --
+  // 0.35m is a standard alcove bookcase carcass; litres for this unit
+  // move to the real geometry right away, and the visible 0.35 in the
+  // field is Nicky's cue to correct it. Units never reopened keep the
+  // old flat-guess litres via calcFittedUnit()'s no-depth fallback.
+  if (f.bayDepthM == null) f.bayDepthM = 0.35;
   return f;
 }
 
@@ -11207,7 +11230,7 @@ function syncFittedUnitBayWidths(f) {
 // alcove" reads better.
 function newFittedUnit(job) {
   var list = fittedUnitList(job);
-  var f = { id: uid(), name: 'Fitted Unit ' + (list.length + 1), bayCount: 0, bayHeightM: 2.4, bayWidthsM: [], shelfCount: 0, doorCount: 0, doorSize: 'standard', prepLevel: 'bare', complexityUplift: 0, colourNumber: 1, range: '', band: null, sprayUnit: false };
+  var f = { id: uid(), name: 'Fitted Unit ' + (list.length + 1), bayCount: 0, bayHeightM: 2.4, bayDepthM: 0.35, bayWidthsM: [], shelfCount: 0, doorCount: 0, doorSize: 'standard', prepLevel: 'bare', complexityUplift: 0, colourNumber: 1, range: '', band: null, sprayUnit: false };
   list.push(f);
   return f;
 }
@@ -11259,6 +11282,7 @@ function renderFittedUnit() {
   syncVariationRow('fu-variation-row', 'tog-fu-variation', !!f.isVariation);
   document.getElementById('fu-bays').value    = f.bayCount || '';
   document.getElementById('fu-bay-h').value   = f.bayHeightM || '';
+  document.getElementById('fu-bay-d').value   = f.bayDepthM || '';
   renderFittedUnitBayWidths(f);
   document.getElementById('fu-shelves').value = f.shelfCount || '';
   document.getElementById('fu-doors').value   = f.doorCount || '';
