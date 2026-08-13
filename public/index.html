@@ -356,8 +356,9 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     </div>
     <!-- Fitted Units (bespoke built-ins): a per-job LIST since v2.20.0 --
          one card per named unit with a real total, added via the + chooser
-         (addFittedUnit()), tap to edit. No swipe delete (zero a unit's
-         counts to drop it from every output, same as before). -->
+         (addFittedUnit()), tap to edit, swipe to delete (v2.25.1 -- the
+         old zero-the-counts workaround stopped being reasonable once a
+         unit carried a name, dimensions and door settings). -->
     <div class="section-title" id="fu-section-head" style="display:none">
       <span>Fitted Units</span>
     </div>
@@ -1775,7 +1776,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.25.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.25.1</div>
 </div>
 </div>
 
@@ -11373,6 +11374,22 @@ function editFittedUnit(id) {
   goScreen('fittedunit');
 }
 
+// Swipe-to-delete path for the Measure list (v2.25.1) -- same by-id entry
+// point + confirm rationale as deleteCustomItemFromList. Removal persists
+// through saveFittedUnitJob()'s wholesale job.data PUT like every other
+// unit change, so it syncs/queues offline the same way.
+function deleteFittedUnitFromList(id) {
+  var job = activeJob();
+  if (!job) return;
+  var f = fittedUnitList(job).find(function(x) { return String(x.id) === String(id); });
+  if (!f) return;
+  if (!confirm('Delete ' + fittedUnitName(f) + '?')) return;
+  job.fittedUnits = fittedUnitList(job).filter(function(x) { return String(x.id) !== String(id); });
+  if (String(editFittedUnitId) === String(id)) editFittedUnitId = null;
+  saveFittedUnitJob();
+  renderHome();
+}
+
 function renderFittedUnit() {
   var job = activeJob();
   if (!job) return;
@@ -11907,12 +11924,13 @@ function _renderFittedUnitInner() {
     if (fc.total <= 0) return '';
     measureFittedUnitTotal += fc.total;
     measureFittedUnitCount++;
-    return '<div class="room-item" onclick="editFittedUnit(this.dataset.id)" data-id="'+f.id+'">'+
+    return swipeDeleteWrap('deleteFittedUnitFromList', f.id,
+      '<div class="room-item" onclick="editFittedUnit(this.dataset.id)" data-id="'+f.id+'">'+
       '<div class="room-icon">📚</div>'+
       '<div class="room-info"><div class="room-name">'+escapeHtml(fittedUnitName(f))+(f.isVariation?variationChipHtml(f):'')+'</div>'+
       '<div class="room-meta">'+fmtD(fc.time)+'</div></div>'+
       '<div class="room-cost">'+fmt(fc.total)+'</div>'+
-      '<div style="color:var(--text3);font-size:16px">›</div></div>';
+      '<div style="color:var(--text3);font-size:16px">›</div></div>');
   }).join('');
   if (!html) {
     list.style.display='none';
