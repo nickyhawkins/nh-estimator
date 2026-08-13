@@ -1362,10 +1362,22 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
            units in one room read apart on the quote/materials/client view. -->
       <div class="field-row"><div class="field-label">Name<small>shown on the quote breakdown, materials &amp; client view — e.g. "Left alcove"</small></div><input type="text" class="field-input" id="fu-name" placeholder="Fitted Unit 1" onchange="onFittedUnitNameChange(this.value)"></div>
       <div class="field-row"><div class="field-label">Bays<small>vertical sections</small></div><input type="number" class="field-input" id="fu-bays" placeholder="0" min="0" step="1" inputmode="numeric" onchange="onFittedUnitFieldChange('bayCount',this.value)"></div>
-      <div class="field-row"><div class="field-label">Height per bay<small>m — with bay count &amp; width, drives the carcass paint litres only</small></div><input type="number" class="field-input" id="fu-bay-h" placeholder="2.4" min="0" step="0.1" inputmode="decimal" onchange="onFittedUnitFieldChange('bayHeightM',this.value)"></div>
-      <div class="field-row"><div class="field-label">Width per bay<small>m</small></div><input type="number" class="field-input" id="fu-bay-w" placeholder="0.9" min="0" step="0.1" inputmode="decimal" onchange="onFittedUnitFieldChange('bayWidthM',this.value)"></div>
+      <div class="field-row"><div class="field-label">Height per bay<small>m — one shared height for every bay (fitted units are near-always a single consistent height — say if a per-bay height is ever needed). With the bay widths below, drives the carcass paint litres only</small></div><input type="number" class="field-input" id="fu-bay-h" placeholder="2.4" min="0" step="0.1" inputmode="decimal" onchange="onFittedUnitFieldChange('bayHeightM',this.value)"></div>
+      <!-- Per-bay widths (v2.21.0): one input per bay, count driven by the
+           Bays field above -- uneven layouts (a wide TV recess between
+           narrower shelf bays) couldn't be entered on the old single
+           "Width per bay" field. Rows render via renderFittedUnitBayWidths(). -->
+      <div id="fu-bay-widths"></div>
       <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Shelves<small>total across all bays — fixed spray time each (top, underside &amp; front edge in one unit), see Settings</small></div><input type="number" class="field-input" id="fu-shelves" placeholder="0" min="0" step="1" inputmode="numeric" onchange="onFittedUnitFieldChange('shelfCount',this.value)"></div>
-      <div class="field-row"><div class="field-label">Cabinet doors<small>priced at the interior door rate, one face each</small></div><input type="number" class="field-input" id="fu-doors" placeholder="0" min="0" step="1" inputmode="numeric" onchange="onFittedUnitFieldChange('doorCount',this.value)"></div>
+      <div class="field-row"><div class="field-label">Cabinet doors<small>priced at the interior door rate, one face each — sized by the selector below</small></div><input type="number" class="field-input" id="fu-doors" placeholder="0" min="0" step="1" inputmode="numeric" onchange="onFittedUnitFieldChange('doorCount',this.value)"></div>
+      <div class="field-row">
+        <div class="field-label">Door size<small>Standard = the full interior door rate (as before). Small = cupboard-size doors, ½ rate. Large = oversize/wardrobe doors, 1½× rate. Scales door labour &amp; litres</small></div>
+        <div class="seg" id="seg-fu-doorsize" style="flex:1.5">
+          <button class="seg-btn" onclick="setFittedUnitDoorSize('small')">Small</button>
+          <button class="seg-btn active" onclick="setFittedUnitDoorSize('standard')">Standard</button>
+          <button class="seg-btn" onclick="setFittedUnitDoorSize('large')">Large</button>
+        </div>
+      </div>
     </div>
     <div class="card">
       <div class="card-header">Prep Level</div>
@@ -1752,7 +1764,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.20.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.21.0</div>
 </div>
 </div>
 
@@ -11013,7 +11025,8 @@ function updateKitchenTotals() {
 // rooms and doors: shelves are a fixed spray time each (top/underside/front
 // edge as one time-based unit -- fuShelfMins per coat pass), bays a fixed
 // carcass time each, and cabinet doors reuse the interior door rate pair
-// verbatim via doorMins(). Mins × rpm() means the complexity uplift can
+// via doorMins(), scaled by the door-size band since v2.21.0. Mins ×
+// rpm() means the complexity uplift can
 // stack on labour TIME before markup (same (1+pct) shape as
 // commercialRatio(), but per-item) and `time` feeds realisticDays()/
 // diary-day logic for real, where kitchen only approximates via total/dr.
@@ -11029,13 +11042,40 @@ function updateKitchenTotals() {
 // (the exterior assumed-area precedent): per-shelf area and per-bay
 // carcass area come from Settings, doors use doorFaceAreaM2, all pooled
 // into topcoat/primer litres with calcRoom()'s same half-litre rounding
-// and 0.8 primer-volume proxy. Bay height/width exist ONLY for that
-// carcass litres estimate -- labour stays count-based by design.
+// and 0.8 primer-volume proxy. Bay height/widths exist ONLY for that
+// carcass litres estimate -- labour stays count-based by design. Since
+// v2.21.0 widths are PER BAY (f.bayWidthsM via fittedUnitBayWidths(), so
+// a wide TV recess and its narrow flanking bays each contribute their
+// real area, Σ(bayWidth × height) not bayCount × oneWidth × height), and
+// cabinet doors carry a size band (f.doorSize small/standard/large →
+// 0.5/1/1.5×) because a cupboard door is much smaller than the full
+// interior door the rate was set for. The multiplier scales the door
+// mins AND the door face area so labour and litres shrink/grow together;
+// 'standard' is 1× -- exactly the old pricing -- and absent reads as
+// standard, so pre-v2.21.0 units are untouched.
+var FU_DOOR_SIZE_MULT = { small: 0.5, standard: 1, large: 1.5 };
+
+// Effective per-bay widths (m), always bayCount long: the stored
+// f.bayWidthsM entry where one exists, else the legacy single f.bayWidthM
+// for units saved before the per-bay move (so an unmigrated unit -- e.g.
+// priced into a quote without its edit screen ever opening -- sums to
+// exactly the old bayCount × width). The 0.9 fallback only covers data
+// with neither field and matches newFittedUnit()'s old default.
+function fittedUnitBayWidths(f) {
+  var bays = Math.max(0, +f.bayCount || 0);
+  var legacyW = f.bayWidthM != null ? Math.max(0, +f.bayWidthM || 0) : 0.9;
+  var arr = Array.isArray(f.bayWidthsM) ? f.bayWidthsM : null;
+  var out = [];
+  for (var i = 0; i < bays; i++) out.push(arr && arr[i] != null ? Math.max(0, +arr[i] || 0) : legacyW);
+  return out;
+}
+
 function calcFittedUnit(f) {
   f = f || {};
   var bays    = Math.max(0, +f.bayCount   || 0);
   var shelves = Math.max(0, +f.shelfCount || 0);
   var doors   = Math.max(0, +f.doorCount  || 0);
+  var doorSizeMult = FU_DOOR_SIZE_MULT[f.doorSize] || 1;
   var bare = (f.prepLevel || 'bare') !== 'painted';
   var topcoats = 2;
   var passes = topcoats + (bare ? 1 : 0);
@@ -11045,7 +11085,7 @@ function calcFittedUnit(f) {
   // flat prep component doubles as the key-sand on a 'painted' unit, same
   // as it covers a repaint's sand elsewhere. One face per door (cabinet
   // doors are only ever painted from the front).
-  var doorMinsTotal = doors > 0 ? doors * doorMins(passes) : 0;
+  var doorMinsTotal = doors > 0 ? doors * doorMins(passes) * doorSizeMult : 0;
   var baseMins = shelfMins + bayMins + doorMinsTotal;
   var upliftPct = Math.max(0, +f.complexityUplift || 0);
   var mins = baseMins * (1 + upliftPct / 100);
@@ -11053,10 +11093,13 @@ function calcFittedUnit(f) {
   var total = mins * r2;
   var time = mins / 60 / (settings.hpd || 7);
   var shelfArea = settings.fuShelfAreaM2 != null ? settings.fuShelfAreaM2 : 0.5;
-  var bayAreaM2 = bays * Math.max(0, +f.bayHeightM || 0) * Math.max(0, +f.bayWidthM || 0)
+  // Σ(bayWidth × height): each bay's real width, so uneven layouts stop
+  // over/under-buying carcass litres (height stays shared -- see the form).
+  var bayWidthSumM = fittedUnitBayWidths(f).reduce(function(s, w) { return s + w; }, 0);
+  var bayAreaM2 = bayWidthSumM * Math.max(0, +f.bayHeightM || 0)
                   * (settings.fuBayAreaFactor != null ? settings.fuBayAreaFactor : 1.5);
   var doorFaceArea = settings.doorFaceAreaM2 != null ? settings.doorFaceAreaM2 : 1.75;
-  var areaM2 = shelves * shelfArea + bayAreaM2 + doors * doorFaceArea;
+  var areaM2 = shelves * shelfArea + bayAreaM2 + doors * doorFaceArea * doorSizeMult;
   // Primer basis mirrors topcoat coats (area × topcoats, then the 0.8
   // volume proxy at conversion), matching otherWoodPrimerCoatM2/
   // doorFrameAreaCoats() -- never a coat count of its own.
@@ -11080,6 +11123,7 @@ function calcFittedUnit(f) {
     : 0;
   return { total: total, time: time,
            shelfCost: shelfMins * r2, bayCost: bayMins * r2, doorCost: doorMinsTotal * r2,
+           doorSizeMult: doorSizeMult,
            upliftCost: baseMins * (upliftPct / 100) * r2, upliftPct: upliftPct,
            passes: passes, topcoatL: topcoatL, primerL: primerL };
 }
@@ -11129,7 +11173,33 @@ function ensureFittedUnitDefaults(f) {
   if (f.colourNumber == null) f.colourNumber = 1;
   if (f.range == null) f.range = '';
   if (f.sprayUnit == null) f.sprayUnit = false;
+  // v2.21.0 migrations. bayWidthsM: bayCount copies of the old single
+  // bayWidthM (fittedUnitBayWidths() reads exactly that for an unmigrated
+  // unit, so pricing is identical before and after; the legacy field is
+  // left in place, unread, for any stale cached client). doorSize:
+  // 'standard' = 1×, the old behaviour, so existing quotes don't move.
+  if (!Array.isArray(f.bayWidthsM)) f.bayWidthsM = fittedUnitBayWidths(f);
+  syncFittedUnitBayWidths(f);
+  if (f.doorSize == null) f.doorSize = 'standard';
   return f;
+}
+
+// Keep the widths array exactly bayCount long: truncate on a count drop,
+// pad on a rise with the average of the widths already entered (a new bay
+// most likely matches its siblings) -- falling back to the legacy single
+// width, then 0.9 -- so an added bay never appears at zero.
+function syncFittedUnitBayWidths(f) {
+  var bays = Math.max(0, +f.bayCount || 0);
+  if (!Array.isArray(f.bayWidthsM)) f.bayWidthsM = [];
+  var arr = f.bayWidthsM;
+  if (arr.length > bays) arr.length = bays;
+  if (arr.length < bays) {
+    var entered = arr.filter(function(w) { return +w > 0; });
+    var fill = entered.length
+      ? Math.round(entered.reduce(function(s, w) { return s + +w; }, 0) / entered.length * 100) / 100
+      : (+f.bayWidthM > 0 ? +f.bayWidthM : 0.9);
+    while (arr.length < bays) arr.push(fill);
+  }
 }
 
 // Auto-numbered default name ("Fitted Unit 2") so a unit is never blank on
@@ -11137,7 +11207,7 @@ function ensureFittedUnitDefaults(f) {
 // alcove" reads better.
 function newFittedUnit(job) {
   var list = fittedUnitList(job);
-  var f = { id: uid(), name: 'Fitted Unit ' + (list.length + 1), bayCount: 0, bayHeightM: 2.4, bayWidthM: 0.9, shelfCount: 0, doorCount: 0, prepLevel: 'bare', complexityUplift: 0, colourNumber: 1, range: '', band: null, sprayUnit: false };
+  var f = { id: uid(), name: 'Fitted Unit ' + (list.length + 1), bayCount: 0, bayHeightM: 2.4, bayWidthsM: [], shelfCount: 0, doorCount: 0, doorSize: 'standard', prepLevel: 'bare', complexityUplift: 0, colourNumber: 1, range: '', band: null, sprayUnit: false };
   list.push(f);
   return f;
 }
@@ -11189,9 +11259,11 @@ function renderFittedUnit() {
   syncVariationRow('fu-variation-row', 'tog-fu-variation', !!f.isVariation);
   document.getElementById('fu-bays').value    = f.bayCount || '';
   document.getElementById('fu-bay-h').value   = f.bayHeightM || '';
-  document.getElementById('fu-bay-w').value   = f.bayWidthM || '';
+  renderFittedUnitBayWidths(f);
   document.getElementById('fu-shelves').value = f.shelfCount || '';
   document.getElementById('fu-doors').value   = f.doorCount || '';
+  var doorSizeVals = ['small','standard','large'];
+  document.querySelectorAll('#seg-fu-doorsize .seg-btn').forEach(function(b,i){ b.classList.toggle('active', doorSizeVals[i]===(f.doorSize||'standard')); });
   document.getElementById('tog-fu-spray').classList.toggle('on', !!f.sprayUnit);
   var prepVals = ['bare','painted'];
   document.querySelectorAll('#seg-fu-prep .seg-btn').forEach(function(b,i){ b.classList.toggle('active', prepVals[i]===(f.prepLevel||'bare')); });
@@ -11228,6 +11300,37 @@ function saveFittedUnitJob() {
 function onFittedUnitFieldChange(field, value) {
   var f = currentFittedUnit(); if (!f) return;
   f[field] = Math.max(0, +value || 0);
+  // Bay count drives the per-bay width rows: resize the widths array
+  // (padding with the current average, see syncFittedUnitBayWidths) and
+  // redraw the list so the inputs always match the count just entered.
+  if (field === 'bayCount') { syncFittedUnitBayWidths(f); renderFittedUnitBayWidths(f); }
+  saveFittedUnitJob();
+}
+
+// One width row per bay, same field-row/field-input look as the fixed
+// fields around it -- indented labels read as children of "Bays" above.
+function renderFittedUnitBayWidths(f) {
+  var el = document.getElementById('fu-bay-widths');
+  if (!el) return;
+  el.innerHTML = fittedUnitBayWidths(f).map(function(w, i) {
+    return '<div class="field-row"><div class="field-label" style="padding-left:14px">Bay '+(i+1)+' width<small>m</small></div>'+
+      '<input type="number" class="field-input" value="'+(w || '')+'" placeholder="0.9" min="0" step="0.1" inputmode="decimal" onchange="onFittedUnitBayWidthChange('+i+',this.value)"></div>';
+  }).join('');
+}
+
+function onFittedUnitBayWidthChange(i, value) {
+  var f = currentFittedUnit(); if (!f) return;
+  syncFittedUnitBayWidths(f);
+  if (i < 0 || i >= f.bayWidthsM.length) return;
+  f.bayWidthsM[i] = Math.max(0, +value || 0);
+  saveFittedUnitJob();
+}
+
+function setFittedUnitDoorSize(size) {
+  var f = currentFittedUnit(); if (!f) return;
+  f.doorSize = FU_DOOR_SIZE_MULT[size] ? size : 'standard';
+  var doorSizeVals = ['small','standard','large'];
+  document.querySelectorAll('#seg-fu-doorsize .seg-btn').forEach(function(b,i){ b.classList.toggle('active', doorSizeVals[i]===f.doorSize); });
   saveFittedUnitJob();
 }
 
@@ -11298,7 +11401,7 @@ function updateFittedUnitTotals() {
   var rows = [
     ['Shelves ('+c.passes+' coat passes)', c.shelfCost],
     ['Bay carcasses', c.bayCost],
-    ['Cabinet doors', c.doorCost],
+    ['Cabinet doors'+(c.doorSizeMult !== 1 ? ' ('+(f.doorSize)+' — ×'+c.doorSizeMult+')' : ''), c.doorCost],
     ['Complexity/masking uplift (+'+c.upliftPct+'%)', c.upliftCost]
   ].filter(function(r){ return r[1]>0; });
   if (!rows.length) { card.style.display='none'; return; }
