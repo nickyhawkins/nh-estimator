@@ -1,10 +1,13 @@
 # Product Coverage Rate Settings
 
-**Status: BUILT 2026-08-13 (v2.19.0); revised 2026-08-13 (v2.22.0).** As-built notes
-follow the spec below. The v2.22.0 revision changed where the Settings product
-picker sources from: material **groups/ranges** directly (e.g. "Tikkurila Optiva 5"),
-not individual Xero sales items — coverage per litre doesn't change between pack
-sizes of the same product, so there was nothing for the item pick to add. The spec
+**Status: BUILT 2026-08-13 (v2.19.0); revised 2026-08-13 (v2.22.0, v2.23.0).**
+As-built notes follow the spec below. The v2.22.0 revision changed where the
+Settings product picker sources from: material **groups/ranges** directly (e.g.
+"Tikkurila Optiva 5"), not individual Xero sales items — coverage per litre doesn't
+change between pack sizes of the same product, so there was nothing for the item
+pick to add. The v2.23.0 revision added the per-entry **Self-priming** flag: a
+woodwork product's entry now decides whether rooms using it buy a separate primer,
+replacing the manual per-room toggles whenever the product is on record. The spec
 text below is the revised version; matching, calc and spraying were already
 group-level and are unchanged.
 
@@ -27,6 +30,8 @@ New settings section, e.g. "Coverage Rates."
   - Surface type (dropdown, reusing the existing categories: wall / woodwork /
     ceiling / etc.)
   - Coverage rate (sqm per litre — same unit the current flat-rate calc already uses)
+  - Self-priming (toggle) — whether this product primes as it goes, so a separate
+    primer isn't needed
   - Default number of coats (optional — jobs can still override coats manually as today)
 - Add / edit / delete entries here at any time.
 - No requirement to populate every product up front — the list only needs what's
@@ -43,11 +48,18 @@ New settings section, e.g. "Coverage Rates."
 - Product group selected → use its coverage rate for the material quantity
   calculation. Actual pack size for purchasing/materials list stays governed by the
   existing size logic — the coverage rate itself just applies at the group level.
+- Self-priming is now driven by the selected product's own setting rather than a
+  manual per-job toggle: if the product's Self-priming flag is on, no primer line is
+  added to the materials list; if off, a primer coat/quantity is added
+  automatically. This replaces the existing standalone self-priming toggle in the
+  quoting flow — remove that separate control once this is wired up.
 - "Standard / default" or nothing selected → fall back to today's flat sqm rate for
-  that surface type exactly as now. No regression for surfaces without a
-  product-specific entry yet.
-- Once a product's coverage rate is set up here, it's selectable and self-consistent
-  on every future quote — no re-entering rates job to job.
+  that surface type exactly as now, with self-priming behaving as it does currently
+  (manual toggle) since there's no product on record to drive it. No regression for
+  surfaces without a product-specific entry yet.
+- Once a product group's coverage rate is set up here, it's selectable and
+  self-consistent on every future quote — no re-entering rates or priming behaviour
+  job to job.
 
 ## Spraying toggle
 
@@ -84,6 +96,10 @@ surface/area.
   higher than with it off.
 - Toggle Spraying on for a wall using a product-specific rate → the 30% applies on
   top of that product's rate, not the default.
+- Select a product with Self-priming on → no primer line appears in the materials
+  list.
+- Select a product with Self-priming off → a primer quantity is calculated and
+  added automatically, without Nicky needing to toggle anything manually.
 
 ---
 
@@ -92,7 +108,7 @@ surface/area.
 ### Data model
 
 `settings.coverageRates` — an array on the existing settings blob (no DB changes),
-each entry `{ id, range, surface, rate, coats }`:
+each entry `{ id, range, surface, rate, coats, selfPriming }`:
 
 - **range** — the material group picked in Settings, straight from
   `materialGroupsCache` (the `/auth/material-groups` grouping — the same range/band
@@ -116,8 +132,43 @@ the Standard / default figures): a Per-Product Rates list with inline rate/coats
 editing and ✕ delete, plus an add form — a product-range picker over
 `Object.keys(materialGroupsCache)` (tap for the full group list, type to filter;
 sundries never appear because they aren't ranges), surface select, rate, optional
-coats. Duplicates per group+surface are blocked with an alert naming the existing
-entry (`addCoverageRate()`), never silently stacked.
+coats, and (woodwork surface only) a Self-priming toggle. Duplicates per
+group+surface are blocked with an alert naming the existing entry
+(`addCoverageRate()`), never silently stacked.
+
+### Self-priming (v2.23.0)
+
+- **The flag lives on woodwork entries only** — woodwork is the one surface that
+  buys primer through the coverage formula (walls have the mist-coat model), so
+  the add form's toggle and the list rows' "primes" tick only show for woodwork;
+  entries on other surfaces store `selfPriming: false`. Entries saved before the
+  flag existed read as **false** (primer needed), never as "no product on record".
+- **Driven vs manual** (`coverageSelfPrimingFor(range)` → true/false when the
+  range has a woodwork entry, null when it hasn't): in `calcRoom()`, the room's
+  effective topcoat product (override, else Settings default — the same
+  resolution as the rates) with an entry DRIVES the coat swap for **both**
+  woodwork buckets, other woodwork (skirting/sills/windows) and doors/frames —
+  they paint from the same topcoat tin, so one product answers for both — and the
+  room's manual `selfPrimingWoodwork`/`doorSelfPriming` flags are ignored. No
+  entry = the manual toggles exactly as before, no regression.
+- **The swap itself is unchanged** either way: one extra topcoat coat-equivalent
+  instead of the primer coat (the v2.1.0 model), so a driven-on room prices
+  identically to the same room with both manual toggles on.
+- **The manual controls hide, they aren't deleted**: `updateSelfPrimingDrivenUI()`
+  (hooked into the topcoat picker's repopulation) swaps the two toggle rows for a
+  "On/Off — <product>" note while driven. The stored per-room flags survive
+  underneath, so deleting the product's entry brings the toggles back with their
+  old values. **Exterior items keep their manual toggles** (exterior litres don't
+  run through coverage entries at all), and the **fitted unit's primer is
+  untouched** (its prep-level control already owns the prime-or-not decision).
+- **`primerNone` still wins**: it's a product choice ("don't buy a primer
+  product"), not a coat swap, so it zeroes primer litres even when a driven-off
+  product would otherwise add them.
+- **⚠ Behaviour change on existing jobs, per the spec**: a room whose topcoat
+  product already has a woodwork entry now follows the entry's flag (false until
+  ticked), even if its manual toggle said self-priming — that's the point of
+  "driven by the product", but worth knowing the first time an old quote's primer
+  line reappears.
 
 ### The room "product dropdown" is the existing per-room product picker
 
