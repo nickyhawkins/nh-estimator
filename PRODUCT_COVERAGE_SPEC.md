@@ -1,15 +1,19 @@
 # Product Coverage Rate Settings
 
-**Status: BUILT 2026-08-13 (v2.19.0); revised 2026-08-13 (v2.22.0, v2.23.0).**
+**Status: BUILT 2026-08-13 (v2.19.0); revised 2026-08-13 (v2.22.0, v2.23.0,
+v2.24.0).**
 As-built notes follow the spec below. The v2.22.0 revision changed where the
 Settings product picker sources from: material **groups/ranges** directly (e.g.
 "Tikkurila Optiva 5"), not individual Xero sales items — coverage per litre doesn't
 change between pack sizes of the same product, so there was nothing for the item
 pick to add. The v2.23.0 revision added the per-entry **Self-priming** flag: a
 woodwork product's entry now decides whether rooms using it buy a separate primer,
-replacing the manual per-room toggles whenever the product is on record. The spec
-text below is the revised version; matching, calc and spraying were already
-group-level and are unchanged.
+replacing the manual per-room toggles whenever the product is on record. The
+v2.24.0 revision extended the flag to **fitted furniture and panelling**: a Bare
+fitted unit follows its topcoat product's flag (swap primer for an extra topcoat
+coat), and a panelling entry's flag decides a panel primer that was never priced
+before. The spec text below is the revised version; matching, calc and spraying
+were already group-level and are unchanged.
 
 ## Purpose
 
@@ -136,13 +140,14 @@ coats, and (woodwork surface only) a Self-priming toggle. Duplicates per
 group+surface are blocked with an alert naming the existing entry
 (`addCoverageRate()`), never silently stacked.
 
-### Self-priming (v2.23.0)
+### Self-priming (v2.23.0; extended to fitted units + panelling v2.24.0)
 
-- **The flag lives on woodwork entries only** — woodwork is the one surface that
-  buys primer through the coverage formula (walls have the mist-coat model), so
-  the add form's toggle and the list rows' "primes" tick only show for woodwork;
-  entries on other surfaces store `selfPriming: false`. Entries saved before the
-  flag existed read as **false** (primer needed), never as "no product on record".
+- **The flag lives on woodwork and panelling entries** (`SELF_PRIMING_SURFACES`) —
+  the surfaces that buy primer through the coverage formula (walls have the
+  mist-coat model), so the add form's toggle and the list rows' "primes" tick only
+  show for those; entries on other surfaces store `selfPriming: false`. Entries
+  saved before the flag existed read as **false** (primer needed), never as "no
+  product on record".
 - **Driven vs manual** (`coverageSelfPrimingFor(range)` → true/false when the
   range has a woodwork entry, null when it hasn't): in `calcRoom()`, the room's
   effective topcoat product (override, else Settings default — the same
@@ -154,13 +159,29 @@ group+surface are blocked with an alert naming the existing entry
 - **The swap itself is unchanged** either way: one extra topcoat coat-equivalent
   instead of the primer coat (the v2.1.0 model), so a driven-on room prices
   identically to the same room with both manual toggles on.
+- **Fitted units follow their topcoat product** (v2.24.0): the unit's effective
+  range (own pick, else the Settings woodwork topcoat) against the woodwork
+  surface. Flag on + **Bare/Primed** prep → no primer bought, one extra topcoat
+  coat-equivalent instead — the same swap as rooms; the priming PASS and its
+  labour stay (bare wood still gets three trips, the first is just the
+  self-priming topcoat). Flag off or no entry → primer exactly as before.
+  **Existing painted** prep never primes regardless — the prep level still owns
+  that side.
+- **Panelling gains primer for the first time** (v2.24.0): panels never bought
+  primer before, so the flag is its ONLY source — a panel product entry with
+  Self-priming **off** adds primer on the panel's area × coats basis (bare
+  MDF/timber under ordinary paint needs it), joining the room's one primer figure
+  (same product resolution: a real primer entry's rate, else the 0.8-of-topcoat
+  proxy; no spray uplift on the panel share, matching panel topcoat litres). Flag
+  **on** or **no entry** = the historical no-primer behaviour, so nothing moves
+  until a panel product is on record. No coat swap on the panel topcoat either
+  way — panel coats are typed per wall and there was no primer coat to replace.
 - **The manual controls hide, they aren't deleted**: `updateSelfPrimingDrivenUI()`
   (hooked into the topcoat picker's repopulation) swaps the two toggle rows for a
   "On/Off — <product>" note while driven. The stored per-room flags survive
   underneath, so deleting the product's entry brings the toggles back with their
   old values. **Exterior items keep their manual toggles** (exterior litres don't
-  run through coverage entries at all), and the **fitted unit's primer is
-  untouched** (its prep-level control already owns the prime-or-not decision).
+  run through coverage entries at all).
 - **`primerNone` still wins**: it's a product choice ("don't buy a primer
   product"), not a coat swap, so it zeroes primer litres even when a driven-off
   product would otherwise add them.
@@ -168,7 +189,9 @@ group+surface are blocked with an alert naming the existing entry
   product already has a woodwork entry now follows the entry's flag (false until
   ticked), even if its manual toggle said self-priming — that's the point of
   "driven by the product", but worth knowing the first time an old quote's primer
-  line reappears.
+  line reappears. Likewise a panelled room whose panel product already has a
+  panel entry starts buying panel primer until that entry's flag is ticked, and a
+  Bare fitted unit on a flag-ticked product stops buying primer.
 
 ### The room "product dropdown" is the existing per-room product picker
 
