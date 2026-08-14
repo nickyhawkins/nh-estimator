@@ -38,7 +38,7 @@ The app is a web app installed on your phone's home screen (PWA). Everything you
 | 🛠️ **On Site** | Running the job: days on site, variations, materials used, invoice |
 | 📋 **Summary** | The quote: totals, markup, payment plan, send to Xero |
 
-**☰ menu** (top-right on every screen): **Jobs** (with the active job's name shown under it), **Colours**, **Schedule**, **Settings**, plus the sync status and build number. The red badge on the ☰ icon is the count of materials still to buy for the current job.
+**☰ menu** (top-right on every screen): **Jobs** (with the active job's name shown under it), **Colours**, **Schedule**, **Rates**, **Settings**, plus the sync status and build number. The red badge on the ☰ icon is the count of materials still to buy for the current job.
 
 **Home** shows the attention strip — quotes to chase (after the "Chase quotes after" number of days in Settings), accepted jobs not yet scheduled, completed jobs not yet invoiced, and a nudge when your last backup is getting old.
 
@@ -46,7 +46,7 @@ The app is a web app installed on your phone's home screen (PWA). Everything you
 
 ## 2. Jobs
 
-Open **☰ → Jobs**. Each job holds its own rooms, exterior items, kitchen, colours, materials and client details. Settings (your rates) are global.
+Open **☰ → Jobs**. Each job holds its own rooms, exterior items, kitchen, colours, materials and client details. Rates and Settings are global — they apply to every job.
 
 - **+** creates a new job. **✎** renames, **⧉** duplicates (a quick way to reuse a similar job as a template — notes are not copied), swipe/delete removes.
 - **Job status** drives everything: **Draft → Quoted** (set automatically when a quote is sent to Xero) **→ Accepted / Declined → Completed → Invoiced**. Change it from the Summary's status card or the Jobs list. Marking Accepted/Declined also updates the quote's status in Xero automatically (quotes sent before mid-July 2026 never stored a quote link, so mark those in Xero by hand).
@@ -67,10 +67,10 @@ Cards top to bottom (some are collapsed — tap to open):
   - **Segments** — build the room from rectangular zones (L×W each) that sum to the wall run and ceiling area — for L-shapes and rooms with big alcoves.
 - **Bay Window & Alcove/Dormer** — add-ons in any shape mode: extra bay perimeter (joins the wall run, so skirting and wallpaper pick it up too), extra wall/ceiling m² for alcoves and dormers, and a **sloped ceiling** toggle that swaps the ceiling from calculated to a measured figure.
 - **Staircase / HSL toggle** — turns the room into a hall/stairs/landing job; see [Staircases](#4-staircases-hsl).
-- **Coats** — wall, ceiling and woodwork coat counts, plus a spray toggle per surface: **Spray walls** (off by default — also adds the spray sundries bump for the extra masking), **Spray ceiling** and **Spray woodwork** (both on by default — ceilings and woodwork are normally sprayed). A surface's toggle adds the Settings spraying uplift % to its litres, on top of the standard or per-product rate; labour time is unchanged. The Fitted Unit form has its own **Sprayed finish** toggle (off by default); kitchens are always priced as sprayed — that's what the kitchen calculator is.
+- **Coats** — wall, ceiling and woodwork coat counts, plus a spray toggle per surface: **Spray walls** (off by default — also adds the spray sundries bump for the extra masking), **Spray ceiling** and **Spray woodwork** (both on by default — ceilings and woodwork are normally sprayed). A surface's toggle adds the Rates spraying uplift % to its litres, on top of the standard or per-product rate; labour time is unchanged. The Fitted Unit form has its own **Sprayed finish** toggle (off by default); kitchens are always priced as sprayed — that's what the kitchen calculator is.
 - **Feature Wall** — price one wall separately, in **paint** (own colour/product, carved out of the main walls) or **wallpaper** (excluded from paint entirely, priced by the roll).
 - **Excluded Walls** — width × height rows for walls you're not painting (wallpaper staying up, etc.); the area comes off everything downstream.
-- **Doors & Frames** — doors and frames are separate line items, each with its own quantity, coats and prep. Per line: **Fire door** (FD30/FD60 surcharge, edges included in the paint calc), **ironmongery** (remove & refit, or mask in place), **Self-priming paint** (swaps the primer coat for an extra topcoat in the litres calc — once the room's woodwork paint has a Coverage Rates entry in Settings, that entry's Self-priming flag takes over and the manual toggle is replaced by a note), and **Both sides** (price the whole leaf as one line). A door between two rooms is normally priced once per room — one face each.
+- **Doors & Frames** — doors and frames are separate line items, each with its own quantity, coats and prep. Per line: **Fire door** (FD30/FD60 surcharge, edges included in the paint calc), **ironmongery** (remove & refit, or mask in place), **Self-priming paint** (swaps the primer coat for an extra topcoat in the litres calc — once the room's woodwork paint has a Coverage Rates entry in Rates, that entry's Self-priming flag takes over and the manual toggle is replaced by a note), and **Both sides** (price the whole leaf as one line). A door between two rooms is normally priced once per room — one face each.
 - **Extras** — windows, radiators, and internal **window sills** (plastic windows with wooden sills).
 - **Wallpaper** — see [Wallpaper](#5-wallpaper) below.
 - **Mist Coat** — for new plaster; the **Manual area override** covers the "only part of it is new plaster" case.
@@ -81,27 +81,27 @@ Cards top to bottom (some are collapsed — tap to open):
 
 ### 4. Staircases (HSL)
 
-Toggle **Staircase / HSL** on the room form. Choose the number of floors, then fill in the Ground Floor Hall, Staircase(s) and Landing(s) cards. The app derives the true stair-wall shape (the raking wall with its stepped bottom) from steps × tread, the hall width and the top step — you measure heights, it derives widths. Spindles, newels, strings and handrails are counted, with their per-item timings editable under **Settings → Time Rates**. Staircase wallpaper reuses the same geometry to work out drop lengths.
+Toggle **Staircase / HSL** on the room form. Choose the number of floors, then fill in the Ground Floor Hall, Staircase(s) and Landing(s) cards. The app derives the true stair-wall shape (the raking wall with its stepped bottom) from steps × tread, the hall width and the top step — you measure heights, it derives widths. Spindles, newels, strings and handrails are counted, with their per-item timings editable under **Rates → Time Rates**. Staircase wallpaper reuses the same geometry to work out drop lengths.
 
 ### 5. Wallpaper
 
 Wallpaper is measured per room (or on the feature wall alone). Nicky doesn't supply paper — the app tells you (and the client) **how many rolls to order**, and charges **labour per roll**: lining £30 / finish £40 per roll hung (editable), +15% on ceilings, +25% on staircases, with a **£200 minimum** per room's wallpaper labour. Lining and finish can both be on in one room — labour sums across the mix.
 
 - Roll size defaults to the UK standard (10.05m × 0.53m), editable per job. Pattern repeat is entered in **cm**. Match type (none / straight / offset) drives the waste allowance.
-- **Wallpaper types**: **Standard Roll** (the roll calculation above), **Wide Vinyl** (commercial 137cm material, priced per metre/area — feature wall only) and **Mural** (printed to the wall size, priced per m² or a flat fee — feature wall only). Rates for all of these live under **Settings → Wallpaper Rates**.
+- **Wallpaper types**: **Standard Roll** (the roll calculation above), **Wide Vinyl** (commercial 137cm material, priced per metre/area — feature wall only) and **Mural** (printed to the wall size, priced per m² or a flat fee — feature wall only). Rates for all of these live under **Rates → Wallpaper Rates**.
 - The roll count errs generous — an extra roll is the client's cost; running short mid-job is yours.
 
 ### 6. Exterior items
 
-**+ → Exterior item.** Each item (e.g. "Front of house") has collapsible sections: **Masonry / Render** (with **Spray render** and **Textured render** toggles — texture is slower and drinks more paint), **Fascias & Soffits**, **Exterior Windows** (one row per matching group, with panes-per-window and an S/M/L size band), **Exterior Doors** (same fire-door/ironmongery/self-priming options as interior), **Garage Doors**, **Porch / Feature Door**, **Sash Window Restoration** (prime & paint plus resin repairs, reglazing, draught-proofing, cords and beads), **Preparation**, **Paint Colours** (one masonry colour + one exterior woodwork colour per item) and **Paint Products**. Access uplifts for 1st floor and 2nd floor+ are applied per item; the percentages are in Settings.
+**+ → Exterior item.** Each item (e.g. "Front of house") has collapsible sections: **Masonry / Render** (with **Spray render** and **Textured render** toggles — texture is slower and drinks more paint), **Fascias & Soffits**, **Exterior Windows** (one row per matching group, with panes-per-window and an S/M/L size band), **Exterior Doors** (same fire-door/ironmongery/self-priming options as interior), **Garage Doors**, **Porch / Feature Door**, **Sash Window Restoration** (prime & paint plus resin repairs, reglazing, draught-proofing, cords and beads), **Preparation**, **Paint Colours** (one masonry colour + one exterior woodwork colour per item) and **Paint Products**. Access uplifts for 1st floor and 2nd floor+ are applied per item; the percentages are in Rates.
 
-Exterior paint litres are estimated from assumed areas per unit (window, sash, door, garage, fascia width) — the defaults are educated guesses, so calibrate them in **Settings → Exterior Paint Coverage & Areas** as real jobs prove them out.
+Exterior paint litres are estimated from assumed areas per unit (window, sash, door, garage, fascia width) — the defaults are educated guesses, so calibrate them in **Rates → Exterior Paint Coverage & Areas** as real jobs prove them out.
 
 ### 7. Kitchen (cabinet spraying)
 
-**+ → Kitchen.** One kitchen per job, edited in place (no Save button). Set the coat count once (1–4), then enter quantities per size tier (Small/Medium/Large/X-Large) for Doors, Drawer Fronts, End Panels and Fillers, run lengths in metres for Plinths and Cornices, the **Glazed/Curved** premium where it applies, and the **Spray carcasses** toggle (a % uplift on doors + drawers + end panels). Every price and increment is editable under **Settings → Kitchen Rates** — the shipped figures are draft market-research numbers, so check them against your own pricing.
+**+ → Kitchen.** One kitchen per job, edited in place (no Save button). Set the coat count once (1–4), then enter quantities per size tier (Small/Medium/Large/X-Large) for Doors, Drawer Fronts, End Panels and Fillers, run lengths in metres for Plinths and Cornices, the **Glazed/Curved** premium where it applies, and the **Spray carcasses** toggle (a % uplift on doors + drawers + end panels). Every price and increment is editable under **Rates → Kitchen Rates** — the shipped figures are draft market-research numbers, so check them against your own pricing.
 
-**Painting over melamine?** Turn on **Strip original coating** in the Prep card at the top. It adds stripping time to every piece you've counted — doors, drawer fronts, end panels and fillers — at 5/6/7/8 minutes each for Small/Medium/Large/X-Large, charged at your day rate. Nothing to re-enter: it works off the counts already there, and the line beneath the toggle shows the sum it priced ("Stripping: 12×5min + 7×6min + 3×7min = 123 min · £87.86 labour") so you can check it before it lands in the total. Glazed/curved pieces strip at the same rate as flat ones of their size — the Glazed/Curved premium is for the *spraying*, not the stripping — and cornices/plinths get nothing (they're priced per metre, with no size tier). It's labour only: no extra materials, discs come out of the day rate. Off by default, and the minutes are editable under **Settings → Kitchen Rates**.
+**Painting over melamine?** Turn on **Strip original coating** in the Prep card at the top. It adds stripping time to every piece you've counted — doors, drawer fronts, end panels and fillers — at 5/6/7/8 minutes each for Small/Medium/Large/X-Large, charged at your day rate. Nothing to re-enter: it works off the counts already there, and the line beneath the toggle shows the sum it priced ("Stripping: 12×5min + 7×6min + 3×7min = 123 min · £87.86 labour") so you can check it before it lands in the total. Glazed/curved pieces strip at the same rate as flat ones of their size — the Glazed/Curved premium is for the *spraying*, not the stripping — and cornices/plinths get nothing (they're priced per metre, with no size tier). It's labour only: no extra materials, discs come out of the day rate. Off by default, and the minutes are editable under **Rates → Kitchen Rates**.
 
 Each of the four item sections shows its **piece count** on the header once collapsed (13 doors, 4 drawer fronts, and so on), so you can shut them all and tally the kitchen at a glance before leaving site. Glazed/curved pieces are counted once, not twice — they're part of the quantity beside them, not extra.
 
@@ -164,25 +164,36 @@ The **On Site** tab is the job-management home once a quote is accepted:
 
 From On Site (on a completed job), **Build final invoice** assembles: labour as quoted + variations + materials as actually used − deposits/instalments already received (applied in Xero). Any line can be dropped before sending. One tap creates a **DRAFT invoice in Xero** for final checking there; the job's status becomes **Invoiced**. Imported-from-Xero jobs keep their invoicing in Xero while they have no measured rooms.
 
-## 14. Settings reference
+## 14. Rates & Settings reference
+
+Two screens, both off the ☰ menu. **Rates** holds the figures behind every calculated price — the tables you add to as new products and job types come up. **Settings** holds the things you set once: what a day is worth, what goes on top, Xero, backup.
+
+### Rates
+
+| Section | Card | What's in it |
+|---|---|---|
+| Paint Coverage | **Coverage Rates** | Standard m²/litre per surface (walls, ceiling, gloss, mist, panelling — all **un-sprayed base figures**) and the **spraying uplift %** (one global figure — extra litres when a surface's Spray toggle is on, applied on top of whichever rate is in play; ceilings & woodwork spray by default, walls and fitted units per job), plus **per-product rates**: pick a product range (the same group list the room product pickers use — one rate covers every colour and tin size of the product), a surface and its true m²/litre (and an optional default coat count) — any room using that product (picked on the room or as the Materials default) then calculates litres from the product's own rate; products without an entry keep the standard rate. Woodwork and panelling entries also carry a **Self-priming** flag: on woodwork, ticked means rooms and fitted units on that product skip the separate primer (one extra topcoat coat instead) and unticked means primer is added automatically — either way the product decides, and the rooms' manual self-priming toggles only apply while the paint has no entry here; on panelling, unticked adds a panel primer (panelling never bought one before) and ticked or no entry keeps it primer-free |
+| Paint Coverage | **Exterior Paint Coverage & Areas** | The assumed areas and coverages behind exterior litres — calibrate against real jobs |
+| Labour Times | **Time Rates** | mins/m² (or per item) for every surface, doors/frames, sills, mist, panelling, staircase parts |
+| Labour Times | **Exterior Rates** | mins per coat for masonry (smooth/textured), fascias, windows (base/per-pane/size ×), doors, garage, sash extras, access uplifts |
+| Item & Job-Type | **Doors & Frames** | Paintable areas per face, fire-door edge area & surcharge, ironmongery prices |
+| Item & Job-Type | **Wallpaper Rates** | Per-roll rates, ceiling/staircase multipliers, trim allowance, minimum price, wide vinyl & mural rates |
+| Item & Job-Type | **Kitchen Rates** | The full price matrix per item type × size, linear rates, glazed/curved %, carcass %, strip-original-coating minutes per size |
+| Item & Job-Type | **Fitted Unit / Shelving** | Shelf and bay spray times per coat pass, and the fallback shelf/carcass areas behind fitted-unit litres |
+
+Rates take effect immediately on every open (un-accepted) quote — editing a Time Rate reprices live drafts on the spot.
+
+### Settings
 
 | Card | What's in it |
 |---|---|
-| **Your Rates** | Day rate, hours/day, default markup %, commercial %, standalone rounding (full/half day), sundries %, spray sundries bump, deposit %, chase-quotes-after days |
+| **Pricing** | Day rate, hours/day, default markup %, commercial %, standalone rounding (full/half day), sundries %, spray sundries bump, deposit %, chase-quotes-after days |
 | **Scheduling** | Daily overhead mins, schedule buffer %, Work Saturdays, bank-holiday region, calendar feed |
-| **Coverage Rates** | Standard m²/litre per surface (walls, ceiling, gloss, mist, panelling — all **un-sprayed base figures**) and the **spraying uplift %** (one global figure — extra litres when a surface's Spray toggle is on, applied on top of whichever rate is in play; ceilings & woodwork spray by default, walls and fitted units per job), plus **per-product rates**: pick a product range (the same group list the room product pickers use — one rate covers every colour and tin size of the product), a surface and its true m²/litre (and an optional default coat count) — any room using that product (picked on the room or as the Materials default) then calculates litres from the product's own rate; products without an entry keep the standard rate. Woodwork and panelling entries also carry a **Self-priming** flag: on woodwork, ticked means rooms and fitted units on that product skip the separate primer (one extra topcoat coat instead) and unticked means primer is added automatically — either way the product decides, and the rooms' manual self-priming toggles only apply while the paint has no entry here; on panelling, unticked adds a panel primer (panelling never bought one before) and ticked or no entry keeps it primer-free |
-| **Time Rates** | mins/m² (or per item) for every surface, doors/frames, sills, mist, panelling, staircase parts |
-| **Doors & Frames** | Paintable areas per face, fire-door edge area & surcharge, ironmongery prices |
-| **Wallpaper Rates** | Per-roll rates, ceiling/staircase multipliers, trim allowance, minimum price, wide vinyl & mural rates |
-| **Exterior Rates** | mins per coat for masonry (smooth/textured), fascias, windows (base/per-pane/size ×), doors, garage, sash extras, access uplifts |
-| **Exterior Paint Coverage & Areas** | The assumed areas and coverages behind exterior litres — calibrate against real jobs |
-| **Kitchen Rates** | The full price matrix per item type × size, linear rates, glazed/curved %, carcass %, strip-original-coating minutes per size |
 | **Xero Integration** | Connect / disconnect |
 | **Materials (Xero Items)** | Default product range + colour band per role |
+| **Quote & Invoice Text** | The per-job-type wording templates for quotes and final invoices |
 | **Appearance** | Light/dark/auto theme (this phone only) |
 | **Backup** | Export / import — see below |
-
-Rates take effect immediately on every open (un-accepted) quote — editing a Time Rate reprices live drafts on the spot.
 
 ## 15. Backup
 

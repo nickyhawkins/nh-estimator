@@ -216,7 +216,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 .nav-icon{font-size:19px;position:relative}
 .nav-label{font-size:10px;font-weight:600;letter-spacing:.3px}
 
-/* Hamburger menu — job admin (Jobs / Materials / Settings). One overlay
+/* Hamburger menu — job admin (Jobs / Colours / Rates / Settings). One overlay
    shared by all 4 measuring screens rather than 4 copies, since it's a
    fixed-position layer that floats above whichever screen is active. Replaces
    the "My Job ›" text + ⚙️ gear that used to be scattered, inconsistently,
@@ -427,6 +427,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       <div class="field-row" style="cursor:pointer" onclick="goTab('schedule')"><div class="field-label">Schedule</div><span class="nav-menu-arrow">›</span></div>
       <div class="field-row" style="cursor:pointer" onclick="openActuals()"><div class="field-label">On Site</div><span class="nav-menu-arrow">›</span></div>
       <div class="field-row" style="cursor:pointer" onclick="goTab('colours')"><div class="field-label">Colours</div><span class="nav-menu-arrow">›</span></div>
+      <div class="field-row" style="cursor:pointer" onclick="goTab('rates')"><div class="field-label">Rates</div><span class="nav-menu-arrow">›</span></div>
       <div class="field-row" style="cursor:pointer" onclick="goTab('settings')"><div class="field-label">Settings</div><span class="nav-menu-arrow">›</span></div>
     </div>
     <div id="dash-sync" style="text-align:center;font-size:12px;color:var(--text2);padding:4px 0 12px"></div>
@@ -590,7 +591,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       <div class="field-row"><div class="field-label">Ceiling</div><div class="seg" id="seg-cc"><button class="seg-btn" onclick="setSeg('cc',0)">0</button><button class="seg-btn" onclick="setSeg('cc',1)">1</button><button class="seg-btn active" onclick="setSeg('cc',2)">2</button><button class="seg-btn" onclick="setSeg('cc',3)">3</button></div></div>
       <div class="field-row"><div class="field-label">Woodwork</div><div class="seg" id="seg-xc"><button class="seg-btn" onclick="setSeg('xc',0)">0</button><button class="seg-btn" onclick="setSeg('xc',1)">1</button><button class="seg-btn active" onclick="setSeg('xc',2)">2</button><button class="seg-btn" onclick="setSeg('xc',3)">3</button></div></div>
       <div class="toggle-row" style="border-top:1px solid var(--border)">
-        <div class="toggle-label">Spray walls<small>Adds the Settings spraying uplift % to wall litres (on top of the standard or per-product rate), and this room's labour picks up the spray sundries bump. Labour time is unchanged</small></div>
+        <div class="toggle-label">Spray walls<small>Adds the Rates spraying uplift % to wall litres (on top of the standard or per-product rate), and this room's labour picks up the spray sundries bump. Labour time is unchanged</small></div>
         <div class="toggle" id="tog-spray" onclick="toggleSprayWalls()"></div>
       </div>
       <div class="toggle-row">
@@ -708,7 +709,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
           <div class="toggle" id="tog-firedoor" onclick="toggleFireDoor()"></div>
         </div>
         <div class="toggle-row" style="border-top:1px solid var(--border)">
-          <div class="toggle-label">Self-priming paint<small>Skips the primer coat, adds one extra topcoat instead — set per product in Settings → Coverage Rates once the woodwork paint has an entry there</small></div>
+          <div class="toggle-label">Self-priming paint<small>Skips the primer coat, adds one extra topcoat instead — set per product in Rates → Paint Coverage once the woodwork paint has an entry there</small></div>
           <div class="toggle" id="tog-doorselfpriming" onclick="toggleDoorSelfPriming()"></div>
           <span id="driven-doorselfpriming" style="display:none;flex-shrink:0;font-size:12px;font-weight:600;color:var(--text2);text-align:right;max-width:45%"></span>
         </div>
@@ -837,7 +838,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
           <input type="number" class="field-input" id="r-prep-custom" placeholder="0" min="0" max="100" step="5" inputmode="numeric" oninput="previewRoom()">
         </div>
         <div class="toggle-row" style="border-top:1px solid var(--border)">
-          <div class="toggle-label">Self-priming paint<small>Woodwork other than doors/frames (skirting, sills, windows) — skips the primer coat, adds one extra topcoat instead; set per product in Settings → Coverage Rates once the woodwork paint has an entry there</small></div>
+          <div class="toggle-label">Self-priming paint<small>Woodwork other than doors/frames (skirting, sills, windows) — skips the primer coat, adds one extra topcoat instead; set per product in Rates → Paint Coverage once the woodwork paint has an entry there</small></div>
           <div class="toggle" id="tog-selfprimingwoodwork" onclick="toggleSelfPrimingWoodwork()"></div>
           <span id="driven-selfprimingwoodwork" style="display:none;flex-shrink:0;font-size:12px;font-weight:600;color:var(--text2);text-align:right;max-width:45%"></span>
         </div>
@@ -1029,7 +1030,11 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
   <div class="topbar"><div class="topbar-title">Settings</div></div>
   <div class="content">
     <div class="card">
-      <div class="card-header">Your Rates</div>
+      <!-- Was "Your Rates" until v2.29.0 -- with a Rates screen in the menu
+           that name pointed at the wrong place. These are the pricing
+           levers (what an hour is worth, what goes on top); the rate
+           TABLES that feed them moved to Rates. -->
+      <div class="card-header">Pricing</div>
       <div class="field-row"><div class="field-label">Day Rate<small>£ per day</small></div><input type="number" class="field-input" id="s-dr" value="300" min="0" step="10" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Hours Per Day</div><input type="number" class="field-input" id="s-hpd" value="7" min="1" max="12" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Markup<small>%</small></div><input type="number" class="field-input" id="s-mu" value="20" min="0" max="100" step="5" inputmode="numeric" onchange="saveSettings()"></div>
@@ -1069,170 +1074,6 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
         <div style="font-size:12px;color:var(--text2);margin-bottom:6px">In iOS: Settings → Calendar → Accounts → Add Subscribed Calendar, paste this:</div>
         <div id="ics-url" onclick="copyIcsUrl()" style="font-size:11px;color:var(--accent);word-break:break-all;background:var(--surface2);border-radius:8px;padding:8px 10px;cursor:pointer" title="Tap to copy"></div>
       </div>
-    </div>
-    <div class="card">
-      <div class="card-header">Coverage Rates</div>
-      <div class="field-row"><div class="field-label">Wall Emulsion<small>m² per litre — rolled</small></div><input type="number" class="field-input" id="s-cw" value="13" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Spraying uplift<small>% extra litres when a surface's Spray toggle is on (walls off, ceiling &amp; woodwork on by default; fitted unit has its own) — applied on top of the standard or per-product rate, one global figure rather than a sprayed rate per product</small></div><input type="number" class="field-input" id="s-sprayuplift" value="30" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Ceiling Emulsion<small>m² per litre — un-sprayed base; rooms' Spray ceiling toggle (on by default) adds the uplift below on top</small></div><input type="number" class="field-input" id="s-cc" value="17" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Gloss / Satinwood<small>m² per litre — un-sprayed base; rooms' Spray woodwork toggle (on by default) adds the uplift below on top</small></div><input type="number" class="field-input" id="s-cg" value="9" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Mist Coat<small>m² per litre — thinned product</small></div><input type="number" class="field-input" id="s-cmist" value="15" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Panelling<small>m² per litre per coat — draft default, check against your usual product</small></div><input type="number" class="field-input" id="s-cpanel" value="8" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="settings-note">The rates above are the Standard / default figures — used whenever a surface's product has no per-product entry below, so nothing changes until you add one.</div>
-      <!-- Per-product coverage rates (PRODUCT_COVERAGE_SPEC.md): additive
-           list — add a product's real m²/L when it's first used on a job.
-           Product comes from the material RANGES (the same range/band
-           grouping the materials list and room pickers use), never a single
-           Xero tin — coverage per litre doesn't change between pack sizes
-           of one product; duplicates per range+surface are blocked in
-           addCoverageRate() rather than silently stacking. -->
-      <div style="border-top:2px solid var(--border)">
-        <div class="card-header" style="border-bottom:none;padding-bottom:0">Per-Product Rates</div>
-        <div id="coverage-rates-list"></div>
-        <div style="padding:12px 16px;display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--border)">
-          <div style="position:relative">
-            <input type="text" class="field-input" style="width:100%;text-align:left" id="cov-add-product" placeholder="Product range — tap to choose…" autocorrect="off" autocomplete="off" oninput="onCoverageProductInput()" onfocus="onCoverageProductInput()">
-            <div id="cov-add-product-dd" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div>
-          </div>
-          <div style="display:flex;gap:8px">
-            <select class="field-input" id="cov-add-surface" style="flex:1.4;text-align:left" onchange="onCoverageAddSurfaceChange()"></select>
-            <input type="number" class="field-input" id="cov-add-rate" placeholder="m²/L" min="0.5" step="0.5" inputmode="decimal" style="flex:1;width:auto">
-            <input type="number" class="field-input" id="cov-add-coats" placeholder="coats" min="0" max="3" step="1" inputmode="numeric" style="flex:1;width:auto" title="Default coats — optional">
-          </div>
-          <!-- Woodwork + panelling only (SELF_PRIMING_SURFACES): those are
-               the surfaces that buy primer -- walls have the mist-coat
-               model -- so the flag would be dead weight anywhere else. -->
-          <div class="toggle-row" id="cov-add-selfpriming-row" style="display:none;padding:10px 0 0;border:none">
-            <div class="toggle-label">Self-priming<small>Primes as it goes — woodwork/fitted units on this product skip the separate primer (one extra topcoat coat instead) and panelling buys none; off, primer is added automatically. Replaces the rooms' manual Self-priming toggles</small></div>
-            <div class="toggle" id="tog-cov-selfpriming" onclick="toggleCoverageAddSelfPriming()"></div>
-          </div>
-          <button onclick="addCoverageRate()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">+ Add product rate</button>
-        </div>
-        <div class="settings-note">Add a product's real coverage (m² per litre) when you first use it on a job — no need to fill the whole catalogue. Coats is an optional default applied when the product is picked on a room. Rooms using that product (picked on the room, or as the Settings default in Materials below) then calculate litres from its rate on every future quote; products without an entry keep using the standard rates above. A woodwork or panelling entry's Self-priming tick drives the primer everywhere that product is used — woodwork (incl. doors/frames and fitted units): ticked means no primer line (one extra topcoat coat instead), unticked means primer is added automatically, whatever the room's own toggles said; panelling: unticked adds a panel primer that was never bought before, ticked (or no entry) keeps panelling primer-free as it's always been.</div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-header">Time Rates</div>
-      <div class="field-row"><div class="field-label">Walls<small>mins/m² per coat</small></div><input type="number" class="field-input" id="s-rwall" value="3" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Ceilings<small>mins/m² per coat</small></div><input type="number" class="field-input" id="s-rceil" value="5" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Skirtings<small>mins/lm per coat</small></div><input type="number" class="field-input" id="s-rskirt" value="4" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Door prep<small>mins flat per door face — only the side visible from this room, see Frame prep below</small></div><input type="number" class="field-input" id="s-rdoorprep" value="10" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Door per coat<small>mins per coat, per door face — a door between two rooms is priced once per room, one face each</small></div><input type="number" class="field-input" id="s-rdoorcoat" value="10" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Frame prep<small>mins flat per frame face — priceable independently of the door</small></div><input type="number" class="field-input" id="s-rframeprep" value="5" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Frame per coat<small>mins per coat, per frame face</small></div><input type="number" class="field-input" id="s-rframecoat" value="6" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Windows<small>mins/m² total</small></div><input type="number" class="field-input" id="s-rwin" value="35" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Radiators<small>mins/m² total</small></div><input type="number" class="field-input" id="s-rrad" value="15" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Window sills<small>mins per painted internal sill — for plastic windows with wooden sills</small></div><input type="number" class="field-input" id="s-rsill" value="15" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Mist coat<small>mins/m²</small></div><input type="number" class="field-input" id="s-rmist" value="2" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Panelling<small>mins/m² per coat — draft default, adjust to taste</small></div><input type="number" class="field-input" id="s-rpanel" value="6" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Staircase — spindle time<small>minutes per spindle, per coat</small></div><input type="number" class="field-input" id="s-wpstair-spindle-mins" value="5" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Staircase — newel time<small>minutes per newel post, per coat</small></div><input type="number" class="field-input" id="s-wpstair-newel-mins" value="5" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Staircase — string time<small>minutes per metre, per coat</small></div><input type="number" class="field-input" id="s-wpstair-string-mins" value="2" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Staircase — handrail time<small>minutes per metre, per coat</small></div><input type="number" class="field-input" id="s-wpstair-handrail-mins" value="3" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-    </div>
-    <div class="card">
-      <div class="card-header">Doors &amp; Frames</div>
-      <div class="field-row"><div class="field-label">Door face area<small>m² paintable — ONE side of one door leaf, edge included (a door painted both sides ≈ 3.5m², so one face is half). Used for topcoat/primer litres. A door between two rooms is priced once per room — see the Both sides toggle to price a whole leaf as one line instead. Shared by interior rooms and exterior doors.</small></div><input type="number" class="field-input" id="s-doorfacearea" value="1.75" min="0.1" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Frame area<small>m² paintable — ONE side of the frame/lining (the side visible from this room). Shared by interior rooms and exterior doors.</small></div><input type="number" class="field-input" id="s-doorframearea" value="0.4" min="0.1" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Fire door edge area<small>m² — added on top of the face area when a door's Fire door flag is on, so litres cover edges too</small></div><input type="number" class="field-input" id="s-dooredgearea" value="0.3" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Fire door surcharge<small>£ per door — FD30/FD60, intumescent-compatible coating</small></div><input type="number" class="field-input" id="s-firedoorsurcharge" value="10" min="0" step="1" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Ironmongery — remove &amp; refit<small>£ per door</small></div><input type="number" class="field-input" id="s-ironmongeryremove" value="8" min="0" step="1" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Ironmongery — mask in place<small>£ per door</small></div><input type="number" class="field-input" id="s-ironmongerymask" value="4" min="0" step="1" inputmode="decimal" onchange="saveSettings()"></div>
-    </div>
-    <div class="card">
-      <div class="card-header">Wallpaper Rates</div>
-      <div class="field-row"><div class="field-label">Lining paper<small>£ per roll hung</small></div><input type="number" class="field-input" id="s-wplining-rate" value="30" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Finish paper<small>£ per roll hung</small></div><input type="number" class="field-input" id="s-wpfinish-rate" value="40" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Ceiling multiplier<small>% uplift on labour</small></div><input type="number" class="field-input" id="s-wpceil-mult" value="15" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Staircase multiplier<small>% uplift on labour</small></div><input type="number" class="field-input" id="s-wpstair-mult" value="25" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Trim allowance<small>cm added per drop, top+bottom</small></div><input type="number" class="field-input" id="s-wptrim" value="10" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Minimum price<small>£ floor per room's wallpaper labour</small></div><input type="number" class="field-input" id="s-wpmin-price" value="200" min="0" step="10" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Wide vinyl labour<small>£ per linear metre — feature wall only</small></div><input type="number" class="field-input" id="s-wpvinyl-labour-rate" value="18.6" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Wide vinyl material<small>£ per linear metre</small></div><input type="number" class="field-input" id="s-wpvinyl-material-rate" value="0" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Mural labour<small>£ per m² — feature wall only</small></div><input type="number" class="field-input" id="s-wpmural-labour-rate" value="0" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Mural material<small>£ per m²</small></div><input type="number" class="field-input" id="s-wpmural-material-rate" value="0" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Mural flat fee<small>£ — used when priced as a one-off instead of per m²</small></div><input type="number" class="field-input" id="s-wpmural-flat-fee" value="0" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-    </div>
-    <div class="card">
-      <div class="card-header">Exterior Rates</div>
-      <div class="field-row"><div class="field-label">Masonry / Render — smooth<small>mins/m² per coat</small></div><input type="number" class="field-input" id="s-rextmasonry" value="5" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Masonry / Render — textured<small>mins/m² per coat — used when an item's Textured render toggle is on</small></div><input type="number" class="field-input" id="s-rextmasonrytex" value="7" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Fascias &amp; Soffits<small>mins/lm per coat</small></div><input type="number" class="field-input" id="s-rextfascia" value="8" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Ext Window base<small>mins/coat at 2 panes, medium size</small></div><input type="number" class="field-input" id="s-rextwinbase" value="25" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Ext Window per pane<small>mins/coat, beyond 2 panes</small></div><input type="number" class="field-input" id="s-rextwinperpane" value="2" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Small window ×<small>on base mins &amp; litres — under ~0.5m², medium = 1</small></div><input type="number" class="field-input" id="s-rwinsizesmall" value="0.7" min="0.1" step="0.05" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Large window ×<small>on base mins &amp; litres — over ~1.5m², medium = 1</small></div><input type="number" class="field-input" id="s-rwinsizelarge" value="1.4" min="1" step="0.05" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Ext Door<small>mins per coat — door leaf only, see Ext Frame below</small></div><input type="number" class="field-input" id="s-rextdoor" value="75" min="1" step="5" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Ext Frame<small>mins per coat — priceable independently of the door</small></div><input type="number" class="field-input" id="s-rextframe" value="40" min="1" step="5" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Garage Door<small>mins total (2 coats)</small></div><input type="number" class="field-input" id="s-rextgarage" value="150" min="1" step="5" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Sash multiplier<small>% on top of window rate, for sash complexity</small></div><input type="number" class="field-input" id="s-rsashmultiplier" value="20" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Access — 1st floor<small>% uplift, ladder from ground</small></div><input type="number" class="field-input" id="s-raccessfirst" value="10" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Access — 2nd floor +<small>% uplift, tower/scaffold</small></div><input type="number" class="field-input" id="s-raccessladder" value="25" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Resin repair<small>mins per patch</small></div><input type="number" class="field-input" id="s-rresin" value="22" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Reglaze<small>mins per pane</small></div><input type="number" class="field-input" id="s-rreglaze" value="15" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Draught-proofing strip<small>mins per window</small></div><input type="number" class="field-input" id="s-rdraught" value="20" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Sash cords<small>mins per box, sash only</small></div><input type="number" class="field-input" id="s-rsashcords" value="40" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Staff beads<small>mins per box, sash only</small></div><input type="number" class="field-input" id="s-rstaffbeads" value="25" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Parting beads<small>mins per box, sash only</small></div><input type="number" class="field-input" id="s-rpartingbeads" value="35" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-    </div>
-    <div class="card">
-      <div class="card-header">Exterior Paint Coverage &amp; Areas</div>
-      <div class="settings-note">Exterior items only carry counts/lengths, so paint litres are estimated from an assumed paintable area per unit. Start with these defaults and calibrate against real jobs — same idea as the sundries %.</div>
-      <div class="field-row"><div class="field-label">Masonry — smooth, rolled<small>m² per litre, per coat</small></div><input type="number" class="field-input" id="s-extmasonrycov" value="6" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Masonry — smooth, sprayed<small>m² per litre, per coat</small></div><input type="number" class="field-input" id="s-extmasonrycovspray" value="4" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Masonry — textured, rolled<small>m² per litre, per coat</small></div><input type="number" class="field-input" id="s-extmasonrycovtex" value="4" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Masonry — textured, sprayed<small>m² per litre, per coat</small></div><input type="number" class="field-input" id="s-extmasonrycovtexspray" value="3" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Ext woodwork coverage<small>m² per litre, per coat</small></div><input type="number" class="field-input" id="s-extwoodcov" value="12" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Area per window<small>m² paintable, per casement</small></div><input type="number" class="field-input" id="s-extareawindow" value="1.5" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Area per sash window<small>m² paintable, per sash</small></div><input type="number" class="field-input" id="s-extareasash" value="2.5" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Area per garage door<small>m² paintable</small></div><input type="number" class="field-input" id="s-extareagarage" value="6" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Fascia developed width<small>m, to convert linear m → m²</small></div><input type="number" class="field-input" id="s-extfasciawidth" value="0.35" min="0" step="0.05" inputmode="decimal" onchange="saveSettings()"></div>
-    </div>
-    <div class="card">
-      <div class="card-header">Kitchen Rates</div>
-      <div class="settings-note">Draft starting figures — check against your own kitchen-respray pricing before relying on them. Base = prep + 1st coat; +Coat = £ added per additional coat, up to the coat count set on the Kitchen tab.</div>
-      <div style="overflow-x:auto;padding:0 16px 12px">
-        <table style="border-collapse:collapse;width:100%">
-          <thead>
-            <tr style="text-align:left">
-              <th></th>
-              <th colspan="2" style="padding:4px 2px;font-size:11px;font-weight:600;color:var(--text2)">Small</th>
-              <th colspan="2" style="padding:4px 2px;font-size:11px;font-weight:600;color:var(--text2)">Medium</th>
-              <th colspan="2" style="padding:4px 2px;font-size:11px;font-weight:600;color:var(--text2)">Large</th>
-              <th colspan="2" style="padding:4px 2px;font-size:11px;font-weight:600;color:var(--text2)">X-Large</th>
-            </tr>
-            <tr style="text-align:left">
-              <th></th>
-              <th style="padding:0 2px 4px;font-size:10px;font-weight:500;color:var(--text3)">Base</th><th style="padding:0 2px 4px;font-size:10px;font-weight:500;color:var(--text3)">+Coat</th>
-              <th style="padding:0 2px 4px;font-size:10px;font-weight:500;color:var(--text3)">Base</th><th style="padding:0 2px 4px;font-size:10px;font-weight:500;color:var(--text3)">+Coat</th>
-              <th style="padding:0 2px 4px;font-size:10px;font-weight:500;color:var(--text3)">Base</th><th style="padding:0 2px 4px;font-size:10px;font-weight:500;color:var(--text3)">+Coat</th>
-              <th style="padding:0 2px 4px;font-size:10px;font-weight:500;color:var(--text3)">Base</th><th style="padding:0 2px 4px;font-size:10px;font-weight:500;color:var(--text3)">+Coat</th>
-            </tr>
-          </thead>
-          <tbody id="kitchen-rates-body"></tbody>
-        </table>
-      </div>
-      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Cornices<small>£ per metre (base / +coat)</small></div>
-        <div style="display:flex;gap:6px"><input type="number" class="field-input" style="width:60px" id="s-kr-cornice-base" value="25" min="0" step="1" inputmode="numeric" onchange="saveSettings()"><input type="number" class="field-input" style="width:50px" id="s-kr-cornice-coat" value="4" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div></div>
-      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Plinths<small>£ per metre (base / +coat)</small></div>
-        <div style="display:flex;gap:6px"><input type="number" class="field-input" style="width:60px" id="s-kr-plinth-base" value="18" min="0" step="1" inputmode="numeric" onchange="saveSettings()"><input type="number" class="field-input" style="width:50px" id="s-kr-plinth-coat" value="3" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div></div>
-      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Glazed / Curved surcharge<small>% on the matching item/size base price</small></div><input type="number" class="field-input" id="s-kglazedpct" value="50" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Carcass spraying<small>% uplift on doors + drawers + end panels</small></div><input type="number" class="field-input" id="s-kcarcasspct" value="30" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Strip original coating<small>mins per piece — Small / Medium / Large / X-Large, across doors, drawer fronts, end panels and fillers. Charged at the day rate when the Kitchen tab's toggle is on</small></div>
-        <div style="display:flex;gap:6px">
-          <input type="number" class="field-input" style="width:40px" id="s-kstrip-small" value="5" min="0" step="1" inputmode="numeric" onchange="saveSettings()">
-          <input type="number" class="field-input" style="width:40px" id="s-kstrip-medium" value="6" min="0" step="1" inputmode="numeric" onchange="saveSettings()">
-          <input type="number" class="field-input" style="width:40px" id="s-kstrip-large" value="7" min="0" step="1" inputmode="numeric" onchange="saveSettings()">
-          <input type="number" class="field-input" style="width:40px" id="s-kstrip-xlarge" value="8" min="0" step="1" inputmode="numeric" onchange="saveSettings()">
-        </div></div>
-    </div>
-    <div class="card">
-      <div class="card-header">Fitted Unit / Shelving</div>
-      <div class="settings-note">Bespoke built-ins (bookcases, media units) are priced per shelf/bay/door, not by m². A "coat pass" is one trip over the unit — Bare/Primed prep sprays 3 passes (prime + 2 coats), Existing painted sprays 2. Cabinet doors use the interior door rate above. Starting defaults — calibrate against real jobs.</div>
-      <div class="field-row"><div class="field-label">Shelf spray time<small>mins per shelf, per coat pass — covers top, underside &amp; front edge in one time-based unit</small></div><input type="number" class="field-input" id="s-fu-shelfmins" value="6" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Bay carcass time<small>mins per bay, per coat pass — uprights, back &amp; face frame of one vertical section</small></div><input type="number" class="field-input" id="s-fu-baymins" value="15" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
-      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Area per shelf<small>m² paintable — fallback only since v2.25.0: units with a Depth compute the real shelf area (2 × bay width × depth) instead</small></div><input type="number" class="field-input" id="s-fu-shelfarea" value="0.5" min="0.1" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
-      <div class="field-row"><div class="field-label">Bay carcass area ×<small>on frontal area (height × width) per bay — fallback only since v2.25.0: units with a Depth compute the real carcass area (back + sides + top/bottom) instead. Litres only</small></div><input type="number" class="field-input" id="s-fu-bayareafactor" value="1.5" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
     </div>
     <button class="btn btn-danger" onclick="clearEverything()">Clear Everything</button>
     <div class="card">
@@ -1300,6 +1141,194 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
   </div>
 </div>
 
+<!-- ══ RATES (reference data — v2.29.0) ══
+     Split out of Settings, which had grown into two unrelated screens in
+     one: things set once (day rate, markup, Xero, branding) and the rate
+     tables Nicky actually maintains as new products and job types come
+     up. This is the second half. Same shape as Settings -- no back
+     button, no Save button, every input auto-saves through the shared
+     saveSettings(); reached from the hamburger menu beside Settings.
+     Purely a move: the cards below are the SAME DOM, same input ids,
+     same handlers, regrouped under section headers so the page stays
+     scannable as more rate types land (see FEATURES.md v2.29.0). All of
+     it still lives in the one `settings` blob -- no data change. -->
+<div id="screen-rates" class="screen">
+  <div class="topbar"><div class="topbar-title">Rates</div></div>
+  <div class="content">
+    <div class="settings-note" style="padding:0 4px">The figures behind every calculated price. Business settings — day rate, markup, Xero, backup — live on <span style="color:var(--accent);font-weight:600;cursor:pointer" onclick="goTab('settings')">Settings ›</span></div>
+    <div class="section-title">Paint Coverage</div>
+    <div class="settings-note" style="padding:0 4px;margin-top:-8px">How many m² a litre covers — the standard rates, the per-product overrides that beat them, and the assumed areas behind exterior litres.</div>
+    <div class="card">
+      <div class="card-header">Coverage Rates</div>
+      <div class="field-row"><div class="field-label">Wall Emulsion<small>m² per litre — rolled</small></div><input type="number" class="field-input" id="s-cw" value="13" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Spraying uplift<small>% extra litres when a surface's Spray toggle is on (walls off, ceiling &amp; woodwork on by default; fitted unit has its own) — applied on top of the standard or per-product rate, one global figure rather than a sprayed rate per product</small></div><input type="number" class="field-input" id="s-sprayuplift" value="30" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Ceiling Emulsion<small>m² per litre — un-sprayed base; rooms' Spray ceiling toggle (on by default) adds the uplift below on top</small></div><input type="number" class="field-input" id="s-cc" value="17" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Gloss / Satinwood<small>m² per litre — un-sprayed base; rooms' Spray woodwork toggle (on by default) adds the uplift below on top</small></div><input type="number" class="field-input" id="s-cg" value="9" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Mist Coat<small>m² per litre — thinned product</small></div><input type="number" class="field-input" id="s-cmist" value="15" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Panelling<small>m² per litre per coat — draft default, check against your usual product</small></div><input type="number" class="field-input" id="s-cpanel" value="8" min="1" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="settings-note">The rates above are the Standard / default figures — used whenever a surface's product has no per-product entry below, so nothing changes until you add one.</div>
+      <!-- Per-product coverage rates (PRODUCT_COVERAGE_SPEC.md): additive
+           list — add a product's real m²/L when it's first used on a job.
+           Product comes from the material RANGES (the same range/band
+           grouping the materials list and room pickers use), never a single
+           Xero tin — coverage per litre doesn't change between pack sizes
+           of one product; duplicates per range+surface are blocked in
+           addCoverageRate() rather than silently stacking. -->
+      <div style="border-top:2px solid var(--border)">
+        <div class="card-header" style="border-bottom:none;padding-bottom:0">Per-Product Rates</div>
+        <div id="coverage-rates-list"></div>
+        <div style="padding:12px 16px;display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--border)">
+          <div style="position:relative">
+            <input type="text" class="field-input" style="width:100%;text-align:left" id="cov-add-product" placeholder="Product range — tap to choose…" autocorrect="off" autocomplete="off" oninput="onCoverageProductInput()" onfocus="onCoverageProductInput()">
+            <div id="cov-add-product-dd" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <select class="field-input" id="cov-add-surface" style="flex:1.4;text-align:left" onchange="onCoverageAddSurfaceChange()"></select>
+            <input type="number" class="field-input" id="cov-add-rate" placeholder="m²/L" min="0.5" step="0.5" inputmode="decimal" style="flex:1;width:auto">
+            <input type="number" class="field-input" id="cov-add-coats" placeholder="coats" min="0" max="3" step="1" inputmode="numeric" style="flex:1;width:auto" title="Default coats — optional">
+          </div>
+          <!-- Woodwork + panelling only (SELF_PRIMING_SURFACES): those are
+               the surfaces that buy primer -- walls have the mist-coat
+               model -- so the flag would be dead weight anywhere else. -->
+          <div class="toggle-row" id="cov-add-selfpriming-row" style="display:none;padding:10px 0 0;border:none">
+            <div class="toggle-label">Self-priming<small>Primes as it goes — woodwork/fitted units on this product skip the separate primer (one extra topcoat coat instead) and panelling buys none; off, primer is added automatically. Replaces the rooms' manual Self-priming toggles</small></div>
+            <div class="toggle" id="tog-cov-selfpriming" onclick="toggleCoverageAddSelfPriming()"></div>
+          </div>
+          <button onclick="addCoverageRate()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">+ Add product rate</button>
+        </div>
+        <div class="settings-note">Add a product's real coverage (m² per litre) when you first use it on a job — no need to fill the whole catalogue. Coats is an optional default applied when the product is picked on a room. Rooms using that product (picked on the room, or as the default product in Settings → Materials) then calculate litres from its rate on every future quote; products without an entry keep using the standard rates above. A woodwork or panelling entry's Self-priming tick drives the primer everywhere that product is used — woodwork (incl. doors/frames and fitted units): ticked means no primer line (one extra topcoat coat instead), unticked means primer is added automatically, whatever the room's own toggles said; panelling: unticked adds a panel primer that was never bought before, ticked (or no entry) keeps panelling primer-free as it's always been.</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Exterior Paint Coverage &amp; Areas</div>
+      <div class="settings-note">Exterior items only carry counts/lengths, so paint litres are estimated from an assumed paintable area per unit. Start with these defaults and calibrate against real jobs — same idea as the sundries %.</div>
+      <div class="field-row"><div class="field-label">Masonry — smooth, rolled<small>m² per litre, per coat</small></div><input type="number" class="field-input" id="s-extmasonrycov" value="6" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Masonry — smooth, sprayed<small>m² per litre, per coat</small></div><input type="number" class="field-input" id="s-extmasonrycovspray" value="4" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Masonry — textured, rolled<small>m² per litre, per coat</small></div><input type="number" class="field-input" id="s-extmasonrycovtex" value="4" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Masonry — textured, sprayed<small>m² per litre, per coat</small></div><input type="number" class="field-input" id="s-extmasonrycovtexspray" value="3" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Ext woodwork coverage<small>m² per litre, per coat</small></div><input type="number" class="field-input" id="s-extwoodcov" value="12" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Area per window<small>m² paintable, per casement</small></div><input type="number" class="field-input" id="s-extareawindow" value="1.5" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Area per sash window<small>m² paintable, per sash</small></div><input type="number" class="field-input" id="s-extareasash" value="2.5" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Area per garage door<small>m² paintable</small></div><input type="number" class="field-input" id="s-extareagarage" value="6" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Fascia developed width<small>m, to convert linear m → m²</small></div><input type="number" class="field-input" id="s-extfasciawidth" value="0.35" min="0" step="0.05" inputmode="decimal" onchange="saveSettings()"></div>
+    </div>
+    <div class="section-title">Labour Times</div>
+    <div class="settings-note" style="padding:0 4px;margin-top:-8px">Minutes per m²/metre/item, per coat. These drive every calculated price in the app via the day rate set in Settings.</div>
+    <div class="card">
+      <div class="card-header">Time Rates</div>
+      <div class="field-row"><div class="field-label">Walls<small>mins/m² per coat</small></div><input type="number" class="field-input" id="s-rwall" value="3" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Ceilings<small>mins/m² per coat</small></div><input type="number" class="field-input" id="s-rceil" value="5" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Skirtings<small>mins/lm per coat</small></div><input type="number" class="field-input" id="s-rskirt" value="4" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Door prep<small>mins flat per door face — only the side visible from this room, see Frame prep below</small></div><input type="number" class="field-input" id="s-rdoorprep" value="10" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Door per coat<small>mins per coat, per door face — a door between two rooms is priced once per room, one face each</small></div><input type="number" class="field-input" id="s-rdoorcoat" value="10" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Frame prep<small>mins flat per frame face — priceable independently of the door</small></div><input type="number" class="field-input" id="s-rframeprep" value="5" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Frame per coat<small>mins per coat, per frame face</small></div><input type="number" class="field-input" id="s-rframecoat" value="6" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Windows<small>mins/m² total</small></div><input type="number" class="field-input" id="s-rwin" value="35" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Radiators<small>mins/m² total</small></div><input type="number" class="field-input" id="s-rrad" value="15" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Window sills<small>mins per painted internal sill — for plastic windows with wooden sills</small></div><input type="number" class="field-input" id="s-rsill" value="15" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Mist coat<small>mins/m²</small></div><input type="number" class="field-input" id="s-rmist" value="2" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Panelling<small>mins/m² per coat — draft default, adjust to taste</small></div><input type="number" class="field-input" id="s-rpanel" value="6" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Staircase — spindle time<small>minutes per spindle, per coat</small></div><input type="number" class="field-input" id="s-wpstair-spindle-mins" value="5" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Staircase — newel time<small>minutes per newel post, per coat</small></div><input type="number" class="field-input" id="s-wpstair-newel-mins" value="5" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Staircase — string time<small>minutes per metre, per coat</small></div><input type="number" class="field-input" id="s-wpstair-string-mins" value="2" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Staircase — handrail time<small>minutes per metre, per coat</small></div><input type="number" class="field-input" id="s-wpstair-handrail-mins" value="3" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Exterior Rates</div>
+      <div class="field-row"><div class="field-label">Masonry / Render — smooth<small>mins/m² per coat</small></div><input type="number" class="field-input" id="s-rextmasonry" value="5" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Masonry / Render — textured<small>mins/m² per coat — used when an item's Textured render toggle is on</small></div><input type="number" class="field-input" id="s-rextmasonrytex" value="7" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Fascias &amp; Soffits<small>mins/lm per coat</small></div><input type="number" class="field-input" id="s-rextfascia" value="8" min="0.5" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Ext Window base<small>mins/coat at 2 panes, medium size</small></div><input type="number" class="field-input" id="s-rextwinbase" value="25" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Ext Window per pane<small>mins/coat, beyond 2 panes</small></div><input type="number" class="field-input" id="s-rextwinperpane" value="2" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Small window ×<small>on base mins &amp; litres — under ~0.5m², medium = 1</small></div><input type="number" class="field-input" id="s-rwinsizesmall" value="0.7" min="0.1" step="0.05" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Large window ×<small>on base mins &amp; litres — over ~1.5m², medium = 1</small></div><input type="number" class="field-input" id="s-rwinsizelarge" value="1.4" min="1" step="0.05" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Ext Door<small>mins per coat — door leaf only, see Ext Frame below</small></div><input type="number" class="field-input" id="s-rextdoor" value="75" min="1" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Ext Frame<small>mins per coat — priceable independently of the door</small></div><input type="number" class="field-input" id="s-rextframe" value="40" min="1" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Garage Door<small>mins total (2 coats)</small></div><input type="number" class="field-input" id="s-rextgarage" value="150" min="1" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Sash multiplier<small>% on top of window rate, for sash complexity</small></div><input type="number" class="field-input" id="s-rsashmultiplier" value="20" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Access — 1st floor<small>% uplift, ladder from ground</small></div><input type="number" class="field-input" id="s-raccessfirst" value="10" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Access — 2nd floor +<small>% uplift, tower/scaffold</small></div><input type="number" class="field-input" id="s-raccessladder" value="25" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Resin repair<small>mins per patch</small></div><input type="number" class="field-input" id="s-rresin" value="22" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Reglaze<small>mins per pane</small></div><input type="number" class="field-input" id="s-rreglaze" value="15" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Draught-proofing strip<small>mins per window</small></div><input type="number" class="field-input" id="s-rdraught" value="20" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Sash cords<small>mins per box, sash only</small></div><input type="number" class="field-input" id="s-rsashcords" value="40" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Staff beads<small>mins per box, sash only</small></div><input type="number" class="field-input" id="s-rstaffbeads" value="25" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Parting beads<small>mins per box, sash only</small></div><input type="number" class="field-input" id="s-rpartingbeads" value="35" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+    </div>
+    <div class="section-title">Item &amp; Job-Type Rates</div>
+    <div class="settings-note" style="padding:0 4px;margin-top:-8px">Flat prices, surcharges and per-piece figures for the job types that aren’t priced by area.</div>
+    <div class="card">
+      <div class="card-header">Doors &amp; Frames</div>
+      <div class="field-row"><div class="field-label">Door face area<small>m² paintable — ONE side of one door leaf, edge included (a door painted both sides ≈ 3.5m², so one face is half). Used for topcoat/primer litres. A door between two rooms is priced once per room — see the Both sides toggle to price a whole leaf as one line instead. Shared by interior rooms and exterior doors.</small></div><input type="number" class="field-input" id="s-doorfacearea" value="1.75" min="0.1" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Frame area<small>m² paintable — ONE side of the frame/lining (the side visible from this room). Shared by interior rooms and exterior doors.</small></div><input type="number" class="field-input" id="s-doorframearea" value="0.4" min="0.1" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Fire door edge area<small>m² — added on top of the face area when a door's Fire door flag is on, so litres cover edges too</small></div><input type="number" class="field-input" id="s-dooredgearea" value="0.3" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Fire door surcharge<small>£ per door — FD30/FD60, intumescent-compatible coating</small></div><input type="number" class="field-input" id="s-firedoorsurcharge" value="10" min="0" step="1" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Ironmongery — remove &amp; refit<small>£ per door</small></div><input type="number" class="field-input" id="s-ironmongeryremove" value="8" min="0" step="1" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Ironmongery — mask in place<small>£ per door</small></div><input type="number" class="field-input" id="s-ironmongerymask" value="4" min="0" step="1" inputmode="decimal" onchange="saveSettings()"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Wallpaper Rates</div>
+      <div class="field-row"><div class="field-label">Lining paper<small>£ per roll hung</small></div><input type="number" class="field-input" id="s-wplining-rate" value="30" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Finish paper<small>£ per roll hung</small></div><input type="number" class="field-input" id="s-wpfinish-rate" value="40" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Ceiling multiplier<small>% uplift on labour</small></div><input type="number" class="field-input" id="s-wpceil-mult" value="15" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Staircase multiplier<small>% uplift on labour</small></div><input type="number" class="field-input" id="s-wpstair-mult" value="25" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Trim allowance<small>cm added per drop, top+bottom</small></div><input type="number" class="field-input" id="s-wptrim" value="10" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Minimum price<small>£ floor per room's wallpaper labour</small></div><input type="number" class="field-input" id="s-wpmin-price" value="200" min="0" step="10" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Wide vinyl labour<small>£ per linear metre — feature wall only</small></div><input type="number" class="field-input" id="s-wpvinyl-labour-rate" value="18.6" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Wide vinyl material<small>£ per linear metre</small></div><input type="number" class="field-input" id="s-wpvinyl-material-rate" value="0" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Mural labour<small>£ per m² — feature wall only</small></div><input type="number" class="field-input" id="s-wpmural-labour-rate" value="0" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Mural material<small>£ per m²</small></div><input type="number" class="field-input" id="s-wpmural-material-rate" value="0" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Mural flat fee<small>£ — used when priced as a one-off instead of per m²</small></div><input type="number" class="field-input" id="s-wpmural-flat-fee" value="0" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Kitchen Rates</div>
+      <div class="settings-note">Draft starting figures — check against your own kitchen-respray pricing before relying on them. Base = prep + 1st coat; +Coat = £ added per additional coat, up to the coat count set on the Kitchen tab.</div>
+      <div style="overflow-x:auto;padding:0 16px 12px">
+        <table style="border-collapse:collapse;width:100%">
+          <thead>
+            <tr style="text-align:left">
+              <th></th>
+              <th colspan="2" style="padding:4px 2px;font-size:11px;font-weight:600;color:var(--text2)">Small</th>
+              <th colspan="2" style="padding:4px 2px;font-size:11px;font-weight:600;color:var(--text2)">Medium</th>
+              <th colspan="2" style="padding:4px 2px;font-size:11px;font-weight:600;color:var(--text2)">Large</th>
+              <th colspan="2" style="padding:4px 2px;font-size:11px;font-weight:600;color:var(--text2)">X-Large</th>
+            </tr>
+            <tr style="text-align:left">
+              <th></th>
+              <th style="padding:0 2px 4px;font-size:10px;font-weight:500;color:var(--text3)">Base</th><th style="padding:0 2px 4px;font-size:10px;font-weight:500;color:var(--text3)">+Coat</th>
+              <th style="padding:0 2px 4px;font-size:10px;font-weight:500;color:var(--text3)">Base</th><th style="padding:0 2px 4px;font-size:10px;font-weight:500;color:var(--text3)">+Coat</th>
+              <th style="padding:0 2px 4px;font-size:10px;font-weight:500;color:var(--text3)">Base</th><th style="padding:0 2px 4px;font-size:10px;font-weight:500;color:var(--text3)">+Coat</th>
+              <th style="padding:0 2px 4px;font-size:10px;font-weight:500;color:var(--text3)">Base</th><th style="padding:0 2px 4px;font-size:10px;font-weight:500;color:var(--text3)">+Coat</th>
+            </tr>
+          </thead>
+          <tbody id="kitchen-rates-body"></tbody>
+        </table>
+      </div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Cornices<small>£ per metre (base / +coat)</small></div>
+        <div style="display:flex;gap:6px"><input type="number" class="field-input" style="width:60px" id="s-kr-cornice-base" value="25" min="0" step="1" inputmode="numeric" onchange="saveSettings()"><input type="number" class="field-input" style="width:50px" id="s-kr-cornice-coat" value="4" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Plinths<small>£ per metre (base / +coat)</small></div>
+        <div style="display:flex;gap:6px"><input type="number" class="field-input" style="width:60px" id="s-kr-plinth-base" value="18" min="0" step="1" inputmode="numeric" onchange="saveSettings()"><input type="number" class="field-input" style="width:50px" id="s-kr-plinth-coat" value="3" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Glazed / Curved surcharge<small>% on the matching item/size base price</small></div><input type="number" class="field-input" id="s-kglazedpct" value="50" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Carcass spraying<small>% uplift on doors + drawers + end panels</small></div><input type="number" class="field-input" id="s-kcarcasspct" value="30" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Strip original coating<small>mins per piece — Small / Medium / Large / X-Large, across doors, drawer fronts, end panels and fillers. Charged at the day rate when the Kitchen tab's toggle is on</small></div>
+        <div style="display:flex;gap:6px">
+          <input type="number" class="field-input" style="width:40px" id="s-kstrip-small" value="5" min="0" step="1" inputmode="numeric" onchange="saveSettings()">
+          <input type="number" class="field-input" style="width:40px" id="s-kstrip-medium" value="6" min="0" step="1" inputmode="numeric" onchange="saveSettings()">
+          <input type="number" class="field-input" style="width:40px" id="s-kstrip-large" value="7" min="0" step="1" inputmode="numeric" onchange="saveSettings()">
+          <input type="number" class="field-input" style="width:40px" id="s-kstrip-xlarge" value="8" min="0" step="1" inputmode="numeric" onchange="saveSettings()">
+        </div></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Fitted Unit / Shelving</div>
+      <div class="settings-note">Bespoke built-ins (bookcases, media units) are priced per shelf/bay/door, not by m². A "coat pass" is one trip over the unit — Bare/Primed prep sprays 3 passes (prime + 2 coats), Existing painted sprays 2. Cabinet doors use the interior door rate above. Starting defaults — calibrate against real jobs.</div>
+      <div class="field-row"><div class="field-label">Shelf spray time<small>mins per shelf, per coat pass — covers top, underside &amp; front edge in one time-based unit</small></div><input type="number" class="field-input" id="s-fu-shelfmins" value="6" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Bay carcass time<small>mins per bay, per coat pass — uprights, back &amp; face frame of one vertical section</small></div><input type="number" class="field-input" id="s-fu-baymins" value="15" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Area per shelf<small>m² paintable — fallback only since v2.25.0: units with a Depth compute the real shelf area (2 × bay width × depth) instead</small></div><input type="number" class="field-input" id="s-fu-shelfarea" value="0.5" min="0.1" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Bay carcass area ×<small>on frontal area (height × width) per bay — fallback only since v2.25.0: units with a Depth compute the real carcass area (back + sides + top/bottom) instead. Litres only</small></div><input type="number" class="field-input" id="s-fu-bayareafactor" value="1.5" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
+    </div>
+  </div>
+</div>
+
 <!-- ══ KITCHEN CABINET SPRAY CALCULATOR ══
      Job-level, single config (job.kitchen), not a list of items like Rooms/
      Exterior -- reached from Measure's + chooser (goScreen('kitchen')),
@@ -1352,7 +1381,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     <div class="card">
       <div class="card-header">Carcass Spraying</div>
       <div class="toggle-row">
-        <div class="toggle-label">Spray carcasses<small>% uplift on doors + drawers + end panels — see Settings to tune the %</small></div>
+        <div class="toggle-label">Spray carcasses<small>% uplift on doors + drawers + end panels — see Rates to tune the %</small></div>
         <div class="toggle" id="k-carcass-toggle" onclick="toggleKitchenCarcass()"></div>
       </div>
     </div>
@@ -1402,7 +1431,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
            narrower shelf bays) couldn't be entered on the old single
            "Width per bay" field. Rows render via renderFittedUnitBayWidths(). -->
       <div id="fu-bay-widths"></div>
-      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Shelves<small>total across all bays — fixed spray time each (top, underside &amp; front edge in one unit), see Settings</small></div><input type="number" class="field-input" id="fu-shelves" placeholder="0" min="0" step="1" inputmode="numeric" onchange="onFittedUnitFieldChange('shelfCount',this.value)"></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Shelves<small>total across all bays — fixed spray time each (top, underside &amp; front edge in one unit), see Rates</small></div><input type="number" class="field-input" id="fu-shelves" placeholder="0" min="0" step="1" inputmode="numeric" onchange="onFittedUnitFieldChange('shelfCount',this.value)"></div>
       <div class="field-row"><div class="field-label">Cabinet doors<small>priced at the interior door rate, one face each — sized by the selector below</small></div><input type="number" class="field-input" id="fu-doors" placeholder="0" min="0" step="1" inputmode="numeric" onchange="onFittedUnitFieldChange('doorCount',this.value)"></div>
       <div class="field-row">
         <div class="field-label">Door size<small>Standard = the full interior door rate (as before). Small = cupboard-size doors, ½ rate. Large = oversize/wardrobe doors, 1½× rate. Scales door labour &amp; litres</small></div>
@@ -1416,14 +1445,14 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     <div class="card">
       <div class="card-header">Prep Level</div>
       <div class="field-row">
-        <div class="field-label">Surface<small>Bare/Primed = full prime + 2 coats. Existing painted = light key-sand + topcoat only, no primer bought. A self-priming topcoat (Settings → Coverage Rates) skips the primer buy on Bare too — extra topcoat litres instead</small></div>
+        <div class="field-label">Surface<small>Bare/Primed = full prime + 2 coats. Existing painted = light key-sand + topcoat only, no primer bought. A self-priming topcoat (Rates → Paint Coverage) skips the primer buy on Bare too — extra topcoat litres instead</small></div>
         <div class="seg" id="seg-fu-prep" style="flex:1.5">
           <button class="seg-btn active" onclick="setFittedUnitPrep('bare')">Bare / Primed</button>
           <button class="seg-btn" onclick="setFittedUnitPrep('painted')">Existing painted</button>
         </div>
       </div>
       <div class="toggle-row" style="border-top:1px solid var(--border)">
-        <div class="toggle-label">Sprayed finish<small>Off by default — fitted units are only sometimes sprayed. Adds the Settings spraying uplift % to topcoat &amp; primer litres. Labour is unchanged (spray time is what the per-item rates already price)</small></div>
+        <div class="toggle-label">Sprayed finish<small>Off by default — fitted units are only sometimes sprayed. Adds the Rates spraying uplift % to topcoat &amp; primer litres. Labour is unchanged (spray time is what the per-item rates already price)</small></div>
         <div class="toggle" id="tog-fu-spray" onclick="toggleFittedUnitSpray()"></div>
       </div>
     </div>
@@ -1755,7 +1784,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
 <!-- ══ HAMBURGER MENU (job admin) ══
      One shared overlay, not per-screen: fixed position, floats above
      whichever screen is active. Bottom bar = Home/Measure/On Site/Summary;
-     this menu = job admin (Jobs · Colours · Schedule · Settings) -- On Site
+     this menu = job admin (Jobs · Colours · Schedule · Rates · Settings) -- On Site
      moved to the bottom bar in v2.0, Colours moved here in its place. See
      FEATURES.md. -->
 <div id="nav-menu-backdrop" class="nav-menu-backdrop" onclick="closeNavMenu()"></div>
@@ -1783,6 +1812,13 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     <div>Schedule</div>
     <span class="nav-menu-arrow">›</span>
   </div>
+  <!-- Rates sits directly above Settings (v2.29.0): the two are halves of
+       what used to be one screen, so they belong side by side in the menu.
+       Rates first — it's the one Nicky actually opens mid-job. -->
+  <div class="nav-menu-item" onclick="closeNavMenu();goTab('rates')">
+    <div>Rates</div>
+    <span class="nav-menu-arrow">›</span>
+  </div>
   <div class="nav-menu-item" onclick="closeNavMenu();goTab('settings')">
     <div>Settings</div>
     <span class="nav-menu-arrow">›</span>
@@ -1798,7 +1834,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.28.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.29.0</div>
 </div>
 </div>
 
