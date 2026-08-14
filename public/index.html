@@ -298,6 +298,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
 .card-header.sec-toggle{cursor:pointer;user-select:none}
 .sec-chev{color:var(--text3);font-size:18px;transition:transform .18s;flex-shrink:0}
 .sec-chev.open{transform:rotate(90deg)}
+.sec-count{margin-left:auto;margin-right:10px;padding:2px 8px;border-radius:10px;background:var(--surface2);border:1px solid var(--border);font-family:'DM Mono',monospace;font-size:11px;font-weight:600;letter-spacing:0;color:var(--text2);flex-shrink:0}
 .card-body{display:none}
 .card-body.open{display:block}
 .subsection-label{padding:12px 16px 4px;font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--text2);border-top:1px solid var(--border)}
@@ -1776,7 +1777,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.26.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.27.0</div>
 </div>
 </div>
 
@@ -11109,7 +11110,7 @@ function renderKitchen() {
         '</div></div>';
     }).join('');
     return '<div class="card">'+
-      '<div class="card-header sec-toggle" onclick="toggleFormSection(\'k-'+typeKey+'\')"><span>'+typeLabel+'</span><span class="sec-chev" id="sec-chev-k-'+typeKey+'">›</span></div>'+
+      '<div class="card-header sec-toggle" onclick="toggleKitchenSection(\''+typeKey+'\')"><span>'+typeLabel+'</span><span class="sec-count" id="sec-count-k-'+typeKey+'" style="display:none"></span><span class="sec-chev" id="sec-chev-k-'+typeKey+'">›</span></div>'+
       '<div class="card-body" id="sec-k-'+typeKey+'">'+rows+'</div>'+
     '</div>';
   }).join('');
@@ -11120,6 +11121,41 @@ function renderKitchen() {
   populateRoomColourChips('kitchen');
   populateRoomOverridePicker('kitchen');
   updateKitchenTotals();
+}
+
+// Pieces entered for one item type, summed across the four size bands.
+// glazedQty is a SUBSET of qty (see calcKitchen()), so it is deliberately
+// NOT added on top -- a glazed door is one door, not two.
+function kitchenTypeCount(k, typeKey) {
+  var typeItems = (k.items || {})[typeKey] || {};
+  return KITCHEN_SIZES.reduce(function(n, s) {
+    return n + Math.max(0, +(typeItems[s[0]] || {}).qty || 0);
+  }, 0);
+}
+
+// Collapsed section headers carry their piece count, so a finished kitchen
+// can be tallied with every section shut instead of reopening four of them
+// and adding up the size rows by eye. Hidden while the section is open (the
+// per-size inputs are right there) and when nothing has been entered, so an
+// untouched kitchen looks exactly as it did before.
+function updateKitchenSectionCounts() {
+  var job = activeJob();
+  if (!job || !job.kitchen) return;
+  KITCHEN_ITEM_TYPES.forEach(function(t) {
+    var badge = document.getElementById('sec-count-k-'+t[0]);
+    var body = document.getElementById('sec-k-'+t[0]);
+    if (!badge || !body) return;
+    var n = kitchenTypeCount(job.kitchen, t[0]);
+    badge.textContent = n;
+    badge.style.display = (n > 0 && !body.classList.contains('open')) ? 'inline-block' : 'none';
+  });
+}
+
+// Kitchen's own section toggle: plain toggleFormSection() plus a count
+// refresh, since the badge only shows on the collapsed state.
+function toggleKitchenSection(typeKey) {
+  toggleFormSection('k-'+typeKey);
+  updateKitchenSectionCounts();
 }
 
 // No Save button (see the screen's own comment) -- every change writes
@@ -11175,6 +11211,7 @@ function toggleKitchenCarcass() {
 
 function updateKitchenTotals() {
   var job = activeJob(); if (!job || !job.kitchen) return;
+  updateKitchenSectionCounts();
   var c = calcKitchen(job.kitchen);
   var chip = document.getElementById('k-chip');
   if (chip) {
