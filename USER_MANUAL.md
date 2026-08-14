@@ -101,6 +101,8 @@ Exterior paint litres are estimated from assumed areas per unit (window, sash, d
 
 **+ → Kitchen.** One kitchen per job, edited in place (no Save button). Set the coat count once (1–4), then enter quantities per size tier (Small/Medium/Large/X-Large) for Doors, Drawer Fronts, End Panels and Fillers, run lengths in metres for Plinths and Cornices, the **Glazed/Curved** premium where it applies, and the **Spray carcasses** toggle (a % uplift on doors + drawers + end panels). Every price and increment is editable under **Settings → Kitchen Rates** — the shipped figures are draft market-research numbers, so check them against your own pricing.
 
+Each of the four item sections shows its **piece count** on the header once collapsed (13 doors, 4 drawer fronts, and so on), so you can shut them all and tally the kitchen at a glance before leaving site. Glazed/curved pieces are counted once, not twice — they're part of the quantity beside them, not extra.
+
 ## 8. Colours
 
 **☰ → Colours** is the job's paint and ordering screen: each colour number shows which rooms and surfaces use it and **how much paint to order** (same calculation the Summary uses, so they can never disagree). Look here, not at Summary, when buying paint.
