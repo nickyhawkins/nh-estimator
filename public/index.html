@@ -1218,6 +1218,13 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
         <div style="display:flex;gap:6px"><input type="number" class="field-input" style="width:60px" id="s-kr-plinth-base" value="18" min="0" step="1" inputmode="numeric" onchange="saveSettings()"><input type="number" class="field-input" style="width:50px" id="s-kr-plinth-coat" value="3" min="0" step="1" inputmode="numeric" onchange="saveSettings()"></div></div>
       <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Glazed / Curved surcharge<small>% on the matching item/size base price</small></div><input type="number" class="field-input" id="s-kglazedpct" value="50" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Carcass spraying<small>% uplift on doors + drawers + end panels</small></div><input type="number" class="field-input" id="s-kcarcasspct" value="30" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
+      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Strip original coating<small>mins per piece — Small / Medium / Large / X-Large, across doors, drawer fronts, end panels and fillers. Charged at the day rate when the Kitchen tab's toggle is on</small></div>
+        <div style="display:flex;gap:6px">
+          <input type="number" class="field-input" style="width:40px" id="s-kstrip-small" value="5" min="0" step="1" inputmode="numeric" onchange="saveSettings()">
+          <input type="number" class="field-input" style="width:40px" id="s-kstrip-medium" value="6" min="0" step="1" inputmode="numeric" onchange="saveSettings()">
+          <input type="number" class="field-input" style="width:40px" id="s-kstrip-large" value="7" min="0" step="1" inputmode="numeric" onchange="saveSettings()">
+          <input type="number" class="field-input" style="width:40px" id="s-kstrip-xlarge" value="8" min="0" step="1" inputmode="numeric" onchange="saveSettings()">
+        </div></div>
     </div>
     <div class="card">
       <div class="card-header">Fitted Unit / Shelving</div>
@@ -1321,6 +1328,20 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
         <button class="seg-btn" onclick="setKitchenCoats(3)">3</button>
         <button class="seg-btn" onclick="setKitchenCoats(4)">4</button>
       </div></div>
+    </div>
+    <!-- Strip original coating: like Coats, a setting that applies across
+         every item type below rather than a per-item field, so it sits up
+         here beside it and not inside any one section's card. Its own card
+         (not a row in Coats) since it isn't a coat count -- the summary
+         line beneath spells out the sum it priced so a mistyped count is
+         visible before it disappears into the kitchen total. -->
+    <div class="card">
+      <div class="card-header">Prep<small style="text-transform:none;letter-spacing:normal;font-weight:400"> — applies to every counted item below</small></div>
+      <div class="toggle-row">
+        <div class="toggle-label">Strip original coating<small>Melamine/existing coating removal before spraying — adds prep time per item, based on the counts below</small></div>
+        <div class="toggle" id="k-strip-toggle" onclick="toggleKitchenStrip()"></div>
+      </div>
+      <div id="k-strip-summary" style="display:none;padding:0 16px 14px;font-size:12px;color:var(--text2);line-height:1.5"></div>
     </div>
     <div id="kitchen-items-container"></div>
     <div class="card">
@@ -1777,7 +1798,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.27.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.28.0</div>
 </div>
 </div>
 
@@ -2197,6 +2218,15 @@ var KITCHEN_RATE_DEFAULTS = {
   fillers:   { small:{base:10,coat:2},  medium:{base:15,coat:3},  large:{base:20,coat:4},  xlarge:{base:25,coat:5}  },
   cornice: {base:25, coat:4}, plinth: {base:18, coat:3}
 };
+
+// Strip-original-coating times (v2.28.0): minutes per PIECE, keyed by the
+// same four size tiers the item counts already use -- turning the Kitchen
+// screen's toggle on prices stripping off counts Nicky has already
+// entered, with nothing to re-measure. Flat scalars in SETTINGS_FIELDS
+// rather than a nested blob like kitchenRates because there is no item-type
+// or coat dimension to them: a Medium door and a Medium end panel strip at
+// the same rate, once, whatever the coat count.
+var KITCHEN_STRIP_SETTING = { small:'stripTimeSmall', medium:'stripTimeMedium', large:'stripTimeLarge', xlarge:'stripTimeXLarge' };
 
 function populateKitchenRatesTable() {
   var body = document.getElementById('kitchen-rates-body');
@@ -3898,6 +3928,10 @@ var SETTINGS_FIELDS = [
   ['extFasciaWidth', 's-extfasciawidth', 0.35],
   ['kitchenGlazedPct',  's-kglazedpct',  50],
   ['kitchenCarcassPct', 's-kcarcasspct', 30],
+  ['stripTimeSmall',  's-kstrip-small',  5],
+  ['stripTimeMedium', 's-kstrip-medium', 6],
+  ['stripTimeLarge',  's-kstrip-large',  7],
+  ['stripTimeXLarge', 's-kstrip-xlarge', 8],
   ['fuShelfMins',      's-fu-shelfmins',      6],
   ['fuBayMins',        's-fu-baymins',        15],
   ['fuShelfAreaM2',    's-fu-shelfarea',      0.5],
@@ -11059,7 +11093,38 @@ function calcKitchen(k) {
   var carcassBase = doorsTotal + drawersTotal + endpanelsTotal;
   var carcassTotal = k.carcass ? carcassBase * ((settings.kitchenCarcassPct||0)/100) : 0;
 
-  var total = doorsTotal + drawersTotal + endpanelsTotal + fillersTotal + corniceTotal + plinthTotal + carcassTotal;
+  // Strip original coating (v2.28.0): melamine/existing coating removal
+  // before spraying, off unless the Kitchen screen's toggle is on. Reuses
+  // the counts already entered for all four piece types -- no second set of
+  // quantities to keep in step. Three deliberate exclusions:
+  //   · glazed/curved pieces strip at their tier's flat rate, no surcharge.
+  //     kitchenGlazedPct is a SPRAYING premium (cutting in around glass,
+  //     following a curve with the gun); a curved door is no slower to
+  //     strip than a flat one of the same size.
+  //   · cornices/plinths are metres, not pieces, so they have no size tier
+  //     to price a per-piece time against and get nothing.
+  //   · the carcass % is computed above, off the SPRAY totals only -- a
+  //     stripping charge is not something to take another 30% of.
+  // Labour only, as with everything else in this module: no litres, and no
+  // abrasives line -- discs come out of the day rate.
+  var stripMins = 0;
+  if (k.stripCoating) {
+    KITCHEN_ITEM_TYPES.forEach(function(t) {
+      var typeItems = (k.items||{})[t[0]] || {};
+      sizes.forEach(function(size) {
+        var qty = Math.max(0, +(typeItems[size]||{}).qty || 0);
+        stripMins += qty * Math.max(0, +settings[KITCHEN_STRIP_SETTING[size]] || 0);
+      });
+    });
+  }
+  // The one minutes-based figure in this otherwise flat-priced module, so
+  // it converts to £ at rpm() (day rate ÷ hours per day ÷ 60) exactly like
+  // every timed task elsewhere in the file. That also keeps `time` below
+  // honest without a special case: stripCost/dr is precisely the day
+  // fraction those minutes represent.
+  var stripCost = stripMins * rpm();
+
+  var total = doorsTotal + drawersTotal + endpanelsTotal + fillersTotal + corniceTotal + plinthTotal + carcassTotal + stripCost;
   // No minutes-based labour rate exists for kitchen items (they're priced
   // flat, not mins x rpm() like every other module) -- approximate a
   // scheduling estimate as day-rate-equivalents, so kitchen still
@@ -11069,7 +11134,8 @@ function calcKitchen(k) {
 
   return { total: total, time: time, doorsTotal: doorsTotal, drawersTotal: drawersTotal,
            endpanelsTotal: endpanelsTotal, fillersTotal: fillersTotal,
-           corniceTotal: corniceTotal, plinthTotal: plinthTotal, carcassTotal: carcassTotal };
+           corniceTotal: corniceTotal, plinthTotal: plinthTotal, carcassTotal: carcassTotal,
+           stripMins: stripMins, stripCost: stripCost };
 }
 
 // ── Kitchen screen UI ────────────────────────────────────────────────────
@@ -11078,9 +11144,12 @@ function calcKitchen(k) {
 // itself is defensive and doesn't strictly need this (missing cells default
 // to zero cost), but the FORM needs every input to have a real value.
 function ensureKitchenShape(job) {
-  if (!job.kitchen) job.kitchen = { coats: 2, items: {}, cornicesM: 0, plinthsM: 0, carcass: false, colourNumber: 1, range: '', band: null };
+  if (!job.kitchen) job.kitchen = { coats: 2, items: {}, cornicesM: 0, plinthsM: 0, carcass: false, stripCoating: false, colourNumber: 1, range: '', band: null };
   var k = job.kitchen;
   if (!k.items) k.items = {};
+  // Absent reads as off, so every kitchen priced before v2.28.0 keeps its
+  // exact total until the toggle is deliberately turned on.
+  if (k.stripCoating == null) k.stripCoating = false;
   if (k.colourNumber == null) k.colourNumber = 1;
   if (k.range == null) k.range = '';
   KITCHEN_ITEM_TYPES.forEach(function(t) {
@@ -11117,6 +11186,7 @@ function renderKitchen() {
   document.getElementById('k-cornices-m').value = k.cornicesM || '';
   document.getElementById('k-plinths-m').value = k.plinthsM || '';
   document.getElementById('k-carcass-toggle').classList.toggle('on', !!k.carcass);
+  document.getElementById('k-strip-toggle').classList.toggle('on', !!k.stripCoating);
   document.querySelectorAll('#seg-k-coats .seg-btn').forEach(function(b,i){ b.classList.toggle('active', i+1===k.coats); });
   populateRoomColourChips('kitchen');
   populateRoomOverridePicker('kitchen');
@@ -11201,6 +11271,34 @@ function toggleKitchenCarcass() {
   saveKitchenJob();
 }
 
+function toggleKitchenStrip() {
+  var job = activeJob(); if (!job) return;
+  var k = ensureKitchenShape(job);
+  k.stripCoating = !k.stripCoating;
+  document.getElementById('k-strip-toggle').classList.toggle('on', k.stripCoating);
+  saveKitchenJob();
+}
+
+// Per-tier piece counts behind the strip charge, pooled across the four
+// item types (a Medium door and a Medium end panel strip identically, so
+// they belong on the same "7×6min" term). Feeds the sanity-check line under
+// the toggle -- the same Σ(qty × tier mins) calcKitchen() prices, spelled
+// out, so a mistyped count or a stale Settings figure shows itself before
+// it vanishes into one kitchen total.
+function kitchenStripBreakdown(k) {
+  var parts = [], mins = 0;
+  KITCHEN_SIZES.forEach(function(s) {
+    var qty = KITCHEN_ITEM_TYPES.reduce(function(n, t) {
+      return n + Math.max(0, +((((k.items||{})[t[0]]||{})[s[0]])||{}).qty || 0);
+    }, 0);
+    var per = Math.max(0, +settings[KITCHEN_STRIP_SETTING[s[0]]] || 0);
+    if (!qty || !per) return;
+    parts.push(qty + '×' + per + 'min');
+    mins += qty * per;
+  });
+  return { parts: parts, mins: mins };
+}
+
 // Kitchen's colour + product/band pickers used to be a hand-copied twin of
 // populateRoomColourChips/populateRoomOverridePicker (and friends) here --
 // they're gone now. Kitchen is just role 'kitchen' through the generic
@@ -11219,13 +11317,28 @@ function updateKitchenTotals() {
     chip.style.display = c.total>0 ? 'flex' : 'none';
     chip.innerHTML = fmt(marked)+' <span style="font-weight:400;opacity:.75">quote</span>';
   }
+  // Sanity-check line under the Strip toggle: the arithmetic, not just the
+  // result, so the figure can be checked against the doors on the floor
+  // before it's folded into the kitchen total. Hidden when the toggle is
+  // off or nothing has been counted yet.
+  var stripEl = document.getElementById('k-strip-summary');
+  if (stripEl) {
+    var sb = job.kitchen.stripCoating ? kitchenStripBreakdown(job.kitchen) : null;
+    var showStrip = !!(sb && sb.mins > 0);
+    stripEl.style.display = showStrip ? 'block' : 'none';
+    if (showStrip) {
+      stripEl.textContent = 'Stripping: ' + sb.parts.join(' + ') + ' = ' + Math.round(sb.mins) +
+        ' min · ' + fmt(c.stripCost) + ' labour';
+    }
+  }
   var card = document.getElementById('kitchen-breakdown-card');
   var body = document.getElementById('kitchen-breakdown');
   if (!card || !body) return;
   var rows = [
     ['Doors', c.doorsTotal], ['Drawer Fronts', c.drawersTotal], ['End Panels', c.endpanelsTotal],
     ['Fillers', c.fillersTotal], ['Cornices', c.corniceTotal], ['Plinths', c.plinthTotal],
-    ['Carcass spraying', c.carcassTotal]
+    ['Carcass spraying', c.carcassTotal],
+    ['Strip original coating (' + Math.round(c.stripMins) + ' min)', c.stripCost]
   ].filter(function(r){ return r[1]>0; });
   if (!rows.length) { card.style.display='none'; return; }
   card.style.display='block';
@@ -15303,7 +15416,8 @@ function renderSummary() {
         ['Doors', kitchenCalc.doorsTotal], ['Drawer Fronts', kitchenCalc.drawersTotal],
         ['End Panels', kitchenCalc.endpanelsTotal], ['Fillers', kitchenCalc.fillersTotal],
         ['Cornices', kitchenCalc.corniceTotal], ['Plinths', kitchenCalc.plinthTotal],
-        ['Carcass spraying', kitchenCalc.carcassTotal]
+        ['Carcass spraying', kitchenCalc.carcassTotal],
+        ['Strip original coating (' + Math.round(kitchenCalc.stripMins) + ' min)', kitchenCalc.stripCost]
       ].filter(function(r){ return r[1]>0; }).map(function(r){
         return '<div class="breakdown-sub-row"><span class="breakdown-sub-label">'+r[0]+'</span><span class="breakdown-sub-value">'+fmt(r[1]*mk)+'</span></div>';
       }).join('');

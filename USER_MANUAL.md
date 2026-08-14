@@ -101,6 +101,8 @@ Exterior paint litres are estimated from assumed areas per unit (window, sash, d
 
 **+ → Kitchen.** One kitchen per job, edited in place (no Save button). Set the coat count once (1–4), then enter quantities per size tier (Small/Medium/Large/X-Large) for Doors, Drawer Fronts, End Panels and Fillers, run lengths in metres for Plinths and Cornices, the **Glazed/Curved** premium where it applies, and the **Spray carcasses** toggle (a % uplift on doors + drawers + end panels). Every price and increment is editable under **Settings → Kitchen Rates** — the shipped figures are draft market-research numbers, so check them against your own pricing.
 
+**Painting over melamine?** Turn on **Strip original coating** in the Prep card at the top. It adds stripping time to every piece you've counted — doors, drawer fronts, end panels and fillers — at 5/6/7/8 minutes each for Small/Medium/Large/X-Large, charged at your day rate. Nothing to re-enter: it works off the counts already there, and the line beneath the toggle shows the sum it priced ("Stripping: 12×5min + 7×6min + 3×7min = 123 min · £87.86 labour") so you can check it before it lands in the total. Glazed/curved pieces strip at the same rate as flat ones of their size — the Glazed/Curved premium is for the *spraying*, not the stripping — and cornices/plinths get nothing (they're priced per metre, with no size tier). It's labour only: no extra materials, discs come out of the day rate. Off by default, and the minutes are editable under **Settings → Kitchen Rates**.
+
 Each of the four item sections shows its **piece count** on the header once collapsed (13 doors, 4 drawer fronts, and so on), so you can shut them all and tally the kitchen at a glance before leaving site. Glazed/curved pieces are counted once, not twice — they're part of the quantity beside them, not extra.
 
 ## 8. Colours
@@ -174,7 +176,7 @@ From On Site (on a completed job), **Build final invoice** assembles: labour as 
 | **Wallpaper Rates** | Per-roll rates, ceiling/staircase multipliers, trim allowance, minimum price, wide vinyl & mural rates |
 | **Exterior Rates** | mins per coat for masonry (smooth/textured), fascias, windows (base/per-pane/size ×), doors, garage, sash extras, access uplifts |
 | **Exterior Paint Coverage & Areas** | The assumed areas and coverages behind exterior litres — calibrate against real jobs |
-| **Kitchen Rates** | The full price matrix per item type × size, linear rates, glazed/curved %, carcass % |
+| **Kitchen Rates** | The full price matrix per item type × size, linear rates, glazed/curved %, carcass %, strip-original-coating minutes per size |
 | **Xero Integration** | Connect / disconnect |
 | **Materials (Xero Items)** | Default product range + colour band per role |
 | **Appearance** | Light/dark/auto theme (this phone only) |
