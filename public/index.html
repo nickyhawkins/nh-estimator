@@ -1823,6 +1823,16 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     <div>Settings</div>
     <span class="nav-menu-arrow">›</span>
   </div>
+  <!-- Undo, reachable from every measuring screen (the hamburger is on all of
+       them) for when the toast has already gone. Hidden unless the current
+       job has something on the stack — see refreshUndoAffordances(). -->
+  <div class="nav-menu-item" id="nav-menu-undo" style="display:none" onclick="closeNavMenu();undoLast()">
+    <div>
+      <div>↩ Undo</div>
+      <div class="nav-menu-sub" id="nav-menu-undo-sub"></div>
+    </div>
+    <span class="nav-menu-arrow">›</span>
+  </div>
   <!-- Sync status in words (the topbar dot is the at-a-glance version).
        The question that matters on site is "did today's measurements reach
        the server before I drive off?" — this row answers it explicitly. -->
@@ -1834,7 +1844,35 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.29.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.31.0</div>
+</div>
+
+<!-- ══ CLIENT QUOTE PREVIEW ══
+     The client-facing quote (openClientQuote) renders in the iframe below
+     rather than in a popup window. A popup written with document.write()
+     lives at about:blank, which in an installed iOS PWA is a dead end: no
+     print pipeline behind it, so the old in-page "Print / Save as PDF"
+     button was a silent no-op on the one platform this gets used from. In
+     here there is no popup blocker to trip, no opener to lose, and the two
+     actions sit in the APP document where they have the app's code —
+     Save PDF builds a real PDF (buildClientQuotePdf) and hands it to the
+     share sheet or downloads it. srcdoc keeps the client page's styling
+     fully isolated from the app's, exactly as the popup did. -->
+<div id="client-quote-overlay" style="display:none;position:fixed;inset:0;z-index:400;background:#f4f2ee;flex-direction:column">
+  <div style="display:flex;align-items:center;gap:10px;padding:calc(var(--st) + 10px) 14px 10px;background:var(--surface);border-bottom:1px solid var(--border);flex:none">
+    <button onclick="closeClientQuote()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:20px;padding:7px 16px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Close</button>
+    <div style="flex:1;text-align:center;font-size:14px;font-weight:600;color:var(--text2)">Quote preview</div>
+    <button id="client-quote-pdf-btn" onclick="saveQuotePdf()" style="background:var(--accent);border:1px solid var(--accent);color:#fff;border-radius:20px;padding:7px 16px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Save PDF</button>
+  </div>
+  <iframe id="client-quote-frame" title="Client quote preview" style="flex:1;width:100%;border:none;background:#f4f2ee"></iframe>
+</div>
+
+<!-- One shared toast for "that didn't work" messages — see toast() /
+     reportFailure(). Above every overlay so a failure inside one is still
+     readable. -->
+<div id="app-toast" style="display:none;position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--sb) + 78px);z-index:600;max-width:calc(100% - 32px);min-width:min(300px, calc(100% - 32px));background:#2b2b2b;color:#fff;font-size:14px;line-height:1.4;padding:11px 16px;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.28);text-align:left;align-items:center;gap:14px">
+  <span id="app-toast-msg" style="flex:1;min-width:0"></span>
+  <button id="app-toast-action" onclick="runToastAction()" style="display:none;flex:none;background:none;border:none;color:#7fc0ef;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;padding:2px 0;text-transform:uppercase;letter-spacing:.04em"></button>
 </div>
 </div>
 
@@ -2358,7 +2396,7 @@ function clearRooms() {
   // content -- they stay untouched here, only cleared by deleting the job.
   rooms=[]; colours=[]; materialsSnapshot=[];
   localStorage.setItem('pe-rooms','[]');
-  saveRooms(); saveColours(); saveMaterialsSnapshot(); markMaterialsSeeded(false); renderHome();
+  saveRooms(); saveColours(); saveMaterialsSnapshot(); markMaterialsSeeded(false); clearUndoStack(); renderHome();
 }
 function clearEverything() {
   if(!confirm('Clear ALL data in this job including exterior? This cannot be undone.'))return;
@@ -2371,6 +2409,10 @@ function clearEverything() {
   var clearedJob = activeJob();
   if (clearedJob) clearedJob.kitchen = null;
   markMaterialsSeeded(false);
+  // Undo restores materials only; against cleared rooms those lines would be
+  // orphans. Both clear* paths already confirm, so there's nothing silent to
+  // walk back here.
+  clearUndoStack();
   ['ex-door-qty','ex-frame-qty','ex-wins','ex-garage'].forEach(function(id){
     var el=document.getElementById(id); if(el) el.value='0';
   });
@@ -3081,6 +3123,212 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
   });
+}
+
+// ── Visible failure ────────────────────────────────────────────────────────
+// A tap that produces nothing is the worst outcome an action can have: it
+// looks like the app is broken with no clue why, and on a phone there's no
+// console to check. Anything that can fail should end in one of these rather
+// than a bare console.error or an empty catch — see reportFailure() below.
+// alert() stays the right tool for questions and hard stops; a toast is for
+// "that didn't work" while you carry on measuring.
+var toastTimer = null;
+var toastActionFn = null;
+// toast('message') or toast('message', { action: 'Undo', onAction: fn, ms: 6000 }).
+// The legacy toast(msg, milliseconds) form still works.
+function toast(msg, opts) {
+  if (typeof opts === 'number') opts = { ms: opts };
+  opts = opts || {};
+  var el = document.getElementById('app-toast');
+  var msgEl = document.getElementById('app-toast-msg');
+  var actionEl = document.getElementById('app-toast-action');
+  if (!el || !msgEl || !actionEl) { alert(msg); return; }
+  msgEl.textContent = msg;
+  toastActionFn = opts.onAction || null;
+  actionEl.textContent = opts.action || '';
+  actionEl.style.display = toastActionFn ? 'block' : 'none';
+  el.style.display = 'flex';
+  if (toastTimer) clearTimeout(toastTimer);
+  // An offer to undo needs longer on screen than a plain notice: it's a
+  // decision, not an acknowledgement.
+  toastTimer = setTimeout(hideToast, opts.ms || (toastActionFn ? 7000 : 4200));
+}
+
+function hideToast() {
+  var el = document.getElementById('app-toast');
+  if (el) el.style.display = 'none';
+  toastActionFn = null;
+  if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
+}
+
+function runToastAction() {
+  var fn = toastActionFn;
+  hideToast();
+  if (fn) fn();
+}
+
+// Show it AND log it: the toast is for Nicky ("it didn't work, here's
+// roughly why"), the console line is for whoever debugs it afterwards with
+// the stack still attached.
+function reportFailure(msg, err) {
+  console.error(msg, err);
+  var detail = err && err.message ? ' — ' + err.message : '';
+  toast(msg + detail);
+}
+
+// Blob → file on disk, the same handoff exportCSV()/exportBackup() do. The
+// object URL is revoked on a timer rather than immediately: revoking during
+// the click can cancel the download in some browsers, and a stray URL for a
+// few seconds costs nothing.
+function downloadBlob(blob, filename) {
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = filename; a.rel = 'noopener';
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  setTimeout(function() { URL.revokeObjectURL(url); }, 30000);
+}
+
+// ── Undo (materials + actuals, current job) ────────────────────────────────
+// Scoped deliberately narrowly: the two lists that carry hand-entered work
+// nothing else can rebuild — the editable materials snapshot on Summary and
+// the material actuals on On Site. NOT an app-wide undo; rooms and settings
+// have their own edit screens and a whole-app history would be a much bigger
+// promise to keep honest.
+//
+// In memory only, cleared on job switch (loadActiveJobData), so an entry can
+// never restore one job's lines over another's. Not persisted: the stack is
+// for "I just did that by mistake", and a reload is already a clean break in
+// that sense. It's cheap to add later if it turns out to be wanted — the
+// entries are plain JSON.
+//
+// Every entry is a FULL copy of the affected list rather than a per-action
+// inverse. These lists are tens of rows of small objects, the copy costs
+// nothing measurable, and a whole-list restore can't be wrong the way a
+// hand-written inverse for each action eventually is.
+var UNDO_LIMIT = 10;
+var undoStack = [];
+var undoBusy = false;
+
+// coalesceKey folds a burst of edits to the same thing into ONE undo point:
+// typing 3 then 4 then 5 into a quantity box should undo back to what it was
+// before you started, not step back through each keystroke.
+var UNDO_COALESCE_MS = 8000;
+
+function pushUndo(label, scope, coalesceKey) {
+  var last = undoStack[undoStack.length - 1];
+  if (last && coalesceKey && last.coalesceKey === coalesceKey && last.jobId === activeJobId
+      && (Date.now() - last.at) < UNDO_COALESCE_MS) {
+    last.at = Date.now();
+    last.label = label;
+    refreshUndoAffordances();
+    return;
+  }
+  undoStack.push({
+    jobId: activeJobId,
+    scope: scope,
+    label: label,
+    at: Date.now(),
+    coalesceKey: coalesceKey || null,
+    materials: scope === 'materials' ? JSON.parse(JSON.stringify(materialsSnapshot)) : null,
+    actuals: scope === 'actuals' ? JSON.parse(JSON.stringify(materialActuals)) : null
+  });
+  while (undoStack.length > UNDO_LIMIT) undoStack.shift();
+  refreshUndoAffordances();
+}
+
+// Offers the undo AND leaves it on the stack for the menu — the toast is the
+// convenient path, not the only one.
+function pushUndoWithToast(label, scope, coalesceKey, message) {
+  pushUndo(label, scope, coalesceKey);
+  toast(message || label, { action: 'Undo', onAction: undoLast });
+}
+
+function canUndo() {
+  var top = undoStack[undoStack.length - 1];
+  return !!(top && top.jobId === activeJobId);
+}
+
+function undoTopLabel() {
+  var top = undoStack[undoStack.length - 1];
+  return top ? top.label : '';
+}
+
+function clearUndoStack() {
+  undoStack = [];
+  refreshUndoAffordances();
+}
+
+async function undoLast() {
+  if (undoBusy) return;
+  if (!canUndo()) { toast('Nothing to undo'); return; }
+  undoBusy = true;
+  var entry = undoStack.pop();
+  try {
+    if (entry.scope === 'materials') {
+      materialsSnapshot = entry.materials;
+      saveMaterialsSnapshot();
+    } else if (entry.scope === 'actuals') {
+      await restoreActuals(entry.actuals);
+    }
+    toast('Undone — ' + entry.label);
+  } catch (err) {
+    // The write failed, so the app's state no longer matches what was just
+    // restored in memory. Put the entry back and say so rather than leaving
+    // a half-applied undo looking like it worked.
+    undoStack.push(entry);
+    reportFailure('Couldn\'t undo "' + entry.label + '"', err);
+  } finally {
+    undoBusy = false;
+    refreshUndoAffordances();
+    renderCurrentMaterialsScreen();
+  }
+}
+
+// Actuals have no bulk replace-all route, by design (see saveMaterialActual:
+// a failed mid-rewrite would destroy the invoice), so the restore is a diff:
+// delete what shouldn't be there, re-PUT what changed or went missing. A PUT
+// by id recreates a deleted row, which is what makes undoing a removal work.
+async function restoreActuals(prev) {
+  var prevById = {};
+  prev.forEach(function(a) { prevById[a.id] = a; });
+  var current = materialActuals.slice();
+  for (var i = 0; i < current.length; i++) {
+    if (!prevById[current[i].id]) await apiDeleteStrict('/api/actuals/' + current[i].id);
+  }
+  var curById = {};
+  materialActuals.forEach(function(a) { curById[a.id] = a; });
+  for (var j = 0; j < prev.length; j++) {
+    var p = prev[j], c = curById[p.id];
+    if (!c || JSON.stringify(c) !== JSON.stringify(p)) await saveMaterialActual(p);
+  }
+  materialActuals = prev;
+}
+
+// Both screens read the same two lists, and undoing a materials change while
+// standing on On Site changes what's quoted there — so re-render whichever is
+// showing rather than only the one that owns the action.
+function renderCurrentMaterialsScreen() {
+  if (curTab === 'summary') renderSummary();
+  else if (curTab === 'actuals') renderActuals();
+}
+
+// The undo affordances that live outside a render pass: the hamburger row.
+// The in-page chips are rebuilt by renderSummary()/renderActuals() anyway.
+function refreshUndoAffordances() {
+  var row = document.getElementById('nav-menu-undo');
+  if (!row) return;
+  var available = canUndo();
+  row.style.display = available ? 'flex' : 'none';
+  var sub = document.getElementById('nav-menu-undo-sub');
+  if (sub) sub.textContent = available ? undoTopLabel() : '';
+}
+
+// Shared markup for the in-page "↩ Undo" chip on Summary and On Site.
+function undoChipHtml() {
+  if (!canUndo()) return '';
+  return '<span onclick="undoLast()" title="' + escapeHtml(undoTopLabel()) + '"'
+    + ' style="font-size:12px;font-weight:600;color:var(--accent);cursor:pointer;text-transform:none;letter-spacing:normal">↩ Undo</span>';
 }
 
 // ── Xero contact autocomplete ───────────────────────────────────────────
@@ -4203,6 +4451,10 @@ async function loadActiveJobData() {
   ]);
   ensureDefaultColour();
   matReorderMode = false; // reorder mode is per-visit, not per-job state
+  // Undo is scoped to one job's materials/actuals, and the lists it restores
+  // have just been replaced wholesale — an entry from the old job could only
+  // ever write the wrong job's lines.
+  clearUndoStack();
   restoreJobIdentityFields();
   renderHome(); renderExterior(); renderColours(); renderSummary(); renderDash();
   updateNavBadge();
@@ -6567,6 +6819,7 @@ function openNavMenu() {
   if (nameEl) nameEl.textContent = (activeJob() && activeJob().name) || 'My Job';
   updateNavBadge();
   updateSyncStatus();
+  refreshUndoAffordances();
   document.getElementById('nav-menu-backdrop').classList.add('open');
   document.getElementById('nav-menu-panel').style.display = 'block';
 }
@@ -8105,17 +8358,55 @@ function moveMaterialLine(id, dir) {
   renderSummary();
 }
 
-// Rebuilds the snapshot from scratch out of whatever computeMaterials()
+// Where a snapshot line came from. `source` is the field going forward;
+// `custom` is the original flag and is still written alongside it, so lines
+// saved before this existed (and every other reader of `custom`) keep working.
+function matLineSource(l) {
+  return (l && (l.source === 'manual' || l.custom)) ? 'manual' : 'estimate';
+}
+
+// Identity of an estimate line ACROSS a recalculate. Not the id (regenerated
+// every time) and not the description alone -- one product can legitimately
+// appear under two roles or two colours, and those are different lines.
+function matEstimateKey(l) {
+  return [l.itemCode || ('~' + String(l.description || '').trim().toLowerCase()),
+          l.role || '',
+          l.colourNumber == null ? '' : l.colourNumber].join('|');
+}
+
+// A line whose quantity has been typed over: `quantity` is the human's
+// figure, `calcQuantity` is what the calculation currently wants.
+function matLineOverridden(l) {
+  return matLineSource(l) === 'estimate' && l.calcQuantity != null
+    && Math.abs((+l.quantity || 0) - (+l.calcQuantity || 0)) > 0.0001;
+}
+
+// Rebuilds the estimate-derived lines out of whatever computeMaterials()
 // currently produces -- only the real, priced line items (mapped roles),
 // never the unmapped litres-guess fallback, since there's no real
-// quantity/price to make editable there. Discards every prior edit,
-// deletion, and custom line -- a full overwrite, not a merge, by design.
+// quantity/price to make editable there.
+//
+// This used to be a FULL OVERWRITE: every manually-added line, every typed-over
+// quantity and every Tracking-only toggle was silently destroyed, with no way
+// back (Nicky 2026-08-14 — the bug this rewrite fixes). It's now a MERGE:
+//   • manual lines (matLineSource 'manual') are carried across untouched;
+//   • a typed-over quantity on an estimate line is kept, and the line's
+//     calcQuantity updates to whatever the rooms now say, so the difference
+//     stays visible and resettable rather than quietly re-applied;
+//   • Tracking-only stays off, and line ids are reused so nothing that
+//     references them (the shopping-list chip, the actuals rollup) jumps.
+// Estimate lines the rooms no longer call for still go -- that IS what
+// "Recalculate from rooms & exterior" means -- but they're covered by Undo,
+// and if one of them carried a typed-over quantity (the one piece of manual
+// input this merge genuinely cannot carry forward) the caller is asked first.
+//
+// Returns a summary of what happened, or false if the user cancelled.
 function recalculateMaterialsSnapshot(precomputedMats) {
   // renderSummary()'s auto-seed passes in the mats it already computed for
   // this render; every other caller omits it and computes fresh.
   var mats = precomputedMats || computeMaterials();
   var allRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows, mats.featureWallRows, mats.panelRows, mats.masonryRows, mats.extTopcoatRows, mats.extPrimerRows, mats.fuTopcoatRows, mats.fuPrimerRows);
-  materialsSnapshot = allRows.reduce(function(acc, row) {
+  var fresh = allRows.reduce(function(acc, row) {
     return acc.concat(row.lineItems.map(function(li) {
       // colourNumber/role are additive, carried from the row (buildRoleRows
       // attaches them) purely so materials tracking can show a per-colour
@@ -8126,11 +8417,66 @@ function recalculateMaterialsSnapshot(precomputedMats) {
       // unitAmount) rather than spreading the line, so extra keys never reach
       // Xero. Lines saved before this existed simply have neither, and the
       // breakdown is skipped for them until the next Recalculate.
-      return { id: uid(), itemCode: li.itemCode, description: li.description, quantity: li.quantity, unitAmount: li.unitAmount, custom: false, chargeable: true, isPerLitre: !!li.isPerLitre, colourNumber: row.colourNumber, role: row.role };
+      return { id: uid(), itemCode: li.itemCode, description: li.description, quantity: li.quantity,
+               calcQuantity: li.quantity, unitAmount: li.unitAmount, custom: false, source: 'estimate',
+               chargeable: true, isPerLitre: !!li.isPerLitre, colourNumber: row.colourNumber, role: row.role };
     }));
   }, []);
+
+  var prev = materialsSnapshot;
+  // An empty snapshot is renderSummary()'s first-time auto-seed, not a user
+  // action: nothing to preserve, nothing to confirm, nothing to undo.
+  var seeding = prev.length === 0;
+  var manual = prev.filter(function(l) { return matLineSource(l) === 'manual'; });
+  var prevEstimate = {};
+  prev.forEach(function(l) { if (matLineSource(l) === 'estimate') prevEstimate[matEstimateKey(l)] = l; });
+
+  var freshKeys = {}, overridesKept = 0;
+  fresh.forEach(function(l) {
+    var key = matEstimateKey(l);
+    freshKeys[key] = true;
+    var old = prevEstimate[key];
+    if (!old) return;
+    l.id = old.id;
+    if (old.chargeable === false) l.chargeable = false;
+    if (matLineOverridden(old)) {
+      l.quantity = +old.quantity || 0;   // the human's figure wins
+      overridesKept++;                   // calcQuantity stays the NEW estimate
+    }
+  });
+
+  var stranded = prev.filter(function(l) {
+    return matLineOverridden(l) && !freshKeys[matEstimateKey(l)];
+  });
+  if (!seeding && stranded.length) {
+    var list = stranded.map(function(l) { return '• ' + l.description + ' — your ' + l.quantity; }).join('\n');
+    if (!confirm('Recalculating removes ' + stranded.length + ' line' + (stranded.length === 1 ? '' : 's')
+        + ' you set the quantity on by hand, because the rooms no longer call for '
+        + (stranded.length === 1 ? 'it' : 'them') + ':\n\n' + list
+        + '\n\nYour manually added materials are kept either way. Recalculate anyway?')) {
+      return false;
+    }
+  }
+
+  if (!seeding) pushUndo('Recalculate materials', 'materials');
+  materialsSnapshot = fresh.concat(manual);
   saveMaterialsSnapshot();
   markMaterialsSeeded(true);
+  return { seeded: seeding, manualKept: manual.length, overridesKept: overridesKept, dropped: stranded.length };
+}
+
+// The Recalculate button's handler: does the merge, then reports what it kept
+// so "did that just eat my manual lines?" is answered on screen rather than by
+// scrolling the list. Undo is offered on the same toast.
+function recalculateMaterialsFromButton() {
+  var res = recalculateMaterialsSnapshot();
+  renderSummary();
+  if (!res) { toast('Recalculate cancelled — nothing changed'); return; }
+  var kept = [];
+  if (res.manualKept) kept.push(res.manualKept + ' manual line' + (res.manualKept === 1 ? '' : 's'));
+  if (res.overridesKept) kept.push(res.overridesKept + ' edited quantit' + (res.overridesKept === 1 ? 'y' : 'ies'));
+  var msg = 'Materials recalculated' + (kept.length ? ' — kept ' + kept.join(' and ') : '');
+  toast(msg, { action: 'Undo', onAction: undoLast });
 }
 
 // Non-chargeable (tracking-only, chargeable===false) lines don't count --
@@ -8140,15 +8486,47 @@ function materialsSnapshotTotal() {
   return materialsSnapshot.reduce(function(sum, l) { return l.chargeable === false ? sum : sum + (+l.quantity||0) * (+l.unitAmount||0); }, 0);
 }
 
+// Typing over a quantity is what makes an estimate line "yours" -- from here
+// on a Recalculate keeps this figure instead of overwriting it (see the merge
+// in recalculateMaterialsSnapshot). calcQuantity is left alone: it's the
+// calculation's own answer, and keeping it is what lets the row show both
+// numbers and offer the estimate back.
 function setMaterialLineQuantity(id, value) {
   var line = materialsSnapshot.find(function(l) { return l.id === id; });
   if (!line) return;
-  line.quantity = Math.max(0, +value || 0);
+  var next = Math.max(0, +value || 0);
+  if (Math.abs(next - (+line.quantity || 0)) < 0.0001) return;
+  // Coalesced per line: a burst of edits to one box undoes back to the figure
+  // it held before the burst started, not one keystroke at a time.
+  pushUndo('Quantity — ' + line.description, 'materials', 'qty:' + id);
+  // Lines snapshotted before calcQuantity existed carry no calculated figure.
+  // The quantity they hold right now IS the calculation's answer (nothing else
+  // has ever written it), so stamp it before overwriting -- otherwise this
+  // edit wouldn't register as an override and the next Recalculate would
+  // wipe it, which is the whole bug.
+  if (line.calcQuantity == null && matLineSource(line) === 'estimate') {
+    line.calcQuantity = +line.quantity || 0;
+  }
+  line.quantity = next;
+  saveMaterialsSnapshot();
+  renderSummary();
+}
+
+// Puts an overridden line back on the calculation's own figure.
+function resetMaterialLineQuantity(id) {
+  var line = materialsSnapshot.find(function(l) { return l.id === id; });
+  if (!line || line.calcQuantity == null) return;
+  pushUndo('Quantity — ' + line.description, 'materials', 'qty:' + id);
+  line.quantity = +line.calcQuantity || 0;
   saveMaterialsSnapshot();
   renderSummary();
 }
 
 function deleteMaterialLine(id) {
+  var line = materialsSnapshot.find(function(l) { return l.id === id; });
+  if (!line) return;
+  pushUndoWithToast('Delete — ' + line.description, 'materials', null,
+    'Removed ' + line.description);
   materialsSnapshot = materialsSnapshot.filter(function(l) { return l.id !== id; });
   saveMaterialsSnapshot();
   renderSummary();
@@ -8158,7 +8536,8 @@ function deleteMaterialLine(id) {
 // rows are always real, priced quote lines and never show this control.
 function toggleMaterialChargeable(id) {
   var line = materialsSnapshot.find(function(l) { return l.id === id; });
-  if (!line || !line.custom) return;
+  if (!line || matLineSource(line) !== 'manual') return;
+  pushUndo('Chargeable — ' + line.description, 'materials', 'charge:' + id);
   line.chargeable = line.chargeable === false;
   saveMaterialsSnapshot();
   renderSummary();
@@ -8404,7 +8783,11 @@ function addCustomMaterialLine() {
   var colourVal = document.getElementById('add-mat-colour').value;
   var colourNumber = colourVal ? +colourVal : null;
   var chargeable = document.getElementById('add-mat-chargeable').classList.contains('on');
-  materialsSnapshot.push({ id: uid(), itemCode: itemCode, description: desc, quantity: qty, unitAmount: price, custom: true, chargeable: chargeable, colourNumber: colourNumber });
+  pushUndo('Add — ' + desc, 'materials');
+  // source:'manual' is what keeps this line alive through a Recalculate --
+  // see recalculateMaterialsSnapshot's merge. `custom` is written too, for
+  // the readers that predate it.
+  materialsSnapshot.push({ id: uid(), itemCode: itemCode, description: desc, quantity: qty, unitAmount: price, custom: true, source: 'manual', chargeable: chargeable, colourNumber: colourNumber });
   saveMaterialsSnapshot();
   clearFormFields(ADD_MAT_FIELD_IDS);
   renderSummary();
@@ -9015,7 +9398,9 @@ function renderActuals() {
   // Order per Nicky (2026-07-23): the daily rhythm is days → materials,
   // with variations the occasional visitor — so they sit below.
   el.innerHTML = onSiteJobHeader() + head + renderTimeOnSiteCard()
-    + '<div class="section-title" style="margin:16px 0 8px">Materials</div>'
+    + '<div class="section-title" style="margin:16px 0 8px;display:flex;align-items:center;justify-content:space-between;gap:14px">Materials'
+      + undoChipHtml()
+    + '</div>'
     + rowsHtml + add
     + variationsSection;
   restoreFields(pendingAdd);
@@ -9152,9 +9537,13 @@ async function persistActual(a) {
 
 async function setActualQuantity(key, value) {
   var row = findActualsRow(key); if (!row) return;
+  // Before ensureActual(), which creates the row on first touch -- undoing
+  // then takes that row back out again, not just its quantity.
+  pushUndo('Quantity — ' + row.description, 'actuals', 'act-qty:' + key);
   var a = ensureActual(row);
   a.actualQuantity = Math.max(0, +value || 0);
   if (await persistActual(a)) renderActuals();
+  else { undoStack.pop(); refreshUndoAffordances(); }  // persist failed and reloaded; nothing to undo
 }
 
 async function toggleActualBought(key) {
@@ -9167,14 +9556,18 @@ async function toggleActualBought(key) {
 async function removeActual(key) {
   var row = findActualsRow(key); if (!row || !row.actual) return;
   if (!confirm('Remove "' + row.actual.description + '" from the actuals? It will no longer be invoiced.')) return;
+  var desc = row.actual.description;
+  pushUndo('Remove — ' + desc, 'actuals');
   try {
     await apiDeleteStrict('/api/actuals/' + row.actual.id);
   } catch (e) {
+    undoStack.pop(); refreshUndoAffordances();
     alert('Could not remove: ' + e.message);
     return;
   }
   materialActuals = materialActuals.filter(function(x) { return x.id !== row.actual.id; });
   renderActuals();
+  toast('Removed ' + desc, { action: 'Undo', onAction: undoLast });
 }
 
 // Edit a manually-added row's description/colour/price in place. Only
@@ -15143,9 +15536,20 @@ function renderSummary() {
     // show the tag. Missing chargeable (lines saved before this existed)
     // reads as chargeable, matching materialsSnapshotTotal()'s same rule.
     var isChargeable = l.chargeable !== false;
-    var chargeableTag = l.custom
+    var isManual = matLineSource(l) === 'manual';
+    var chargeableTag = isManual
       ? '<div class="mat-chargeable-tag'+(isChargeable?' on':'')+'" onclick="toggleMaterialChargeable(\''+l.id+'\')">'+(isChargeable?'Chargeable':'Tracking only')+'</div>'
       : '';
+    // Which lines a Recalculate will rebuild, and which are yours -- the
+    // distinction the merge now acts on, made visible so it can be trusted
+    // (and so a typed-over quantity is never mistaken for a calculated one).
+    var sourceNote = isManual
+      ? '<span style="font-size:11px;font-weight:600;color:var(--text2)"> · added by you</span>'
+      : (matLineOverridden(l)
+          ? '<span style="font-size:11px;font-weight:600;color:var(--text2)"> · edited · '
+            + '<span onclick="event.stopPropagation();resetMaterialLineQuantity(\''+l.id+'\')" style="color:var(--accent);cursor:pointer;white-space:nowrap">reset to '
+            + (Math.round((+l.calcQuantity || 0) * 100) / 100) + '</span></span>'
+          : '');
     // Opt-in add to the (global) shopping list — see addMaterialToShopList.
     // "On list" is best-effort read-only state: shopList may simply not be
     // fetched yet this session, in which case the chip just reads "Add to
@@ -15170,7 +15574,7 @@ function renderSummary() {
     }
     return swipeDeleteWrap('deleteMaterialLine', l.id,
       '<div class="mat-row"><div><div class="mat-label">'+escapeHtml(l.description)+'</div>'+
-      '<div class="mat-detail">'+fmt(+l.unitAmount||0)+(l.isPerLitre?'/ltr':' each')+'</div>'+chargeableTag+shopTag+'</div>'+
+      '<div class="mat-detail">'+fmt(+l.unitAmount||0)+(l.isPerLitre?'/ltr':' each')+sourceNote+'</div>'+chargeableTag+shopTag+'</div>'+
       '<div style="display:flex;align-items:center;gap:10px">'+
         '<input type="number" class="field-input" style="width:60px;padding:6px 8px;text-align:center" value="'+l.quantity+'" min="0" step="1" onchange="setMaterialLineQuantity(\''+l.id+'\',this.value)">'+
         '<div class="mat-val" style="width:72px;text-align:right">'+fmt(cost)+'</div>'+
@@ -15557,8 +15961,11 @@ function renderSummary() {
       '<span class="breakdown-label">Custom line items — no markup<small style="display:block;font-weight:400;color:var(--text2)">entered prices, added to the total exactly as typed</small></span>'+
       '<span class="breakdown-value">'+fmt(customSplit.flat)+'</span></div>':'')+
     '</div></div>'+
-    '<div><div class="section-title" style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">Materials'+
+    '<div><div class="section-title" style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:14px">Materials'+
+      '<span style="display:flex;align-items:center;gap:14px">'+
+      undoChipHtml()+
       (materialsSnapshot.length > 1 ? '<span onclick="toggleMatReorder()" style="font-size:12px;font-weight:600;color:var(--accent);cursor:pointer;text-transform:none;letter-spacing:normal">'+(matReorderMode ? 'Done' : 'Reorder')+'</span>' : '')+
+      '</span>'+
     '</div>'+
     '<div class="card">'+
       editableRowsHtml + unmappedRowsHtml +
@@ -15566,7 +15973,11 @@ function renderSummary() {
         '<span class="breakdown-label" style="font-weight:600;color:var(--text)">Materials subtotal</span>'+
         '<span class="breakdown-value" style="color:var(--accent)">'+fmt(materialsTotal)+'</span></div>':'')+
     '</div>'+
-    '<button onclick="recalculateMaterialsSnapshot();renderSummary();" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%;margin-top:8px">Recalculate from rooms &amp; exterior</button>'+
+    '<button onclick="recalculateMaterialsFromButton()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%;margin-top:8px">Recalculate from rooms &amp; exterior</button>'+
+    // Says up front what the button will and won't touch -- the old one gave
+    // no clue it was about to destroy every manual line, which is how the
+    // data loss happened in the first place.
+    '<div style="font-size:12px;color:var(--text2);margin-top:6px;padding:0 2px;line-height:1.4">Rebuilds the calculated lines from the rooms. Your manually added materials and any quantities you\'ve typed over are kept.</div>'+
     '<div class="card" style="margin-top:8px;overflow:visible">'+
       '<div class="card-header">Add Material</div>'+
       '<div class="field-row"><div class="field-label">Product<small>optional, type to search</small></div>'+
@@ -15620,6 +16031,10 @@ function renderSummary() {
 // record is internal). Jobs imported from Xero (roomless by design) open
 // too: their agreed total renders as its own "Original quote" line, same
 // already-final lump treatment as the final-invoice builder gives it.
+//
+// v2.30.0 moved the view IN-APP (overlay + srcdoc iframe) and replaced its
+// "Print / Save as PDF" button with a real generated PDF — see the comment
+// in the body for why the old popup could never work on the phone.
 function openClientQuote() {
   var job = activeJob();
   var quoteKitchen = (job && job.kitchen && !job.kitchen.isVariation) ? job.kitchen : null;
@@ -15637,13 +16052,101 @@ function openClientQuote() {
     alert('Nothing to preview yet — add rooms on the Measure tab first.');
     return;
   }
-  var w = window.open('', '_blank');
-  if (!w) { alert('Could not open the quote view — allow pop-ups for this app and try again.'); return; }
-  w.document.write(buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitchenCalc, fuQuoteAgg, vv, importedBaseline));
-  w.document.close();
+  // Rendered INSIDE the app, in a srcdoc iframe, rather than in a popup
+  // window written with document.write(). The popup was the whole reason
+  // "Print / Save as PDF" did nothing on Nicky's phone: from an installed
+  // (standalone) iOS PWA a `window.open('', '_blank')` document lives at
+  // about:blank in a webview that has no print pipeline behind it, so the
+  // old toolbar's `onclick="window.print()"` was a guaranteed silent no-op
+  // there while working perfectly in a desktop browser. An iframe has no
+  // popup blocker, no about:blank, no opener to lose and no reliance on
+  // window.print() — the PDF is built by us (buildClientQuotePdf) and handed
+  // to the OS share sheet or downloaded, which works on every platform.
+  var model;
+  try {
+    model = buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kitchenCalc, fuQuoteAgg, vv, importedBaseline);
+  } catch (err) {
+    reportFailure('Couldn\'t build the quote preview', err);
+    return;
+  }
+  clientQuoteModel = model;
+  var overlay = document.getElementById('client-quote-overlay');
+  var frame = document.getElementById('client-quote-frame');
+  if (!overlay || !frame) { reportFailure('Couldn\'t open the quote preview', new Error('preview overlay missing')); return; }
+  frame.srcdoc = buildClientQuoteHtml(model);
+  overlay.style.display = 'flex';
+  document.addEventListener('keydown', clientQuoteEscHandler);
 }
 
-function buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitchenCalc, fuQuoteAgg, vv, importedBaseline) {
+function clientQuoteEscHandler(e) {
+  if (e.key === 'Escape') closeClientQuote();
+}
+
+function closeClientQuote() {
+  var overlay = document.getElementById('client-quote-overlay');
+  if (overlay) overlay.style.display = 'none';
+  // Drop the rendered document so a reopen can't flash the previous job's
+  // figures before the new srcdoc paints.
+  var frame = document.getElementById('client-quote-frame');
+  if (frame) frame.srcdoc = '';
+  document.removeEventListener('keydown', clientQuoteEscHandler);
+}
+
+// The quote model behind whatever the preview is currently showing — the
+// PDF export reads it rather than recomputing, so the file can never differ
+// from the page the client was just shown on screen.
+var clientQuoteModel = null;
+
+// "Save PDF" on the preview. Three outcomes, and every one of them is
+// VISIBLE: the share sheet opens (mobile), a file downloads (desktop), or a
+// toast says what went wrong. Nothing here is allowed to fail quietly —
+// that was the original bug, not just the broken print call.
+async function saveQuotePdf() {
+  var btn = document.getElementById('client-quote-pdf-btn');
+  var label = btn ? btn.textContent : '';
+  if (btn) { btn.textContent = 'Working…'; btn.disabled = true; }
+  try {
+    if (!clientQuoteModel) throw new Error('no quote is open');
+    var bytes = await buildClientQuotePdf(clientQuoteModel);
+    var blob = new Blob([bytes], { type: 'application/pdf' });
+    var filename = quotePdfFilename(clientQuoteModel);
+
+    // Preferred path on a phone: hand the real PDF to the OS share sheet,
+    // where "Save to Files", AirDrop, Mail and Print all live. This is the
+    // one export mechanism that behaves identically in Safari and in the
+    // installed PWA, which is exactly where window.print() did not.
+    var file = null;
+    try { file = new File([blob], filename, { type: 'application/pdf' }); } catch (e) { file = null; }
+    var canShareFile = false;
+    try { canShareFile = !!(file && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })); } catch (e) { canShareFile = false; }
+    if (canShareFile) {
+      try {
+        await navigator.share({ files: [file], title: clientQuoteModel.jobName || 'Quote' });
+        return;
+      } catch (e) {
+        // A cancelled share is a decision, not a failure — say nothing.
+        if (e && (e.name === 'AbortError' || e.name === 'NotAllowedError')) return;
+        // Anything else: fall through to the download path rather than
+        // leaving the tap with no result at all.
+        console.warn('Share sheet refused the quote PDF, falling back to download', e);
+      }
+    }
+    downloadBlob(blob, filename);
+    toast('Quote PDF saved as ' + filename);
+  } catch (err) {
+    reportFailure('Couldn\'t generate the PDF', err);
+  } finally {
+    if (btn) { btn.textContent = label; btn.disabled = false; }
+  }
+}
+
+function quotePdfFilename(m) {
+  var base = (m.jobName || 'Quote').replace(/[^A-Za-z0-9 _-]+/g, '').trim().replace(/\s+/g, '-');
+  var date = new Date().toISOString().slice(0, 10);
+  return 'NH-Quote-' + (base || 'Job') + '-' + date + '.pdf';
+}
+
+function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kitchenCalc, fuQuoteAgg, vv, importedBaseline) {
   var tcS = 0, ttS = 0, sprayS = 0;
   var roomLines = quoteRooms.map(function(r) {
     var c = calcRoom(r);
@@ -15676,48 +16179,72 @@ function buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitc
   var rawBase = tcS + plan.standalone.topUp + plan.sundries + customSplit.marked;
   var lineMult = rawBase > 0 ? plan.labourTotal / rawBase : 1;
 
-  var esc = escapeHtml;
-  var money = function(n) { return fmt(n); };
-  var lineRow = function(label, sub, amount) {
-    return '<div class="line"><div class="line-l"><div class="line-name">' + label + '</div>'
-      + (sub ? '<div class="line-sub">' + sub + '</div>' : '') + '</div>'
-      + '<div class="line-v">' + money(amount) + '</div></div>';
-  };
+  // ── From here down it's presentation, and the split matters ────────────
+  // The rows and totals are assembled ONCE, into a plain data model, and
+  // rendered TWICE — as the branded HTML page in the preview, and as the
+  // PDF export. Two parallel builders would eventually disagree about a
+  // figure; one model can't. Row text is stored RAW: no HTML entities, no
+  // markup, each renderer escapes for its own medium. `emoji` is kept apart
+  // from `label` because the PDF's WinAnsi fonts have no glyph for it —
+  // dropping a leading emoji must not mean dropping the room's name.
+  var money = fmt;
+  var workRows = [];
+  roomLines.forEach(function(l) {
+    workRows.push({ emoji: l.emoji || '', label: l.name, sub: '', amount: l.raw * lineMult });
+  });
+  extLines.forEach(function(l) {
+    workRows.push({ emoji: l.emoji || '', label: l.name, sub: 'exterior', amount: l.raw * lineMult });
+  });
+  if (kitchenCalc.total > 0.005) {
+    workRows.push({ emoji: '🍳', label: 'Kitchen Cabinet Spraying', sub: '', amount: kitchenCalc.total * lineMult });
+  }
+  // One named line per fitted unit (v2.20.0) so multiple units in the
+  // same room read apart on the client's copy.
+  fuQuoteAgg.units.forEach(function(e) {
+    if (e.calc.total > 0.005) workRows.push({ emoji: '📚', label: fittedUnitName(e.unit), sub: '', amount: e.calc.total * lineMult });
+  });
+  // Custom lines: marked ones ride the same proportional multiplier as
+  // every other work line; markup-off ones print the entered price
+  // untouched (lineMult would silently re-add margin they already carry).
+  customItems.forEach(function(it) {
+    var t = customItemTotal(it);
+    var qty = (+it.quantity > 0) ? +it.quantity : 1;
+    workRows.push({
+      emoji: '✏️',
+      label: it.description || 'Custom line',
+      sub: qty !== 1 ? qty + ' × ' + money(+it.unitPrice || 0) : '',
+      amount: it.applyMarkup === false ? t : t * lineMult
+    });
+  });
+  if (plan.standalone.topUp > 0.005) {
+    workRows.push({
+      emoji: '',
+      label: 'Standalone job — full diary days',
+      sub: plan.standalone.calcDays.toFixed(1) + ' calculated → ' + (plan.standalone.diaryDays % 1 === 0 ? plan.standalone.diaryDays.toFixed(0) : plan.standalone.diaryDays.toFixed(1)) + ' days charged',
+      amount: plan.standalone.topUp * lineMult
+    });
+  }
+  if (plan.sundries > 0.005) {
+    workRows.push({ emoji: '', label: 'Sundries & Consumables', sub: '', amount: plan.sundries * lineMult });
+  }
 
-  var workRows = roomLines.map(function(l) { return lineRow((l.emoji ? l.emoji + ' ' : '') + esc(l.name), '', l.raw * lineMult); }).join('')
-    + extLines.map(function(l) { return lineRow(l.emoji + ' ' + esc(l.name), 'exterior', l.raw * lineMult); }).join('')
-    + (kitchenCalc.total > 0.005 ? lineRow('🍳 Kitchen Cabinet Spraying', '', kitchenCalc.total * lineMult) : '')
-    // One named line per fitted unit (v2.20.0) so multiple units in the
-    // same room read apart on the client's copy.
-    + fuQuoteAgg.units.map(function(e) { return e.calc.total > 0.005 ? lineRow('📚 ' + esc(fittedUnitName(e.unit)), '', e.calc.total * lineMult) : ''; }).join('')
-    // Custom lines: marked ones ride the same proportional multiplier as
-    // every other work line; markup-off ones print the entered price
-    // untouched (lineMult would silently re-add margin they already carry).
-    + customItems.map(function(it) {
-        var t = customItemTotal(it);
-        var qty = (+it.quantity > 0) ? +it.quantity : 1;
-        var sub = qty !== 1 ? qty + ' × ' + money(+it.unitPrice || 0) : '';
-        return lineRow('✏️ ' + esc(it.description || 'Custom line'), sub, it.applyMarkup === false ? t : t * lineMult);
-      }).join('')
-    + (plan.standalone.topUp > 0.005 ? lineRow('Standalone job — full diary days', plan.standalone.calcDays.toFixed(1) + ' calculated → ' + (plan.standalone.diaryDays % 1 === 0 ? plan.standalone.diaryDays.toFixed(0) : plan.standalone.diaryDays.toFixed(1)) + ' days charged', plan.standalone.topUp * lineMult) : '')
-    + (plan.sundries > 0.005 ? lineRow('Sundries &amp; Consumables', '', plan.sundries * lineMult) : '');
-
-  var matRows = chargeableMats.map(function(l) {
+  var matRows = [];
+  chargeableMats.forEach(function(l) {
     var lineTotal = (+l.quantity || 0) * (+l.unitAmount || 0);
-    if (lineTotal <= 0.005) return '';
-    return lineRow(esc(l.description), (+l.quantity || 0) + ' × ' + money(+l.unitAmount || 0), lineTotal);
-  }).join('');
+    if (lineTotal <= 0.005) return;
+    matRows.push({ emoji: '', label: l.description, sub: (+l.quantity || 0) + ' × ' + money(+l.unitAmount || 0), amount: lineTotal });
+  });
 
   // Variations at the same customer prices the On Site card shows (raw ×
   // varMk, flat lines verbatim, sundries on the variation base) — one
   // composition, computeVariationsView(), everywhere. Declined lines are
   // omitted: this page is client-facing, the declined record is internal.
-  var varRows = '';
+  var varRows = [];
   if (vv && vv.hasVariations) {
     var varStatusSub = function(st) { return st === 'approved' ? 'approved ✓' : 'awaiting approval'; };
     vv.varLines.forEach(function(l) {
       if (l.status === 'declined') return;
-      varRows += lineRow(esc(l.name), varStatusSub(l.status), l.raw * vv.varMk);
+      varRows.push({ emoji: '', label: l.name, sub: varStatusSub(l.status), amount: l.raw * vv.varMk });
     });
     var varHourly = (settings.dr || 0) / (settings.hpd || 7);
     vv.freeVars.forEach(function(fv) {
@@ -15725,49 +16252,109 @@ function buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitc
       if (st === 'declined') return;
       var amount = fv.mode === 'flat' ? (+fv.amount || 0) : (+fv.hours || 0) * varHourly * vv.varMk;
       if (amount <= 0.005) return;
-      varRows += lineRow(esc(fv.label), varStatusSub(st), amount);
+      varRows.push({ emoji: '', label: fv.label, sub: varStatusSub(st), amount: amount });
     });
-    if (vv.varSundries > 0.005) varRows += lineRow('Sundries &amp; Consumables', 'variations', vv.varSundries * vv.varMk);
+    if (vv.varSundries > 0.005) varRows.push({ emoji: '', label: 'Sundries & Consumables', sub: 'variations', amount: vv.varSundries * vv.varMk });
   }
 
-  var colourRows = quoteRooms.map(function(r) {
+  var colourRows = [];
+  quoteRooms.forEach(function(r) {
     var line = roomColourSchedule(r);
-    return line ? '<div class="colour-row"><div class="colour-room">' + esc(r.name) + '</div><div class="colour-detail">' + esc(line) + '</div></div>' : '';
-  }).join('');
+    if (line) colourRows.push({ room: r.name, detail: line });
+  });
 
-  var paymentRows = lineRow('Deposit due on acceptance', esc(plan.depositBasis), plan.deposit);
+  var paymentRows = [{ emoji: '', label: 'Deposit due on acceptance', sub: plan.depositBasis, amount: plan.deposit }];
   if (plan.paymentType === 'multiweek' && plan.weeklyRows.length > 0) {
     plan.weeklyRows.forEach(function(amt, i) {
       var wc = job && job.startDate ? ' — w/c ' + fmtShortDate(instalmentDate(job.startDate, i)) : '';
-      paymentRows += lineRow('Week ' + (i + 1) + esc(wc), '', amt);
+      paymentRows.push({ emoji: '', label: 'Week ' + (i + 1) + wc, sub: '', amount: amt });
     });
   } else {
-    paymentRows += lineRow('Balance on completion', '', plan.balance);
+    paymentRows.push({ emoji: '', label: 'Balance on completion', sub: '', amount: plan.balance });
   }
 
-  var clientName = (job && job.xeroClient) || '';
   var contact = (job && job.contact) || {};
-  var addressBits = [contact.street, contact.town, contact.postcode].filter(Boolean).join(', ');
-  var today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
-  // Brand: steel blue / warm grey / white, Barlow, the business logo. The
-  // whole page is print-friendly — iOS's share sheet turns it into the PDF,
-  // desktop's print dialog does Save as PDF, matching Export ↓'s "hand the
-  // user a file" model without any server round-trip.
+  return {
+    clientName: (job && job.xeroClient) || '',
+    address: [contact.street, contact.town, contact.postcode].filter(Boolean).join(', '),
+    jobName: (job && job.name) || '',
+    today: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+    // Subtotal = plan.labourTotal (which already folds in marked custom
+    // lines) + the flat custom lines printed verbatim above -- so this is
+    // exactly the sum of the rows the client can see in this card.
+    work: workRows.length ? { rows: workRows, subtotalLabel: 'Labour subtotal', subtotal: plan.labourTotal + customSplit.flat } : null,
+    // Imported-from-Xero jobs: the agreed money IS the record (no measured
+    // rooms, importAcceptedQuote()) — one already-final line, no lineMult,
+    // same lump treatment as Summary's importedBaseline and the final
+    // invoice's "Original quote" line.
+    imported: importedBaseline > 0.005 ? {
+      rows: [{ emoji: '', label: 'As agreed' + (job && job.xeroQuoteNumber ? ' — ' + job.xeroQuoteNumber : ''), sub: 'accepted in Xero', amount: importedBaseline }]
+    } : null,
+    variations: varRows.length ? {
+      rows: varRows, subtotalLabel: 'Variations subtotal', subtotal: vv.variationsTotal,
+      note: 'Variations are billed on the final invoice.'
+    } : null,
+    materials: matRows.length ? {
+      rows: matRows, subtotalLabel: 'Materials subtotal', subtotal: materialsTotal,
+      note: 'Materials are estimated here and billed as actually used.'
+    } : null,
+    colours: colourRows,
+    // Payment/terms come from computeDepositPlan over engine labour, which
+    // is zero on an imported job (that money's collection lives in Xero) —
+    // £0.00 deposit/balance rows would just look broken, so hide them.
+    payment: plan.total > 0.005 ? { rows: paymentRows } : null,
+    total: plan.total + (importedBaseline || 0),
+    // Same combined figure Summary's hero-sub shows.
+    totalInclVariations: varRows.length ? plan.total + (importedBaseline || 0) + vv.variationsTotal : null,
+    terms: plan.total > 0.005 ? buildPaymentTermsText(plan, job && job.startDate) : ''
+  };
+}
+
+// Brand: steel blue / warm grey / white, Barlow, the business logo. Rendered
+// into the preview overlay's srcdoc iframe — self-contained, so the app's own
+// stylesheet can't leak into the client-facing page and vice versa. The
+// toolbar that used to sit at the top of this document is gone: Close and
+// Save PDF now live in the overlay's own chrome, in the app document, where
+// they have the app's code available instead of a lone window.print() call.
+function buildClientQuoteHtml(m) {
+  var esc = escapeHtml;
+  var money = fmt;
+  var lineRow = function(row) {
+    var name = (row.emoji ? row.emoji + ' ' : '') + esc(row.label);
+    return '<div class="line"><div class="line-l"><div class="line-name">' + name + '</div>'
+      + (row.sub ? '<div class="line-sub">' + esc(row.sub) + '</div>' : '') + '</div>'
+      + '<div class="line-v">' + money(row.amount) + '</div></div>';
+  };
+  var subtotalRow = function(label, amount) {
+    return '<div class="line subtotal"><div class="line-l"><div class="line-name">' + esc(label) + '</div></div>'
+      + '<div class="line-v">' + money(amount) + '</div></div>';
+  };
+  var card = function(title, section) {
+    if (!section) return '';
+    return '<div class="card"><h2>' + esc(title) + '</h2>'
+      + section.rows.map(lineRow).join('')
+      + (section.subtotalLabel ? subtotalRow(section.subtotalLabel, section.subtotal) : '')
+      + (section.note ? '<div class="line-sub" style="padding-top:8px">' + esc(section.note) + '</div>' : '')
+      + '</div>';
+  };
+
   return '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
     + '<meta name="viewport" content="width=device-width, initial-scale=1">'
-    + '<title>Quote — ' + esc((job && job.name) || 'NH Estimator') + '</title>'
+    + '<title>Quote — ' + esc(m.jobName || 'NH Estimator') + '</title>'
     + '<link rel="preconnect" href="https://fonts.googleapis.com">'
-    + '<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&family=Barlow+Semi+Condensed:wght@600;700&display=swap" rel="stylesheet">'
+    // Loaded NON-blocking (media=print until it arrives, then promoted).
+    // A plain stylesheet link holds first paint until the request settles,
+    // and half this app's life is spent in houses with one bar of signal --
+    // which showed up as the preview sitting blank for seconds before the
+    // quote appeared. Barlow is a progressive enhancement over the system
+    // font here, so there is nothing worth waiting for.
+    + '<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&family=Barlow+Semi+Condensed:wght@600;700&display=swap" rel="stylesheet" media="print" onload="this.media=\'all\'">'
     + '<style>'
     + ':root{--steel:#1e6497;--grey:#f4f2ee;--ink:#2b2b2b;--mut:#6b6b6b}'
     + '*{box-sizing:border-box;margin:0;padding:0}'
     + 'body{font-family:"Barlow",system-ui,sans-serif;background:var(--grey);color:var(--ink);line-height:1.45;-webkit-print-color-adjust:exact;print-color-adjust:exact}'
-    + '.page{max-width:720px;margin:0 auto;padding:24px 20px 48px}'
-    + '.toolbar{display:flex;gap:10px;justify-content:flex-end;padding:14px 0}'
-    + '.toolbar button{font-family:"Barlow",sans-serif;font-weight:600;font-size:14px;border-radius:20px;padding:9px 18px;cursor:pointer;border:1px solid var(--steel)}'
-    + '.toolbar .primary{background:var(--steel);color:#fff}'
-    + '.toolbar .ghost{background:#fff;color:var(--steel)}'
+    + '.page{max-width:720px;margin:0 auto;padding:20px 20px 48px}'
     + '.head{background:var(--steel);color:#fff;border-radius:14px;padding:24px;display:flex;align-items:center;gap:18px}'
     + '.head img{width:64px;height:64px;border-radius:12px;background:#fff;object-fit:contain;flex:none}'
     + '.head h1{font-family:"Barlow Semi Condensed","Barlow",sans-serif;font-size:26px;font-weight:700;letter-spacing:.01em}'
@@ -15791,49 +16378,355 @@ function buildClientQuoteHtml(job, quoteRooms, quoteExtItems, quoteKitchen, kitc
     + '.total .amount{font-size:30px;font-weight:800;font-variant-numeric:tabular-nums}'
     + '.terms{font-size:13px;color:var(--mut);margin-top:10px;padding:0 4px;line-height:1.55}'
     + '.foot{font-size:12px;color:var(--mut);text-align:center;margin-top:26px}'
-    + '@media print{.toolbar{display:none}body{background:#fff}.page{padding:0}.card{box-shadow:none;border:1px solid #e5e0d8}}'
+    + '@media print{body{background:#fff}.page{padding:0}.card{box-shadow:none;border:1px solid #e5e0d8}}'
     + '</style></head><body><div class="page">'
-    + '<div class="toolbar"><button class="ghost" onclick="window.close()">Close</button><button class="primary" onclick="window.print()">Print / Save as PDF</button></div>'
     + '<div class="head"><img src="' + location.origin + '/logo.png" alt="logo">'
       + '<div><h1>Nicky Hawkins</h1><div class="sub">Painting &amp; Decorating — Quotation</div></div></div>'
     + '<div class="meta">'
-      + (clientName ? '<div><strong>For:</strong> ' + esc(clientName) + '</div>' : '')
-      + (addressBits ? '<div><strong>At:</strong> ' + esc(addressBits) + '</div>' : '')
-      + '<div><strong>Job:</strong> ' + esc((job && job.name) || '') + '</div>'
-      + '<div><strong>Date:</strong> ' + esc(today) + '</div>'
+      + (m.clientName ? '<div><strong>For:</strong> ' + esc(m.clientName) + '</div>' : '')
+      + (m.address ? '<div><strong>At:</strong> ' + esc(m.address) + '</div>' : '')
+      + '<div><strong>Job:</strong> ' + esc(m.jobName) + '</div>'
+      + '<div><strong>Date:</strong> ' + esc(m.today) + '</div>'
     + '</div>'
-    // Subtotal = plan.labourTotal (which already folds in marked custom
-    // lines) + the flat custom lines printed verbatim above -- so this line
-    // is exactly the sum of the rows the client can see in this card.
-    // The card renders only when it has rows: an imported job's whole
-    // original scope is the "Original quote" card below instead, and an
-    // empty work card with a £0.00 subtotal would read as broken.
-    + (workRows ? '<div class="card"><h2>The work</h2>' + workRows
-      + '<div class="line subtotal"><div class="line-l"><div class="line-name">Labour subtotal</div></div><div class="line-v">' + money(plan.labourTotal + customSplit.flat) + '</div></div></div>' : '')
-    // Imported-from-Xero jobs: the agreed money IS the record (no measured
-    // rooms, importAcceptedQuote()) — one already-final line, no lineMult,
-    // same lump treatment as Summary's importedBaseline and the final
-    // invoice's "Original quote" line.
-    + (importedBaseline > 0.005 ? '<div class="card"><h2>Original quote</h2>'
-      + lineRow('As agreed' + (job && job.xeroQuoteNumber ? ' — ' + esc(job.xeroQuoteNumber) : ''), 'accepted in Xero', importedBaseline) + '</div>' : '')
-    + (varRows ? '<div class="card"><h2>Variations — extras beyond the original quote</h2>' + varRows
-      + '<div class="line subtotal"><div class="line-l"><div class="line-name">Variations subtotal</div></div><div class="line-v">' + money(vv.variationsTotal) + '</div></div>'
-      + '<div class="line-sub" style="padding-top:8px">Variations are billed on the final invoice.</div></div>' : '')
-    + (matRows ? '<div class="card"><h2>Materials</h2>' + matRows
-      + '<div class="line subtotal"><div class="line-l"><div class="line-name">Materials subtotal</div></div><div class="line-v">' + money(materialsTotal) + '</div></div>'
-      + '<div class="line-sub" style="padding-top:8px">Materials are estimated here and billed as actually used.</div></div>' : '')
-    + (colourRows ? '<div class="card"><h2>Colour schedule</h2>' + colourRows + '</div>' : '')
-    // Payment/terms come from computeDepositPlan over engine labour, which
-    // is zero on an imported job (that money's collection lives in Xero) —
-    // £0.00 deposit/balance rows would just look broken, so hide them.
-    + (plan.total > 0.005 ? '<div class="card"><h2>Payment</h2>' + paymentRows + '</div>' : '')
-    + '<div class="total"><div class="label">Total quote</div><div class="amount">' + money(plan.total + (importedBaseline || 0)) + '</div></div>'
-    // Same combined figure Summary's hero-sub shows, same fixed-gold rule
-    // (readable on the fixed steel background in both themes).
-    + (varRows ? '<div class="total" style="margin-top:8px"><div class="label" style="color:#ffd166;opacity:1">Job total incl. variations</div><div class="amount" style="font-size:24px">' + money(plan.total + (importedBaseline || 0) + vv.variationsTotal) + '</div></div>' : '')
-    + (plan.total > 0.005 ? '<div class="terms">' + esc(buildPaymentTermsText(plan, job && job.startDate)) + '</div>' : '')
-    + '<div class="foot">Prepared ' + esc(today) + ' · Figures are live as of this preview — the formal quotation is issued separately.</div>'
+    + card('The work', m.work)
+    + card('Original quote', m.imported)
+    + card('Variations — extras beyond the original quote', m.variations)
+    + card('Materials', m.materials)
+    + (m.colours.length ? '<div class="card"><h2>Colour schedule</h2>'
+      + m.colours.map(function(c) {
+          return '<div class="colour-row"><div class="colour-room">' + esc(c.room) + '</div><div class="colour-detail">' + esc(c.detail) + '</div></div>';
+        }).join('') + '</div>' : '')
+    + card('Payment', m.payment)
+    + '<div class="total"><div class="label">Total quote</div><div class="amount">' + money(m.total) + '</div></div>'
+    // Same fixed-gold rule Summary uses (readable on the fixed steel
+    // background in both themes).
+    + (m.totalInclVariations != null ? '<div class="total" style="margin-top:8px"><div class="label" style="color:#ffd166;opacity:1">Job total incl. variations</div><div class="amount" style="font-size:24px">' + money(m.totalInclVariations) + '</div></div>' : '')
+    + (m.terms ? '<div class="terms">' + esc(m.terms) + '</div>' : '')
+    + '<div class="foot">Prepared ' + esc(m.today) + ' · Figures are live as of this preview — the formal quotation is issued separately.</div>'
     + '</div></body></html>';
+}
+
+// ── PDF writer (no dependencies) ───────────────────────────────────────────
+// Deliberately hand-rolled rather than pulled in as a library: the app is one
+// static index.html with no build step and it has to keep working with no
+// signal, so a CDN <script> is out and a vendored 300KB bundle is a lot of
+// weight for one button. Everything below emits plain PDF 1.4 — the standard
+// Helvetica pair (no font embedding), filled rectangles for the brand bands,
+// and one optional RGB image for the logo.
+//
+// Why a real PDF at all, when the page above prints perfectly well in a
+// desktop browser: window.print() is not available in any useful form inside
+// an installed iOS PWA, which is where this app actually gets used on a
+// customer's sofa. A generated file can go straight to the share sheet.
+var PDF_PAGE_W = 595.28, PDF_PAGE_H = 841.89, PDF_MARGIN = 42;
+var PDF_STEEL = [0.118, 0.392, 0.592];
+var PDF_INK   = [0.169, 0.169, 0.169];
+var PDF_MUT   = [0.420, 0.420, 0.420];
+var PDF_RULE  = [0.906, 0.882, 0.851];
+var PDF_WHITE = [1, 1, 1];
+
+// Standard-14 advance widths (units per 1000 em) for codes 32–126, which is
+// every character that survives pdfSanitise() bar the handful in PDF_EXTRA.
+// Needed because right-aligned money columns and wrapped labels have to be
+// measured, and there's no canvas-free way to ask the PDF viewer.
+var PDF_WIDTHS = {
+  reg: [278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584],
+  bold:[278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,975,722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,584,556,333,556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,584]
+};
+// WinAnsi codes above 126 that the quote actually uses: £ in every money
+// figure, the em dash the app punctuates with, × in quantity subtitles.
+var PDF_EXTRA = { 0xA3:[556,556], 0x97:[1000,1000], 0x96:[556,556], 0x91:[222,238], 0x92:[222,238], 0x93:[333,500], 0x94:[333,500], 0x85:[1000,1000], 0x95:[350,350], 0xB7:[278,278], 0xD7:[584,584] };
+var PDF_UNI = { 0x2014:0x97, 0x2013:0x96, 0x2018:0x91, 0x2019:0x92, 0x201C:0x93, 0x201D:0x94, 0x2026:0x85, 0x2022:0x95, 0x00B7:0xB7, 0x00D7:0xD7, 0x00A0:0x20 };
+
+// Latin-1 text is what a WinAnsi-encoded standard font can render. Anything
+// outside it — emoji, the ✓ on approved variations, a pasted CJK character —
+// is DROPPED rather than substituted: a wrong glyph on a document going to a
+// customer is worse than a missing decoration, and the emoji here are all
+// decorative prefixes whose label is carried separately.
+function pdfSanitise(s) {
+  s = String(s == null ? '' : s);
+  var out = '';
+  for (var i = 0; i < s.length; i++) {
+    var c = s.charCodeAt(i);
+    if (c >= 32 && c <= 126) out += s.charAt(i);
+    else if (PDF_UNI[c] != null) out += String.fromCharCode(PDF_UNI[c]);
+    else if (c >= 0xA1 && c <= 0xFF) out += s.charAt(i);
+  }
+  return out.replace(/\s+/g, ' ').trim();
+}
+
+function pdfEscape(s) {
+  return s.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+}
+
+function pdfTextWidth(s, bold, size) {
+  var arr = bold ? PDF_WIDTHS.bold : PDF_WIDTHS.reg, w = 0;
+  for (var i = 0; i < s.length; i++) {
+    var c = s.charCodeAt(i);
+    if (c >= 32 && c <= 126) w += arr[c - 32];
+    else if (PDF_EXTRA[c]) w += PDF_EXTRA[c][bold ? 1 : 0];
+    else w += 556;
+  }
+  return w * size / 1000;
+}
+
+// Greedy word wrap. A single word longer than the column is left to overhang
+// rather than hyphenated — it's a room name or a material description, and
+// breaking one mid-word reads worse than a slightly wide line.
+function pdfWrap(s, bold, size, maxW) {
+  var words = s.split(' '), lines = [], cur = '';
+  for (var i = 0; i < words.length; i++) {
+    var next = cur ? cur + ' ' + words[i] : words[i];
+    if (cur && pdfTextWidth(next, bold, size) > maxW) { lines.push(cur); cur = words[i]; }
+    else cur = next;
+  }
+  if (cur) lines.push(cur);
+  return lines.length ? lines : [''];
+}
+
+// A page cursor: `y` is the current top edge in PDF user space (origin bottom
+// left), so every draw call takes the TOP of what it's drawing and moves y
+// down — which reads the same way the layout code below is written.
+function pdfDoc() {
+  var d = { pages: [], cur: null, y: 0 };
+  d.newPage = function() { d.cur = []; d.pages.push(d.cur); d.y = PDF_PAGE_H - PDF_MARGIN; };
+  d.need = function(h) { if (d.y - h < PDF_MARGIN) { d.newPage(); return true; } return false; };
+  d.rect = function(x, top, w, h, rgb) {
+    d.cur.push(rgb.join(' ') + ' rg ' + x.toFixed(2) + ' ' + (top - h).toFixed(2) + ' ' + w.toFixed(2) + ' ' + h.toFixed(2) + ' re f');
+  };
+  d.rule = function(x1, y, x2, rgb) {
+    d.cur.push(rgb.join(' ') + ' RG 0.6 w ' + x1.toFixed(2) + ' ' + y.toFixed(2) + ' m ' + x2.toFixed(2) + ' ' + y.toFixed(2) + ' l S');
+  };
+  d.text = function(s, x, baseline, opts) {
+    opts = opts || {};
+    var t = pdfSanitise(s);
+    if (!t) return;
+    var size = opts.size || 10, bold = !!opts.bold, rgb = opts.rgb || PDF_INK;
+    var xx = x;
+    if (opts.align === 'right') xx = x - pdfTextWidth(t, bold, size);
+    else if (opts.align === 'center') xx = x - pdfTextWidth(t, bold, size) / 2;
+    d.cur.push('BT ' + rgb.join(' ') + ' rg /' + (bold ? 'F2' : 'F1') + ' ' + size + ' Tf 1 0 0 1 '
+      + xx.toFixed(2) + ' ' + baseline.toFixed(2) + ' Tm (' + pdfEscape(t) + ') Tj ET');
+  };
+  d.image = function(x, top, w, h) {
+    d.cur.push('q ' + w.toFixed(2) + ' 0 0 ' + h.toFixed(2) + ' ' + x.toFixed(2) + ' ' + (top - h).toFixed(2) + ' cm /Im1 Do Q');
+  };
+  d.newPage();
+  return d;
+}
+
+function pdfLatin1(s) {
+  var b = new Uint8Array(s.length);
+  for (var i = 0; i < s.length; i++) b[i] = s.charCodeAt(i) & 0xFF;
+  return b;
+}
+
+// Serialise to bytes, recording each object's byte offset for the xref table
+// as we go — which is why this concatenates chunks by hand instead of
+// building one big string: the logo is raw binary, not text.
+function pdfSerialise(d, image) {
+  var objs = [], i;
+  var firstPage = image ? 6 : 5;
+  var n = d.pages.length;
+  var kids = [];
+  for (i = 0; i < n; i++) kids.push((firstPage + i * 2) + ' 0 R');
+
+  objs.push('<< /Type /Catalog /Pages 2 0 R >>');
+  objs.push('<< /Type /Pages /Count ' + n + ' /Kids [' + kids.join(' ') + '] >>');
+  objs.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
+  objs.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+  if (image) {
+    objs.push(['<< /Type /XObject /Subtype /Image /Width ' + image.w + ' /Height ' + image.h
+      + ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length ' + image.data.length + ' >>\nstream\n', image.data, '\nendstream']);
+  }
+  var res = '/Font << /F1 3 0 R /F2 4 0 R >>' + (image ? ' /XObject << /Im1 5 0 R >>' : '');
+  for (i = 0; i < n; i++) {
+    var content = d.pages[i].join('\n');
+    objs.push('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + PDF_PAGE_W.toFixed(2) + ' ' + PDF_PAGE_H.toFixed(2)
+      + '] /Resources << ' + res + ' >> /Contents ' + (firstPage + i * 2 + 1) + ' 0 R >>');
+    objs.push('<< /Length ' + content.length + ' >>\nstream\n' + content + '\nendstream');
+  }
+
+  var parts = [], pos = 0, offsets = [];
+  var push = function(p) {
+    if (typeof p === 'string') p = pdfLatin1(p);
+    parts.push(p); pos += p.length;
+  };
+  push('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
+  for (i = 0; i < objs.length; i++) {
+    offsets.push(pos);
+    push((i + 1) + ' 0 obj\n');
+    var o = objs[i];
+    if (typeof o === 'string') push(o + '\n');
+    else { for (var k = 0; k < o.length; k++) push(o[k]); push('\n'); }
+    push('endobj\n');
+  }
+  var xrefPos = pos;
+  var xref = 'xref\n0 ' + (objs.length + 1) + '\n0000000000 65535 f \n';
+  for (i = 0; i < offsets.length; i++) xref += ('0000000000' + offsets[i]).slice(-10) + ' 00000 n \n';
+  push(xref);
+  push('trailer\n<< /Size ' + (objs.length + 1) + ' /Root 1 0 R >>\nstartxref\n' + xrefPos + '\n%%EOF\n');
+
+  var total = 0;
+  parts.forEach(function(p) { total += p.length; });
+  var out = new Uint8Array(total), off = 0;
+  parts.forEach(function(p) { out.set(p, off); off += p.length; });
+  return out;
+}
+
+// The logo is a 32-bit PNG, and PDF has no way to read one directly (alpha
+// would need a separate soft mask). Decoding it through a canvas onto white
+// gives plain RGB bytes that drop straight into an image XObject. Downscaled
+// first — 96px wide is more than the 48pt box needs at print resolution, and
+// keeps the uncompressed stream to ~25KB. Resolves null on ANY failure: a
+// quote with no logo is a fine quote, a quote that never generates is not.
+function pdfLoadLogo() {
+  return new Promise(function(resolve) {
+    var settled = false;
+    var done = function(v) { if (!settled) { settled = true; resolve(v); } };
+    setTimeout(function() { done(null); }, 4000);
+    try {
+      var img = new Image();
+      img.onload = function() {
+        try {
+          var w = 96, h = Math.max(1, Math.round(img.height * w / img.width));
+          var cv = document.createElement('canvas');
+          cv.width = w; cv.height = h;
+          var cx = cv.getContext('2d');
+          cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, w, h);
+          cx.drawImage(img, 0, 0, w, h);
+          var px = cx.getImageData(0, 0, w, h).data;
+          var rgb = new Uint8Array(w * h * 3);
+          for (var i = 0, j = 0; i < px.length; i += 4) { rgb[j++] = px[i]; rgb[j++] = px[i + 1]; rgb[j++] = px[i + 2]; }
+          done({ w: w, h: h, data: rgb });
+        } catch (e) { done(null); }
+      };
+      img.onerror = function() { done(null); };
+      img.src = location.origin + '/logo.png';
+    } catch (e) { done(null); }
+  });
+}
+
+// Lays the quote model out as A4 portrait, breaking pages wherever a row
+// won't fit. Same sections, same order and the same figures as the HTML
+// preview — both read the one model.
+async function buildClientQuotePdf(m) {
+  var logo = await pdfLoadLogo();
+  var d = pdfDoc();
+  var L = PDF_MARGIN, R = PDF_PAGE_W - PDF_MARGIN, W = R - L;
+  var money = fmt;
+
+  var row = function(r, bold) {
+    var amt = money(r.amount);
+    var amtW = pdfTextWidth(pdfSanitise(amt), true, 10) + 14;
+    var labelW = W - amtW;
+    var lines = pdfWrap(pdfSanitise(r.label), !!bold, 10, labelW);
+    var subs = r.sub ? pdfWrap(pdfSanitise(r.sub), false, 8.5, labelW) : [];
+    var h = lines.length * 12.5 + subs.length * 10.5 + 8;
+    d.need(h);
+    var top = d.y, yy = top - 10;
+    lines.forEach(function(ln) { d.text(ln, L, yy, { size: 10, bold: !!bold }); yy -= 12.5; });
+    subs.forEach(function(ln) { d.text(ln, L, yy + 1, { size: 8.5, rgb: PDF_MUT }); yy -= 10.5; });
+    d.text(amt, R, top - 10, { size: 10, bold: true, align: 'right' });
+    d.y = top - h;
+    d.rule(L, d.y + 3, R, PDF_RULE);
+  };
+
+  var card = function(title, section) {
+    if (!section) return;
+    // Keep the heading with at least its first row — a section title
+    // stranded alone at the foot of a page looks like a printing fault.
+    d.need(56);
+    d.text(title, L, d.y - 11, { size: 9, bold: true, rgb: PDF_STEEL });
+    d.y -= 20;
+    section.rows.forEach(function(r) { row(r, false); });
+    if (section.subtotalLabel) row({ label: section.subtotalLabel, sub: '', amount: section.subtotal }, true);
+    if (section.note) {
+      d.need(18);
+      pdfWrap(pdfSanitise(section.note), false, 8.5, W).forEach(function(ln) {
+        d.text(ln, L, d.y - 10, { size: 8.5, rgb: PDF_MUT }); d.y -= 11;
+      });
+    }
+    d.y -= 14;
+  };
+
+  var banner = function(label, amount, size, labelRgb) {
+    var h = 46;
+    d.need(h + 8);
+    d.rect(L, d.y, W, h, PDF_STEEL);
+    d.text(label, L + 16, d.y - 27, { size: 9.5, bold: true, rgb: labelRgb || PDF_WHITE });
+    d.text(money(amount), R - 16, d.y - 30, { size: size || 20, bold: true, rgb: PDF_WHITE, align: 'right' });
+    d.y -= h + 10;
+  };
+
+  // Header band
+  var headH = 74;
+  d.rect(L, d.y, W, headH, PDF_STEEL);
+  var titleX = L + 20;
+  if (logo) {
+    d.rect(L + 14, d.y - 13, 48, 48, PDF_WHITE);
+    var iw = 40, ih = iw * logo.h / logo.w;
+    d.image(L + 18, d.y - 13 - (48 - ih) / 2, iw, ih);
+    titleX = L + 76;
+  }
+  d.text('Nicky Hawkins', titleX, d.y - 33, { size: 19, bold: true, rgb: PDF_WHITE });
+  d.text('Painting & Decorating — Quotation', titleX, d.y - 50, { size: 10, rgb: PDF_WHITE });
+  d.y -= headH + 18;
+
+  // Meta block
+  [['For', m.clientName], ['At', m.address], ['Job', m.jobName], ['Date', m.today]].forEach(function(p) {
+    if (!p[1]) return;
+    d.need(16);
+    d.text(p[0] + ':', L, d.y - 10, { size: 10, bold: true });
+    d.text(p[1], L + 36, d.y - 10, { size: 10, rgb: PDF_MUT });
+    d.y -= 15;
+  });
+  d.y -= 10;
+
+  card('THE WORK', m.work);
+  card('ORIGINAL QUOTE', m.imported);
+  card('VARIATIONS — EXTRAS BEYOND THE ORIGINAL QUOTE', m.variations);
+  card('MATERIALS', m.materials);
+
+  if (m.colours.length) {
+    d.need(56);
+    d.text('COLOUR SCHEDULE', L, d.y - 11, { size: 9, bold: true, rgb: PDF_STEEL });
+    d.y -= 20;
+    var roomW = W * 0.34;
+    m.colours.forEach(function(c) {
+      var rl = pdfWrap(pdfSanitise(c.room), true, 9.5, roomW - 8);
+      var dl = pdfWrap(pdfSanitise(c.detail), false, 9.5, W - roomW);
+      var h = Math.max(rl.length, dl.length) * 12 + 7;
+      d.need(h);
+      var top = d.y, yy = top - 10;
+      rl.forEach(function(ln) { d.text(ln, L, yy, { size: 9.5, bold: true }); yy -= 12; });
+      yy = top - 10;
+      dl.forEach(function(ln) { d.text(ln, L + roomW, yy, { size: 9.5, rgb: PDF_MUT }); yy -= 12; });
+      d.y = top - h;
+      d.rule(L, d.y + 3, R, PDF_RULE);
+    });
+    d.y -= 14;
+  }
+
+  card('PAYMENT', m.payment);
+
+  banner('TOTAL QUOTE', m.total, 20);
+  if (m.totalInclVariations != null) banner('JOB TOTAL INCL. VARIATIONS', m.totalInclVariations, 16, [1, 0.82, 0.4]);
+
+  if (m.terms) {
+    d.y -= 4;
+    pdfWrap(pdfSanitise(m.terms), false, 8.5, W).forEach(function(ln) {
+      d.need(14);
+      d.text(ln, L, d.y - 10, { size: 8.5, rgb: PDF_MUT }); d.y -= 12;
+    });
+  }
+
+  d.need(26);
+  d.y -= 10;
+  d.text('Prepared ' + m.today + ' · Figures are live as of this preview — the formal quotation is issued separately.',
+    L + W / 2, d.y - 9, { size: 8, rgb: PDF_MUT, align: 'center' });
+
+  return pdfSerialise(d, logo);
 }
 
 // ── Export CSV ─────────────────────────────────────────────────────────────

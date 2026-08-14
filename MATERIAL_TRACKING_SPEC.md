@@ -31,12 +31,24 @@ Three purposes, all wanted, all served by one view:
 
 **Actuals must NOT be stored on materials-snapshot lines.**
 
-`recalculateMaterialsSnapshot()` is a deliberate full overwrite — its own comment says it "discards every prior edit, deletion, and custom line", and it regenerates `id: uid()` for every line on every run. So:
+`recalculateMaterialsSnapshot()` rebuilds the estimate-derived lines wholesale on every run. So:
 
 - Snapshot line **ids are not stable** across recalcs. Anything keyed on them orphans immediately.
+  (**v2.31.0** reuses the id when a rebuilt line matches an existing one on
+  `matEstimateKey()` — product + role + colour — but a line whose product or
+  colour changes still gets a fresh id, so this constraint stands as written.)
 - Recalculate is a **normal, expected action** (rooms changed → re-pull materials). If actuals hung off snapshot lines, one tap mid-job would **silently destroy every actual logged so far** — and under this billing model that's destroying the invoice, not just a note to self.
 
 Therefore: **actuals are their own per-job list**, joined to the estimate for display only. The snapshot stays the estimate; actuals survive recalculation untouched. This is the load-bearing decision in this spec — don't "simplify" it later by folding actuals into the snapshot.
+
+**v2.31.0 — the snapshot itself is no longer a full overwrite.** It used to be
+("discards every prior edit, deletion, and custom line"), and that silently
+destroyed hand-entered materials, which is the bug that changed it. Recalculate
+is now a merge: lines with `source: 'manual'` are carried across untouched, and
+an estimate line whose `quantity` has been typed away from its `calcQuantity`
+keeps the human's figure. This does **not** soften the constraint above — the
+merge protects the *snapshot's* manual content, not actuals, and actuals still
+must not hang off snapshot lines.
 
 ## Data model
 
