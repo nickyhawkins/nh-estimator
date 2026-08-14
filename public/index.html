@@ -1823,6 +1823,16 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     <div>Settings</div>
     <span class="nav-menu-arrow">›</span>
   </div>
+  <!-- Undo, reachable from every measuring screen (the hamburger is on all of
+       them) for when the toast has already gone. Hidden unless the current
+       job has something on the stack — see refreshUndoAffordances(). -->
+  <div class="nav-menu-item" id="nav-menu-undo" style="display:none" onclick="closeNavMenu();undoLast()">
+    <div>
+      <div>↩ Undo</div>
+      <div class="nav-menu-sub" id="nav-menu-undo-sub"></div>
+    </div>
+    <span class="nav-menu-arrow">›</span>
+  </div>
   <!-- Sync status in words (the topbar dot is the at-a-glance version).
        The question that matters on site is "did today's measurements reach
        the server before I drive off?" — this row answers it explicitly. -->
@@ -1834,7 +1844,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.30.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.31.0</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -1860,7 +1870,10 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
 <!-- One shared toast for "that didn't work" messages — see toast() /
      reportFailure(). Above every overlay so a failure inside one is still
      readable. -->
-<div id="app-toast" style="display:none;position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--sb) + 78px);z-index:600;max-width:calc(100% - 32px);background:#2b2b2b;color:#fff;font-size:14px;line-height:1.4;padding:11px 16px;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.28);text-align:center"></div>
+<div id="app-toast" style="display:none;position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--sb) + 78px);z-index:600;max-width:calc(100% - 32px);min-width:min(300px, calc(100% - 32px));background:#2b2b2b;color:#fff;font-size:14px;line-height:1.4;padding:11px 16px;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.28);text-align:left;align-items:center;gap:14px">
+  <span id="app-toast-msg" style="flex:1;min-width:0"></span>
+  <button id="app-toast-action" onclick="runToastAction()" style="display:none;flex:none;background:none;border:none;color:#7fc0ef;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;padding:2px 0;text-transform:uppercase;letter-spacing:.04em"></button>
+</div>
 </div>
 
 <script>
@@ -2383,7 +2396,7 @@ function clearRooms() {
   // content -- they stay untouched here, only cleared by deleting the job.
   rooms=[]; colours=[]; materialsSnapshot=[];
   localStorage.setItem('pe-rooms','[]');
-  saveRooms(); saveColours(); saveMaterialsSnapshot(); markMaterialsSeeded(false); renderHome();
+  saveRooms(); saveColours(); saveMaterialsSnapshot(); markMaterialsSeeded(false); clearUndoStack(); renderHome();
 }
 function clearEverything() {
   if(!confirm('Clear ALL data in this job including exterior? This cannot be undone.'))return;
@@ -2396,6 +2409,10 @@ function clearEverything() {
   var clearedJob = activeJob();
   if (clearedJob) clearedJob.kitchen = null;
   markMaterialsSeeded(false);
+  // Undo restores materials only; against cleared rooms those lines would be
+  // orphans. Both clear* paths already confirm, so there's nothing silent to
+  // walk back here.
+  clearUndoStack();
   ['ex-door-qty','ex-frame-qty','ex-wins','ex-garage'].forEach(function(id){
     var el=document.getElementById(id); if(el) el.value='0';
   });
@@ -3116,13 +3133,38 @@ function escapeHtml(s) {
 // alert() stays the right tool for questions and hard stops; a toast is for
 // "that didn't work" while you carry on measuring.
 var toastTimer = null;
-function toast(msg, ms) {
+var toastActionFn = null;
+// toast('message') or toast('message', { action: 'Undo', onAction: fn, ms: 6000 }).
+// The legacy toast(msg, milliseconds) form still works.
+function toast(msg, opts) {
+  if (typeof opts === 'number') opts = { ms: opts };
+  opts = opts || {};
   var el = document.getElementById('app-toast');
-  if (!el) { alert(msg); return; }
-  el.textContent = msg;
-  el.style.display = 'block';
+  var msgEl = document.getElementById('app-toast-msg');
+  var actionEl = document.getElementById('app-toast-action');
+  if (!el || !msgEl || !actionEl) { alert(msg); return; }
+  msgEl.textContent = msg;
+  toastActionFn = opts.onAction || null;
+  actionEl.textContent = opts.action || '';
+  actionEl.style.display = toastActionFn ? 'block' : 'none';
+  el.style.display = 'flex';
   if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(function() { el.style.display = 'none'; }, ms || 4200);
+  // An offer to undo needs longer on screen than a plain notice: it's a
+  // decision, not an acknowledgement.
+  toastTimer = setTimeout(hideToast, opts.ms || (toastActionFn ? 7000 : 4200));
+}
+
+function hideToast() {
+  var el = document.getElementById('app-toast');
+  if (el) el.style.display = 'none';
+  toastActionFn = null;
+  if (toastTimer) { clearTimeout(toastTimer); toastTimer = null; }
+}
+
+function runToastAction() {
+  var fn = toastActionFn;
+  hideToast();
+  if (fn) fn();
 }
 
 // Show it AND log it: the toast is for Nicky ("it didn't work, here's
@@ -3145,6 +3187,148 @@ function downloadBlob(blob, filename) {
   document.body.appendChild(a); a.click();
   document.body.removeChild(a);
   setTimeout(function() { URL.revokeObjectURL(url); }, 30000);
+}
+
+// ── Undo (materials + actuals, current job) ────────────────────────────────
+// Scoped deliberately narrowly: the two lists that carry hand-entered work
+// nothing else can rebuild — the editable materials snapshot on Summary and
+// the material actuals on On Site. NOT an app-wide undo; rooms and settings
+// have their own edit screens and a whole-app history would be a much bigger
+// promise to keep honest.
+//
+// In memory only, cleared on job switch (loadActiveJobData), so an entry can
+// never restore one job's lines over another's. Not persisted: the stack is
+// for "I just did that by mistake", and a reload is already a clean break in
+// that sense. It's cheap to add later if it turns out to be wanted — the
+// entries are plain JSON.
+//
+// Every entry is a FULL copy of the affected list rather than a per-action
+// inverse. These lists are tens of rows of small objects, the copy costs
+// nothing measurable, and a whole-list restore can't be wrong the way a
+// hand-written inverse for each action eventually is.
+var UNDO_LIMIT = 10;
+var undoStack = [];
+var undoBusy = false;
+
+// coalesceKey folds a burst of edits to the same thing into ONE undo point:
+// typing 3 then 4 then 5 into a quantity box should undo back to what it was
+// before you started, not step back through each keystroke.
+var UNDO_COALESCE_MS = 8000;
+
+function pushUndo(label, scope, coalesceKey) {
+  var last = undoStack[undoStack.length - 1];
+  if (last && coalesceKey && last.coalesceKey === coalesceKey && last.jobId === activeJobId
+      && (Date.now() - last.at) < UNDO_COALESCE_MS) {
+    last.at = Date.now();
+    last.label = label;
+    refreshUndoAffordances();
+    return;
+  }
+  undoStack.push({
+    jobId: activeJobId,
+    scope: scope,
+    label: label,
+    at: Date.now(),
+    coalesceKey: coalesceKey || null,
+    materials: scope === 'materials' ? JSON.parse(JSON.stringify(materialsSnapshot)) : null,
+    actuals: scope === 'actuals' ? JSON.parse(JSON.stringify(materialActuals)) : null
+  });
+  while (undoStack.length > UNDO_LIMIT) undoStack.shift();
+  refreshUndoAffordances();
+}
+
+// Offers the undo AND leaves it on the stack for the menu — the toast is the
+// convenient path, not the only one.
+function pushUndoWithToast(label, scope, coalesceKey, message) {
+  pushUndo(label, scope, coalesceKey);
+  toast(message || label, { action: 'Undo', onAction: undoLast });
+}
+
+function canUndo() {
+  var top = undoStack[undoStack.length - 1];
+  return !!(top && top.jobId === activeJobId);
+}
+
+function undoTopLabel() {
+  var top = undoStack[undoStack.length - 1];
+  return top ? top.label : '';
+}
+
+function clearUndoStack() {
+  undoStack = [];
+  refreshUndoAffordances();
+}
+
+async function undoLast() {
+  if (undoBusy) return;
+  if (!canUndo()) { toast('Nothing to undo'); return; }
+  undoBusy = true;
+  var entry = undoStack.pop();
+  try {
+    if (entry.scope === 'materials') {
+      materialsSnapshot = entry.materials;
+      saveMaterialsSnapshot();
+    } else if (entry.scope === 'actuals') {
+      await restoreActuals(entry.actuals);
+    }
+    toast('Undone — ' + entry.label);
+  } catch (err) {
+    // The write failed, so the app's state no longer matches what was just
+    // restored in memory. Put the entry back and say so rather than leaving
+    // a half-applied undo looking like it worked.
+    undoStack.push(entry);
+    reportFailure('Couldn\'t undo "' + entry.label + '"', err);
+  } finally {
+    undoBusy = false;
+    refreshUndoAffordances();
+    renderCurrentMaterialsScreen();
+  }
+}
+
+// Actuals have no bulk replace-all route, by design (see saveMaterialActual:
+// a failed mid-rewrite would destroy the invoice), so the restore is a diff:
+// delete what shouldn't be there, re-PUT what changed or went missing. A PUT
+// by id recreates a deleted row, which is what makes undoing a removal work.
+async function restoreActuals(prev) {
+  var prevById = {};
+  prev.forEach(function(a) { prevById[a.id] = a; });
+  var current = materialActuals.slice();
+  for (var i = 0; i < current.length; i++) {
+    if (!prevById[current[i].id]) await apiDeleteStrict('/api/actuals/' + current[i].id);
+  }
+  var curById = {};
+  materialActuals.forEach(function(a) { curById[a.id] = a; });
+  for (var j = 0; j < prev.length; j++) {
+    var p = prev[j], c = curById[p.id];
+    if (!c || JSON.stringify(c) !== JSON.stringify(p)) await saveMaterialActual(p);
+  }
+  materialActuals = prev;
+}
+
+// Both screens read the same two lists, and undoing a materials change while
+// standing on On Site changes what's quoted there — so re-render whichever is
+// showing rather than only the one that owns the action.
+function renderCurrentMaterialsScreen() {
+  if (curTab === 'summary') renderSummary();
+  else if (curTab === 'actuals') renderActuals();
+}
+
+// The undo affordances that live outside a render pass: the hamburger row.
+// The in-page chips are rebuilt by renderSummary()/renderActuals() anyway.
+function refreshUndoAffordances() {
+  var row = document.getElementById('nav-menu-undo');
+  if (!row) return;
+  var available = canUndo();
+  row.style.display = available ? 'flex' : 'none';
+  var sub = document.getElementById('nav-menu-undo-sub');
+  if (sub) sub.textContent = available ? undoTopLabel() : '';
+}
+
+// Shared markup for the in-page "↩ Undo" chip on Summary and On Site.
+function undoChipHtml() {
+  if (!canUndo()) return '';
+  return '<span onclick="undoLast()" title="' + escapeHtml(undoTopLabel()) + '"'
+    + ' style="font-size:12px;font-weight:600;color:var(--accent);cursor:pointer;text-transform:none;letter-spacing:normal">↩ Undo</span>';
 }
 
 // ── Xero contact autocomplete ───────────────────────────────────────────
@@ -4267,6 +4451,10 @@ async function loadActiveJobData() {
   ]);
   ensureDefaultColour();
   matReorderMode = false; // reorder mode is per-visit, not per-job state
+  // Undo is scoped to one job's materials/actuals, and the lists it restores
+  // have just been replaced wholesale — an entry from the old job could only
+  // ever write the wrong job's lines.
+  clearUndoStack();
   restoreJobIdentityFields();
   renderHome(); renderExterior(); renderColours(); renderSummary(); renderDash();
   updateNavBadge();
@@ -6631,6 +6819,7 @@ function openNavMenu() {
   if (nameEl) nameEl.textContent = (activeJob() && activeJob().name) || 'My Job';
   updateNavBadge();
   updateSyncStatus();
+  refreshUndoAffordances();
   document.getElementById('nav-menu-backdrop').classList.add('open');
   document.getElementById('nav-menu-panel').style.display = 'block';
 }
@@ -8169,17 +8358,55 @@ function moveMaterialLine(id, dir) {
   renderSummary();
 }
 
-// Rebuilds the snapshot from scratch out of whatever computeMaterials()
+// Where a snapshot line came from. `source` is the field going forward;
+// `custom` is the original flag and is still written alongside it, so lines
+// saved before this existed (and every other reader of `custom`) keep working.
+function matLineSource(l) {
+  return (l && (l.source === 'manual' || l.custom)) ? 'manual' : 'estimate';
+}
+
+// Identity of an estimate line ACROSS a recalculate. Not the id (regenerated
+// every time) and not the description alone -- one product can legitimately
+// appear under two roles or two colours, and those are different lines.
+function matEstimateKey(l) {
+  return [l.itemCode || ('~' + String(l.description || '').trim().toLowerCase()),
+          l.role || '',
+          l.colourNumber == null ? '' : l.colourNumber].join('|');
+}
+
+// A line whose quantity has been typed over: `quantity` is the human's
+// figure, `calcQuantity` is what the calculation currently wants.
+function matLineOverridden(l) {
+  return matLineSource(l) === 'estimate' && l.calcQuantity != null
+    && Math.abs((+l.quantity || 0) - (+l.calcQuantity || 0)) > 0.0001;
+}
+
+// Rebuilds the estimate-derived lines out of whatever computeMaterials()
 // currently produces -- only the real, priced line items (mapped roles),
 // never the unmapped litres-guess fallback, since there's no real
-// quantity/price to make editable there. Discards every prior edit,
-// deletion, and custom line -- a full overwrite, not a merge, by design.
+// quantity/price to make editable there.
+//
+// This used to be a FULL OVERWRITE: every manually-added line, every typed-over
+// quantity and every Tracking-only toggle was silently destroyed, with no way
+// back (Nicky 2026-08-14 — the bug this rewrite fixes). It's now a MERGE:
+//   • manual lines (matLineSource 'manual') are carried across untouched;
+//   • a typed-over quantity on an estimate line is kept, and the line's
+//     calcQuantity updates to whatever the rooms now say, so the difference
+//     stays visible and resettable rather than quietly re-applied;
+//   • Tracking-only stays off, and line ids are reused so nothing that
+//     references them (the shopping-list chip, the actuals rollup) jumps.
+// Estimate lines the rooms no longer call for still go -- that IS what
+// "Recalculate from rooms & exterior" means -- but they're covered by Undo,
+// and if one of them carried a typed-over quantity (the one piece of manual
+// input this merge genuinely cannot carry forward) the caller is asked first.
+//
+// Returns a summary of what happened, or false if the user cancelled.
 function recalculateMaterialsSnapshot(precomputedMats) {
   // renderSummary()'s auto-seed passes in the mats it already computed for
   // this render; every other caller omits it and computes fresh.
   var mats = precomputedMats || computeMaterials();
   var allRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows, mats.featureWallRows, mats.panelRows, mats.masonryRows, mats.extTopcoatRows, mats.extPrimerRows, mats.fuTopcoatRows, mats.fuPrimerRows);
-  materialsSnapshot = allRows.reduce(function(acc, row) {
+  var fresh = allRows.reduce(function(acc, row) {
     return acc.concat(row.lineItems.map(function(li) {
       // colourNumber/role are additive, carried from the row (buildRoleRows
       // attaches them) purely so materials tracking can show a per-colour
@@ -8190,11 +8417,66 @@ function recalculateMaterialsSnapshot(precomputedMats) {
       // unitAmount) rather than spreading the line, so extra keys never reach
       // Xero. Lines saved before this existed simply have neither, and the
       // breakdown is skipped for them until the next Recalculate.
-      return { id: uid(), itemCode: li.itemCode, description: li.description, quantity: li.quantity, unitAmount: li.unitAmount, custom: false, chargeable: true, isPerLitre: !!li.isPerLitre, colourNumber: row.colourNumber, role: row.role };
+      return { id: uid(), itemCode: li.itemCode, description: li.description, quantity: li.quantity,
+               calcQuantity: li.quantity, unitAmount: li.unitAmount, custom: false, source: 'estimate',
+               chargeable: true, isPerLitre: !!li.isPerLitre, colourNumber: row.colourNumber, role: row.role };
     }));
   }, []);
+
+  var prev = materialsSnapshot;
+  // An empty snapshot is renderSummary()'s first-time auto-seed, not a user
+  // action: nothing to preserve, nothing to confirm, nothing to undo.
+  var seeding = prev.length === 0;
+  var manual = prev.filter(function(l) { return matLineSource(l) === 'manual'; });
+  var prevEstimate = {};
+  prev.forEach(function(l) { if (matLineSource(l) === 'estimate') prevEstimate[matEstimateKey(l)] = l; });
+
+  var freshKeys = {}, overridesKept = 0;
+  fresh.forEach(function(l) {
+    var key = matEstimateKey(l);
+    freshKeys[key] = true;
+    var old = prevEstimate[key];
+    if (!old) return;
+    l.id = old.id;
+    if (old.chargeable === false) l.chargeable = false;
+    if (matLineOverridden(old)) {
+      l.quantity = +old.quantity || 0;   // the human's figure wins
+      overridesKept++;                   // calcQuantity stays the NEW estimate
+    }
+  });
+
+  var stranded = prev.filter(function(l) {
+    return matLineOverridden(l) && !freshKeys[matEstimateKey(l)];
+  });
+  if (!seeding && stranded.length) {
+    var list = stranded.map(function(l) { return '• ' + l.description + ' — your ' + l.quantity; }).join('\n');
+    if (!confirm('Recalculating removes ' + stranded.length + ' line' + (stranded.length === 1 ? '' : 's')
+        + ' you set the quantity on by hand, because the rooms no longer call for '
+        + (stranded.length === 1 ? 'it' : 'them') + ':\n\n' + list
+        + '\n\nYour manually added materials are kept either way. Recalculate anyway?')) {
+      return false;
+    }
+  }
+
+  if (!seeding) pushUndo('Recalculate materials', 'materials');
+  materialsSnapshot = fresh.concat(manual);
   saveMaterialsSnapshot();
   markMaterialsSeeded(true);
+  return { seeded: seeding, manualKept: manual.length, overridesKept: overridesKept, dropped: stranded.length };
+}
+
+// The Recalculate button's handler: does the merge, then reports what it kept
+// so "did that just eat my manual lines?" is answered on screen rather than by
+// scrolling the list. Undo is offered on the same toast.
+function recalculateMaterialsFromButton() {
+  var res = recalculateMaterialsSnapshot();
+  renderSummary();
+  if (!res) { toast('Recalculate cancelled — nothing changed'); return; }
+  var kept = [];
+  if (res.manualKept) kept.push(res.manualKept + ' manual line' + (res.manualKept === 1 ? '' : 's'));
+  if (res.overridesKept) kept.push(res.overridesKept + ' edited quantit' + (res.overridesKept === 1 ? 'y' : 'ies'));
+  var msg = 'Materials recalculated' + (kept.length ? ' — kept ' + kept.join(' and ') : '');
+  toast(msg, { action: 'Undo', onAction: undoLast });
 }
 
 // Non-chargeable (tracking-only, chargeable===false) lines don't count --
@@ -8204,15 +8486,47 @@ function materialsSnapshotTotal() {
   return materialsSnapshot.reduce(function(sum, l) { return l.chargeable === false ? sum : sum + (+l.quantity||0) * (+l.unitAmount||0); }, 0);
 }
 
+// Typing over a quantity is what makes an estimate line "yours" -- from here
+// on a Recalculate keeps this figure instead of overwriting it (see the merge
+// in recalculateMaterialsSnapshot). calcQuantity is left alone: it's the
+// calculation's own answer, and keeping it is what lets the row show both
+// numbers and offer the estimate back.
 function setMaterialLineQuantity(id, value) {
   var line = materialsSnapshot.find(function(l) { return l.id === id; });
   if (!line) return;
-  line.quantity = Math.max(0, +value || 0);
+  var next = Math.max(0, +value || 0);
+  if (Math.abs(next - (+line.quantity || 0)) < 0.0001) return;
+  // Coalesced per line: a burst of edits to one box undoes back to the figure
+  // it held before the burst started, not one keystroke at a time.
+  pushUndo('Quantity — ' + line.description, 'materials', 'qty:' + id);
+  // Lines snapshotted before calcQuantity existed carry no calculated figure.
+  // The quantity they hold right now IS the calculation's answer (nothing else
+  // has ever written it), so stamp it before overwriting -- otherwise this
+  // edit wouldn't register as an override and the next Recalculate would
+  // wipe it, which is the whole bug.
+  if (line.calcQuantity == null && matLineSource(line) === 'estimate') {
+    line.calcQuantity = +line.quantity || 0;
+  }
+  line.quantity = next;
+  saveMaterialsSnapshot();
+  renderSummary();
+}
+
+// Puts an overridden line back on the calculation's own figure.
+function resetMaterialLineQuantity(id) {
+  var line = materialsSnapshot.find(function(l) { return l.id === id; });
+  if (!line || line.calcQuantity == null) return;
+  pushUndo('Quantity — ' + line.description, 'materials', 'qty:' + id);
+  line.quantity = +line.calcQuantity || 0;
   saveMaterialsSnapshot();
   renderSummary();
 }
 
 function deleteMaterialLine(id) {
+  var line = materialsSnapshot.find(function(l) { return l.id === id; });
+  if (!line) return;
+  pushUndoWithToast('Delete — ' + line.description, 'materials', null,
+    'Removed ' + line.description);
   materialsSnapshot = materialsSnapshot.filter(function(l) { return l.id !== id; });
   saveMaterialsSnapshot();
   renderSummary();
@@ -8222,7 +8536,8 @@ function deleteMaterialLine(id) {
 // rows are always real, priced quote lines and never show this control.
 function toggleMaterialChargeable(id) {
   var line = materialsSnapshot.find(function(l) { return l.id === id; });
-  if (!line || !line.custom) return;
+  if (!line || matLineSource(line) !== 'manual') return;
+  pushUndo('Chargeable — ' + line.description, 'materials', 'charge:' + id);
   line.chargeable = line.chargeable === false;
   saveMaterialsSnapshot();
   renderSummary();
@@ -8468,7 +8783,11 @@ function addCustomMaterialLine() {
   var colourVal = document.getElementById('add-mat-colour').value;
   var colourNumber = colourVal ? +colourVal : null;
   var chargeable = document.getElementById('add-mat-chargeable').classList.contains('on');
-  materialsSnapshot.push({ id: uid(), itemCode: itemCode, description: desc, quantity: qty, unitAmount: price, custom: true, chargeable: chargeable, colourNumber: colourNumber });
+  pushUndo('Add — ' + desc, 'materials');
+  // source:'manual' is what keeps this line alive through a Recalculate --
+  // see recalculateMaterialsSnapshot's merge. `custom` is written too, for
+  // the readers that predate it.
+  materialsSnapshot.push({ id: uid(), itemCode: itemCode, description: desc, quantity: qty, unitAmount: price, custom: true, source: 'manual', chargeable: chargeable, colourNumber: colourNumber });
   saveMaterialsSnapshot();
   clearFormFields(ADD_MAT_FIELD_IDS);
   renderSummary();
@@ -9079,7 +9398,9 @@ function renderActuals() {
   // Order per Nicky (2026-07-23): the daily rhythm is days → materials,
   // with variations the occasional visitor — so they sit below.
   el.innerHTML = onSiteJobHeader() + head + renderTimeOnSiteCard()
-    + '<div class="section-title" style="margin:16px 0 8px">Materials</div>'
+    + '<div class="section-title" style="margin:16px 0 8px;display:flex;align-items:center;justify-content:space-between;gap:14px">Materials'
+      + undoChipHtml()
+    + '</div>'
     + rowsHtml + add
     + variationsSection;
   restoreFields(pendingAdd);
@@ -9216,9 +9537,13 @@ async function persistActual(a) {
 
 async function setActualQuantity(key, value) {
   var row = findActualsRow(key); if (!row) return;
+  // Before ensureActual(), which creates the row on first touch -- undoing
+  // then takes that row back out again, not just its quantity.
+  pushUndo('Quantity — ' + row.description, 'actuals', 'act-qty:' + key);
   var a = ensureActual(row);
   a.actualQuantity = Math.max(0, +value || 0);
   if (await persistActual(a)) renderActuals();
+  else { undoStack.pop(); refreshUndoAffordances(); }  // persist failed and reloaded; nothing to undo
 }
 
 async function toggleActualBought(key) {
@@ -9231,14 +9556,18 @@ async function toggleActualBought(key) {
 async function removeActual(key) {
   var row = findActualsRow(key); if (!row || !row.actual) return;
   if (!confirm('Remove "' + row.actual.description + '" from the actuals? It will no longer be invoiced.')) return;
+  var desc = row.actual.description;
+  pushUndo('Remove — ' + desc, 'actuals');
   try {
     await apiDeleteStrict('/api/actuals/' + row.actual.id);
   } catch (e) {
+    undoStack.pop(); refreshUndoAffordances();
     alert('Could not remove: ' + e.message);
     return;
   }
   materialActuals = materialActuals.filter(function(x) { return x.id !== row.actual.id; });
   renderActuals();
+  toast('Removed ' + desc, { action: 'Undo', onAction: undoLast });
 }
 
 // Edit a manually-added row's description/colour/price in place. Only
@@ -15207,9 +15536,20 @@ function renderSummary() {
     // show the tag. Missing chargeable (lines saved before this existed)
     // reads as chargeable, matching materialsSnapshotTotal()'s same rule.
     var isChargeable = l.chargeable !== false;
-    var chargeableTag = l.custom
+    var isManual = matLineSource(l) === 'manual';
+    var chargeableTag = isManual
       ? '<div class="mat-chargeable-tag'+(isChargeable?' on':'')+'" onclick="toggleMaterialChargeable(\''+l.id+'\')">'+(isChargeable?'Chargeable':'Tracking only')+'</div>'
       : '';
+    // Which lines a Recalculate will rebuild, and which are yours -- the
+    // distinction the merge now acts on, made visible so it can be trusted
+    // (and so a typed-over quantity is never mistaken for a calculated one).
+    var sourceNote = isManual
+      ? '<span style="font-size:11px;font-weight:600;color:var(--text2)"> · added by you</span>'
+      : (matLineOverridden(l)
+          ? '<span style="font-size:11px;font-weight:600;color:var(--text2)"> · edited · '
+            + '<span onclick="event.stopPropagation();resetMaterialLineQuantity(\''+l.id+'\')" style="color:var(--accent);cursor:pointer;white-space:nowrap">reset to '
+            + (Math.round((+l.calcQuantity || 0) * 100) / 100) + '</span></span>'
+          : '');
     // Opt-in add to the (global) shopping list — see addMaterialToShopList.
     // "On list" is best-effort read-only state: shopList may simply not be
     // fetched yet this session, in which case the chip just reads "Add to
@@ -15234,7 +15574,7 @@ function renderSummary() {
     }
     return swipeDeleteWrap('deleteMaterialLine', l.id,
       '<div class="mat-row"><div><div class="mat-label">'+escapeHtml(l.description)+'</div>'+
-      '<div class="mat-detail">'+fmt(+l.unitAmount||0)+(l.isPerLitre?'/ltr':' each')+'</div>'+chargeableTag+shopTag+'</div>'+
+      '<div class="mat-detail">'+fmt(+l.unitAmount||0)+(l.isPerLitre?'/ltr':' each')+sourceNote+'</div>'+chargeableTag+shopTag+'</div>'+
       '<div style="display:flex;align-items:center;gap:10px">'+
         '<input type="number" class="field-input" style="width:60px;padding:6px 8px;text-align:center" value="'+l.quantity+'" min="0" step="1" onchange="setMaterialLineQuantity(\''+l.id+'\',this.value)">'+
         '<div class="mat-val" style="width:72px;text-align:right">'+fmt(cost)+'</div>'+
@@ -15621,8 +15961,11 @@ function renderSummary() {
       '<span class="breakdown-label">Custom line items — no markup<small style="display:block;font-weight:400;color:var(--text2)">entered prices, added to the total exactly as typed</small></span>'+
       '<span class="breakdown-value">'+fmt(customSplit.flat)+'</span></div>':'')+
     '</div></div>'+
-    '<div><div class="section-title" style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">Materials'+
+    '<div><div class="section-title" style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:14px">Materials'+
+      '<span style="display:flex;align-items:center;gap:14px">'+
+      undoChipHtml()+
       (materialsSnapshot.length > 1 ? '<span onclick="toggleMatReorder()" style="font-size:12px;font-weight:600;color:var(--accent);cursor:pointer;text-transform:none;letter-spacing:normal">'+(matReorderMode ? 'Done' : 'Reorder')+'</span>' : '')+
+      '</span>'+
     '</div>'+
     '<div class="card">'+
       editableRowsHtml + unmappedRowsHtml +
@@ -15630,7 +15973,11 @@ function renderSummary() {
         '<span class="breakdown-label" style="font-weight:600;color:var(--text)">Materials subtotal</span>'+
         '<span class="breakdown-value" style="color:var(--accent)">'+fmt(materialsTotal)+'</span></div>':'')+
     '</div>'+
-    '<button onclick="recalculateMaterialsSnapshot();renderSummary();" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%;margin-top:8px">Recalculate from rooms &amp; exterior</button>'+
+    '<button onclick="recalculateMaterialsFromButton()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%;margin-top:8px">Recalculate from rooms &amp; exterior</button>'+
+    // Says up front what the button will and won't touch -- the old one gave
+    // no clue it was about to destroy every manual line, which is how the
+    // data loss happened in the first place.
+    '<div style="font-size:12px;color:var(--text2);margin-top:6px;padding:0 2px;line-height:1.4">Rebuilds the calculated lines from the rooms. Your manually added materials and any quantities you\'ve typed over are kept.</div>'+
     '<div class="card" style="margin-top:8px;overflow:visible">'+
       '<div class="card-header">Add Material</div>'+
       '<div class="field-row"><div class="field-label">Product<small>optional, type to search</small></div>'+
