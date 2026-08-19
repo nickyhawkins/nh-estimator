@@ -73,10 +73,19 @@ change, not just a feature, so it's stated in the sync confirm dialog every sing
 `accounting.transactions` is NOT permitted for this app (the 2026-07-22/23 saga). Under
 **granular** scopes it is split, and the two needed here are `accounting.banktransactions`
 (create the transaction) and `accounting.payments` (read the prepayment back). Both were
-**proved permitted before being added** to `SCOPES`, via `GET /auth/scope-check` — the
-server-side bisect added for exactly this: controls healthy, every variant ACCEPTED.
+**proved permitted before being added** to `SCOPES`, via `GET /auth/scope-check` — a
+server-side bisect added for exactly this: controls healthy, every variant ACCEPTED, each
+302'ing on to Xero's login rather than bouncing back an `invalid_scope`.
 `GET /Accounts` (the bank-account picker) needs no new scope — it was already covered by
 `accounting.settings.read`.
+
+**The probe routes are gone** (removed 2026-08-19, v2.32.1): `/auth/scope-check`,
+`/auth/connect-test/:variant` and July's `/auth/connect-info` all answered their question
+and were deleted rather than left as unauthenticated diagnostic gear on a live app. Git
+history has them if the question is ever asked again. The callback's `xero-scope-test`
+state guard deliberately STAYS — an authorize page opened before the removal and completed
+after it would still land there, and exchanging that code would swap a reduced-scope token
+in for the real one.
 
 ## Agreed decisions
 
