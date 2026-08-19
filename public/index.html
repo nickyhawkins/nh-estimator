@@ -1067,6 +1067,23 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       <div class="field-row"><div class="field-label">Deposit<small>% of quote — or materials+sundries cost, whichever greater</small></div><input type="number" class="field-input" id="s-deposit-pct" value="25" min="0" max="100" step="5" inputmode="numeric" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Chase quotes after<small>days — unanswered quotes then appear on Home's attention strip</small></div><input type="number" class="field-input" id="s-chasedays" value="14" min="1" step="1" inputmode="numeric" onchange="saveSettings()"></div>
     </div>
+    <!-- Deposits in Xero (DEPOSITS_SPEC.md): where a recorded deposit posts.
+         The bank list is fetched from Xero on demand (GET /auth/bank-accounts,
+         covered by the settings.read scope the app has always had); offline,
+         the remembered account name shows so the picker never looks like the
+         setting was lost. -->
+    <div class="card">
+      <div class="card-header">Deposits (Xero)</div>
+      <div class="field-row">
+        <div class="field-label">Bank account<small>where a recorded deposit lands as Receive Money</small></div>
+        <select class="field-input" id="s-deposit-bank" style="width:auto;max-width:170px;text-align:left;font-family:'DM Sans',sans-serif" onchange="setDepositBankAccount(this.value)"></select>
+      </div>
+      <div class="field-row">
+        <div class="field-label">Posting account<small>code the prepayment line uses — 620 Prepayments</small></div>
+        <input type="text" class="field-input" id="s-deposit-account-code" value="620" style="width:70px;text-align:right" autocorrect="off" onchange="setDepositAccountCode(this.value)">
+      </div>
+      <div id="deposit-settings-note" style="font-size:11px;color:var(--text2);padding:2px 16px 12px;line-height:1.45"></div>
+    </div>
     <div class="card">
       <div class="card-header">Scheduling</div>
       <div class="field-row"><div class="field-label">Daily overhead<small>mins/day — setup, protection, cleanup (not costed, just stretches the diary)</small></div><input type="number" class="field-input" id="s-overhead-mins" value="45" min="0" step="5" inputmode="numeric" onchange="saveSettings()"></div>
@@ -2383,6 +2400,12 @@ function saveSettings() {
   // handlers (which mutate settings.coverageRates then call saveSettings()),
   // so carried forward from memory like materials/textTemplates.
   next.coverageRates = settings.coverageRates || [];
+  // Deposits: the bank account is chosen through its own select handler and
+  // the code is a string, so neither can ride SETTINGS_FIELDS' numeric
+  // coercion — carried forward from memory like the rest of this block.
+  next.depositBankAccountId = settings.depositBankAccountId || null;
+  next.depositBankAccountName = settings.depositBankAccountName || null;
+  next.depositAccountCode = settings.depositAccountCode || '620';
   settings = next;
   localStorage.setItem('pe-settings', JSON.stringify(settings));
   apiPut('/api/settings', settings);
@@ -4312,6 +4335,14 @@ function mergeSettings(raw) {
   // primer needed), edited in their own Settings card. Empty list = every
   // surface uses the flat rates above, exactly the pre-feature behaviour.
   out.coverageRates = Array.isArray(raw.coverageRates) ? raw.coverageRates : [];
+  // Deposits (DEPOSITS_SPEC.md). Not SETTINGS_FIELDS rows: that table is
+  // numeric-only (saveSettings coerces every row with +value), and these are
+  // a GUID and an account code. Same carried-forward treatment as
+  // bankHolidayRegion. No bank account by default — deposits can be recorded
+  // in the app from day one, and only SENDING one needs this chosen.
+  out.depositBankAccountId = raw.depositBankAccountId || null;
+  out.depositBankAccountName = raw.depositBankAccountName || null;
+  out.depositAccountCode = raw.depositAccountCode || '620';
   return out;
 }
 
@@ -4586,7 +4617,7 @@ function persistJobData(job) {
   // explicitly nulled — otherwise the server copy would keep the old
   // fittedUnit forever alongside the list. Until migration runs (job never
   // touched since v2.20.0), the legacy value passes through untouched.
-  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, notes: job.notes, kitchen: job.kitchen, fittedUnits: job.fittedUnits, fittedUnit: Array.isArray(job.fittedUnits) ? null : job.fittedUnit, customItems: job.customItems });
+  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, deposit: job.deposit, notes: job.notes, kitchen: job.kitchen, fittedUnits: job.fittedUnits, fittedUnit: Array.isArray(job.fittedUnits) ? null : job.fittedUnit, customItems: job.customItems });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -6346,6 +6377,351 @@ async function syncContactToXero() {
   }
 }
 
+// ── Deposits (DEPOSITS_SPEC.md) ────────────────────────────────────────────
+// Until now the app never RECORDED a deposit: computeDepositPlan() forecasts
+// one (25% of quote, or materials+sundries, whichever is greater) and the
+// final-invoice screen takes a reference-only figure that changes nothing.
+// job.deposit is the first record of money actually received, and the thing
+// pushed to Xero as a RECEIVE-PREPAYMENT bank transaction.
+//
+// ONE deposit per job by design (staged payments are invoiced separately).
+// If that ever stops being true this becomes a list, the way fittedUnit
+// became fittedUnits.
+//
+// The app CREATES and REPORTS; it never corrects. Allocating the prepayment
+// to the invoice, and fixing a wrong one, both stay in Xero — the first
+// because Xero refuses to allocate against a DRAFT invoice and the invoice
+// builder only ever writes drafts on purpose, the second because unwinding
+// financial records from a phone is how audit trails get lost.
+//
+// A deposit is due on acceptance and stays relevant through invoicing, so
+// the card shows from 'accepted' onward.
+var DEPOSIT_STATUSES = ['accepted', 'completed', 'invoiced'];
+var depositRowOpen = false;
+var depositBankAccounts = null;  // Settings picker cache, fetched from Xero
+var depositStatusChecked = {};   // prepaymentId -> ms, throttles the read-back
+
+// 128 bits of hex, same generator as the ICS key. Stored ON the deposit and
+// reused for every retry of THAT deposit: Xero replays the original result
+// for a repeated key, which is what makes "Try again" safe. A fresh key per
+// attempt would let a retry create a SECOND prepayment — the one failure
+// this feature must not have.
+function newIdempotencyKey() {
+  var bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes).map(function(b) { return b.toString(16).padStart(2, '0'); }).join('');
+}
+
+// 'none' | 'notSynced' | 'failed' | 'synced' | 'voided'. VOIDED/DELETED read
+// back from Xero outrank the local state deliberately: once Nicky has undone
+// it there, the app must stop claiming it's synced.
+function depositSyncState(dep) {
+  if (!dep) return 'none';
+  if (dep.xeroStatus === 'DELETED' || dep.xeroStatus === 'VOIDED') return 'voided';
+  return dep.syncState || 'notSynced';
+}
+
+// RemainingCredit is the whole allocation story: equal to the total means
+// nothing has been applied, zero means fully applied. Null means the
+// read-back hasn't run (offline, or synced moments ago) — which is not the
+// same as unallocated and mustn't be shown as if it were.
+function depositAllocationLabel(dep) {
+  if (!dep) return '';
+  if (dep.xeroStatus === 'DELETED') return 'deleted in Xero';
+  if (dep.xeroStatus === 'VOIDED') return 'voided in Xero';
+  if (dep.remainingCredit == null) return 'allocation not checked yet';
+  if (dep.remainingCredit <= 0.005) return 'allocated ✓';
+  var total = dep.xeroTotal != null ? dep.xeroTotal : dep.amount;
+  if (dep.remainingCredit < total - 0.005) return 'part-allocated · ' + fmt(dep.remainingCredit) + ' left';
+  return 'unallocated';
+}
+
+function toggleDepositRow() {
+  depositRowOpen = !depositRowOpen;
+  renderSummary();
+}
+
+// The deposit block on Summary's status card, mirroring scheduleBlockHtml:
+// an inline form while open, a one-line state row when closed. planDeposit is
+// the LIVE computeDepositPlan() figure, passed in by renderSummary (which has
+// just computed it) — used to prefill the form and to flag drift after a
+// variation moves the plan.
+function depositBlockHtml(job, planDeposit) {
+  var link = 'color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap';
+  var wrap = 'border-top:1px solid var(--border);padding:12px 16px';
+  var dep = job.deposit || null;
+  var state = depositSyncState(dep);
+
+  if (depositRowOpen) {
+    var amount = dep ? dep.amount : Math.round((planDeposit || 0) * 100) / 100;
+    var date = (dep && dep.date) || isoDate(new Date());
+    return '<div style="' + wrap + '">' +
+      '<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">' +
+        '<span style="font-size:13px;color:var(--text2);flex:none">Received</span>' +
+        '<input type="number" class="field-input" id="deposit-amount" value="' + amount + '" min="0" step="0.01" inputmode="decimal" style="width:90px;text-align:right">' +
+        '<input type="date" class="field-input" id="deposit-date" value="' + date + '" style="flex:1">' +
+      '</div>' +
+      '<input type="text" class="field-input wide" id="deposit-note" value="' + escapeHtml((dep && dep.note) || '') + '" placeholder="Note (optional) — e.g. bank transfer" autocorrect="off" style="margin-bottom:8px">' +
+      (planDeposit > 0 ? '<div style="font-size:11px;color:var(--text2);margin-bottom:8px;line-height:1.45">Plan says ' + fmt(planDeposit) + ' — record what was <strong>actually paid</strong>, not what should have been.</div>' : '') +
+      (state === 'synced' ? '<div style="font-size:12px;color:var(--warn,#f39c12);margin-bottom:8px;line-height:1.45">Already in Xero — editing here changes the app&rsquo;s record only. The prepayment itself must be corrected in Xero.</div>' : '') +
+      '<div style="display:flex;gap:8px">' +
+        '<button onclick="saveDepositRecord()" style="flex:1;background:var(--accent);color:white;border:none;border-radius:var(--rs);padding:10px;font-size:13px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer">Save deposit</button>' +
+        '<button onclick="toggleDepositRow()" style="background:none;border:1px solid var(--border);color:var(--text2);border-radius:var(--rs);padding:10px 14px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer">Cancel</button>' +
+      '</div>' +
+      (dep ? '<div onclick="removeDepositRecord()" style="text-align:center;color:var(--danger);font-size:12px;font-weight:600;cursor:pointer;padding-top:10px">Remove this deposit record</div>' : '') +
+    '</div>';
+  }
+
+  if (!dep) {
+    return '<div style="' + wrap + ';display:flex;align-items:center;gap:10px">' +
+      '<div style="flex:1;font-size:13px;color:var(--text2)">💷 No deposit recorded' + (planDeposit > 0 ? ' — plan says ' + fmt(planDeposit) : '') + '</div>' +
+      '<div onclick="toggleDepositRow()" style="' + link + '">Record deposit ›</div>' +
+    '</div>';
+  }
+
+  var stateHtml =
+      state === 'synced' ? '<span style="color:var(--success)">in Xero · ' + depositAllocationLabel(dep) + '</span>'
+    : state === 'voided' ? '<span style="color:var(--danger)">' + depositAllocationLabel(dep) + ' — this app is no longer its record</span>'
+    : state === 'failed' ? '<span style="color:var(--danger)">Xero sync failed' + (dep.lastError ? ' — ' + escapeHtml(dep.lastError) : '') + '</span>'
+    : '<span style="color:var(--warn,#f39c12)">not in Xero yet</span>';
+
+  // Scope-change flag: the deposit is history and never recalculates, but the
+  // plan moves when variations land. Deliberately job-local and not an
+  // attention-strip line — every job with an extra would trip it, and a strip
+  // that cries wolf stops being read.
+  var gap = planDeposit > 0 ? Math.round((planDeposit - (+dep.amount || 0)) * 100) / 100 : 0;
+  var drift = Math.abs(gap) > 1
+    ? '<div style="font-size:11px;color:var(--text2);margin-top:2px">plan now ' + fmt(planDeposit) + ' — ' + (gap > 0 ? fmt(gap) + ' more than was taken' : fmt(-gap) + ' more was taken than the plan now says') + '</div>'
+    : '';
+
+  var action = state === 'synced' ? ''
+    : '<div onclick="syncDepositToXero()" class="xero-live-btn" style="' + link + '">' +
+        (state === 'failed' ? 'Try again' : state === 'voided' ? 'Re-create in Xero' : 'Sync to Xero') +
+      '</div>';
+
+  return '<div style="' + wrap + ';display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+    '<div style="flex:1;min-width:0">' +
+      '<div style="font-size:13px;font-weight:600">💷 Deposit ' + fmt(dep.amount) + ' · received ' + fmtShortDate(dep.date) + '</div>' +
+      '<div style="font-size:11px;margin-top:2px">' + stateHtml + '</div>' +
+      drift +
+    '</div>' +
+    action +
+    '<div onclick="toggleDepositRow()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline">Edit</div>' +
+  '</div>';
+}
+
+function saveDepositRecord() {
+  var job = activeJob();
+  if (!job) return;
+  var amount = Math.round((parseFloat(document.getElementById('deposit-amount').value) || 0) * 100) / 100;
+  var date = document.getElementById('deposit-date').value;
+  var note = document.getElementById('deposit-note').value.trim();
+  if (!(amount > 0)) { alert('Enter the amount that was actually received.'); return; }
+  if (!date) { alert('Enter the date the money was received — the bank feed has to match it.'); return; }
+
+  var dep = job.deposit || null;
+  var changed = !dep || amount !== dep.amount || date !== dep.date;
+  if (dep && depositSyncState(dep) === 'synced' && changed) {
+    if (!confirm('This deposit is already in Xero.\n\nChanging it here updates the app\'s record only — the Xero prepayment stays exactly as it is and has to be corrected there.\n\nSave anyway?')) return;
+  }
+  if (!dep) {
+    dep = {
+      recordedAt: new Date().toISOString(), syncState: 'notSynced',
+      idempotencyKey: newIdempotencyKey(),
+      xeroPrepaymentId: null, xeroBankTransactionId: null,
+      syncedAt: null, lastAttemptAt: null, lastError: null,
+      xeroStatus: null, remainingCredit: null, xeroTotal: null, checkedAt: null
+    };
+  } else if (depositSyncState(dep) !== 'synced' && changed) {
+    // The key identifies THIS deposit to Xero. If the figures changed before
+    // it ever landed it's a different deposit, and reusing the key would hand
+    // back the earlier attempt's result instead of writing the new amount.
+    dep.idempotencyKey = newIdempotencyKey();
+  }
+  dep.amount = amount;
+  dep.date = date;
+  dep.note = note;
+  job.deposit = dep;
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  depositRowOpen = false;
+  renderSummary();
+  renderAttentionStrip();
+}
+
+function removeDepositRecord() {
+  var job = activeJob();
+  if (!job || !job.deposit) return;
+  var synced = depositSyncState(job.deposit) === 'synced';
+  var msg = synced
+    ? 'Remove this deposit from the app?\n\nThe prepayment STAYS IN XERO — this only forgets it here, and nothing will chase it any more. Delete or void it in Xero too if that\'s what you meant.'
+    : 'Remove this deposit record?';
+  if (!confirm(msg)) return;
+  job.deposit = null;
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  depositRowOpen = false;
+  renderSummary();
+  renderAttentionStrip();
+}
+
+// The Xero write. Blocked offline rather than queued, like every other Xero
+// round-trip in the app (blockIfOffline) — the offline queue is for the app's
+// own database, and a queued financial write that fires later unattended is
+// not something to want.
+async function syncDepositToXero() {
+  if (blockIfOffline('Sending the deposit to Xero')) return;
+  var job = activeJob();
+  var dep = job && job.deposit;
+  if (!dep || depositSyncState(dep) === 'synced') return;
+  // Hard requirement, per spec: a prepayment against a by-name contact can
+  // land on a SECOND Xero contact of the same name, and then it can never be
+  // allocated to the invoice. Recording it locally is always allowed; only
+  // sending needs the link.
+  if (!job.xeroContactId) {
+    alert('This job has no linked Xero contact.\n\nSync the contact first (Client details, above). Without the link the deposit can land on a second contact of the same name in Xero, and then it can never be applied to the invoice.\n\nThe deposit stays recorded here in the meantime.');
+    return;
+  }
+  if (!confirm('Create a ' + fmt(dep.amount) + ' prepayment in Xero, received ' + fmtShortDate(dep.date) + '?\n\nDON\'T also enter it in Xero by hand — this IS that entry, and doing both double-counts it against the bank feed.')) return;
+
+  // Re-creating after a void/delete is a NEW transaction: reusing the old key
+  // would make Xero replay the original (now dead) result instead of writing
+  // anything.
+  if (dep.xeroPrepaymentId || dep.xeroBankTransactionId) dep.idempotencyKey = newIdempotencyKey();
+  dep.lastAttemptAt = new Date().toISOString();
+
+  try {
+    var resp = await fetch('/auth/create-prepayment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contactId: job.xeroContactId,
+        amount: dep.amount,
+        date: dep.date,
+        // The job name rides the line description: Xero drops Reference on
+        // prepayment transactions (see routes/xero.js).
+        description: 'Deposit — ' + (job.xeroRef || job.name),
+        idempotencyKey: dep.idempotencyKey
+      })
+    });
+    var result = await resp.json();
+    if (!result.ok) throw new Error(result.error || 'Xero refused the deposit');
+    dep.xeroPrepaymentId = result.prepaymentId || null;
+    dep.xeroBankTransactionId = result.bankTransactionId || null;
+    dep.syncState = 'synced';
+    dep.syncedAt = new Date().toISOString();
+    dep.lastError = null;
+    // Fresh sync: whatever the last read-back said is now stale.
+    dep.xeroStatus = null; dep.remainingCredit = null; dep.xeroTotal = null; dep.checkedAt = null;
+    localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+    persistJobData(job);
+    toast(result.warning || 'Deposit ' + fmt(dep.amount) + ' created in Xero ✓ — apply it to the invoice there when you raise it.');
+  } catch (err) {
+    dep.syncState = 'failed';
+    dep.lastError = String(err.message || 'Sync failed').slice(0, 300);
+    localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+    persistJobData(job);
+    reportFailure('Could not send the deposit to Xero', err);
+  }
+  renderSummary();
+  renderAttentionStrip();
+}
+
+// Read-back for the Summary chip. A POLL, with the same contract as the
+// quote-status sync: silent on failure, at most hourly, skipped offline, and
+// Xero always wins — the app reports what it finds and never argues with it.
+async function refreshDepositStatus() {
+  var job = activeJob();
+  var dep = job && job.deposit;
+  if (!dep || !dep.xeroPrepaymentId || dep.syncState !== 'synced') return;
+  if (!navigator.onLine || !serverAvailable) return;
+  var last = depositStatusChecked[dep.xeroPrepaymentId] || 0;
+  if (Date.now() - last < 3600000) return;
+  // Stamped BEFORE the await: renderSummary can run again while this is in
+  // flight, and two polls for one chip is waste.
+  depositStatusChecked[dep.xeroPrepaymentId] = Date.now();
+  try {
+    var resp = await fetch('/auth/prepayment-status?ids=' + encodeURIComponent(dep.xeroPrepaymentId));
+    var result = await resp.json();
+    if (!result.ok) return;
+    var row = (result.prepayments || [])[0];
+    if (!row || row.status == null) return;  // per-id failure: next open retries
+    var changed = dep.xeroStatus !== row.status || dep.remainingCredit !== row.remainingCredit;
+    dep.xeroStatus = row.status;
+    dep.remainingCredit = row.remainingCredit;
+    dep.xeroTotal = row.total;
+    dep.checkedAt = new Date().toISOString();
+    if (changed) {
+      localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+      persistJobData(job);
+      renderSummary();
+      renderAttentionStrip();
+    }
+  } catch (err) { /* a poll — the next Summary open tries again */ }
+}
+
+// ── Deposit settings (bank account + posting code) ─────────────────────────
+function setDepositAccountCode(value) {
+  var code = String(value || '').trim();
+  settings.depositAccountCode = code || '620';
+  var el = document.getElementById('s-deposit-account-code');
+  if (el) el.value = settings.depositAccountCode;
+  saveSettings();
+  renderDepositSettingsNote();
+}
+
+function setDepositBankAccount(accountId) {
+  settings.depositBankAccountId = accountId || null;
+  // The name is a display cache for when Xero can't be reached — the id is
+  // what actually posts the money.
+  var match = (depositBankAccounts || []).find(function(a) { return a.accountId === accountId; });
+  settings.depositBankAccountName = match ? match.name : (accountId ? settings.depositBankAccountName : null);
+  saveSettings();
+  renderDepositSettingsNote();
+}
+
+async function loadDepositBankAccounts(force) {
+  if (!document.getElementById('s-deposit-bank')) return;
+  if ((!depositBankAccounts || force) && navigator.onLine && serverAvailable) {
+    try {
+      var resp = await fetch('/auth/bank-accounts');
+      var result = await resp.json();
+      if (result.ok) depositBankAccounts = result.accounts || [];
+    } catch (err) { /* keep whatever we had — fillDepositBankSelect says so */ }
+  }
+  fillDepositBankSelect();
+}
+
+function fillDepositBankSelect() {
+  var sel = document.getElementById('s-deposit-bank');
+  if (!sel) return;
+  var current = settings.depositBankAccountId || '';
+  var list = depositBankAccounts || [];
+  var html = '<option value="">— none chosen —</option>';
+  html += list.map(function(a) {
+    return '<option value="' + escapeHtml(a.accountId) + '"' + (a.accountId === current ? ' selected' : '') + '>' +
+      escapeHtml(a.name + (a.code ? ' (' + a.code + ')' : '')) + '</option>';
+  }).join('');
+  // A chosen account that isn't in the fetched list (offline, or archived in
+  // Xero since) must still render as chosen — otherwise the picker silently
+  // reads "none" and the next save would wipe a working setting.
+  if (current && !list.some(function(a) { return a.accountId === current; })) {
+    html += '<option value="' + escapeHtml(current) + '" selected>' +
+      escapeHtml(settings.depositBankAccountName || 'Saved account') +
+      (list.length ? ' — not in Xero&rsquo;s list' : '') + '</option>';
+  }
+  sel.innerHTML = html;
+  renderDepositSettingsNote();
+}
+
+function renderDepositSettingsNote() {
+  var el = document.getElementById('deposit-settings-note');
+  if (!el) return;
+  el.innerHTML = settings.depositBankAccountId
+    ? 'Recording a deposit on an accepted job creates the Receive Money (prepayment) here — <strong>don\'t also enter it in Xero by hand</strong>, or it double-counts against the bank feed. Applying it to the invoice stays a Xero job.'
+    : '<span style="color:var(--warn,#f39c12)">No account chosen — deposits can still be recorded in the app, but not sent to Xero.</span>';
+}
+
 // Whether this job's materials snapshot has EVER been populated (auto-seed
 // or an explicit Recalculate) -- persisted per-job, separate from whether
 // materialsSnapshot happens to be empty right now. Without this, the
@@ -7049,6 +7425,9 @@ function loadSettings() {
   document.getElementById('s-kr-plinth-coat').value  = (settings.kitchenRates && settings.kitchenRates.plinth) ? settings.kitchenRates.plinth.coat : 3;
   renderMaterialsSettings();
   renderCoverageRates();
+  var depCode = document.getElementById('s-deposit-account-code');
+  if (depCode) depCode.value = settings.depositAccountCode || '620';
+  loadDepositBankAccounts();
 }
 
 // ── Rate functions ──────────────────────────────────────────────────────────
@@ -12918,6 +13297,28 @@ function renderAttentionStrip() {
         lines.push({ jobId: j.id, icon: '💷', text: 'Not invoiced — <strong>' + escapeHtml(j.name) + '</strong>, finished ' + doneDays + ' days ago' });
       }
     }
+    // Deposits (DEPOSITS_SPEC.md). Drift the app can actually detect: money
+    // recorded here that never reached Xero. A failed or voided sync shows at
+    // once (something went wrong and it needs a decision); a merely unsent one
+    // gets a day's grace, so recording a deposit in a dead spot doesn't nag
+    // the moment it's typed.
+    var depState = depositSyncState(j.deposit);
+    if (depState === 'failed' || depState === 'voided') {
+      lines.push({ jobId: j.id, icon: '⚠', text: (depState === 'failed' ? 'Deposit not in Xero' : 'Deposit voided in Xero') + ' — <strong>' + escapeHtml(j.name) + '</strong>, ' + fmt(j.deposit.amount) });
+    } else if (depState === 'notSynced' && j.deposit.recordedAt) {
+      var depDays = Math.floor((now - new Date(j.deposit.recordedAt).getTime()) / DAY);
+      if (depDays >= 1) {
+        lines.push({ jobId: j.id, icon: '💷', text: 'Deposit not in Xero — <strong>' + escapeHtml(j.name) + '</strong>, ' + fmt(j.deposit.amount) + ' recorded ' + depDays + ' day' + (depDays === 1 ? '' : 's') + ' ago' });
+      }
+    } else if (depState === 'synced' && j.status !== 'invoiced' && j.deposit.date) {
+      // Money held against a job that was never billed. Correct accounting —
+      // it's the client's money until an invoice exists — but it shouldn't be
+      // held quietly forever.
+      var heldDays = Math.floor((now - new Date(j.deposit.date).getTime()) / DAY);
+      if (heldDays > 30) {
+        lines.push({ jobId: j.id, icon: '🔗', text: fmt(j.deposit.amount) + ' deposit held, no invoice — <strong>' + escapeHtml(j.name) + '</strong>, ' + heldDays + ' days' });
+      }
+    }
   });
   if (settings.lastBackupExportAt) {
     var backupAge = now - new Date(settings.lastBackupExportAt).getTime();
@@ -15744,6 +16145,10 @@ function renderSummary() {
         )+
       '</div>'+
       (jobStatus === 'accepted' ? scheduleBlockHtml(statusJob) : '')+
+      // Deposit (DEPOSITS_SPEC.md), from acceptance onward. `deposit` here is
+      // the LIVE plan figure computed above — a forecast, passed in to prefill
+      // the form and to flag drift against what was actually taken.
+      (statusJob && DEPOSIT_STATUSES.indexOf(jobStatus) !== -1 ? depositBlockHtml(statusJob, deposit) : '')+
     '</div>'+
     profitCard+
     '<div class="hero" style="margin-top:16px">'+
@@ -16025,6 +16430,10 @@ function renderSummary() {
     '</div>'+
     (scheduleRows?'<div><div class="section-title" style="margin-bottom:8px">Colour Schedule</div><div class="card">'+scheduleRows+'</div></div>':'');
   restoreFields(pendingAddMat);
+  // Deposit allocation read-back (DEPOSITS_SPEC.md): fire-and-forget, hourly
+  // at most, silent on failure, and it re-renders only if Xero's answer
+  // actually changed — so it can't loop through the render it was called from.
+  refreshDepositStatus();
 }
 
 // ── Client-facing quote view (v2.5.0) ──────────────────────────────────────
