@@ -1392,6 +1392,18 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
         <button class="seg-btn" onclick="setKitchenCoats(4)">4</button>
       </div></div>
     </div>
+    <!-- Outside faces only (v2.35.0): like Coats and Strip, one setting
+         across every counted item rather than a per-item field, so it sits
+         up here with them. Its own card for the same reason Prep has one --
+         it is not a coat count, and the note under it has to be readable:
+         what it halves and what it deliberately leaves alone. -->
+    <div class="card">
+      <div class="card-header">Faces<small style="text-transform:none;letter-spacing:normal;font-weight:400"> &mdash; applies to every counted item below</small></div>
+      <div class="toggle-row">
+        <div class="toggle-label">Outside faces only<small>Only the front of each piece is sprayed &mdash; halves doors, drawer fronts, end panels &amp; fillers. Carcass spraying, cornices/plinths and stripping are unaffected</small></div>
+        <div class="toggle" id="k-singleside-toggle" onclick="toggleKitchenSingleSide()"></div>
+      </div>
+    </div>
     <!-- Strip original coating: like Coats, a setting that applies across
          every item type below rather than a per-item field, so it sits up
          here beside it and not inside any one section's card. Its own card
@@ -1466,7 +1478,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
            "Width per bay" field. Rows render via renderFittedUnitBayWidths(). -->
       <div id="fu-bay-widths"></div>
       <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Shelves<small>total across all bays — fixed spray time each (top, underside &amp; front edge in one unit), see Rates</small></div><input type="number" class="field-input" id="fu-shelves" placeholder="0" min="0" step="1" inputmode="numeric" onchange="onFittedUnitFieldChange('shelfCount',this.value)"></div>
-      <div class="field-row"><div class="field-label">Cabinet doors<small>priced at the interior door rate, one face each — sized by the selector below</small></div><input type="number" class="field-input" id="fu-doors" placeholder="0" min="0" step="1" inputmode="numeric" onchange="onFittedUnitFieldChange('doorCount',this.value)"></div>
+      <div class="field-row"><div class="field-label">Cabinet doors<small>priced at the interior door rate, one face each — sized by the selector below, or set Both sides to price the whole leaf</small></div><input type="number" class="field-input" id="fu-doors" placeholder="0" min="0" step="1" inputmode="numeric" onchange="onFittedUnitFieldChange('doorCount',this.value)"></div>
       <div class="field-row">
         <div class="field-label">Door size<small>Standard = the full interior door rate (as before). Small = cupboard-size doors, ½ rate. Large = oversize/wardrobe doors, 1½× rate. Scales door labour &amp; litres</small></div>
         <div class="seg" id="seg-fu-doorsize" style="flex:1.5">
@@ -1474,6 +1486,15 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
           <button class="seg-btn active" onclick="setFittedUnitDoorSize('standard')">Standard</button>
           <button class="seg-btn" onclick="setFittedUnitDoorSize('large')">Large</button>
         </div>
+      </div>
+      <!-- Both sides (v2.35.0): the door rate is per FACE, and a built-in's
+           doors are normally painted from the front only -- so unlike the
+           rooms'/exterior's identical toggle this one is the exception, not
+           a choice between two equally likely answers. On, door labour AND
+           door litres double. -->
+      <div class="toggle-row" style="border-top:1px solid var(--border)">
+        <div class="toggle-label">Both sides<small>Off prices the front face of each door only (the usual — built-in doors are painted from the front). On prices the whole leaf, doubling door labour &amp; litres. Shelves and bay carcasses are unaffected</small></div>
+        <div class="toggle" id="tog-fu-doorbothsides" onclick="toggleFittedUnitDoorBothSides()"></div>
       </div>
     </div>
     <div class="card">
@@ -1878,7 +1899,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.34.1</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.35.0</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -3803,6 +3824,12 @@ async function createXeroQuote(forceNew) {
     // skips zero-total exterior items) and rooms always can (the server
     // pushes every room). Server side just reads description || name.
     var quoteBlock = (currentQuoteText() || '').trim();
+    // Outside-faces-only is scope, so it rides the Xero line's own text
+    // rather than living only in the app -- with or without a quote-text
+    // block attached (without one the server falls back to the plain
+    // 'Kitchen Cabinet Spraying', which would lose the limit).
+    var kitchenLabel = 'Kitchen Cabinet Spraying' +
+      (quoteKitchen && quoteKitchen.singleSide ? ' (outside faces only)' : '');
     var kitchenDescription;
     if (quoteBlock) {
       var blockAttached = false;
@@ -3818,7 +3845,7 @@ async function createXeroQuote(forceNew) {
       // scope.
       roomData.forEach(function(rd) { rd.description = withBlock(rd.name); });
       exteriorData.forEach(function(ed) { if (ed.total > 0) ed.description = withBlock(ed.label || 'Exterior'); });
-      if (kitchenTotal > 0) kitchenDescription = withBlock('Kitchen Cabinet Spraying');
+      if (kitchenTotal > 0) kitchenDescription = withBlock(kitchenLabel);
       fittedUnitData.forEach(function(fd) { if (fd.total > 0) fd.description = withBlock(fd.name); });
       // Xero caps a LineItem Description at 4,000 characters — block loudly
       // here rather than let Xero reject the quote (or worse, truncate).
@@ -3831,6 +3858,10 @@ async function createXeroQuote(forceNew) {
         btn.disabled = false;
         return;
       }
+    } else if (kitchenTotal > 0 && kitchenLabel !== 'Kitchen Cabinet Spraying') {
+      // No quote-text block, but the label still differs from the server's
+      // default -- send it explicitly so the scope limit survives.
+      kitchenDescription = kitchenLabel;
     }
 
     // Contact resolution now reads the job's PERSISTED link/details (see
@@ -12120,10 +12151,32 @@ function calcKitchen(k) {
     return total;
   }
 
-  var doorsTotal = typeTotal('doors');
-  var drawersTotal = typeTotal('drawers');
-  var endpanelsTotal = typeTotal('endpanels');
-  var fillersTotal = typeTotal('fillers');
+  // Outside faces only (v2.35.0): occasionally only the OUTSIDE of each
+  // piece is sprayed -- the backs stay as they are -- so every counted
+  // piece is half the work. A flat x0.5 on the four per-piece totals, the
+  // module's whole-piece flat rates being both-faces figures by
+  // construction (they were calibrated against doors sprayed front and
+  // back). Applied AFTER typeTotal() so the glazed/curved premium halves
+  // with the piece it belongs to rather than surviving at full price.
+  // Deliberately narrow -- three things are NOT halved:
+  //   - cornices/plinths: linear trim with one visible face already, so
+  //     "outside only" describes how they were always priced.
+  //   - the carcass %: carcasses are the frames BEHIND the doors, the same
+  //     surface either way, so its base below stays the FULL piece totals
+  //     (halving the base would quietly halve a charge for work that has
+  //     not changed).
+  //   - stripping: its own per-tier minutes, calibrated by Nicky against
+  //     real pieces -- see the strip block below.
+  // Absent reads as off, so every kitchen priced before v2.35.0 keeps its
+  // exact total until the toggle is deliberately turned on.
+  var sideMult = k.singleSide ? 0.5 : 1;
+  var doorsFull = typeTotal('doors');
+  var drawersFull = typeTotal('drawers');
+  var endpanelsFull = typeTotal('endpanels');
+  var doorsTotal = doorsFull * sideMult;
+  var drawersTotal = drawersFull * sideMult;
+  var endpanelsTotal = endpanelsFull * sideMult;
+  var fillersTotal = typeTotal('fillers') * sideMult;
 
   var cm = Math.max(0, +k.cornicesM || 0), pm = Math.max(0, +k.plinthsM || 0);
   var cr = rates.cornice || {}, pr = rates.plinth || {};
@@ -12132,8 +12185,9 @@ function calcKitchen(k) {
 
   // Carcass: % uplift on doors+drawers+end-panels specifically -- carcasses
   // are the fixed frames BEHIND those three, not behind fillers or linear
-  // trim, per the doc's own pricing note.
-  var carcassBase = doorsTotal + drawersTotal + endpanelsTotal;
+  // trim, per the doc's own pricing note. Off the FULL piece totals, never
+  // the outside-only-halved ones (see sideMult above).
+  var carcassBase = doorsFull + drawersFull + endpanelsFull;
   var carcassTotal = k.carcass ? carcassBase * ((settings.kitchenCarcassPct||0)/100) : 0;
 
   // Strip original coating (v2.28.0): melamine/existing coating removal
@@ -12148,6 +12202,10 @@ function calcKitchen(k) {
   //     to price a per-piece time against and get nothing.
   //   · the carcass % is computed above, off the SPRAY totals only -- a
   //     stripping charge is not something to take another 30% of.
+  // "Outside faces only" does NOT halve it either: the per-tier minutes are
+  // a whole-piece figure Nicky calibrated himself, and a melamine door is
+  // stripped where it is stripped regardless of how much of it gets
+  // sprayed afterwards. Say if that should follow the toggle.
   // Labour only, as with everything else in this module: no litres, and no
   // abrasives line -- discs come out of the day rate.
   var stripMins = 0;
@@ -12178,7 +12236,10 @@ function calcKitchen(k) {
   return { total: total, time: time, doorsTotal: doorsTotal, drawersTotal: drawersTotal,
            endpanelsTotal: endpanelsTotal, fillersTotal: fillersTotal,
            corniceTotal: corniceTotal, plinthTotal: plinthTotal, carcassTotal: carcassTotal,
-           stripMins: stripMins, stripCost: stripCost };
+           stripMins: stripMins, stripCost: stripCost,
+           // Label-only, for the breakdowns and the client quote's scope
+           // note -- pricing already carries it in the totals above.
+           singleSide: !!k.singleSide };
 }
 
 // ── Kitchen screen UI ────────────────────────────────────────────────────
@@ -12187,12 +12248,15 @@ function calcKitchen(k) {
 // itself is defensive and doesn't strictly need this (missing cells default
 // to zero cost), but the FORM needs every input to have a real value.
 function ensureKitchenShape(job) {
-  if (!job.kitchen) job.kitchen = { coats: 2, items: {}, cornicesM: 0, plinthsM: 0, carcass: false, stripCoating: false, colourNumber: 1, range: '', band: null };
+  if (!job.kitchen) job.kitchen = { coats: 2, items: {}, cornicesM: 0, plinthsM: 0, carcass: false, stripCoating: false, singleSide: false, colourNumber: 1, range: '', band: null };
   var k = job.kitchen;
   if (!k.items) k.items = {};
   // Absent reads as off, so every kitchen priced before v2.28.0 keeps its
   // exact total until the toggle is deliberately turned on.
   if (k.stripCoating == null) k.stripCoating = false;
+  // Same story for v2.35.0's outside-faces-only toggle: off = the historic
+  // both-faces pricing, so no existing quote moves.
+  if (k.singleSide == null) k.singleSide = false;
   if (k.colourNumber == null) k.colourNumber = 1;
   if (k.range == null) k.range = '';
   KITCHEN_ITEM_TYPES.forEach(function(t) {
@@ -12230,6 +12294,7 @@ function renderKitchen() {
   document.getElementById('k-plinths-m').value = k.plinthsM || '';
   document.getElementById('k-carcass-toggle').classList.toggle('on', !!k.carcass);
   document.getElementById('k-strip-toggle').classList.toggle('on', !!k.stripCoating);
+  document.getElementById('k-singleside-toggle').classList.toggle('on', !!k.singleSide);
   document.querySelectorAll('#seg-k-coats .seg-btn').forEach(function(b,i){ b.classList.toggle('active', i+1===k.coats); });
   populateRoomColourChips('kitchen');
   populateRoomOverridePicker('kitchen');
@@ -12314,6 +12379,18 @@ function toggleKitchenCarcass() {
   saveKitchenJob();
 }
 
+// Outside faces only: halves the four per-piece totals (see calcKitchen()'s
+// sideMult for exactly what it does and does not touch). Per JOB like every
+// other kitchen setting -- a kitchen sprayed outside-only is sprayed
+// outside-only throughout, not door by door.
+function toggleKitchenSingleSide() {
+  var job = activeJob(); if (!job) return;
+  var k = ensureKitchenShape(job);
+  k.singleSide = !k.singleSide;
+  document.getElementById('k-singleside-toggle').classList.toggle('on', k.singleSide);
+  saveKitchenJob();
+}
+
 function toggleKitchenStrip() {
   var job = activeJob(); if (!job) return;
   var k = ensureKitchenShape(job);
@@ -12377,9 +12454,14 @@ function updateKitchenTotals() {
   var card = document.getElementById('kitchen-breakdown-card');
   var body = document.getElementById('kitchen-breakdown');
   if (!card || !body) return;
+  // The four per-piece rows carry the outside-only note, and nothing else
+  // does -- so a glance at the breakdown shows both that the halving
+  // applied and exactly how far it reached (carcass/linear/strip at full
+  // price, per calcKitchen()).
+  var kSide = c.singleSide ? ' (outside only — ×½)' : '';
   var rows = [
-    ['Doors', c.doorsTotal], ['Drawer Fronts', c.drawersTotal], ['End Panels', c.endpanelsTotal],
-    ['Fillers', c.fillersTotal], ['Cornices', c.corniceTotal], ['Plinths', c.plinthTotal],
+    ['Doors'+kSide, c.doorsTotal], ['Drawer Fronts'+kSide, c.drawersTotal], ['End Panels'+kSide, c.endpanelsTotal],
+    ['Fillers'+kSide, c.fillersTotal], ['Cornices', c.corniceTotal], ['Plinths', c.plinthTotal],
     ['Carcass spraying', c.carcassTotal],
     ['Strip original coating (' + Math.round(c.stripMins) + ' min)', c.stripCost]
   ].filter(function(r){ return r[1]>0; });
@@ -12451,6 +12533,14 @@ function calcFittedUnit(f) {
   var shelves = Math.max(0, +f.shelfCount || 0);
   var doors   = Math.max(0, +f.doorCount  || 0);
   var doorSizeMult = FU_DOOR_SIZE_MULT[f.doorSize] || 1;
+  // Both sides (v2.35.0): the door rate is a per-FACE rate (see
+  // doorFrameLabourCost()'s own bothSides flag, which this mirrors), and a
+  // cabinet door is normally painted from the front only -- so the default
+  // is OFF and every unit priced before this reads as one face, exactly as
+  // before. On, the whole leaf is priced: door labour and door litres both
+  // double, since painting the back is a second set of coat passes over a
+  // second face.
+  var doorFaces = f.doorBothSides ? 2 : 1;
   var bare = (f.prepLevel || 'bare') !== 'painted';
   var topcoats = 2;
   var passes = topcoats + (bare ? 1 : 0);
@@ -12458,9 +12548,9 @@ function calcFittedUnit(f) {
   var bayMins   = bays * (settings.fuBayMins || 15) * passes;
   // doorMins() = flat door prep + coats × per-coat rate, per face -- the
   // flat prep component doubles as the key-sand on a 'painted' unit, same
-  // as it covers a repaint's sand elsewhere. One face per door (cabinet
-  // doors are only ever painted from the front).
-  var doorMinsTotal = doors > 0 ? doors * doorMins(passes) * doorSizeMult : 0;
+  // as it covers a repaint's sand elsewhere. One face per door unless the
+  // unit's Both sides toggle is on (doorFaces above).
+  var doorMinsTotal = doors > 0 ? doors * doorMins(passes) * doorSizeMult * doorFaces : 0;
   var baseMins = shelfMins + bayMins + doorMinsTotal;
   var upliftPct = Math.max(0, +f.complexityUplift || 0);
   var mins = baseMins * (1 + upliftPct / 100);
@@ -12490,7 +12580,11 @@ function calcFittedUnit(f) {
     ? 2 * avgBayW * bayD
     : (settings.fuShelfAreaM2 != null ? settings.fuShelfAreaM2 : 0.5);
   var doorFaceArea = settings.doorFaceAreaM2 != null ? settings.doorFaceAreaM2 : 1.75;
-  var areaM2 = shelves * shelfArea + bayAreaM2 + doors * doorFaceArea * doorSizeMult;
+  // doorFaceAreaM2 is one FACE, edge included (a leaf painted both sides is
+  // ~3.5m², so ~1.75 a side) -- doorFaces doubles it exactly as it doubles
+  // the minutes, keeping labour and litres in step the way the size band
+  // already does.
+  var areaM2 = shelves * shelfArea + bayAreaM2 + doors * doorFaceArea * doorSizeMult * doorFaces;
   // Self-priming (PRODUCT_COVERAGE_SPEC.md): the unit's effective topcoat
   // product's woodwork entry drives the primer the same way it drives
   // rooms -- flag ON + Bare prep swaps the primer buy for one extra
@@ -12536,7 +12630,7 @@ function calcFittedUnit(f) {
   var primerL = rawPrimerL > 0 ? Math.ceil(rawPrimerL * 2) / 2 : 0;
   return { total: total, time: time,
            shelfCost: shelfMins * r2, bayCost: bayMins * r2, doorCost: doorMinsTotal * r2,
-           doorSizeMult: doorSizeMult,
+           doorSizeMult: doorSizeMult, doorBothSides: !!f.doorBothSides,
            upliftCost: baseMins * (upliftPct / 100) * r2, upliftPct: upliftPct,
            passes: passes, topcoatL: topcoatL, primerL: primerL,
            // baselineL: the un-rounded litres requirement (coat-m² over the
@@ -12592,6 +12686,9 @@ function ensureFittedUnitDefaults(f) {
   if (f.colourNumber == null) f.colourNumber = 1;
   if (f.range == null) f.range = '';
   if (f.sprayUnit == null) f.sprayUnit = false;
+  // v2.35.0: doors default to the front face only -- the historic pricing,
+  // so reopening an old unit never moves its total.
+  if (f.doorBothSides == null) f.doorBothSides = false;
   // v2.21.0 migrations. bayWidthsM: bayCount copies of the old single
   // bayWidthM (fittedUnitBayWidths() reads exactly that for an unmigrated
   // unit, so pricing is identical before and after; the legacy field is
@@ -12642,7 +12739,7 @@ function syncFittedUnitBayWidths(f) {
 // toggleKitchenVariation().
 function newFittedUnit(job) {
   var list = fittedUnitList(job);
-  var f = { id: uid(), name: 'Fitted Unit ' + (list.length + 1), bayCount: 0, bayHeightM: 2.4, bayDepthM: 0.35, bayWidthsM: [], shelfCount: 0, doorCount: 0, doorSize: 'standard', prepLevel: 'bare', complexityUplift: 0, colourNumber: 1, range: '', band: null, sprayUnit: false, isVariation: variationDefaultsOn() };
+  var f = { id: uid(), name: 'Fitted Unit ' + (list.length + 1), bayCount: 0, bayHeightM: 2.4, bayDepthM: 0.35, bayWidthsM: [], shelfCount: 0, doorCount: 0, doorSize: 'standard', doorBothSides: false, prepLevel: 'bare', complexityUplift: 0, colourNumber: 1, range: '', band: null, sprayUnit: false, isVariation: variationDefaultsOn() };
   list.push(f);
   return f;
 }
@@ -12723,6 +12820,7 @@ function renderFittedUnit() {
   document.getElementById('fu-doors').value   = f.doorCount || '';
   var doorSizeVals = ['small','standard','large'];
   document.querySelectorAll('#seg-fu-doorsize .seg-btn').forEach(function(b,i){ b.classList.toggle('active', doorSizeVals[i]===(f.doorSize||'standard')); });
+  document.getElementById('tog-fu-doorbothsides').classList.toggle('on', !!f.doorBothSides);
   document.getElementById('tog-fu-spray').classList.toggle('on', !!f.sprayUnit);
   var prepVals = ['bare','painted'];
   document.querySelectorAll('#seg-fu-prep .seg-btn').forEach(function(b,i){ b.classList.toggle('active', prepVals[i]===(f.prepLevel||'bare')); });
@@ -12793,6 +12891,18 @@ function setFittedUnitDoorSize(size) {
   saveFittedUnitJob();
 }
 
+// Both sides: doubles the door labour AND the door litres (calcFittedUnit's
+// doorFaces) -- the same "price the whole leaf in one line" idea as the
+// rooms'/exterior's door toggle, except a cabinet door's default is the
+// opposite: front only, since that is how a built-in is normally painted.
+// Per unit, like every other field on this form.
+function toggleFittedUnitDoorBothSides() {
+  var f = currentFittedUnit(); if (!f) return;
+  f.doorBothSides = !f.doorBothSides;
+  document.getElementById('tog-fu-doorbothsides').classList.toggle('on', !!f.doorBothSides);
+  saveFittedUnitJob();
+}
+
 // Blank resets to the auto-numbered default rather than saving an empty
 // string -- a unit must always carry a printable name on the quote.
 function onFittedUnitNameChange(value) {
@@ -12860,7 +12970,7 @@ function updateFittedUnitTotals() {
   var rows = [
     ['Shelves ('+c.passes+' coat passes)', c.shelfCost],
     ['Bay carcasses', c.bayCost],
-    ['Cabinet doors'+(c.doorSizeMult !== 1 ? ' ('+(f.doorSize)+' — ×'+c.doorSizeMult+')' : ''), c.doorCost],
+    ['Cabinet doors'+(c.doorSizeMult !== 1 ? ' ('+(f.doorSize)+' — ×'+c.doorSizeMult+')' : '')+(c.doorBothSides ? ' — both sides' : ''), c.doorCost],
     ['Complexity/masking uplift (+'+c.upliftPct+'%)', c.upliftCost]
   ].filter(function(r){ return r[1]>0; });
   if (!rows.length) { card.style.display='none'; return; }
@@ -16656,9 +16766,10 @@ function renderSummary() {
     }).join(''):'')+
     (kitchenTotal>0?(function(){
       var mk = commercialMult*(1+mu);
+      var kSide = kitchenCalc.singleSide ? ' (outside only — ×½)' : '';
       var ksub = [
-        ['Doors', kitchenCalc.doorsTotal], ['Drawer Fronts', kitchenCalc.drawersTotal],
-        ['End Panels', kitchenCalc.endpanelsTotal], ['Fillers', kitchenCalc.fillersTotal],
+        ['Doors'+kSide, kitchenCalc.doorsTotal], ['Drawer Fronts'+kSide, kitchenCalc.drawersTotal],
+        ['End Panels'+kSide, kitchenCalc.endpanelsTotal], ['Fillers'+kSide, kitchenCalc.fillersTotal],
         ['Cornices', kitchenCalc.corniceTotal], ['Plinths', kitchenCalc.plinthTotal],
         ['Carcass spraying', kitchenCalc.carcassTotal],
         ['Strip original coating (' + Math.round(kitchenCalc.stripMins) + ' min)', kitchenCalc.stripCost]
@@ -16685,7 +16796,7 @@ function renderSummary() {
       var fsub = [
         ['Shelves ('+fc.passes+' coat passes)', fc.shelfCost],
         ['Bay carcasses', fc.bayCost],
-        ['Cabinet doors', fc.doorCost],
+        ['Cabinet doors'+(fc.doorBothSides ? ' — both sides' : ''), fc.doorCost],
         ['Complexity/masking uplift (+'+fc.upliftPct+'%)', fc.upliftCost]
       ].filter(function(r){ return r[1]>0; }).map(function(r){
         return '<div class="breakdown-sub-row"><span class="breakdown-sub-label">'+r[0]+'</span><span class="breakdown-sub-value">'+fmt(r[1]*mk)+'</span></div>';
@@ -17025,7 +17136,12 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
     workRows.push({ emoji: l.emoji || '', label: l.name, sub: 'exterior', amount: l.raw * lineMult });
   });
   if (kitchenCalc.total > 0.005) {
-    workRows.push({ emoji: '🍳', label: 'Kitchen Cabinet Spraying', sub: '', amount: kitchenCalc.total * lineMult });
+    // The sub line is the client's scope note: outside-faces-only is
+    // exactly the kind of limit that has to be on their copy, not just
+    // in the price.
+    workRows.push({ emoji: '🍳', label: 'Kitchen Cabinet Spraying',
+                    sub: kitchenCalc.singleSide ? 'outside faces only' : '',
+                    amount: kitchenCalc.total * lineMult });
   }
   // One named line per fitted unit (v2.20.0) so multiple units in the
   // same room read apart on the client's copy.
