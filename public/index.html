@@ -1878,7 +1878,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.31.1</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.34.0</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -4617,7 +4617,10 @@ function persistJobData(job) {
   // explicitly nulled — otherwise the server copy would keep the old
   // fittedUnit forever alongside the list. Until migration runs (job never
   // touched since v2.20.0), the legacy value passes through untouched.
-  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, deposit: job.deposit, notes: job.notes, kitchen: job.kitchen, fittedUnits: job.fittedUnits, fittedUnit: Array.isArray(job.fittedUnits) ? null : job.fittedUnit, customItems: job.customItems });
+  // isXeroImported/honouredLabourAmount: the honoured pre-app labour pair (see
+  // jobIsXeroImported) — same "must be in this list or it never persists"
+  // rule as `standalone` above.
+  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, deposit: job.deposit, notes: job.notes, kitchen: job.kitchen, fittedUnits: job.fittedUnits, fittedUnit: Array.isArray(job.fittedUnits) ? null : job.fittedUnit, customItems: job.customItems, isXeroImported: !!job.isXeroImported, honouredLabourAmount: job.honouredLabourAmount != null ? job.honouredLabourAmount : null });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -6231,6 +6234,166 @@ function setJobStandalone(on) {
   renderSummary(); renderHome(); renderExterior(); renderDash();
 }
 
+// ── Xero-imported jobs: honoured pre-app labour ─────────────────────────────
+// A batch of jobs was quoted and agreed in Xero BEFORE they existed in the
+// app. They're being honoured at the agreed price while still being measured
+// out here as normal, so the material estimates are real and the app's own
+// numbers can be calibrated against real jobs. Two job-level fields carry
+// that (both live in the job blob, i.e. jobs.data -- see persistJobData):
+//   isXeroImported       -- the flag, off by default, set by hand on the
+//                           toggle card below (Summary, the job's edit/detail
+//                           view -- these jobs already exist, so there is
+//                           deliberately nothing in the creation flow)
+//   honouredLabourAmount -- the LABOUR half of that agreed price, in £,
+//                           entered once and NEVER recalculated by anything
+//                           in the app
+//
+// WHY LABOUR AND NOT THE TOTAL. The billing model governs this, and it is the
+// same one every other job follows (MATERIAL_TRACKING_SPEC.md, restated in
+// FINAL_INVOICE_SPEC.md): **labour is billed AS QUOTED; materials are quoted
+// as an estimate and billed AS USED.** The materials figure inside a pre-app
+// Xero quote was an estimate exactly like any other, so freezing the whole
+// agreed total would quietly break that rule -- measure £1,400 of materials
+// against a quote that estimated £1,250 and the client would still be shown
+// the old number. So the labour is what's honoured and frozen; materials come
+// live from the room measure and settle as used, same as always.
+//
+//   quote figure = honoured labour + materials as measured here
+//
+// NOTHING here touches pricing. Rooms, per-product coverage, materials and
+// the day rate all calculate exactly as they do on any other job; that
+// calculated total simply becomes the "internal estimate" for a flagged job.
+// The flag only changes which figures are displayed and what the
+// profitability card compares.
+//
+// The honoured labour REPLACES the app's whole calculated labour side --
+// engine labour, sundries, standalone top-up, markup and custom lines
+// included -- so nothing can be counted twice. Anything genuinely extra
+// agreed after the fact belongs on Variations, which already stack on top of
+// the quote; the card below says so when a flagged job has custom lines.
+function jobIsXeroImported(job) { return !!(job && job.isXeroImported); }
+
+// The honoured labour figure, or null when there isn't a usable one yet.
+// Blank AND zero both read as "not entered": a £0 labour agreement is never
+// real, and treating one as real would strip the labour out of the quote on a
+// job whose figure simply hasn't been typed in yet.
+function jobHonouredLabour(job) {
+  if (!job || job.honouredLabourAmount == null) return null;
+  var n = +job.honouredLabourAmount;
+  return isNaN(n) || n <= 0 ? null : n;
+}
+
+// The one gate every display override keys on: BOTH the flag and a usable
+// figure. A half-set job (flagged, figure not typed yet) falls back to
+// completely normal behaviour rather than quoting materials with no labour.
+function jobShowsHonouredQuote(job) {
+  return jobIsXeroImported(job) && jobHonouredLabour(job) != null;
+}
+
+// What the importer captured of the agreed quote's own labour/materials split.
+// It comes from Xero account codes (201 labour / 202 materials, see
+// /auth/accepted-quotes), so it's there when the quote was coded that way and
+// zero when it wasn't -- which is why the seed below has to degrade rather
+// than assume.
+function importedQuoteSplit(job) {
+  var snap = job && job.acceptedSnapshot;
+  if (!snap || !snap.importedFromXero) return null;
+  return { total: +snap.estQuoteTotal || 0, labour: +snap.estLabourTotal || 0,
+           materials: +snap.estMaterialsTotal || 0 };
+}
+
+// The labour figure to seed the field with, or null when the imported quote
+// can't tell us. Two ways to know it, and NO third guess: the 201 labour
+// lines, or total minus the 202 materials lines. A quote with neither coded
+// gets nothing -- seeding it with the whole total would silently treat the
+// materials estimate as labour and then add measured materials on top of it,
+// inflating the quote. Better to leave it blank and be asked.
+function importedHonouredLabourSeed(job) {
+  var split = importedQuoteSplit(job);
+  if (!split) return null;
+  if (split.labour > 0) return Math.round(split.labour * 100) / 100;
+  if (split.total > 0 && split.materials > 0 && split.total > split.materials) {
+    return Math.round((split.total - split.materials) * 100) / 100;
+  }
+  return null;
+}
+
+function setJobXeroImported(on) {
+  var job = activeJob();
+  if (!job) return;
+  job.isXeroImported = !!on;
+  // Flipping the toggle ON seeds the labour figure from the imported quote's
+  // own split -- retro-flagging the batch is a tap per job instead of
+  // re-deriving a figure the app is already holding. A SEED, not a
+  // recalculation: it fires only when there is no figure yet, so it can never
+  // overwrite one typed or corrected by hand (including after a toggle
+  // off/on), and nothing recalculates it afterwards.
+  if (job.isXeroImported && jobHonouredLabour(job) == null) {
+    var seed = importedHonouredLabourSeed(job);
+    if (seed != null) job.honouredLabourAmount = seed;
+  }
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  renderSummary();
+}
+
+// The ONLY writer of honouredLabourAmount. Deliberately manual and one-way:
+// nothing recalculates it, so re-measuring the job, adding a variation or
+// editing materials can never move the labour figure the client was promised.
+function setJobHonouredLabour(val) {
+  var job = activeJob();
+  if (!job) return;
+  var n = parseFloat(val);
+  job.honouredLabourAmount = (val === '' || val == null || isNaN(n)) ? null : Math.round(n * 100) / 100;
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  renderSummary();
+}
+
+// The toggle card itself. Rendered on BOTH Summary bodies -- the full quote
+// view and the compact imported-job one (importedJobSummaryHtml) -- because
+// the jobs this exists to flag are exactly the roomless ones that render the
+// compact view until they've been measured.
+function xeroImportedCardHtml(job) {
+  var on = jobIsXeroImported(job);
+  var amt = job && job.honouredLabourAmount != null ? String(job.honouredLabourAmount) : '';
+  var split = importedQuoteSplit(job);
+  var hasCustom = jobCustomItems(job).length > 0;
+  var note = function(text, colour) {
+    return '<div style="padding:0 16px 12px;font-size:12px;color:'+(colour||'var(--text2)')+'">'+text+'</div>';
+  };
+  var body = '';
+  if (on) {
+    body += '<div class="field-row" style="border-top:1px solid var(--border)">'+
+      '<div class="field-label">Honoured labour £<small>the labour half of the agreed price — entered once, never recalculated</small></div>'+
+      '<input type="number" class="field-input" style="width:100px" value="'+escapeHtml(amt)+'" step="0.01" min="0" inputmode="decimal" onchange="setJobHonouredLabour(this.value)"></div>';
+    if (jobHonouredLabour(job) == null) {
+      body += note(split && importedHonouredLabourSeed(job) == null
+        ? 'The imported quote has no 201/202 labour/materials split, so the labour figure can\'t be read off it — enter it by hand. Until then the quote shows the app\'s calculated total exactly as normal.'
+        : 'Enter the honoured labour figure — until then the quote shows the app\'s calculated total exactly as normal.', 'var(--warn,#f39c12)');
+    } else {
+      // The split is worth showing back: it's the evidence for the figure in
+      // the field, and it's how a wrong 201/202 coding gets spotted.
+      body += note('Quote = <strong>this labour figure + materials as measured here</strong>. Labour is honoured as agreed; materials were an estimate in that quote too, so they come from Measure and bill as used — same as every other job.'+
+        (split && split.total > 0
+          ? ' Imported quote was '+fmt(split.total)+' total'+
+            (split.labour > 0 ? ', '+fmt(split.labour)+' labour' : '')+
+            (split.materials > 0 ? ', '+fmt(split.materials)+' materials (estimated)' : '')+'.'
+          : ''));
+    }
+    if (hasCustom) {
+      body += note('This job has custom line items. The honoured labour figure replaces the app\'s whole labour side, so custom lines are NOT added to the quote — put genuine extras on Variations instead, which stack on top.', 'var(--warn,#f39c12)');
+    }
+  }
+  return '<div class="card" style="margin-top:16px">'+
+    '<div class="card-header">Imported from Xero</div>'+
+    '<div class="toggle-row"><div class="toggle-label">Imported from Xero (pre-app quote)'+
+      '<small>Honour the labour agreed in Xero — materials still come from Measure</small></div>'+
+      '<div class="toggle'+(on?' on':'')+'" onclick="setJobXeroImported('+(on?'false':'true')+')"></div></div>'+
+    body+
+  '</div>';
+}
+
 // Settings-screen select for the rounding granularity -- set directly on
 // settings like setBankHolidayRegion(), since saveSettings() has no numeric
 // input to read it from.
@@ -6949,11 +7112,21 @@ function importedJobSummaryHtml(job) {
     return '<div class="field-row"><div class="field-label">'+label+(hint ? '<small>'+hint+'</small>' : '')+'</div>'+
       '<input type="number" class="field-input" id="imp-fig-'+key+'" style="width:100px" value="'+(snap[key] != null ? snap[key] : '')+'" step="0.01" inputmode="decimal" onchange="setImportedFigure(\''+key+'\', this.value)"></div>';
   };
+  // This body renders only while the job is still ROOMLESS, so there are no
+  // measured materials to add to the honoured labour yet and no calculated
+  // total to compare against. The hero therefore stays the agreed total from
+  // the snapshot on a flagged job too — it's still the truest single figure
+  // available — with the honoured labour called out beneath it so the split
+  // that will drive the quote is visible before anything is measured. Measure
+  // the job and Summary switches to the full view, which carries all of it.
+  var honouredLabour = jobShowsHonouredQuote(job) ? jobHonouredLabour(job) : null;
   return '<div class="card">'+statusRow+'</div>'+
     '<div class="hero" style="margin-top:16px">'+
       '<div class="hero-label">Accepted Quote</div>'+
       '<div class="hero-amount">'+fmt(snap.estQuoteTotal || 0)+'</div>'+
       '<div class="hero-sub">'+(snap.figuresEditedAt ? 'edited by hand' : 'as agreed in Xero')+(job.xeroQuoteNumber ? ' · '+escapeHtml(job.xeroQuoteNumber) : '')+'</div>'+
+      (honouredLabour != null
+        ? '<div class="hero-sub">'+fmt(honouredLabour)+' labour honoured · materials come from Measure</div>' : '')+
     '</div>'+
     ((snap.estLabourTotal || snap.estMaterialsTotal)
       ? '<div class="stat-grid">'+
@@ -6971,6 +7144,10 @@ function importedJobSummaryHtml(job) {
       figRow('Materials £', 'estMaterialsTotal', 'optional split')+
       '<div style="padding:0 16px 12px;font-size:12px;color:var(--text2)">Editable because this job was imported, not estimated here — update it if the scope or materials move.</div>'+
     '</div>'+
+    // Same toggle card as the full Summary body. It belongs here above all —
+    // the jobs being retro-flagged are exactly these roomless imported ones,
+    // and this is the only Summary they render until they're measured.
+    xeroImportedCardHtml(job)+
     (vv.hasVariations
       ? '<div class="card" style="margin-top:16px">'+
           '<div class="field-row"><div class="field-label">Variations<small>'+
@@ -10223,16 +10400,35 @@ function buildFinalInvoiceModel() {
     labour.push({ id: 'cu' + i, desc: (it.description || 'Custom line') + (it.applyMarkup === false ? ' (fixed price)' : ''),
       raw: t, amount: it.applyMarkup === false ? t : t * muInv, dropped: false });
   });
-  // Xero-imported jobs (importAcceptedQuote()) stamp the already-agreed
-  // total onto acceptedSnapshot.estQuoteTotal with zero rooms, so rawOrig/
-  // labour above see nothing for that scope even after real rooms get added
-  // later (e.g. a variation tracked here) -- same gap as Summary's tcOrig,
-  // see the matching comment in renderSummary(). Pushed in as its own
-  // labour line AFTER the muInv pass above (not into rawOrig itself), since
-  // it's already a final, already-marked-up figure and re-applying markup/
-  // sundries on top of it would double them up. Droppable like any other
-  // line if it turns out to have been invoiced separately in Xero already.
-  if (job && job.acceptedSnapshot && job.acceptedSnapshot.importedFromXero) {
+  // A job honoured at a pre-app Xero labour price (jobIsXeroImported) bills
+  // that ONE figure for labour, and every engine labour line assembled above
+  // is discarded: rooms, exterior, kitchen, fitted units, the standalone
+  // top-up and custom lines were all priced by this app AFTER the client had
+  // already agreed a labour price, so billing them alongside it would charge
+  // the same work twice. Materials are untouched below -- as used, same as
+  // every other job (see jobIsXeroImported for the billing model). Extras
+  // agreed since belong to Variations, which are assembled separately and
+  // still stack on top. Droppable like any other line.
+  var honouredLabourInv = jobShowsHonouredQuote(job) ? jobHonouredLabour(job) : null;
+  if (honouredLabourInv != null) {
+    labour.length = 0;
+    labour.push({
+      id: 'honoured',
+      desc: 'Labour as agreed' + (job.xeroQuoteNumber ? ' (' + job.xeroQuoteNumber + ')' : ''),
+      raw: honouredLabourInv, amount: honouredLabourInv, dropped: false
+    });
+  } else if (job && job.acceptedSnapshot && job.acceptedSnapshot.importedFromXero) {
+    // Xero-imported jobs (importAcceptedQuote()) stamp the already-agreed
+    // total onto acceptedSnapshot.estQuoteTotal with zero rooms, so rawOrig/
+    // labour above see nothing for that scope even after real rooms get added
+    // later (e.g. a variation tracked here) -- same gap as Summary's tcOrig,
+    // see the matching comment in renderSummary(). Pushed in as its own
+    // labour line AFTER the muInv pass above (not into rawOrig itself), since
+    // it's already a final, already-marked-up figure and re-applying markup/
+    // sundries on top of it would double them up. Droppable like any other
+    // line if it turns out to have been invoiced separately in Xero already.
+    // Never both this and the honoured line: the honoured figure supersedes
+    // this baseline everywhere (Summary, the client quote, here).
     var importedAmt = +job.acceptedSnapshot.estQuoteTotal || 0;
     if (importedAmt > 0.005) {
       labour.push({
@@ -10245,7 +10441,12 @@ function buildFinalInvoiceModel() {
   // As the quote bills it: % of raw original labour, marked up. (The quote
   // line has never included the spray-sundries bump — mirrored, not fixed
   // here: labour and sundries go out AS QUOTED.)
-  var sundries = rawOrig * (settings.sundriesPct || 0) / 100 * muInv;
+  // Zero on a honoured job: sundries are a % of THIS APP's labour, and the
+  // agreed Xero price already covered whatever consumables it covered.
+  // Charging the app's % on top would add money the client never agreed to.
+  // Zero rather than dropped so the row simply isn't there — a dropped row
+  // offers a ↩ restore, which here would silently inflate the invoice.
+  var sundries = honouredLabourInv != null ? 0 : rawOrig * (settings.sundriesPct || 0) / 100 * muInv;
 
   // Variations — same figures the Summary card shows. Commercial% applies
   // here too (same reasoning as muInv above), stacking with markup in
@@ -10316,6 +10517,10 @@ function buildFinalInvoiceModel() {
   var plan = computeDepositPlan(rawOrig, materialsSnapshotTotal(), realisticDays(ttOrig), sprayOrig, ttOrig, customInvSplit.marked, customInvSplit.flat);
   return {
     labour: labour, sundries: { amount: sundries, dropped: false },
+    // Set (a number) only on a job honoured at a pre-app labour price — the
+    // review screen reads it purely to word the labour section honestly, so
+    // "as quoted" never appears over a figure this app didn't quote.
+    honouredLabour: honouredLabourInv,
     variations: variations, varSundries: { amount: varSundries, dropped: false },
     materials: materials, unconfirmedCount: inv.unconfirmed.length,
     deposit: Math.round(plan.deposit * 100) / 100, instalments: 0,
@@ -10413,8 +10618,15 @@ function renderFinalInvoice() {
       '<div class="card-header" style="padding:0 0 4px">'+title+'</div>'+html+'</div>';
   }
 
-  var labourHtml = s.labour.map(function(l) { return lineRow('labour', l, 'as quoted'); }).join('')
-    + (s.sundries.amount > 0.005 ? lineRow('sundries', Object.assign({ desc: 'Sundries & Consumables' }, s.sundries), '% of labour, as quoted') : '');
+  // Honoured jobs: one labour line this app didn't price, so it can't be
+  // labelled "as quoted" — and the sundries row is absent entirely (amount 0,
+  // see buildFinalInvoiceModel).
+  var isHonouredInv = s.honouredLabour != null;
+  var labourHtml = s.labour.map(function(l) {
+      return lineRow('labour', l, isHonouredInv ? 'agreed before this job was measured here' : 'as quoted');
+    }).join('')
+    + (s.sundries.amount > 0.005 ? lineRow('sundries', Object.assign({ desc: 'Sundries & Consumables' }, s.sundries), '% of labour, as quoted') : '')
+    + (isHonouredInv ? '<div style="font-size:12px;color:var(--text2);padding-top:8px">The app\'s own labour, sundries and custom lines for this job are deliberately not billed — that work is what the agreed price covers. Extras agreed since belong on Variations below.</div>' : '');
 
   var pendingLive = s.variations.filter(function(l) { return l.signoff === 'pending' && !l.dropped; }).length;
   var varHtml = s.variations.length
@@ -10454,9 +10666,11 @@ function renderFinalInvoice() {
     '</div>';
 
   el.innerHTML =
-    '<div style="font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.5">Labour as quoted · materials as used · variations at agreed prices. Drop lines with ×, correct the deductions against what was really invoiced, then create the draft.</div>'+
+    '<div style="font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.5">'+
+      (isHonouredInv ? 'Labour honoured at the pre-app price' : 'Labour as quoted')+
+      ' · materials as used · variations at agreed prices. Drop lines with ×, correct the deductions against what was really invoiced, then create the draft.</div>'+
     section('Invoice description', descHtml)+
-    section('Labour — as quoted', labourHtml)+
+    section(isHonouredInv ? 'Labour — as agreed (pre-app quote)' : 'Labour — as quoted', labourHtml)+
     section('Variations', varHtml)+
     section('Materials — as used', matHtml + unconfirmedNote)+
     '<div class="card" style="padding:12px 14px;margin-bottom:12px">'+
@@ -15617,6 +15831,23 @@ function computeProfitability(q) {
     materialsApproxSell = at.actApproxSell;
     materialsFreeTextSell = at.actFreeTextSell;
   } catch (e) { /* actuals not loaded — treat as none logged */ }
+  // Xero-imported jobs (isXeroImported + honouredLabourAmount) get one extra
+  // three-way comparison on the card: honoured quote vs internal estimate vs
+  // actual. "Actual" values the days logged at the day rate and adds the
+  // materials actually used at sell — the two figures the Schedule and
+  // Materials sections already show, added up so the third column is
+  // like-for-like with the other two. actualLabour rides along on its own
+  // because on these jobs the labour comparison is the whole story: materials
+  // bill as used on the honoured and calculated sides alike, so every penny of
+  // difference between them is labour. Nothing here recalculates the honoured
+  // figure or changes any rate; on a non-flagged job every field below is
+  // null/false and the card renders exactly as before.
+  var honouredLabour = q.honouredLabour != null ? +q.honouredLabour : null;
+  var honouredQuote = q.honouredQuote != null ? +q.honouredQuote : null;
+  var internalEstimate = +q.internalEstimate || 0;
+  var internalLabour = +q.internalLabour || 0;
+  var actualLabour = days * (settings.dr || 0);
+  var actualTotal = actualLabour + actualMaterials;
   return {
     quotedTotal: q.quotedTotal, approvedVariations: q.approvedVariations,
     quotedAll: quotedAll, hasInvoiceTotal: hasInvoiceTotal,
@@ -15625,7 +15856,10 @@ function computeProfitability(q) {
     quotedMaterials: +q.quotedMaterials || 0,
     actualMaterials: actualMaterials, materialsCost: materialsCost,
     materialsApproxSell: materialsApproxSell, materialsFreeTextSell: materialsFreeTextSell,
-    markupBanked: actualMaterials - materialsCost
+    markupBanked: actualMaterials - materialsCost,
+    isXeroImported: honouredLabour != null, honouredLabour: honouredLabour,
+    honouredQuote: honouredQuote, internalEstimate: internalEstimate,
+    internalLabour: internalLabour, actualLabour: actualLabour, actualTotal: actualTotal
   };
 }
 
@@ -15651,6 +15885,51 @@ function profitabilityCardHtml(p, vView, job) {
     var abs = Math.abs(r);
     return (signed && r > 0 ? '+' : '') + (signed && r < 0 ? '−' : '') + abs + ' day' + (abs === 1 ? '' : 's');
   };
+
+  // Xero-imported job — the three figures that actually matter when a job is
+  // honoured at a price agreed before the app ever saw it: what the client
+  // pays, what the app would have quoted for the same work, and what the work
+  // actually took. First on the card because on these jobs it IS the headline.
+  // Every other job skips this block entirely and the existing billing /
+  // schedule / days variance logic below is untouched.
+  var imported = '';
+  if (p.isXeroImported) {
+    var vsActual = p.honouredQuote - p.actualTotal;
+    var labourVsEstimate = p.honouredLabour - p.internalLabour;
+    // Gated on LOGGED DAYS, not on the actual total being non-zero:
+    // actualsTotals() falls back to each row's ESTIMATED quantity until
+    // something is logged (actualsRowQuantity), so actualMaterials is already
+    // non-zero the moment a snapshot exists. With no days behind it, "actual"
+    // would be a materials estimate plus £0 of labour — printing that as the
+    // actual, and a variance off it, would flatter every un-logged job by the
+    // entire labour figure.
+    var hasLoggedDays = p.days > 0;
+    imported = section('Xero-imported job')+
+      row('Honoured quote (Xero)', 'honoured labour + materials as measured — what the client pays', fmt(p.honouredQuote), { bold: true })+
+      row('Internal estimate (app)', 'rooms, materials and day rate as measured here', fmt(p.internalEstimate))+
+      row('Actual (days + materials used)', hasLoggedDays
+        ? dayStr(p.days) + ' logged at your day rate, plus materials as used'
+        : 'no days logged yet — Time on site (On Site tab) feeds this',
+        hasLoggedDays ? fmt(p.actualTotal) : '—');
+    if (hasLoggedDays) {
+      imported += row('Honoured vs actual', vsActual >= 0
+        ? 'the honoured price covered what the job took'
+        : 'the job ran past the honoured price', (vsActual < 0 ? '−' : '+') + fmt(Math.abs(vsActual)),
+        { colour: vsActual >= 0 ? 'var(--success)' : 'var(--danger)', bold: true });
+    }
+    // Materials bill as used on both sides, so the honoured-vs-estimate gap is
+    // ENTIRELY labour — said explicitly, because a total-level difference on
+    // these jobs invites being read as a materials problem when it never is.
+    if (Math.abs(labourVsEstimate) >= 0.005) {
+      imported += row('Labour: honoured vs estimate', labourVsEstimate < 0
+        ? 'the app would price this labour higher than it was sold for'
+        : 'the honoured labour is above what the app would price it at',
+        (labourVsEstimate < 0 ? '−' : '+') + fmt(Math.abs(labourVsEstimate)),
+        { colour: labourVsEstimate < 0 ? 'var(--danger)' : 'var(--success)' })+
+        note('Honoured labour ' + fmt(p.honouredLabour) + ' against the app\'s ' + fmt(p.internalLabour) +
+          '. Materials bill as used on both sides, so the whole difference is labour.');
+    }
+  }
 
   // Billing — the honesty check: did the client get billed what was quoted,
   // and if not, was the difference deliberate (saving passed on)?
@@ -15713,7 +15992,7 @@ function profitabilityCardHtml(p, vView, job) {
 
   return '<div class="card" style="margin-top:16px">'+
     '<div class="card-header">Job Profitability</div>'+
-    billing + schedule + materials +
+    imported + billing + schedule + materials +
     (vView && vView.pendingCount > 0 ? '<div style="padding:8px 16px 8px;font-size:12px;color:var(--warn,#f39c12)">'+vView.pendingCount+' variation'+(vView.pendingCount===1?'':'s')+' still pending sign-off — not counted as approved.</div>' : '')+
     '<div style="padding:8px 16px 12px;font-size:12px;color:var(--text2)">Reference only — nothing here feeds back into pricing.</div>'+
   '</div>';
@@ -15765,6 +16044,12 @@ function renderSummary() {
   // jobs get their own compact summary instead. lastSummaryTotals stays
   // null: nothing engine-computed exists to stamp or schedule from.
   var impJob = activeJob();
+  // Honoured pre-app labour (see jobIsXeroImported): when set, this figure
+  // replaces the app's whole calculated labour side and materials as measured
+  // are added to it to form the quote, while the app's own calculated total
+  // becomes the internal estimate shown beside it. null on every other job,
+  // and every branch below falls back to exactly its old behaviour.
+  var honouredLabour = jobShowsHonouredQuote(impJob) ? jobHonouredLabour(impJob) : null;
   if (rooms.length===0 && extItems.length===0 && kitchenCalc.total<=0 && fuAgg.total<=0 && customItems.length===0
       && impJob && impJob.acceptedSnapshot && impJob.acceptedSnapshot.importedFromXero) {
     empty.style.display='none'; data.style.display='block';
@@ -16032,12 +16317,31 @@ function renderSummary() {
   // and deliberately NOT folded into Deposit/Balance below: that money's
   // collection was already handled directly in Xero, same reasoning as
   // variations settling on the final invoice rather than here.
-  var importedBaseline = (impJob && impJob.acceptedSnapshot && impJob.acceptedSnapshot.importedFromXero)
-    ? (+impJob.acceptedSnapshot.estQuoteTotal || 0) : 0;
+  // A honoured pre-app labour figure SUPERSEDES this baseline rather than
+  // stacking on top of it: for a job that came in through the importer,
+  // acceptedSnapshot.estQuoteTotal holds the same agreed money the honoured
+  // labour figure is drawn from, so counting both would bill it twice over.
+  var importedBaseline = honouredLabour != null ? 0
+    : (impJob && impJob.acceptedSnapshot && impJob.acceptedSnapshot.importedFromXero)
+      ? (+impJob.acceptedSnapshot.estQuoteTotal || 0) : 0;
   var jobTotal = plan.total + importedBaseline + variationsTotal;
   var sundries = plan.sundries, labourTotal = plan.labourTotal, total = plan.total + importedBaseline,
       deposit = plan.deposit, depositBasis = plan.depositBasis, balance = plan.balance,
       paymentType = plan.paymentType, paymentWeeks = plan.paymentWeeks, weeklyRows = plan.weeklyRows;
+  // The two figures a flagged job keeps apart. `internalEstimate` is what the
+  // app calculated from rooms/materials/day rate (unchanged, still the same
+  // `total` every other job quotes on); `quoteTotal` is what the client is
+  // actually being charged — the honoured labour with materials as measured
+  // added to it, per the billing model (labour as quoted, materials as used).
+  // The honoured figure replaces the WHOLE calculated labour side, so
+  // plan.labourTotal (engine labour + sundries + standalone top-up + markup +
+  // marked custom lines) and plan's flat custom lines are all deliberately
+  // out of it — see jobIsXeroImported on why extras belong on Variations.
+  // On every non-flagged job the two are the same number and nothing below
+  // behaves differently. Variations sit on TOP either way.
+  var internalEstimate = total;
+  var quoteTotal = honouredLabour != null ? honouredLabour + materialsTotal : total;
+  if (honouredLabour != null) jobTotal = quoteTotal + variationsTotal;
 
   // Stamp-source for acceptedSnapshot (see setJobStatusById): the freshest
   // Summary figures, captured on every render. Mark Accepted only exists
@@ -16087,8 +16391,15 @@ function renderSummary() {
     var profQuotedDays = statusJob.acceptedSnapshot && +statusJob.acceptedSnapshot.estOnSiteDays > 0
       ? +statusJob.acceptedSnapshot.estOnSiteDays : onSiteDaysOrig;
     var prof = computeProfitability({
-      quotedTotal: total, approvedVariations: vView.approvedTotal,
-      quotedDays: profQuotedDays, quotedMaterials: materialsTotal
+      quotedTotal: quoteTotal, approvedVariations: vView.approvedTotal,
+      quotedDays: profQuotedDays, quotedMaterials: materialsTotal,
+      // Xero-imported comparison row — display only, and inert (null) on every
+      // other job, so Billing/Schedule/Materials keep working exactly as they
+      // always have. internalLabour is the app's own marked-up labour figure,
+      // the like-for-like against honouredLabour (materials are identical on
+      // both sides, so labour is where the whole difference lives).
+      honouredLabour: honouredLabour, honouredQuote: honouredLabour != null ? quoteTotal : null,
+      internalEstimate: internalEstimate, internalLabour: plan.labourTotal + customSplit.flat
     });
     profitCard = profitabilityCardHtml(prof, vView, statusJob);
     var profSnap = {
@@ -16152,9 +16463,19 @@ function renderSummary() {
     '</div>'+
     profitCard+
     '<div class="hero" style="margin-top:16px">'+
-      '<div class="hero-label">Total Quote</div>'+
-      '<div class="hero-amount">'+fmt(total)+'</div>'+
-      '<div class="hero-sub">'+ttAll.toFixed(1)+' days · '+markupSummaryLabel()+'</div>'+
+      // Flagged jobs quote honoured labour + measured materials, and carry the
+      // app's own calculated total underneath as a plain muted strap-line —
+      // clearly labelled, and explicitly reference-only, because it is never
+      // what the client pays. The markup strap-line is replaced on those jobs:
+      // the app's markup didn't price this labour, so quoting it would be a
+      // lie about where the number came from.
+      '<div class="hero-label">'+(honouredLabour != null ? 'Quote (honoured labour)' : 'Total Quote')+'</div>'+
+      '<div class="hero-amount">'+fmt(quoteTotal)+'</div>'+
+      '<div class="hero-sub">'+ttAll.toFixed(1)+' days · '+
+        (honouredLabour != null
+          ? fmt(honouredLabour)+' labour as agreed + '+fmt(materialsTotal)+' materials as measured'
+          : markupSummaryLabel())+'</div>'+
+      (honouredLabour != null ? '<div class="hero-sub">Internal estimate '+fmt(internalEstimate)+' — reference only</div>' : '')+
       // Fixed gold, not var(--accent): the hero card's background is a fixed
       // dark navy regardless of theme, but --accent flips to a near-identical
       // dark navy in light mode (#1a5276 light theme == this card's own
@@ -16164,11 +16485,22 @@ function renderSummary() {
       (hasVariations ? '<div class="hero-sub" style="color:#ffd166;font-weight:600">+ '+fmt(variationsTotal)+' variations → '+fmt(jobTotal)+' job total</div>' : '')+
     '</div>'+
     '<div class="stat-grid">'+
+      // On a flagged job this is the app's OWN labour figure, which is not
+      // what's being charged — relabelled so it can't be mistaken for the
+      // honoured one in the hero above (item 3's "relabel where it's
+      // displayed", no new field).
       '<div class="stat-card"><div class="stat-label">Labour</div><div class="stat-value ac">'+fmt(tcOrig)+'</div>'+
-        '<small style="display:block;font-weight:400;color:var(--text2);margin-top:2px">before markup'+(hasVariations ? ' · original scope' : '')+'</small></div>'+
+        '<small style="display:block;font-weight:400;color:var(--text2);margin-top:2px">'+
+          (honouredLabour != null ? 'internal estimate · before markup' : 'before markup')+
+          (hasVariations ? ' · original scope' : '')+'</small></div>'+
       '<div class="stat-card"><div class="stat-label">On Site</div><div class="stat-value bl">'+fmtD(onSiteDays)+'</div>'+
         '<small style="display:block;font-weight:400;color:var(--text2);margin-top:2px">'+ttAll.toFixed(1)+'d working'+(hasVariations ? ' incl. variations' : '')+'</small></div>'+
     '</div>'+
+    // Job-level toggles, in one group: Imported from Xero sits with
+    // Commercial/Standalone because it's the same kind of flag on the same
+    // job record. Unlike those two it changes NO pricing at all — only which
+    // figure is quoted and what the profitability card compares.
+    xeroImportedCardHtml(statusJob)+
     '<div class="card" style="margin-top:16px">'+
       '<div class="card-header">Commercial Job</div>'+
       '<div class="toggle-row"><div class="toggle-label">Commercial job<small>Applies '+(settings.commercialPct!=null?settings.commercialPct:10)+'% before markup/discount below</small></div>'+
@@ -16471,10 +16803,21 @@ function openClientQuote() {
   var quoteExtItems = extItems.filter(function(it) { return !it.isVariation; });
   var kitchenCalc = calcKitchen(quoteKitchen);
   var vv = computeVariationsView();
-  var importedBaseline = (job && job.acceptedSnapshot && job.acceptedSnapshot.importedFromXero)
-    ? (+job.acceptedSnapshot.estQuoteTotal || 0) : 0;
+  // A honoured pre-app labour figure (jobIsXeroImported) supersedes the
+  // imported baseline rather than stacking on it (see renderSummary): the
+  // model builder replaces the work card's engine lines with the one honoured
+  // labour line and leaves the materials card exactly as it is, since
+  // materials are quoted from the measure and billed as used on these jobs
+  // like any other. The app's own calculated total is deliberately absent
+  // from this document — it's an internal reference figure, and this page is
+  // the client's.
+  var honouredLabour = jobShowsHonouredQuote(job) ? jobHonouredLabour(job) : null;
+  var importedBaseline = honouredLabour != null ? 0
+    : (job && job.acceptedSnapshot && job.acceptedSnapshot.importedFromXero)
+      ? (+job.acceptedSnapshot.estQuoteTotal || 0) : 0;
   if (quoteRooms.length === 0 && quoteExtItems.length === 0 && kitchenCalc.total <= 0 && fuQuoteAgg.total <= 0
-      && jobCustomItems(job).length === 0 && !vv.hasVariations && importedBaseline <= 0.005) {
+      && jobCustomItems(job).length === 0 && !vv.hasVariations && importedBaseline <= 0.005
+      && honouredLabour == null) {
     alert('Nothing to preview yet — add rooms on the Measure tab first.');
     return;
   }
@@ -16490,7 +16833,7 @@ function openClientQuote() {
   // to the OS share sheet or downloaded, which works on every platform.
   var model;
   try {
-    model = buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kitchenCalc, fuQuoteAgg, vv, importedBaseline);
+    model = buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kitchenCalc, fuQuoteAgg, vv, importedBaseline, honouredLabour);
   } catch (err) {
     reportFailure('Couldn\'t build the quote preview', err);
     return;
@@ -16572,7 +16915,17 @@ function quotePdfFilename(m) {
   return 'NH-Quote-' + (base || 'Job') + '-' + date + '.pdf';
 }
 
-function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kitchenCalc, fuQuoteAgg, vv, importedBaseline) {
+// honouredLabour: set (a positive number) when this job is flagged
+// isXeroImported and its labour was agreed in a pre-app Xero quote. The work
+// card then prints ONE honoured labour line instead of the engine's room
+// lines — the client agreed a labour price, not a room-by-room breakdown this
+// app produced afterwards, and printing rooms that sum to a different number
+// than the labour subtotal would read as an error on their copy. Materials are
+// untouched and print itemised as always: they were an estimate in that quote
+// too, and bill as used. The payment plan is the one casualty — it derives
+// from computeDepositPlan over engine labour, so its instalments wouldn't sum
+// to the honoured total. The app's own calculated total never appears here.
+function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kitchenCalc, fuQuoteAgg, vv, importedBaseline, honouredLabour) {
   var tcS = 0, ttS = 0, sprayS = 0;
   var roomLines = quoteRooms.map(function(r) {
     var c = calcRoom(r);
@@ -16709,18 +17062,27 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
     // Subtotal = plan.labourTotal (which already folds in marked custom
     // lines) + the flat custom lines printed verbatim above -- so this is
     // exactly the sum of the rows the client can see in this card.
-    work: workRows.length ? { rows: workRows, subtotalLabel: 'Labour subtotal', subtotal: plan.labourTotal + customSplit.flat } : null,
+    work: honouredLabour != null
+      ? { rows: [{ emoji: '', label: 'Labour — as agreed' + (job && job.xeroQuoteNumber ? ' (' + job.xeroQuoteNumber + ')' : ''),
+                   sub: 'honoured at the price quoted for this job', amount: honouredLabour }],
+          subtotalLabel: 'Labour subtotal', subtotal: honouredLabour }
+      : workRows.length ? { rows: workRows, subtotalLabel: 'Labour subtotal', subtotal: plan.labourTotal + customSplit.flat } : null,
     // Imported-from-Xero jobs: the agreed money IS the record (no measured
     // rooms, importAcceptedQuote()) — one already-final line, no lineMult,
     // same lump treatment as Summary's importedBaseline and the final
-    // invoice's "Original quote" line.
+    // invoice's "Original quote" line. Never set alongside honouredLabour:
+    // that path puts the agreed labour in the work card instead, and
+    // importedBaseline is zeroed for those jobs.
     imported: importedBaseline > 0.005 ? {
-      rows: [{ emoji: '', label: 'As agreed' + (job && job.xeroQuoteNumber ? ' — ' + job.xeroQuoteNumber : ''), sub: 'accepted in Xero', amount: importedBaseline }]
+      rows: [{ emoji: '', label: 'As agreed' + (job && job.xeroQuoteNumber ? ' — ' + job.xeroQuoteNumber : ''),
+               sub: 'accepted in Xero', amount: importedBaseline }]
     } : null,
     variations: varRows.length ? {
       rows: varRows, subtotalLabel: 'Variations subtotal', subtotal: vv.variationsTotal,
       note: 'Variations are billed on the final invoice.'
     } : null,
+    // Materials print identically on a honoured job — quoted from the measure,
+    // billed as used, exactly the note the client already gets.
     materials: matRows.length ? {
       rows: matRows, subtotalLabel: 'Materials subtotal', subtotal: materialsTotal,
       note: 'Materials are estimated here and billed as actually used.'
@@ -16728,12 +17090,15 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
     colours: colourRows,
     // Payment/terms come from computeDepositPlan over engine labour, which
     // is zero on an imported job (that money's collection lives in Xero) —
-    // £0.00 deposit/balance rows would just look broken, so hide them.
-    payment: plan.total > 0.005 ? { rows: paymentRows } : null,
-    total: plan.total + (importedBaseline || 0),
+    // £0.00 deposit/balance rows would just look broken, so hide them. Same
+    // reasoning on a honoured job: the plan derives from the app's own labour,
+    // so its instalments wouldn't sum to the honoured total.
+    payment: plan.total > 0.005 && honouredLabour == null ? { rows: paymentRows } : null,
+    total: honouredLabour != null ? honouredLabour + materialsTotal : plan.total + (importedBaseline || 0),
     // Same combined figure Summary's hero-sub shows.
-    totalInclVariations: varRows.length ? plan.total + (importedBaseline || 0) + vv.variationsTotal : null,
-    terms: plan.total > 0.005 ? buildPaymentTermsText(plan, job && job.startDate) : ''
+    totalInclVariations: varRows.length
+      ? (honouredLabour != null ? honouredLabour + materialsTotal : plan.total + (importedBaseline || 0)) + vv.variationsTotal : null,
+    terms: plan.total > 0.005 && honouredLabour == null ? buildPaymentTermsText(plan, job && job.startDate) : ''
   };
 }
 
