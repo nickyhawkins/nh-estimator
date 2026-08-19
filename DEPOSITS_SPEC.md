@@ -1,9 +1,22 @@
 # Deposits → Xero prepayments — Spec
 
-**Status: BUILT 2026-08-19 (v2.32.0), scope gate passed same day.** Deposits recorded in
-the app now create the matching **prepayment in Xero** instead of being re-keyed by hand.
-Discussed and agreed before any code was written; this doc is the agreement plus the
-as-built detail.
+**Status: BUILT 2026-08-19 (v2.32.0), scope gate passed and VERIFIED LIVE the same day.**
+Deposits recorded in the app now create the matching **prepayment in Xero** instead of
+being re-keyed by hand. Discussed and agreed before any code was written; this doc is the
+agreement plus the as-built detail.
+
+**First real one, confirmed in Xero (Prepayment INV-0526, £347.16):** right contact with
+its address, **dated 27 Jul — the date received, not the 19 Aug it was created**, paid
+into the chosen bank account, line reading "Deposit — <job>", **posted to `Prepayments`
+(620), which Xero accepted without complaint on a prepayment line**, No VAT, sitting as
+Total Credit awaiting allocation. The two things no harness could prove — whether 620 is
+valid here, and whether the job name survives given Xero drops `Reference` on prepayments
+— are now both answered yes. **The allocation read-back is confirmed live too:** allocating
+the prepayment in Xero flips the app's chip to "allocated ✓" on the next Summary open, so
+`RemainingCredit` is being read the way this doc assumes and the one-way reporting model
+works end to end. Note Xero numbers the prepayment itself (`INV-0526`) out of
+the invoice sequence; that number comes back on the read-back as `invoiceNumber` and is
+not currently shown in the app.
 
 **⚠ Two deploy steps, both one-off:**
 1. **Reconnect Xero once** (Summary → Connect Xero) — `SCOPES` gained
@@ -60,10 +73,19 @@ change, not just a feature, so it's stated in the sync confirm dialog every sing
 `accounting.transactions` is NOT permitted for this app (the 2026-07-22/23 saga). Under
 **granular** scopes it is split, and the two needed here are `accounting.banktransactions`
 (create the transaction) and `accounting.payments` (read the prepayment back). Both were
-**proved permitted before being added** to `SCOPES`, via `GET /auth/scope-check` — the
-server-side bisect added for exactly this: controls healthy, every variant ACCEPTED.
+**proved permitted before being added** to `SCOPES`, via `GET /auth/scope-check` — a
+server-side bisect added for exactly this: controls healthy, every variant ACCEPTED, each
+302'ing on to Xero's login rather than bouncing back an `invalid_scope`.
 `GET /Accounts` (the bank-account picker) needs no new scope — it was already covered by
 `accounting.settings.read`.
+
+**The probe routes are gone** (removed 2026-08-19, v2.32.1): `/auth/scope-check`,
+`/auth/connect-test/:variant` and July's `/auth/connect-info` all answered their question
+and were deleted rather than left as unauthenticated diagnostic gear on a live app. Git
+history has them if the question is ever asked again. The callback's `xero-scope-test`
+state guard deliberately STAYS — an authorize page opened before the removal and completed
+after it would still land there, and exchanging that code would swap a reduced-scope token
+in for the real one.
 
 ## Agreed decisions
 
@@ -161,10 +183,13 @@ not a retry next week. A retry that old should be checked against Xero first.
 
 ## Gotchas
 
-- **Watch the first real one.** Same rule as every Xero feature here: built and verified
-  against extracted-function checks (27 assertions over the payload builder and the
-  state/label logic), but real money is real money — do the first live deposit for a small
-  amount, sitting in front of Xero.
+- **The first real one was watched, and passed** — see the status note above. The
+  extracted-function checks (39 assertions over the payload builder and the card's states)
+  stand as the regression net; the live run is what proved 620 and the description.
+- **Job names show as-is in Xero.** The line reads `Deposit — ` + the job's Xero reference
+  or name, which for a job named after its client reads "Deposit — Laura Holmes". Two jobs
+  for the same client would produce two indistinguishable prepayment lines; name the second
+  one for the work if that ever comes up.
 - **620 is a current asset in Xero's default UK chart** ("Prepayments" = money *paid* in
   advance), whereas a customer deposit you're holding is arguably a liability. This is
   Nicky's established practice and the app follows it — but it's on record here as a
