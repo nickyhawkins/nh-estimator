@@ -1899,7 +1899,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.35.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.36.0</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -12784,6 +12784,40 @@ function editFittedUnit(id) {
   goScreen('fittedunit');
 }
 
+// Duplicate a fitted unit (v2.36.0) -- the same reasoning as duplicateRoom():
+// two alcove units either side of a chimney breast are usually the same unit
+// with different bay widths, so measure one, duplicate, tweak the numbers.
+// Deep clone via JSON (a unit is plain data -- the widths array included),
+// fresh id, "(copy)" suffix, inserted straight after the original so related
+// units stay together, and persisted through the same wholesale job-data PUT
+// as every other unit change (so it syncs and queues offline identically).
+// Two things the copy deliberately does NOT inherit:
+//   · the client's sign-off. variationStatus/variationApprovedAt/
+//     variationApprovalNote belong to the ORIGINAL unit the client agreed
+//     to; a copy is unagreed work and starts Pending like any new variation.
+//   · an un-flagged variation state on an accepted job: a copy is work being
+//     added NOW, so it takes the same default a fresh unit does (v2.34.1's
+//     fix -- a unit added after acceptance that silently joined the original
+//     scope was a real billing bug). A copy of a variation is always one too.
+function duplicateFittedUnit(id) {
+  var job = activeJob();
+  if (!job) return;
+  var list = fittedUnitList(job);
+  var idx = list.findIndex(function(x) { return String(x.id) === String(id); });
+  if (idx === -1) return;
+  var src = list[idx];
+  var copy = JSON.parse(JSON.stringify(src));
+  copy.id = uid();
+  copy.name = fittedUnitName(src) + ' (copy)';
+  copy.isVariation = !!src.isVariation || variationDefaultsOn();
+  delete copy.variationStatus;
+  delete copy.variationApprovedAt;
+  delete copy.variationApprovalNote;
+  list.splice(idx + 1, 0, copy);
+  saveFittedUnitJob();
+  renderHome();
+}
+
 // Swipe-to-delete path for the Measure list (v2.25.1) -- same by-id entry
 // point + confirm rationale as deleteCustomItemFromList. Removal persists
 // through saveFittedUnitJob()'s wholesale job.data PUT like every other
@@ -13353,6 +13387,7 @@ function _renderFittedUnitInner() {
       '<div class="room-info"><div class="room-name">'+escapeHtml(fittedUnitName(f))+(f.isVariation?variationChipHtml(f):'')+'</div>'+
       '<div class="room-meta">'+fmtD(fc.time)+'</div></div>'+
       '<div class="room-cost">'+fmt(fc.total)+'</div>'+
+      '<button class="room-dup-btn" title="Duplicate unit" onclick="event.stopPropagation();duplicateFittedUnit(this.dataset.id)" data-id="'+f.id+'">⧉</button>'+
       '<div style="color:var(--text3);font-size:16px">›</div></div>');
   }).join('');
   if (!html) {
