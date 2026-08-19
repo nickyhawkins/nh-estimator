@@ -25,9 +25,16 @@ Both on the job record (`jobs.data`, persisted via `persistJobData()`):
 | `isXeroImported` | boolean | `false` | the toggle on Summary |
 | `honouredQuoteAmount` | number, nullable | `null` | the amount field on Summary |
 
-`honouredQuoteAmount` is **entered by hand, once, and never recalculated by anything in
-the app**. `setJobHonouredQuote()` is its only writer — re-measuring the job, adding a
-variation or editing materials can never move the figure the client was promised.
+`honouredQuoteAmount` is **entered once and never recalculated by anything in the app**.
+Re-measuring the job, adding a variation or editing materials can never move the figure
+the client was promised.
+
+Flipping the toggle **on** seeds it from `acceptedSnapshot.estQuoteTotal` — the agreed
+total the importer already stamped on the job — so retro-flagging the batch is a tap per
+job rather than re-typing a figure the app is already holding. That is a **seed, not a
+recalculation**: it fires only when there is no amount yet, so it can never overwrite a
+figure typed or corrected by hand, including across a toggle off/on round trip. Only
+`importedFromXero` snapshots are a seed source; an engine-quoted job's snapshot is not.
 
 Three helpers gate everything (all in `public/index.html`):
 

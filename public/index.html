@@ -6275,6 +6275,19 @@ function setJobXeroImported(on) {
   var job = activeJob();
   if (!job) return;
   job.isXeroImported = !!on;
+  // Flipping the toggle ON seeds the amount from the agreed total the
+  // importer already stamped on the job (acceptedSnapshot.estQuoteTotal) --
+  // retro-flagging the batch is a tap per job instead of re-typing a figure
+  // the app is already holding. A SEED, not a recalculation: it fires only
+  // when there is no amount yet, so it can never overwrite a figure that's
+  // been typed or corrected by hand (including after a toggle off/on), and
+  // nothing recalculates it afterwards. Editable straight away like any
+  // hand-entered one.
+  if (job.isXeroImported && jobHonouredQuote(job) == null
+      && job.acceptedSnapshot && job.acceptedSnapshot.importedFromXero) {
+    var seed = +job.acceptedSnapshot.estQuoteTotal || 0;
+    if (seed > 0) job.honouredQuoteAmount = Math.round(seed * 100) / 100;
+  }
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   persistJobData(job);
   renderSummary();
@@ -6307,7 +6320,7 @@ function xeroImportedCardHtml(job) {
       '<div class="toggle'+(on?' on':'')+'" onclick="setJobXeroImported('+(on?'false':'true')+')"></div></div>'+
     (on
       ? '<div class="field-row" style="border-top:1px solid var(--border)">'+
-          '<div class="field-label">Honoured quote £<small>the agreed pre-app figure — entered once, never recalculated</small></div>'+
+          '<div class="field-label">Honoured quote £<small>the agreed pre-app figure — prefilled from the imported quote, then never recalculated</small></div>'+
           '<input type="number" class="field-input" style="width:100px" value="'+escapeHtml(amt)+'" step="0.01" min="0" inputmode="decimal" onchange="setJobHonouredQuote(this.value)"></div>'+
         (jobHonouredQuote(job) == null
           ? '<div style="padding:0 16px 12px;font-size:12px;color:var(--warn,#f39c12)">Enter the honoured amount — until then the quote shows the app\'s calculated total exactly as normal.</div>'
