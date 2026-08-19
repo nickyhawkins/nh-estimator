@@ -1899,7 +1899,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.36.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.36.1</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -13949,12 +13949,23 @@ function quickAddRooms() {
 // Deep clone via JSON (room objects are plain data), fresh id, "(copy)"
 // suffix, inserted straight after the original so related rooms stay
 // together (the bulk save preserves array order server-side).
+// The variation handling matches duplicateFittedUnit()'s (v2.36.1 -- until
+// then a copy inherited both of these wholesale, so duplicating an approved
+// variation room produced a second room the client had never seen, already
+// carrying their ✓ and priced into the variations total at the agreed
+// price). A copy is NEW work: it never inherits the original's sign-off,
+// and on an accepted job it arrives flagged the way any room added after
+// acceptance does.
 function duplicateRoom(id) {
   var idx = rooms.findIndex(function(r) { return r.id === id; });
   if (idx === -1) return;
   var copy = JSON.parse(JSON.stringify(rooms[idx]));
   copy.id = uid();
   copy.name = rooms[idx].name + ' (copy)';
+  copy.isVariation = !!rooms[idx].isVariation || variationDefaultsOn();
+  delete copy.variationStatus;
+  delete copy.variationApprovedAt;
+  delete copy.variationApprovalNote;
   // Panelling rows carry their own ids -- refresh them so the copy never
   // shares row ids with the original.
   (copy.panelItems || []).forEach(function(p) { p.id = uid(); });
