@@ -108,11 +108,25 @@ The card renders on **both** Summary bodies: the full quote view (`renderSummary
 compact imported-job view (`importedJobSummaryHtml`), which is the **only** Summary a
 roomless imported job renders — i.e. exactly the jobs being retro-flagged.
 
-### 2. Measure tab — no changes
+### 2. Measure tab — no changes to pricing, one changed default
 
 Rooms, materials and the day rate all work as normal. That calculated total **is** the
 "internal estimate" — conceptually only, no new field: it is just relabelled where it's
 displayed for flagged jobs (the hero strap-line and the Labour stat card).
+
+**The variation auto-on default is OFF on these jobs** (`variationDefaultsOn()`, v2.34.1 —
+see `VARIATIONS_SPEC.md`). Every other accepted job pre-flags a newly added room as a
+variation, on the reasoning that anything added after acceptance must be extra. That
+reasoning inverts here: these jobs are imported already-accepted and roomless, and the
+whole point of measuring them out is to write down the scope the agreed price already
+covers. Left auto-on, the entire retro-measure arrived flagged — and since variations
+stack **on top of** the honoured labour, that billed the client a second time for work the
+agreed price included.
+
+So on a flagged job (and on an importer-created job not yet flagged) new rooms, exterior
+items and fitted units default to **original scope**, with the toggle still visible so a
+genuine extra agreed after the Xero quote can be flagged by hand. The toggle card says so,
+because it reverses the behaviour everywhere else.
 
 ### 3. Summary / Quote screen
 

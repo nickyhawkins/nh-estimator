@@ -6381,6 +6381,10 @@ function xeroImportedCardHtml(job) {
             (split.materials > 0 ? ', '+fmt(split.materials)+' materials (estimated)' : '')+'.'
           : ''));
     }
+    // The auto-on variation default is OFF on these jobs (see
+    // variationDefaultsOn) — a behaviour change worth saying out loud, since
+    // on every other accepted job a newly added room arrives pre-flagged.
+    body += note('Rooms, exterior items and fitted units you measure here are <strong>original scope</strong> by default — they\'re the agreed job being written down, not extras. Genuine extras agreed after the Xero quote: turn on Variation on the item\'s own form.');
     if (hasCustom) {
       body += note('This job has custom line items. The honoured labour figure replaces the app\'s whole labour side, so custom lines are NOT added to the quote — put genuine extras on Variations instead, which stack on top.', 'var(--warn,#f39c12)');
     }
@@ -7463,7 +7467,7 @@ function goScreen(name) {
     ['tog-firedoor','tog-doorselfpriming','tog-doorbothsides','tog-ironremove','tog-ironmask','tog-selfprimingwoodwork'].forEach(function(id){
       document.getElementById(id).classList.remove('on');
     });
-    roomIsVariation = variationApplies(); // new post-acceptance items default to variation
+    roomIsVariation = variationDefaultsOn(); // new post-acceptance items default to variation (see variationDefaultsOn)
     syncVariationRow('variation-row', 'tog-variation', roomIsVariation);
     roomIsStaircase=false; hslFloors=1; hslStairWalls={1:1,2:1}; hslCoats={swc:2};
     [['hsl-h1-l',''],['hsl-h1-w',''],['hsl-h1-h','2.4'],
@@ -12638,7 +12642,7 @@ function syncFittedUnitBayWidths(f) {
 // toggleKitchenVariation().
 function newFittedUnit(job) {
   var list = fittedUnitList(job);
-  var f = { id: uid(), name: 'Fitted Unit ' + (list.length + 1), bayCount: 0, bayHeightM: 2.4, bayDepthM: 0.35, bayWidthsM: [], shelfCount: 0, doorCount: 0, doorSize: 'standard', prepLevel: 'bare', complexityUplift: 0, colourNumber: 1, range: '', band: null, sprayUnit: false, isVariation: variationApplies() };
+  var f = { id: uid(), name: 'Fitted Unit ' + (list.length + 1), bayCount: 0, bayHeightM: 2.4, bayDepthM: 0.35, bayWidthsM: [], shelfCount: 0, doorCount: 0, doorSize: 'standard', prepLevel: 'bare', complexityUplift: 0, colourNumber: 1, range: '', band: null, sprayUnit: false, isVariation: variationDefaultsOn() };
   list.push(f);
   return f;
 }
@@ -12673,7 +12677,7 @@ function addFittedUnit() {
   // above. It has no bays/shelves/doors by definition, so there is no priced
   // work to disturb; a deliberate toggle-off is one tap away on the form
   // this immediately opens.
-  if (blank) blank.isVariation = variationApplies();
+  if (blank) blank.isVariation = variationDefaultsOn();
   editFittedUnitId = f.id;
   goScreen('fittedunit');
 }
@@ -12901,7 +12905,7 @@ function resetExtForm() {
   renderExtWindowList('windows');
   renderExtWindowList('sashWindows');
   document.getElementById('extform-title').textContent = 'Add Exterior';
-  exIsVariation = variationApplies(); // new post-acceptance items default to variation
+  exIsVariation = variationDefaultsOn(); // new post-acceptance items default to variation (see variationDefaultsOn)
   syncVariationRow('ex-variation-row', 'tog-ex-variation', exIsVariation);
   document.getElementById('ex-label').value = '';
   ['ex-masonry','ex-fascia','ex-door-qty','ex-frame-qty','ex-garage','ex-porch',
@@ -14610,6 +14614,35 @@ function toggleSprayWoodwork() {
 function variationApplies() {
   var st = activeJob() && activeJob().status;
   return st === 'accepted' || st === 'completed' || st === 'invoiced';
+}
+
+// Whether a NEWLY added room/exterior item/fitted unit should arrive ALREADY
+// flagged. Deliberately separate from variationApplies() above, which only
+// answers "does the concept apply at all" and still governs whether the
+// toggle row is visible.
+//
+// The auto-on heuristic is "added while accepted, so it must be extra". That
+// INVERTS on a job whose price was agreed before this app ever measured it
+// (XERO_IMPORTED_JOBS_SPEC.md): those jobs are imported already-accepted and
+// roomless, and then measured out precisely so the materials and the internal
+// estimate are real. Every room added during that measure-out is the ORIGINAL
+// scope being written down late, not extra work — so auto-on flags the whole
+// retro-measure as variations, and on a honoured job variations stack ON TOP
+// of the agreed labour, i.e. it silently bills the client again for work the
+// agreed price already covered.
+//
+// So on those jobs the default flips OFF while the toggle stays visible: the
+// normal case is the retro-measure, and a genuine extra agreed after the Xero
+// quote is the exception, flagged by hand. Both signals count — the
+// isXeroImported flag, and an untouched importer job that hasn't been flagged
+// yet (its rooms are necessarily the retro-measure, since the importer
+// creates it roomless).
+function variationDefaultsOn() {
+  if (!variationApplies()) return false;
+  var job = activeJob();
+  if (jobIsXeroImported(job)) return false;
+  if (job && job.acceptedSnapshot && job.acceptedSnapshot.importedFromXero) return false;
+  return true;
 }
 // Auto-on for NEW items while accepted+ (the app defaults, Nicky decides --
 // "I forgot to measure the utility room" is a correction, not a variation,

@@ -103,23 +103,40 @@ Plus one genuinely new lightweight type for the odd job that isn't worth measuri
 
 ### The flag's rules
 
-- **Auto-on**: any room/ext/fitted-unit/panelling item added while `job.status` is
-  `accepted` (or later) defaults `isVariation: true`, with a visible chip on the form so
-  it's never silent. Toggleable off at entry — "I forgot to measure the utility room
-  before quoting" is a correction to original scope, not a variation, and the person on
-  site knows which it is. The app defaults; Nicky decides. (Same control-is-the-judgement
-  philosophy as sundries.) The kitchen is the one exception, see the deviations above.
-  - **Fitted units were missing this until 2026-08-19 (v2.34.1).** `newFittedUnit()`
-    created the unit without the flag, so a unit added alongside a variation room joined
-    the ORIGINAL quote scope silently: no chip on Summary, its labour folded into the
-    quote-facing Labour subtotal instead of the variations subtotal, absent from the
-    client sign-off flow, and billed as original-scope labour on the final invoice.
-    Reported from a live job (a Wardrobe added with a Nursery variation). `addFittedUnit()`
-    re-applies the default when it reuses a **blank** leftover unit, so one created before
-    acceptance can't come back un-flagged; a unit with real bays/shelves/doors in it is
-    never re-flagged, so a deliberate toggle-off on priced work stands.
-    **Units added before that fix stay un-flagged in the data** — the toggle on the Fitted
-    Unit form is the fix for those.
+- **Auto-on** (`variationDefaultsOn()`): any room/ext/fitted-unit/panelling item added
+  while `job.status` is `accepted` (or later) defaults `isVariation: true`, with a visible
+  chip on the form so it's never silent. Toggleable off at entry — "I forgot to measure the
+  utility room before quoting" is a correction to original scope, not a variation, and the
+  person on site knows which it is. The app defaults; Nicky decides. (Same
+  control-is-the-judgement philosophy as sundries.) The kitchen is the one exception, see
+  the deviations above.
+
+  `variationDefaultsOn()` is deliberately **separate from `variationApplies()`**, which
+  only answers "does the concept apply at all" and still governs whether the toggle row is
+  visible. Two fixes on 2026-08-19 (v2.34.1), both found from one live job:
+
+  - **Fitted units never took the default at all.** `newFittedUnit()` created the unit
+    without the flag, so on the same measure-out a room and a fitted unit behaved
+    differently. `addFittedUnit()` re-applies the default when it reuses a **blank**
+    leftover unit, so one created before acceptance can't come back with a stale flag; a
+    unit with real bays/shelves/doors is never re-flagged, so a deliberate toggle-off on
+    priced work stands.
+
+  - **The default INVERTS on a Xero-imported job** (`XERO_IMPORTED_JOBS_SPEC.md`). Those
+    jobs are imported **already-accepted and roomless**, then measured out precisely so the
+    materials and the internal estimate are real. Every room added during that measure-out
+    is the ORIGINAL scope being written down late, not extra work — so auto-on flagged the
+    entire retro-measure as variations, and on a honoured job **variations stack on top of
+    the agreed labour**, i.e. it silently billed the client again for work the agreed price
+    already covered. On those jobs the default is OFF and the toggle stays visible: the
+    retro-measure is the normal case, a genuine extra agreed after the Xero quote is the
+    exception and gets flagged by hand. Both signals count — the `isXeroImported` flag, and
+    an importer-created job not yet flagged (its rooms are necessarily the retro-measure).
+    The Summary toggle card says this out loud, since it reverses what every other accepted
+    job does.
+
+  **Items saved before these fixes keep whatever flag they were given** — the toggle on the
+  item's own form is the fix for those.
 - Items added pre-acceptance can't be flagged — the concept doesn't exist yet, the chip
   doesn't render.
 - Editing a pre-acceptance room after acceptance does NOT flag it — edits to original
