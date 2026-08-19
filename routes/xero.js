@@ -16,7 +16,21 @@ const XERO_API_URL = 'https://api.xero.com/api.xro/2.0';
 // invoices was the invalid name, then kept after v1.10.3 removed the
 // wrong one. Do not add accounting.transactions back unless the app's
 // portal configuration changes.
-const SCOPES = 'openid profile email offline_access accounting.contacts accounting.settings.read accounting.invoices';
+//
+// 2026-08-19: accounting.banktransactions + accounting.payments added for
+// deposits (DEPOSITS_SPEC.md). These are the GRANULAR replacements for the
+// coarse accounting.transactions that failed in July, and both were proved
+// permitted for this app BEFORE being added here, via GET /auth/scope-check
+// (controlsHealthy true, every variant including the full set below
+// ACCEPTED — each 302'd on to login.xero.com rather than bouncing back an
+// invalid_scope). banktransactions creates the RECEIVE-PREPAYMENT that IS
+// the deposit; payments reads the resulting prepayment's status and
+// RemainingCredit back.
+// ⚠ SCOPES ARE GRANTED AT AUTH TIME: Xero must be reconnected ONCE
+// (Summary → Connect Xero) before the first deposit write, exactly as the
+// invoice builder needed in July. Until then POST /create-prepayment 403s
+// — and says precisely that rather than showing a bare error.
+const SCOPES = 'openid profile email offline_access accounting.contacts accounting.settings.read accounting.invoices accounting.banktransactions accounting.payments';
 
 // Builds the {Contacts:[...]} entry for a Xero contact create/update PUT.
 // Fields left blank are OMITTED (undefined keys never reach JSON.stringify),
@@ -1428,8 +1442,223 @@ router.get('/quote-statuses', async (req, res) => {
   }
 });
 
+// ── Deposits / prepayments (DEPOSITS_SPEC.md) ──────────────────────────────
+//
+// A deposit CANNOT be POSTed to /Prepayments — that endpoint is read-only.
+// A prepayment is born as a bank transaction of type RECEIVE-PREPAYMENT, and
+// Xero returns its PrepaymentID on the created transaction, so one write
+// gets both ids and there is no matching step to drift.
+//
+// Allocation to the invoice is deliberately NOT done here: Xero refuses to
+// allocate against a DRAFT invoice, and the invoice builder only ever
+// creates drafts on purpose (FINAL_INVOICE_SPEC.md). Nicky authorises and
+// allocates in Xero, as he already does. The app creates and reports.
+
+// The RECEIVE-PREPAYMENT payload, kept pure so its shape can be asserted
+// without touching Xero (exported at the bottom for the smoke harness).
+//
+// NB the job name rides the line DESCRIPTION, not Reference: Xero only
+// supports Reference on SPEND/RECEIVE bank transactions, and a prepayment's
+// own Reference is read-only (it returns the invoice number). Setting it
+// here would look right and silently vanish.
+function buildPrepaymentPayload({ contactId, bankAccountId, date, amount, description, accountCode }) {
+  return {
+    BankTransactions: [{
+      Type: 'RECEIVE-PREPAYMENT',
+      Contact: { ContactID: contactId },
+      BankAccount: { AccountID: bankAccountId },
+      // The date the money was RECEIVED, not today — the bank feed has to
+      // match this, and a wrong date is reconciliation work for someone.
+      Date: date,
+      Status: 'AUTHORISED',
+      // Not VAT registered: same NoTax treatment as every other document
+      // this app writes.
+      LineAmountTypes: 'NoTax',
+      LineItems: [{
+        Description: description || 'Deposit',
+        Quantity: 1,
+        UnitAmount: Math.round((+amount || 0) * 100) / 100,
+        AccountCode: String(accountCode)
+      }]
+    }]
+  };
+}
+
+// Bank accounts for the Settings picker. Covered by the accounting.settings
+// .read scope the app has always had — no new permission needed for this.
+router.get('/bank-accounts', async (req, res) => {
+  try {
+    const accessToken = await getAccessToken();
+    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    const tenantId = result.rows[0]?.xero_tenant_id;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
+    }
+    const accRes = await axios.get(`${XERO_API_URL}/Accounts?where=${encodeURIComponent('Type=="BANK"')}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Xero-Tenant-Id': tenantId,
+        Accept: 'application/json'
+      }
+    });
+    const accounts = (accRes.data.Accounts || [])
+      .filter(a => a.Status !== 'ARCHIVED')
+      .map(a => ({
+        accountId: a.AccountID,
+        name: a.Name,
+        code: a.Code || '',
+        bankAccountNumber: a.BankAccountNumber || ''
+      }));
+    res.json({ ok: true, accounts });
+  } catch (err) {
+    console.error('Bank accounts error:', err.response?.data || err.message);
+    res.status(500).json({ error: xeroErrorMessage(err) });
+  }
+});
+
+// Create the deposit in Xero. The bank account and posting code come from
+// the SERVER's settings row, never from the request body: the browser
+// should not get to name which account real money posts to.
+router.post('/create-prepayment', async (req, res) => {
+  const { contactId, amount, date, description, idempotencyKey } = req.body;
+  const value = Math.round((+amount || 0) * 100) / 100;
+  if (!contactId) {
+    return res.status(400).json({ error: 'This job has no linked Xero contact — sync the contact first, or the deposit can never be allocated to its invoice' });
+  }
+  if (!(value > 0)) {
+    return res.status(400).json({ error: 'A deposit amount greater than zero is required' });
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) {
+    return res.status(400).json({ error: 'A received date (YYYY-MM-DD) is required' });
+  }
+
+  try {
+    const accessToken = await getAccessToken();
+    const result = await db.query('SELECT xero_tenant_id, data FROM settings WHERE id = 1');
+    const tenantId = result.rows[0]?.xero_tenant_id;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
+    }
+    const stored = result.rows[0]?.data || {};
+    const bankAccountId = stored.depositBankAccountId;
+    const accountCode = String(stored.depositAccountCode || '620');
+    if (!bankAccountId) {
+      return res.status(400).json({ error: 'No deposit bank account is set — choose one in Settings → Deposits (Xero) first' });
+    }
+
+    const headers = {
+      Authorization: `Bearer ${accessToken}`,
+      'Xero-Tenant-Id': tenantId,
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    };
+
+    // Pre-flight the posting account (620 Prepayments by default). ONLY a
+    // positive "Xero says this code is missing or archived" blocks the
+    // write — if the lookup itself fails we carry on and let the real call
+    // be the judge, because refusing to record a deposit over a failed
+    // diagnostic would be worse than the thing it's diagnosing.
+    try {
+      const codeRes = await axios.get(`${XERO_API_URL}/Accounts?where=${encodeURIComponent(`Code=="${accountCode}"`)}`, { headers });
+      const account = (codeRes.data.Accounts || [])[0];
+      if (!account) {
+        return res.status(400).json({ error: `Account ${accountCode} doesn't exist in Xero — check Settings → Deposits (Xero). Nothing was created.` });
+      }
+      if (account.Status === 'ARCHIVED') {
+        return res.status(400).json({ error: `Account ${accountCode} (${account.Name}) is archived in Xero — unarchive it or pick another code. Nothing was created.` });
+      }
+    } catch (lookupErr) {
+      console.warn('Deposit account pre-check failed, continuing:', lookupErr.response?.data || lookupErr.message);
+    }
+
+    // Same key on every retry of the SAME deposit = Xero returns the
+    // original result instead of a second transaction. The client stores
+    // the key on the deposit record and only regenerates it if the amount
+    // or date changes before a successful sync.
+    if (idempotencyKey) headers['Idempotency-Key'] = String(idempotencyKey).slice(0, 128);
+
+    const txRes = await axios.put(
+      `${XERO_API_URL}/BankTransactions`,
+      buildPrepaymentPayload({ contactId, bankAccountId, date, amount: value, description, accountCode }),
+      { headers }
+    );
+    const tx = (txRes.data.BankTransactions || [])[0];
+    if (!tx || !tx.BankTransactionID) throw new Error('Xero did not return a bank transaction');
+
+    // A transaction with no PrepaymentID means the money IS in Xero but not
+    // as a prepayment — report it as a success with a warning rather than
+    // an error, because an error here would invite a retry and a retry
+    // would be a duplicate deposit.
+    res.json({
+      ok: true,
+      prepaymentId: tx.PrepaymentID || null,
+      bankTransactionId: tx.BankTransactionID,
+      total: tx.Total ?? value,
+      warning: tx.PrepaymentID ? null : 'Xero created the transaction but did not return a prepayment id — check it in Xero before recording another.'
+    });
+  } catch (err) {
+    console.error('Create prepayment error:', err.response?.data || err.message);
+    const status = err.response?.status;
+    // Deposits were the reason accounting.banktransactions/payments joined
+    // SCOPES — a token granted before that can't write one until Xero is
+    // reconnected once. Say so instead of a bare 403.
+    const hint = (status === 401 || status === 403)
+      ? ' — this usually means Xero needs reconnecting once to grant the new deposit permissions (Summary → Connect Xero)'
+      : '';
+    res.status(500).json({ error: xeroErrorMessage(err) + hint });
+  }
+});
+
+// Read prepayment status back for the Summary chip. Same contract as
+// /quote-statuses: a poll, so per-id failures never fail the batch — a hard
+// 404 reports DELETED (the deposit was removed in Xero, which the app must
+// stop claiming is synced) and anything else reports null, which the client
+// ignores until the next open.
+router.get('/prepayment-status', async (req, res) => {
+  const ids = String(req.query.ids || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (!ids.length) return res.status(400).json({ error: 'ids is required' });
+
+  try {
+    const accessToken = await getAccessToken();
+    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    const tenantId = result.rows[0]?.xero_tenant_id;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
+    }
+    const headers = {
+      Authorization: `Bearer ${accessToken}`,
+      'Xero-Tenant-Id': tenantId,
+      Accept: 'application/json'
+    };
+
+    const prepayments = await Promise.all(ids.map(id =>
+      axios.get(`${XERO_API_URL}/Prepayments/${encodeURIComponent(id)}`, { headers })
+        .then(r => {
+          const p = (r.data.Prepayments || [])[0];
+          if (!p) return { prepaymentId: id, status: null };
+          return {
+            prepaymentId: id,
+            status: p.Status || null,
+            total: p.Total ?? null,
+            // RemainingCredit is the whole allocation story: equal to Total
+            // means nothing has been applied yet, zero means fully applied.
+            remainingCredit: p.RemainingCredit ?? null,
+            invoiceNumber: p.InvoiceNumber || p.Reference || null,
+            allocationCount: (p.Allocations || []).length
+          };
+        })
+        .catch(err => ({ prepaymentId: id, status: err.response?.status === 404 ? 'DELETED' : null }))
+    ));
+    res.json({ ok: true, prepayments });
+  } catch (err) {
+    console.error('Prepayment status error:', err.response?.data || err.message);
+    res.status(500).json({ error: xeroErrorMessage(err) });
+  }
+});
+
 module.exports = router;
 module.exports.getAccessToken = getAccessToken;
+module.exports.buildPrepaymentPayload = buildPrepaymentPayload;
 // Exported for the tin-fill checks in scripts/check_item_parse.py's Node
 // counterpart and for ad-hoc verification against a real Xero export.
 module.exports.parseItemName = parseItemName;
