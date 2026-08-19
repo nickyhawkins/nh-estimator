@@ -100,6 +100,23 @@ const SCOPE_TESTS = {
   settings:     'openid profile email offline_access accounting.settings',
   transactions: 'openid profile email offline_access accounting.transactions',
   invoices:     'openid profile email offline_access accounting.invoices',
+  // Deposits/prepayments gate (2026-08-18). Under GRANULAR scopes the coarse
+  // accounting.transactions above is split into named ones, and the two the
+  // deposit feature needs are:
+  //   accounting.banktransactions — BankTransactions, i.e. creating the
+  //     RECEIVE-PREPAYMENT that IS the deposit (there is no POST/PUT to
+  //     /Prepayments; a prepayment can only be born as a bank transaction)
+  //   accounting.payments         — Prepayments themselves: reading status/
+  //     RemainingCredit back, and allocations if that's ever built
+  // Both must be on this app's developer-portal Authorisation list. ONE
+  // unpermitted name fails the ENTIRE authorize request, which is exactly
+  // how the July saga looked — hence testing them separately AND together.
+  banktransactions: 'openid profile email offline_access accounting.banktransactions',
+  payments:         'openid profile email offline_access accounting.payments',
+  // What SCOPES would BECOME if the gate passes. The decisive one: nothing
+  // ships unless this variant is accepted. SCOPES itself stays untouched
+  // until then — a live reconnect must never be broken by reconnaissance.
+  deposits:     SCOPES + ' accounting.banktransactions accounting.payments',
   full:         SCOPES
 };
 router.get('/connect-test/:variant', (req, res) => {
@@ -113,6 +130,89 @@ router.get('/connect-test/:variant', (req, res) => {
     state: 'xero-scope-test'
   });
   res.redirect(`${XERO_AUTH_URL}?${params}`);
+});
+
+// The same bisect, run SERVER-SIDE and answered as JSON — so the deposits
+// go/no-go is a fact rather than a judgement call on a Xero error page, and
+// so no browser tab is ever left logged in far enough to save a weaker token
+// (this never leaves the server; nothing is exchanged).
+//
+// Xero validates the scope list at the authorize endpoint BEFORE any login,
+// and an unpermitted scope comes back the OIDC way: a 302 to our own
+// redirect_uri carrying ?error=invalid_scope. A permitted one carries on
+// towards the identity/login flow instead. Both signals are reported raw
+// alongside the verdict.
+//
+// Deliberately CONSERVATIVE about calling a pass: an error keyword is a
+// confident REJECTED, a redirect on to Xero's identity host is a confident
+// ACCEPTED, and anything else is 'unknown' rather than a guess — a false
+// pass here would send us building against a scope the app can't have. The
+// oidc/invoices controls are checked alongside precisely so the checker can
+// be caught being wrong: they are known-good today, so if either reports
+// REJECTED then this parse is broken, not the scope.
+const SCOPE_CHECK_ORDER = ['oidc', 'invoices', 'banktransactions', 'payments', 'deposits'];
+
+async function checkOneScope(variant) {
+  const scope = SCOPE_TESTS[variant];
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id: process.env.XERO_CLIENT_ID,
+    redirect_uri: process.env.XERO_REDIRECT_URI,
+    scope,
+    state: 'xero-scope-test'
+  });
+  try {
+    const authRes = await axios.get(`${XERO_AUTH_URL}?${params}`, {
+      maxRedirects: 0,
+      validateStatus: () => true,
+      timeout: 15000,
+      headers: { Accept: 'text/html' }
+    });
+    const location = authRes.headers?.location || '';
+    const body = typeof authRes.data === 'string' ? authRes.data.slice(0, 2000) : '';
+    let error = null, errorDescription = null;
+    try {
+      const q = new URL(location, XERO_AUTH_URL).searchParams;
+      error = q.get('error');
+      errorDescription = q.get('error_description');
+    } catch (e) { /* not a URL we can parse — the keyword scan below still runs */ }
+    const haystack = (location + ' ' + body).toLowerCase();
+    const rejected = !!error || haystack.includes('invalid_scope') || haystack.includes('unauthorized_scope');
+    const onToXero = /^https?:\/\/[^/]*xero\.com/i.test(location);
+    const verdict = rejected ? 'REJECTED' : (onToXero ? 'ACCEPTED' : 'unknown');
+    return {
+      variant, scope, verdict,
+      status: authRes.status,
+      // Host + path only: the query carries client_id and the full scope list
+      // and this response gets pasted into chats/issues.
+      location: location ? location.split('?')[0] : null,
+      error, errorDescription
+    };
+  } catch (err) {
+    return { variant, scope, verdict: 'unknown', error: 'request failed', errorDescription: err.message };
+  }
+}
+
+router.get('/scope-check', async (req, res) => {
+  if (!process.env.XERO_CLIENT_ID || !process.env.XERO_REDIRECT_URI) {
+    return res.status(400).json({ error: 'XERO_CLIENT_ID / XERO_REDIRECT_URI not set in this environment' });
+  }
+  const only = req.query.variant;
+  if (only && !SCOPE_TESTS[only]) {
+    return res.status(400).json({ error: 'unknown variant', variants: Object.keys(SCOPE_TESTS) });
+  }
+  const variants = only ? [only] : SCOPE_CHECK_ORDER;
+  const results = [];
+  for (const v of variants) results.push(await checkOneScope(v)); // sequential: five requests, no need to hammer
+  const control = results.filter(r => r.variant === 'oidc' || r.variant === 'invoices');
+  res.json({
+    build: require('../package.json').version,
+    // If a known-good control didn't come back ACCEPTED, distrust every
+    // verdict below it and fall back to /auth/connect-test/:variant in a
+    // browser, which shows the truth directly.
+    controlsHealthy: control.length ? control.every(r => r.verdict === 'ACCEPTED') : null,
+    results
+  });
 });
 
 // Step 1: Redirect to Xero login
