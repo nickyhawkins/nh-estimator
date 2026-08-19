@@ -11,7 +11,10 @@ into the chosen bank account, line reading "Deposit — <job>", **posted to `Pre
 (620), which Xero accepted without complaint on a prepayment line**, No VAT, sitting as
 Total Credit awaiting allocation. The two things no harness could prove — whether 620 is
 valid here, and whether the job name survives given Xero drops `Reference` on prepayments
-— are now both answered yes. Note Xero numbers the prepayment itself (`INV-0526`) out of
+— are now both answered yes. **The allocation read-back is confirmed live too:** allocating
+the prepayment in Xero flips the app's chip to "allocated ✓" on the next Summary open, so
+`RemainingCredit` is being read the way this doc assumes and the one-way reporting model
+works end to end. Note Xero numbers the prepayment itself (`INV-0526`) out of
 the invoice sequence; that number comes back on the read-back as `invoiceNumber` and is
 not currently shown in the app.
 
