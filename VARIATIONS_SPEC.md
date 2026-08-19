@@ -103,12 +103,23 @@ Plus one genuinely new lightweight type for the odd job that isn't worth measuri
 
 ### The flag's rules
 
-- **Auto-on**: any room/ext/kitchen/panelling item added while `job.status` is `accepted`
-  (or later) defaults `isVariation: true`, with a visible chip on the form so it's never
-  silent. Toggleable off at entry — "I forgot to measure the utility room before quoting"
-  is a correction to original scope, not a variation, and the person on site knows which
-  it is. The app defaults; Nicky decides. (Same control-is-the-judgement philosophy as
-  sundries.)
+- **Auto-on**: any room/ext/fitted-unit/panelling item added while `job.status` is
+  `accepted` (or later) defaults `isVariation: true`, with a visible chip on the form so
+  it's never silent. Toggleable off at entry — "I forgot to measure the utility room
+  before quoting" is a correction to original scope, not a variation, and the person on
+  site knows which it is. The app defaults; Nicky decides. (Same control-is-the-judgement
+  philosophy as sundries.) The kitchen is the one exception, see the deviations above.
+  - **Fitted units were missing this until 2026-08-19 (v2.34.1).** `newFittedUnit()`
+    created the unit without the flag, so a unit added alongside a variation room joined
+    the ORIGINAL quote scope silently: no chip on Summary, its labour folded into the
+    quote-facing Labour subtotal instead of the variations subtotal, absent from the
+    client sign-off flow, and billed as original-scope labour on the final invoice.
+    Reported from a live job (a Wardrobe added with a Nursery variation). `addFittedUnit()`
+    re-applies the default when it reuses a **blank** leftover unit, so one created before
+    acceptance can't come back un-flagged; a unit with real bays/shelves/doors in it is
+    never re-flagged, so a deliberate toggle-off on priced work stands.
+    **Units added before that fix stay un-flagged in the data** — the toggle on the Fitted
+    Unit form is the fix for those.
 - Items added pre-acceptance can't be flagged — the concept doesn't exist yet, the chip
   doesn't render.
 - Editing a pre-acceptance room after acceptance does NOT flag it — edits to original

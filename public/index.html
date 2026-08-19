@@ -1878,7 +1878,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.34.0</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.34.1</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -12626,9 +12626,19 @@ function syncFittedUnitBayWidths(f) {
 // Auto-numbered default name ("Fitted Unit 2") so a unit is never blank on
 // the quote -- Nicky renames it on the unit's own Name field when "Left
 // alcove" reads better.
+// isVariation defaults the SAME way a new room (goRoom) and a new exterior
+// item (goExterior) do -- auto-on while the job is accepted+, the app
+// defaulting and Nicky deciding. Without it a fitted unit added alongside a
+// variation room silently joined the ORIGINAL quote scope: no chip on
+// Summary, its labour folded into the quote-facing total instead of the
+// variations subtotal, missing from the client sign-off flow, and billed as
+// original-scope labour on the final invoice (BUG 2026-08-19 — a Wardrobe
+// added with a Nursery variation showed no chip and landed in Labour
+// subtotal). The kitchen is the one deliberate exception, and says why at
+// toggleKitchenVariation().
 function newFittedUnit(job) {
   var list = fittedUnitList(job);
-  var f = { id: uid(), name: 'Fitted Unit ' + (list.length + 1), bayCount: 0, bayHeightM: 2.4, bayDepthM: 0.35, bayWidthsM: [], shelfCount: 0, doorCount: 0, doorSize: 'standard', prepLevel: 'bare', complexityUplift: 0, colourNumber: 1, range: '', band: null, sprayUnit: false };
+  var f = { id: uid(), name: 'Fitted Unit ' + (list.length + 1), bayCount: 0, bayHeightM: 2.4, bayDepthM: 0.35, bayWidthsM: [], shelfCount: 0, doorCount: 0, doorSize: 'standard', prepLevel: 'bare', complexityUplift: 0, colourNumber: 1, range: '', band: null, sprayUnit: false, isVariation: variationApplies() };
   list.push(f);
   return f;
 }
@@ -12657,6 +12667,13 @@ function addFittedUnit() {
   var list = fittedUnitList(job);
   var blank = list.filter(fittedUnitIsBlank)[0];
   var f = blank || newFittedUnit(job);
+  // A reused blank is being presented as a fresh add, so it re-takes the
+  // same default newFittedUnit() applies -- otherwise a blank left over from
+  // before acceptance comes back un-flagged and reintroduces the very bug
+  // above. It has no bays/shelves/doors by definition, so there is no priced
+  // work to disturb; a deliberate toggle-off is one tap away on the form
+  // this immediately opens.
+  if (blank) blank.isVariation = variationApplies();
   editFittedUnitId = f.id;
   goScreen('fittedunit');
 }
