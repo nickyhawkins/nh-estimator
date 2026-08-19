@@ -172,17 +172,44 @@ labour figure. So it shows `—` until days exist.
 non-flagged jobs alike. On a non-flagged job every field feeding this section is
 `null`/`false` and the card renders exactly as it did before.
 
-## Known gap — final invoice
+### 6. Final invoice
 
-`buildFinalInvoiceModel()` (the "Original quote … — from Xero" line) still reads
-`acceptedSnapshot.estQuoteTotal` and is **not** aware of `honouredLabourAmount`. On a
-flagged job that has since been measured, the final invoice will therefore offer both that
-line **and** the calculated room lines. Each line is droppable in the builder, so it's
-visible rather than silent.
+`buildFinalInvoiceModel()` bills the same composition as the quote:
 
-The intended fix, once confirmed, is the same composition this spec already uses:
-**honoured labour + materials as used + variations**, with the engine's labour lines and
-the imported lump both off. Not built yet.
+```
+honoured labour (one line, account 201)
++ materials AS USED (the 2(a) bought-confirmed lines, account 202)
++ variations at their agreed prices
+```
+
+Every engine labour line assembled for the job is **discarded** on a flagged job — rooms,
+exterior, kitchen, fitted units, the standalone diary-day top-up and custom lines. All of
+those were priced by this app *after* the client had already agreed a labour price, so
+billing them alongside it would charge the same work twice. The imported
+`acceptedSnapshot.estQuoteTotal` lump is discarded for the same reason (it's an `else if`
+— never both).
+
+**Sundries are zero** on a flagged job. They're a percentage of *this app's* labour, and
+the agreed Xero price already covered whatever consumables it covered; charging the app's %
+on top would add money the client never agreed to. Zero rather than *dropped*, because a
+dropped row offers a `↩` restore that would silently inflate the invoice.
+
+Variations keep their own sundries and their own prices — the app did price those, and they
+stack on top exactly as on any other job.
+
+The honoured line goes out on **account 201**, so the invoice's own 201/202 split stays
+correct — which matters, since that's the same split `/auth/accepted-quotes` reads.
+
+The review screen never labels this "as quoted": the section reads **"Labour — as agreed
+(pre-app quote)"**, the line detail reads *"agreed before this job was measured here"*, and
+a note says what is deliberately not billed and that extras belong on Variations.
+
+**One thing left as-is:** the deposit/instalment prefills come from `computeDepositPlan()`
+over engine labour, so on a flagged job they forecast against the internal estimate rather
+than the honoured total. They are reference-only and hand-corrected by design
+(`FINAL_INVOICE_SPEC.md`: the invoice goes out at the full amount, payments are applied in
+Xero), so this changes no money — it just means the prefill is a worse first guess on these
+jobs than on others.
 
 ## Cleanup — a future prompt, NOT part of this build
 
@@ -201,5 +228,8 @@ If full removal is wanted later, that is its own separate piece of work:
    through `computeProfitability`.
 5. Restore the client quote view/PDF to always build the work card from engine rows, and
    to always render payment/terms.
+6. In `buildFinalInvoiceModel()`, drop the honoured branch so the imported lump becomes a
+   plain `if` again, restore the unconditional sundries calculation, and remove the
+   `honouredLabour` field plus the review screen's wording branches.
 
 Do not attempt any of that until it's explicitly asked for.

@@ -1878,7 +1878,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.33.1</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.34.0</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -10400,16 +10400,35 @@ function buildFinalInvoiceModel() {
     labour.push({ id: 'cu' + i, desc: (it.description || 'Custom line') + (it.applyMarkup === false ? ' (fixed price)' : ''),
       raw: t, amount: it.applyMarkup === false ? t : t * muInv, dropped: false });
   });
-  // Xero-imported jobs (importAcceptedQuote()) stamp the already-agreed
-  // total onto acceptedSnapshot.estQuoteTotal with zero rooms, so rawOrig/
-  // labour above see nothing for that scope even after real rooms get added
-  // later (e.g. a variation tracked here) -- same gap as Summary's tcOrig,
-  // see the matching comment in renderSummary(). Pushed in as its own
-  // labour line AFTER the muInv pass above (not into rawOrig itself), since
-  // it's already a final, already-marked-up figure and re-applying markup/
-  // sundries on top of it would double them up. Droppable like any other
-  // line if it turns out to have been invoiced separately in Xero already.
-  if (job && job.acceptedSnapshot && job.acceptedSnapshot.importedFromXero) {
+  // A job honoured at a pre-app Xero labour price (jobIsXeroImported) bills
+  // that ONE figure for labour, and every engine labour line assembled above
+  // is discarded: rooms, exterior, kitchen, fitted units, the standalone
+  // top-up and custom lines were all priced by this app AFTER the client had
+  // already agreed a labour price, so billing them alongside it would charge
+  // the same work twice. Materials are untouched below -- as used, same as
+  // every other job (see jobIsXeroImported for the billing model). Extras
+  // agreed since belong to Variations, which are assembled separately and
+  // still stack on top. Droppable like any other line.
+  var honouredLabourInv = jobShowsHonouredQuote(job) ? jobHonouredLabour(job) : null;
+  if (honouredLabourInv != null) {
+    labour.length = 0;
+    labour.push({
+      id: 'honoured',
+      desc: 'Labour as agreed' + (job.xeroQuoteNumber ? ' (' + job.xeroQuoteNumber + ')' : ''),
+      raw: honouredLabourInv, amount: honouredLabourInv, dropped: false
+    });
+  } else if (job && job.acceptedSnapshot && job.acceptedSnapshot.importedFromXero) {
+    // Xero-imported jobs (importAcceptedQuote()) stamp the already-agreed
+    // total onto acceptedSnapshot.estQuoteTotal with zero rooms, so rawOrig/
+    // labour above see nothing for that scope even after real rooms get added
+    // later (e.g. a variation tracked here) -- same gap as Summary's tcOrig,
+    // see the matching comment in renderSummary(). Pushed in as its own
+    // labour line AFTER the muInv pass above (not into rawOrig itself), since
+    // it's already a final, already-marked-up figure and re-applying markup/
+    // sundries on top of it would double them up. Droppable like any other
+    // line if it turns out to have been invoiced separately in Xero already.
+    // Never both this and the honoured line: the honoured figure supersedes
+    // this baseline everywhere (Summary, the client quote, here).
     var importedAmt = +job.acceptedSnapshot.estQuoteTotal || 0;
     if (importedAmt > 0.005) {
       labour.push({
@@ -10422,7 +10441,12 @@ function buildFinalInvoiceModel() {
   // As the quote bills it: % of raw original labour, marked up. (The quote
   // line has never included the spray-sundries bump — mirrored, not fixed
   // here: labour and sundries go out AS QUOTED.)
-  var sundries = rawOrig * (settings.sundriesPct || 0) / 100 * muInv;
+  // Zero on a honoured job: sundries are a % of THIS APP's labour, and the
+  // agreed Xero price already covered whatever consumables it covered.
+  // Charging the app's % on top would add money the client never agreed to.
+  // Zero rather than dropped so the row simply isn't there — a dropped row
+  // offers a ↩ restore, which here would silently inflate the invoice.
+  var sundries = honouredLabourInv != null ? 0 : rawOrig * (settings.sundriesPct || 0) / 100 * muInv;
 
   // Variations — same figures the Summary card shows. Commercial% applies
   // here too (same reasoning as muInv above), stacking with markup in
@@ -10493,6 +10517,10 @@ function buildFinalInvoiceModel() {
   var plan = computeDepositPlan(rawOrig, materialsSnapshotTotal(), realisticDays(ttOrig), sprayOrig, ttOrig, customInvSplit.marked, customInvSplit.flat);
   return {
     labour: labour, sundries: { amount: sundries, dropped: false },
+    // Set (a number) only on a job honoured at a pre-app labour price — the
+    // review screen reads it purely to word the labour section honestly, so
+    // "as quoted" never appears over a figure this app didn't quote.
+    honouredLabour: honouredLabourInv,
     variations: variations, varSundries: { amount: varSundries, dropped: false },
     materials: materials, unconfirmedCount: inv.unconfirmed.length,
     deposit: Math.round(plan.deposit * 100) / 100, instalments: 0,
@@ -10590,8 +10618,15 @@ function renderFinalInvoice() {
       '<div class="card-header" style="padding:0 0 4px">'+title+'</div>'+html+'</div>';
   }
 
-  var labourHtml = s.labour.map(function(l) { return lineRow('labour', l, 'as quoted'); }).join('')
-    + (s.sundries.amount > 0.005 ? lineRow('sundries', Object.assign({ desc: 'Sundries & Consumables' }, s.sundries), '% of labour, as quoted') : '');
+  // Honoured jobs: one labour line this app didn't price, so it can't be
+  // labelled "as quoted" — and the sundries row is absent entirely (amount 0,
+  // see buildFinalInvoiceModel).
+  var isHonouredInv = s.honouredLabour != null;
+  var labourHtml = s.labour.map(function(l) {
+      return lineRow('labour', l, isHonouredInv ? 'agreed before this job was measured here' : 'as quoted');
+    }).join('')
+    + (s.sundries.amount > 0.005 ? lineRow('sundries', Object.assign({ desc: 'Sundries & Consumables' }, s.sundries), '% of labour, as quoted') : '')
+    + (isHonouredInv ? '<div style="font-size:12px;color:var(--text2);padding-top:8px">The app\'s own labour, sundries and custom lines for this job are deliberately not billed — that work is what the agreed price covers. Extras agreed since belong on Variations below.</div>' : '');
 
   var pendingLive = s.variations.filter(function(l) { return l.signoff === 'pending' && !l.dropped; }).length;
   var varHtml = s.variations.length
@@ -10631,9 +10666,11 @@ function renderFinalInvoice() {
     '</div>';
 
   el.innerHTML =
-    '<div style="font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.5">Labour as quoted · materials as used · variations at agreed prices. Drop lines with ×, correct the deductions against what was really invoiced, then create the draft.</div>'+
+    '<div style="font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.5">'+
+      (isHonouredInv ? 'Labour honoured at the pre-app price' : 'Labour as quoted')+
+      ' · materials as used · variations at agreed prices. Drop lines with ×, correct the deductions against what was really invoiced, then create the draft.</div>'+
     section('Invoice description', descHtml)+
-    section('Labour — as quoted', labourHtml)+
+    section(isHonouredInv ? 'Labour — as agreed (pre-app quote)' : 'Labour — as quoted', labourHtml)+
     section('Variations', varHtml)+
     section('Materials — as used', matHtml + unconfirmedNote)+
     '<div class="card" style="padding:12px 14px;margin-bottom:12px">'+
