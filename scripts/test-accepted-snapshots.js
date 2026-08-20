@@ -80,7 +80,13 @@ async function seed(db) {
   page.on('console', (m) => { if (m.type() === 'error') console.log('  [console.error]', m.text()); });
 
   await page.goto(BASE, { waitUntil: 'networkidle' });
-  await page.waitForFunction(() => typeof window.renderSummary === 'function' && Array.isArray(window.rooms) && window.rooms.length > 0, null, { timeout: 20000 });
+  // Wait only for the app to be up and to have LOADED its jobs list -- not for
+  // rooms. Which job it opens on first load is whatever localStorage or the
+  // server's updated_at ordering says, and on a fresh database that is not the
+  // fixture; requiring rooms here would time out rather than fail a check.
+  // Pointing it at the fixture and reloading is what makes the state definite.
+  await page.waitForFunction(() => typeof window.renderSummary === 'function'
+    && Array.isArray(window.jobs) && window.jobs.length > 0, null, { timeout: 20000 });
   await page.evaluate((j) => { activeJobId = j; localStorage.setItem('pe-active-job-id', j); }, JOB_ID);
   await page.reload({ waitUntil: 'networkidle' });
   await page.waitForFunction(() => window.rooms && window.rooms.length === 2 && window.materialsSnapshot && window.materialsSnapshot.length === 2, null, { timeout: 20000 });
