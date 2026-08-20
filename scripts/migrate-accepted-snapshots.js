@@ -14,15 +14,18 @@
 // come from Xero, where the documents the client actually received have been
 // sitting unchanged the whole time:
 //
-//   1. The job's own ACCEPTED Xero quote (jobs.data.xeroQuoteId). Itemised,
-//      exact, and the literal document the client agreed to. Best case.
-//   2. The job's Xero invoice (jobs.data.xeroInvoiceId), for a job invoiced
-//      without a quote link. Itemised, and real money — but it is what was
-//      BILLED, so variations and materials-as-used are in it. Flagged.
-//   3. A match by contact name and date, for jobs whose Xero link was never
-//      recorded. Proposed, never applied without --allow-fuzzy.
-//   4. Nothing. Left alone, and listed — a job with no Xero record is one to
-//      look at by hand, not to guess at.
+//   1. The job's own Xero QUOTE (jobs.data.xeroQuoteId / xeroQuoteNumber).
+//      Itemised, exact, and the literal document the client agreed to.
+//   2. A match by contact name, reference and date, for jobs whose Xero link
+//      was never recorded. Proposed, never applied without --allow-fuzzy.
+//   3. Nothing. Left alone, and listed — a job with no Xero quote is one to
+//      look at by hand, not to guess at. Run with --explain to see why.
+//
+// QUOTES ONLY by default. --include-invoices adds the job's Xero invoice as a
+// fallback for jobs whose quote isn't in Xero at all; it is off by default
+// because an invoice is the BILL — variations and materials-as-used are inside
+// it — so reconciling an accepted quote from one silently records a figure the
+// client never agreed to.
 //
 // Snapshots written here are marked 'xero_lines' or 'totals_only' rather than
 // 'full', so nothing pretends to be a capture taken at the moment of
@@ -33,6 +36,8 @@
 //   node scripts/migrate-accepted-snapshots.js              # dry run (default)
 //   node scripts/migrate-accepted-snapshots.js --apply      # write snapshots
 //   node scripts/migrate-accepted-snapshots.js --apply --allow-fuzzy
+//   node scripts/migrate-accepted-snapshots.js --explain    # why didn't X match?
+//   node scripts/migrate-accepted-snapshots.js --include-invoices
 //   node scripts/migrate-accepted-snapshots.js --file export.json [--apply]
 //   node scripts/migrate-accepted-snapshots.js --job <id> --apply
 //
@@ -52,7 +57,10 @@ const axios = require('axios');
 const db = require('../db');
 const { getAccessToken } = require('../routes/xero');
 
-const XERO_API_URL = 'https://api.xero.com/api.xro/2.0';
+// Overridable so the paging loop can be exercised against a stub — the one
+// part of this script that --file cannot test, and the part that was silently
+// dropping every quote past the first hundred.
+const XERO_API_URL = process.env.XERO_API_URL || 'https://api.xero.com/api.xro/2.0';
 
 const argv = process.argv.slice(2);
 const hasFlag = (f) => argv.includes(f);
@@ -62,6 +70,17 @@ const APPLY = hasFlag('--apply');
 const ALLOW_FUZZY = hasFlag('--allow-fuzzy');
 const ONLY_JOB = flagValue('--job');
 const EXPORT_FILE = flagValue('--file');
+// QUOTES ONLY unless asked otherwise. An invoice is the BILL -- variations and
+// materials-as-used are inside it -- so reconciling an accepted quote from one
+// records a number the client never agreed to as though they had. It stays
+// available behind a flag for jobs whose quote genuinely doesn't exist in Xero,
+// where a caveated invoice figure beats a figure that keeps drifting, but it is
+// not something to opt into by accident.
+const INCLUDE_INVOICES = hasFlag('--include-invoices');
+// Print the near-misses for every job that didn't match. The answer to "but
+// it IS in Xero" is always in here: a contact typed differently, a date
+// outside the window, or a document that was never loaded at all.
+const EXPLAIN = hasFlag('--explain');
 // How far apart an acceptance date and a Xero document date may be and still
 // be considered the same job, when there's no id to go on. Wide enough for
 // "quoted in March, accepted in April", narrow enough that a repeat client's
@@ -126,6 +145,31 @@ function xeroDate(v) {
   return String(v).slice(0, 10);
 }
 
+// Xero returns at most 100 records per page and gives no "more pages" flag --
+// a short page IS the end marker. Fetching without a `page` parameter silently
+// hands back the first 100 and nothing else, which for a full-history sweep
+// like this one is the difference between "no matching Xero document" and
+// "that quote was never loaded". Anything past the first hundred quotes simply
+// did not exist as far as the matcher was concerned.
+const XERO_PAGE_SIZE = 100;
+async function xeroGetAllPages(pathname, key) {
+  const out = [];
+  for (let page = 1; ; page++) {
+    const sep = pathname.includes('?') ? '&' : '?';
+    const data = await xeroGet(`${pathname}${sep}page=${page}`);
+    const rows = data[key] || [];
+    out.push(...rows);
+    if (rows.length < XERO_PAGE_SIZE) break;
+    // A hard stop so a paging bug on either side can't spin forever against a
+    // rate-limited API. 20,000 documents is far past this business's history.
+    if (page >= 200) {
+      console.warn(`  ⚠ stopped paging ${key} at page ${page} — check the result looks complete`);
+      break;
+    }
+  }
+  return out;
+}
+
 async function loadXeroDocuments() {
   if (EXPORT_FILE) {
     const raw = JSON.parse(fs.readFileSync(EXPORT_FILE, 'utf8'));
@@ -135,28 +179,99 @@ async function loadXeroDocuments() {
       throw new Error(`${EXPORT_FILE} holds no Quotes or Invoices — expected a Xero API response body or an array of documents.`);
     }
     return quotes.map(q => normaliseDocument(q, 'quote'))
-      .concat(invoices.map(i => normaliseDocument(i, 'invoice')));
+      .concat(INCLUDE_INVOICES ? invoices.map(i => normaliseDocument(i, 'invoice')) : []);
   }
   // Every quote, not just ACCEPTED: a job may have been accepted in the app
   // and never flipped in Xero, and its SENT quote is still the document the
   // client agreed to.
-  const [quotes, invoices] = await Promise.all([
-    xeroGet('/Quotes'),
-    xeroGet('/Invoices?where=Type=="ACCREC"')
-  ]);
-  return (quotes.Quotes || []).map(q => normaliseDocument(q, 'quote'))
-    .concat((invoices.Invoices || []).map(i => normaliseDocument(i, 'invoice')));
+  const quotes = await xeroGetAllPages('/Quotes', 'Quotes');
+  const docs = quotes.map(q => normaliseDocument(q, 'quote'));
+  if (INCLUDE_INVOICES) {
+    const invoices = await xeroGetAllPages('/Invoices?where=Type=="ACCREC"', 'Invoices');
+    docs.push(...invoices.map(i => normaliseDocument(i, 'invoice')));
+  }
+  return docs;
 }
 
 // ── Matching a job to its Xero document ─────────────────────────────────────
 
-const normaliseName = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+// Words that carry no identifying information and differ freely between how a
+// client is typed into this app and how they're typed into Xero. Without this,
+// "Mrs J Patel" and "J Patel" are simply two different people.
+const NOISE_TOKENS = new Set([
+  'mr', 'mrs', 'ms', 'miss', 'dr', 'sir', 'madam',
+  'ltd', 'limited', 'llp', 'plc', 'inc', 'co', 'company',
+  'and', 'the', 'at', 'of'
+]);
+
+const tokenise = (v) => String(v || '')
+  .toLowerCase()
+  .replace(/&/g, ' and ')
+  .replace(/[^a-z0-9]+/g, ' ')
+  .trim()
+  .split(' ')
+  .filter(t => t && !NOISE_TOKENS.has(t));
+
+// How much of the SMALLER name is present in the larger, 0..1. Containment
+// rather than equality, because the two sides are the same client typed twice
+// by hand months apart: "D & S Hall" vs "D and S Hall", "Patel" vs "Mrs J
+// Patel", "Blake Ltd" vs "Blake Limited". Requiring those to be identical
+// after normalisation is why real matches were being reported as "no matching
+// Xero document" -- the document was right there, spelled slightly differently.
+function nameSimilarity(a, b) {
+  const A = tokenise(a), B = tokenise(b);
+  if (!A.length || !B.length) return 0;
+  const [small, large] = A.length <= B.length ? [A, B] : [B, A];
+  const largeSet = new Set(large);
+  const shared = small.filter(t => largeSet.has(t));
+  if (!shared.length) return 0;
+  // A single shared token has to be substantial to count -- two unrelated
+  // clients both on "Street" or "House" is not evidence of anything.
+  if (shared.length === 1 && shared[0].length < 4 && small.length > 1) return 0;
+  return shared.length / small.length;
+}
 
 function daysBetween(isoA, isoB) {
   if (!isoA || !isoB) return null;
   const a = Date.parse(isoA), b = Date.parse(isoB);
   if (isNaN(a) || isNaN(b)) return null;
   return Math.abs(a - b) / 86400000;
+}
+
+// Scores every candidate and returns them ranked, so both the matcher and
+// --explain read from the same numbers -- a near-miss report that scored
+// differently from the matcher would be worse than none.
+function scoreCandidates(job, docs) {
+  const d = job.data || {};
+  // The client can be recorded as xeroClient, and the Xero side can carry the
+  // identifying string as either the contact or the reference -- a job named
+  // for its address ("Ermine Street") frequently matches the Xero REFERENCE
+  // rather than the contact. Try each of ours against each of theirs and keep
+  // the best; a match found on any pairing is still a match.
+  const ourNames = [d.xeroClient, job.name].filter(Boolean);
+  const ourRefs = [d.xeroRef, job.name].filter(Boolean);
+  const acceptedAt = (d.acceptedAt || '').slice(0, 10) || null;
+  const best = (ours, theirs) => ours.reduce((m, o) => Math.max(m, nameSimilarity(o, theirs)), 0);
+
+  return docs.map((x) => {
+    const nameScore = best(ourNames, x.contactName);
+    const refScore = best(ourRefs, x.reference);
+    const identity = Math.max(nameScore, refScore * 0.9);
+    // Nothing recognisable in common: not a candidate at any date.
+    if (identity < 0.5) return null;
+    const gap = daysBetween(acceptedAt, x.date);
+    // The date is a TIEBREAKER, never a veto. It used to reject outright
+    // beyond the window, which threw away perfect name matches on old jobs --
+    // including any job with no acceptedAt recorded at all, and any quote
+    // written well before the client got round to saying yes. A far-off date
+    // now costs a candidate points and earns it a warning, rather than
+    // deleting it.
+    const dateScore = gap == null ? 0
+      : gap <= FUZZY_DAY_WINDOW ? 2 - (gap / FUZZY_DAY_WINDOW) * 2
+      : -1;
+    const score = identity * 4 + (nameScore > 0 && refScore > 0 ? 1 : 0) + dateScore + (x.kind === 'quote' ? 1 : 0);
+    return { doc: x, score, gap, nameScore, refScore, identity };
+  }).filter(Boolean).sort((a, b) => b.score - a.score);
 }
 
 function matchJob(job, docs) {
@@ -167,51 +282,40 @@ function matchJob(job, docs) {
     if (hit) return { doc: hit, confidence: 'exact', why: 'linked xeroQuoteId' };
   }
   if (d.xeroQuoteNumber) {
-    const hit = docs.find(x => x.kind === 'quote' && x.number && x.number === d.xeroQuoteNumber);
+    const hit = docs.find(x => x.kind === 'quote' && x.number
+      && x.number.trim().toUpperCase() === String(d.xeroQuoteNumber).trim().toUpperCase());
     if (hit) return { doc: hit, confidence: 'exact', why: 'linked quote number ' + d.xeroQuoteNumber };
   }
-  // 2. Invoiced without a quote link. Real money, but it's the BILL — it
-  // carries variations and materials as used, so it over-states the accepted
-  // quote. Recorded as such rather than presented as the agreed figure.
-  if (d.xeroInvoiceId) {
-    const hit = docs.find(x => x.kind === 'invoice' && x.id === d.xeroInvoiceId);
-    if (hit) return { doc: hit, confidence: 'exact', why: 'linked xeroInvoiceId (invoice, not quote)' };
+  // 2. The linked INVOICE, only when explicitly asked for (--include-invoices).
+  // It is the bill, not the quote: see the flag's comment.
+  if (INCLUDE_INVOICES) {
+    if (d.xeroInvoiceId) {
+      const hit = docs.find(x => x.kind === 'invoice' && x.id === d.xeroInvoiceId);
+      if (hit) return { doc: hit, confidence: 'exact', why: 'linked xeroInvoiceId (invoice, not quote)' };
+    }
+    if (d.xeroInvoiceNumber) {
+      const hit = docs.find(x => x.kind === 'invoice' && x.number
+        && x.number.trim().toUpperCase() === String(d.xeroInvoiceNumber).trim().toUpperCase());
+      if (hit) return { doc: hit, confidence: 'exact', why: 'linked invoice number ' + d.xeroInvoiceNumber };
+    }
   }
-  if (d.xeroInvoiceNumber) {
-    const hit = docs.find(x => x.kind === 'invoice' && x.number && x.number === d.xeroInvoiceNumber);
-    if (hit) return { doc: hit, confidence: 'exact', why: 'linked invoice number ' + d.xeroInvoiceNumber };
-  }
-  // 3. No link recorded. Contact + date, quotes ahead of invoices, nearest
-  // date wins. Never applied on its own say-so.
-  const wantName = normaliseName(d.xeroClient || job.name);
-  const wantRef = normaliseName(d.xeroRef);
-  const acceptedAt = (d.acceptedAt || '').slice(0, 10) || null;
-  const scored = docs
-    .map((x) => {
-      let score = 0;
-      const nameHit = wantName && normaliseName(x.contactName) === wantName;
-      const refHit = wantRef && normaliseName(x.reference) === wantRef;
-      if (nameHit) score += 3;
-      if (refHit) score += 3;
-      if (!score) return null;
-      const gap = daysBetween(acceptedAt, x.date);
-      if (gap == null) score += 0;
-      else if (gap > FUZZY_DAY_WINDOW) return null;
-      else score += 2 - (gap / FUZZY_DAY_WINDOW) * 2;
-      if (x.kind === 'quote') score += 1;
-      return { doc: x, score, gap };
-    })
-    .filter(Boolean)
-    .sort((a, b) => b.score - a.score);
+  // 3. No usable link. Contact/reference similarity, date as a tiebreaker.
+  // Never applied on its own say-so.
+  const scored = scoreCandidates(job, docs);
   if (!scored.length) return null;
+  const top = scored[0];
+  const how = top.nameScore >= top.refScore ? 'contact' : 'reference';
+  const exactness = top.identity >= 0.999 ? '' : ` (~${Math.round(top.identity * 100)}% name match)`;
+  const dateNote = top.gap == null ? ', no acceptance date to check against'
+    : top.gap > FUZZY_DAY_WINDOW ? `, but ${Math.round(top.gap)} days from acceptance — check this is the right job`
+    : `, ${Math.round(top.gap)} days from acceptance`;
   // Two candidates that score the same are a coin toss, and a coin toss over
   // what a client agreed to pay is not a migration, it's a guess.
-  if (scored.length > 1 && Math.abs(scored[0].score - scored[1].score) < 0.5) {
-    return { doc: scored[0].doc, confidence: 'ambiguous', why:
-      `${scored.length} similar Xero documents (${scored.slice(0, 3).map(s => s.doc.number || s.doc.id).join(', ')})` };
+  if (scored.length > 1 && Math.abs(top.score - scored[1].score) < 0.5) {
+    return { doc: top.doc, confidence: 'ambiguous', scored, why:
+      `${scored.length} similar Xero documents (${scored.slice(0, 3).map(c => c.doc.number || c.doc.id).join(', ')})` };
   }
-  return { doc: scored[0].doc, confidence: 'fuzzy', why:
-    `matched on ${wantName ? 'contact' : 'reference'}${scored[0].gap != null ? `, ${Math.round(scored[0].gap)} days from acceptance` : ''}` };
+  return { doc: top.doc, confidence: 'fuzzy', scored, why: `matched on ${how}${exactness}${dateNote}` };
 }
 
 // ── Rebuilding a snapshot from a Xero document ──────────────────────────────
@@ -421,7 +525,14 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-  console.log(`${docs.length} Xero documents loaded (${docs.filter(d => d.kind === 'quote').length} quotes, ${docs.filter(d => d.kind === 'invoice').length} invoices)\n`);
+  const quoteCount = docs.filter(x => x.kind === 'quote').length;
+  const invoiceCount = docs.filter(x => x.kind === 'invoice').length;
+  console.log(`${quoteCount} Xero quotes loaded`
+    + (INCLUDE_INVOICES ? ` · ${invoiceCount} invoices (--include-invoices)` : ' · invoices not searched (--include-invoices to add them)'));
+  // The count is worth reading. Xero pages at 100, and a total that lands
+  // exactly on a multiple of 100 is the shape a truncated fetch has.
+  if (quoteCount === 0) console.log('  ⚠ no quotes came back at all — is this the right Xero organisation?');
+  console.log('');
 
   const done = [], skipped = [], needsReview = [];
 
@@ -431,8 +542,14 @@ async function main() {
     if (!match) {
       // The figure the app has been showing, for the by-hand list — so a job
       // with no Xero record at least says what number is currently in play.
-      skipped.push({ job, reason: 'no matching Xero document',
-                     showing: d.acceptedSnapshot ? +d.acceptedSnapshot.estQuoteTotal || null : null });
+      // near: the best candidates the matcher DID consider, so --explain can
+      // say why none of them won rather than leaving "not in Xero" as the only
+      // available conclusion — which, when the document plainly is in Xero,
+      // is the wrong one.
+      skipped.push({ job, reason: 'no matching Xero quote',
+                     showing: d.acceptedSnapshot ? +d.acceptedSnapshot.estQuoteTotal || null : null,
+                     near: scoreCandidates(job, docs).slice(0, 3),
+                     hasLink: !!(d.xeroQuoteId || d.xeroQuoteNumber) });
       continue;
     }
     if ((match.confidence === 'fuzzy' || match.confidence === 'ambiguous') && !ALLOW_FUZZY) {
@@ -491,10 +608,31 @@ async function main() {
   }
 
   if (skipped.length) {
-    console.log(`NO XERO RECORD — ${skipped.length} job${skipped.length === 1 ? '' : 's'} left alone`);
-    skipped.forEach(({ job, reason, showing }) => {
+    console.log(`NO XERO QUOTE — ${skipped.length} job${skipped.length === 1 ? '' : 's'} left alone`);
+    skipped.forEach(({ job, reason, showing, near, hasLink }) => {
       console.log(line(job, showing, reason + (showing != null ? ' · that figure is still live and will keep drifting' : '')));
+      // A job that HAS a recorded quote id/number and still didn't match is a
+      // different problem from one that never had a link: its quote has been
+      // deleted or voided in Xero, or belongs to another organisation. Worth
+      // saying, because it is the case most likely to read as "but it's right
+      // there" when it isn't the same document any more.
+      if (hasLink) {
+        const d = job.data || {};
+        console.log(`  ${' '.repeat(34)} ${' '.repeat(12)}   ↳ this job is linked to ${d.xeroQuoteNumber || d.xeroQuoteId}, which was not in the Xero data — deleted, voided, or a different Xero organisation`);
+      }
+      if (EXPLAIN) {
+        if (!near || !near.length) {
+          console.log(`  ${' '.repeat(34)} ${' '.repeat(12)}   ↳ nothing in Xero shares a name or reference with "${(job.data || {}).xeroClient || job.name}"`);
+        } else {
+          near.forEach((c) => {
+            console.log(`  ${' '.repeat(34)} ${' '.repeat(12)}   ↳ closest: ${c.doc.kind} ${c.doc.number || c.doc.id} "${c.doc.contactName}"`
+              + ` ${gbp(c.doc.total)} · name ${Math.round(c.nameScore * 100)}% · ref ${Math.round(c.refScore * 100)}%`
+              + (c.gap == null ? ' · no acceptance date' : ` · ${Math.round(c.gap)} days apart`));
+          });
+        }
+      }
     });
+    if (!EXPLAIN) console.log('  Re-run with --explain to see the closest Xero documents and why each was rejected.');
     console.log('  These need the agreed figure entering by hand, or accepting that they stay live.\n');
   }
 

@@ -206,18 +206,47 @@ Three, in decreasing order of how hard they are to bypass:
 `npm run migrate:accepted-snapshots` (`scripts/migrate-accepted-snapshots.js`). Dry run
 by default; `--apply` writes. It does **not** recompute anything — recomputing is the
 bug. Figures come from Xero, where the documents the client actually received have been
-sitting unchanged the whole time. Match order:
+sitting unchanged the whole time.
+
+**Quotes only.** An invoice is the *bill* — variations and materials-as-used are inside
+it — so reconciling an accepted quote from one records a number the client never agreed
+to as though they had. `--include-invoices` opts in for jobs whose quote genuinely isn't
+in Xero, where a caveated invoice figure beats a figure that keeps drifting, but it is
+not something to hit by accident.
+
+Match order:
 
 1. `xeroQuoteId` / `xeroQuoteNumber` → the accepted quote. Itemised, exact →
    `xero_lines`.
-2. `xeroInvoiceId` / `xeroInvoiceNumber` → the invoice, for a job invoiced without a
-   quote link. Real money, but it's the *bill* — variations and materials-as-used are
-   inside it, so the snapshot carries an explicit caveat saying so.
-3. Contact name + reference + date proximity (`--fuzzy-days`, default 120). Listed as
+2. Contact name, reference and date, for jobs whose link was never recorded. Listed as
    **NEEDS A HUMAN** and never applied without `--allow-fuzzy`; two candidates within
    0.5 of each other are reported as ambiguous rather than picked.
-4. No match → left alone and listed, with whatever figure the app is currently showing,
-   so it's obvious which jobs still need a decision.
+3. No match → left alone and listed, with whatever figure the app is currently showing,
+   so it's obvious which jobs still need a decision. `--explain` prints the closest
+   Xero documents with their name/reference/date scores, so "but it *is* in Xero" always
+   has a visible answer.
+4. `--include-invoices` only: `xeroInvoiceId` / `xeroInvoiceNumber`, with an explicit
+   caveat stored in the snapshot.
+
+### Three things that made real matches disappear
+
+Worth stating, because each read on screen as "no matching Xero document" when the
+document was sitting in Xero the whole time:
+
+- **Xero pages at 100 records and gives no more-pages flag** — a short page *is* the
+  end marker. Fetching `/Quotes` without a `page` parameter returns the first hundred
+  and nothing else, so on any real history most quotes were never loaded. The fetch now
+  pages until a short page comes back.
+- **Names were compared for exact equality after normalisation**, so "Mrs J Patel" and
+  "J Patel", "D & S Hall" and "D and S Hall", "Blake Ltd" and "Blake Limited" were all
+  different people. Matching is now token containment with titles and company suffixes
+  treated as noise, and both `xeroClient` and the job name are tried against both the
+  Xero contact and the reference — a job named for its address often matches the
+  reference, not the contact.
+- **The date window was a veto**, discarding a perfect name match on a quote written
+  more than `--fuzzy-days` before acceptance, and scoring nothing at all for a job with
+  no `acceptedAt`. It is now a tiebreaker: a far-off date costs points and earns a
+  warning on the line rather than deleting the candidate.
 
 A document with no priced lines becomes `totals_only`: one honest lump. The agreed money
 is right and the breakdown is genuinely unknown — inventing a plausible split would be
