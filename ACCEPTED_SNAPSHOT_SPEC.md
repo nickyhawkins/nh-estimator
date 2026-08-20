@@ -103,6 +103,27 @@ document, Summary, and the final invoice tie out exactly, forever.
 untouched and stay editable — that is how an accepted job gets amended into a new
 revision. They are never used to re-derive an accepted figure.
 
+### Home and Summary read different sources, and must still agree
+
+Summary reads the snapshot. Home, the Jobs list and the attention strip read
+`acceptedSnapshot`'s cached headline, because they render jobs whose snapshots are not
+loaded (only the active job's are). That is fine while the cache tracks the snapshot —
+and `captureQuoteSnapshot()` keeps it in step for acceptances made in the app. A snapshot
+written any *other* way (the Xero reconciliation, another device) left it stale, and the
+same job then showed two different totals on two screens.
+
+Two changes close it. `jobHeadlineTotal()` states the order of authority once — frozen
+snapshot when loaded, then the cache, then the live figure — and Home reads through it,
+so the active job can never show a stale number. And `syncAcceptedSnapshotHeadline()`
+reconciles the cache the moment a job's snapshots load, so the mismatch heals by opening
+the job rather than needing a migration re-run. The snapshot itself is never touched;
+this only ever writes the cache that reads from it.
+
+A frozen job with **no measured scope** also no longer falls into Summary's "no rooms
+yet" empty state — a reconciled job may never have been measured in the app, and hiding
+the one figure that is certain about it was the wrong answer. It renders the frozen
+record instead, same shape as the imported-job branch.
+
 ### Relationship to the existing `acceptedSnapshot`
 
 `jobs.data.acceptedSnapshot` is a *different thing* and stays: a handful of comparison

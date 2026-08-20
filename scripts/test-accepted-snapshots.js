@@ -155,6 +155,27 @@ async function seed(db) {
   check('Summary hero is labelled as the accepted quote', afterDrift.heroLabel.includes('Accepted'), afterDrift.heroLabel);
   check('Summary discloses the live figure as an aside', afterDrift.bodyHasDriftNote);
 
+  // ── Home and Summary must never disagree ──────────────────────────────────
+  // They read different sources by design: Summary the snapshot, Home the
+  // cached headline on the job (because Home also renders jobs whose snapshot
+  // isn't loaded). A snapshot written by anything other than an in-app
+  // acceptance left that cache stale, and the same job then showed two
+  // different totals on two screens.
+  const twoScreens = await page.evaluate(() => {
+    // Simulate a snapshot written behind the app's back — the Xero
+    // reconciliation migration, or another device.
+    const j = activeJob();
+    j.acceptedSnapshot = Object.assign({}, j.acceptedSnapshot, { estQuoteTotal: 9999.99 });
+    syncAcceptedSnapshotHeadline(j.id);
+    renderDash(); renderSummary();
+    const home = (document.getElementById('dash-body').innerText.match(/£[\d,]+\.\d\d/) || [''])[0];
+    const hero = document.querySelector('#sum-data .hero-amount');
+    return { home, summary: hero ? hero.textContent.trim() : '(none)', cache: activeJob().acceptedSnapshot.estQuoteTotal };
+  });
+  check('a stale cached headline heals when the job loads', twoScreens.cache !== 9999.99, 'cache = ' + twoScreens.cache);
+  check('Home and Summary show the SAME total',
+    twoScreens.home === twoScreens.summary, `Home ${twoScreens.home} vs Summary ${twoScreens.summary}`);
+
   // ── Client-facing quote + PDF read the snapshot ───────────────────────────
   const quoteDoc = await page.evaluate(() => {
     openClientQuote();
