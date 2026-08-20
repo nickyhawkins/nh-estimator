@@ -5077,6 +5077,54 @@ function adoptQuoteSnapshots(jobId, serverList) {
   quoteSnapshots = deepFreezeSnapshot((serverList || []).concat(pending.filter(function(p) { return !serverVersions[p.version]; }))
     .sort(function(a, b) { return (b.version || 0) - (a.version || 0); }));
   quoteSnapshotsJobId = jobId;
+  syncAcceptedSnapshotHeadline(jobId);
+}
+
+// acceptedSnapshot's headline figures are a CACHE of the current revision, for
+// the views that render a job WITHOUT loading its snapshot -- the Jobs list,
+// the attention strip, Home's card. captureQuoteSnapshot() keeps it in step for
+// acceptances made here, but a snapshot written any other way (the Xero
+// reconciliation migration, another device) leaves it stale, and then Summary
+// shows the agreed figure while Home shows the old one for the same job. That
+// is exactly the mismatch this feature exists to prevent, reappearing one layer
+// out.
+//
+// So it is reconciled the moment a job's snapshots load: cheap, idempotent, and
+// it means the discrepancy heals itself by opening the job rather than needing
+// a migration re-run. The SNAPSHOT is never touched -- this only ever writes the
+// cache that reads from it.
+function syncAcceptedSnapshotHeadline(jobId) {
+  var job = jobs.find(function(j) { return j.id === jobId; });
+  if (!job || !jobQuoteIsFrozen(job)) return;
+  var snap = latestQuoteSnapshot(job);
+  var totals = (snap && snap.data && snap.data.totals) || null;
+  if (!totals || totals.incVat == null) return;
+  var cached = job.acceptedSnapshot || {};
+  if (cached.estQuoteTotal != null && Math.abs(+cached.estQuoteTotal - +totals.incVat) <= 0.005) return;
+  var lab = (snap.data && snap.data.labour) || {};
+  job.acceptedSnapshot = Object.assign({}, cached, {
+    estQuoteTotal: totals.incVat,
+    estLabourTotal: totals.labour,
+    estMaterialsTotal: totals.materials
+  });
+  // Only when the snapshot actually knows them -- a reconciled-from-Xero record
+  // has no day figures, and null would wipe the ones the job already had.
+  if (lab.onSiteDays != null) job.acceptedSnapshot.estOnSiteDays = lab.onSiteDays;
+  if (lab.calculatedDays != null) job.acceptedSnapshot.estWorkingDays = lab.calculatedDays;
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  renderJobs(); renderAttentionStrip();
+}
+
+// The headline total for a job, in the order of authority this whole feature
+// rests on: the frozen snapshot when it is loaded (only ever the active job's),
+// then acceptedSnapshot's cached copy for jobs whose snapshot is not loaded,
+// then the live figure for a draft. Reading the cache first -- which Home used
+// to do -- means showing a stale number next to a Summary reading the source.
+function jobHeadlineTotal(job) {
+  if (jobQuoteIsFrozen(job)) return frozenQuoteTotal(job);
+  if (job && job.acceptedSnapshot && +job.acceptedSnapshot.estQuoteTotal > 0) return +job.acceptedSnapshot.estQuoteTotal;
+  return lastSummaryTotals ? +lastSummaryTotals.estQuoteTotal : null;
 }
 
 // ── Building a snapshot ─────────────────────────────────────────────────────
@@ -14565,9 +14613,8 @@ function renderDash() {
     : st === 'declined' ? '✗ Declined' : 'Draft';
   var statusColour = st === 'accepted' || st === 'completed' || st === 'invoiced' ? 'var(--success)'
     : st === 'quoted' ? 'var(--accent)' : st === 'declined' ? 'var(--danger)' : 'var(--text2)';
-  var totalStr = job.acceptedSnapshot && +job.acceptedSnapshot.estQuoteTotal > 0
-    ? fmt(job.acceptedSnapshot.estQuoteTotal)
-    : (lastSummaryTotals ? fmt(lastSummaryTotals.estQuoteTotal) : '—');
+  var headlineTotal = jobHeadlineTotal(job);
+  var totalStr = headlineTotal == null ? '—' : fmt(headlineTotal);
   var schedLine = job.startDate && +job.scheduledDays > 0
     ? '📅 ' + fmtShortDate(job.startDate) + ' · ' + job.scheduledDays + 'd' : 'Not scheduled';
   var outstanding = null;
@@ -17146,7 +17193,30 @@ function renderSummary() {
     data.innerHTML = importedJobSummaryHtml(impJob);
     return;
   }
-  if(rooms.length===0&&extItems.length===0&&kitchenCalc.total<=0&&fuAgg.total<=0&&customItems.length===0){empty.style.display='flex';data.style.display='none';lastSummaryTotals=null;return;}
+  // A job whose quote is FROZEN has an agreed total whether or not it still has
+  // measured scope in the app -- a reconciled job may never have been measured
+  // here at all, and an accepted job's rooms can be cleared afterwards. Falling
+  // through to "no rooms yet" would hide the one figure that is certain about
+  // that job, so the frozen record is rendered instead. Same shape as the
+  // imported-job branch above, and for the same reason.
+  if(rooms.length===0&&extItems.length===0&&kitchenCalc.total<=0&&fuAgg.total<=0&&customItems.length===0){
+    if (jobQuoteIsFrozen(impJob)) {
+      empty.style.display='none'; data.style.display='block';
+      lastSummaryTotals = null; // nothing engine-computed to stamp or schedule from
+      data.innerHTML =
+        '<div class="hero" style="margin-top:16px">'+
+          '<div class="hero-label">Accepted Quote</div>'+
+          '<div class="hero-amount">'+fmt(frozenQuoteTotal(impJob) || 0)+'</div>'+
+          '<div class="hero-sub">'+escapeHtml(snapshotLevelLabel(latestQuoteSnapshot(impJob)))+
+            ' · revision '+latestQuoteSnapshot(impJob).version+'</div>'+
+          '<div class="hero-sub">No measured scope in the app — the agreed figures are the record</div>'+
+        '</div>'+
+        acceptedQuoteBannerHtml(impJob)+
+        frozenQuoteCardHtml(impJob);
+      return;
+    }
+    empty.style.display='flex';data.style.display='none';lastSummaryTotals=null;return;
+  }
   empty.style.display='none'; data.style.display='block';
   var tc=0,tt=0,sprayLabourS=0;
   // One calcRoom()/calcExtItem() evaluation per room/item for the whole
