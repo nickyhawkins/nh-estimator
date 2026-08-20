@@ -236,6 +236,28 @@ processed early takes, on a name match, the very quote a later job is explicitly
 to — and the same agreed figures get written onto two jobs. It happened on the first
 real run: two "Beryl Parsons" jobs both landed on £1,210.33.
 
+### Jobs imported from Xero are skipped
+
+`importAcceptedQuote()` creates a job from an already-accepted Xero quote and stamps the
+agreed total onto `acceptedSnapshot.estQuoteTotal`. That is a **stored constant** —
+Summary renders it directly via `importedJobSummaryHtml()`, no calc function involved —
+so these jobs were never drifting, which is the entire problem this migration repairs.
+Reconciling them gains nothing at best.
+
+At worst it destroys information. Once such a job is **amended** here — rooms added to
+work originally agreed in Xero — the app prices it as the frozen imported baseline *plus*
+the added scope. The Xero quote is then only part of the agreed money, and writing it as
+the whole snapshot would silently drop everything agreed since.
+
+The same applies to a job flagged `isXeroImported` with a `honouredLabourAmount`: its
+agreed total is that honoured figure plus materials as measured, which no single Xero
+quote states. Reconciling one from Xero under-records it by the whole materials side.
+
+They are therefore skipped and listed in their own section, never silently swallowed. The
+amended and honoured ones need a snapshot taken **in the app** (open the job, Amend) —
+the only place that can see every part of what was agreed at once. `--include-imported`
+overrides, and the report says so.
+
 ### `--allow-fuzzy` accepts a guess; it does not resolve an ambiguity
 
 Two different situations, and conflating them was dangerous. `--allow-fuzzy` accepts a
