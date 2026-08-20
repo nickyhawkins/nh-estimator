@@ -88,6 +88,7 @@ Cards top to bottom (some are collapsed — tap to open):
 - **Preparation** — the room's prep level; scales labour.
 - **Paint & Colour** — colour numbers per surface (walls / ceiling / woodwork / feature wall) and per-room **product overrides** for any of the roles when a room needs something other than your Settings defaults (primer can be set to "None").
 - **Preview** — the live estimated cost and time, updating as you type. It also shows for door/frame-only and feature-wall-only entries with no room dimensions.
+- **Paint Needed** — how many litres this room takes, per surface (walls, feature wall, ceiling, woodwork topcoat, woodwork primer, mist coat, panelling), updating as you type. Same figures Summary's materials list buys from, at your coverage rates (per-product where one is set in Rates → Paint Coverage, the standard rate otherwise), with each surface's spray uplift included and rounded up to the half litre. Surfaces you're not painting don't show a row. A feature wall in the room's own colour and product is included in the Walls figure rather than given its own line — that's one tin of paint, rounded up once — and the row says so: "Walls (incl. feature wall)". Staircase rooms show the card too, off the real staircase geometry.
 
 ### 4. Staircases (HSL)
 

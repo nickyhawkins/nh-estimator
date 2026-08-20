@@ -912,6 +912,30 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       <div class="breakdown-row"><span class="breakdown-label">Estimated cost</span><span class="breakdown-value" style="color:var(--accent)" id="prev-cost">—</span></div>
       <div class="breakdown-row"><span class="breakdown-label">Estimated time</span><span class="breakdown-value" id="prev-time">—</span></div>
     </div>
+    <!-- Paint quantities: the very litres calcRoom() already works out for
+         Summary's materials list (wallL/ceilL/glossL/primerL/mistL/panelL),
+         surfaced on the room form itself -- a wrong coat count or a spray
+         toggle left the wrong way shows up here, on the screen where it can
+         be fixed, instead of only inside the job-wide pooled figure on
+         Summary. Its own card rather than four more rows on Preview because
+         a staircase room shows it too (Preview is hidden in staircase mode --
+         calcHSLNow drives its own results card above); both paths fill it
+         through renderRoomPaintLitres(), so there is no second calculation
+         of a litre anywhere. -->
+    <div class="card" id="room-paint-card" style="display:none">
+      <div class="card-header">Paint Needed<small style="text-transform:none;letter-spacing:normal;font-weight:400"> — estimated litres</small></div>
+      <!-- The Walls label says so itself when a same-paint feature wall is
+           folded into its figure, rather than a note under the card that
+           would be wrong most of the time -- see renderRoomPaintLitres(). -->
+      <div class="breakdown-row" id="prev-l-wall-row" style="display:none"><span class="breakdown-label" id="prev-l-wall-label">Walls</span><span class="breakdown-value" id="prev-l-wall">—</span></div>
+      <div class="breakdown-row" id="prev-l-fw-row" style="display:none"><span class="breakdown-label">Feature wall</span><span class="breakdown-value" id="prev-l-fw">—</span></div>
+      <div class="breakdown-row" id="prev-l-ceil-row" style="display:none"><span class="breakdown-label">Ceiling</span><span class="breakdown-value" id="prev-l-ceil">—</span></div>
+      <div class="breakdown-row" id="prev-l-gloss-row" style="display:none"><span class="breakdown-label">Woodwork topcoat</span><span class="breakdown-value" id="prev-l-gloss">—</span></div>
+      <div class="breakdown-row" id="prev-l-primer-row" style="display:none"><span class="breakdown-label">Woodwork primer</span><span class="breakdown-value" id="prev-l-primer">—</span></div>
+      <div class="breakdown-row" id="prev-l-mist-row" style="display:none"><span class="breakdown-label">Mist coat</span><span class="breakdown-value" id="prev-l-mist">—</span></div>
+      <div class="breakdown-row" id="prev-l-panel-row" style="display:none"><span class="breakdown-label">Panelling</span><span class="breakdown-value" id="prev-l-panel">—</span></div>
+      <div class="settings-note" style="border-top:1px solid var(--border)">At your coverage rates (Rates → Paint Coverage), each surface's spray uplift included, rounded up to the half litre.</div>
+    </div>
     <button class="btn btn-danger" id="del-room-btn" style="display:none" onclick="deleteRoom()">Delete Room</button>
   </div>
 </div>
@@ -1899,7 +1923,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        major = reworks/breaking data changes, minor = new features,
        patch = fixes and small tweaks. Keep in sync with package.json's
        "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.36.1</div>
+  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.37.0</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -7590,6 +7614,7 @@ function goScreen(name) {
     document.querySelectorAll('#seg-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',prepVals[i]===10);});
     document.getElementById('del-room-btn').style.display='none';
     document.getElementById('room-preview').style.display='none';
+    hideRoomPaintLitres();
     ['wc','cc','xc'].forEach(function(k) { setSeg(k,2); });
     setRoomStaircase(false);
   } else if (name==='kitchen') {
@@ -8166,6 +8191,10 @@ function prepLabelFor(pct) {
 function fmt(n)     { return '£'+n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,','); }
 function fmtD(d)    { return d<0.1?'<0.1d':d.toFixed(1)+'d'; }
 function fmtM(n)    { return n.toFixed(2)+' m²'; }
+// Paint quantity. One decimal because every litre figure calcRoom() hands
+// out is already rounded up to the half litre, and 'L' to match how the
+// same litres read on Summary's materials rows ("12.5L · 1×10L + 1×2.5L").
+function fmtL(n)    { return n.toFixed(1)+' L'; }
 function uid()      { return Date.now().toString(36)+Math.random().toString(36).slice(2); }
 
 // Realistic on-site duration for SCHEDULING only -- never feeds cost. A
@@ -14833,6 +14862,49 @@ function syncVariationRow(rowId, togId, value) {
   row.style.display = (variationApplies() || value) ? 'flex' : 'none';
   tog.classList.toggle('on', !!value);
 }
+// Fills (or hides) the room form's "Paint Needed" card from a calcRoom()
+// result -- the same wallL/ceilL/glossL/primerL/mistL/panelL figures
+// computeMaterials() buys the job's paint from, never a second calculation
+// of the same litre. Both room types feed it: previewRoomNow() passes its
+// live preview room + calc, calcHSLNow() passes calcRoom() over
+// buildRoomFromForm() (a staircase's litres only mean anything against the
+// geometry overrides that same builder produces on save -- its own preview
+// maths stops at areas and cost).
+// Surfaces needing nothing keep their row hidden, and a line with no paint
+// at all (a wallpaper-only room, a door-count-only line before any coats
+// are set) hides the whole card rather than showing a column of dashes.
+function renderRoomPaintLitres(r, c) {
+  var card = document.getElementById('room-paint-card');
+  if (!card) return;
+  // A painted feature wall in the room's own colour AND product is one
+  // bucket of paint with the walls -- the same featureWallSharesWallPaint()
+  // rule computeMaterials() pools by -- so it shows as one combined Walls
+  // figure (wallLCombined, rounded up once over the combined area) rather
+  // than two rows that each rounded up to their own half litre and would
+  // add up to more than the job actually buys.
+  var shared = featureWallSharesWallPaint(r);
+  var wallLabel = document.getElementById('prev-l-wall-label');
+  if (wallLabel) wallLabel.textContent = shared ? 'Walls (incl. feature wall)' : 'Walls';
+  var shown = 0;
+  [['wall',   shared ? c.wallLCombined : c.wallL],
+   ['fw',     shared ? 0 : c.featureWallL],
+   ['ceil',   c.ceilL],
+   ['gloss',  c.glossL],
+   ['primer', c.primerL],
+   ['mist',   c.mistL],
+   ['panel',  c.panelL]].forEach(function(pair) {
+    var litres = +pair[1] || 0;
+    var row = document.getElementById('prev-l-' + pair[0] + '-row');
+    var val = document.getElementById('prev-l-' + pair[0]);
+    if (row) row.style.display = litres > 0 ? 'flex' : 'none';
+    if (litres > 0 && val) { val.textContent = fmtL(litres); shown++; }
+  });
+  card.style.display = shown ? 'block' : 'none';
+}
+function hideRoomPaintLitres() {
+  var card = document.getElementById('room-paint-card');
+  if (card) card.style.display = 'none';
+}
 function previewRoomNow() {
   // Shared fields (prep, making good, mist, wallpaper, windows/doors/
   // radiators) live on both room types now and all call previewRoom() on
@@ -14864,7 +14936,7 @@ function previewRoomNow() {
   if (roomShapeModeForm==='perimeter') dimsOK = perimVal>0 && H>0;
   else if (roomShapeModeForm==='segments') dimsOK = H>0 && segmentsForm.some(function(z){ return +z.l>0 && +z.w>0; });
   else dimsOK = L>0 && W>0 && H>0;
-  if(!dimsOK && !(fwWidthVal>0 && fwHeightVal>0) && !(doorQtyVal>0 || frameQtyVal>0)) { document.getElementById('room-preview').style.display='none'; return; }
+  if(!dimsOK && !(fwWidthVal>0 && fwHeightVal>0) && !(doorQtyVal>0 || frameQtyVal>0)) { document.getElementById('room-preview').style.display='none'; hideRoomPaintLitres(); return; }
   var r={l:L,w:W,h:H,wc:coats.wc,cc:coats.cc,xc:coats.xc,
     shapeMode:roomShapeModeForm,
     perimeterLM:perimVal,
@@ -14906,15 +14978,24 @@ function previewRoomNow() {
     panelItems:panelItemsForm, panelPrepPct:panelPrepPct,
     panelPrepCustom:+document.getElementById('r-panel-prep-custom').value,
     // Product overrides, so the preview's calcRoom() resolves the same
-    // coverage rates the saved room will (litres don't show on the preview
-    // card, but Summary reads the same calc — keep the inputs identical).
+    // coverage rates the saved room will — the Paint Needed card below and
+    // Summary's materials list both read those litres, so the inputs have
+    // to be identical. Colour numbers and BAND overrides ride along purely
+    // for featureWallSharesWallPaint(): nothing in calcRoom() prices off
+    // either, but that check is "same colour and same product", and without
+    // them a feature wall painted in the room's own colour would preview as
+    // its own separate litres while the job actually buys one combined tin.
+    colourNumber:roomColourNumbers.wall,
+    featureWallColourNumber:roomColourNumbers.featurewall,
     wallRangeOverride:roomOverrides.wall.range||undefined,
+    wallBandOverride:roomOverrides.wall.band||undefined,
     ceilingRangeOverride:roomOverrides.ceiling.range||undefined,
     topcoatRangeOverride:roomOverrides.topcoat.range||undefined,
     primerRangeOverride:roomOverrides.primer.none?undefined:(roomOverrides.primer.range||undefined),
     primerNone:roomOverrides.primer.none||undefined,
     mistRangeOverride:roomOverrides.mist.range||undefined,
     featurewallRangeOverride:roomOverrides.featurewall.range||undefined,
+    featurewallBandOverride:roomOverrides.featurewall.band||undefined,
     panelRangeOverride:roomOverrides.panel.range||undefined,
     excludedWalls:excludedWallsForm};
   var c=calcRoom(r);
@@ -14923,6 +15004,7 @@ function previewRoomNow() {
   document.getElementById('prev-ceil').textContent=fmtM(c.ceilArea);
   document.getElementById('prev-cost').textContent=fmt(c.total);
   document.getElementById('prev-time').textContent=fmtD(c.time);
+  renderRoomPaintLitres(r, c);
 
   // Wallpaper labour -- reads c.wpwCost/c.wpcCost straight from calcRoom()
   // (same numbers, single source of truth, already summed across whichever
@@ -15460,6 +15542,10 @@ function setRoomStaircase(on) {
   document.getElementById('card-hsl-woodwork').style.display = on ? 'block' : 'none';
   if (on) {
     document.getElementById('room-preview').style.display = 'none';
+    // Litres shown so far are the normal-room geometry's -- drop them
+    // rather than leave them on screen for the 80ms until calcHSL()'s
+    // debounce fires with the staircase's own figures.
+    hideRoomPaintLitres();
     setHSLFloors(hslFloors);
   } else {
     document.getElementById('hsl-results-card').style.display = 'none';
@@ -15744,6 +15830,18 @@ function calcHSLNow() {
   if(doorSkirtCostDisp>0) document.getElementById('hsl-r-doorskirt').textContent = fmt(doorSkirtCostDisp);
   document.getElementById('hsl-r-cost').textContent = fmt(totalCostDisp);
   document.getElementById('hsl-r-time').textContent = totalTimeDisp.toFixed(2)+' days';
+
+  // Paint quantities for a staircase room. This preview deliberately stops
+  // at areas/cost/time -- litres need the geometry-derived overrides
+  // (wallAreaOverride/ceilAreaOverride/woodAreaOverride) that only
+  // computeHSLOverrides() produces, since a staircase room's own l/w/h are
+  // the dummy 1x1x1 placeholders. So rather than re-deriving skirting area,
+  // self-priming coat swaps and panel primer a second time here, run the
+  // real calcRoom() over buildRoomFromForm() -- byte-for-byte the room this
+  // form is about to save -- and show what that says. Same figures Summary
+  // will buy from the moment it IS saved.
+  var hslRoom = buildRoomFromForm();
+  renderRoomPaintLitres(hslRoom, calcRoom(hslRoom));
 
   // Rolls to order -- reuses the SAME shared result elements a normal
   // room's Wallpaper card populates (wp-r-*); drop length shows as a
