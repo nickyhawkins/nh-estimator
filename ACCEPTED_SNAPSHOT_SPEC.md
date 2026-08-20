@@ -228,6 +228,30 @@ Match order:
 4. `--include-invoices` only: `xeroInvoiceId` / `xeroInvoiceNumber`, with an explicit
    caveat stored in the snapshot.
 
+### One Xero quote belongs to one job
+
+Every exact link in the run is resolved **before** any fuzzy guess is allowed to claim a
+document, and a matched document is then out of the pool. Without that ordering a job
+processed early takes, on a name match, the very quote a later job is explicitly linked
+to — and the same agreed figures get written onto two jobs. It happened on the first
+real run: two "Beryl Parsons" jobs both landed on £1,210.33.
+
+`--pick <jobId>=QU-0287` (repeatable) settles an ambiguous job by naming its quote
+outright, which beats turning `--allow-fuzzy` on for the whole run and trusting the
+top-scoring candidate. A pick that names a quote another job already holds is refused.
+
+### Reading the report
+
+`acceptedSnapshot.estQuoteTotal` is the **acceptance stamp** — the figure the app froze
+onto the job when it was marked accepted. It is *not* "what the app is showing", which
+is the live recalculation this script deliberately never runs. A gap between stamp and
+Xero quote means the app's own record and the Xero document disagree about that job
+(quote amended in Xero after acceptance, or the job edited here between sending and
+accepting) — not a measure of rate drift. Differences of a penny or two are this script
+summing rounded Xero lines against a figure the app rounded once, and are reported
+quietly; anything larger is flagged and summarised, because the Xero document wins and
+it is worth knowing which jobs are about to move.
+
 ### Three things that made real matches disappear
 
 Worth stating, because each read on screen as "no matching Xero document" when the
@@ -268,6 +292,10 @@ way to overwrite one.
 
 `--file <export.json>` takes a Xero export (a Quotes or Invoices API response body, or
 an array of either) for running without a live connection.
+
+**npm swallows flags.** `npm run migrate:accepted-snapshots --apply` runs a dry run and
+says nothing about it — the flag never reaches the script. The bare `--` separator is
+required: `npm run migrate:accepted-snapshots -- --apply`.
 
 The report names the drift it finds, e.g.:
 

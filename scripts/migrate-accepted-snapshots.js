@@ -37,6 +37,11 @@
 //   node scripts/migrate-accepted-snapshots.js --apply      # write snapshots
 //   node scripts/migrate-accepted-snapshots.js --apply --allow-fuzzy
 //   node scripts/migrate-accepted-snapshots.js --explain    # why didn't X match?
+//   node scripts/migrate-accepted-snapshots.js --pick <jobId>=QU-0287 --apply
+//
+// NB npm swallows flags: `npm run migrate:accepted-snapshots -- --apply`, with
+// the bare `--`, or the flag never reaches this script and the run silently
+// does something other than what was typed.
 //   node scripts/migrate-accepted-snapshots.js --include-invoices
 //   node scripts/migrate-accepted-snapshots.js --file export.json [--apply]
 //   node scripts/migrate-accepted-snapshots.js --job <id> --apply
@@ -81,6 +86,15 @@ const INCLUDE_INVOICES = hasFlag('--include-invoices');
 // it IS in Xero" is always in here: a contact typed differently, a date
 // outside the window, or a document that was never loaded at all.
 const EXPLAIN = hasFlag('--explain');
+// --pick <jobId>=<quoteNumber>, repeatable. Settles an ambiguous job by naming
+// its quote outright, which beats switching --allow-fuzzy on for the whole run
+// and trusting that the top-scoring candidate happened to be the right one.
+const PICKS = new Map();
+argv.forEach((a, i) => {
+  if (a !== '--pick') return;
+  const [jobId, ref] = String(argv[i + 1] || '').split('=');
+  if (jobId && ref) PICKS.set(jobId, ref.trim());
+});
 // How far apart an acceptance date and a Xero document date may be and still
 // be considered the same job, when there's no id to go on. Wide enough for
 // "quoted in March, accepted in April", narrow enough that a repeat client's
@@ -274,9 +288,16 @@ function scoreCandidates(job, docs) {
   }).filter(Boolean).sort((a, b) => b.score - a.score);
 }
 
-function matchJob(job, docs) {
+// Split in two on purpose. Every exact link in the whole run is resolved
+// BEFORE any fuzzy guess is allowed to claim a document -- see the two passes
+// in main(). Without that ordering, a job processed early can take, on a name
+// match, the very quote that a job processed later is explicitly linked to,
+// and the same agreed figures get written onto two different jobs. That
+// happened on the first real run: two "Beryl Parsons" jobs both landed on
+// £1,210.33, one by link and one by contact name.
+function matchExactLink(job, docs) {
   const d = job.data || {};
-  // 1. The job recorded which quote it produced. Nothing beats that.
+  // The job recorded which quote it produced. Nothing beats that.
   if (d.xeroQuoteId) {
     const hit = docs.find(x => x.kind === 'quote' && x.id === d.xeroQuoteId);
     if (hit) return { doc: hit, confidence: 'exact', why: 'linked xeroQuoteId' };
@@ -286,7 +307,7 @@ function matchJob(job, docs) {
       && x.number.trim().toUpperCase() === String(d.xeroQuoteNumber).trim().toUpperCase());
     if (hit) return { doc: hit, confidence: 'exact', why: 'linked quote number ' + d.xeroQuoteNumber };
   }
-  // 2. The linked INVOICE, only when explicitly asked for (--include-invoices).
+  // The linked INVOICE, only when explicitly asked for (--include-invoices).
   // It is the bill, not the quote: see the flag's comment.
   if (INCLUDE_INVOICES) {
     if (d.xeroInvoiceId) {
@@ -299,8 +320,13 @@ function matchJob(job, docs) {
       if (hit) return { doc: hit, confidence: 'exact', why: 'linked invoice number ' + d.xeroInvoiceNumber };
     }
   }
-  // 3. No usable link. Contact/reference similarity, date as a tiebreaker.
-  // Never applied on its own say-so.
+  return null;
+}
+
+// No usable link. Contact/reference similarity, date as a tiebreaker. Never
+// applied on its own say-so. `docs` here has already had every exactly-linked
+// document removed by main(), so a guess can never steal another job's quote.
+function matchFuzzy(job, docs) {
   const scored = scoreCandidates(job, docs);
   if (!scored.length) return null;
   const top = scored[0];
@@ -311,9 +337,16 @@ function matchJob(job, docs) {
     : `, ${Math.round(top.gap)} days from acceptance`;
   // Two candidates that score the same are a coin toss, and a coin toss over
   // what a client agreed to pay is not a migration, it's a guess.
-  if (scored.length > 1 && Math.abs(top.score - scored[1].score) < 0.5) {
-    return { doc: top.doc, confidence: 'ambiguous', scored, why:
-      `${scored.length} similar Xero documents (${scored.slice(0, 3).map(c => c.doc.number || c.doc.id).join(', ')})` };
+  // Only the candidates actually TIED with the leader make this ambiguous.
+  // Counting every scored candidate reported "26 similar Xero documents" for a
+  // repeat client with 26 quotes on file, which overstates the problem and,
+  // worse, gives nothing to choose between: the three ids it printed weren't
+  // necessarily the three that were close.
+  const tied = scored.filter(c => Math.abs(top.score - c.score) < 0.5);
+  if (tied.length > 1) {
+    return { doc: top.doc, confidence: 'ambiguous', scored, tied, why:
+      `${tied.length} equally good matches — ` + tied.slice(0, 4).map(c =>
+        `${c.doc.number || c.doc.id} ${gbp(c.doc.total)}${c.doc.date ? ' ' + c.doc.date : ''}`).join('  |  ') };
   }
   return { doc: top.doc, confidence: 'fuzzy', scored, why: `matched on ${how}${exactness}${dateNote}` };
 }
@@ -536,9 +569,54 @@ async function main() {
 
   const done = [], skipped = [], needsReview = [];
 
+  // ── Pass 1: every exact link in the run, before any guess ────────────────
+  // One Xero quote can only ever belong to one job. Resolving all the explicit
+  // links first, and taking those documents out of the pool, is what stops a
+  // name-based guess claiming a quote that another job is linked to by id.
+  const matches = new Map();
+  const claimed = new Map(); // doc id -> the job that holds it
+  for (const job of candidates) {
+    const m = matchExactLink(job, docs);
+    if (!m) continue;
+    matches.set(job.id, m);
+    if (m.doc.id) claimed.set(m.doc.id, job);
+  }
+
+  // ── Pass 2: fuzzy, over what's left ──────────────────────────────────────
+  // --pick jobId=QU-0287 forces one job onto one quote, which is how an
+  // ambiguous case gets settled: name it explicitly rather than turning
+  // --allow-fuzzy on for the whole run and hoping the leader was right.
+  for (const job of candidates) {
+    if (matches.has(job.id)) continue;
+    const forced = PICKS.get(job.id);
+    if (forced) {
+      const hit = docs.find(x => (x.number || '').trim().toUpperCase() === forced.toUpperCase() || x.id === forced);
+      if (!hit) {
+        skipped.push({ job, reason: `--pick ${forced} matched no Xero document`, showing: null, near: [], hasLink: false });
+        continue;
+      }
+      const owner = claimed.get(hit.id);
+      if (owner && owner.id !== job.id) {
+        skipped.push({ job, reason: `--pick ${forced} is already linked to "${owner.name}"`, showing: null, near: [], hasLink: false });
+        continue;
+      }
+      matches.set(job.id, { doc: hit, confidence: 'exact', why: `picked by hand (--pick ${forced})` });
+      if (hit.id) claimed.set(hit.id, job);
+      continue;
+    }
+    const available = docs.filter(x => !x.id || !claimed.has(x.id));
+    const m = matchFuzzy(job, available);
+    if (!m) continue;
+    matches.set(job.id, m);
+    // A fuzzy match claims its document too, so two same-named jobs can't both
+    // land on it. Greedy in job order -- good enough, because anything this
+    // reaches is going in front of a human anyway.
+    if (m.doc.id) claimed.set(m.doc.id, job);
+  }
+
   for (const job of candidates) {
     const d = job.data || {};
-    const match = matchJob(job, docs);
+    const match = matches.get(job.id) || null;
     if (!match) {
       // The figure the app has been showing, for the by-hand list — so a job
       // with no Xero record at least says what number is currently in play.
@@ -548,7 +626,7 @@ async function main() {
       // is the wrong one.
       skipped.push({ job, reason: 'no matching Xero quote',
                      showing: d.acceptedSnapshot ? +d.acceptedSnapshot.estQuoteTotal || null : null,
-                     near: scoreCandidates(job, docs).slice(0, 3),
+                     near: scoreCandidates(job, docs.filter(x => !x.id || !claimed.has(x.id))).slice(0, 3),
                      hasLink: !!(d.xeroQuoteId || d.xeroQuoteNumber) });
       continue;
     }
@@ -589,13 +667,35 @@ async function main() {
   if (done.length) {
     console.log((APPLY ? 'RECONCILED' : 'WOULD RECONCILE') + ` — ${done.length} job${done.length === 1 ? '' : 's'}`);
     done.forEach(({ job, built, match }) => {
-      const was = (job.data || {}).acceptedSnapshot ? +(job.data.acceptedSnapshot.estQuoteTotal) || null : null;
+      // acceptedSnapshot.estQuoteTotal is the ACCEPTANCE STAMP -- the figure
+      // the app froze onto the job when it was marked accepted. It is NOT
+      // "what the app is showing", which is the live recalculation this script
+      // deliberately never runs, and the earlier wording said otherwise.
+      // The distinction matters: a gap here is the app's own record and the
+      // Xero document disagreeing about this job (quote amended in Xero after
+      // acceptance, or the job edited in the app between sending and
+      // accepting), not a measure of how far rates have drifted.
+      const stamp = (job.data || {}).acceptedSnapshot ? +(job.data.acceptedSnapshot.estQuoteTotal) || null : null;
       const now = built.payload.totals.incVat;
-      const drift = was != null && Math.abs(now - was) > 0.005
-        ? `  (app was showing ${gbp(was)} — out by ${gbp(Math.abs(now - was))})` : '';
-      console.log(line(job, now, `${built.level}  ·  ${match.why}${drift}`));
+      const delta = stamp == null ? null : now - stamp;
+      // A penny or two is this script summing rounded Xero lines where the app
+      // rounded a float once. It is not a discrepancy and must not be shouted
+      // about alongside ones that are.
+      const note = delta == null || Math.abs(delta) <= 0.05 ? ''
+        : `  ⚠ acceptance stamp said ${gbp(stamp)} — differs by ${gbp(Math.abs(delta))}`;
+      console.log(line(job, now, `${built.level}  ·  ${match.why}${note}`));
       if (built.payload.reconciliation.caveat) console.log(`  ${' '.repeat(34)} ${' '.repeat(12)}   ⚠ ${built.payload.reconciliation.caveat}`);
     });
+    const big = done.filter(({ job, built }) => {
+      const stamp = (job.data || {}).acceptedSnapshot ? +(job.data.acceptedSnapshot.estQuoteTotal) || null : null;
+      return stamp != null && Math.abs(built.payload.totals.incVat - stamp) > 0.05;
+    });
+    if (big.length) {
+      console.log(`\n  ${big.length} job${big.length === 1 ? '' : 's'} above ${big.length === 1 ? 'disagrees' : 'disagree'} with the app's own acceptance stamp by more than a rounding penny.`);
+      console.log('  The Xero quote is the document the client actually received, so it wins — but these are');
+      console.log('  worth eyeballing before --apply, since a large gap usually means the quote was amended in');
+      console.log('  Xero after acceptance, or the job was edited here between sending the quote and accepting it.');
+    }
     console.log('');
   }
 
