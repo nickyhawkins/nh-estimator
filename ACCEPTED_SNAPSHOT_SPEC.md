@@ -236,9 +236,31 @@ processed early takes, on a name match, the very quote a later job is explicitly
 to — and the same agreed figures get written onto two jobs. It happened on the first
 real run: two "Beryl Parsons" jobs both landed on £1,210.33.
 
-`--pick <jobId>=QU-0287` (repeatable) settles an ambiguous job by naming its quote
-outright, which beats turning `--allow-fuzzy` on for the whole run and trusting the
-top-scoring candidate. A pick that names a quote another job already holds is refused.
+### `--allow-fuzzy` accepts a guess; it does not resolve an ambiguity
+
+Two different situations, and conflating them was dangerous. `--allow-fuzzy` accepts a
+*confident* name match — one plausible quote, sensible date. It deliberately will **not**
+accept:
+
+- **an ambiguous match** — several candidates scoring within 0.5 of each other. What the
+  client agreed to pay is not something a blanket flag gets to decide.
+- **a match outside the date window** — it may have been the only candidate, but the only
+  candidate can still be the wrong one. On the first real run this path proposed a
+  **2020** quote for a 2026 job, and `--allow-fuzzy` would have written it.
+
+Both go to **NEEDS YOUR DECISION**, which lists every candidate with its number, amount,
+date and contact, and prints the `--pick` line to paste.
+
+`--pick "<job name or id>"=QU-0287` (repeatable) settles one job by naming its quote.
+A pick naming a quote another job already holds is refused. It accepts the job **name**
+as well as the id, because names are what the report shows.
+
+### The report ends with what to do
+
+Each section is an *ask*, so the closing block turns them into numbered, pasteable
+commands in the order they should be run — apply the ready ones, `--pick` the undecided
+ones, `--explain` the unmatched ones — and states that nothing has been written and every
+command is safe to re-run.
 
 ### Reading the report
 
