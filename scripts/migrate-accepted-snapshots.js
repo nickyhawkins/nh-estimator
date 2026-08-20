@@ -334,7 +334,7 @@ function matchFuzzy(job, docs) {
   const exactness = top.identity >= 0.999 ? '' : ` (~${Math.round(top.identity * 100)}% name match)`;
   const dateNote = top.gap == null ? ', no acceptance date to check against'
     : top.gap > FUZZY_DAY_WINDOW ? `, but ${Math.round(top.gap)} days from acceptance — check this is the right job`
-    : `, ${Math.round(top.gap)} days from acceptance`;
+    : `, ${Math.round(top.gap)} day${Math.round(top.gap) === 1 ? '' : 's'} from acceptance`;
   // Two candidates that score the same are a coin toss, and a coin toss over
   // what a client agreed to pay is not a migration, it's a guess.
   // Only the candidates actually TIED with the leader make this ambiguous.
@@ -588,7 +588,13 @@ async function main() {
   // --allow-fuzzy on for the whole run and hoping the leader was right.
   for (const job of candidates) {
     if (matches.has(job.id)) continue;
-    const forced = PICKS.get(job.id);
+    // Accept the job's NAME as well as its id -- the report is full of names and
+    // the ids never appear on screen unless something needs deciding, so
+    // requiring an id would mean going and looking one up to answer a question
+    // the tool just asked you.
+    const forced = PICKS.get(job.id)
+      || PICKS.get(job.name)
+      || [...PICKS.entries()].find(([k]) => k.toLowerCase() === String(job.name || '').toLowerCase())?.[1];
     if (forced) {
       const hit = docs.find(x => (x.number || '').trim().toUpperCase() === forced.toUpperCase() || x.id === forced);
       if (!hit) {
@@ -630,8 +636,26 @@ async function main() {
                      hasLink: !!(d.xeroQuoteId || d.xeroQuoteNumber) });
       continue;
     }
-    if ((match.confidence === 'fuzzy' || match.confidence === 'ambiguous') && !ALLOW_FUZZY) {
-      needsReview.push({ job, match });
+    // --allow-fuzzy accepts a CONFIDENT guess. It must never resolve an
+    // AMBIGUITY: "several equally good candidates and I can't tell them apart"
+    // is not something a blanket flag gets to decide, because the thing being
+    // decided is what a client agreed to pay. Those need --pick, always.
+    //
+    // A match whose date sits outside the window is the same kind of problem
+    // wearing a different hat -- it was the only candidate, but the only
+    // candidate can still be the wrong one. On the first real run this path
+    // proposed a 2020 quote for a 2026 job.
+    const wildDate = match.confidence === 'fuzzy' && match.scored && match.scored[0]
+      && match.scored[0].gap != null && match.scored[0].gap > FUZZY_DAY_WINDOW;
+    if (match.confidence === 'ambiguous' || wildDate) {
+      needsReview.push({ job, match, hard: true,
+        why: match.confidence === 'ambiguous'
+          ? 'several equally good candidates — say which one'
+          : `nearest quote is ${Math.round(match.scored[0].gap)} days from acceptance` });
+      continue;
+    }
+    if (match.confidence === 'fuzzy' && !ALLOW_FUZZY) {
+      needsReview.push({ job, match, hard: false, why: 'matched by name, not by a recorded link' });
       continue;
     }
     const built = buildSnapshotFromDocument(job, match);
@@ -699,12 +723,32 @@ async function main() {
     console.log('');
   }
 
-  if (needsReview.length) {
-    console.log(`NEEDS A HUMAN — ${needsReview.length} job${needsReview.length === 1 ? '' : 's'} matched only by contact/date`);
-    needsReview.forEach(({ job, match }) => {
-      console.log(line(job, match.doc.total, `${match.doc.kind} ${match.doc.number || match.doc.id} · ${match.why}`));
+  // Two different asks, so two different sections. Lumping them together was
+  // most of why this report was hard to act on: "confirm this name match looks
+  // right" and "choose between five quotes" need different answers, and the
+  // one command offered (--allow-fuzzy) only ever addressed the first.
+  const softReview = needsReview.filter(r => !r.hard);
+  const hardReview = needsReview.filter(r => r.hard);
+
+  if (softReview.length) {
+    console.log(`MATCHED BY NAME — ${softReview.length} job${softReview.length === 1 ? '' : 's'}, no recorded link but only one plausible quote`);
+    softReview.forEach(({ job, match }) => {
+      console.log(line(job, match.doc.total, `${match.doc.number || match.doc.id} · ${match.why}`));
     });
-    console.log('  Check these are the right documents, then re-run with --allow-fuzzy.\n');
+    console.log('  If those look right, add --allow-fuzzy to accept them.\n');
+  }
+
+  if (hardReview.length) {
+    console.log(`NEEDS YOUR DECISION — ${hardReview.length} job${hardReview.length === 1 ? '' : 's'}; --allow-fuzzy will NOT settle these`);
+    hardReview.forEach(({ job, match, why }) => {
+      console.log(line(job, null, why));
+      const opts = (match.tied && match.tied.length ? match.tied : (match.scored || []).slice(0, 4));
+      opts.slice(0, 5).forEach((c) => {
+        console.log(`  ${' '.repeat(34)} ${' '.repeat(12)}   ${(c.doc.number || c.doc.id).padEnd(10)} ${gbp(c.doc.total).padStart(11)}  ${c.doc.date || ''}  ${c.doc.contactName}`);
+      });
+      console.log(`  ${' '.repeat(34)} ${' '.repeat(12)}   → --pick "${job.name}"=QU-XXXX`);
+    });
+    console.log('');
   }
 
   if (skipped.length) {
@@ -736,12 +780,48 @@ async function main() {
     console.log('  These need the agreed figure entering by hand, or accepting that they stay live.\n');
   }
 
+  // ── What to do next ─────────────────────────────────────────────────────
+  // The report used to end on a bare "re-run with --apply", which left every
+  // other section as an unanswered question. Each step below is a command that
+  // can be pasted, in the order it should be run.
   console.log('─'.repeat(72));
-  if (!APPLY) {
-    console.log('Dry run. Re-run with --apply to write these snapshots.\n');
-  } else {
-    console.log(`${done.length} accepted quote${done.length === 1 ? '' : 's'} frozen. Rate changes can no longer move them.\n`);
+  const cmd = 'npm run migrate:accepted-snapshots --';
+  const carry = [
+    ALLOW_FUZZY ? '--allow-fuzzy' : '',
+    INCLUDE_INVOICES ? '--include-invoices' : '',
+    ...[...PICKS.entries()].map(([k, v]) => `--pick "${k}"=${v}`)
+  ].filter(Boolean).join(' ');
+
+  if (APPLY) {
+    console.log(`${done.length} accepted quote${done.length === 1 ? '' : 's'} frozen. Rate changes can no longer move them.`);
+    if (hardReview.length || softReview.length || skipped.length) {
+      console.log(`Still outstanding: ${hardReview.length} needing a decision, ${softReview.length} name-matched, ${skipped.length} with no Xero quote.`);
+    }
+    console.log('');
+    return;
   }
+
+  console.log('WHAT TO DO NEXT\n');
+  let step = 1;
+  if (done.length) {
+    console.log(`  ${step++}. ${done.length} job${done.length === 1 ? ' is' : 's are'} ready. Nothing else is needed for these — write them:`);
+    console.log('        ' + [cmd, carry, '--apply'].filter(Boolean).join(' '));
+    console.log('     Re-running later is safe: anything already frozen is skipped.\n');
+  }
+  if (hardReview.length) {
+    console.log(`  ${step++}. ${hardReview.length} job${hardReview.length === 1 ? '' : 's'} above need you to name the right quote. Look each one up in Xero,`);
+    console.log('     then add a --pick for it (repeatable, and it can go on the same run as --apply):');
+    console.log('        ' + [cmd, carry, `--pick "${hardReview[0].job.name}"=QU-XXXX`, '--apply'].filter(Boolean).join(' '));
+    console.log('');
+  }
+  if (softReview.length && !ALLOW_FUZZY) {
+    console.log(`  ${step++}. ${softReview.length} job${softReview.length === 1 ? '' : 's'} matched on the client name alone. If those quotes look right, add --allow-fuzzy.\n`);
+  }
+  if (skipped.length) {
+    console.log(`  ${step++}. ${skipped.length} job${skipped.length === 1 ? ' has' : 's have'} no Xero quote at all. --explain says why for each.`);
+    console.log('     These stay live and keep drifting until a figure is entered by hand — decide whether that matters.\n');
+  }
+  console.log('  Nothing has been written. Every command above is safe to run more than once.\n');
 }
 
 main()
