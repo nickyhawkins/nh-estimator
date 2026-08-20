@@ -21,6 +21,11 @@
 //   3. Nothing. Left alone, and listed — a job with no Xero quote is one to
 //      look at by hand, not to guess at. Run with --explain to see why.
 //
+// IMPORTED JOBS ARE SKIPPED. A job created by importAcceptedQuote() already
+// holds its agreed total as a stored figure that no calc touches, so it never
+// drifted; and if it was amended here afterwards, the Xero quote covers only
+// the original part of what was agreed. --include-imported overrides.
+//
 // QUOTES ONLY by default. --include-invoices adds the job's Xero invoice as a
 // fallback for jobs whose quote isn't in Xero at all; it is off by default
 // because an invoice is the BILL — variations and materials-as-used are inside
@@ -82,6 +87,9 @@ const EXPORT_FILE = flagValue('--file');
 // where a caveated invoice figure beats a figure that keeps drifting, but it is
 // not something to opt into by accident.
 const INCLUDE_INVOICES = hasFlag('--include-invoices');
+// Jobs created by importAcceptedQuote() are skipped by default -- see
+// classifyImported() for why. --include-imported reconciles them anyway.
+const INCLUDE_IMPORTED = hasFlag('--include-imported');
 // Print the near-misses for every job that didn't match. The answer to "but
 // it IS in Xero" is always in here: a contact typed differently, a date
 // outside the window, or a document that was never loaded at all.
@@ -205,6 +213,49 @@ async function loadXeroDocuments() {
     docs.push(...invoices.map(i => normaliseDocument(i, 'invoice')));
   }
   return docs;
+}
+
+// ── Jobs imported from Xero ─────────────────────────────────────────────────
+// importAcceptedQuote() creates a job from an already-accepted Xero quote and
+// stamps the agreed total onto acceptedSnapshot.estQuoteTotal. That figure is a
+// STORED CONSTANT -- Summary renders it directly (importedJobSummaryHtml), no
+// calc function is involved -- so these jobs were never drifting, which is the
+// entire problem this migration exists to repair. Reconciling them achieves
+// nothing at best.
+//
+// At worst it destroys information. Once such a job is AMENDED here -- rooms
+// added to work that was originally agreed in Xero -- the app prices it as the
+// frozen imported baseline PLUS the added scope. The Xero quote is then only
+// part of the agreed money, and writing it as the whole snapshot would silently
+// drop everything agreed since.
+//
+// So they are skipped and listed, not silently swallowed: the amended ones need
+// a snapshot taken in the app (open the job, Amend), which is the only place
+// that can see both halves.
+function classifyImported(job, scopeCounts) {
+  const d = job.data || {};
+  const snap = d.acceptedSnapshot || {};
+  if (!snap.importedFromXero) {
+    // The other Xero-shaped job: measured normally, but with labour honoured at
+    // a price agreed in a pre-app quote. Its agreed total is that honoured
+    // figure plus materials as measured, which no Xero quote states -- so a
+    // Xero quote total is the wrong number for it too.
+    if (d.isXeroImported && d.honouredLabourAmount != null) {
+      return { imported: true, kind: 'honoured',
+               note: `labour honoured at ${gbp(+d.honouredLabourAmount)} — its agreed total is that plus materials as measured, which no single Xero quote states` };
+    }
+    return null;
+  }
+  const scope = scopeCounts.get(job.id) || 0;
+  const hasOwnScope = scope > 0
+    || (Array.isArray(d.customItems) && d.customItems.length > 0)
+    || (d.kitchen && Object.keys(d.kitchen).length > 0)
+    || (Array.isArray(d.fittedUnits) && d.fittedUnits.length > 0);
+  return hasOwnScope
+    ? { imported: true, kind: 'amended',
+        note: 'imported, then amended here — the Xero quote is only the original part of what was agreed' }
+    : { imported: true, kind: 'pure',
+        note: 'imported total is already a stored figure and does not drift' };
 }
 
 // ── Matching a job to its Xero document ─────────────────────────────────────
@@ -567,7 +618,15 @@ async function main() {
   if (quoteCount === 0) console.log('  ⚠ no quotes came back at all — is this the right Xero organisation?');
   console.log('');
 
-  const done = [], skipped = [], needsReview = [];
+  // Does each job have measured scope of its own? Needed to tell an untouched
+  // import from one that has been amended here since.
+  const scopeCounts = new Map();
+  for (const t of ['rooms', 'exterior_items']) {
+    const r = await db.query(`SELECT job_id, count(*)::int AS n FROM ${t} GROUP BY job_id`);
+    r.rows.forEach(row => scopeCounts.set(row.job_id, (scopeCounts.get(row.job_id) || 0) + row.n));
+  }
+
+  const done = [], skipped = [], needsReview = [], imported = [];
 
   // ── Pass 1: every exact link in the run, before any guess ────────────────
   // One Xero quote can only ever belong to one job. Resolving all the explicit
@@ -575,7 +634,16 @@ async function main() {
   // name-based guess claiming a quote that another job is linked to by id.
   const matches = new Map();
   const claimed = new Map(); // doc id -> the job that holds it
+  // Imported jobs come out of the run before anything is matched, so they can't
+  // claim a Xero quote that a normally-measured job needs.
+  const workable = [];
   for (const job of candidates) {
+    const imp = classifyImported(job, scopeCounts);
+    if (imp && !INCLUDE_IMPORTED) { imported.push({ job, ...imp }); continue; }
+    workable.push(job);
+  }
+
+  for (const job of workable) {
     const m = matchExactLink(job, docs);
     if (!m) continue;
     matches.set(job.id, m);
@@ -620,7 +688,7 @@ async function main() {
     if (m.doc.id) claimed.set(m.doc.id, job);
   }
 
-  for (const job of candidates) {
+  for (const job of workable) {
     const d = job.data || {};
     const match = matches.get(job.id) || null;
     if (!match) {
@@ -751,6 +819,27 @@ async function main() {
     console.log('');
   }
 
+  if (imported.length) {
+    const amended = imported.filter(i => i.kind !== 'pure');
+    console.log(`IMPORTED FROM XERO — ${imported.length} job${imported.length === 1 ? '' : 's'} skipped, deliberately`);
+    imported.forEach(({ job, note }) => {
+      const stamp = (job.data || {}).acceptedSnapshot ? +(job.data.acceptedSnapshot.estQuoteTotal) || null : null;
+      console.log(line(job, stamp, note));
+    });
+    console.log('  These already hold their agreed total as a stored figure, so no rate change can move it —');
+    console.log('  reconciling them from Xero would gain nothing.');
+    if (amended.length) {
+      // Two different reasons to land here, and only one of them is "amended":
+      // a honoured-labour job was never amended, its agreed total simply isn't
+      // any single Xero figure. The advice is the same for both, the wording
+      // shouldn't claim otherwise.
+      console.log(`  ${amended.length} of them ${amended.length === 1 ? 'holds' : 'hold'} agreed money that no Xero quote states in full.`);
+      console.log('  Those need a snapshot taken in the app — open the job and use Amend, which is the only');
+      console.log('  place that can see every part of what was agreed at once.');
+    }
+    console.log('  --include-imported reconciles them from Xero anyway, overwriting what is already there.\n');
+  }
+
   if (skipped.length) {
     console.log(`NO XERO QUOTE — ${skipped.length} job${skipped.length === 1 ? '' : 's'} left alone`);
     skipped.forEach(({ job, reason, showing, near, hasLink }) => {
@@ -816,6 +905,11 @@ async function main() {
   }
   if (softReview.length && !ALLOW_FUZZY) {
     console.log(`  ${step++}. ${softReview.length} job${softReview.length === 1 ? '' : 's'} matched on the client name alone. If those quotes look right, add --allow-fuzzy.\n`);
+  }
+  const amendedImports = imported.filter(i => i.kind !== 'pure');
+  if (amendedImports.length) {
+    console.log(`  ${step++}. ${amendedImports.length} imported job${amendedImports.length === 1 ? '' : 's'} hold agreed money no Xero quote states in full. Nothing to run here —`);
+    console.log('     open each in the app and use Amend, which freezes every part of what was agreed together.\n');
   }
   if (skipped.length) {
     console.log(`  ${step++}. ${skipped.length} job${skipped.length === 1 ? ' has' : 's have'} no Xero quote at all. --explain says why for each.`);
