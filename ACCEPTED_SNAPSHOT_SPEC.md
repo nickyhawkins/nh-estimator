@@ -281,6 +281,21 @@ amended and honoured ones need a snapshot taken **in the app** (open the job, Am
 the only place that can see every part of what was agreed at once. `--include-imported`
 overrides, and the report says so.
 
+### Quote status is the term that removes the ambiguity
+
+An ACCEPTED quote is not a slightly better candidate than a DRAFT for the same client —
+it is *the document*, and the draft is a discarded attempt. Scoring ignored status
+entirely at first, so a client with one accepted quote and three superseded drafts
+produced "4 equally good matches", and the run could pick a draft. Status is now weighted
+(ACCEPTED/INVOICED +6, SENT +1, DRAFT −3, DECLINED/DELETED −6), which collapses almost
+every ambiguity to a single obvious answer. Non-accepted quotes still score, because a
+job accepted in the app may never have been flipped in Xero; they simply can't outrank an
+accepted quote for the same client.
+
+Snapshots written before this was weighted may point at a draft. The migration audits
+already-frozen jobs against the current best candidate and reports **FROZEN AGAINST THE
+WRONG QUOTE** with the exact `--pick` to correct it. It cannot and does not rewrite them.
+
 ### `--allow-fuzzy` accepts a guess; it does not resolve an ambiguity
 
 Two different situations, and conflating them was dangerous. `--allow-fuzzy` accepts a
