@@ -2061,7 +2061,7 @@ function updateSyncStatus() {
   }
 }
 // Optimistic reset on reconnect, then flush whatever queued while offline.
-window.addEventListener('online', function() { serverAvailable = true; updateSyncStatus(); flushOfflineQueue(); });
+window.addEventListener('online', function() { serverAvailable = true; updateSyncStatus(); flushOfflineQueue(); flushPendingSnapshots(); });
 window.addEventListener('offline', updateSyncStatus);
 
 // Gate for the actions that NEED a live round-trip (Xero quote/contact
@@ -3758,6 +3758,30 @@ function updateXeroQuoteButton() {
 
 async function createXeroQuote(forceNew) {
   if (blockIfOffline('Sending a quote to Xero')) return;
+  // Sending an ACCEPTED job's quote again is the one outbound path that can't
+  // simply read the snapshot: the payload below is raw line totals plus a
+  // markup instruction that routes/xero.js applies server-side, so "send the
+  // frozen amounts" would mean a different document shape (no sundries line,
+  // no standalone line, markup zeroed), not a smaller change.
+  //
+  // What it must never do is what it did before: quietly build a fresh quote
+  // at today's rates for a job the client has already agreed, and leave both
+  // numbers looking equally official. So the drift is put on screen and the
+  // decision handed over -- and only when there IS drift, so the normal case
+  // (re-sending a quote that still prices identically) is untouched. Whatever
+  // is chosen, the accepted snapshot is not affected: nothing here writes one.
+  var xqJob = activeJob();
+  if (jobQuoteIsFrozen(xqJob)) {
+    var agreed = frozenQuoteTotal(xqJob);
+    var liveNow = lastSummaryTotals ? +lastSummaryTotals.estQuoteTotal || 0 : null;
+    if (liveNow != null && Math.abs(liveNow - agreed) > 0.005) {
+      var rev = latestQuoteSnapshot(xqJob).version;
+      if (!confirm('This job was accepted at ' + fmt(agreed) + ' (revision ' + rev + ').\n\n'
+        + 'Sending to Xero now builds the quote at TODAY’s rates: ' + fmt(liveNow) + '.\n\n'
+        + 'The accepted figures in this app stay as they are either way — only the Xero document would carry the new number.\n\n'
+        + 'Send anyway?')) return;
+    }
+  }
   var btn = document.getElementById('xero-quote-btn');
   // Amend-in-place when the job's existing quote is still amendable (per
   // Nicky 2026-07-23 — same quote number, no duplicate documents in Xero);
@@ -4173,6 +4197,11 @@ async function initApp() {
       loadLabourLog().catch(function(e) {
         console.log('Labour log fetch failed — profitability shows no logged days until On Site is opened:', e.message);
       }),
+      // Accepted-quote snapshots, eagerly for the same reason and a sharper
+      // one: on an accepted job every money figure Summary paints comes from
+      // here, and a late arrival would mean the first paint shows live
+      // today's-rates figures for a quote the client already signed.
+      loadQuoteSnapshots(syncJobId),
       // Xero status, then (if connected) the material-groups cache --
       // populated at startup, not just on a manual Settings "Refresh from
       // Xero", since computeMaterials() needs it wherever it runs. The
@@ -4199,6 +4228,11 @@ async function initApp() {
   // Anything queued while the app was last offline (writes survive in
   // localStorage across closes) goes out now that we're reachable again.
   flushOfflineQueue();
+  // Captures taken on site with no signal (see pendingQuoteSnapshots): they
+  // survive an app close in localStorage and go out now. Separate from the
+  // queue above because that one dedupes by path, and every capture posts to
+  // the same one.
+  flushPendingSnapshots();
   offerRoomDraftRestore();
 }
 
@@ -4520,6 +4554,11 @@ async function loadActiveJobData() {
   // concurrently (one round trip of latency per switch instead of five).
   // Each keeps its own isolated failure handling, same as before.
   var jobId = activeJobId;
+  // Cleared before the fetches, not after: quoteSnapshotsJobId is what every
+  // frozen-quote accessor checks, and leaving the OLD job's id on it for the
+  // duration of the round trip would let the new job render the old one's
+  // agreed total.
+  quoteSnapshots = []; quoteSnapshotsJobId = null;
   await Promise.all([
     apiGet('/api/rooms?job_id='+encodeURIComponent(jobId)).then(function(d) {
       rooms = d || [];
@@ -4550,7 +4589,12 @@ async function loadActiveJobData() {
     }).catch(function() { materialActuals = []; }),
     // Labour log for the same reason as actuals above: no localStorage
     // mirror, and the profitability card reads it on Summary.
-    loadLabourLog().catch(function() { labourLog = []; })
+    loadLabourLog().catch(function() { labourLog = []; }),
+    // Accepted-quote snapshots, same job-scoped no-mirror treatment. This one
+    // has to land before renderSummary() below or an accepted job would flash
+    // its LIVE figures -- today's rates on a quote the client already signed
+    // -- for a frame before the frozen ones replace them.
+    loadQuoteSnapshots(jobId)
   ]);
   ensureDefaultColour();
   matReorderMode = false; // reorder mode is per-visit, not per-job state
@@ -4743,6 +4787,32 @@ function setJobStatusById(jobId, newStatus, confirmMsg, opts) {
     // frozen estimate goes with it -- a later re-accept re-stamps fresh.
     job.acceptedSnapshot = null;
   }
+  // THE ACCEPTED-QUOTE FREEZE (see the Accepted-quote snapshots section).
+  // acceptedSnapshot above is a handful of comparison figures for the labour
+  // log and the scheduler; this is the agreed QUOTE -- every line item, price
+  // and rate -- written to its own append-only table so no later rate change
+  // can move it. Distinct concerns, deliberately not merged: one is a working
+  // baseline that follows the job's own lifecycle, the other is a permanent
+  // record of what a client agreed to.
+  //
+  // Conditions, all three necessary:
+  //   !isUncomplete  -- undoing a mis-tapped Mark Completed returns to the
+  //                     SAME acceptance; re-freezing there would append a
+  //                     spurious revision priced at today's rates.
+  //   activeJobId    -- the calc can only run over the loaded job's rooms.
+  //                     Accepting another job from the list (or from the
+  //                     inward Xero sync) records the debt instead and
+  //                     captures on first open, via captureSnapshotIfOwed().
+  //   no snapshot yet -- re-entering 'accepted' from 'quoted' after a bounce
+  //                     shouldn't stack revisions. Amending is an explicit
+  //                     action with its own button.
+  if (newStatus === 'accepted' && !isUncomplete) {
+    if (jobId === activeJobId) {
+      if (!latestQuoteSnapshot(job)) captureQuoteSnapshot(job, 'accepted');
+    } else {
+      job.snapshotOwed = true;
+    }
+  }
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   persistJobData(job);
   renderSummary(); renderJobs(); renderAttentionStrip();
@@ -4882,6 +4952,668 @@ function invoiceJobFromList(jobId) { setJobStatusById(jobId, 'invoiced', 'Mark t
 // Undo for a mis-tap on Mark Invoiced. NB re-entering 'completed' refreshes
 // completedAt to now -- acceptable for an undo taken moments later.
 function uninvoiceJob() { setJobStatus('completed', 'Move this job back to Completed?'); }
+
+// ── Accepted-quote snapshots ────────────────────────────────────────────────
+// THE FIX for the bug this whole section exists to close: every figure in
+// this app is DERIVED. Rooms store dimensions, not prices; the materials
+// snapshot stores quantities, not coverage rates; labour stores minutes-per-
+// m² constants on the Rates page. Rendering a quote re-runs calcRoom() and
+// friends over today's constants — which is exactly right for a draft, and
+// silently destructive the moment a client has said yes. Nudge a coverage
+// rate or the day rate and every accepted quote in the app re-prices itself,
+// invoiced jobs included, with no edit, no audit trail and nothing on screen
+// to say the number moved.
+//
+// So: at acceptance the calc pipeline runs ONCE, its whole output is
+// serialised, and the result is written to quote_snapshots (see db/setup.sql
+// and routes/api.js — append-only, no UPDATE, no DELETE). From that moment
+// the client-facing views read the snapshot and never call a calc function
+// for an accepted job's agreed figures again.
+//
+// What stays LIVE, deliberately, and is not a bug:
+//   - Draft/quoted jobs. Nothing is agreed yet; live is the whole point.
+//   - Materials ACTUALS, the labour log, variations, scheduling. None of
+//     those are the agreed quote — they're what's really happening on site,
+//     and they're supposed to move.
+//   - The Measure tab's own room breakdowns. They're the inputs, kept
+//     editable so an accepted job can be amended into a new revision.
+// What is FROZEN: the client quote preview and its PDF, Summary's agreed
+// total, the final invoice's quoted-labour lines, and the quoted side of the
+// profitability comparison.
+
+// A job whose quote is settled: past 'accepted' in the pipeline, so the
+// figures are a record rather than a working estimate. 'declined' is absent
+// on purpose — a declined quote was never agreed to, and 'draft'/'quoted'
+// obviously stay live.
+var FROZEN_QUOTE_STATUSES = ['accepted', 'completed', 'invoiced'];
+
+// Revisions for the ACTIVE job only, newest (highest version) first — the
+// same job-scoped, no-localStorage-mirror treatment actuals and the labour
+// log get, for the same reason: they're only ever needed for the job on
+// screen. quoteSnapshotsJobId guards against rendering job A's agreed total
+// while job B's fetch is still in flight.
+var quoteSnapshots = [];
+var quoteSnapshotsJobId = null;
+
+// Captures that haven't reached the server yet. Acceptance happens on site,
+// which is precisely where there's no signal, and a snapshot that only exists
+// in a failed fetch would leave the job accepted with nothing frozen — the
+// original bug, re-entered through the back door. These persist to
+// localStorage, render immediately as the live revision, and retry on
+// reconnect. apiPut's generic offline queue can't carry them: it dedupes by
+// (method, path), and every capture posts to the SAME path, so two jobs
+// accepted offline would collapse into one.
+var pendingQuoteSnapshots = [];
+try { pendingQuoteSnapshots = JSON.parse(localStorage.getItem('pe-pending-snapshots') || '[]') || []; } catch (e) { pendingQuoteSnapshots = []; }
+function persistPendingSnapshots() {
+  try { localStorage.setItem('pe-pending-snapshots', JSON.stringify(pendingQuoteSnapshots)); } catch (e) {}
+}
+
+// Guardrail 1 of 3 (spec §5), and the only one that acts at runtime: a
+// snapshot handed to a render path is deep-frozen, so a caller that treats it
+// like a live model — sorting rows in place, tacking a variation onto the
+// array, "correcting" a total — throws in strict mode and silently no-ops
+// otherwise, instead of quietly rewriting the agreed figures in memory and
+// showing them as if they were what the client signed. The other two are
+// structural: no write endpoint exists (routes/api.js), and
+// scripts/check-snapshot-guardrails.js fails the build if an accepted-render
+// path reaches for a calc function.
+function deepFreezeSnapshot(v) {
+  if (v && typeof v === 'object' && !Object.isFrozen(v)) {
+    Object.freeze(v);
+    Object.keys(v).forEach(function(k) { deepFreezeSnapshot(v[k]); });
+  }
+  return v;
+}
+
+// Newest revision for a job, pending captures included (a capture that hasn't
+// synced is still what was agreed — the server just doesn't know yet).
+// Returns null for any job that isn't the loaded one: every caller is a
+// render path for the job on screen, and answering from another job's list
+// would be worse than answering "no snapshot".
+function latestQuoteSnapshot(job) {
+  if (!job || job.id !== quoteSnapshotsJobId) return null;
+  return quoteSnapshots.length ? quoteSnapshots[0] : null;
+}
+
+// The one predicate every render path branches on. Both halves matter: a
+// snapshot on a draft job (left behind by an un-accept — they're never
+// deleted) must NOT freeze that draft, and an accepted job with no snapshot
+// must fall back to live rather than render blank. That second case is real:
+// jobs accepted before this shipped, and jobs the inward Xero sync accepts
+// while another job is open. Both are flagged on screen rather than papered
+// over — see acceptedQuoteBannerHtml().
+function jobQuoteIsFrozen(job) {
+  return !!(job && FROZEN_QUOTE_STATUSES.indexOf(job.status) !== -1 && latestQuoteSnapshot(job));
+}
+
+// An accepted job that SHOULD have frozen figures and doesn't — the state the
+// migration (scripts/migrate-accepted-snapshots.js) exists to clear, and the
+// only state in which an accepted job still renders from live rates.
+function jobQuoteNeedsSnapshot(job) {
+  return !!(job && FROZEN_QUOTE_STATUSES.indexOf(job.status) !== -1 && !latestQuoteSnapshot(job));
+}
+
+function loadQuoteSnapshots(jobId) {
+  return apiGet('/api/quote-snapshots?job_id=' + encodeURIComponent(jobId))
+    .then(function(list) { adoptQuoteSnapshots(jobId, list || []); })
+    // A failed fetch must not read as "this job has no agreed figures" and
+    // quietly resume live pricing. Pending local captures still stand; beyond
+    // those the render paths see no snapshot and say so.
+    .catch(function() { adoptQuoteSnapshots(jobId, []); });
+}
+
+function adoptQuoteSnapshots(jobId, serverList) {
+  if (jobId !== activeJobId) return;
+  var pending = pendingQuoteSnapshots.filter(function(p) { return p.jobId === jobId; })
+    .map(function(p) {
+      return { id: p.id, jobId: p.jobId, version: p.version, acceptedAt: p.acceptedAt,
+               reconciliationLevel: p.reconciliationLevel, note: p.note, data: p.data, unsynced: true };
+    });
+  // A pending capture the server has since accepted (flushed from another
+  // tab, or a response we never saw) would otherwise show twice.
+  var serverVersions = {};
+  (serverList || []).forEach(function(s) { serverVersions[s.version] = true; });
+  quoteSnapshots = deepFreezeSnapshot((serverList || []).concat(pending.filter(function(p) { return !serverVersions[p.version]; }))
+    .sort(function(a, b) { return (b.version || 0) - (a.version || 0); }));
+  quoteSnapshotsJobId = jobId;
+}
+
+// ── Building a snapshot ─────────────────────────────────────────────────────
+// Runs the whole calc pipeline once and serialises the RESULT. Two rules make
+// the difference between a snapshot and a bookmark:
+//
+//   1. Everything stored is a finished figure — descriptions, quantities,
+//      unit prices, line totals. Nothing here is an id pointing at a room or
+//      a materials line, because those get edited, recalculated and deleted
+//      for the rest of the job's life and the snapshot has to still render
+//      correctly afterwards.
+//   2. The RATES that produced the figures ride along. That's what makes the
+//      record auditable rather than merely fixed: a year later you can see
+//      not just that the walls came to £840 but that they were priced at
+//      3 min/m² on a £300 day rate over a 13 m²/L coverage.
+//
+// Returns null when there's nothing to freeze (an empty job), so the caller
+// can leave the status change alone rather than write an empty snapshot —
+// see POST /quote-snapshots on why a blank snapshot is worse than none.
+function buildAcceptedQuoteSnapshot(job) {
+  if (!job) return null;
+  // Scope rules mirror createXeroQuote()/openClientQuote() exactly: the quote
+  // is the ORIGINAL scope, variations settle on the final invoice. Anything
+  // flagged isVariation is out.
+  var quoteRooms = rooms.filter(function(r) { return !r.isVariation; });
+  var quoteExtItems = extItems.filter(function(it) { return !it.isVariation; });
+  var quoteKitchen = (job.kitchen && !job.kitchen.isVariation) ? job.kitchen : null;
+  var quoteUnits = fittedUnitList(job).filter(function(f) { return !f.isVariation; });
+  var kitchenCalc = calcKitchen(quoteKitchen);
+  var fuAgg = calcFittedUnitsAgg(quoteUnits);
+  var customItems = jobCustomItems(job);
+  var customSplit = customItemsSplit(job);
+  var honouredLabour = jobShowsHonouredQuote(job) ? jobHonouredLabour(job) : null;
+  var importedBaseline = honouredLabour != null ? 0
+    : (job.acceptedSnapshot && job.acceptedSnapshot.importedFromXero)
+      ? (+job.acceptedSnapshot.estQuoteTotal || 0) : 0;
+
+  var rawLabour = 0, workingDays = 0, sprayLabour = 0;
+  quoteRooms.forEach(function(r) { var c = calcRoom(r); rawLabour += c.total; workingDays += c.time; sprayLabour += c.sprayLabour || 0; });
+  quoteExtItems.forEach(function(it) { var c = calcExtItem(it); rawLabour += c.total; workingDays += c.time; sprayLabour += c.sprayLabour || 0; });
+  rawLabour += kitchenCalc.total + fuAgg.total;
+  workingDays += kitchenCalc.time + fuAgg.time;
+
+  var chargeableMats = materialsSnapshot.filter(function(l) { return l.chargeable !== false; });
+  var materialsTotal = chargeableMats.reduce(function(s, l) { return s + (+l.quantity || 0) * (+l.unitAmount || 0); }, 0);
+  var onSiteDays = realisticDays(workingDays);
+  var plan = computeDepositPlan(rawLabour, materialsTotal, onSiteDays, sprayLabour, workingDays, customSplit.marked, customSplit.flat);
+
+  // The client-facing document itself, row for row — the same model
+  // buildClientQuoteHtml()/buildClientQuotePdf() render from, so a frozen
+  // quote reopens as the exact page the client was shown. Variations are
+  // passed as an empty view: at acceptance none can exist yet by definition,
+  // and anything agreed later is a variation billed on the final invoice, not
+  // a retrospective edit to what was accepted.
+  var emptyVariations = { hasVariations: false, varLines: [], freeVars: [], varSundries: 0, varMk: 1,
+                          variationsTotal: 0, approvedTotal: 0, pendingCount: 0 };
+  var quoteModel;
+  try {
+    quoteModel = buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kitchenCalc,
+                                       fuAgg, emptyVariations, importedBaseline, honouredLabour);
+  } catch (err) {
+    console.error('Could not build the quote model for the snapshot', err);
+    return null;
+  }
+
+  var total = honouredLabour != null ? honouredLabour + materialsTotal : plan.total + importedBaseline;
+  if (!(total > 0.005) && !(materialsTotal > 0.005)) return null;
+
+  // Materials: the priced lines as billed, PLUS the calc's own working — how
+  // many litres each role needed and which tin combination that resolved to.
+  // The second half is why "we bought three 5L tins" can still be checked
+  // against the quote after the coverage rate has moved on.
+  var matsCalc = [];
+  try {
+    var mats = computeMaterials();
+    matsCalc = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows,
+                                    mats.featureWallRows, mats.panelRows, mats.masonryRows,
+                                    mats.extTopcoatRows, mats.extPrimerRows, mats.fuTopcoatRows, mats.fuPrimerRows)
+      .map(function(r) {
+        return { role: r.role || '', label: r.label || '', detail: r.detail || '',
+                 litres: Math.round((+r.litres || 0) * 10) / 10,
+                 colourNumber: r.colourNumber == null ? null : r.colourNumber,
+                 cost: Math.round((+r.cost || 0) * 100) / 100,
+                 tins: (r.lineItems || []).map(function(li) {
+                   return { itemCode: li.itemCode || '', description: li.description || '',
+                            quantity: +li.quantity || 0, unitAmount: +li.unitAmount || 0,
+                            isPerLitre: !!li.isPerLitre };
+                 }) };
+      });
+  } catch (err) {
+    // The tin working is a nice-to-have on top of the priced lines below;
+    // losing it must not cost the whole snapshot.
+    console.warn('Materials working could not be captured for the snapshot', err);
+  }
+
+  var money = function(n) { return Math.round((+n || 0) * 100) / 100; };
+
+  // ── Reconciling the pennies ─────────────────────────────────────────────
+  // The live views round only at the point of display, so their per-line
+  // figures and their totals are allowed to disagree in the third decimal
+  // place and nobody ever sees it. A snapshot cannot afford that: its lines
+  // become invoice lines and its total becomes the agreed total, and those two
+  // are read side by side by someone who will notice a penny.
+  //
+  // So the lines are rounded ONCE, here, and every total below is the sum of
+  // the rounded lines rather than an independently rounded float. The quote
+  // model's own subtotals are corrected to match, so the document the client
+  // is shown, the figures Summary displays and the lines the final invoice
+  // bills all tie out exactly, forever.
+  var workLines = (quoteModel.work ? quoteModel.work.rows : []).map(function(row) {
+    return { description: row.label, note: row.sub || '', quantity: 1,
+             unitPrice: money(row.amount), lineTotal: money(row.amount) };
+  });
+  var importedLines = (quoteModel.imported ? quoteModel.imported.rows : []).map(function(row) {
+    return { description: row.label, note: row.sub || '', quantity: 1,
+             unitPrice: money(row.amount), lineTotal: money(row.amount) };
+  });
+  var materialLines = chargeableMats.map(function(l) {
+    return { itemCode: l.itemCode || '', description: l.description || '',
+             quantity: +l.quantity || 0, unitPrice: money(l.unitAmount), unitAmount: money(l.unitAmount),
+             lineTotal: money((+l.quantity || 0) * (+l.unitAmount || 0)),
+             isPerLitre: !!l.isPerLitre };
+  });
+  var sumOf = function(rows) { return money(rows.reduce(function(t, r) { return t + r.lineTotal; }, 0)); };
+  var labourAgreed = sumOf(workLines);
+  var importedAgreed = sumOf(importedLines);
+  var materialsAgreed = sumOf(materialLines);
+  var agreedTotal = money(labourAgreed + importedAgreed + materialsAgreed);
+  // quoteModel is this render's own object (built fresh above, never a stored
+  // one), so correcting it in place is safe -- and necessary, since it is what
+  // the client-facing page and PDF print.
+  if (quoteModel.work) quoteModel.work.subtotal = labourAgreed;
+  if (quoteModel.materials) quoteModel.materials.subtotal = materialsAgreed;
+  quoteModel.total = agreedTotal;
+  quoteModel.totalInclVariations = null;
+
+  return {
+    schema: 1,
+    capturedAt: new Date().toISOString(),
+    source: 'live-calc',
+    job: {
+      id: job.id, name: job.name || '',
+      client: job.xeroClient || '', reference: job.xeroRef || '',
+      contact: job.contact ? JSON.parse(JSON.stringify(job.contact)) : null,
+      xeroQuoteId: job.xeroQuoteId || null, xeroQuoteNumber: job.xeroQuoteNumber || null
+    },
+    // The document, exactly as rendered to the client.
+    quote: quoteModel,
+    // The same content as flat, explicit line items, for anything that wants
+    // figures rather than a page: description / quantity / unit price / line
+    // total, which is also the shape the Xero reconciliation migration
+    // rebuilds into.
+    lines: { work: workLines, imported: importedLines, materials: materialLines },
+    materials: {
+      lines: materialLines,
+      // Tracking-only lines are not on the client's bill, but they were part
+      // of the estimate's working and belong in the record.
+      trackingOnly: materialsSnapshot.filter(function(l) { return l.chargeable === false; })
+        .map(function(l) { return { itemCode: l.itemCode || '', description: l.description || '', quantity: +l.quantity || 0 }; }),
+      working: matsCalc,
+      total: materialsAgreed
+    },
+    // Which pricing mode actually produced the labour figure — the spec's
+    // "day-rate/diary-days or calculated-days, whichever mode was active".
+    // All three are recorded, not just the winner, so the frozen figure can
+    // be re-derived by hand from the snapshot alone.
+    labour: {
+      mode: honouredLabour != null ? 'honoured' : (plan.standalone.on ? 'standalone-diary-days' : 'calculated-days'),
+      dayRate: +settings.dr || 0,
+      hoursPerDay: +settings.hpd || 0,
+      calculatedDays: Math.round(workingDays * 100) / 100,
+      diaryDays: plan.standalone.on ? plan.standalone.diaryDays : null,
+      onSiteDays: Math.round(onSiteDays * 10) / 10,
+      rawLabour: money(rawLabour),
+      sprayLabour: money(sprayLabour),
+      sundries: money(plan.sundries),
+      spraySundries: money(plan.spraySundries),
+      sundriesPct: +settings.sundriesPct || 0,
+      sundriesSprayPct: +settings.sundriesSprayPct || 0,
+      standaloneTopUp: money(plan.standalone.topUp),
+      customMarked: money(customSplit.marked),
+      customFlat: money(customSplit.flat),
+      honouredAmount: honouredLabour == null ? null : money(honouredLabour),
+      labourTotal: labourAgreed
+    },
+    markup: {
+      type: effectiveMarkupType(),
+      value: effectiveMarkup(),
+      // What the % actually resolved to on this job's base, so a fixed-£
+      // markup is legible as a rate too rather than just an amount.
+      effectivePct: Math.round(markupRatio(applyCommercialAmount(rawLabour + plan.standalone.topUp + plan.sundries + customSplit.marked)) * 10000) / 100,
+      commercial: !!job.commercial,
+      commercialPct: job.commercial ? (settings.commercialPct != null ? settings.commercialPct : 10) : 0,
+      standalone: !!job.standalone,
+      standaloneRounding: settings.standaloneRounding || 'full'
+    },
+    totals: {
+      labour: labourAgreed,
+      materials: materialsAgreed,
+      importedBaseline: importedAgreed,
+      // The business is not VAT registered — every Xero document this app
+      // writes goes out LineAmountTypes 'NoTax' (see routes/xero.js). The
+      // three fields are recorded anyway, with the rate that applied, so a
+      // snapshot taken before registration stays unambiguous about which it
+      // was rather than being silently reinterpreted afterwards.
+      vatRegistered: false,
+      vatRate: 0,
+      exVat: agreedTotal,
+      vat: 0,
+      incVat: agreedTotal,
+      deposit: money(plan.deposit),
+      depositBasis: plan.depositBasis,
+      balance: money(plan.balance)
+    },
+    // The Rates page as it stood, verbatim. ~90 numbers and the coverage-rate
+    // table — a couple of KB against a permanent record of what the client
+    // agreed and why it came to that. This is the field that makes a drift
+    // question answerable instead of arguable.
+    rates: JSON.parse(JSON.stringify(settings))
+  };
+}
+
+// Writes a new revision. Every write to quote_snapshots in the whole app goes
+// through here (spec §5): acceptance, re-acceptance, amend, and the
+// self-heal below. Nothing else has any business creating one.
+//
+// reason rides along on the row's note so the history reads as a story —
+// "accepted", "amended: kitchen added", "captured late (accepted in Xero)".
+function captureQuoteSnapshot(job, reason, opts) {
+  opts = opts || {};
+  var payload = buildAcceptedQuoteSnapshot(job);
+  if (!payload) return Promise.resolve(null);
+  var acceptedAt = opts.acceptedAt || job.acceptedAt || new Date().toISOString();
+  // Optimistic local version so the frozen views work the instant the button
+  // is tapped, offline included. The SERVER assigns the real one (MAX + 1 in
+  // the INSERT); this is only ever a placeholder until its POST lands.
+  var localVersion = (quoteSnapshotsJobId === job.id && quoteSnapshots.length ? quoteSnapshots[0].version : 0) + 1;
+  var record = {
+    id: 'pending-' + uid(), jobId: job.id, version: localVersion, acceptedAt: acceptedAt,
+    reconciliationLevel: 'full', note: reason || '', data: payload
+  };
+  pendingQuoteSnapshots.push(record);
+  persistPendingSnapshots();
+  adoptQuoteSnapshots(job.id, quoteSnapshots.filter(function(s) { return !s.unsynced; }));
+  // Keep the legacy acceptedSnapshot headline in step. It's a different thing
+  // -- a handful of comparison figures on jobs.data that the Jobs list, the
+  // attention strip and the scheduler read WITHOUT loading the job -- but it
+  // must not end up quoting revision 1 in the list while the job itself is on
+  // revision 2. Merged, not replaced: importedFromXero and the hand-edited
+  // figures an imported job carries live on this same object.
+  job.acceptedSnapshot = Object.assign({}, job.acceptedSnapshot, {
+    at: acceptedAt,
+    estWorkingDays: payload.labour.calculatedDays,
+    estOnSiteDays: payload.labour.onSiteDays,
+    estLabourTotal: payload.totals.labour,
+    estMaterialsTotal: payload.totals.materials,
+    estQuoteTotal: payload.totals.incVat
+  });
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  return flushPendingSnapshots();
+}
+
+// Retries every unsynced capture, oldest first. Called after each capture, on
+// reconnect, and once at startup. Order matters: versions are assigned by the
+// server on arrival, so posting v2 before v1 would number the amend as the
+// original.
+var snapshotFlushInFlight = null;
+function flushPendingSnapshots() {
+  if (snapshotFlushInFlight) return snapshotFlushInFlight;
+  if (!pendingQuoteSnapshots.length) return Promise.resolve(null);
+  snapshotFlushInFlight = (async function() {
+    var failed = false;
+    while (pendingQuoteSnapshots.length && !failed) {
+      var item = pendingQuoteSnapshots[0];
+      beginWrite();
+      try {
+        var resp = await fetch('/api/quote-snapshots', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jobId: item.jobId, data: item.data, acceptedAt: item.acceptedAt,
+                                 reconciliationLevel: item.reconciliationLevel, note: item.note })
+        });
+        if (resp.status === 409) {
+          // Another device claimed this version number. The server derives
+          // versions itself, so a straight retry gets the next free one --
+          // but only once, and only after a re-read, so a persistent 409
+          // can't spin.
+          serverAvailable = true;
+          await loadQuoteSnapshots(item.jobId).catch(function() {});
+          resp = await fetch('/api/quote-snapshots', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jobId: item.jobId, data: item.data, acceptedAt: item.acceptedAt,
+                                   reconciliationLevel: item.reconciliationLevel, note: item.note })
+          });
+        }
+        serverAvailable = true;
+        if (!resp.ok) {
+          // A REJECTED capture (bad payload, missing job) will never succeed
+          // by being sent again -- dropping it stops an unfixable item from
+          // blocking every later capture behind it in the queue.
+          var msg = 'HTTP ' + resp.status;
+          try { var b = await resp.json(); if (b && b.error) msg = b.error; } catch (e) {}
+          console.error('Quote snapshot rejected by the server', msg);
+          reportFailure('Couldn’t freeze the accepted figures for "' + (item.data && item.data.job && item.data.job.name || 'this job') + '"', new Error(msg));
+          pendingQuoteSnapshots.shift();
+          persistPendingSnapshots();
+          continue;
+        }
+        pendingQuoteSnapshots.shift();
+        persistPendingSnapshots();
+        var jobId = item.jobId;
+        if (jobId === activeJobId) await loadQuoteSnapshots(jobId);
+      } catch (netErr) {
+        // Offline. Keep the queue exactly as it is and try again on
+        // reconnect -- the local copy is already rendering.
+        serverAvailable = false;
+        failed = true;
+      } finally {
+        endWrite();
+      }
+    }
+    return null;
+  })().finally(function() {
+    snapshotFlushInFlight = null;
+    updateSyncStatus();
+    if (curTab === 'summary') renderSummary();
+  });
+  return snapshotFlushInFlight;
+}
+
+// Amend (spec §4): never an edit. The accepted snapshot is immutable and
+// there is no endpoint that could change it even if this wanted to -- an
+// amendment re-runs the calc over the job's CURRENT inputs and appends the
+// result as the next revision, leaving every earlier one exactly as written
+// and viewable. Client-facing views then show the latest, which is what
+// "the agreed quote" now means.
+function amendAcceptedQuote() {
+  var job = activeJob();
+  if (!job) return;
+  if (!jobQuoteIsFrozen(job)) {
+    alert('This job has no accepted figures to amend yet.');
+    return;
+  }
+  var prev = latestQuoteSnapshot(job);
+  var live = buildAcceptedQuoteSnapshot(job);
+  if (!live) {
+    alert('There’s nothing to price on this job right now — add the amended scope on the Measure tab first.');
+    return;
+  }
+  var was = (prev.data && prev.data.totals) ? prev.data.totals.incVat : 0;
+  var now = live.totals.incVat;
+  var delta = now - was;
+  var note = prompt('Amend the accepted quote?\n\n'
+    + 'Revision ' + prev.version + ': ' + fmt(was) + '\n'
+    + 'Revision ' + (prev.version + 1) + ': ' + fmt(now)
+    + '  (' + (delta >= 0 ? '+' : '−') + fmt(Math.abs(delta)) + ')\n\n'
+    + 'Revision ' + prev.version + ' is kept in full and stays viewable.\n'
+    + 'What changed?', '');
+  if (note === null) return;
+  captureQuoteSnapshot(job, 'amended' + (note.trim() ? ': ' + note.trim() : ''));
+  toast('Amended — now on revision ' + (prev.version + 1));
+  renderSummary();
+}
+
+// Self-heal for the one acceptance path that can't capture at the moment it
+// happens: syncQuoteAnswersFromXero() marks a job accepted from Xero's answer,
+// and that job is usually NOT the one open, so its rooms/materials aren't
+// loaded and there is nothing to run the calc over. Rather than leave it
+// re-pricing itself forever, the capture is taken the first time that job is
+// opened, flagged 'captured late' in the history so nobody reads it as
+// figures frozen at the moment of acceptance. The drift in that window is
+// normally hours; the alternative is unbounded.
+//
+// Jobs accepted before this feature shipped are deliberately NOT self-healed:
+// they may be months old, today's rates say nothing about what was agreed, and
+// guessing would be worse than the honest "not frozen" banner. Those are the
+// migration's job — scripts/migrate-accepted-snapshots.js, from Xero.
+function captureSnapshotIfOwed(job) {
+  if (!job || job.id !== activeJobId) return;
+  if (!jobQuoteNeedsSnapshot(job)) return;
+  if (!job.snapshotOwed) return;
+  if (pendingQuoteSnapshots.some(function(p) { return p.jobId === job.id; })) return;
+  var payload = buildAcceptedQuoteSnapshot(job);
+  if (!payload) return; // nothing priced yet — try again next render
+  job.snapshotOwed = false;
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  captureQuoteSnapshot(job, 'captured late (accepted in Xero while another job was open)');
+}
+
+// ── Reading a frozen quote ──────────────────────────────────────────────────
+// The accessors every render path goes through. They exist so that "read the
+// snapshot" is one call rather than a repeated `job.x && job.x.y && +job.x.y.z`
+// chain that quietly falls back to a live figure the first time a key moves.
+
+// The frozen client-facing quote model, or null. This is what the preview and
+// the PDF render for an accepted job.
+function frozenQuoteModel(job) {
+  var snap = latestQuoteSnapshot(job);
+  return (snap && snap.data && snap.data.quote) || null;
+}
+
+// The frozen agreed total (the original scope, variations excluded — they
+// settle on the final invoice, same rule as everywhere else).
+function frozenQuoteTotal(job) {
+  var snap = latestQuoteSnapshot(job);
+  return snap && snap.data && snap.data.totals ? +snap.data.totals.incVat || 0 : null;
+}
+
+function frozenQuoteLabour(job) {
+  var snap = latestQuoteSnapshot(job);
+  return snap && snap.data && snap.data.labour ? snap.data.labour : null;
+}
+
+function frozenQuoteMaterialsTotal(job) {
+  var snap = latestQuoteSnapshot(job);
+  return snap && snap.data && snap.data.materials ? +snap.data.materials.total || 0 : null;
+}
+
+// How much of this snapshot is real detail vs. a reconstruction. Drives the
+// wording on every frozen view: a snapshot rebuilt from a Xero total is still
+// the agreed money and still beats live rates, but it must never present
+// itself as an itemised quote it isn't.
+function snapshotLevelLabel(snap) {
+  if (!snap) return '';
+  if (snap.reconciliationLevel === 'totals_only') return 'reconciled from the Xero total — no line detail';
+  if (snap.reconciliationLevel === 'xero_lines') return 'reconciled from the Xero export';
+  return 'frozen at acceptance';
+}
+
+function snapshotDateLabel(snap) {
+  if (!snap || !snap.acceptedAt) return '';
+  try { return new Date(snap.acceptedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }); }
+  catch (e) { return ''; }
+}
+
+// The strip that sits above the agreed figures on Summary, saying which of
+// the two worlds the numbers on screen came from. An accepted job with no
+// snapshot gets the loud version — those figures ARE drifting, and that is
+// exactly what nobody could see before.
+function acceptedQuoteBannerHtml(job) {
+  if (jobQuoteNeedsSnapshot(job)) {
+    return '<div class="card" style="margin-top:16px;border-left:4px solid var(--danger)">'
+      + '<div style="padding:12px 16px;font-size:13px;color:var(--text)">'
+      + '<strong>These figures are live, not frozen.</strong><br>'
+      + '<span style="color:var(--text2)">This job was accepted without a snapshot, so what you see below is priced at TODAY’s rates — not necessarily what the client agreed. '
+      + 'Run the Xero reconciliation migration to restore the agreed figures.</span></div></div>';
+  }
+  var snap = latestQuoteSnapshot(job);
+  if (!snap) return '';
+  var revs = quoteSnapshots.length;
+  return '<div class="card" style="margin-top:16px;border-left:4px solid var(--success)">'
+    + '<div style="padding:12px 16px;font-size:13px;color:var(--text)">'
+    + '<strong>Agreed figures — revision ' + snap.version + '</strong>'
+    + (snap.unsynced ? ' <span style="color:var(--text3)">· not yet synced</span>' : '')
+    + '<br><span style="color:var(--text2)">' + escapeHtml(snapshotLevelLabel(snap))
+    + (snapshotDateLabel(snap) ? ' · ' + escapeHtml(snapshotDateLabel(snap)) : '')
+    + '. Rate changes since then do not move these numbers.</span>'
+    + '<div style="margin-top:8px;display:flex;gap:14px;flex-wrap:wrap">'
+    + '<span onclick="amendAcceptedQuote()" style="color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline">Amend → revision ' + (snap.version + 1) + '</span>'
+    + (revs > 1 ? '<span onclick="openSnapshotHistory()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline">History (' + revs + ' revisions)</span>' : '')
+    + '</div></div></div>';
+}
+
+// The agreed line items, rendered from the snapshot and nothing else. This is
+// the card that replaces Summary's live room breakdown once a quote is
+// accepted -- the breakdown itself stays below it, relabelled as working.
+function frozenQuoteCardHtml(job) {
+  var snap = latestQuoteSnapshot(job);
+  if (!snap || !snap.data) return '';
+  var d = snap.data;
+  var section = function(title, rows, subtotalLabel, subtotal) {
+    if (!rows || !rows.length) return '';
+    return '<div class="card-header" style="border-top:1px solid var(--border)">' + escapeHtml(title) + '</div>'
+      + rows.map(function(row) {
+          return '<div class="breakdown-row"><span class="breakdown-label">' + escapeHtml(row.description || '')
+            + (row.note ? '<small style="display:block;font-weight:400;color:var(--text2)">' + escapeHtml(row.note) + '</small>' : '')
+            + '</span><span class="breakdown-value">' + fmt(+row.lineTotal || 0) + '</span></div>';
+        }).join('')
+      + (subtotalLabel ? '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">'
+          + escapeHtml(subtotalLabel) + '</span><span class="breakdown-value">' + fmt(+subtotal || 0) + '</span></div>' : '');
+  };
+  var lines = d.lines || {};
+  var lab = d.labour || {};
+  var mk = d.markup || {};
+  // The footnote is "how this was priced", and a snapshot rebuilt from Xero by
+  // the migration genuinely does not know: its labour/markup fields are null
+  // ON PURPOSE, because inventing plausible ones is the fabrication this whole
+  // feature exists to prevent. Say that, rather than rendering "0.0 calculated
+  // days at £0.00/day · markup null%", which reads as broken AND as a claim.
+  var modeNote = lab.mode === 'reconciled-from-xero' || lab.dayRate == null
+    ? 'Rebuilt from the Xero record — the rates and markup behind these figures aren’t recoverable, only the money.'
+    : (lab.mode === 'honoured' ? 'Labour honoured at the pre-app quoted price'
+      : lab.mode === 'standalone-diary-days'
+        ? (lab.calculatedDays || 0).toFixed(1) + ' calculated days charged as ' + (lab.diaryDays || 0) + ' diary days at ' + fmt(lab.dayRate) + '/day'
+        : (lab.calculatedDays || 0).toFixed(1) + ' calculated days at ' + fmt(lab.dayRate) + '/day')
+      + (mk.value == null ? '' : ' · markup ' + mk.value + (mk.type === 'fixed' ? ' fixed' : '%'))
+      + (mk.commercial && mk.commercialPct ? ' · commercial +' + mk.commercialPct + '%' : '');
+  return '<div class="card" style="margin-top:16px">'
+    + '<div class="card-header">Accepted quote — revision ' + snap.version + '</div>'
+    + (snap.reconciliationLevel === 'totals_only'
+        ? '<div style="padding:10px 16px;font-size:12px;color:var(--text2)">Rebuilt from the Xero total for this job. The agreed money is right; there was no line-item detail in the export to rebuild.</div>'
+        : '')
+    + section('Labour', lines.work, 'Labour subtotal', (d.totals || {}).labour)
+    + section('As agreed in Xero', lines.imported, null, null)
+    + section('Materials', lines.materials, 'Materials subtotal', (d.materials || {}).total)
+    + '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="font-weight:700;color:var(--text)">Accepted total</span>'
+    + '<span class="breakdown-value" style="color:var(--accent);font-weight:700">' + fmt(frozenQuoteTotal(job) || 0) + '</span></div>'
+    + '<div style="padding:10px 16px;font-size:12px;color:var(--text2)">' + escapeHtml(modeNote) + '</div>'
+    + '</div>';
+}
+
+// Revision history (spec §4: prior revisions stay accessible for audit).
+// Read-only by construction — there is nothing on this sheet that could write
+// a snapshot, and no endpoint it could write one through.
+function openSnapshotHistory() {
+  var job = activeJob();
+  if (!job || !quoteSnapshots.length) return;
+  var rows = quoteSnapshots.map(function(s, i) {
+    var t = s.data && s.data.totals ? +s.data.totals.incVat || 0 : 0;
+    var prevTotal = i + 1 < quoteSnapshots.length && quoteSnapshots[i + 1].data && quoteSnapshots[i + 1].data.totals
+      ? +quoteSnapshots[i + 1].data.totals.incVat || 0 : null;
+    var delta = prevTotal == null ? '' : (t - prevTotal >= 0 ? '+' : '−') + fmt(Math.abs(t - prevTotal));
+    return '<div class="breakdown-row"><span class="breakdown-label">Revision ' + s.version
+      + (i === 0 ? ' <span style="color:var(--success);font-weight:600">· current</span>' : '')
+      + '<small style="display:block;font-weight:400;color:var(--text2)">' + escapeHtml(snapshotDateLabel(s))
+      + ' · ' + escapeHtml(snapshotLevelLabel(s))
+      + (s.note ? ' · ' + escapeHtml(s.note) : '') + '</small></span>'
+      + '<span class="breakdown-value">' + fmt(t) + (delta ? '<small style="display:block;font-weight:400;color:var(--text2)">' + delta + '</small>' : '') + '</span></div>';
+  }).join('');
+  openScheduleSheet('<div class="card"><div class="card-header">Quote revisions — ' + escapeHtml(job.name || '') + '</div>'
+    + rows
+    + '<div style="padding:12px 16px;font-size:12px;color:var(--text2)">Every revision is kept exactly as it was written. Amending an accepted quote adds a new one; nothing here is ever edited or deleted.</div>'
+    + '<div style="padding:0 16px 16px"><button onclick="closeScheduleSheet()" style="background:var(--text2);color:white;border:none;border-radius:var(--rs);padding:10px 16px;font-size:14px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%">Close</button></div></div>');
+}
 
 // ── Scheduling (SCHEDULING_SPEC.md) ─────────────────────────────────────────
 // Booked-days arithmetic, not a calendar app. A schedule is two fields on
@@ -8646,15 +9378,24 @@ function resolveMaterial(mapping, litres, isWall) {
 // back to the old litres + guessed-tin-count estimate with no cost/lineItems.
 function materialRow(label, litres, mapping, isWall) {
   var resolved = resolveMaterial(mapping, litres, isWall);
+  // label/detail are additive alongside html, for the same reason
+  // colourNumber/role are added in roleRowsFromGroups: an accepted-quote
+  // snapshot has to record WHICH product covered how many litres in how many
+  // tins, and re-parsing that back out of the rendered html would be absurd.
+  // Existing consumers read .html/.cost/.lineItems and are unaffected.
   if (resolved) {
     return {
       html: '<div class="mat-row"><div><div class="mat-label">'+label+'</div><div class="mat-detail">'+escapeHtml(resolved.detail)+'</div></div><div class="mat-val">'+fmt(resolved.cost)+'</div></div>',
+      label: label,
+      detail: resolved.detail,
       cost: resolved.cost,
       lineItems: resolved.lineItems
     };
   }
   return {
     html: '<div class="mat-row"><div><div class="mat-label">'+label+'</div><div class="mat-detail">'+litres.toFixed(1)+'L · '+tin(litres)+'</div></div><div class="mat-val">'+litres.toFixed(1)+'L</div></div>',
+    label: label,
+    detail: litres.toFixed(1)+'L · '+tin(litres)+' (no product mapped)',
     cost: 0,
     lineItems: []
   };
@@ -10474,7 +11215,48 @@ function buildFinalInvoiceModel() {
   // agreed since belong to Variations, which are assembled separately and
   // still stack on top. Droppable like any other line.
   var honouredLabourInv = jobShowsHonouredQuote(job) ? jobHonouredLabour(job) : null;
-  if (honouredLabourInv != null) {
+  // THE FROZEN LABOUR LINES. Everything above computed labour "as the quote
+  // billed it" by re-running the quote's own maths -- which was right when
+  // the quote's maths and the invoice's maths were guaranteed to agree, and
+  // is precisely wrong once a rate has moved in between. This is the worst
+  // instance of the whole bug: a client is being INVOICED, and the labour
+  // being billed is not the labour they agreed to.
+  //
+  // So on a frozen job the assembled lines are replaced wholesale by the
+  // snapshot's own work rows, at the amounts it recorded. They stay droppable
+  // (toggleFinalInvLine keys on id, and these ids are stable within a render
+  // exactly as the computed ones are), so the invoice is still editable --
+  // what's fixed is the price of each line, not whether it's billed.
+  //
+  // Sundries below take the same treatment: they were quoted as a % of raw
+  // labour, so re-deriving them from today's sundriesPct would reopen the
+  // same hole one line further down.
+  var frozenInvLabour = jobQuoteIsFrozen(job) ? latestQuoteSnapshot(job) : null;
+  var frozenLabourApplied = false;
+  if (frozenInvLabour) {
+    var frozenWorkRows = (frozenInvLabour.data && frozenInvLabour.data.lines && frozenInvLabour.data.lines.work) || [];
+    var frozenImportedRows = (frozenInvLabour.data && frozenInvLabour.data.lines && frozenInvLabour.data.lines.imported) || [];
+    if (frozenWorkRows.length || frozenImportedRows.length) {
+      labour.length = 0;
+      frozenWorkRows.forEach(function(row, i) {
+        labour.push({ id: 'fz' + i, desc: row.description || 'Labour',
+                      raw: +row.lineTotal || 0, amount: +row.lineTotal || 0, dropped: false });
+      });
+      frozenImportedRows.forEach(function(row, i) {
+        labour.push({ id: 'fzi' + i, desc: row.description || 'Original quote',
+                      raw: +row.lineTotal || 0, amount: +row.lineTotal || 0, dropped: false });
+      });
+      frozenLabourApplied = true;
+    }
+  }
+  // Both branches below are already answered by the snapshot when one applies:
+  // buildClientQuoteModel() puts the honoured line in the work rows on a
+  // honoured job, and lines.imported carries the Xero-imported baseline. Left
+  // to run they would push a SECOND copy of money the frozen lines already
+  // carry. They stay exactly as they were for every job with no snapshot.
+  if (frozenLabourApplied) {
+    // nothing to add -- the frozen rows are the whole quoted side
+  } else if (honouredLabourInv != null) {
     labour.length = 0;
     labour.push({
       id: 'honoured',
@@ -10510,7 +11292,10 @@ function buildFinalInvoiceModel() {
   // Charging the app's % on top would add money the client never agreed to.
   // Zero rather than dropped so the row simply isn't there — a dropped row
   // offers a ↩ restore, which here would silently inflate the invoice.
-  var sundries = honouredLabourInv != null ? 0 : rawOrig * (settings.sundriesPct || 0) / 100 * muInv;
+  // Frozen jobs: "Sundries & Consumables" is already one of the work rows
+  // above (it's a line on the client's copy), so computing it again here
+  // would bill it twice.
+  var sundries = (honouredLabourInv != null || frozenLabourApplied) ? 0 : rawOrig * (settings.sundriesPct || 0) / 100 * muInv;
 
   // Variations — same figures the Summary card shows. Commercial% applies
   // here too (same reasoning as muInv above), stacking with markup in
@@ -16666,6 +17451,35 @@ function renderSummary() {
   var statusJob = activeJob();
   var jobStatus = statusJob ? statusJob.status : null;
 
+  // ── The accepted-quote freeze, on the money view ────────────────────────
+  // Everything above this line is the LIVE calc, and it stays live for a
+  // reason: the day figures feed scheduling and the drift nudge, the
+  // materials list is the shopping list, variations are priced at today's
+  // rates because that's when they were agreed. What must NOT stay live once
+  // a client has said yes is the AGREED MONEY -- so from here down, on a
+  // frozen job, every quote-facing total is read from the snapshot instead of
+  // from the figures computed above.
+  //
+  // captureSnapshotIfOwed handles the one job that arrives here accepted with
+  // nothing frozen yet through no fault of its own: accepted from Xero while
+  // another job was open, so this is the first time its rooms have been
+  // loaded and the first moment a capture is even possible.
+  captureSnapshotIfOwed(statusJob);
+  var frozenQuote = jobQuoteIsFrozen(statusJob);
+  var frozenSnapshot = frozenQuote ? latestQuoteSnapshot(statusJob) : null;
+  var frozenTotal = frozenQuote ? frozenQuoteTotal(statusJob) : null;
+  var frozenLab = frozenQuote ? frozenQuoteLabour(statusJob) : null;
+  // A snapshot rebuilt from a Xero total has no deposit/balance to show (the
+  // export doesn't carry the payment plan), so these read as null and the
+  // Payment card falls back to its live labels -- correct: an unknown figure
+  // must not print as £0.00 next to an agreed total.
+  var frozenTotals = (frozenQuote && frozenSnapshot.data && frozenSnapshot.data.totals) || {};
+  // The agreed total, variations on top. Variations are deliberately still
+  // live: they were agreed at today's rates, not at acceptance, and they
+  // settle on the final invoice.
+  var agreedTotal = frozenQuote ? frozenTotal : quoteTotal;
+  var agreedJobTotal = agreedTotal + variationsTotal;
+
   // Persisted count for the Jobs list's "+N" chip — rooms/extItems only
   // load for the ACTIVE job, so the list reads this snapshot instead
   // (same reasoning as scheduledDays). Written only when it changes.
@@ -16692,17 +17506,26 @@ function renderSummary() {
     // as the Time on site card's "of ~N"); live original-scope calc as the
     // fallback for jobs accepted before snapshots shipped. Quoted materials:
     // the snapshot total the quote billed (sell prices, markup in).
-    var profQuotedDays = statusJob.acceptedSnapshot && +statusJob.acceptedSnapshot.estOnSiteDays > 0
-      ? +statusJob.acceptedSnapshot.estOnSiteDays : onSiteDaysOrig;
+    // The frozen snapshot outranks both: on an invoiced job "quoted" means
+    // what the client agreed, and re-deriving that from today's rates is the
+    // bug this feature exists to close -- it would quietly move the margin on
+    // finished work every time a rate changed. acceptedSnapshot's flat totals
+    // stay as the fallback for jobs accepted before snapshots shipped, and
+    // the live calc as the fallback behind that.
+    var profQuotedDays = frozenLab && +frozenLab.onSiteDays > 0 ? +frozenLab.onSiteDays
+      : (statusJob.acceptedSnapshot && +statusJob.acceptedSnapshot.estOnSiteDays > 0
+          ? +statusJob.acceptedSnapshot.estOnSiteDays : onSiteDaysOrig);
+    var profQuotedTotal = frozenQuote ? frozenTotal : quoteTotal;
+    var profQuotedMaterials = frozenQuote ? frozenQuoteMaterialsTotal(statusJob) : materialsTotal;
     var prof = computeProfitability({
-      quotedTotal: quoteTotal, approvedVariations: vView.approvedTotal,
-      quotedDays: profQuotedDays, quotedMaterials: materialsTotal,
+      quotedTotal: profQuotedTotal, approvedVariations: vView.approvedTotal,
+      quotedDays: profQuotedDays, quotedMaterials: profQuotedMaterials,
       // Xero-imported comparison row — display only, and inert (null) on every
       // other job, so Billing/Schedule/Materials keep working exactly as they
       // always have. internalLabour is the app's own marked-up labour figure,
       // the like-for-like against honouredLabour (materials are identical on
       // both sides, so labour is where the whole difference lives).
-      honouredLabour: honouredLabour, honouredQuote: honouredLabour != null ? quoteTotal : null,
+      honouredLabour: honouredLabour, honouredQuote: honouredLabour != null ? profQuotedTotal : null,
       internalEstimate: internalEstimate, internalLabour: plan.labourTotal + customSplit.flat
     });
     profitCard = profitabilityCardHtml(prof, vView, statusJob);
@@ -16766,6 +17589,15 @@ function renderSummary() {
       (statusJob && DEPOSIT_STATUSES.indexOf(jobStatus) !== -1 ? depositBlockHtml(statusJob, deposit) : '')+
     '</div>'+
     profitCard+
+    // Which of the two worlds the money below came from, said plainly. On an
+    // accepted job with nothing frozen this is the loud red version -- those
+    // figures ARE silently drifting with every rate change, and until now
+    // there was nothing on screen that could tell you.
+    acceptedQuoteBannerHtml(statusJob)+
+    // The agreed line items, straight from the snapshot. Sits above the live
+    // room breakdown further down, which stays -- relabelled as working, not
+    // as the quote.
+    (frozenQuote ? frozenQuoteCardHtml(statusJob) : '')+
     '<div class="hero" style="margin-top:16px">'+
       // Flagged jobs quote honoured labour + measured materials, and carry the
       // app's own calculated total underneath as a plain muted strap-line —
@@ -16773,20 +17605,32 @@ function renderSummary() {
       // what the client pays. The markup strap-line is replaced on those jobs:
       // the app's markup didn't price this labour, so quoting it would be a
       // lie about where the number came from.
-      '<div class="hero-label">'+(honouredLabour != null ? 'Quote (honoured labour)' : 'Total Quote')+'</div>'+
-      '<div class="hero-amount">'+fmt(quoteTotal)+'</div>'+
-      '<div class="hero-sub">'+ttAll.toFixed(1)+' days · '+
-        (honouredLabour != null
-          ? fmt(honouredLabour)+' labour as agreed + '+fmt(materialsTotal)+' materials as measured'
-          : markupSummaryLabel())+'</div>'+
-      (honouredLabour != null ? '<div class="hero-sub">Internal estimate '+fmt(internalEstimate)+' — reference only</div>' : '')+
+      // On a frozen job the hero is the AGREED total and says so: this is the
+      // number the client owes, and it is not derived from anything on the
+      // Rates page as it stands today.
+      '<div class="hero-label">'+(frozenQuote ? 'Accepted Quote' : honouredLabour != null ? 'Quote (honoured labour)' : 'Total Quote')+'</div>'+
+      '<div class="hero-amount">'+fmt(agreedTotal)+'</div>'+
+      (frozenQuote
+        ? '<div class="hero-sub">'+escapeHtml(snapshotLevelLabel(frozenSnapshot))
+            +' · revision '+frozenSnapshot.version
+            +(snapshotDateLabel(frozenSnapshot) ? ' · '+escapeHtml(snapshotDateLabel(frozenSnapshot)) : '')+'</div>'
+          // The live recalculation is still worth showing -- it's how you spot
+          // that rates have moved since -- but only ever as a labelled aside,
+          // never as the headline. Hidden when the two agree to the penny.
+          + (Math.abs(quoteTotal - agreedTotal) > 0.005
+              ? '<div class="hero-sub" style="color:rgba(255,255,255,.55)">Same job at today\'s rates: '+fmt(quoteTotal)+' — not what was agreed</div>' : '')
+        : '<div class="hero-sub">'+ttAll.toFixed(1)+' days · '+
+          (honouredLabour != null
+            ? fmt(honouredLabour)+' labour as agreed + '+fmt(materialsTotal)+' materials as measured'
+            : markupSummaryLabel())+'</div>')+
+      (honouredLabour != null && !frozenQuote ? '<div class="hero-sub">Internal estimate '+fmt(internalEstimate)+' — reference only</div>' : '')+
       // Fixed gold, not var(--accent): the hero card's background is a fixed
       // dark navy regardless of theme, but --accent flips to a near-identical
       // dark navy in light mode (#1a5276 light theme == this card's own
       // background stop), which made this line invisible. Every other colour
       // in the hero is likewise hardcoded against the fixed dark background
       // rather than theme-reactive.
-      (hasVariations ? '<div class="hero-sub" style="color:#ffd166;font-weight:600">+ '+fmt(variationsTotal)+' variations → '+fmt(jobTotal)+' job total</div>' : '')+
+      (hasVariations ? '<div class="hero-sub" style="color:#ffd166;font-weight:600">+ '+fmt(variationsTotal)+' variations → '+fmt(agreedJobTotal)+' job total</div>' : '')+
     '</div>'+
     '<div class="stat-grid">'+
       // On a flagged job this is the app's OWN labour figure, which is not
@@ -16841,10 +17685,18 @@ function renderSummary() {
     '</div>'+
     '<div class="card" style="margin-top:16px">'+
       '<div class="card-header">Payment</div>'+
-      '<div class="breakdown-row"><span class="breakdown-label">Deposit due on acceptance<small style="display:block;font-weight:400;color:var(--text2)">'+depositBasis+'</small></span>'+
-        '<span class="breakdown-value" style="color:var(--accent)">'+fmt(deposit)+'</span></div>'+
+      // Deposit and balance were agreed WITH the quote -- a deposit already
+      // taken against a 25%-of-quote basis must not re-derive itself when the
+      // quote's inputs re-price. Frozen job: the snapshot's own figures.
+      // A snapshot rebuilt from a Xero total carries no payment plan (the
+      // export doesn't have one), so those read null and print as an em dash.
+      // £0.00 beside an agreed total would state, wrongly and confidently,
+      // that no deposit was due.
+      '<div class="breakdown-row"><span class="breakdown-label">Deposit due on acceptance<small style="display:block;font-weight:400;color:var(--text2)">'+
+        escapeHtml(frozenQuote ? (frozenTotals.depositBasis || 'not recorded in the reconciled figures') : depositBasis)+'</small></span>'+
+        '<span class="breakdown-value" style="color:var(--accent)">'+(frozenQuote && frozenTotals.deposit == null ? '—' : fmt(frozenQuote ? +frozenTotals.deposit : deposit))+'</span></div>'+
       '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Balance</span>'+
-        '<span class="breakdown-value">'+fmt(balance)+'</span></div>'+
+        '<span class="breakdown-value">'+(frozenQuote && frozenTotals.balance == null ? '—' : fmt(frozenQuote ? +frozenTotals.balance : balance))+'</span></div>'+
       '<div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Payment plan</div><div class="seg" id="seg-payment-type">'+
         '<button type="button" class="seg-btn'+(paymentType==='single'?' active':'')+'" onclick="setPaymentType(\'single\')">Single</button>'+
         '<button type="button" class="seg-btn'+(paymentType==='multiweek'?' active':'')+'" onclick="setPaymentType(\'multiweek\')">Multi-week</button>'+
@@ -16858,7 +17710,8 @@ function renderSummary() {
         }).join('')
       ) : '') +
     '</div>'+
-    '<div><div class="section-title" style="margin-bottom:8px">Room Breakdown</div>'+
+    '<div><div class="section-title" style="margin-bottom:8px">'+
+      (frozenQuote ? 'Room Breakdown <small style="text-transform:none;letter-spacing:normal;font-weight:400;color:var(--text2)">— live working at today’s rates, not the accepted figures above</small>' : 'Room Breakdown')+'</div>'+
     '<div class="card">'+rows+
     (extItems.length>0?extItems.map(function(item,ei){
       var c=extCalcs[ei]; var mk=commercialMult*(1+mu);
@@ -17100,6 +17953,44 @@ function renderSummary() {
 // in the body for why the old popup could never work on the phone.
 function openClientQuote() {
   var job = activeJob();
+  // FROZEN PATH -- an accepted quote's client-facing document is read from
+  // the snapshot and nothing else. Not "read from the snapshot and top it up
+  // with a live recalculation", not "recalculate and check against the
+  // snapshot": the whole point is that no calc function runs for these
+  // figures, so a rate change since acceptance cannot reach this page or the
+  // PDF built from it. Returning early, before a single calcRoom() call, is
+  // what makes that true rather than merely intended.
+  //
+  // The live path below stays exactly as it was, and still runs for drafts,
+  // quoted jobs, declined ones, and accepted jobs that predate snapshots
+  // (which say so on Summary rather than pretending).
+  if (jobQuoteIsFrozen(job)) {
+    var frozenSnap = latestQuoteSnapshot(job);
+    var frozen = frozenQuoteModel(job);
+    if (frozen) {
+      // The snapshot is deep-frozen, and buildClientQuoteHtml/Pdf only read,
+      // but the model also gets stamped with its provenance line -- so copy
+      // rather than mutate. The copy is this render's; the record is not.
+      clientQuoteModel = Object.assign({}, frozen, {
+        frozen: true,
+        revision: frozenSnap.version,
+        frozenNote: 'Accepted ' + snapshotDateLabel(frozenSnap)
+          + ' · revision ' + frozenSnap.version
+          + (frozenSnap.reconciliationLevel === 'totals_only' ? ' · reconciled from the Xero total' : '')
+      });
+      var fOverlay = document.getElementById('client-quote-overlay');
+      var fFrame = document.getElementById('client-quote-frame');
+      if (!fOverlay || !fFrame) { reportFailure('Couldn\'t open the quote preview', new Error('preview overlay missing')); return; }
+      fFrame.srcdoc = buildClientQuoteHtml(clientQuoteModel);
+      fOverlay.style.display = 'flex';
+      document.addEventListener('keydown', clientQuoteEscHandler);
+      return;
+    }
+    // A snapshot that somehow carries no quote model is a bug, not a reason
+    // to silently re-price an accepted job at today's rates. Say so.
+    reportFailure('The frozen figures for this accepted quote couldn\'t be read', new Error('snapshot has no quote model'));
+    return;
+  }
   var quoteKitchen = (job && job.kitchen && !job.kitchen.isVariation) ? job.kitchen : null;
   // Original-scope units only, same variation filter as rooms -- the agg
   // carries per-unit calcs so the view can print one named line per unit.
@@ -17217,6 +18108,13 @@ async function saveQuotePdf() {
 function quotePdfFilename(m) {
   var base = (m.jobName || 'Quote').replace(/[^A-Za-z0-9 _-]+/g, '').trim().replace(/\s+/g, '-');
   var date = new Date().toISOString().slice(0, 10);
+  // A frozen quote is dated and numbered by the AGREEMENT, not by the day it
+  // happened to be exported -- otherwise re-saving the same accepted quote
+  // twice produces two differently-named files of identical content, and the
+  // one that matters (which revision?) isn't in the name at all.
+  if (m.frozen && m.revision) {
+    return 'NH-Quote-' + (base || 'Job') + '-accepted-rev' + m.revision + '.pdf';
+  }
   return 'NH-Quote-' + (base || 'Job') + '-' + date + '.pdf';
 }
 
@@ -17488,6 +18386,10 @@ function buildClientQuoteHtml(m) {
       + (m.address ? '<div><strong>At:</strong> ' + esc(m.address) + '</div>' : '')
       + '<div><strong>Job:</strong> ' + esc(m.jobName) + '</div>'
       + '<div><strong>Date:</strong> ' + esc(m.today) + '</div>'
+      // An accepted quote prints its revision on the client's copy. Two
+      // people comparing documents across a job that got amended need to be
+      // able to see, without asking, which one they're each holding.
+      + (m.frozen ? '<div><strong>Agreed:</strong> ' + esc(m.frozenNote || '') + '</div>' : '')
     + '</div>'
     + card('The work', m.work)
     + card('Original quote', m.imported)
@@ -17503,7 +18405,13 @@ function buildClientQuoteHtml(m) {
     // background in both themes).
     + (m.totalInclVariations != null ? '<div class="total" style="margin-top:8px"><div class="label" style="color:#ffd166;opacity:1">Job total incl. variations</div><div class="amount" style="font-size:24px">' + money(m.totalInclVariations) + '</div></div>' : '')
     + (m.terms ? '<div class="terms">' + esc(m.terms) + '</div>' : '')
-    + '<div class="foot">Prepared ' + esc(m.today) + ' · Figures are live as of this preview — the formal quotation is issued separately.</div>'
+    // The footer is the one line that has to change wording on a frozen
+    // quote: "figures are live as of this preview" is precisely what these
+    // figures are NOT, and printing it under an agreed total would invite
+    // exactly the doubt this feature exists to remove.
+    + '<div class="foot">' + (m.frozen
+        ? esc(m.frozenNote || 'Agreed figures') + ' · These are the figures agreed for this job and do not change with later price revisions.'
+        : 'Prepared ' + esc(m.today) + ' · Figures are live as of this preview — the formal quotation is issued separately.') + '</div>'
     + '</div></body></html>';
 }
 
@@ -17775,7 +18683,11 @@ async function buildClientQuotePdf(m) {
   d.y -= headH + 18;
 
   // Meta block
-  [['For', m.clientName], ['At', m.address], ['Job', m.jobName], ['Date', m.today]].forEach(function(p) {
+  // Mirrors buildClientQuoteHtml's meta block, frozen row included -- the two
+  // renderers share one model precisely so they can't disagree about what the
+  // client is holding.
+  [['For', m.clientName], ['At', m.address], ['Job', m.jobName], ['Date', m.today],
+   ['Agreed', m.frozen ? (m.frozenNote || '') : '']].forEach(function(p) {
     if (!p[1]) return;
     d.need(16);
     d.text(p[0] + ':', L, d.y - 10, { size: 10, bold: true });
@@ -17824,7 +18736,9 @@ async function buildClientQuotePdf(m) {
 
   d.need(26);
   d.y -= 10;
-  d.text('Prepared ' + m.today + ' · Figures are live as of this preview — the formal quotation is issued separately.',
+  d.text(m.frozen
+      ? (m.frozenNote || 'Agreed figures') + ' · These are the figures agreed for this job and do not change with later price revisions.'
+      : 'Prepared ' + m.today + ' · Figures are live as of this preview — the formal quotation is issued separately.',
     L + W / 2, d.y - 9, { size: 8, rgb: PDF_MUT, align: 'center' });
 
   return pdfSerialise(d, logo);

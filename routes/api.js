@@ -105,10 +105,139 @@ router.delete('/jobs/:id', async (req, res) => {
       db.query('DELETE FROM materials_snapshot WHERE job_id = $1', [id]),
       db.query('DELETE FROM material_actuals WHERE job_id = $1', [id]),
       db.query('DELETE FROM labour_log WHERE job_id = $1', [id]),
+      // The one path a snapshot may leave by. There is no route that deletes
+      // a snapshot on its own (see the Accepted-quote snapshots section) --
+      // deleting the whole job is a deliberate, confirmed, destroy-everything
+      // action, not a figure being quietly revised. Tolerates the table not
+      // existing yet on a database that has never had an accepted quote.
+      db.query('DELETE FROM quote_snapshots WHERE job_id = $1', [id]).catch(err => {
+        if (err.code !== '42P01') throw err;
+      }),
     ]);
     await db.query('DELETE FROM jobs WHERE id = $1', [id]);
     res.json({ ok: true });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ── Accepted-quote snapshots ────────────────────────────────────────────────
+// The frozen figures a client actually agreed to. See db/setup.sql's comment
+// on quote_snapshots for WHY this exists; what matters here is the shape of
+// the surface:
+//
+//   GET  /api/quote-snapshots?job_id=X   every revision, newest first
+//   POST /api/quote-snapshots            append revision MAX(version) + 1
+//
+// and nothing else. There is deliberately NO PUT and NO DELETE, and that
+// absence IS the guardrail: a render path that tried to "correct" a stale
+// snapshot, or a status change that tried to withdraw one, has no endpoint to
+// call. Rows only ever leave via DELETE /jobs/:id, which removes the job whole.
+//
+// Un-accepting a quote therefore does NOT delete its snapshot. The job stops
+// being accepted (so the app renders live again, which is right -- it's a
+// draft once more), while the record that these figures were once agreed
+// survives. Re-accepting appends a fresh revision rather than resurrecting
+// the old one.
+
+// db/setup.sql is not run on deploy (see the debt app's tables for the same
+// situation), so the table is created lazily on first use -- once per process,
+// memoised, and only on these two routes so no other endpoint pays for it.
+let snapshotSchemaReady = null;
+function ensureSnapshotSchema() {
+  if (!snapshotSchemaReady) {
+    snapshotSchemaReady = (async () => {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS quote_snapshots (
+          id VARCHAR PRIMARY KEY,
+          job_id VARCHAR NOT NULL,
+          version INTEGER NOT NULL,
+          accepted_at TIMESTAMP NOT NULL DEFAULT NOW(),
+          reconciliation_level VARCHAR NOT NULL DEFAULT 'full',
+          note VARCHAR NOT NULL DEFAULT '',
+          data JSONB NOT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )`);
+      await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS quote_snapshots_job_version ON quote_snapshots (job_id, version)`);
+      await db.query(`CREATE INDEX IF NOT EXISTS quote_snapshots_job ON quote_snapshots (job_id)`);
+    })().catch(err => { snapshotSchemaReady = null; throw err; });
+  }
+  return snapshotSchemaReady;
+}
+router.use('/quote-snapshots', async (req, res, next) => {
+  try {
+    await ensureSnapshotSchema();
+    next();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/quote-snapshots', async (req, res) => {
+  const jobId = requireJobId(req, res);
+  if (!jobId) return;
+  try {
+    const result = await db.query(
+      `SELECT id, job_id, version, accepted_at, reconciliation_level, note, data, created_at
+         FROM quote_snapshots WHERE job_id = $1 ORDER BY version DESC`,
+      [jobId]
+    );
+    res.json(result.rows.map(mapSnapshotRow));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const mapSnapshotRow = (r) => ({
+  id: r.id, jobId: r.job_id, version: r.version,
+  acceptedAt: r.accepted_at, reconciliationLevel: r.reconciliation_level,
+  note: r.note, data: r.data, createdAt: r.created_at
+});
+
+// 'full'        captured by the app from the live calc at the moment of
+//               acceptance -- the only level new snapshots are ever written at.
+// 'xero_lines'  rebuilt after the fact from an itemised Xero export by
+//               scripts/migrate-accepted-snapshots.js.
+// 'totals_only' rebuilt from a Xero total with no line detail behind it. Real
+//               money, no breakdown -- the UI says so rather than implying an
+//               itemisation it doesn't have.
+const RECONCILIATION_LEVELS = new Set(['full', 'xero_lines', 'totals_only']);
+
+// version is derived INSIDE the INSERT rather than read-then-written, so the
+// only way two devices accepting the same job at once can interleave is both
+// computing the same MAX -- and quote_snapshots_job_version turns that into a
+// unique violation for the loser (409 below) instead of a silent overwrite.
+router.post('/quote-snapshots', async (req, res) => {
+  const jobId = requireJobId(req, res);
+  if (!jobId) return;
+  const { data, acceptedAt, reconciliationLevel, note } = req.body || {};
+  // A snapshot with no figures in it is worse than no snapshot at all: it
+  // would satisfy every "has a snapshot?" branch downstream and then render
+  // nothing, which reads as "this job is worth £0" rather than as an error.
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return res.status(400).json({ error: 'data (the serialised quote) is required' });
+  }
+  const level = reconciliationLevel || 'full';
+  if (!RECONCILIATION_LEVELS.has(level)) {
+    return res.status(400).json({ error: `reconciliationLevel must be one of ${[...RECONCILIATION_LEVELS].join(', ')}` });
+  }
+  try {
+    const result = await db.query(
+      `INSERT INTO quote_snapshots (id, job_id, version, accepted_at, reconciliation_level, note, data)
+       SELECT $1, $2::varchar, COALESCE(MAX(version), 0) + 1, $3::timestamp, $4, $5, $6
+         FROM quote_snapshots WHERE job_id = $2::varchar
+       RETURNING id, job_id, version, accepted_at, reconciliation_level, note, data, created_at`,
+      [crypto.randomUUID(), jobId, acceptedAt || new Date().toISOString(), level, note || '', data]
+    );
+    res.json({ ok: true, snapshot: mapSnapshotRow(result.rows[0]) });
+  } catch (err) {
+    // 23505 = unique_violation on quote_snapshots_job_version: another device
+    // claimed this version first. The caller re-reads and retries; it must
+    // never be quietly turned into an overwrite.
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'That revision number was just taken — reload and try again.' });
+    }
     res.status(500).json({ error: err.message });
   }
 });
@@ -884,6 +1013,19 @@ router.get('/backup/export', async (req, res) => {
       `SELECT id, job_id, to_char(work_date, 'YYYY-MM-DD') AS work_date, days, note
          FROM labour_log ORDER BY work_date ASC`
     );
+    // Accepted-quote snapshots (jobs[].quoteSnapshots), additive on the same
+    // v1 shape as labourLog above. A backup that restored a job's rooms but
+    // not the figures its client agreed to would restore the exact bug this
+    // table exists to prevent. Tolerates the table not existing on a database
+    // that has never had an accepted quote -- an old backup file simply has
+    // no snapshots, and import already treats the key as optional.
+    const snapshotsResult = await db.query(
+      `SELECT id, job_id, version, accepted_at, reconciliation_level, note, data
+         FROM quote_snapshots ORDER BY job_id ASC, version ASC`
+    ).catch(err => {
+      if (err.code === '42P01') return { rows: [] };
+      throw err;
+    });
 
     // One pass per table to bucket rows by job_id, rather than filtering
     // each job's rows out of the full result N times.
@@ -897,6 +1039,7 @@ router.get('/backup/export', async (req, res) => {
     const materialsByJob = byJob(materialsResult.rows);
     const actualsByJob = byJob(actualsResult.rows);
     const labourByJob = byJob(labourResult.rows);
+    const snapshotsByJob = byJob(snapshotsResult.rows);
 
     const jobs = jobsResult.rows.map(j => ({
       job: { id: j.id, name: j.name, data: j.data || {} },
@@ -920,6 +1063,14 @@ router.get('/backup/export', async (req, res) => {
         workDate: r.work_date,
         days: r.days == null ? 0 : +r.days,
         note: r.note || '',
+      })),
+      quoteSnapshots: (snapshotsByJob[j.id] || []).map(r => ({
+        id: r.id,
+        version: r.version,
+        acceptedAt: r.accepted_at,
+        reconciliationLevel: r.reconciliation_level,
+        note: r.note || '',
+        data: r.data,
       })),
     }));
 
@@ -983,6 +1134,33 @@ async function copyJobRows(entry, newJobId) {
       `INSERT INTO labour_log (id, job_id, work_date, days, note) VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (job_id, work_date) DO NOTHING`,
       [crypto.randomUUID(), newJobId, l.workDate, +l.days || 0, l.note || '']
+    );
+  }
+  // Snapshots keep their ORIGINAL version numbers and accepted_at rather than
+  // being renumbered from 1: the whole value of a restored snapshot is that it
+  // says what was agreed and when, and "revision 3" that is really the first
+  // revision in this database would be a lie in an audit trail. Only the row
+  // id and job_id are new, exactly like every other table here. Rows with no
+  // data are skipped -- see POST /quote-snapshots on why an empty snapshot is
+  // worse than none.
+  const snapshotEntries = (entry.quoteSnapshots || [])
+    .filter(sn => sn && sn.data && typeof sn.data === 'object' && !Array.isArray(sn.data))
+    .slice()
+    .sort((a, b) => (+a.version || 0) - (+b.version || 0));
+  let fallbackVersion = 0;
+  for (const sn of snapshotEntries) {
+    // A backup written before versions existed, or one with a duplicate
+    // version, still imports -- it just lands at the next free number rather
+    // than colliding on quote_snapshots_job_version and aborting the job.
+    const version = +sn.version > fallbackVersion ? +sn.version : fallbackVersion + 1;
+    fallbackVersion = version;
+    await ensureSnapshotSchema();
+    await db.query(
+      `INSERT INTO quote_snapshots (id, job_id, version, accepted_at, reconciliation_level, note, data)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [crypto.randomUUID(), newJobId, version, sn.acceptedAt || new Date().toISOString(),
+        RECONCILIATION_LEVELS.has(sn.reconciliationLevel) ? sn.reconciliationLevel : 'full',
+        sn.note || '', sn.data]
     );
   }
 }
