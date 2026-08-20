@@ -236,6 +236,29 @@ processed early takes, on a name match, the very quote a later job is explicitly
 to — and the same agreed figures get written onto two jobs. It happened on the first
 real run: two "Beryl Parsons" jobs both landed on £1,210.33.
 
+### The headline cache must be kept in step
+
+`acceptedSnapshot.estQuoteTotal` is a **derived cache** of the current revision. Home,
+the Jobs list and the attention strip read it directly, because they render jobs whose
+snapshots aren't loaded — only the active job's are. `captureQuoteSnapshot()` updates it
+on every capture; the migration originally did not, so a reconciled job showed the
+reconciled figure on Summary and the old acceptance stamp on Home for the same job.
+
+The migration now updates it on every write, and repairs any job where the two have
+already diverged — reported as `WOULD REPAIR` / `REPAIRED`. Syncing a cache to its
+source is not a mutation of the record: the snapshot itself is never touched, and the
+merge preserves `importedFromXero`, the hand-edited figures and the day estimates a Xero
+quote can't supply.
+
+### Correcting a wrong reconciliation
+
+A job that already has a snapshot is skipped — **unless** it is explicitly `--pick`ed.
+That is the correction path for a job frozen against the wrong quote (early runs let
+`--allow-fuzzy` settle ambiguous matches, which it no longer does). The pick appends a
+**corrective revision**; the wrong one is neither deleted nor edited — it cannot be — and
+stays in the history where an audit can see what happened. The app reads the latest
+revision, so the corrected figure is the one that shows.
+
 ### Jobs imported from Xero are skipped
 
 `importAcceptedQuote()` creates a job from an already-accepted Xero quote and stamps the

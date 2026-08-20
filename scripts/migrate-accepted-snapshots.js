@@ -457,7 +457,8 @@ function buildSnapshotFromDocument(job, match) {
   return {
     level,
     acceptedAt,
-    note: `reconciled from Xero ${doc.kind} ${doc.number || doc.id || ''}`.trim() + ` (${match.why})`,
+    note: (match.correcting ? 'CORRECTION — ' : '')
+      + `reconciled from Xero ${doc.kind} ${doc.number || doc.id || ''}`.trim() + ` (${match.why})`,
     payload: {
       schema: 1,
       capturedAt: new Date().toISOString(),
@@ -586,17 +587,72 @@ async function main() {
     const d = j.data || {};
     if (ONLY_JOB && j.id !== ONLY_JOB) return false;
     if (!ACCEPTED_STATUSES.includes(d.status)) return false;
-    // Already frozen. Never touched — this script cannot overwrite a snapshot
-    // and does not try to.
-    if (haveSnapshot.has(j.id)) return false;
+    // Already frozen. Skipped — EXCEPT when explicitly --picked, which is how
+    // a wrong reconciliation gets corrected. Earlier runs let --allow-fuzzy
+    // settle ambiguous matches, so some jobs were frozen against the wrong
+    // quote of several; naming the right one appends a CORRECTIVE REVISION.
+    // The bad revision is not deleted or edited (it cannot be) — it stays in
+    // the history where an audit can see what happened, and the app reads the
+    // latest revision, which is now the right one.
+    if (haveSnapshot.has(j.id)) {
+      return PICKS.has(j.id) || PICKS.has(j.name)
+        || [...PICKS.keys()].some(k => k.toLowerCase() === String(j.name || '').toLowerCase());
+    }
     return true;
   });
 
   const alreadyFrozen = jobsResult.rows.filter(j => ACCEPTED_STATUSES.includes((j.data || {}).status) && haveSnapshot.has(j.id)).length;
   console.log(`${jobsResult.rows.length} jobs · ${alreadyFrozen} accepted and already frozen · ${candidates.length} accepted and unfrozen\n`);
 
-  if (!candidates.length) {
+  // ── Headline repair ──────────────────────────────────────────────────────
+  // acceptedSnapshot.estQuoteTotal is a DERIVED CACHE of the current revision,
+  // read by Home, the Jobs list and the attention strip because those render
+  // jobs whose snapshots aren't loaded. Earlier runs of this script wrote
+  // quote_snapshots without updating it, so a reconciled job showed the new
+  // figure on Summary and the old one on Home. Bringing the cache back in line
+  // with its source is not a mutation of the record: the snapshot itself is
+  // never touched, and nothing here can change what was agreed.
+  const stale = [];
+  {
+    const latest = await db.query(
+      `SELECT DISTINCT ON (job_id) job_id, version, data
+         FROM quote_snapshots ORDER BY job_id, version DESC`);
+    const byJob = new Map(jobsResult.rows.map(j => [j.id, j]));
+    for (const row of latest.rows) {
+      const job = byJob.get(row.job_id);
+      if (!job) continue;
+      const totals = (row.data && row.data.totals) || {};
+      if (totals.incVat == null) continue;
+      const cached = (job.data || {}).acceptedSnapshot || {};
+      if (cached.estQuoteTotal != null && Math.abs(+cached.estQuoteTotal - +totals.incVat) <= 0.005) continue;
+      stale.push({ job, was: cached.estQuoteTotal == null ? null : +cached.estQuoteTotal, now: +totals.incVat, version: row.version });
+      if (!APPLY) continue;
+      const headline = { estQuoteTotal: totals.incVat, estLabourTotal: totals.labour, estMaterialsTotal: totals.materials };
+      const lab = (row.data && row.data.labour) || {};
+      if (lab.onSiteDays != null) headline.estOnSiteDays = lab.onSiteDays;
+      await db.query(
+        `UPDATE jobs SET data = jsonb_set(
+           COALESCE(data, '{}'::jsonb), '{acceptedSnapshot}',
+           COALESCE(data->'acceptedSnapshot', '{}'::jsonb) || $2::jsonb, true
+         ), updated_at = NOW() WHERE id = $1`,
+        [job.id, JSON.stringify(headline)]);
+    }
+  }
+  if (stale.length) {
+    console.log(`${APPLY ? 'REPAIRED' : 'WOULD REPAIR'} — ${stale.length} job${stale.length === 1 ? '' : 's'} showing a different total on Home than on Summary`);
+    stale.forEach(({ job, was, now, version }) => {
+      console.log(`  ${(job.name || job.id).slice(0, 34).padEnd(34)} ${gbp(now).padStart(12)}   Home was showing ${gbp(was)} · revision ${version} is the agreed figure`);
+    });
+    console.log('  The snapshots themselves are untouched — only the cached figure the job list reads.\n');
+  }
+
+  if (!candidates.length && !stale.length) {
     console.log('Nothing to reconcile — every accepted quote already has frozen figures.\n');
+    return;
+  }
+  if (!candidates.length) {
+    console.log(!APPLY ? 'Nothing left to reconcile. Re-run with --apply to write the repairs above.\n'
+                       : 'Nothing left to reconcile.\n');
     return;
   }
 
@@ -674,7 +730,9 @@ async function main() {
         skipped.push({ job, reason: `--pick ${forced} is already linked to "${owner.name}"`, showing: null, near: [], hasLink: false });
         continue;
       }
-      matches.set(job.id, { doc: hit, confidence: 'exact', why: `picked by hand (--pick ${forced})` });
+      const correcting = haveSnapshot.has(job.id);
+      matches.set(job.id, { doc: hit, confidence: 'exact', correcting,
+        why: `picked by hand (--pick ${forced})${correcting ? ' — CORRECTS the revision already stored' : ''}` });
       if (hit.id) claimed.set(hit.id, job);
       continue;
     }
@@ -737,10 +795,40 @@ async function main() {
              FROM quote_snapshots WHERE job_id = $2::varchar`,
           [crypto.randomUUID(), job.id, built.acceptedAt, built.level, built.note, built.payload]
         );
+        // Bring the job's acceptedSnapshot HEADLINE into step with the
+        // revision just written. This is not optional bookkeeping: Home, the
+        // Jobs list and the attention strip all read
+        // acceptedSnapshot.estQuoteTotal directly, because they render jobs
+        // whose snapshots aren't loaded. Writing quote_snapshots without
+        // updating it leaves Summary showing the reconciled figure and Home
+        // showing the old one for the same job -- which is exactly what
+        // happened on the first real run.
+        //
+        // captureQuoteSnapshot() already does this for acceptances made in the
+        // app; the migration simply wasn't doing its half.
+        //
+        // Merged, never replaced, and only for keys this snapshot actually
+        // knows: importedFromXero, hand-edited figures and the day estimates a
+        // Xero quote can't supply all live on the same object and must survive.
+        const headline = {
+          estQuoteTotal: built.payload.totals.incVat,
+          estLabourTotal: built.payload.totals.labour,
+          estMaterialsTotal: built.payload.totals.materials
+        };
+        if (built.payload.labour && built.payload.labour.onSiteDays != null) {
+          headline.estOnSiteDays = built.payload.labour.onSiteDays;
+        }
+        await db.query(
+          `UPDATE jobs SET data = jsonb_set(
+             COALESCE(data, '{}'::jsonb), '{acceptedSnapshot}',
+             COALESCE(data->'acceptedSnapshot', '{}'::jsonb) || $2::jsonb, true
+           ), updated_at = NOW() WHERE id = $1`,
+          [job.id, JSON.stringify(headline)]
+        );
         // The lock the spec asks for, and it is entirely the snapshot's
         // existence: with a row here the app reads the agreed figures and
         // never the live calc, so a future rate change cannot reach this job.
-        // The status is left exactly as it is — these jobs are already
+        // The STATUS is left exactly as it is — these jobs are already
         // accepted/completed/invoiced, and rewriting a lifecycle field to
         // "lock" something that is already locked would only risk moving a
         // job backwards in the pipeline.
