@@ -296,6 +296,28 @@ function nameSimilarity(a, b) {
   return shared.length / small.length;
 }
 
+// What the quote's own status is worth. This is the term that was missing, and
+// its absence caused nearly every ambiguity: a client with one ACCEPTED quote
+// and three superseded DRAFTs scored all four the same, so the run reported
+// "4 equally good matches" and, worse, could pick a draft. A quote the client
+// actually accepted is not merely a slightly better candidate than a draft that
+// was never sent -- it is the document, and the draft is a discarded attempt.
+//
+// Non-accepted quotes still score, because a job accepted in the app may never
+// have been flipped in Xero and its SENT quote is then the real record. They
+// simply can never outrank an accepted one for the same client.
+function statusWeight(status) {
+  switch (String(status || '').toUpperCase()) {
+    case 'ACCEPTED':
+    case 'INVOICED': return 6;
+    case 'SENT':     return 1;
+    case 'DRAFT':    return -3;
+    case 'DECLINED':
+    case 'DELETED':  return -6;
+    default:         return 0;
+  }
+}
+
 function daysBetween(isoA, isoB) {
   if (!isoA || !isoB) return null;
   const a = Date.parse(isoA), b = Date.parse(isoB);
@@ -334,8 +356,10 @@ function scoreCandidates(job, docs) {
     const dateScore = gap == null ? 0
       : gap <= FUZZY_DAY_WINDOW ? 2 - (gap / FUZZY_DAY_WINDOW) * 2
       : -1;
-    const score = identity * 4 + (nameScore > 0 && refScore > 0 ? 1 : 0) + dateScore + (x.kind === 'quote' ? 1 : 0);
-    return { doc: x, score, gap, nameScore, refScore, identity };
+    const status = statusWeight(x.status);
+    const score = identity * 4 + (nameScore > 0 && refScore > 0 ? 1 : 0) + dateScore
+      + (x.kind === 'quote' ? 1 : 0) + status;
+    return { doc: x, score, gap, nameScore, refScore, identity, status };
   }).filter(Boolean).sort((a, b) => b.score - a.score);
 }
 
@@ -613,6 +637,7 @@ async function main() {
   // with its source is not a mutation of the record: the snapshot itself is
   // never touched, and nothing here can change what was agreed.
   const stale = [];
+  let reconciledCount = 0;
   {
     const latest = await db.query(
       `SELECT DISTINCT ON (job_id) job_id, version, data
@@ -622,6 +647,7 @@ async function main() {
       const job = byJob.get(row.job_id);
       if (!job) continue;
       const totals = (row.data && row.data.totals) || {};
+      if (row.data && row.data.reconciliation && row.data.reconciliation.documentNumber) reconciledCount++;
       if (totals.incVat == null) continue;
       const cached = (job.data || {}).acceptedSnapshot || {};
       if (cached.estQuoteTotal != null && Math.abs(+cached.estQuoteTotal - +totals.incVat) <= 0.005) continue;
@@ -638,21 +664,14 @@ async function main() {
         [job.id, JSON.stringify(headline)]);
     }
   }
-  if (stale.length) {
-    console.log(`${APPLY ? 'REPAIRED' : 'WOULD REPAIR'} — ${stale.length} job${stale.length === 1 ? '' : 's'} showing a different total on Home than on Summary`);
-    stale.forEach(({ job, was, now, version }) => {
-      console.log(`  ${(job.name || job.id).slice(0, 34).padEnd(34)} ${gbp(now).padStart(12)}   Home was showing ${gbp(was)} · revision ${version} is the agreed figure`);
-    });
-    console.log('  The snapshots themselves are untouched — only the cached figure the job list reads.\n');
-  }
 
-  if (!candidates.length && !stale.length) {
+  // Only bail out early when there is genuinely nothing left to look at. A run
+  // where everything is already frozen still has to fetch Xero and audit which
+  // quote each snapshot was frozen against -- that check is the one that finds
+  // a job frozen against a draft, and it would never fire if this returned
+  // first.
+  if (!candidates.length && !stale.length && !reconciledCount) {
     console.log('Nothing to reconcile — every accepted quote already has frozen figures.\n');
-    return;
-  }
-  if (!candidates.length) {
-    console.log(!APPLY ? 'Nothing left to reconcile. Re-run with --apply to write the repairs above.\n'
-                       : 'Nothing left to reconcile.\n');
     return;
   }
 
@@ -674,12 +693,64 @@ async function main() {
   if (quoteCount === 0) console.log('  ⚠ no quotes came back at all — is this the right Xero organisation?');
   console.log('');
 
+  // ── Snapshots frozen against the wrong quote ─────────────────────────────
+  // Early runs scored a superseded DRAFT the same as the ACCEPTED quote for the
+  // same client, so a job could be frozen against a document the client never
+  // agreed to. Status is weighted now, but a snapshot already written stays
+  // written -- it is append-only and nothing here may change it. What this can
+  // do is SAY SO, and name the --pick that appends a correction.
+  const suspect = [];
+  {
+    const latest = await db.query(
+      `SELECT DISTINCT ON (job_id) job_id, version, data
+         FROM quote_snapshots ORDER BY job_id, version DESC`);
+    const byJob = new Map(jobsResult.rows.map(j => [j.id, j]));
+    for (const row of latest.rows) {
+      const job = byJob.get(row.job_id);
+      if (!job || !ACCEPTED_STATUSES.includes((job.data || {}).status)) continue;
+      const rec = (row.data && row.data.reconciliation) || {};
+      if (!rec.documentNumber) continue; // captured in the app, not reconciled
+      const best = scoreCandidates(job, docs)[0];
+      if (!best || best.doc.number === rec.documentNumber) continue;
+      // Only worth raising when the better candidate is better for a reason
+      // that matters: the stored one isn't an accepted quote and this one is.
+      if (statusWeight(best.doc.status) <= statusWeight(rec.documentStatus)) continue;
+      suspect.push({ job, storedNumber: rec.documentNumber, storedStatus: rec.documentStatus || 'unknown',
+                     storedTotal: (row.data.totals || {}).incVat, best, version: row.version });
+    }
+  }
+  if (suspect.length) {
+    console.log(`FROZEN AGAINST THE WRONG QUOTE — ${suspect.length} job${suspect.length === 1 ? '' : 's'} to check`);
+    suspect.forEach(({ job, storedNumber, storedStatus, storedTotal, best }) => {
+      console.log(`  ${(job.name || job.id).slice(0, 34).padEnd(34)} ${gbp(storedTotal).padStart(12)}   frozen against ${storedNumber} (${storedStatus})`);
+      console.log(`  ${' '.repeat(34)} ${' '.repeat(12)}   ${best.doc.number} ${gbp(best.doc.total)} (${best.doc.status}) looks like the real one`);
+      console.log(`  ${' '.repeat(34)} ${' '.repeat(12)}   → --pick "${job.name}"=${best.doc.number}`);
+    });
+    console.log('  Check in Xero first. A --pick appends a correction; the old revision stays in the history.\n');
+  }
+
+  if (stale.length) {
+    console.log(`${APPLY ? 'REPAIRED' : 'WOULD REPAIR'} — ${stale.length} job${stale.length === 1 ? '' : 's'} showing a different total on Home than on Summary`);
+    stale.forEach(({ job, was, now, version }) => {
+      console.log(`  ${(job.name || job.id).slice(0, 34).padEnd(34)} ${gbp(now).padStart(12)}   Home was showing ${gbp(was)} · revision ${version} is the agreed figure`);
+    });
+    console.log('  The snapshots themselves are untouched — only the cached figure the job list reads.\n');
+  }
+
+
   // Does each job have measured scope of its own? Needed to tell an untouched
   // import from one that has been amended here since.
   const scopeCounts = new Map();
   for (const t of ['rooms', 'exterior_items']) {
     const r = await db.query(`SELECT job_id, count(*)::int AS n FROM ${t} GROUP BY job_id`);
     r.rows.forEach(row => scopeCounts.set(row.job_id, (scopeCounts.get(row.job_id) || 0) + row.n));
+  }
+
+  if (!candidates.length) {
+    console.log(suspect.length || stale.length
+      ? (APPLY ? 'Nothing left to reconcile.\n' : 'Nothing left to reconcile — act on the items above.\n')
+      : 'Nothing to reconcile — every accepted quote already has frozen figures.\n');
+    return;
   }
 
   const done = [], skipped = [], needsReview = [], imported = [];
@@ -980,6 +1051,14 @@ async function main() {
 
   console.log('WHAT TO DO NEXT\n');
   let step = 1;
+  // First, because it is the only item on this list where money already in the
+  // app is wrong rather than merely absent.
+  if (suspect.length) {
+    console.log(`  ${step++}. ${suspect.length} job${suspect.length === 1 ? ' is' : 's are'} frozen against a quote the client may never have accepted.`);
+    console.log('     Check each in Xero, then append the correction:');
+    console.log('        ' + [cmd, carry, `--pick "${suspect[0].job.name}"=${suspect[0].best.doc.number}`, '--apply'].filter(Boolean).join(' '));
+    console.log('');
+  }
   if (done.length) {
     console.log(`  ${step++}. ${done.length} job${done.length === 1 ? ' is' : 's are'} ready. Nothing else is needed for these — write them:`);
     console.log('        ' + [cmd, carry, '--apply'].filter(Boolean).join(' '));
