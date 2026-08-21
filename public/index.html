@@ -1929,7 +1929,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.38.4</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.38.5</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -9515,12 +9515,11 @@ function poolSamePaintGroups(baseGroups, addGroups, nameOf) {
 // can pool groups across roles before the rows (and their one-shot tin
 // optimisation) are built.
 function roleRowsFromGroups(label, role, groups, items, nameOf) {
-  var colourLabels = {};
-  colours.forEach(function(c) { colourLabels[c.number] = c.label; });
   return groups.map(function(g) {
-    var suffix = groups.length > 1
-      ? ' — Colour ' + g.colourNumber + (colourLabels[g.colourNumber] ? ' (' + colourLabels[g.colourNumber] + ')' : '')
-      : '';
+    // Colour naming goes through colourLabelFor() like everywhere else --
+    // the suffix is only here to tell one group's row apart from another's,
+    // and the name does that as well as the number did.
+    var suffix = groups.length > 1 ? ' — ' + colourLabelFor(g.colourNumber) : '';
     // nameOf (optional): name the source items a row covers -- used by the
     // fitted-unit roles (v2.20.0) so a pooled tin row reads "Fitted Unit
     // Topcoat (Left alcove, Media wall unit)". Only once there's more than
@@ -10718,9 +10717,6 @@ function renderActuals() {
   var t = actualsTotals();
   actualsRowsCache = t.rows;
 
-  var colourLabels = {};
-  colours.forEach(function(c) { colourLabels[c.number] = c.label; });
-
   // Variance against what the CLIENT was told, surfaced during the job rather
   // than at invoicing. They were given a materials estimate; if actuals run
   // well over it the invoice will exceed it, and that's a conversation to have
@@ -10753,8 +10749,9 @@ function renderActuals() {
     // know which room it's for). Absent on lines saved before Recalculate
     // started carrying colourNumber. Shown even for a single colour: the
     // estimate label itself only gets a colour suffix when a role has more
-    // than one group (see buildRoleRows), so this is the only place a
-    // single-colour job's tins are ever labelled with their colour.
+    // than one group (see buildRoleRows), so this is where a single-colour
+    // job's tins get named on screen -- the invoice names them on the line
+    // itself instead (materialDescriptionWithColour).
     var parts = (r.parts || []).filter(function(p) { return p.quantity > 0; });
     // Only name roles when the row actually spans more than one (v2.25.2)
     // -- the common one-role case keeps its familiar colour-only label.
@@ -10764,17 +10761,15 @@ function renderActuals() {
     var detail = parts.length > 1
       ? parts.map(function(p) {
           return (showRoles && ROLE_LABELS[p.role] ? ROLE_LABELS[p.role] + ' — ' : '')
-            + 'Colour ' + p.colourNumber + (colourLabels[p.colourNumber] ? ' (' + colourLabels[p.colourNumber] + ')' : '') + ' · ' + (Math.round(p.quantity * 100) / 100);
+            + colourLabelFor(p.colourNumber) + ' · ' + (Math.round(p.quantity * 100) / 100);
         }).join('  ·  ')
-      : (parts.length === 1
-          ? 'Colour ' + parts[0].colourNumber + (colourLabels[parts[0].colourNumber] ? ' (' + colourLabels[parts[0].colourNumber] + ')' : '')
-          : '');
+      : (parts.length === 1 ? colourLabelFor(parts[0].colourNumber) : '');
     // Manually-added rows (onEstimate false) carry their own single
     // colourNumber rather than the estimate's aggregated parts -- see the
     // schema comment on material_actuals.colour_number.
     var manualColourNumber = (!r.onEstimate && r.actual) ? r.actual.colourNumber : null;
     if (!r.onEstimate && manualColourNumber != null) {
-      detail = 'Colour ' + manualColourNumber + (colourLabels[manualColourNumber] ? ' (' + colourLabels[manualColourNumber] + ')' : '');
+      detail = colourLabelFor(manualColourNumber);
     }
 
     var tag = !r.onEstimate
@@ -11106,6 +11101,54 @@ async function addActualFromPicker() {
   if (await persistActual(fresh)) { clearFormFields(ACT_ADD_FIELD_IDS); renderActuals(); }
 }
 
+// Which colours a materials row was actually bought in, named. An estimate
+// row carries its own per-colour parts -- one PRODUCT can legitimately
+// cover more than one colour, since a colour band is a PRICE band covering
+// many colours (see rollUpEstimateByItem) -- so a row can name several. A
+// manually added row carries the single colour typed onto it instead.
+// Parts at zero quantity are dropped: a colour this row no longer buys any
+// paint for has no business being named on the bill. Duplicates collapse --
+// the same colour appears once per role it covers, and the client does not
+// need to read it twice.
+function materialColourNames(row) {
+  if (!row.onEstimate) {
+    var manual = row.actual ? row.actual.colourNumber : null;
+    return manual == null ? [] : [colourLabelFor(manual)];
+  }
+  var seen = {}, names = [];
+  (row.parts || []).forEach(function(p) {
+    if (!(p.quantity > 0) || p.colourNumber == null || seen[p.colourNumber]) return;
+    seen[p.colourNumber] = true;
+    names.push(colourLabelFor(p.colourNumber));
+  });
+  return names;
+}
+
+// The materials line as it should READ -- on the invoice list, in the
+// copy-to-Xero text, and on the Xero invoice line itself: the item's own
+// name plus the colour it was bought in.
+//
+// Xero has nowhere else to put the colour. ItemCode is the fixed inventory
+// item -- it carries the SKU, the sell price and the stock, and it is the
+// same code for every colour in a band, so it cannot say which one this
+// tin was. Description is the only field on the line that can, which is
+// why the colour goes here and the code is left strictly alone (pricing
+// and quantity lookups run off the code and must not move). Before this,
+// every coloured line reached Xero as bare "Tikkurila Helmi 10 - Pastels
+// 3ltr" and Nicky retyped the colour into each one by hand after the fact.
+//
+// Uncoloured materials -- clear varnish, sundries, anything with no colour
+// assigned -- are returned untouched, so they still read exactly as the
+// Xero item names them.
+//
+// Length is not a concern: Xero's line description limit is 4,000
+// characters (the same one the invoice text block is checked against in
+// createFinalInvoice) and a colour suffix is tens of characters.
+function materialDescriptionWithColour(row) {
+  var names = materialColourNames(row);
+  return names.length ? row.description + ' — ' + names.join(', ') : row.description;
+}
+
 // ── Phase 2(a): the materials list for the invoice ────────────────────────
 // The payoff. Materials go on the quote as an ESTIMATE and the client is billed
 // for what was ACTUALLY used, so this list — actual quantities × 202 sell
@@ -11131,6 +11174,10 @@ async function addActualFromPicker() {
 //
 // Ticked at quantity 0 is a real, meaningful state — "confirmed, bought none" —
 // and drops out of both lists rather than printing a £0.00 line.
+//
+// COLOUR RIDES ON THE DESCRIPTION (v2.38.5). See
+// materialDescriptionWithColour() -- these lines become Xero invoice
+// lines, and Xero has nowhere else to put the colour.
 function buildInvoiceList() {
   var billed = [], unconfirmed = [], total = 0;
   buildActualsView().forEach(function(r) {
@@ -11138,7 +11185,7 @@ function buildInvoiceList() {
     var confirmed = !!(r.actual && r.actual.bought);
     var qty = actualsRowQuantity(r);
     var entry = {
-      itemCode: r.itemCode || '', description: r.description,
+      itemCode: r.itemCode || '', description: materialDescriptionWithColour(r),
       quantity: qty, unitAmount: price, lineTotal: qty * price,
       onEstimate: r.onEstimate, estimated: r.estimated, logged: !!r.actual
     };
@@ -11749,14 +11796,28 @@ function ensureDefaultColour() {
   }
 }
 
-// Shared by the Colour Schedule (Summary tab) and CSV export so the two
-// never say something different for the same room/colour.
+// THE one place a colour number becomes words. Shared by the Colour
+// Schedule (Summary tab and the client quote), the CSV export, the
+// materials row labels, the On Site tracking rows and the material
+// descriptions that go to Xero -- so no two of them can ever say something
+// different about the same colour.
+//
+// The NAME ONLY, as of v2.38.5: this used to read "Colour 2 (Shaded
+// White)", which was Nicky's own working numbering read back at him and,
+// once these strings started reaching Xero invoice lines, at the client
+// too. The number is still the identifier everywhere it does work --
+// matEstimateKey(), the per-colour parts breakdown, colours[].number, the
+// pickers -- it just isn't the label any more. Nothing anywhere parses
+// "Colour N" back out of a string (checked), so dropping it is cosmetic.
+//
+// An unnamed colour has no name to give, so it falls back to "Colour N" --
+// the same fallback the colour pickers already use.
 function colourLabelFor(num) {
   var c = colours.find(function(x){ return x.number === num; });
-  return 'Colour ' + num + (c && c.label ? ' (' + c.label + ')' : '');
+  return c && c.label ? c.label : ('Colour ' + num);
 }
 
-// Per-room colour line for the Colour Schedule: compact "Colour N (Label)"
+// Per-room colour line for the Colour Schedule: just the colour's name
 // when every painted surface in the room shares one colour (the common
 // case), or a per-surface breakdown grouped by colour when they don't
 // (feature walls etc.) -- mirrors how wall/ceiling/woodwork are already
