@@ -1031,6 +1031,12 @@ router.post('/create-quote', async (req, res) => {
         return res.status(409).json({ error: `Quote ${existing.QuoteNumber || ''} is ${existing.Status.toLowerCase()} in Xero and can't be amended — send a new quote instead` });
       }
       const quoteDate = existing.DateString ? existing.DateString.split('T')[0] : new Date().toISOString().split('T')[0];
+      // Same whole-quote rewrite as /update-quote-status below: a scalar
+      // left out of this payload is CLEARED in Xero, so Title and the
+      // expiry date are carried over from the quote as it stands, and
+      // Terms/Summary fall back to what's already there if this send
+      // didn't build them. Reference already had that fallback.
+      const expiryDate = existing.ExpiryDateString ? existing.ExpiryDateString.split('T')[0] : undefined;
       // No Status field: echoing the quote's own status back (even
       // unchanged) makes Xero reject the update with "Please provide a
       // valid Status Code" — a documented Quotes-API quirk. Omitting it
@@ -1046,8 +1052,10 @@ router.post('/create-quote', async (req, res) => {
           Reference: xeroRef || existing.Reference || '',
           LineItems: lineItems,
           LineAmountTypes: 'NoTax',
-          Terms: paymentTerms || undefined,
-          Summary: paymentSummary || undefined
+          Terms: paymentTerms || existing.Terms || undefined,
+          Summary: paymentSummary || existing.Summary || undefined,
+          Title: existing.Title || undefined,
+          ExpiryDate: expiryDate
         }] },
         { headers }
       );
@@ -1164,15 +1172,40 @@ router.post('/update-quote-status', async (req, res) => {
       return res.json({ ok: true, status: current });
     }
 
-    // A status update POST still requires the mandatory quote fields
-    // (Contact + Date) alongside QuoteID; everything else (line items,
-    // terms) is left off and survives untouched. DateString is preferred
-    // because with Accept: application/json the Date property comes back
-    // in .NET "/Date(ms)/" form, not ISO.
+    // A status update POST rewrites the WHOLE quote, not just the status
+    // ("you are always updating the entire quote" -- Xero's own Quotes
+    // docs), so every SCALAR field left out of the payload comes back
+    // BLANK. Only LineItems are special-cased: an omitted array is left
+    // alone, which is what made the old Contact+Date+Status-only payload
+    // look safe -- the lines survived, so nothing looked wrong, while the
+    // quote's Reference was silently wiped every time a job was marked
+    // accepted/declined (or took the DRAFT -> SENT hop). Nicky types a
+    // reference on every quote and found them all blank in Xero
+    // (2026-08-21): the create path had put it there and this one erased
+    // it minutes later.
+    //
+    // So echo the quote's own values back and change ONLY the status. All
+    // of these are read from the GET above, i.e. whatever is in Xero right
+    // now -- including anything edited inside Xero, which this must not
+    // stomp either. Empty ones stay undefined (dropped by JSON.stringify),
+    // which is the same nothing they already were. DateString/
+    // ExpiryDateString are preferred because with Accept: application/json
+    // the Date properties come back in .NET "/Date(ms)/" form, not ISO.
     const quoteDate = quote.DateString ? quote.DateString.split('T')[0] : quote.Date;
+    const expiryDate = quote.ExpiryDateString ? quote.ExpiryDateString.split('T')[0] : undefined;
     const postStatus = (status) => axios.post(
       `${XERO_API_URL}/Quotes/${quoteId}`,
-      { Quotes: [{ QuoteID: quoteId, Contact: { ContactID: quote.Contact.ContactID }, Date: quoteDate, Status: status }] },
+      { Quotes: [{
+        QuoteID: quoteId,
+        Contact: { ContactID: quote.Contact.ContactID },
+        Date: quoteDate,
+        Status: status,
+        Reference: quote.Reference || undefined,
+        Title: quote.Title || undefined,
+        Summary: quote.Summary || undefined,
+        Terms: quote.Terms || undefined,
+        ExpiryDate: expiryDate
+      }] },
       { headers }
     );
 
