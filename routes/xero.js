@@ -1213,17 +1213,28 @@ router.post('/update-quote-status', async (req, res) => {
     // ExpiryDateString are preferred because with Accept: application/json
     // the Date properties come back in .NET "/Date(ms)/" form, not ISO.
     //
-    // QuoteNumber is in the payload for the same reason. It is the quote's
-    // IDENTITY -- the number on the PDF the client already has -- and it is
-    // a scalar like any other, so leaving it out invites the rewrite to
-    // reissue it. Six of Nicky's quotes are recorded in the app under
-    // numbers that no longer exist in Xero, each one's QuoteID still alive
-    // under a HIGHER number for the same client and date (2026-08-21).
-    // Whatever moved them, this route was the only thing writing to them,
-    // and a quote's number should never be left to chance on a status
-    // change. The number Xero reports back is returned to the client too,
-    // so the app records what Xero actually holds rather than what it
-    // assumed.
+    // QuoteNumber is in the payload for the same reason, and it matters
+    // more than the rest: it is the quote's IDENTITY, the number printed on
+    // the PDF the client is holding. Omitted, it is reissued by the rewrite
+    // like any other missing scalar -- the quote keeps its QuoteID and
+    // silently takes the next number in the sequence.
+    //
+    // Six of Nicky's jobs were found recorded under numbers Xero no longer
+    // had, each QuoteID still alive under a HIGHER number for the same
+    // client and date (QU-0311 -> QU-0312, QU-0306 -> QU-0308, QU-0296 ->
+    // QU-0298 ...). Nicky confirmed 2026-08-21 that he has never renumbered
+    // a quote by hand and that ANY update made in the app moved the number,
+    // which is what settles it: the app's own writes were reissuing them,
+    // here and on the amend path both. (One quote, QU-0304, kept its number
+    // while losing its reference and looked like a counter-example -- most
+    // likely its reference was typed into the app AFTER that quote was
+    // sent, so Xero never had it to lose.)
+    //
+    // Renumbering is worse than it sounds: the client's copy and Xero's
+    // then disagree about which document is which. Hence both belt and
+    // braces -- the number is sent explicitly, AND the number Xero reports
+    // back is returned to the client so the app records what Xero actually
+    // holds rather than what it assumed.
     const quoteDate = xeroDateOnly(quote.DateString, quote.Date);
     const expiryDate = xeroDateOnly(quote.ExpiryDateString, quote.ExpiryDate);
     const postStatus = (status) => axios.post(
