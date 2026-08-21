@@ -3,6 +3,18 @@ const crypto = require('crypto');
 const db = require('../db');
 const router = express.Router();
 
+// The build number the app shows in its menu, read from package.json so it
+// cannot drift. It drifted before this existed: the Build line was a
+// hand-typed literal in index.html with a comment asking whoever changed
+// the version to remember to change it too, and by v2.38.3 it was still
+// saying v2.37.0. A version line that lies is worse than no version line —
+// its entire job is answering "which build is this phone on?" during a
+// deploy. The literal stays in the HTML as the offline fallback; online,
+// this is the answer.
+router.get('/version', (req, res) => {
+  res.json({ version: require('../package.json').version });
+});
+
 // Every per-job resource below (rooms, exterior items, colours, materials)
 // requires a job_id — on GET/DELETE-collection it's a query param
 // (?job_id=X), on PUT it's `jobId` in the body (the client already sends
