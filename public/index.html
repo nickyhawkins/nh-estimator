@@ -1921,9 +1921,15 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        "which version am I on?" otherwise unanswerable from the device.
        Numbered by significance (was feature-name + date before v1.2.0):
        major = reworks/breaking data changes, minor = new features,
-       patch = fixes and small tweaks. Keep in sync with package.json's
-       "version". -->
-  <div style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.37.0</div>
+       patch = fixes and small tweaks.
+
+       The literal below is the OFFLINE fallback only -- online,
+       showBuildVersion() overwrites it from /api/version, which reads
+       package.json. It used to be the only copy, kept in sync by hand and a
+       comment saying to remember; it still read v2.37.0 three releases
+       later, which is precisely the question this line exists to answer.
+       Bump it if you like, but nothing depends on remembering any more. -->
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.38.4</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -4016,11 +4022,26 @@ async function createXeroQuote(forceNew) {
   }
 }
 
+// Replaces the baked-in Build line with the version the SERVER is actually
+// running (package.json, via /api/version). Fire-and-forget and silent on
+// failure: offline, the literal in the HTML is the honest answer anyway, and
+// a version line is never worth an error message.
+function showBuildVersion() {
+  fetch('/api/version')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var el = document.getElementById('build-version');
+      if (el && d && d.version) el.textContent = 'Build: v' + d.version;
+    })
+    .catch(function() {});
+}
+
 // Load from localStorage immediately, then sync from server in background
 async function initApp() {
   // Theme first — the head snippet already painted it; this just re-applies
   // (harmless) and marks the Settings seg with the saved preference.
   applyTheme(); syncThemeSeg();
+  showBuildVersion();
   // ── Step 1: Load from localStorage instantly (works offline) ──
   // settings itself needs no work here: the module-level init already built
   // it from the same pe-settings blob via mergeSettings(). Just paint it.
