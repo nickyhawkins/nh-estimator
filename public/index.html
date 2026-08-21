@@ -4853,6 +4853,12 @@ function syncQuoteStatusToXero(job, xeroStatus) {
     .then(function(result){
       if (!result.ok) throw new Error(result.error || 'Xero update failed');
       job.xeroQuoteStatus = result.status;
+      // Record the number Xero reports after the write. The app's copy is
+      // only ever as good as the last thing Xero told it, and six jobs were
+      // found holding quote numbers Xero no longer had (2026-08-21) -- so
+      // the number is now re-read on every status change rather than
+      // written once at send time and trusted forever.
+      if (result.quoteNumber && result.quoteNumber !== job.xeroQuoteNumber) job.xeroQuoteNumber = result.quoteNumber;
       localStorage.setItem('pe-jobs', JSON.stringify(jobs));
       persistJobData(job);
       renderSummary();

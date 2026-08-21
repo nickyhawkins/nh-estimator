@@ -765,6 +765,20 @@ router.get('/sales-items', async (req, res) => {
   }
 });
 
+// Xero reports a quote's dates TWICE and the two forms are not
+// interchangeable: DateString/ExpiryDateString in ISO, and Date/ExpiryDate
+// in .NET "/Date(1755...)/" form whenever Accept is application/json. Every
+// quote update has to send Date back (it's mandatory on the POST), and
+// passing the .NET form through is not the same as sending nothing -- Xero
+// can't read it and silently re-dates the quote to TODAY, which is how a
+// July quote ends up issued in August. So parse whichever form is present
+// rather than trusting either to be there.
+function xeroDateOnly(isoString, netDate) {
+  if (isoString) return String(isoString).split('T')[0];
+  const ms = /\/Date\((-?\d+)/.exec(String(netDate || ''));
+  return ms ? new Date(+ms[1]).toISOString().split('T')[0] : undefined;
+}
+
 // Create quote in Xero
 router.post('/create-quote', async (req, res) => {
   const { clientName, jobName, xeroRef, rooms, exterior, kitchen, fittedUnit, custom, materials, settings, markup, markupType, commercial, commercialPct, standalone, standaloneTopUp, standaloneCalcDays, standaloneDiaryDays, paymentTerms, paymentSummary, contactId, newContact, updateQuoteId } = req.body;
@@ -1030,23 +1044,25 @@ router.post('/create-quote', async (req, res) => {
       if (['ACCEPTED', 'DECLINED', 'INVOICED', 'DELETED'].includes(existing.Status)) {
         return res.status(409).json({ error: `Quote ${existing.QuoteNumber || ''} is ${existing.Status.toLowerCase()} in Xero and can't be amended — send a new quote instead` });
       }
-      const quoteDate = existing.DateString ? existing.DateString.split('T')[0] : new Date().toISOString().split('T')[0];
+      const quoteDate = xeroDateOnly(existing.DateString, existing.Date) || new Date().toISOString().split('T')[0];
       // Same whole-quote rewrite as /update-quote-status below: a scalar
       // left out of this payload is CLEARED in Xero, so Title and the
       // expiry date are carried over from the quote as it stands, and
       // Terms/Summary fall back to what's already there if this send
       // didn't build them. Reference already had that fallback.
-      const expiryDate = existing.ExpiryDateString ? existing.ExpiryDateString.split('T')[0] : undefined;
+      const expiryDate = xeroDateOnly(existing.ExpiryDateString, existing.ExpiryDate);
       // No Status field: echoing the quote's own status back (even
       // unchanged) makes Xero reject the update with "Please provide a
       // valid Status Code" — a documented Quotes-API quirk. Omitting it
       // updates the lines and leaves the status exactly as it is, which is
       // the intent here anyway (the guard above already rejected the
       // unamendable states).
-      await axios.post(
+      const amendRes = await axios.post(
         `${XERO_API_URL}/Quotes/${encodeURIComponent(updateQuoteId)}`,
         { Quotes: [{
           QuoteID: updateQuoteId,
+          // The quote's identity, kept explicitly -- see /update-quote-status.
+          QuoteNumber: existing.QuoteNumber || undefined,
           Contact: { ContactID: existing.Contact.ContactID },
           Date: quoteDate,
           Reference: xeroRef || existing.Reference || '',
@@ -1059,10 +1075,15 @@ router.post('/create-quote', async (req, res) => {
         }] },
         { headers }
       );
+      // Report the number Xero holds AFTER the write, not the one read
+      // before it: the app stores this on the job, and a number that moved
+      // during the update would otherwise be recorded wrong until someone
+      // noticed the app and Xero disagreeing.
+      const amended = amendRes.data.Quotes && amendRes.data.Quotes[0];
       return res.json({
         ok: true, updated: true,
         quoteId: updateQuoteId,
-        quoteNumber: existing.QuoteNumber || 'updated',
+        quoteNumber: (amended && amended.QuoteNumber) || existing.QuoteNumber || 'updated',
         status: existing.Status,
         contactId: existing.Contact.ContactID
       });
@@ -1191,12 +1212,25 @@ router.post('/update-quote-status', async (req, res) => {
     // which is the same nothing they already were. DateString/
     // ExpiryDateString are preferred because with Accept: application/json
     // the Date properties come back in .NET "/Date(ms)/" form, not ISO.
-    const quoteDate = quote.DateString ? quote.DateString.split('T')[0] : quote.Date;
-    const expiryDate = quote.ExpiryDateString ? quote.ExpiryDateString.split('T')[0] : undefined;
+    //
+    // QuoteNumber is in the payload for the same reason. It is the quote's
+    // IDENTITY -- the number on the PDF the client already has -- and it is
+    // a scalar like any other, so leaving it out invites the rewrite to
+    // reissue it. Six of Nicky's quotes are recorded in the app under
+    // numbers that no longer exist in Xero, each one's QuoteID still alive
+    // under a HIGHER number for the same client and date (2026-08-21).
+    // Whatever moved them, this route was the only thing writing to them,
+    // and a quote's number should never be left to chance on a status
+    // change. The number Xero reports back is returned to the client too,
+    // so the app records what Xero actually holds rather than what it
+    // assumed.
+    const quoteDate = xeroDateOnly(quote.DateString, quote.Date);
+    const expiryDate = xeroDateOnly(quote.ExpiryDateString, quote.ExpiryDate);
     const postStatus = (status) => axios.post(
       `${XERO_API_URL}/Quotes/${quoteId}`,
       { Quotes: [{
         QuoteID: quoteId,
+        QuoteNumber: quote.QuoteNumber || undefined,
         Contact: { ContactID: quote.Contact.ContactID },
         Date: quoteDate,
         Status: status,
@@ -1210,8 +1244,13 @@ router.post('/update-quote-status', async (req, res) => {
     );
 
     if (current === 'DRAFT') await postStatus('SENT');
-    await postStatus(target);
-    res.json({ ok: true, status: target });
+    const finalRes = await postStatus(target);
+    const written = finalRes.data.Quotes && finalRes.data.Quotes[0];
+    res.json({
+      ok: true,
+      status: target,
+      quoteNumber: (written && written.QuoteNumber) || quote.QuoteNumber || null
+    });
   } catch (err) {
     console.error('Update quote status error:', err.response?.data || err.message);
     const xeroMsg = err.response?.data?.Elements?.[0]?.ValidationErrors?.[0]?.Message
