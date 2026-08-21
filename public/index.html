@@ -11124,29 +11124,84 @@ function materialColourNames(row) {
   return names;
 }
 
+// Splitting a paint item name into "everything before the size" and "the
+// size onwards". Same rule the server parses Xero's item names by (see
+// parseItemName in routes/xero.js): find the tin size, and whatever sits
+// in front of it is the range and the colour band. Litres are tried before
+// millilitres for the same reason they are there -- "l" can never
+// accidentally match inside "ml", since a digit can't sit directly before
+// that "l".
+var MAT_SIZE_RE = /(\d+(?:\.\d+)?)\s*l(?:tr?)?\b/i;
+var MAT_SIZE_ML_RE = /(\d+(?:\.\d+)?)\s*ml\b/i;
+
+// The colour band words a range name sometimes repeats in brackets --
+// "Bedec Barn Paint (Colour)", "Bedec Aqua Advanced Primer UC (White)".
+// Only these, only in a trailing bracket, and only when a real colour is
+// going in to replace them: a range's other brackets are finishes and
+// sheen levels ("(Gloss, Matt, Satin)", "(20)") and have to stay.
+var MAT_RANGE_COLOUR_PAREN_RE = /\s*\((?:colours?|white|clear|tinted)\)\s*$/i;
+
 // The materials line as it should READ -- on the invoice list, in the
-// copy-to-Xero text, and on the Xero invoice line itself: the item's own
-// name plus the colour it was bought in.
+// copy-to-Xero text, and on the Xero invoice line itself: the range, the
+// colour it was actually mixed in, and the tin size.
 //
-// Xero has nowhere else to put the colour. ItemCode is the fixed inventory
-// item -- it carries the SKU, the sell price and the stock, and it is the
-// same code for every colour in a band, so it cannot say which one this
-// tin was. Description is the only field on the line that can, which is
-// why the colour goes here and the code is left strictly alone (pricing
-// and quantity lookups run off the code and must not move). Before this,
-// every coloured line reached Xero as bare "Tikkurila Helmi 10 - Pastels
-// 3ltr" and Nicky retyped the colour into each one by hand after the fact.
+// THE COLOUR REPLACES THE BAND, in place, rather than being bolted on the
+// end. A Xero paint item is named "Range - Band Size", and the band is a
+// PRICE band -- "Colours", "Pastels", "Magnolia", "Group 1 Colours",
+// "Colours Tinted". It is a fact about what the tin cost, not about what
+// went on the wall, and one band covers dozens of colours, so on a client's
+// invoice it is at best noise and at worst reads like the colour and isn't.
+// Putting the real colour where the band was gives the line the shape it
+// always should have had:
 //
-// Uncoloured materials -- clear varnish, sundries, anything with no colour
-// assigned -- are returned untouched, so they still read exactly as the
-// Xero item names them.
+//   Tikkurila Helmi 10 - Pastels 3ltr
+//   Tikkurila Helmi 10 - Farrow & Ball No. 201 Shaded White 3ltr
+//
+// Xero has nowhere else to put it. ItemCode is the fixed inventory item --
+// it carries the SKU, the sell price and the stock, and it is the same code
+// for every colour in a band, so it cannot say which one this tin was.
+// Description is the only field on the line that can, which is why the
+// colour goes here and the code is left strictly alone (pricing and
+// quantity lookups run off the code and must not move). Before this, every
+// coloured line reached Xero as bare "Tikkurila Helmi 10 - Pastels 3ltr"
+// and Nicky retyped the colour into each one by hand after the fact.
+//
+// Done HERE and not in the description the snapshot stores, deliberately:
+// rollUpEstimateByItem() rolls the estimate up BY ITEM CODE, so one row can
+// legitimately cover two colours off the same code (a band is a price band)
+// and there is no single colour to bake in upstream. Both are named, and
+// the snapshot's own description stays the plain Xero item name that every
+// key, the quote path and every already-saved job still expect.
+//
+// Everything that isn't a parseable paint item -- a free-text row, a
+// sundry, a manually typed description -- has no band to replace, so the
+// colour goes on the end instead. Materials with no colour at all (clear
+// varnish, sundries) are returned exactly as they are.
 //
 // Length is not a concern: Xero's line description limit is 4,000
 // characters (the same one the invoice text block is checked against in
-// createFinalInvoice) and a colour suffix is tens of characters.
+// createFinalInvoice) and a full colour name is tens.
 function materialDescriptionWithColour(row) {
   var names = materialColourNames(row);
-  return names.length ? row.description + ' — ' + names.join(', ') : row.description;
+  var desc = row.description || '';
+  if (!names.length) return desc;
+  var colour = names.join(' / ');
+  var size = desc.match(MAT_SIZE_RE) || desc.match(MAT_SIZE_ML_RE);
+  if (!size) return desc + ' — ' + colour;
+  // "Range - Band" | "Range -" (a band-less item) | "Range" (an untidied
+  // supplier's name with no separator at all) -- the last " - " wins, since
+  // a range can contain one of its own ("Bedec MSP (Gloss, Matt, Satin)").
+  var prefix = desc.slice(0, size.index).trim();
+  var range = prefix;
+  if (range.slice(-1) === '-') range = range.slice(0, -1).trim();
+  else {
+    var sep = range.lastIndexOf(' - ');
+    if (sep !== -1) range = range.slice(0, sep);
+  }
+  range = range.replace(MAT_RANGE_COLOUR_PAREN_RE, '');
+  // Nothing recognisable in front of the size: don't invent a shape for it.
+  if (!range) return desc + ' — ' + colour;
+  return range + ' - ' + colour + ' ' + desc.slice(size.index).trim();
 }
 
 // ── Phase 2(a): the materials list for the invoice ────────────────────────
@@ -11802,19 +11857,36 @@ function ensureDefaultColour() {
 // descriptions that go to Xero -- so no two of them can ever say something
 // different about the same colour.
 //
-// The NAME ONLY, as of v2.38.5: this used to read "Colour 2 (Shaded
-// White)", which was Nicky's own working numbering read back at him and,
-// once these strings started reaching Xero invoice lines, at the client
-// too. The number is still the identifier everywhere it does work --
-// matEstimateKey(), the per-colour parts breakdown, colours[].number, the
-// pickers -- it just isn't the label any more. Nothing anywhere parses
-// "Colour N" back out of a string (checked), so dropping it is cosmetic.
+// THE COLOUR'S OWN FULL NAME, as of v2.38.5 -- "Farrow & Ball No. 201
+// Shaded White", not "Shaded White" and certainly not "Colour 2 (Shaded
+// White)". Two changes in one, both for the same reason: these strings now
+// reach a Xero invoice line, where the reader is the client and the job is
+// to say exactly which paint went on their walls.
 //
-// An unnamed colour has no name to give, so it falls back to "Colour N" --
-// the same fallback the colour pickers already use.
+//   · The NUMBER goes. "Colour 2" was Nicky's own working numbering read
+//     back at him. It is still the identifier everywhere it does work --
+//     matEstimateKey(), the per-colour parts breakdown, colours[].number,
+//     the pickers -- it just isn't the label any more. Nothing anywhere
+//     parses "Colour N" back out of a string (checked).
+//   · The BRAND and CODE arrive. They are already on the colour (filled
+//     from colour_library whenever the typed name matched an entry there --
+//     see commitColour), and they were only ever shown as a chip on the
+//     Colours tab. "No. 201" is what gets a tin mixed at the counter and
+//     what lets a client re-order the same white in five years; the bare
+//     name doesn't, and half a dozen brands each have a "Shaded White"-ish
+//     entry.
+//
+// "No. " matches how the Colours tab and the client-history strip have
+// always shown a code. Everything degrades: a colour matched to a library
+// entry with no code (387 of the 1221 seeded ones) reads "Dulux Timeless",
+// one that never matched the library at all is just its name, and an
+// unnamed colour falls back to "Colour N" -- which is all anyone knows
+// about it, and the same fallback the pickers use.
 function colourLabelFor(num) {
   var c = colours.find(function(x){ return x.number === num; });
-  return c && c.label ? c.label : ('Colour ' + num);
+  if (!c || !c.label) return 'Colour ' + num;
+  return [c.brand || '', c.code ? 'No. ' + c.code : '', c.label]
+    .filter(Boolean).join(' ');
 }
 
 // Per-room colour line for the Colour Schedule: just the colour's name
