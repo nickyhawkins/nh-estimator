@@ -486,20 +486,10 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
           <div class="toggle" id="bulk-tog-mistCeil" onclick="bulkToggleMist('mistCeil')"></div>
         </div>
         <div style="padding:6px 16px 0;font-size:12px;color:var(--text3);line-height:1.5">Woodwork has no mist coat in this app — walls and ceilings are the only surfaces it is priced for.</div>
-        <div class="subsection-label">Preparation<small>the room's own prep uplift — panelling and door/frame prep have their own levels on the room form and are left alone</small></div>
-        <div style="padding:10px 16px 12px">
-          <div class="seg" id="bulk-seg-prep">
-            <button type="button" class="seg-btn active" style="padding:7px 2px;font-size:12px" onclick="setBulkPrep(null)">No change</button>
-            <button type="button" class="seg-btn" style="padding:7px 2px;font-size:12px" onclick="setBulkPrep(10)">Minimal</button>
-            <button type="button" class="seg-btn" style="padding:7px 2px;font-size:12px" onclick="setBulkPrep(25)">Standard</button>
-            <button type="button" class="seg-btn" style="padding:7px 2px;font-size:12px" onclick="setBulkPrep(40)">Heavy</button>
-            <button type="button" class="seg-btn" style="padding:7px 2px;font-size:12px" onclick="setBulkPrep(-1)">Custom</button>
-          </div>
-        </div>
-        <div class="field-row" id="bulk-prep-custom-row" style="display:none">
-          <div class="field-label">Custom prep %<small>uplift on room total</small></div>
-          <input type="number" class="field-input" id="bulk-prep-custom" placeholder="0" min="0" max="100" step="5" inputmode="numeric">
-        </div>
+        <!-- Prep levels, built by buildBulkPrepRows() from BULK_PREP_FIELDS --
+             the room's own and the doors/frames' independent one, which are
+             separate scales on the room form and stay separate here. -->
+        <div id="bulk-prep-rows"></div>
       </div>
       <div style="padding:12px 16px 0;display:flex;gap:10px">
         <button class="btn btn-ghost" style="flex:1;padding:12px" onclick="closeBulkPanel()">Cancel</button>
@@ -2032,7 +2022,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.39.5</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.39.6</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -15337,17 +15327,23 @@ function renderHome() {
 //   2. A surface a room hasn't got is SKIPPED, never created -- "3 coats of
 //      woodwork" must not invent woodwork in a room with none. Those rooms
 //      show as N/A in the diff (bulkSurfacesOf below is the guardrail).
-//   3. A staircase/HSL room's LABOUR is fixed at save time by the staircase
-//      form (calcRoom reads its totalOverride and never re-derives it), so
-//      coats, mist and prep are skipped there too -- writing them would move
-//      the room's litres and its breakdown while leaving its price stale.
-//      Product overrides are litres-only and so apply to HSL rooms normally.
+//   3. A staircase/HSL room's baseTotal is fixed at save time by the
+//      staircase form (calcRoom reads its totalOverride and never re-derives
+//      it), so the fields feeding it -- walls/ceiling/woodwork coats, mist,
+//      the room's prep -- are skipped there: writing them would move the
+//      room's litres and its breakdown while leaving its price stale. The
+//      fields priced OUTSIDE that override are not skipped, because they
+//      still move the price correctly: doors, frames and their own prep
+//      (calcRoom adds doorFrameCost after the totalOverride branch), and
+//      every product override, which only ever affects litres. Per field,
+//      via frozenOnHSL -- not per room.
 //   4. The apply step writes the exact same keys buildRoomFromForm() writes
 //      -- <role>RangeOverride/<role>BandOverride, primerNone, wc/cc/xc,
-//      doorCoats/frameCoats, mistWall/mistCeil, prepPct/prepCustom. No new
-//      schema, no "bulk applied" marker, no lock. A bulk-edited room is
-//      indistinguishable from a hand-edited one and stays editable
-//      one-by-one exactly as before.
+//      doorCoats/frameCoats, mistWall/mistCeil, prepPct/prepCustom and
+//      doorFramePrepPct/doorFramePrepCustom. No new schema, no "bulk
+//      applied" marker, no lock. A bulk-edited room is indistinguishable
+//      from a hand-edited one and stays editable one-by-one exactly as
+//      before.
 //
 // Accepted quotes are deliberately NOT restricted (confirmed with Nicky
 // 2026-08-27): the room inputs already stay live on an accepted job -- that
@@ -15360,8 +15356,9 @@ var bulkSelected = {};                                  // room id -> true
 // is reset by openBulkPanel() rather than remembered. The coat fields live
 // in the DOM and the products in roomOverrides.bulk*, all reset the same way.
 var bulkMist = { mistWall: false, mistCeil: false };
-// null = "No change". Otherwise 10/25/40, or -1 with bulk-prep-custom filled.
-var bulkPrepPct = null;
+// Per BULK_PREP_FIELDS key: null = "No change", otherwise 10/25/40, or -1
+// with that field's custom box filled.
+var bulkPrepPct = { room: null, doorframe: null };
 
 // One product picker per material role. `role` is the picker's own key (in
 // roomOverrides and in the DOM as r-<role>-range); `target` is the room
@@ -15386,19 +15383,40 @@ function bulkRangeIdPrefixes() {
 // for the write to be legitimate. Doors and frames are independent line
 // items with their own coat counts (see doorFrameLabourCost), so they get
 // their own fields and their own guardrail rather than riding on xc.
+// `frozenOnHSL` marks the fields that feed calcRoom()'s baseTotal, which a
+// staircase room replaces wholesale with its stored totalOverride -- see
+// bulkLabourIsFrozen. Doors and frames are priced OUTSIDE that override
+// (calcRoom adds doorFrameCost to preFloorTotal after the totalOverride
+// branch, exactly like panelling), so those two move a staircase room's
+// price correctly and are not skipped there.
 var BULK_COAT_FIELDS = [
-  { key: 'wc',         label: 'Wall coats',     surface: 'walls'   },
-  { key: 'cc',         label: 'Ceiling coats',  surface: 'ceiling' },
-  { key: 'xc',         label: 'Woodwork coats', surface: 'wood'    },
-  { key: 'doorCoats',  label: 'Door coats',     surface: 'doors'   },
-  { key: 'frameCoats', label: 'Frame coats',    surface: 'frames'  }
+  { key: 'wc',         label: 'Wall coats',     surface: 'walls',   frozenOnHSL: true  },
+  { key: 'cc',         label: 'Ceiling coats',  surface: 'ceiling', frozenOnHSL: true  },
+  { key: 'xc',         label: 'Woodwork coats', surface: 'wood',    frozenOnHSL: true  },
+  { key: 'doorCoats',  label: 'Door coats',     surface: 'doors',   frozenOnHSL: false },
+  { key: 'frameCoats', label: 'Frame coats',    surface: 'frames',  frozenOnHSL: false }
 ];
 // Walls and ceilings are the only surfaces a mist coat is priced for in this
 // app (mistWall/mistCeil, settings.rMist, the 'mist' material role) -- there
 // is no woodwork mist coat to set, so the panel doesn't offer one.
 var BULK_MIST_FIELDS = [
-  { key: 'mistWall', label: 'Mist coat — walls',   surface: 'walls'   },
-  { key: 'mistCeil', label: 'Mist coat — ceiling', surface: 'ceiling' }
+  { key: 'mistWall', label: 'Mist coat — walls',   surface: 'walls',   frozenOnHSL: true },
+  { key: 'mistCeil', label: 'Mist coat — ceiling', surface: 'ceiling', frozenOnHSL: true }
+];
+
+// The two prep uplifts a room carries. Both use setPrep()'s 10/25/40/-1
+// scale and are deliberately separate variables on the room form, so they
+// stay separate here. Panelling's own prep (panelPrepPct) is not offered:
+// it belongs to individual panelling rows rather than the room.
+var BULK_PREP_FIELDS = [
+  { key: 'room',      label: 'Prep level',      section: 'Preparation',
+    pctKey: 'prepPct',          customKey: 'prepCustom',
+    surface: null,            frozenOnHSL: true,
+    hint: 'the room\'s own prep uplift' },
+  { key: 'doorframe', label: 'Door/frame prep', section: 'Door / Frame Preparation',
+    pctKey: 'doorFramePrepPct', customKey: 'doorFramePrepCustom',
+    surface: 'doorsOrFrames', frozenOnHSL: false,
+    hint: 'doors and frames carry their own prep, independent of the room\'s' }
 ];
 // Same 0-3 range the room form's coat segs offer.
 var BULK_COAT_MAX = 3;
@@ -15406,7 +15424,8 @@ var BULK_COAT_MAX = 3;
 // room"), as opposed to the field labels above ("Woodwork coats").
 var BULK_SURFACE_LABELS = {
   walls: 'walls', ceiling: 'ceiling', wood: 'woodwork', doors: 'doors', frames: 'frames',
-  mist: 'mist coat', featurewall: 'painted feature wall', panel: 'panelling'
+  mist: 'mist coat', featurewall: 'painted feature wall', panel: 'panelling',
+  doorsOrFrames: 'doors or frames'
 };
 // The one non-surface skip reason: see rule 3 at the top.
 var BULK_HSL_REASON = 'a staircase room’s labour is set on the staircase form';
@@ -15482,12 +15501,33 @@ function buildBulkProductRows() {
   }).join('');
 }
 
+// The prep segs, same generated-from-a-table treatment as the product rows.
+// Five segments plus a competing field label clip at 375px, so each seg gets
+// a full-width row of its own at the smaller seg type.
+function buildBulkPrepRows() {
+  var host = document.getElementById('bulk-prep-rows');
+  if (!host || host.childElementCount) return;
+  var vals = [[null, 'No change'], [10, 'Minimal'], [25, 'Standard'], [40, 'Heavy'], [-1, 'Custom']];
+  host.innerHTML = BULK_PREP_FIELDS.map(function(f) {
+    var btns = vals.map(function(v) {
+      return '<button type="button" class="seg-btn' + (v[0] === null ? ' active' : '') + '" style="padding:7px 2px;font-size:12px"' +
+        ' onclick="setBulkPrep(\'' + f.key + '\',' + (v[0] === null ? 'null' : v[0]) + ')">' + v[1] + '</button>';
+    }).join('');
+    return '<div class="subsection-label">' + escapeHtml(f.section) + '<small>' + escapeHtml(f.hint) + '</small></div>' +
+      '<div style="padding:10px 16px 12px"><div class="seg" id="bulk-seg-prep-' + f.key + '">' + btns + '</div></div>' +
+      '<div class="field-row" id="bulk-prep-custom-row-' + f.key + '" style="display:none">' +
+        '<div class="field-label">Custom prep %<small>uplift on the ' + (f.key === 'room' ? 'room total' : 'door and frame labour') + '</small></div>' +
+        '<input type="number" class="field-input" id="bulk-prep-custom-' + f.key + '" placeholder="0" min="0" max="100" step="5" inputmode="numeric"></div>';
+  }).join('');
+}
+
 // Opens blank every time. Nothing is carried over from the last run -- a
 // remembered mist-coat tick would be applied to a set of rooms it was never
 // chosen for, and the same goes for a product or a prep level.
 function openBulkPanel() {
   if (!bulkSelectedRooms().length) return;
   buildBulkProductRows();
+  buildBulkPrepRows();
   BULK_PRODUCT_ROLES.forEach(function(p) {
     roomOverrides[p.role] = { range: '', band: '', none: false };
     populateRoomOverridePicker(p.role);
@@ -15495,8 +15535,10 @@ function openBulkPanel() {
   BULK_COAT_FIELDS.forEach(function(f) { document.getElementById('bulk-' + f.key).value = ''; });
   bulkMist = { mistWall: false, mistCeil: false };
   BULK_MIST_FIELDS.forEach(function(f) { document.getElementById('bulk-tog-' + f.key).classList.remove('on'); });
-  setBulkPrep(null);
-  document.getElementById('bulk-prep-custom').value = '';
+  BULK_PREP_FIELDS.forEach(function(f) {
+    setBulkPrep(f.key, null);
+    document.getElementById('bulk-prep-custom-' + f.key).value = '';
+  });
   var n = bulkSelectedRooms().length;
   document.getElementById('bulk-panel-count').textContent = '· ' + n + ' room' + (n === 1 ? '' : 's');
   document.getElementById('bulk-panel').style.display = 'block';
@@ -15514,13 +15556,13 @@ function bulkToggleMist(key) {
 
 // null (No change) / 10 / 25 / 40 / -1 -- the same scale setPrep() uses, with
 // a leading No-change segment the room form has no need for.
-function setBulkPrep(val) {
-  bulkPrepPct = val;
+function setBulkPrep(key, val) {
+  bulkPrepPct[key] = val;
   var vals = [null, 10, 25, 40, -1];
-  document.querySelectorAll('#bulk-seg-prep .seg-btn').forEach(function(b, i) {
+  document.querySelectorAll('#bulk-seg-prep-' + key + ' .seg-btn').forEach(function(b, i) {
     b.classList.toggle('active', vals[i] === val);
   });
-  document.getElementById('bulk-prep-custom-row').style.display = val === -1 ? 'flex' : 'none';
+  document.getElementById('bulk-prep-custom-row-' + key).style.display = val === -1 ? 'flex' : 'none';
 }
 
 function bulkPrepLabel(pct, custom) {
@@ -15557,6 +15599,8 @@ function bulkSurfacesOf(r, pendingMist) {
     wood: woodArea > 0,
     doors: (+r.doorQty || 0) > 0,
     frames: (+r.frameQty || 0) > 0,
+    // Door/frame prep multiplies both line items at once, so either is enough.
+    doorsOrFrames: (+r.doorQty || 0) > 0 || (+r.frameQty || 0) > 0,
     // Mist paint is only bought where a mist coat is actually switched on.
     mist: !!(r.mistWall || r.mistCeil || (pm.mistWall && walls) || (pm.mistCeil && ceiling)),
     // In wallpaper mode the feature wall isn't painted at all (calcRoom
@@ -15566,18 +15610,20 @@ function bulkSurfacesOf(r, pendingMist) {
   };
 }
 
-// A staircase/HSL room's price is frozen at save time into totalOverride --
-// calcRoom reads it and never re-derives the labour -- so anything feeding
-// labour (coats, mist, prep) would move this room's litres and its breakdown
-// while leaving its total stale. Those fields are skipped here and the room
-// is sent back to the staircase form for them. Products are litres-only and
-// unaffected, so they still apply.
+// A staircase/HSL room's baseTotal is frozen at save time into totalOverride
+// -- calcRoom reads it and never re-derives that half of the labour -- so a
+// field feeding it would move this room's litres and its breakdown while
+// leaving its total stale. Those fields (frozenOnHSL) are skipped here and
+// the room is sent back to the staircase form for them. Fields priced after
+// the override still land: doors, frames and their prep (doorFrameCost is
+// added to preFloorTotal outside the branch, like panelling), and every
+// product override, which is litres-only.
 function bulkLabourIsFrozen(r) { return r.totalOverride != null || !!r.isHSL; }
 
 // What the panel is currently asking for. A blank/invalid coat box is simply
 // absent from .coats -- "no change", never a 0.
 function bulkReadFields() {
-  var f = { products: {}, coats: {}, mist: {}, prep: null };
+  var f = { products: {}, coats: {}, mist: {}, prep: {} };
   BULK_PRODUCT_ROLES.forEach(function(p) {
     var st = roomOverrides[p.role] || {};
     if (st.none) f.products[p.role] = { none: true, range: '', band: '' };
@@ -15591,16 +15637,18 @@ function bulkReadFields() {
     f.coats[fd.key] = Math.min(BULK_COAT_MAX, Math.max(0, n));
   });
   BULK_MIST_FIELDS.forEach(function(fd) { if (bulkMist[fd.key]) f.mist[fd.key] = true; });
-  if (bulkPrepPct != null) {
-    var custom = Math.min(100, Math.max(0, Math.round(+document.getElementById('bulk-prep-custom').value || 0)));
-    f.prep = { pct: bulkPrepPct, custom: bulkPrepPct === -1 ? custom : 0 };
-  }
+  BULK_PREP_FIELDS.forEach(function(fd) {
+    var pct = bulkPrepPct[fd.key];
+    if (pct == null) return;
+    var custom = Math.min(100, Math.max(0, Math.round(+document.getElementById('bulk-prep-custom-' + fd.key).value || 0)));
+    f.prep[fd.key] = { pct: pct, custom: pct === -1 ? custom : 0 };
+  });
   return f;
 }
 
 function bulkAnyFieldSet(f) {
   return Object.keys(f.products).length > 0 || Object.keys(f.coats).length > 0 ||
-         Object.keys(f.mist).length > 0 || f.prep != null;
+         Object.keys(f.mist).length > 0 || Object.keys(f.prep).length > 0;
 }
 
 function bulkProductLabel(range, band, none) {
@@ -15644,7 +15692,7 @@ function bulkBuildDiff() {
 
     BULK_COAT_FIELDS.forEach(function(fd) {
       if (!(fd.key in f.coats)) return;
-      if (frozen) { skip(fd.label, BULK_HSL_REASON); return; }
+      if (frozen && fd.frozenOnHSL) { skip(fd.label, BULK_HSL_REASON); return; }
       if (!have[fd.surface]) { skip(fd.label, 'no ' + BULK_SURFACE_LABELS[fd.surface] + ' on this room'); return; }
       var was = +r[fd.key] || 0, now = f.coats[fd.key];
       if (was !== now) changes.push({ label: fd.label, from: String(was), to: String(now) });
@@ -15652,7 +15700,7 @@ function bulkBuildDiff() {
 
     BULK_MIST_FIELDS.forEach(function(fd) {
       if (!f.mist[fd.key]) return;
-      if (frozen) { skip(fd.label, BULK_HSL_REASON); return; }
+      if (frozen && fd.frozenOnHSL) { skip(fd.label, BULK_HSL_REASON); return; }
       if (!have[fd.surface]) { skip(fd.label, 'no ' + BULK_SURFACE_LABELS[fd.surface] + ' on this room'); return; }
       // Additive only: a surface already misted is left alone, and an
       // unticked surface never turns an existing mist coat off.
@@ -15660,15 +15708,18 @@ function bulkBuildDiff() {
       changes.push({ label: fd.label, from: 'off', to: 'on' });
     });
 
-    if (f.prep) {
-      if (frozen) skip('Prep level', BULK_HSL_REASON);
-      else {
-        var wasPct = r.prepPct != null ? r.prepPct : 10;
-        var from = bulkPrepLabel(wasPct, r.prepCustom);
-        var to = bulkPrepLabel(f.prep.pct, f.prep.custom);
-        if (from !== to) changes.push({ label: 'Prep level', from: from, to: to });
-      }
-    }
+    BULK_PREP_FIELDS.forEach(function(fd) {
+      var want = f.prep[fd.key];
+      if (!want) return;
+      if (frozen && fd.frozenOnHSL) { skip(fd.label, BULK_HSL_REASON); return; }
+      if (fd.surface && !have[fd.surface]) { skip(fd.label, 'no ' + BULK_SURFACE_LABELS[fd.surface] + ' on this room'); return; }
+      // Both prep scales default to 10 (Minimal) when the room predates the
+      // field, matching the room form's own restore.
+      var wasPct = r[fd.pctKey] != null ? r[fd.pctKey] : 10;
+      var from = bulkPrepLabel(wasPct, r[fd.customKey]);
+      var to = bulkPrepLabel(want.pct, want.custom);
+      if (from !== to) changes.push({ label: fd.label, from: from, to: to });
+    });
 
     return { room: r, have: have, frozen: frozen, changes: changes, na: na };
   });
@@ -15754,17 +15805,24 @@ function bulkApply() {
       // one hand-edited to it.
       r[p.target + 'BandOverride'] = want.band || undefined;
     });
-    if (!frozen) {
-      BULK_COAT_FIELDS.forEach(function(fd) {
-        if (!(fd.key in f.coats) || !have[fd.surface]) return;
-        r[fd.key] = f.coats[fd.key];
-      });
-      BULK_MIST_FIELDS.forEach(function(fd) {
-        if (!f.mist[fd.key] || !have[fd.surface]) return;
-        r[fd.key] = true;
-      });
-      if (f.prep) { r.prepPct = f.prep.pct; r.prepCustom = f.prep.custom; }
-    }
+    BULK_COAT_FIELDS.forEach(function(fd) {
+      if (!(fd.key in f.coats) || !have[fd.surface]) return;
+      if (frozen && fd.frozenOnHSL) return;
+      r[fd.key] = f.coats[fd.key];
+    });
+    BULK_MIST_FIELDS.forEach(function(fd) {
+      if (!f.mist[fd.key] || !have[fd.surface]) return;
+      if (frozen && fd.frozenOnHSL) return;
+      r[fd.key] = true;
+    });
+    BULK_PREP_FIELDS.forEach(function(fd) {
+      var want = f.prep[fd.key];
+      if (!want) return;
+      if (frozen && fd.frozenOnHSL) return;
+      if (fd.surface && !have[fd.surface]) return;
+      r[fd.pctKey] = want.pct;
+      r[fd.customKey] = want.custom;
+    });
     touched++;
   });
   saveRooms();
