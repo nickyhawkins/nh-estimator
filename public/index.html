@@ -2017,7 +2017,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.39.3</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.39.4</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -15052,9 +15052,13 @@ function renderAttentionStrip() {
     } else if (depState === 'synced' && j.status !== 'invoiced' && j.deposit.date) {
       // Money held against a job that was never billed. Correct accounting —
       // it's the client's money until an invoice exists — but it shouldn't be
-      // held quietly forever.
+      // held quietly forever. Exception: a job booked to start in the future is
+      // holding the deposit for exactly the reason deposits exist, and there is
+      // nothing to invoice yet, so the clock waits for the start date. Once the
+      // job has started (or was never scheduled) the 30-day rule applies again.
+      var notStartedYet = j.startDate && j.startDate > isoDate(new Date(now));
       var heldDays = Math.floor((now - new Date(j.deposit.date).getTime()) / DAY);
-      if (heldDays > 30) {
+      if (heldDays > 30 && !notStartedYet) {
         lines.push({ jobId: j.id, icon: '🔗', text: fmt(j.deposit.amount) + ' deposit held, no invoice — <strong>' + escapeHtml(j.name) + '</strong>, ' + heldDays + ' days' });
       }
     }
