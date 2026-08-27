@@ -1,8 +1,12 @@
 # Bulk room edit — Spec (change one thing across every room)
 
-**Status: BUILT 2026-08-27 (v2.39.2).** UI, guardrail, preview and apply. No schema
-change and no deploy step — nothing here touches the database beyond the room rows the
-single-room form already writes.
+**Status: BUILT 2026-08-27 (v2.39.2), extended the same day (v2.39.5).** UI, guardrail,
+preview and apply. No schema change and no deploy step — nothing here touches the
+database beyond the room rows the single-room form already writes.
+
+v2.39.5 added a product picker for **every** material role rather than walls alone, the
+room's **prep level**, and a second guardrail for **staircase/HSL rooms** (§2.4) that
+also fixes a v2.39.2 bug.
 
 ---
 
@@ -30,7 +34,13 @@ that genuinely move together across a whole job.
 
 | Field | Room key(s) | Notes |
 | --- | --- | --- |
-| Wall paint product | `wallRangeOverride` + `wallBandOverride` | Reuses the room form's own search picker and band resolution |
+| Wall paint | `wallRangeOverride` + `wallBandOverride` | All seven pickers reuse the room form's own search picker and band resolution |
+| Ceiling paint | `ceilingRangeOverride` + `ceilingBandOverride` | |
+| Woodwork topcoat | `topcoatRangeOverride` + `topcoatBandOverride` | |
+| Woodwork primer | `primerRangeOverride` + `primerBandOverride`, `primerNone` | Offers **None** as well, for a self-priming topcoat |
+| Mist coat paint | `mistRangeOverride` + `mistBandOverride` | |
+| Feature wall paint | `featurewallRangeOverride` + `featurewallBandOverride` | Lowercase `featurewall`, matching `computeRoleGroups()` |
+| Panelling paint | `panelRangeOverride` + `panelBandOverride` | |
 | Wall coats | `wc` | 0–3, the same range the form's segs offer |
 | Ceiling coats | `cc` | |
 | Woodwork coats | `xc` | Skirting, sills and windows |
@@ -38,10 +48,20 @@ that genuinely move together across a whole job.
 | Frame coats | `frameCoats` | So are frames |
 | Mist coat — walls | `mistWall` | |
 | Mist coat — ceiling | `mistCeil` | |
+| Prep level | `prepPct` + `prepCustom` | Minimal / Standard / Heavy / Custom %, the same scale `setPrep()` uses |
+
+The seven product rows are generated from `BULK_PRODUCT_ROLES` by
+`buildBulkProductRows()` rather than hand-copied — each is two rows of near-identical
+markup, and the room form already has one such set to keep in step.
+
+**Deliberately not offered:** panelling prep (`panelPrepPct`) and door/frame prep
+(`doorFramePrepPct`). Both are separate scales on the room form, kept separate on
+purpose, and neither is a whole-job decision the way the room's own prep is.
 
 **Product is a pair, not a value.** A range override with no colour band is refused
 here for exactly the reason `saveRoom()` refuses it: band sets the price *and* doubles
-as the finish/sheen pick, so it is never guessed. Bulk cannot write a combination the
+as the finish/sheen pick, so it is never guessed. The check runs over every one of the
+seven roles and names the offending one. Bulk cannot write a combination the
 single-room form would have rejected.
 
 **There is no woodwork mist coat.** The panel offers walls and ceiling because those
@@ -52,7 +72,7 @@ schema and new pricing, which is a different piece of work.
 **Kitchen and fitted units are not rooms.** They are per-job forms of their own, not
 entries in the room list, so they are outside a room-list bulk action by construction.
 
-## 2. Three rules
+## 2. Four rules
 
 ### Every field defaults to "No change"
 
@@ -73,10 +93,32 @@ exactly the basis `calcRoom()` prices it:
 - **woodwork** — `calcRoom()`'s own woodwork paint basis: skirting run + sills +
   windows, or `woodAreaOverride` outright for staircase/HSL rooms
 - **doors** / **frames** — their own quantities
+- **mist coat** — a mist coat is actually switched on (`mistWall`/`mistCeil`), *or* is
+  being switched on by this same bulk run, so setting the mist toggle and the mist
+  product together reaches a room that has neither yet
+- **painted feature wall** — a measured feature wall in `paint` mode; in wallpaper mode
+  `calcRoom()` zeroes its litres, so a paint product there would buy nothing
+- **panelling** — at least one panelling row with a real width and height
 
 No surface, no write. "Three coats of woodwork" must not invent woodwork in a room that
 has none; that room shows as `N/A — no woodwork on this room` in the diff and is left
 exactly as it was.
+
+### A staircase room's labour is frozen, so labour fields are skipped
+
+A staircase/HSL room's price is baked into `totalOverride` at save time by
+`computeHSLOverrides()`; `calcRoom()` reads that figure and never re-derives the labour.
+So writing `wc`/`cc`/`xc`, a mist toggle or `prepPct` there would move the room's
+**litres and its Summary breakdown while leaving its price stale** — a half-applied
+change, which is worse than none. Coats, mist and prep are therefore skipped on any room
+with `totalOverride` set (or `isHSL`), and the diff says why: *"a staircase room's labour
+is set on the staircase form"*. Change them there and the override is rebuilt correctly.
+
+Product overrides are the exception and still apply: they only ever affect litres, on
+the same code path a normal room uses, so there is nothing to go stale.
+
+**This also fixes a v2.39.2 bug** — that release wrote coats and mist to staircase rooms
+without the check.
 
 ### Mist coat is additive only
 
@@ -99,9 +141,10 @@ shown and what lands cannot drift apart.
 ## 4. Apply
 
 Writes the same keys `buildRoomFromForm()` writes, in the same shapes — an unbanded
-range stores `wallBandOverride` as `undefined`, not `''`, so a bulk-edited room is
-byte-identical to a hand-edited one. Then `saveRooms()`, exactly as the single-room
-form does.
+range stores its band as `undefined`, not `''`, and primer **None** sets `primerNone`
+while clearing both the range and the band rather than leaving a stale pair underneath,
+so a bulk-edited room is byte-identical to a hand-edited one. Then `saveRooms()`,
+exactly as the single-room form does.
 
 There is **no new schema, no "bulk applied" marker and no lock**. After applying, rooms
 are fully editable one-by-one exactly as before, with nothing carried over from having
@@ -117,12 +160,13 @@ editor. See `ACCEPTED_SNAPSHOT_SPEC.md`, "Inputs stay separate and unchanged".
 
 ## 6. Notes for later
 
-- The bulk wall-product field rides the shared override picker under its own
-  `bulkwall` role, so it inherits the search dropdown, the coverage-rate annotations
-  and the band rules for free. It is not a room role and never reaches a room object
-  under that name. `editRoom()` and the fresh-form reset both replace `roomOverrides`
-  wholesale (dropping `bulkwall` along with the exterior roles), which is harmless
-  because `openBulkPanel()` re-seeds it on every open.
+- The bulk product fields ride the shared override picker under their own `bulk*`
+  roles, so they inherit the search dropdown, the coverage-rate annotations and the
+  band rules for free. They are not room roles and never reach a room object under
+  those names — `BULK_PRODUCT_ROLES` maps each to the `target` prefix it writes.
+  `editRoom()` and the fresh-form reset both replace `roomOverrides` wholesale
+  (dropping the `bulk*` roles along with the exterior ones), which is harmless because
+  `openBulkPanel()` re-seeds every one of them on each open.
 - The bulk picker has no "back to the Settings default" option — the empty state means
   "leave every room's wall product alone", and one control cannot mean both.
 - Bulk mode drops the swipe-to-delete wrapper from the room rows. A horizontal drag
