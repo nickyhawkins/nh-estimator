@@ -1,0 +1,49 @@
+# Render blueprint for ONE instance of NH Estimator (web service + its own
+# Postgres). This is the canonical definition of what an instance needs —
+# see docs/NEW_INSTANCE.md for the per-customer runbook that uses it.
+#
+# Per-customer isolation model (MULTI_INSTANCE_PILOT_SPEC.md): every
+# customer gets their own copy of BOTH resources below, so service names
+# must be unique per customer — either apply this blueprint in a separate
+# Render workspace per customer, or rename the two `name:` fields (e.g.
+# nh-estimator-smith) before applying in a shared workspace.
+#
+# Values marked `sync: false` are prompted for at blueprint-apply time and
+# never live in the repo.
+
+services:
+  - type: web
+    name: nh-estimator
+    runtime: node
+    plan: starter            # paid tier: needed for preDeployCommand + always-on
+    branch: stable           # customer instances follow `stable`, never main —
+                             # promote with: git push origin main:stable
+    buildCommand: npm install
+    preDeployCommand: npm run provision   # idempotent schema + colour seed
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nh-estimator-db
+          property: connectionString
+      - key: SESSION_SECRET
+        generateValue: true   # Render mints a long random value per instance
+      - key: NODE_ENV
+        value: production
+      - key: APP_PASSWORD
+        sync: false           # the customer's app password (WS1 login gate)
+      - key: APP_URL
+        sync: false           # https://<service-name>.onrender.com
+      - key: XERO_CLIENT_ID
+        sync: false
+      - key: XERO_CLIENT_SECRET
+        sync: false
+      - key: XERO_REDIRECT_URI
+        sync: false           # https://<service-name>.onrender.com/auth/xero/callback
+      # DEBT_APP_ENABLED deliberately absent: customer instances must never
+      # set it. The owner's personal instance adds it by hand (WS2).
+
+databases:
+  - name: nh-estimator-db
+    plan: basic-256mb        # paid tier: the free Postgres tier expires after 90 days

@@ -2,7 +2,7 @@
 
 Paint estimating web app with Xero integration.
 
-See [USER_MANUAL.md](USER_MANUAL.md) for how to use the app, and [NOTES.md](NOTES.md) for architecture notes and gotchas hit during development.
+**New here? Read the [illustrated user manual](docs/user-manual/README.md)** — a screen-by-screen guide from first measure to final invoice. Also available as a [PDF](docs/user-manual/NH-Estimator-User-Manual.pdf); after editing the manual, run `npm run build:manual` to regenerate it. See [NOTES.md](NOTES.md) for architecture notes and gotchas hit during development.
 
 ## Setup
 
@@ -28,6 +28,10 @@ Edit `.env` and fill in:
 ### 3. Set up the database
 ```bash
 psql $DATABASE_URL -f db/setup.sql
+```
+On the owner's personal instance only (the one with `DEBT_APP_ENABLED=true`), also run:
+```bash
+psql $DATABASE_URL -f db/setup-debt.sql
 ```
 
 ### 4. Run locally
