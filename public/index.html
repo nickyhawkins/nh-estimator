@@ -165,6 +165,17 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 .room-meta{font-size:12px;color:var(--text2);margin-top:3px;font-family:'DM Mono',monospace}
 .room-cost{font-family:'DM Mono',monospace;font-size:15px;font-weight:500;color:var(--accent);flex-shrink:0}
 
+/* Bulk room edit -- checkbox rows on the room list, and the per-room diff
+   rendered in the confirm sheet. */
+.bulk-check{width:24px;height:24px;border-radius:7px;border:2px solid var(--border);background:var(--surface2);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:transparent;transition:background .15s,border-color .15s}
+.bulk-check.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.bulk-bar{display:flex;align-items:center;gap:14px;padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;font-size:14px;font-weight:600}
+.bulk-diff-row{padding:10px 16px;border-bottom:1px solid var(--border)}
+.bulk-diff-row:last-child{border-bottom:none}
+.bulk-diff-name{font-size:14px;font-weight:700}
+.bulk-diff-line{font-size:12px;color:var(--text2);font-family:'DM Mono',monospace;line-height:1.7;margin-top:2px}
+.bulk-diff-na{font-size:12px;color:var(--text3);line-height:1.6;margin-top:2px}
+
 /* Empty state */
 .empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:40px;text-align:center}
 .empty-icon{font-size:56px;opacity:.4}
@@ -351,10 +362,29 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     <div id="measure-cost-note" style="display:none;padding:0 4px;margin:2px 0 8px;font-size:11px;color:var(--text3)">Costs below are your labour cost, before markup — see Summary for the customer-facing quote.</div>
     <div class="section-title" id="rooms-section-head" style="display:none;justify-content:space-between;align-items:center">
       <span>Interior</span>
-      <span onclick="clearRooms()" style="color:var(--danger);font-size:12px;font-weight:600;cursor:pointer;text-transform:none;letter-spacing:0">Clear</span>
+      <span style="display:flex;gap:14px;align-items:center">
+        <!-- Bulk Edit: switches the room rows below into checkbox mode.
+             Hidden entirely with one room -- there is nothing to batch. -->
+        <span id="bulk-edit-toggle" onclick="toggleBulkEdit()" style="color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;text-transform:none;letter-spacing:0">Bulk edit</span>
+        <span onclick="clearRooms()" style="color:var(--danger);font-size:12px;font-weight:600;cursor:pointer;text-transform:none;letter-spacing:0">Clear</span>
+      </span>
     </div>
     <div id="room-list" style="display:none">
       <div class="card" id="room-cards"></div>
+      <!-- Select-all header + "Edit N rooms" action, both only in bulk mode.
+           Below the cards rather than above so the action sits under your
+           thumb after ticking the last room. -->
+      <div class="card" id="bulk-select-bar" style="display:none;margin-top:8px">
+        <div class="bulk-bar" onclick="bulkToggleSelectAll()">
+          <div class="bulk-check" id="bulk-check-all">&#10003;</div>
+          <div style="flex:1" id="bulk-select-all-label">Select all</div>
+          <div style="font-family:'DM Mono',monospace;font-size:13px;color:var(--text2)" id="bulk-count">0 selected</div>
+        </div>
+        <div style="padding:12px 16px;display:flex;gap:10px">
+          <button class="btn btn-ghost" style="flex:1;padding:12px" onclick="toggleBulkEdit()">Cancel</button>
+          <button class="btn" style="flex:2;padding:12px;background:var(--accent);color:#fff" id="bulk-open-btn" onclick="openBulkPanel()">Edit rooms</button>
+        </div>
+      </div>
     </div>
     <div class="section-title" id="ext-section-head" style="display:none;justify-content:space-between;align-items:center">
       <span>Exterior</span>
@@ -419,6 +449,64 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
         <div onclick="closeNotesPanel()" style="font-size:14px;font-weight:700;color:var(--accent);cursor:pointer;padding:4px 2px">Done</div>
       </div>
       <textarea id="job-notes" rows="1" placeholder="Access, agreements, snags… saves automatically" oninput="onJobNotesInput()" style="display:block;width:100%;border:none;background:transparent;color:var(--text);font-family:'DM Sans',sans-serif;font-size:15px;line-height:1.5;padding:2px 16px 12px;outline:none;resize:none;overflow-y:auto;min-height:120px;max-height:45vh;box-sizing:border-box"></textarea>
+    </div>
+  </div>
+
+  <!-- ══ BULK ROOM EDIT ══
+       Two stacked bottom sheets, same overlay pattern as the notes panel:
+       the field panel, then the per-room diff you have to confirm. Every
+       field starts at "No change" on every open (openBulkPanel resets
+       them) -- nothing here is remembered between runs, mist coat least of
+       all. See the bulk-edit block in the script for the apply rules. -->
+  <div id="bulk-panel" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.4)" onclick="closeBulkPanel()">
+    <div style="position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-radius:16px 16px 0 0;padding:14px 0 calc(var(--sb) + 10px);max-height:88%;display:flex;flex-direction:column;box-shadow:0 -4px 24px rgba(0,0,0,.2)" onclick="event.stopPropagation()">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:0 16px 8px">
+        <div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.6px">Bulk edit <span id="bulk-panel-count" style="text-transform:none;letter-spacing:0;font-weight:600;color:var(--text3)"></span></div>
+        <div onclick="closeBulkPanel()" style="font-size:14px;font-weight:700;color:var(--accent);cursor:pointer;padding:4px 2px">Cancel</div>
+      </div>
+      <div style="overflow-y:auto;flex:1">
+        <div style="padding:0 16px 10px;font-size:12px;color:var(--text2);line-height:1.5">Leave a field alone and it is not touched on any room. A surface a room hasn't got is skipped, never created.</div>
+        <div class="subsection-label">Wall Paint</div>
+        <div class="field-row"><div class="field-label">Product<small>overwrites the wall product on every selected room</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-bulkwall-range" placeholder="— No change —" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('bulkwall')" onfocus="onRoomRangeSearchInput('bulkwall')"><div id="r-bulkwall-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:320;max-height:240px;overflow-y:auto"></div></div></div>
+        <div class="field-row" id="r-bulkwall-band-row" style="display:none"><div class="field-label">Colour band<small>sets the price and the sheen — never guessed</small></div><select class="field-input" id="r-bulkwall-band" onchange="onRoomOverrideBandSelect('bulkwall')"></select></div>
+        <div class="subsection-label">Coats<small>an exact count, not an increase — blank leaves the room as it is</small></div>
+        <div class="field-row"><div class="field-label">Walls</div><input type="number" class="field-input" style="width:124px" id="bulk-wc" placeholder="No change" min="0" max="3" step="1" inputmode="numeric"></div>
+        <div class="field-row"><div class="field-label">Ceiling</div><input type="number" class="field-input" style="width:124px" id="bulk-cc" placeholder="No change" min="0" max="3" step="1" inputmode="numeric"></div>
+        <div class="field-row"><div class="field-label">Woodwork<small>skirting, sills, windows</small></div><input type="number" class="field-input" style="width:124px" id="bulk-xc" placeholder="No change" min="0" max="3" step="1" inputmode="numeric"></div>
+        <div class="field-row"><div class="field-label">Doors</div><input type="number" class="field-input" style="width:124px" id="bulk-doorCoats" placeholder="No change" min="0" max="3" step="1" inputmode="numeric"></div>
+        <div class="field-row"><div class="field-label">Frames</div><input type="number" class="field-input" style="width:124px" id="bulk-frameCoats" placeholder="No change" min="0" max="3" step="1" inputmode="numeric"></div>
+        <div class="subsection-label">Mist Coat<small>adds only — a surface left off never turns an existing mist coat off</small></div>
+        <div class="toggle-row">
+          <div class="toggle-label">Walls</div>
+          <div class="toggle" id="bulk-tog-mistWall" onclick="bulkToggleMist('mistWall')"></div>
+        </div>
+        <div class="toggle-row">
+          <div class="toggle-label">Ceiling</div>
+          <div class="toggle" id="bulk-tog-mistCeil" onclick="bulkToggleMist('mistCeil')"></div>
+        </div>
+        <div style="padding:6px 16px 0;font-size:12px;color:var(--text3);line-height:1.5">Woodwork has no mist coat in this app — walls and ceilings are the only surfaces it is priced for.</div>
+      </div>
+      <div style="padding:12px 16px 0;display:flex;gap:10px">
+        <button class="btn btn-ghost" style="flex:1;padding:12px" onclick="closeBulkPanel()">Cancel</button>
+        <button class="btn" style="flex:2;padding:12px;background:var(--accent);color:#fff" onclick="openBulkPreview()">Preview changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- The confirm step. Nothing is written until the button here is tapped;
+       Back returns to the panel with every field still set. -->
+  <div id="bulk-preview" style="display:none;position:fixed;inset:0;z-index:310;background:rgba(0,0,0,.4)" onclick="closeBulkPreview()">
+    <div style="position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-radius:16px 16px 0 0;padding:14px 0 calc(var(--sb) + 10px);max-height:88%;display:flex;flex-direction:column;box-shadow:0 -4px 24px rgba(0,0,0,.2)" onclick="event.stopPropagation()">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:0 16px 8px">
+        <div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.6px">Review changes</div>
+        <div onclick="closeBulkPreview()" style="font-size:14px;font-weight:700;color:var(--accent);cursor:pointer;padding:4px 2px">Back</div>
+      </div>
+      <div id="bulk-preview-summary" style="padding:0 16px 10px;font-size:13px;color:var(--text2);line-height:1.5"></div>
+      <div class="card" id="bulk-preview-body" style="margin:0 16px;overflow-y:auto;flex:1"></div>
+      <div style="padding:12px 16px 0;display:flex;gap:10px">
+        <button class="btn btn-ghost" style="flex:1;padding:12px" onclick="closeBulkPreview()">Back</button>
+        <button class="btn" style="flex:2;padding:12px;background:var(--accent);color:#fff" id="bulk-apply-btn" onclick="bulkApply()">Apply</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1929,7 +2017,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.39.1</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.39.2</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -9435,7 +9523,7 @@ function coverageSurfaceLabel(surface) {
 // kitchen are deliberately absent — exterior litres run on assumed-area
 // calibrations with their own Settings rates, and kitchens don't buy litres
 // through the coverage formula at all.
-var ROLE_COVERAGE_SURFACE = { wall: 'wall', featurewall: 'wall', ceiling: 'ceiling', topcoat: 'woodwork', primer: 'woodwork', mist: 'mist', panel: 'panel', fittedunit: 'woodwork' };
+var ROLE_COVERAGE_SURFACE = { wall: 'wall', featurewall: 'wall', ceiling: 'ceiling', topcoat: 'woodwork', primer: 'woodwork', mist: 'mist', panel: 'panel', fittedunit: 'woodwork', bulkwall: 'wall' };
 
 // The m²/L for a product range on a surface, or null when no entry exists.
 // Callers fall back to the flat Settings rate — the "Standard / default"
@@ -12817,7 +12905,13 @@ var roomOverrides = {
   // and only one of the room/exterior screens is ever being edited at once.
   masonry: { range: '', band: '' },
   extTopcoat: { range: '', band: '' },
-  extPrimer: { range: '', band: '' }
+  extPrimer: { range: '', band: '' },
+  // Bulk room edit's wall-product field. Not a room role at all -- it never
+  // reaches a room object under this name -- but it rides the same picker
+  // machinery below (search dropdown, band resolution, the "band is never
+  // guessed" rule) so bulk cannot write a product/band pair the single-room
+  // form would have refused. Reset to blank on every openBulkPanel().
+  bulkwall: { range: '', band: '' }
 };
 
 // Kitchen's product/band state isn't temp/form-local like the room roles
@@ -12862,6 +12956,7 @@ function populateRoomOverridePicker(role) {
   // the room's wall product (see computeRoleGroups' featurewall fallback).
   rangeInput.placeholder = (role === 'panel' || role === 'kitchen') ? '— none chosen —'
                          : role === 'featurewall' ? 'Same as walls'
+                         : role === 'bulkwall' ? '— No change —'
                          : 'Use default (Settings)';
   rangeInput.value = state.none ? 'None' : (state.range || '');
   populateRoomOverrideBandPicker(role);
@@ -12903,6 +12998,7 @@ var rangeSearchMatches = {};
 function roomRangeSearchOptions(role) {
   var options = [{ type: 'default', label: (role === 'panel' || role === 'kitchen') ? '— none chosen —'
                                          : role === 'featurewall' ? 'Same as walls'
+                                         : role === 'bulkwall' ? '— No change —'
                                          : 'Use default (Settings)' }];
   if (role === 'primer') options.push({ type: 'none', label: 'None' });
   // Products with a Coverage Rates entry for this role's surface float to
@@ -12986,7 +13082,7 @@ function hideRangeSearchDropdown(idPrefix) {
 }
 
 document.addEventListener('click', function(e) {
-  ['r-wall','r-ceiling','r-topcoat','r-primer','r-mist','r-featurewall','r-panel','r-masonry','r-extTopcoat','r-extPrimer','k'].forEach(function(idPrefix) {
+  ['r-wall','r-ceiling','r-topcoat','r-primer','r-mist','r-featurewall','r-panel','r-masonry','r-extTopcoat','r-extPrimer','r-bulkwall','k'].forEach(function(idPrefix) {
     var input = document.getElementById(idPrefix+'-range');
     var dd = document.getElementById(idPrefix+'-range-dd');
     if (!input || !dd) return;
@@ -15146,6 +15242,10 @@ function renderHome() {
   var cards = document.getElementById('room-cards');
   if (rooms.length===0) {
     list.style.display='none';
+    // Nothing left to batch -- don't strand the screen in checkbox mode
+    // after the last room is deleted mid-selection.
+    if (bulkEditMode) { bulkEditMode=false; bulkSelected={}; }
+    renderBulkChrome();
     measureRoomsTotal=0;
     _renderExteriorInner();
     return;
@@ -15154,17 +15254,326 @@ function renderHome() {
   var total=0;
   cards.innerHTML = rooms.map(function(r) {
     var c=calcRoom(r); total+=c.total;
+    var meta = '<div class="room-info"><div class="room-name">'+r.name+(r.isVariation?variationChipHtml(r):'')+'</div>'+
+      '<div class="room-meta">'+r.l+'×'+r.w+'×'+r.h+'m · '+fmtD(c.time)+'</div></div>'+
+      '<div class="room-cost">'+fmt(c.total)+'</div>';
+    // Bulk mode: the row selects instead of opening, and loses its swipe
+    // wrapper -- a horizontal drag that deletes a room is the last thing
+    // you want while ticking through a list.
+    if (bulkEditMode) {
+      return '<div class="room-item" onclick="bulkToggleRoom(this.dataset.id)" data-id="'+r.id+'">'+
+        '<div class="bulk-check'+(bulkSelected[r.id]?' on':'')+'">✓</div>'+
+        '<div class="room-icon">'+r.emoji+'</div>'+meta+'</div>';
+    }
     return swipeDeleteWrap('deleteRoomFromList', r.id,
       '<div class="room-item" onclick="editRoom(this.dataset.id)" data-id="'+r.id+'">'+
-      '<div class="room-icon">'+r.emoji+'</div>'+
-      '<div class="room-info"><div class="room-name">'+r.name+(r.isVariation?variationChipHtml(r):'')+'</div>'+
-      '<div class="room-meta">'+r.l+'×'+r.w+'×'+r.h+'m · '+fmtD(c.time)+'</div></div>'+
-      '<div class="room-cost">'+fmt(c.total)+'</div>'+
+      '<div class="room-icon">'+r.emoji+'</div>'+meta+
       '<button class="room-dup-btn" title="Duplicate room" onclick="event.stopPropagation();duplicateRoom(this.dataset.id)" data-id="'+r.id+'">⧉</button>'+
       '<div style="color:var(--text3);font-size:16px">›</div></div>');
   }).join('');
+  renderBulkChrome();
   measureRoomsTotal=total;
   _renderExteriorInner();
+}
+
+// ── Bulk room edit ──────────────────────────────────────────────────────────
+// Switching the wall paint across a whole quote, or adding a mist coat and
+// an extra coat everywhere, is a late-in-the-build move that used to mean
+// opening every room in turn. This is that same edit, batched.
+//
+// Three rules the whole feature rests on:
+//
+//   1. Every field defaults to "no change", and a field left there never
+//      touches that value on any room. Only what you actively set is written.
+//   2. A surface a room hasn't got is SKIPPED, never created -- "3 coats of
+//      woodwork" must not invent woodwork in a room with none. Those rooms
+//      show as N/A in the diff (bulkSurfacesOf below is the guardrail).
+//   3. The apply step writes the exact same keys buildRoomFromForm() writes
+//      -- wc/cc/xc, doorCoats/frameCoats, mistWall/mistCeil,
+//      wallRangeOverride/wallBandOverride. No new schema, no "bulk applied"
+//      marker, no lock. A bulk-edited room is indistinguishable from a
+//      hand-edited one and stays editable one-by-one exactly as before.
+//
+// Accepted quotes are deliberately NOT restricted (confirmed with Nicky
+// 2026-08-27): the room inputs already stay live on an accepted job -- that
+// is how one gets amended into a revision -- and the agreed figures are
+// protected by the quote_snapshots freeze, not by locking the editor. See
+// ACCEPTED_SNAPSHOT_SPEC.md, "Inputs stay separate and unchanged".
+var bulkEditMode = false;
+var bulkSelected = {};                                  // room id -> true
+// Mist is chosen fresh every run (no persisted default, per spec), so this
+// is reset by openBulkPanel() rather than remembered. The coat fields live
+// in the DOM and the wall product in roomOverrides.bulkwall, both reset the
+// same way.
+var bulkMist = { mistWall: false, mistCeil: false };
+
+// The room fields bulk can move, each tied to the surface that has to exist
+// for the write to be legitimate. Doors and frames are independent line
+// items with their own coat counts (see doorFrameLabourCost), so they get
+// their own fields and their own guardrail rather than riding on xc.
+var BULK_COAT_FIELDS = [
+  { key: 'wc',         label: 'Wall coats',     surface: 'walls'   },
+  { key: 'cc',         label: 'Ceiling coats',  surface: 'ceiling' },
+  { key: 'xc',         label: 'Woodwork coats', surface: 'wood'    },
+  { key: 'doorCoats',  label: 'Door coats',     surface: 'doors'   },
+  { key: 'frameCoats', label: 'Frame coats',    surface: 'frames'  }
+];
+// Walls and ceilings are the only surfaces a mist coat is priced for in this
+// app (mistWall/mistCeil, settings.rMist, the 'mist' material role) -- there
+// is no woodwork mist coat to set, so the panel doesn't offer one.
+var BULK_MIST_FIELDS = [
+  { key: 'mistWall', label: 'Mist coat — walls',   surface: 'walls'   },
+  { key: 'mistCeil', label: 'Mist coat — ceiling', surface: 'ceiling' }
+];
+// Same 0-3 range the room form's coat segs offer.
+var BULK_COAT_MAX = 3;
+// How each surface is named in the preview's N/A lines ("no woodwork on this
+// room"), as opposed to the field labels above ("Woodwork coats").
+var BULK_SURFACE_LABELS = { walls: 'walls', ceiling: 'ceiling', wood: 'woodwork', doors: 'doors', frames: 'frames' };
+
+function toggleBulkEdit() {
+  bulkEditMode = !bulkEditMode;
+  if (!bulkEditMode) bulkSelected = {};
+  swipeClose();
+  renderHome();
+}
+
+function bulkToggleRoom(id) {
+  if (bulkSelected[id]) delete bulkSelected[id]; else bulkSelected[id] = true;
+  renderHome();
+}
+
+function bulkSelectedRooms() {
+  return rooms.filter(function(r) { return bulkSelected[r.id]; });
+}
+
+function bulkToggleSelectAll() {
+  var all = rooms.length > 0 && rooms.every(function(r) { return bulkSelected[r.id]; });
+  bulkSelected = {};
+  if (!all) rooms.forEach(function(r) { bulkSelected[r.id] = true; });
+  renderHome();
+}
+
+// The bulk-mode chrome around the room list: the Interior header's toggle
+// label and the select-all bar. Called from renderHome() on every render, so
+// it also covers rooms being added or deleted while bulk mode is open.
+function renderBulkChrome() {
+  var toggle = document.getElementById('bulk-edit-toggle');
+  if (toggle) {
+    // One room is not a batch.
+    toggle.style.display = rooms.length > 1 ? 'inline' : 'none';
+    toggle.textContent = bulkEditMode ? 'Done' : 'Bulk edit';
+  }
+  var bar = document.getElementById('bulk-select-bar');
+  if (!bar) return;
+  bar.style.display = bulkEditMode && rooms.length ? 'block' : 'none';
+  if (!bulkEditMode) return;
+  var n = bulkSelectedRooms().length;
+  var all = rooms.length > 0 && n === rooms.length;
+  document.getElementById('bulk-check-all').classList.toggle('on', all);
+  document.getElementById('bulk-select-all-label').textContent = all ? 'Clear selection' : 'Select all';
+  document.getElementById('bulk-count').textContent = n + ' selected';
+  var btn = document.getElementById('bulk-open-btn');
+  btn.disabled = n === 0;
+  btn.style.opacity = n === 0 ? '.4' : '1';
+  btn.textContent = n === 0 ? 'Edit rooms' : ('Edit ' + n + ' room' + (n === 1 ? '' : 's'));
+}
+
+// ── The panel ───────────────────────────────────────────────────────────────
+// Opens blank every time. Nothing is carried over from the last run -- a
+// remembered mist-coat tick would be applied to a set of rooms it was never
+// chosen for.
+function openBulkPanel() {
+  if (!bulkSelectedRooms().length) return;
+  roomOverrides.bulkwall = { range: '', band: '' };
+  populateRoomOverridePicker('bulkwall');
+  BULK_COAT_FIELDS.forEach(function(f) { document.getElementById('bulk-' + f.key).value = ''; });
+  bulkMist = { mistWall: false, mistCeil: false };
+  BULK_MIST_FIELDS.forEach(function(f) { document.getElementById('bulk-tog-' + f.key).classList.remove('on'); });
+  var n = bulkSelectedRooms().length;
+  document.getElementById('bulk-panel-count').textContent = '· ' + n + ' room' + (n === 1 ? '' : 's');
+  document.getElementById('bulk-panel').style.display = 'block';
+}
+
+function closeBulkPanel() {
+  hideRangeSearchDropdown('r-bulkwall');
+  document.getElementById('bulk-panel').style.display = 'none';
+}
+
+function bulkToggleMist(key) {
+  bulkMist[key] = !bulkMist[key];
+  document.getElementById('bulk-tog-' + key).classList.toggle('on', bulkMist[key]);
+}
+
+// ── The guardrail ───────────────────────────────────────────────────────────
+// Which surfaces a room actually HAS, on the same basis calcRoom() prices
+// them. No line item, no write.
+function bulkSurfacesOf(r) {
+  // calcRoom also runs migrateWPFields/migrateDoorFields, so the door and
+  // frame counts read below are the migrated ones.
+  var c = calcRoom(r);
+  var perim = roomShapePerimeter(r);
+  var win = +r.win || 0, sills = +r.sills || 0;
+  // calcRoom's own woodwork paint basis (its wdA): skirting run, sills and
+  // windows -- or the staircase/HSL override outright, since those rooms
+  // carry dummy l/w/h and a real measured woodwork area.
+  var woodArea = r.woodAreaOverride != null ? +r.woodAreaOverride : perim * 0.15 + sills * 0.25 + win;
+  return {
+    // A feature wall is measured independently and can exist with no general
+    // wall area behind it, and with no product of its own it falls back to
+    // the room's wall product -- so it counts as walls for this purpose.
+    walls:   c.wallArea > 0 || (+r.featureWallArea || 0) > 0,
+    ceiling: c.ceilArea > 0,
+    wood:    woodArea > 0,
+    doors:   (+r.doorQty || 0) > 0,
+    frames:  (+r.frameQty || 0) > 0
+  };
+}
+
+// What the panel is currently asking for. A blank/invalid coat box is simply
+// absent from .coats -- "no change", never a 0.
+function bulkReadFields() {
+  var f = { product: null, coats: {}, mist: {} };
+  var p = roomOverrides.bulkwall;
+  if (p.range) f.product = { range: p.range, band: p.band };
+  BULK_COAT_FIELDS.forEach(function(fd) {
+    var raw = (document.getElementById('bulk-' + fd.key).value || '').trim();
+    if (raw === '') return;
+    var n = Math.round(+raw);
+    if (isNaN(n)) return;
+    f.coats[fd.key] = Math.min(BULK_COAT_MAX, Math.max(0, n));
+  });
+  BULK_MIST_FIELDS.forEach(function(fd) { if (bulkMist[fd.key]) f.mist[fd.key] = true; });
+  return f;
+}
+
+function bulkAnyFieldSet(f) {
+  return !!f.product || Object.keys(f.coats).length > 0 || Object.keys(f.mist).length > 0;
+}
+
+function bulkProductLabel(range, band) {
+  if (!range) return 'Settings default';
+  return band ? range + ' · ' + band : range;
+}
+
+// Per-room diff. Each entry carries the changes that WILL be written and the
+// fields skipped because the room hasn't got that surface -- the two lists
+// the preview renders, and the same lists bulkApply() writes from, so what
+// is shown and what lands can't drift apart.
+function bulkBuildDiff() {
+  var f = bulkReadFields();
+  var entries = bulkSelectedRooms().map(function(r) {
+    var have = bulkSurfacesOf(r);
+    var changes = [], na = [];
+    if (f.product) {
+      if (!have.walls) na.push({ label: 'Wall paint', surface: 'walls' });
+      else {
+        var from = bulkProductLabel(r.wallRangeOverride, r.wallBandOverride || r.bandOverride);
+        var to = bulkProductLabel(f.product.range, f.product.band);
+        if (from !== to) changes.push({ label: 'Wall paint', from: from, to: to });
+      }
+    }
+    BULK_COAT_FIELDS.forEach(function(fd) {
+      if (!(fd.key in f.coats)) return;
+      if (!have[fd.surface]) { na.push({ label: fd.label, surface: fd.surface }); return; }
+      var was = +r[fd.key] || 0, now = f.coats[fd.key];
+      if (was !== now) changes.push({ label: fd.label, from: String(was), to: String(now) });
+    });
+    BULK_MIST_FIELDS.forEach(function(fd) {
+      if (!f.mist[fd.key]) return;
+      if (!have[fd.surface]) { na.push({ label: fd.label, surface: fd.surface }); return; }
+      // Additive only: a surface already misted is left alone, and an
+      // unticked surface never turns an existing mist coat off.
+      if (r[fd.key]) return;
+      changes.push({ label: fd.label, from: 'off', to: 'on' });
+    });
+    return { room: r, have: have, changes: changes, na: na };
+  });
+  return { fields: f, entries: entries };
+}
+
+function openBulkPreview() {
+  var f = bulkReadFields();
+  if (!bulkAnyFieldSet(f)) {
+    alert('Nothing set to change yet — every field is still on "No change".');
+    return;
+  }
+  // Same rule saveRoom() enforces: band sets the price AND doubles as the
+  // finish/sheen pick, so a multi-band range is never saved without one.
+  if (f.product && f.product.band == null) {
+    alert('Choose a colour band for the wall paint before previewing — it changes the price and can\'t be guessed.');
+    return;
+  }
+  var diff = bulkBuildDiff();
+  var changing = diff.entries.filter(function(e) { return e.changes.length; });
+  var body = document.getElementById('bulk-preview-body');
+  var summary = document.getElementById('bulk-preview-summary');
+  var applyBtn = document.getElementById('bulk-apply-btn');
+
+  summary.textContent = changing.length
+    ? changing.length + ' of ' + diff.entries.length + ' selected room' + (diff.entries.length === 1 ? '' : 's') + ' will change. Nothing is written until you tap Apply.'
+    : 'Nothing to apply — the selected rooms are already exactly as you\'ve set them, or haven\'t got the surfaces you targeted.';
+
+  body.innerHTML = diff.entries.map(function(e) {
+    var rows = e.changes.map(function(c) {
+      return '<div class="bulk-diff-line">' + escapeHtml(c.label) + ': ' + escapeHtml(c.from) + ' → ' + escapeHtml(c.to) + '</div>';
+    }).join('');
+    // One line per skipped field, naming the surface the room hasn't got --
+    // "no woodwork on this room" is the answer to the question the skip
+    // raises, which the field label on its own isn't.
+    rows += e.na.map(function(x) {
+      return '<div class="bulk-diff-na">' + escapeHtml(x.label) + ': N/A — no ' + escapeHtml(BULK_SURFACE_LABELS[x.surface]) + ' on this room</div>';
+    }).join('');
+    // "already as set" only when there was something to set -- a room that
+    // was skipped outright is unaffected for a different reason, spelled out
+    // in the N/A lines right below.
+    if (!e.changes.length) rows = '<div class="bulk-diff-na">Unaffected' + (e.na.length ? '' : ' — already as set') + '</div>' + rows;
+    return '<div class="bulk-diff-row"><div class="bulk-diff-name">' + escapeHtml(e.room.name) + '</div>' + rows + '</div>';
+  }).join('');
+
+  applyBtn.disabled = changing.length === 0;
+  applyBtn.style.opacity = changing.length === 0 ? '.4' : '1';
+  applyBtn.textContent = changing.length === 0 ? 'Apply' : ('Apply to ' + changing.length + ' room' + (changing.length === 1 ? '' : 's'));
+  document.getElementById('bulk-preview').style.display = 'block';
+}
+
+// Back out with every field still set -- the panel underneath is untouched,
+// and no room data has been written at any point up to here.
+function closeBulkPreview() {
+  document.getElementById('bulk-preview').style.display = 'none';
+}
+
+function bulkApply() {
+  var diff = bulkBuildDiff();
+  var f = diff.fields;
+  var touched = 0;
+  diff.entries.forEach(function(e) {
+    if (!e.changes.length) return;
+    var r = e.room, have = e.have;
+    if (f.product && have.walls) {
+      r.wallRangeOverride = f.product.range;
+      // undefined, not '' -- buildRoomFromForm() writes the band exactly this
+      // way, so a room bulk-edited to an unbanded range is byte-identical to
+      // one hand-edited to it.
+      r.wallBandOverride = f.product.band || undefined;
+    }
+    BULK_COAT_FIELDS.forEach(function(fd) {
+      if (!(fd.key in f.coats) || !have[fd.surface]) return;
+      r[fd.key] = f.coats[fd.key];
+    });
+    BULK_MIST_FIELDS.forEach(function(fd) {
+      if (!f.mist[fd.key] || !have[fd.surface]) return;
+      r[fd.key] = true;
+    });
+    touched++;
+  });
+  saveRooms();
+  closeBulkPreview();
+  closeBulkPanel();
+  bulkEditMode = false;
+  bulkSelected = {};
+  renderHome();
+  toast(touched + ' room' + (touched === 1 ? '' : 's') + ' updated');
 }
 
 // Capture-first entry: walk the house once naming rooms ("Hall, Lounge,
