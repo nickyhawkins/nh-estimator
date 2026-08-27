@@ -1,6 +1,6 @@
 # Bulk room edit — Spec (change one thing across every room)
 
-**Status: BUILT 2026-08-27 (v2.39.0).** UI, guardrail, preview and apply. No schema
+**Status: BUILT 2026-08-27 (v2.39.2).** UI, guardrail, preview and apply. No schema
 change and no deploy step — nothing here touches the database beyond the room rows the
 single-room form already writes.
 
