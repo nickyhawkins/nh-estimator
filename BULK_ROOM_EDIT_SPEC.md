@@ -6,7 +6,8 @@ database beyond the room rows the single-room form already writes.
 
 v2.39.5 added a product picker for **every** material role rather than walls alone, the
 room's **prep level**, and a second guardrail for **staircase/HSL rooms** (§2.4) that
-also fixes a v2.39.2 bug.
+also fixed a v2.39.2 bug. v2.39.6 added **door/frame prep** and narrowed that guardrail
+from per-room to **per field**, which is what it should always have been.
 
 ---
 
@@ -49,14 +50,17 @@ that genuinely move together across a whole job.
 | Mist coat — walls | `mistWall` | |
 | Mist coat — ceiling | `mistCeil` | |
 | Prep level | `prepPct` + `prepCustom` | Minimal / Standard / Heavy / Custom %, the same scale `setPrep()` uses |
+| Door/frame prep | `doorFramePrepPct` + `doorFramePrepCustom` | Doors and frames carry their own prep, independent of the room's |
 
 The seven product rows are generated from `BULK_PRODUCT_ROLES` by
 `buildBulkProductRows()` rather than hand-copied — each is two rows of near-identical
 markup, and the room form already has one such set to keep in step.
 
-**Deliberately not offered:** panelling prep (`panelPrepPct`) and door/frame prep
-(`doorFramePrepPct`). Both are separate scales on the room form, kept separate on
-purpose, and neither is a whole-job decision the way the room's own prep is.
+The two prep segs are generated from `BULK_PREP_FIELDS` the same way.
+
+**Deliberately not offered:** panelling prep (`panelPrepPct`). It belongs to individual
+panelling rows rather than to the room, so it isn't a whole-job decision the way the
+other two are.
 
 **Product is a pair, not a value.** A range override with no colour band is refused
 here for exactly the reason `saveRoom()` refuses it: band sets the price *and* doubles
@@ -104,21 +108,32 @@ No surface, no write. "Three coats of woodwork" must not invent woodwork in a ro
 has none; that room shows as `N/A — no woodwork on this room` in the diff and is left
 exactly as it was.
 
-### A staircase room's labour is frozen, so labour fields are skipped
+### A staircase room's frozen half is skipped — per field, not per room
 
-A staircase/HSL room's price is baked into `totalOverride` at save time by
-`computeHSLOverrides()`; `calcRoom()` reads that figure and never re-derives the labour.
-So writing `wc`/`cc`/`xc`, a mist toggle or `prepPct` there would move the room's
-**litres and its Summary breakdown while leaving its price stale** — a half-applied
-change, which is worse than none. Coats, mist and prep are therefore skipped on any room
-with `totalOverride` set (or `isHSL`), and the diff says why: *"a staircase room's labour
-is set on the staircase form"*. Change them there and the override is rebuilt correctly.
+A staircase/HSL room's `baseTotal` is baked into `totalOverride` at save time by
+`computeHSLOverrides()`; `calcRoom()` reads that figure and never re-derives it. So
+writing a field that feeds `baseTotal` would move the room's **litres and its Summary
+breakdown while leaving its price stale** — a half-applied change, which is worse than
+none. Those fields are skipped on any room with `totalOverride` set (or `isHSL`), and
+the diff says why: *"a staircase room's labour is set on the staircase form"*. Change
+them there and the override is rebuilt correctly.
 
-Product overrides are the exception and still apply: they only ever affect litres, on
-the same code path a normal room uses, so there is nothing to go stale.
+The split is per field, via `frozenOnHSL`:
 
-**This also fixes a v2.39.2 bug** — that release wrote coats and mist to staircase rooms
-without the check.
+| Skipped (feeds `baseTotal`) | Still applies |
+| --- | --- |
+| Wall / ceiling / woodwork coats | Door coats, frame coats |
+| Mist coat, walls and ceiling | Door/frame prep |
+| The room's own prep level | Every product override |
+
+Doors and frames are priced **outside** the override — `calcRoom()` adds `doorFrameCost`
+to `preFloorTotal` after the `totalOverride` branch, exactly like panelling — so those
+three move a staircase room's price correctly and there is nothing to go stale. Product
+overrides only ever affect litres, on the same code path a normal room uses.
+
+**Two bugs closed here.** v2.39.2 wrote coats and mist to staircase rooms with no check
+at all. v2.39.5 added the check but applied it per *room*, which over-corrected: it
+refused door and frame coats on a staircase room that would have taken them correctly.
 
 ### Mist coat is additive only
 
