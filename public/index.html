@@ -1929,7 +1929,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.39.0</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.39.1</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -4755,7 +4755,11 @@ function persistJobData(job) {
   // pool (computeDepositPlan). They are deliberately invisible on the
   // client's copy, so the job record is the only place they survive for the
   // profitability card to read — same rule again.
-  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, deposit: job.deposit, notes: job.notes, kitchen: job.kitchen, fittedUnits: job.fittedUnits, fittedUnit: Array.isArray(job.fittedUnits) ? null : job.fittedUnit, customItems: job.customItems, isXeroImported: !!job.isXeroImported, honouredLabourAmount: job.honouredLabourAmount != null ? job.honouredLabourAmount : null, upchargeTotal: job.upchargeTotal != null ? job.upchargeTotal : null, roundingDelta: job.roundingDelta != null ? job.roundingDelta : null });
+  // depositRequired: the quote-level "this job asks for no deposit" toggle
+  // (jobRequiresDeposit) — same "must be in this list or it never persists"
+  // rule as `standalone`. Written as an explicit boolean, never omitted:
+  // absent means "predates the toggle", which reads as deposit required.
+  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, deposit: job.deposit, notes: job.notes, kitchen: job.kitchen, fittedUnits: job.fittedUnits, fittedUnit: Array.isArray(job.fittedUnits) ? null : job.fittedUnit, customItems: job.customItems, isXeroImported: !!job.isXeroImported, honouredLabourAmount: job.honouredLabourAmount != null ? job.honouredLabourAmount : null, depositRequired: job.depositRequired !== false, upchargeTotal: job.upchargeTotal != null ? job.upchargeTotal : null, roundingDelta: job.roundingDelta != null ? job.roundingDelta : null });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -5390,6 +5394,10 @@ function buildAcceptedQuoteSnapshot(job) {
       roundingDelta: money(plan.roundingDelta),
       roundingStep: QUOTE_ROUNDING_STEP,
       deposit: money(plan.deposit),
+      // Recorded alongside the figure so a £0.00 deposit in the record is
+      // legible as a decision rather than a missing number — the same
+      // distinction the client's copy and the Xero Terms text draw.
+      depositRequired: plan.depositRequired !== false,
       depositBasis: plan.depositBasis,
       balance: money(plan.balance)
     },
@@ -7123,6 +7131,37 @@ function setJobStandalone(on) {
   renderSummary(); renderHome(); renderExterior(); renderDash();
 }
 
+// Deposit required? A quote-level toggle like Commercial/Standalone above,
+// but the ONLY one of the three that defaults ON -- the Terms of Business
+// ask for a deposit, so a job that doesn't want one is the exception being
+// recorded, not the norm. Hence `!== false` rather than a plain truthy read
+// (same default-on convention as a materials line's `chargeable` and a
+// custom item's `applyMarkup`): every job that existed before this shipped
+// has no flag at all and must keep asking for its deposit.
+//
+// Turning it off changes nothing about the PRICE -- it moves money between
+// "on acceptance" and "on completion", and computeDepositPlan() re-derives
+// the whole payment breakdown from the zero (balance, weekly instalments,
+// the Xero quote's Terms and Summary text). It is also entirely separate
+// from job.deposit, which is the record of a deposit actually RECEIVED
+// (DEPOSITS_SPEC.md): this says what the quote asks for, that says what
+// turned up.
+function jobRequiresDeposit(job) {
+  return !job || job.depositRequired !== false;
+}
+
+function setJobDepositRequired(on) {
+  var job = activeJob();
+  if (!job) return;
+  // Stored as an explicit false rather than deleted, so "no deposit" is a
+  // recorded decision and not indistinguishable from a job that predates
+  // the toggle.
+  job.depositRequired = !!on;
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  renderSummary(); renderHome(); renderDash();
+}
+
 // ── Xero-imported jobs: honoured pre-app labour ─────────────────────────────
 // A batch of jobs was quoted and agreed in Xero BEFORE they existed in the
 // app. They're being honoured at the agreed price while still being measured
@@ -7529,8 +7568,14 @@ function depositBlockHtml(job, planDeposit) {
   }
 
   if (!dep) {
+    // "None recorded" and "none asked for" are different facts, and only one
+    // of them is a loose end. Recording stays available either way: this
+    // block is the record of money that actually arrived, and a client can
+    // pay something up front on a job the quote never asked a deposit for.
+    var noneAsked = !jobRequiresDeposit(job);
     return '<div style="' + wrap + ';display:flex;align-items:center;gap:10px">' +
-      '<div style="flex:1;font-size:13px;color:var(--text2)">💷 No deposit recorded' + (planDeposit > 0 ? ' — plan says ' + fmt(planDeposit) : '') + '</div>' +
+      '<div style="flex:1;font-size:13px;color:var(--text2)">💷 No deposit recorded' +
+        (noneAsked ? ' — none required on this job' : planDeposit > 0 ? ' — plan says ' + fmt(planDeposit) : '') + '</div>' +
       '<div onclick="toggleDepositRow()" style="' + link + '">Record deposit ›</div>' +
     '</div>';
   }
@@ -9206,11 +9251,20 @@ function computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabour, workin
   // and the RAW (pre-markup) materials+sundries outlay, since that outlay is
   // what actually needs covering to get the job started regardless of quote
   // size.
+  //
+  // Not every job asks for one though (see jobRequiresDeposit): a small job
+  // for a client who always pays, work squeezed in around a bigger job, a
+  // repeat customer. With the toggle off the deposit is ZERO rather than
+  // hidden -- the whole payment breakdown below re-derives from it, so the
+  // balance becomes the full total and any weekly instalments split THAT,
+  // which is what has to reach the Xero quote's Terms text.
+  var depositRequired = jobRequiresDeposit(activeJob());
   var depositPct = settings.depositPct!=null ? settings.depositPct : 25;
   var depositByPct = total * depositPct/100;
   var depositByCost = materialsTotal + sundries;
-  var deposit = Math.max(depositByPct, depositByCost);
-  var depositBasis = depositByPct >= depositByCost ? (depositPct+'% of quote') : 'Materials & sundries cost';
+  var deposit = depositRequired ? Math.max(depositByPct, depositByCost) : 0;
+  var depositBasis = !depositRequired ? 'No deposit required on this job'
+    : depositByPct >= depositByCost ? (depositPct+'% of quote') : 'Materials & sundries cost';
   var balance = total - deposit;
 
   // Multi-week: week count derives from the REALISTIC on-site estimate (see
@@ -9240,6 +9294,7 @@ function computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabour, workin
            labourTotal:labourTotal, lineMult:lineMult, rawTotal:rawTotal, total:total,
            upchargeTotal:upchargeTotal, roundingDelta:roundingDelta,
            adjustmentPool:adjustmentPool, deposit:deposit,
+           depositRequired:depositRequired,
            depositBasis:depositBasis, balance:balance, paymentType:paymentType,
            paymentWeeks:paymentWeeks, weeklyRows:weeklyRows };
 }
@@ -9263,15 +9318,23 @@ function instalmentDate(startDateIso, i) {
 // with no date the text reads exactly as it always has. Only a quote sent
 // AFTER scheduling picks up the real w/c dates.
 function buildPaymentTermsText(plan, startDateIso) {
-  var text = 'Deposit due on acceptance: ' + fmt(plan.deposit) + ' (' + plan.depositBasis + ').';
+  // No deposit on this job (jobRequiresDeposit off): say so in as many
+  // words rather than printing "Deposit due on acceptance: £0.00", which
+  // reads as a broken calculation rather than a decision. What follows is
+  // then the WHOLE total, not a balance of anything -- so it is worded as
+  // one, and any weekly instalments split that figure instead.
+  var text = plan.depositRequired === false
+    ? 'No deposit required on this job.'
+    : 'Deposit due on acceptance: ' + fmt(plan.deposit) + ' (' + plan.depositBasis + ').';
+  var owedLabel = plan.depositRequired === false ? 'Total of ' : 'Balance of ';
   if (plan.paymentType === 'multiweek' && plan.weeklyRows.length > 0) {
     var weekParts = plan.weeklyRows.map(function(amt, i) {
       var wc = startDateIso ? ' (w/c ' + fmtShortDate(instalmentDate(startDateIso, i)) + ')' : '';
       return 'Week ' + (i+1) + wc + ' ' + fmt(amt);
     }).join(', ');
-    text += ' Balance of ' + fmt(plan.balance) + ' split across ' + plan.weeklyRows.length + ' weekly instalments: ' + weekParts + '.';
+    text += ' ' + owedLabel + fmt(plan.balance) + ' split across ' + plan.weeklyRows.length + ' weekly instalments: ' + weekParts + '.';
   } else {
-    text += ' Balance of ' + fmt(plan.balance) + ' due on completion.';
+    text += ' ' + owedLabel + fmt(plan.balance) + ' due on completion.';
   }
   return text;
 }
@@ -9283,7 +9346,11 @@ function buildPaymentTermsText(plan, startDateIso) {
 // API's Summary property) lets the DOCX template wrap THIS field in bold
 // while leaving the explanatory sentence in QuoteTerms at normal weight.
 function buildPaymentSummaryText(plan) {
-  return 'Deposit ' + fmt(plan.deposit) + '  ·  Balance ' + fmt(plan.balance);
+  // Same wording rule as the Terms sentence above: "No deposit" rather than
+  // a bolded £0.00, and the figure beside it is the total, not a balance.
+  return plan.depositRequired === false
+    ? 'No deposit  ·  Total ' + fmt(plan.balance)
+    : 'Deposit ' + fmt(plan.deposit) + '  ·  Balance ' + fmt(plan.balance);
 }
 
 
@@ -17886,6 +17953,23 @@ function renderSummary() {
   // Payment card falls back to its live labels -- correct: an unknown figure
   // must not print as £0.00 next to an agreed total.
   var frozenTotals = (frozenQuote && frozenSnapshot.data && frozenSnapshot.data.totals) || {};
+  // The Payment card's deposit state. Declared HERE and not up with
+  // deposit/balance because it reads frozenTotals, which only exists from
+  // this point on. On a frozen job the AGREED answer governs (the toggle is
+  // read-only there): a snapshot that recorded no deposit stays that way
+  // whatever the flag says now, and one rebuilt from a Xero total knows
+  // neither way, so it falls back to the live flag rather than claiming
+  // "no deposit".
+  var depositRequiredNow = frozenQuote && frozenTotals.depositRequired != null
+    ? frozenTotals.depositRequired !== false : plan.depositRequired;
+  // What the rows actually print: a frozen snapshot carrying a real deposit
+  // figure shows it even if the live toggle has since moved, and one with no
+  // payment plan at all (deposit null) still shows its em dash rather than
+  // being restyled as a deliberate "None".
+  var depositShown = frozenQuote
+    ? (frozenTotals.deposit == null || +frozenTotals.deposit > 0.005 || depositRequiredNow)
+    : depositRequiredNow;
+
   // The agreed total, variations on top. Variations are deliberately still
   // live: they were agreed at today's rates, not at acceptance, and they
   // settle on the final invoice.
@@ -18119,17 +18203,36 @@ function renderSummary() {
     '</div>'+
     '<div class="card" style="margin-top:16px">'+
       '<div class="card-header">Payment</div>'+
-      // Deposit and balance were agreed WITH the quote -- a deposit already
-      // taken against a 25%-of-quote basis must not re-derive itself when the
-      // quote's inputs re-price. Frozen job: the snapshot's own figures.
-      // A snapshot rebuilt from a Xero total carries no payment plan (the
-      // export doesn't have one), so those read null and print as an em dash.
+      // Deposit required? The toggle heads this card because every figure
+      // under it moves with it: off zeroes the deposit, hands the whole
+      // total to the balance and re-splits any weekly instalments -- and
+      // that is what reaches the Xero quote's Terms text (see
+      // computeDepositPlan / buildPaymentTermsText). It changes no price.
+      //
+      // Everything below it was agreed WITH the quote -- a deposit already
+      // taken against a 25%-of-quote basis must not re-derive itself when
+      // the quote's inputs re-price -- so on a frozen job the snapshot's own
+      // figures print and the toggle is read-only alongside them. A snapshot
+      // rebuilt from a Xero total carries no payment plan (the export
+      // doesn't have one), so those read null and print as an em dash:
       // £0.00 beside an agreed total would state, wrongly and confidently,
       // that no deposit was due.
-      '<div class="breakdown-row"><span class="breakdown-label">Deposit due on acceptance<small style="display:block;font-weight:400;color:var(--text2)">'+
-        escapeHtml(frozenQuote ? (frozenTotals.depositBasis || 'not recorded in the reconciled figures') : depositBasis)+'</small></span>'+
-        '<span class="breakdown-value" style="color:var(--accent)">'+(frozenQuote && frozenTotals.deposit == null ? '—' : fmt(frozenQuote ? +frozenTotals.deposit : deposit))+'</span></div>'+
-      '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Balance</span>'+
+      '<div class="toggle-row"><div class="toggle-label">Deposit required<small>'+
+        (frozenQuote ? 'as agreed — accepted quotes don’t re-price'
+          : depositRequiredNow ? 'a deposit falls due when this quote is accepted'
+          : 'no deposit asked for — the full total falls due on completion')+'</small></div>'+
+        '<div class="toggle'+(depositRequiredNow?' on':'')+'"'+
+        (frozenQuote ? ' style="opacity:.5"' : ' onclick="setJobDepositRequired('+(depositRequiredNow?'false':'true')+')"')+'></div></div>'+
+      (depositShown
+        ? '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label">Deposit due on acceptance<small style="display:block;font-weight:400;color:var(--text2)">'+
+            escapeHtml(frozenQuote ? (frozenTotals.depositBasis || 'not recorded in the reconciled figures') : depositBasis)+'</small></span>'+
+            '<span class="breakdown-value" style="color:var(--accent)">'+(frozenQuote && frozenTotals.deposit == null ? '—' : fmt(frozenQuote ? +frozenTotals.deposit : deposit))+'</span></div>'
+        // £0.00 on a "Deposit due" row reads as a broken sum rather than a
+        // decision, so the row says the decision instead of the figure.
+        : '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="color:var(--text2)">Deposit due on acceptance<small style="display:block;font-weight:400;color:var(--text2)">'+
+            escapeHtml(frozenQuote ? (frozenTotals.depositBasis || 'No deposit required on this job') : depositBasis)+'</small></span>'+
+            '<span class="breakdown-value" style="color:var(--text3)">None</span></div>')+
+      '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">'+(depositShown?'Balance':'Total due on completion')+'</span>'+
         '<span class="breakdown-value">'+(frozenQuote && frozenTotals.balance == null ? '—' : fmt(frozenQuote ? +frozenTotals.balance : balance))+'</span></div>'+
       '<div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Payment plan</div><div class="seg" id="seg-payment-type">'+
         '<button type="button" class="seg-btn'+(paymentType==='single'?' active':'')+'" onclick="setPaymentType(\'single\')">Single</button>'+
@@ -18734,14 +18837,21 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
     if (line) colourRows.push({ room: r.name, detail: line });
   });
 
-  var paymentRows = [{ emoji: '', label: 'Deposit due on acceptance', sub: plan.depositBasis, amount: plan.deposit }];
+  // No deposit on this job (jobRequiresDeposit off): the row is left OFF the
+  // client's copy entirely rather than printed as £0.00 — there is nothing
+  // due on acceptance to tell them about, and what follows is the whole
+  // total rather than the balance of anything, so it is labelled as one.
+  // Same wording rule as buildPaymentTermsText()'s Xero sentence.
+  var paymentRows = plan.depositRequired === false ? []
+    : [{ emoji: '', label: 'Deposit due on acceptance', sub: plan.depositBasis, amount: plan.deposit }];
   if (plan.paymentType === 'multiweek' && plan.weeklyRows.length > 0) {
     plan.weeklyRows.forEach(function(amt, i) {
       var wc = job && job.startDate ? ' — w/c ' + fmtShortDate(instalmentDate(job.startDate, i)) : '';
       paymentRows.push({ emoji: '', label: 'Week ' + (i + 1) + wc, sub: '', amount: amt });
     });
   } else {
-    paymentRows.push({ emoji: '', label: 'Balance on completion', sub: '', amount: plan.balance });
+    paymentRows.push({ emoji: '', label: plan.depositRequired === false ? 'Total due on completion' : 'Balance on completion',
+                       sub: plan.depositRequired === false ? 'no deposit required on this job' : '', amount: plan.balance });
   }
 
   var contact = (job && job.contact) || {};
