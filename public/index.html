@@ -1163,7 +1163,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
          instance looks exactly as it always has. -->
     <div class="card">
       <div class="card-header">Business</div>
-      <div class="field-row"><div class="field-label">Business name<small>shown in the app header, on the login screen and in the calendar feed</small></div><input type="text" class="field-input" id="s-business-name" placeholder="e.g. J. Smith Decorating" autocapitalize="words" onchange="saveSettings();applyBranding()"></div>
+      <div class="field-row"><div class="field-label">Business name<small>shown in the app header, on the login screen, on your quotes and their PDFs, and in the calendar feed</small></div><input type="text" class="field-input" id="s-business-name" placeholder="e.g. J. Smith Decorating" autocapitalize="words" onchange="saveSettings();applyBranding()"></div>
       <div class="field-row">
         <div class="field-label">Logo<small>optional — shown instead of the name in the header</small></div>
         <div style="display:flex;align-items:center;gap:10px;justify-content:flex-end;flex:1;min-width:0">
@@ -8660,6 +8660,13 @@ function goBack() {
 
 // ── Settings ───────────────────────────────────────────────────────────────
 
+// The name that goes on documents a client sees — the quote preview, its
+// PDF and the CSV export. Falls back to the stock name so an instance that
+// never set one produces byte-identical documents to before.
+function quoteBusinessName() {
+  return settings.businessName || 'Nicky Hawkins';
+}
+
 // White-label branding (WS3). Precedence in the header: uploaded logo →
 // business name as text → the stock /logo.png (so an instance that never
 // touches the Business card looks exactly as before this feature).
@@ -8681,6 +8688,11 @@ function applyBranding() {
       img.style.display = 'block'; txt.style.display = 'none';
     }
   });
+  // The browser tab and the iOS home-screen label, which reads this meta
+  // tag live when someone taps Add to Home Screen.
+  document.title = name || 'NH Estimator';
+  var appleTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+  if (appleTitle) appleTitle.setAttribute('content', name || 'NH Estimator');
   var prev = document.getElementById('s-logo-preview');
   var rm = document.getElementById('s-logo-remove');
   if (prev) { prev.src = logo || ''; prev.style.display = logo ? 'block' : 'none'; }
@@ -19705,7 +19717,7 @@ function buildClientQuoteHtml(m) {
 
   return '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
     + '<meta name="viewport" content="width=device-width, initial-scale=1">'
-    + '<title>Quote — ' + esc(m.jobName || 'NH Estimator') + '</title>'
+    + '<title>Quote — ' + esc(m.jobName || quoteBusinessName()) + '</title>'
     + '<link rel="preconnect" href="https://fonts.googleapis.com">'
     // Loaded NON-blocking (media=print until it arrives, then promoted).
     // A plain stylesheet link holds first paint until the request settles,
@@ -19744,8 +19756,8 @@ function buildClientQuoteHtml(m) {
     + '.foot{font-size:12px;color:var(--mut);text-align:center;margin-top:26px}'
     + '@media print{body{background:#fff}.page{padding:0}.card{box-shadow:none;border:1px solid #e5e0d8}}'
     + '</style></head><body><div class="page">'
-    + '<div class="head"><img src="' + location.origin + '/logo.png" alt="logo">'
-      + '<div><h1>Nicky Hawkins</h1><div class="sub">Painting &amp; Decorating — Quotation</div></div></div>'
+    + '<div class="head"><img src="' + (settings.logoDataUri || (location.origin + '/logo.png')) + '" alt="logo">'
+      + '<div><h1>' + esc(quoteBusinessName()) + '</h1><div class="sub">Painting &amp; Decorating — Quotation</div></div></div>'
     + '<div class="meta">'
       + (m.clientName ? '<div><strong>For:</strong> ' + esc(m.clientName) + '</div>' : '')
       + (m.address ? '<div><strong>At:</strong> ' + esc(m.address) + '</div>' : '')
@@ -19976,7 +19988,7 @@ function pdfLoadLogo() {
         } catch (e) { done(null); }
       };
       img.onerror = function() { done(null); };
-      img.src = location.origin + '/logo.png';
+      img.src = settings.logoDataUri || (location.origin + '/logo.png');
     } catch (e) { done(null); }
   });
 }
@@ -20043,7 +20055,7 @@ async function buildClientQuotePdf(m) {
     d.image(L + 18, d.y - 13 - (48 - ih) / 2, iw, ih);
     titleX = L + 76;
   }
-  d.text('Nicky Hawkins', titleX, d.y - 33, { size: 19, bold: true, rgb: PDF_WHITE });
+  d.text(quoteBusinessName(), titleX, d.y - 33, { size: 19, bold: true, rgb: PDF_WHITE });
   d.text('Painting & Decorating — Quotation', titleX, d.y - 50, { size: 10, rgb: PDF_WHITE });
   d.y -= headH + 18;
 
@@ -20119,7 +20131,7 @@ function exportCSV() {
   if(rooms.length===0 && extItems.length===0 && calcKitchen(activeJob() && activeJob().kitchen).total<=0 && fuCsvAgg.total<=0 && jobCustomItems().length===0){alert('Nothing to export yet.');return;}
   var s=settings; var q=function(v){return '"'+String(v).replace(/"/g,'""')+'"';};
   var lines=[];
-  lines.push([q('Nicky Hawkins Estimator')].join(','));
+  lines.push([q(quoteBusinessName() + ' Estimator')].join(','));
   lines.push([q('Job'),q((activeJob() && activeJob().name) || '—')].join(','));
   lines.push([q('Generated'),q(new Date().toLocaleDateString('en-GB'))].join(','));
   lines.push('');

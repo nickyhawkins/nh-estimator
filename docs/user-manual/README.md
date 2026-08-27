@@ -501,7 +501,7 @@ Menu (☰) → **Settings**. Everything that isn't a calculation rate lives here
 
 | Section | What's in it |
 |---|---|
-| **Business** | Your business name and logo — shown in the app header, on the sign-in screen and in the calendar feed |
+| **Business** | Your business name and logo — shown in the app header, on the sign-in screen, at the top of every quote you send and its PDF, and in the calendar feed |
 | **Pricing** | Day rate, hours per day, markup %, sundries %, spray sundries bump, deposit %, commercial job adjustment, standalone-job rounding (full or half days), and how many days before an unanswered quote gets flagged |
 | **Deposits (Xero)** | The bank account a recorded deposit lands in, and the account code it posts to |
 | **Xero Integration** | Connect / disconnect |
@@ -539,6 +539,6 @@ Settings → **Backup**:
 
 ---
 
-*Manual for NH Estimator v2.39.8. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.39.9. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
