@@ -153,7 +153,9 @@ not a retry next week. A retry that old should be checked against Xero first.
     variation would trip it, and a strip that cries wolf stops being read.
 - **Home attention strip**: "Deposit not in Xero" (failed/voided at once; merely unsent
   after a day's grace, so recording one in a dead spot doesn't nag immediately) and
-  "£500 deposit held, no invoice" after 30 days.
+  "£500 deposit held, no invoice" after 30 days — suppressed while the job is booked to
+  start in the future, where holding the deposit is the point and there is nothing to
+  invoice yet.
 
 ## Error handling
 
