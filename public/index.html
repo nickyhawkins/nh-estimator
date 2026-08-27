@@ -1929,7 +1929,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.38.5</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.39.1</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -3893,10 +3893,10 @@ async function createXeroQuote(forceNew) {
         return label + '\n\n' + quoteBlock;
       };
       // Same order the server pushes lines: rooms → exterior → kitchen →
-      // fitted units (per named unit). Custom line items and the standalone
-      // top-up line are deliberately NOT in the chain — a custom item's
-      // description IS its own text, and the top-up is a pricing note, not
-      // scope.
+      // fitted units (per named unit). Custom line items are deliberately
+      // NOT in the chain — a custom item's description IS its own text.
+      // (There is no standalone top-up line to skip any more: it is spread
+      // across these same labour lines — see labourSpreadTarget below.)
       roomData.forEach(function(rd) { rd.description = withBlock(rd.name); });
       exteriorData.forEach(function(ed) { if (ed.total > 0) ed.description = withBlock(ed.label || 'Exterior'); });
       if (kitchenTotal > 0) kitchenDescription = withBlock(kitchenLabel);
@@ -3953,13 +3953,24 @@ async function createXeroQuote(forceNew) {
         commercial: !!(activeJob() && activeJob().commercial),
         commercialPct: settings.commercialPct,
         // Standalone diary-day rounding: the raw (pre-markup) top-up plus
-        // the two day figures for the quote line's description. The server
-        // adds it as its own labour line so the quote total still matches
-        // depositPlan.labourTotal above (see routes/xero.js).
+        // the two day figures. The server no longer gives it a line of its
+        // own -- it rides inside labourSpreadTarget below with the price
+        // rounding -- but it still has to arrive, because it belongs in the
+        // fixed-£ markup ratio's base server-side exactly as it does in
+        // applyMarkupAmount() here (see routes/xero.js).
         standalone: depositPlan.standalone.on,
         standaloneTopUp: depositPlan.standalone.topUp,
         standaloneCalcDays: depositPlan.standalone.calcDays,
         standaloneDiaryDays: depositPlan.standalone.diaryDays,
+        // The upcharge + clean-rounding spread (computeDepositPlan()'s
+        // adjustment pool). The server holds the per-room/exterior/kitchen/
+        // fitted-unit lines, so it does the distributing -- but the TARGET
+        // those lines must sum to is computed here, so the Xero document
+        // carries the same labour amounts the client's own copy shows
+        // (buildClientQuoteModel) rather than a separately-derived set.
+        // labourAdjustment rides along for the no-labour-lines guard.
+        labourSpreadTarget: Math.round((tcS * depositPlan.lineMult + depositPlan.adjustmentPool) * 100) / 100,
+        labourAdjustment: Math.round(depositPlan.adjustmentPool * 100) / 100,
         paymentTerms: paymentTerms,
         paymentSummary: paymentSummary,
         contactId: linkedContactId,
@@ -4740,7 +4751,15 @@ function persistJobData(job) {
   // isXeroImported/honouredLabourAmount: the honoured pre-app labour pair (see
   // jobIsXeroImported) — same "must be in this list or it never persists"
   // rule as `standalone` above.
-  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, deposit: job.deposit, notes: job.notes, kitchen: job.kitchen, fittedUnits: job.fittedUnits, fittedUnit: Array.isArray(job.fittedUnits) ? null : job.fittedUnit, customItems: job.customItems, isXeroImported: !!job.isXeroImported, honouredLabourAmount: job.honouredLabourAmount != null ? job.honouredLabourAmount : null });
+  // upchargeTotal/roundingDelta: the two halves of the quote's adjustment
+  // pool (computeDepositPlan). They are deliberately invisible on the
+  // client's copy, so the job record is the only place they survive for the
+  // profitability card to read — same rule again.
+  // depositRequired: the quote-level "this job asks for no deposit" toggle
+  // (jobRequiresDeposit) — same "must be in this list or it never persists"
+  // rule as `standalone`. Written as an explicit boolean, never omitted:
+  // absent means "predates the toggle", which reads as deposit required.
+  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, deposit: job.deposit, notes: job.notes, kitchen: job.kitchen, fittedUnits: job.fittedUnits, fittedUnit: Array.isArray(job.fittedUnits) ? null : job.fittedUnit, customItems: job.customItems, isXeroImported: !!job.isXeroImported, honouredLabourAmount: job.honouredLabourAmount != null ? job.honouredLabourAmount : null, depositRequired: job.depositRequired !== false, upchargeTotal: job.upchargeTotal != null ? job.upchargeTotal : null, roundingDelta: job.roundingDelta != null ? job.roundingDelta : null });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -5332,6 +5351,12 @@ function buildAcceptedQuoteSnapshot(job) {
       sundriesPct: +settings.sundriesPct || 0,
       sundriesSprayPct: +settings.sundriesSprayPct || 0,
       standaloneTopUp: money(plan.standalone.topUp),
+      // The two halves of the adjustment pool, recorded separately because
+      // the client's copy deliberately shows neither: they are inside the
+      // work rows above. Without them here, "why is this quote £190.00 and
+      // not £186.80" would have no answer left in the record.
+      upchargeTotal: money(plan.upchargeTotal),
+      roundingDelta: money(plan.roundingDelta),
       customMarked: money(customSplit.marked),
       customFlat: money(customSplit.flat),
       honouredAmount: honouredLabour == null ? null : money(honouredLabour),
@@ -5362,7 +5387,17 @@ function buildAcceptedQuoteSnapshot(job) {
       exVat: agreedTotal,
       vat: 0,
       incVat: agreedTotal,
+      // The raw grand total before the clean-£5 round-up, and the two
+      // adjustments that closed the gap between it and agreedTotal above.
+      rawTotal: money(plan.rawTotal),
+      upchargeTotal: money(plan.upchargeTotal),
+      roundingDelta: money(plan.roundingDelta),
+      roundingStep: QUOTE_ROUNDING_STEP,
       deposit: money(plan.deposit),
+      // Recorded alongside the figure so a £0.00 deposit in the record is
+      // legible as a decision rather than a missing number — the same
+      // distinction the client's copy and the Xero Terms text draw.
+      depositRequired: plan.depositRequired !== false,
       depositBasis: plan.depositBasis,
       balance: money(plan.balance)
     },
@@ -7096,6 +7131,37 @@ function setJobStandalone(on) {
   renderSummary(); renderHome(); renderExterior(); renderDash();
 }
 
+// Deposit required? A quote-level toggle like Commercial/Standalone above,
+// but the ONLY one of the three that defaults ON -- the Terms of Business
+// ask for a deposit, so a job that doesn't want one is the exception being
+// recorded, not the norm. Hence `!== false` rather than a plain truthy read
+// (same default-on convention as a materials line's `chargeable` and a
+// custom item's `applyMarkup`): every job that existed before this shipped
+// has no flag at all and must keep asking for its deposit.
+//
+// Turning it off changes nothing about the PRICE -- it moves money between
+// "on acceptance" and "on completion", and computeDepositPlan() re-derives
+// the whole payment breakdown from the zero (balance, weekly instalments,
+// the Xero quote's Terms and Summary text). It is also entirely separate
+// from job.deposit, which is the record of a deposit actually RECEIVED
+// (DEPOSITS_SPEC.md): this says what the quote asks for, that says what
+// turned up.
+function jobRequiresDeposit(job) {
+  return !job || job.depositRequired !== false;
+}
+
+function setJobDepositRequired(on) {
+  var job = activeJob();
+  if (!job) return;
+  // Stored as an explicit false rather than deleted, so "no deposit" is a
+  // recorded decision and not indistinguishable from a job that predates
+  // the toggle.
+  job.depositRequired = !!on;
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  renderSummary(); renderHome(); renderDash();
+}
+
 // ── Xero-imported jobs: honoured pre-app labour ─────────────────────────────
 // A batch of jobs was quoted and agreed in Xero BEFORE they existed in the
 // app. They're being honoured at the agreed price while still being measured
@@ -7502,8 +7568,14 @@ function depositBlockHtml(job, planDeposit) {
   }
 
   if (!dep) {
+    // "None recorded" and "none asked for" are different facts, and only one
+    // of them is a loose end. Recording stays available either way: this
+    // block is the record of money that actually arrived, and a client can
+    // pay something up front on a job the quote never asked a deposit for.
+    var noneAsked = !jobRequiresDeposit(job);
     return '<div style="' + wrap + ';display:flex;align-items:center;gap:10px">' +
-      '<div style="flex:1;font-size:13px;color:var(--text2)">💷 No deposit recorded' + (planDeposit > 0 ? ' — plan says ' + fmt(planDeposit) : '') + '</div>' +
+      '<div style="flex:1;font-size:13px;color:var(--text2)">💷 No deposit recorded' +
+        (noneAsked ? ' — none required on this job' : planDeposit > 0 ? ' — plan says ' + fmt(planDeposit) : '') + '</div>' +
       '<div onclick="toggleDepositRow()" style="' + link + '">Record deposit ›</div>' +
     '</div>';
   }
@@ -9028,6 +9100,74 @@ function realisticDays(workingDays) {
   return Math.ceil(buffered * 2) / 2;
 }
 
+// ── Clean rounding + the labour spread ─────────────────────────────────────
+// Two adjustments end up in the same place for the same reason, so they are
+// built as one mechanism.
+//
+// The standalone-job upcharge (standaloneInfo()'s diary-day top-up) used to
+// print as its own quote line, where it read as a random unexplained charge
+// -- the client has no way to see why a day they never asked about is on
+// their bill. And job totals were landing on figures like £186.80 or
+// £185.63, which read as mechanically calculated rather than deliberately
+// priced. Both wanted the same fix: put the money ON the labour lines that
+// are already there, and show no new line at all.
+//
+// Because both ultimately add pence to the same lines, they are combined
+// into ONE pool (computeDepositPlan()'s adjustmentPool) and distributed
+// once. Two separate passes would each round to the penny and then argue
+// over the same remainder.
+var QUOTE_ROUNDING_STEP = 5;
+
+function roundUpToStep(n, step) {
+  step = +step || 1;
+  // Same tiny epsilon standaloneDiaryDays() uses, for the same reason:
+  // float noise on a total that is already exactly on the step
+  // (185.00000000000003) must not round it up another whole step.
+  return Math.ceil(((+n || 0) / step) - 1e-9) * step;
+}
+
+// Makes `lines` sum to EXACTLY `target` (to the penny), distributing the
+// difference proportionally to what each line already carries -- the shared
+// distribution behind the pool above, used by the client quote, the final
+// invoice and (mirrored) routes/xero.js.
+//
+// `lines` is any array of objects with a numeric `amount`, ALREADY at their
+// customer-facing £; only labour lines are ever passed (materials, custom
+// line items and sundries are the caller's job to leave alone). Each line
+// gets amount + pool x (amount / subtotal), which needs no special case for
+// a single line -- it simply takes the whole pool -- and then the whole set
+// is rounded to the penny and the leftover (a penny or two at most, from
+// that rounding) is dropped on the LARGEST line, where it is least visible
+// and can never make a small line look wrong.
+//
+// Returns false when there is nothing to spread onto, which is the caller's
+// cue to fall back to a line of its own rather than silently drop the money.
+function spreadOntoLabourLines(lines, target) {
+  if (!lines || lines.length === 0) return false;
+  var money = function(n) { return Math.round(n * 100) / 100; };
+  var subtotal = lines.reduce(function(sum, l) { return sum + (+l.amount || 0); }, 0);
+  var pool = target - subtotal;
+  if (subtotal > 0.005) {
+    lines.forEach(function(l) {
+      var amt = +l.amount || 0;
+      l.amount = money(amt + pool * (amt / subtotal));
+    });
+  } else {
+    // Every eligible line is £0 (a job priced entirely on lines that came
+    // out at nothing). Proportional shares are undefined, so the pool lands
+    // whole on the first line rather than dividing by zero.
+    lines.forEach(function(l, i) { l.amount = money(i === 0 ? pool : (+l.amount || 0)); });
+  }
+  var rounded = lines.reduce(function(sum, l) { return sum + l.amount; }, 0);
+  var remainder = money(target - rounded);
+  if (remainder !== 0) {
+    var largest = lines[0];
+    lines.forEach(function(l) { if (l.amount > largest.amount) largest = l; });
+    largest.amount = money(largest.amount + remainder);
+  }
+  return true;
+}
+
 // Single source of truth for the whole money picture from tcS (raw labour
 // subtotal) + materialsTotal (unmarked-up) + onSiteDays (feeds the
 // multi-week derivation) through to deposit/balance/weekly instalments --
@@ -9062,7 +9202,48 @@ function computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabour, workin
   // day rate (see standaloneInfo()).
   var standalone = standaloneInfo(workingDays, tcS);
   var labourTotal = applyMarkupAmount(tcS+standalone.topUp+sundries+customMarked);
-  var total = labourTotal + customFlat + materialsTotal;
+  // ONE proportional multiplier turning any raw labour figure into the
+  // customer-facing £ it prints as, so per-line amounts always sum to
+  // exactly labourTotal whatever mix of percent/fixed markup, commercial%
+  // and standalone top-up is in play -- the same distribute-proportionally
+  // idea markupRatio() documents. It used to be derived inside
+  // buildClientQuoteModel(); it lives here now so the client quote, the
+  // Xero quote and the final invoice all read one number rather than each
+  // rebuilding their own.
+  var rawBase = tcS + standalone.topUp + sundries + customMarked;
+  var lineMult = rawBase > 0 ? labourTotal / rawBase : 1;
+
+  // ── The adjustment pool: standalone upcharge + clean rounding ───────────
+  // See QUOTE_ROUNDING_STEP/spreadOntoLabourLines() above for why these two
+  // are one mechanism. This function only ever SIZES the pool -- it has no
+  // lines to put it on. Callers that render lines (buildClientQuoteModel,
+  // buildFinalInvoiceModel, routes/xero.js via createXeroQuote) spread it;
+  // callers that only need totals read `total`, which already contains it.
+  //
+  //   upchargeTotal  the standalone top-up at its customer-facing £ -- the
+  //                  same figure it used to print as its own line (raw
+  //                  top-up x lineMult). Zero when the toggle is off, so
+  //                  toggling off reverts exactly the upcharge's share of
+  //                  the spread and leaves the rounding alone.
+  //   roundingDelta  what it takes to lift the grand total to the next
+  //                  clean QUOTE_ROUNDING_STEP. Always >= 0: rounding
+  //                  never discounts.
+  //
+  // Rounding needs a labour line to disappear into, so it applies only to a
+  // job that HAS one (tcS is the raw labour subtotal). A materials-only job
+  // keeps its exact total rather than growing a few mystery pounds with
+  // nowhere to put them; the upcharge can't exist on one either
+  // (standaloneInfo() returns a zero top-up at zero calculated days), so
+  // the pool is simply empty there. Otherwise rounding is independent of
+  // the Standalone toggle -- every job with labour lands on a clean figure.
+  var upchargeTotal = standalone.topUp * lineMult;
+  var rawTotal = labourTotal + customFlat + materialsTotal;
+  // Deposit, balance and the weekly instalments below all derive from
+  // `total`, so rounding has to land BEFORE them -- the instalments must
+  // sum to the clean figure the client is actually being asked for.
+  var total = tcS > 0.005 ? roundUpToStep(rawTotal, QUOTE_ROUNDING_STEP) : rawTotal;
+  var roundingDelta = Math.round((total - rawTotal) * 100) / 100;
+  var adjustmentPool = upchargeTotal + roundingDelta;
 
   // Deposit: Nicky's actual Terms of Business read "25% of quotation or cost
   // of materials, sundries and equipment, whichever the greater" -- so this
@@ -9070,11 +9251,20 @@ function computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabour, workin
   // and the RAW (pre-markup) materials+sundries outlay, since that outlay is
   // what actually needs covering to get the job started regardless of quote
   // size.
+  //
+  // Not every job asks for one though (see jobRequiresDeposit): a small job
+  // for a client who always pays, work squeezed in around a bigger job, a
+  // repeat customer. With the toggle off the deposit is ZERO rather than
+  // hidden -- the whole payment breakdown below re-derives from it, so the
+  // balance becomes the full total and any weekly instalments split THAT,
+  // which is what has to reach the Xero quote's Terms text.
+  var depositRequired = jobRequiresDeposit(activeJob());
   var depositPct = settings.depositPct!=null ? settings.depositPct : 25;
   var depositByPct = total * depositPct/100;
   var depositByCost = materialsTotal + sundries;
-  var deposit = Math.max(depositByPct, depositByCost);
-  var depositBasis = depositByPct >= depositByCost ? (depositPct+'% of quote') : 'Materials & sundries cost';
+  var deposit = depositRequired ? Math.max(depositByPct, depositByCost) : 0;
+  var depositBasis = !depositRequired ? 'No deposit required on this job'
+    : depositByPct >= depositByCost ? (depositPct+'% of quote') : 'Materials & sundries cost';
   var balance = total - deposit;
 
   // Multi-week: week count derives from the REALISTIC on-site estimate (see
@@ -9101,7 +9291,10 @@ function computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabour, workin
   }
 
   return { sundries:sundries, spraySundries:spraySundries, standalone:standalone,
-           labourTotal:labourTotal, total:total, deposit:deposit,
+           labourTotal:labourTotal, lineMult:lineMult, rawTotal:rawTotal, total:total,
+           upchargeTotal:upchargeTotal, roundingDelta:roundingDelta,
+           adjustmentPool:adjustmentPool, deposit:deposit,
+           depositRequired:depositRequired,
            depositBasis:depositBasis, balance:balance, paymentType:paymentType,
            paymentWeeks:paymentWeeks, weeklyRows:weeklyRows };
 }
@@ -9125,15 +9318,23 @@ function instalmentDate(startDateIso, i) {
 // with no date the text reads exactly as it always has. Only a quote sent
 // AFTER scheduling picks up the real w/c dates.
 function buildPaymentTermsText(plan, startDateIso) {
-  var text = 'Deposit due on acceptance: ' + fmt(plan.deposit) + ' (' + plan.depositBasis + ').';
+  // No deposit on this job (jobRequiresDeposit off): say so in as many
+  // words rather than printing "Deposit due on acceptance: £0.00", which
+  // reads as a broken calculation rather than a decision. What follows is
+  // then the WHOLE total, not a balance of anything -- so it is worded as
+  // one, and any weekly instalments split that figure instead.
+  var text = plan.depositRequired === false
+    ? 'No deposit required on this job.'
+    : 'Deposit due on acceptance: ' + fmt(plan.deposit) + ' (' + plan.depositBasis + ').';
+  var owedLabel = plan.depositRequired === false ? 'Total of ' : 'Balance of ';
   if (plan.paymentType === 'multiweek' && plan.weeklyRows.length > 0) {
     var weekParts = plan.weeklyRows.map(function(amt, i) {
       var wc = startDateIso ? ' (w/c ' + fmtShortDate(instalmentDate(startDateIso, i)) + ')' : '';
       return 'Week ' + (i+1) + wc + ' ' + fmt(amt);
     }).join(', ');
-    text += ' Balance of ' + fmt(plan.balance) + ' split across ' + plan.weeklyRows.length + ' weekly instalments: ' + weekParts + '.';
+    text += ' ' + owedLabel + fmt(plan.balance) + ' split across ' + plan.weeklyRows.length + ' weekly instalments: ' + weekParts + '.';
   } else {
-    text += ' Balance of ' + fmt(plan.balance) + ' due on completion.';
+    text += ' ' + owedLabel + fmt(plan.balance) + ' due on completion.';
   }
   return text;
 }
@@ -9145,7 +9346,11 @@ function buildPaymentTermsText(plan, startDateIso) {
 // API's Summary property) lets the DOCX template wrap THIS field in bold
 // while leaving the explanatory sentence in QuoteTerms at normal weight.
 function buildPaymentSummaryText(plan) {
-  return 'Deposit ' + fmt(plan.deposit) + '  ·  Balance ' + fmt(plan.balance);
+  // Same wording rule as the Terms sentence above: "No deposit" rather than
+  // a bolded £0.00, and the figure beside it is the total, not a balance.
+  return plan.depositRequired === false
+    ? 'No deposit  ·  Total ' + fmt(plan.balance)
+    : 'Deposit ' + fmt(plan.deposit) + '  ·  Balance ' + fmt(plan.balance);
 }
 
 
@@ -11351,15 +11556,14 @@ function buildFinalInvoiceModel() {
   var muVal = effectiveMarkup();
   var fixed = effectiveMarkupType() === 'fixed';
   // Standalone diary-day rounding: the quote charged this top-up as labour
-  // (see standaloneInfo()/computeDepositPlan()), so the invoice carries it
-  // as its own labour line -- droppable like any other -- and it joins the
-  // fixed-£ markup base below, exactly as the quote's figures had it. It
-  // stays OUT of rawOrig itself: sundries (rawOrig x %) never included it
-  // on the quote, and computeDepositPlan() re-adds it from ttOrig+rawOrig.
+  // (see standaloneInfo()/computeDepositPlan()), and it joins the fixed-£
+  // markup base below exactly as the quote's figures had it. It stays OUT
+  // of rawOrig itself: sundries (rawOrig x %) never included it on the
+  // quote, and computeDepositPlan() re-adds it from ttOrig+rawOrig.
+  // No line of its own any more: the quote spread it across the labour
+  // lines along with the price rounding, and the invoice bills labour AS
+  // QUOTED, so the same spread is applied to the same lines below.
   var standaloneInv = standaloneInfo(ttOrig, rawOrig);
-  if (standaloneInv.topUp > 0.005) {
-    labour.push({ id: 'standalone', desc: 'Standalone job — diary day rounding (' + standaloneInv.calcDays.toFixed(1) + ' → ' + (standaloneInv.diaryDays % 1 === 0 ? standaloneInv.diaryDays.toFixed(0) : standaloneInv.diaryDays.toFixed(1)) + ' days)', raw: standaloneInv.topUp });
-  }
   // Custom line items, as the quote billed them: the marked share joins the
   // fixed-£ markup base (same as the standalone top-up above), the flat
   // share reproduces the entered price untouched. Neither joins rawOrig --
@@ -11376,6 +11580,24 @@ function buildFinalInvoiceModel() {
   var afterCommercialRawOrig = (rawOrig + standaloneInv.topUp + customInvSplit.marked) * commercialMultInv;
   var muInv = commercialMultInv * (fixed ? 1 + (afterCommercialRawOrig > 0 ? muVal / afterCommercialRawOrig : 0) : 1 + muVal / 100);
   labour.forEach(function(l) { l.amount = l.raw * muInv; l.dropped = false; });
+  // The quote's adjustment pool (standalone upcharge + clean-£5 price
+  // rounding), spread across these same engine labour lines so each line
+  // bills the amount the client's copy of the quote showed. Computed from
+  // the QUOTED materials snapshot, not the actuals: labour is billed as
+  // quoted, materials as used, so the figure that rounded the quote is the
+  // figure that has to ride on the invoice's labour. Done before the custom
+  // lines are pushed below -- typed-in prices bill exactly as entered.
+  var invPlan = computeDepositPlan(rawOrig, materialsSnapshotTotal(), realisticDays(ttOrig), sprayOrig, ttOrig, customInvSplit.marked, customInvSplit.flat);
+  var invLabourTarget = Math.round((labour.reduce(function(t, l) { return t + l.amount; }, 0) + invPlan.adjustmentPool) * 100) / 100;
+  if (!spreadOntoLabourLines(labour, invLabourTarget) && invPlan.adjustmentPool > 0.005) {
+    // Same guard as the client quote's: pool money with no labour line to
+    // carry it gets a droppable line of its own rather than vanishing.
+    labour.push({ id: 'adjustment',
+      desc: standaloneInv.topUp > 0.005
+        ? 'Standalone job — diary day rounding (' + standaloneInv.calcDays.toFixed(1) + ' → ' + (standaloneInv.diaryDays % 1 === 0 ? standaloneInv.diaryDays.toFixed(0) : standaloneInv.diaryDays.toFixed(1)) + ' days)'
+        : 'Price adjustment',
+      raw: standaloneInv.topUp, amount: Math.round(invPlan.adjustmentPool * 100) / 100, dropped: false });
+  }
   jobCustomItems(job).forEach(function(it, i) {
     var t = customItemTotal(it);
     if (t <= 0.005) return;
@@ -11539,8 +11761,10 @@ function buildFinalInvoiceModel() {
 
   // Deduction prefills from the plan: what SHOULD have been invoiced.
   // Nicky corrects against what actually was — Xero knows the truth, and
-  // reading it back is deliberate later-scope (spec).
-  var plan = computeDepositPlan(rawOrig, materialsSnapshotTotal(), realisticDays(ttOrig), sprayOrig, ttOrig, customInvSplit.marked, customInvSplit.flat);
+  // reading it back is deliberate later-scope (spec). Same invPlan the
+  // labour spread above used — one call, so the deposit prefill and the
+  // spread can never be built from different figures.
+  var plan = invPlan;
   return {
     labour: labour, sundries: { amount: sundries, dropped: false },
     // Set (a number) only on a job honoured at a pre-app labour price — the
@@ -17144,7 +17368,17 @@ function computeProfitability(q) {
   var internalLabour = +q.internalLabour || 0;
   var actualLabour = days * (settings.dr || 0);
   var actualTotal = actualLabour + actualMaterials;
+  // The two halves of the quote's adjustment pool, READ from the job record
+  // (renderSummary stamps them there from the snapshot on a frozen job, the
+  // live plan otherwise) and never re-derived from the spread labour lines.
+  // Reversing them out of those lines is not possible in general -- once
+  // both are inside the same per-line figure, nothing distinguishes an
+  // upcharge penny from a rounding penny -- which is exactly why they are
+  // stored. Both read zero on a job quoted before this shipped.
+  var upchargeTotal = +q.upchargeTotal || 0;
+  var roundingDelta = +q.roundingDelta || 0;
   return {
+    upchargeTotal: upchargeTotal, roundingDelta: roundingDelta,
     quotedTotal: q.quotedTotal, approvedVariations: q.approvedVariations,
     quotedAll: quotedAll, hasInvoiceTotal: hasInvoiceTotal,
     invoiced: invoiced, billingDelta: billingDelta,
@@ -17238,8 +17472,23 @@ function profitabilityCardHtml(p, vView, job) {
       ? note('Invoiced ' + fmt(-p.billingDelta) + ' less than quoted — materials saving passed to client.')
       : note('Invoiced ' + fmt(p.billingDelta) + ' more than quoted.');
   }
+  // The invisible half of the quoted total, itemised. Both figures are
+  // inside the labour lines on the client's copy by design (no separate
+  // upcharge line, no rounding line), so this card is the only place either
+  // is ever legible — which is the whole reason they are stored on the job.
+  var adjustments = '';
+  if (p.upchargeTotal > 0.005 || p.roundingDelta > 0.005) {
+    adjustments =
+      (p.upchargeTotal > 0.005 ? row('Standalone job upcharge',
+        'charging full diary days — spread across the labour lines, no line of its own',
+        fmt(p.upchargeTotal)) : '')+
+      (p.roundingDelta > 0.005 ? row('Price rounding',
+        'rounded up to the next £'+QUOTE_ROUNDING_STEP+' — spread across the labour lines',
+        fmt(p.roundingDelta)) : '');
+  }
   var billing = section('Billing')+
     row('Quoted total', 'labour + materials, as quoted', fmt(p.quotedTotal))+
+    adjustments+
     (p.approvedVariations > 0.005 ? row('Approved variations', 'client-approved extras', fmt(p.approvedVariations)) : '')+
     row('Invoiced', revenueBasis, fmt(p.invoiced), { bold: true })+
     billingNote;
@@ -17704,11 +17953,47 @@ function renderSummary() {
   // Payment card falls back to its live labels -- correct: an unknown figure
   // must not print as £0.00 next to an agreed total.
   var frozenTotals = (frozenQuote && frozenSnapshot.data && frozenSnapshot.data.totals) || {};
+  // The Payment card's deposit state. Declared HERE and not up with
+  // deposit/balance because it reads frozenTotals, which only exists from
+  // this point on. On a frozen job the AGREED answer governs (the toggle is
+  // read-only there): a snapshot that recorded no deposit stays that way
+  // whatever the flag says now, and one rebuilt from a Xero total knows
+  // neither way, so it falls back to the live flag rather than claiming
+  // "no deposit".
+  var depositRequiredNow = frozenQuote && frozenTotals.depositRequired != null
+    ? frozenTotals.depositRequired !== false : plan.depositRequired;
+  // What the rows actually print: a frozen snapshot carrying a real deposit
+  // figure shows it even if the live toggle has since moved, and one with no
+  // payment plan at all (deposit null) still shows its em dash rather than
+  // being restyled as a deliberate "None".
+  var depositShown = frozenQuote
+    ? (frozenTotals.deposit == null || +frozenTotals.deposit > 0.005 || depositRequiredNow)
+    : depositRequiredNow;
+
   // The agreed total, variations on top. Variations are deliberately still
   // live: they were agreed at today's rates, not at acceptance, and they
   // settle on the final invoice.
   var agreedTotal = frozenQuote ? frozenTotal : quoteTotal;
   var agreedJobTotal = agreedTotal + variationsTotal;
+
+  // ── The adjustment pool, kept internally ────────────────────────────────
+  // Neither half of it appears on the client's copy (both are inside the
+  // labour lines — see computeDepositPlan()), so both are persisted onto
+  // the job here, where the profitability card can read them back rather
+  // than trying to reverse them out of the spread lines. On a frozen job
+  // the AGREED figures are the honest ones, so the snapshot outranks the
+  // live calc — same rule the money views below already follow. Snapshots
+  // taken before this shipped carry neither, which reads as zero.
+  if (statusJob) {
+    var agreedUpcharge = Math.round((frozenQuote ? (+(frozenLab && frozenLab.upchargeTotal) || 0) : plan.upchargeTotal) * 100) / 100;
+    var agreedRounding = Math.round((frozenQuote ? (+(frozenLab && frozenLab.roundingDelta) || 0) : plan.roundingDelta) * 100) / 100;
+    if ((+statusJob.upchargeTotal || 0) !== agreedUpcharge || (+statusJob.roundingDelta || 0) !== agreedRounding) {
+      statusJob.upchargeTotal = agreedUpcharge;
+      statusJob.roundingDelta = agreedRounding;
+      localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+      persistJobData(statusJob);
+    }
+  }
 
   // Persisted count for the Jobs list's "+N" chip — rooms/extItems only
   // load for the ACTIVE job, so the list reads this snapshot instead
@@ -17756,7 +18041,10 @@ function renderSummary() {
       // the like-for-like against honouredLabour (materials are identical on
       // both sides, so labour is where the whole difference lives).
       honouredLabour: honouredLabour, honouredQuote: honouredLabour != null ? profQuotedTotal : null,
-      internalEstimate: internalEstimate, internalLabour: plan.labourTotal + customSplit.flat
+      internalEstimate: internalEstimate, internalLabour: plan.labourTotal + customSplit.flat,
+      // Read back from the job record (stamped above), not re-derived from
+      // the spread labour lines — see computeProfitability().
+      upchargeTotal: statusJob.upchargeTotal, roundingDelta: statusJob.roundingDelta
     });
     profitCard = profitabilityCardHtml(prof, vView, statusJob);
     var profSnap = {
@@ -17915,17 +18203,36 @@ function renderSummary() {
     '</div>'+
     '<div class="card" style="margin-top:16px">'+
       '<div class="card-header">Payment</div>'+
-      // Deposit and balance were agreed WITH the quote -- a deposit already
-      // taken against a 25%-of-quote basis must not re-derive itself when the
-      // quote's inputs re-price. Frozen job: the snapshot's own figures.
-      // A snapshot rebuilt from a Xero total carries no payment plan (the
-      // export doesn't have one), so those read null and print as an em dash.
+      // Deposit required? The toggle heads this card because every figure
+      // under it moves with it: off zeroes the deposit, hands the whole
+      // total to the balance and re-splits any weekly instalments -- and
+      // that is what reaches the Xero quote's Terms text (see
+      // computeDepositPlan / buildPaymentTermsText). It changes no price.
+      //
+      // Everything below it was agreed WITH the quote -- a deposit already
+      // taken against a 25%-of-quote basis must not re-derive itself when
+      // the quote's inputs re-price -- so on a frozen job the snapshot's own
+      // figures print and the toggle is read-only alongside them. A snapshot
+      // rebuilt from a Xero total carries no payment plan (the export
+      // doesn't have one), so those read null and print as an em dash:
       // £0.00 beside an agreed total would state, wrongly and confidently,
       // that no deposit was due.
-      '<div class="breakdown-row"><span class="breakdown-label">Deposit due on acceptance<small style="display:block;font-weight:400;color:var(--text2)">'+
-        escapeHtml(frozenQuote ? (frozenTotals.depositBasis || 'not recorded in the reconciled figures') : depositBasis)+'</small></span>'+
-        '<span class="breakdown-value" style="color:var(--accent)">'+(frozenQuote && frozenTotals.deposit == null ? '—' : fmt(frozenQuote ? +frozenTotals.deposit : deposit))+'</span></div>'+
-      '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Balance</span>'+
+      '<div class="toggle-row"><div class="toggle-label">Deposit required<small>'+
+        (frozenQuote ? 'as agreed — accepted quotes don’t re-price'
+          : depositRequiredNow ? 'a deposit falls due when this quote is accepted'
+          : 'no deposit asked for — the full total falls due on completion')+'</small></div>'+
+        '<div class="toggle'+(depositRequiredNow?' on':'')+'"'+
+        (frozenQuote ? ' style="opacity:.5"' : ' onclick="setJobDepositRequired('+(depositRequiredNow?'false':'true')+')"')+'></div></div>'+
+      (depositShown
+        ? '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label">Deposit due on acceptance<small style="display:block;font-weight:400;color:var(--text2)">'+
+            escapeHtml(frozenQuote ? (frozenTotals.depositBasis || 'not recorded in the reconciled figures') : depositBasis)+'</small></span>'+
+            '<span class="breakdown-value" style="color:var(--accent)">'+(frozenQuote && frozenTotals.deposit == null ? '—' : fmt(frozenQuote ? +frozenTotals.deposit : deposit))+'</span></div>'
+        // £0.00 on a "Deposit due" row reads as a broken sum rather than a
+        // decision, so the row says the decision instead of the figure.
+        : '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="color:var(--text2)">Deposit due on acceptance<small style="display:block;font-weight:400;color:var(--text2)">'+
+            escapeHtml(frozenQuote ? (frozenTotals.depositBasis || 'No deposit required on this job') : depositBasis)+'</small></span>'+
+            '<span class="breakdown-value" style="color:var(--text3)">None</span></div>')+
+      '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">'+(depositShown?'Balance':'Total due on completion')+'</span>'+
         '<span class="breakdown-value">'+(frozenQuote && frozenTotals.balance == null ? '—' : fmt(frozenQuote ? +frozenTotals.balance : balance))+'</span></div>'+
       '<div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Payment plan</div><div class="seg" id="seg-payment-type">'+
         '<button type="button" class="seg-btn'+(paymentType==='single'?' active':'')+'" onclick="setPaymentType(\'single\')">Single</button>'+
@@ -18071,8 +18378,12 @@ function renderSummary() {
     // Standalone diary-day rounding sits right under the labour subtotal
     // it tops up -- shown pre-markup like that subtotal, with the
     // calculated → charged days visible so the maths is never hidden.
+    // This card is INTERNAL: the client's copy carries the same money
+    // spread across its labour lines with no line of its own (see
+    // computeDepositPlan()'s adjustment pool), which is exactly why it has
+    // to stay legible here.
     (plan.standalone.topUp>0.005?'<div class="breakdown-row" style="border-top:1px solid var(--border)">'+
-      '<span class="breakdown-label">Standalone diary-day rounding<small style="display:block;font-weight:400;color:var(--text2)">'+plan.standalone.calcDays.toFixed(1)+' calculated → '+(plan.standalone.diaryDays%1===0?plan.standalone.diaryDays.toFixed(0):plan.standalone.diaryDays.toFixed(1))+' diary days charged</small></span>'+
+      '<span class="breakdown-label">Standalone diary-day rounding<small style="display:block;font-weight:400;color:var(--text2)">'+plan.standalone.calcDays.toFixed(1)+' calculated → '+(plan.standalone.diaryDays%1===0?plan.standalone.diaryDays.toFixed(0):plan.standalone.diaryDays.toFixed(1))+' diary days charged · spread across the labour lines</small></span>'+
       '<span class="breakdown-value">'+fmt(plan.standalone.topUp)+'</span></div>':'')+
     (sundries>0?'<div class="breakdown-row" style="border-top:1px solid var(--border)">'+
       '<span class="breakdown-label">Sundries &amp; Consumables<small style="display:block;font-weight:400;color:var(--text2)">'+settings.sundriesPct+'% of labour'+(plan.spraySundries>0?' + '+settings.sundriesSprayPct+'% spray masking on sprayed areas':'')+'</small></span>'+
@@ -18102,6 +18413,13 @@ function renderSummary() {
     (customSplit.flat>0?'<div class="breakdown-row" style="border-top:1px solid var(--border)">'+
       '<span class="breakdown-label">Custom line items — no markup<small style="display:block;font-weight:400;color:var(--text2)">entered prices, added to the total exactly as typed</small></span>'+
       '<span class="breakdown-value">'+fmt(customSplit.flat)+'</span></div>':'')+
+    // Price rounding, last: it is computed on the FINISHED total (labour +
+    // materials + everything above), so it can only be shown after all of
+    // it. Internal-only, same as the standalone row above — on the client's
+    // copy this money is inside the labour lines.
+    (plan.roundingDelta>0.005?'<div class="breakdown-row" style="border-top:1px solid var(--border)">'+
+      '<span class="breakdown-label">Price rounding<small style="display:block;font-weight:400;color:var(--text2)">'+fmt(plan.rawTotal)+' rounded up to the next £'+QUOTE_ROUNDING_STEP+' · spread across the labour lines</small></span>'+
+      '<span class="breakdown-value">'+fmt(plan.roundingDelta)+'</span></div>':'')+
     '</div></div>'+
     '<div><div class="section-title" style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:14px">Materials'+
       '<span style="display:flex;align-items:center;gap:14px">'+
@@ -18384,12 +18702,10 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
   var chargeableMats = materialsSnapshot.filter(function(l) { return l.chargeable !== false; });
   var materialsTotal = chargeableMats.reduce(function(s, l) { return s + (+l.quantity || 0) * (+l.unitAmount || 0); }, 0);
   var plan = computeDepositPlan(tcS, materialsTotal, realisticDays(ttS), sprayS, ttS, customSplit.marked, customSplit.flat);
-  // One proportional multiplier turns each raw line into its customer
-  // price so the lines sum EXACTLY to plan.labourTotal, whatever mix of
-  // percent/fixed markup, commercial% and standalone top-up is in play —
-  // the same distribute-proportionally idea markupRatio() documents.
-  var rawBase = tcS + plan.standalone.topUp + plan.sundries + customSplit.marked;
-  var lineMult = rawBase > 0 ? plan.labourTotal / rawBase : 1;
+  // The one proportional multiplier that turns each raw line into its
+  // customer price — computeDepositPlan()'s own, so this page, the Xero
+  // quote and the final invoice can't each derive a slightly different one.
+  var lineMult = plan.lineMult;
 
   // ── From here down it's presentation, and the split matters ────────────
   // The rows and totals are assembled ONCE, into a plain data model, and
@@ -18400,12 +18716,18 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
   // from `label` because the PDF's WinAnsi fonts have no glyph for it —
   // dropping a leading emoji must not mean dropping the room's name.
   var money = fmt;
+  // `labour: true` marks a row as ELIGIBLE to carry the adjustment pool
+  // (see spreadOntoLabourLines below) — measured work priced by the engine,
+  // and nothing else. Custom line items are typed-in prices, sundries is a
+  // stated % of labour, and materials are real Xero sell prices: quietly
+  // moving any of those would make a figure the client can check stop
+  // adding up.
   var workRows = [];
   roomLines.forEach(function(l) {
-    workRows.push({ emoji: l.emoji || '', label: l.name, sub: '', amount: l.raw * lineMult });
+    workRows.push({ emoji: l.emoji || '', label: l.name, sub: '', amount: l.raw * lineMult, labour: true });
   });
   extLines.forEach(function(l) {
-    workRows.push({ emoji: l.emoji || '', label: l.name, sub: 'exterior', amount: l.raw * lineMult });
+    workRows.push({ emoji: l.emoji || '', label: l.name, sub: 'exterior', amount: l.raw * lineMult, labour: true });
   });
   if (kitchenCalc.total > 0.005) {
     // The sub line is the client's scope note: outside-faces-only is
@@ -18413,12 +18735,12 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
     // in the price.
     workRows.push({ emoji: '🍳', label: 'Kitchen Cabinet Spraying',
                     sub: kitchenCalc.singleSide ? 'outside faces only' : '',
-                    amount: kitchenCalc.total * lineMult });
+                    amount: kitchenCalc.total * lineMult, labour: true });
   }
   // One named line per fitted unit (v2.20.0) so multiple units in the
   // same room read apart on the client's copy.
   fuQuoteAgg.units.forEach(function(e) {
-    if (e.calc.total > 0.005) workRows.push({ emoji: '📚', label: fittedUnitName(e.unit), sub: '', amount: e.calc.total * lineMult });
+    if (e.calc.total > 0.005) workRows.push({ emoji: '📚', label: fittedUnitName(e.unit), sub: '', amount: e.calc.total * lineMult, labour: true });
   });
   // Custom lines: marked ones ride the same proportional multiplier as
   // every other work line; markup-off ones print the entered price
@@ -18433,24 +18755,59 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
       amount: it.applyMarkup === false ? t : t * lineMult
     });
   });
-  if (plan.standalone.topUp > 0.005) {
-    workRows.push({
-      emoji: '',
-      label: 'Standalone job — full diary days',
-      sub: plan.standalone.calcDays.toFixed(1) + ' calculated → ' + (plan.standalone.diaryDays % 1 === 0 ? plan.standalone.diaryDays.toFixed(0) : plan.standalone.diaryDays.toFixed(1)) + ' days charged',
-      amount: plan.standalone.topUp * lineMult
-    });
-  }
+  // No standalone top-up line here any more: it is part of the adjustment
+  // pool spread across the labour rows below (see computeDepositPlan()),
+  // which is the whole point — the client sees the work they asked about,
+  // priced, and no line they can't account for.
   if (plan.sundries > 0.005) {
     workRows.push({ emoji: '', label: 'Sundries & Consumables', sub: '', amount: plan.sundries * lineMult });
   }
 
+  // Penny-rounded here rather than at display time: these rows and the
+  // totals under them are read side by side by someone who will notice a
+  // penny, so every figure on the page is the figure that is summed.
+  var pence = function(n) { return Math.round((+n || 0) * 100) / 100; };
   var matRows = [];
   chargeableMats.forEach(function(l) {
     var lineTotal = (+l.quantity || 0) * (+l.unitAmount || 0);
     if (lineTotal <= 0.005) return;
-    matRows.push({ emoji: '', label: l.description, sub: (+l.quantity || 0) + ' × ' + money(+l.unitAmount || 0), amount: lineTotal });
+    matRows.push({ emoji: '', label: l.description, sub: (+l.quantity || 0) + ' × ' + money(+l.unitAmount || 0), amount: pence(lineTotal) });
   });
+  var matRowsTotal = pence(matRows.reduce(function(t, r) { return t + r.amount; }, 0));
+
+  // ── The spread ─────────────────────────────────────────────────────────
+  // Everything that is NOT an eligible labour row prints at its own exact
+  // figure (a stated % of labour, a typed-in price, a real Xero sell
+  // price), so those are rounded to the penny FIRST and the labour rows are
+  // made to carry whatever is left of the clean grand total. That is what
+  // makes the printed rows add up to the printed total exactly — the
+  // materials' own rounding included — rather than to within a penny.
+  //
+  // Skipped entirely on a honoured job: its labour is one agreed figure
+  // this app never priced (jobIsXeroImported), so there is nothing here to
+  // round up or spread onto.
+  var labourRows = workRows.filter(function(r) { return r.labour; });
+  if (honouredLabour == null) {
+    workRows.forEach(function(r) { if (!r.labour) r.amount = pence(r.amount); });
+    var otherWorkTotal = workRows.reduce(function(t, r) { return t + (r.labour ? 0 : r.amount); }, 0);
+    var labourTarget = pence(plan.total - otherWorkTotal - matRowsTotal);
+    if (!spreadOntoLabourLines(labourRows, labourTarget) && plan.adjustmentPool > 0.005) {
+      // Guard, not a normal path: the pool exists but there is no labour
+      // line to hide it in (computeDepositPlan() only rounds a job that has
+      // labour, so in practice this needs a standalone top-up with no
+      // measured work behind it). Better a line of its own than money that
+      // silently vanishes off the quote.
+      workRows.push({
+        emoji: '',
+        label: plan.standalone.on ? 'Standalone job — full diary days' : 'Price adjustment',
+        sub: plan.standalone.on
+          ? plan.standalone.calcDays.toFixed(1) + ' calculated → ' + (plan.standalone.diaryDays % 1 === 0 ? plan.standalone.diaryDays.toFixed(0) : plan.standalone.diaryDays.toFixed(1)) + ' days charged'
+          : '',
+        amount: pence(labourTarget)
+      });
+    }
+  }
+  var workRowsTotal = pence(workRows.reduce(function(t, r) { return t + r.amount; }, 0));
 
   // Variations at the same customer prices the On Site card shows (raw ×
   // varMk, flat lines verbatim, sundries on the variation base) — one
@@ -18480,14 +18837,21 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
     if (line) colourRows.push({ room: r.name, detail: line });
   });
 
-  var paymentRows = [{ emoji: '', label: 'Deposit due on acceptance', sub: plan.depositBasis, amount: plan.deposit }];
+  // No deposit on this job (jobRequiresDeposit off): the row is left OFF the
+  // client's copy entirely rather than printed as £0.00 — there is nothing
+  // due on acceptance to tell them about, and what follows is the whole
+  // total rather than the balance of anything, so it is labelled as one.
+  // Same wording rule as buildPaymentTermsText()'s Xero sentence.
+  var paymentRows = plan.depositRequired === false ? []
+    : [{ emoji: '', label: 'Deposit due on acceptance', sub: plan.depositBasis, amount: plan.deposit }];
   if (plan.paymentType === 'multiweek' && plan.weeklyRows.length > 0) {
     plan.weeklyRows.forEach(function(amt, i) {
       var wc = job && job.startDate ? ' — w/c ' + fmtShortDate(instalmentDate(job.startDate, i)) : '';
       paymentRows.push({ emoji: '', label: 'Week ' + (i + 1) + wc, sub: '', amount: amt });
     });
   } else {
-    paymentRows.push({ emoji: '', label: 'Balance on completion', sub: '', amount: plan.balance });
+    paymentRows.push({ emoji: '', label: plan.depositRequired === false ? 'Total due on completion' : 'Balance on completion',
+                       sub: plan.depositRequired === false ? 'no deposit required on this job' : '', amount: plan.balance });
   }
 
   var contact = (job && job.contact) || {};
@@ -18497,14 +18861,15 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
     address: [contact.street, contact.town, contact.postcode].filter(Boolean).join(', '),
     jobName: (job && job.name) || '',
     today: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
-    // Subtotal = plan.labourTotal (which already folds in marked custom
-    // lines) + the flat custom lines printed verbatim above -- so this is
-    // exactly the sum of the rows the client can see in this card.
+    // Subtotal is the literal sum of the rows above, which after the spread
+    // is plan.labourTotal + the flat custom lines + the rounding delta the
+    // labour rows now carry. Summing the rows rather than re-deriving the
+    // figure is what guarantees the card adds up in front of the client.
     work: honouredLabour != null
       ? { rows: [{ emoji: '', label: 'Labour — as agreed' + (job && job.xeroQuoteNumber ? ' (' + job.xeroQuoteNumber + ')' : ''),
                    sub: 'honoured at the price quoted for this job', amount: honouredLabour }],
           subtotalLabel: 'Labour subtotal', subtotal: honouredLabour }
-      : workRows.length ? { rows: workRows, subtotalLabel: 'Labour subtotal', subtotal: plan.labourTotal + customSplit.flat } : null,
+      : workRows.length ? { rows: workRows, subtotalLabel: 'Labour subtotal', subtotal: workRowsTotal } : null,
     // Imported-from-Xero jobs: the agreed money IS the record (no measured
     // rooms, importAcceptedQuote()) — one already-final line, no lineMult,
     // same lump treatment as Summary's importedBaseline and the final
@@ -18522,7 +18887,7 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
     // Materials print identically on a honoured job — quoted from the measure,
     // billed as used, exactly the note the client already gets.
     materials: matRows.length ? {
-      rows: matRows, subtotalLabel: 'Materials subtotal', subtotal: materialsTotal,
+      rows: matRows, subtotalLabel: 'Materials subtotal', subtotal: matRowsTotal,
       note: 'Materials are estimated here and billed as actually used.'
     } : null,
     colours: colourRows,
@@ -18532,10 +18897,13 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
     // reasoning on a honoured job: the plan derives from the app's own labour,
     // so its instalments wouldn't sum to the honoured total.
     payment: plan.total > 0.005 && honouredLabour == null ? { rows: paymentRows } : null,
-    total: honouredLabour != null ? honouredLabour + materialsTotal : plan.total + (importedBaseline || 0),
+    // The sum of what is printed, again -- which on any job with labour is
+    // exactly plan.total (a clean QUOTE_ROUNDING_STEP figure), because the
+    // spread above made the labour rows carry the difference.
+    total: honouredLabour != null ? pence(honouredLabour + matRowsTotal) : pence(workRowsTotal + matRowsTotal + (importedBaseline || 0)),
     // Same combined figure Summary's hero-sub shows.
     totalInclVariations: varRows.length
-      ? (honouredLabour != null ? honouredLabour + materialsTotal : plan.total + (importedBaseline || 0)) + vv.variationsTotal : null,
+      ? pence((honouredLabour != null ? honouredLabour + matRowsTotal : workRowsTotal + matRowsTotal + (importedBaseline || 0)) + vv.variationsTotal) : null,
     terms: plan.total > 0.005 && honouredLabour == null ? buildPaymentTermsText(plan, job && job.startDate) : ''
   };
 }
