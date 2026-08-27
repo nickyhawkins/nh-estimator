@@ -1242,6 +1242,21 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
         <div id="ics-url" onclick="copyIcsUrl()" style="font-size:11px;color:var(--accent);word-break:break-all;background:var(--surface2);border-radius:8px;padding:8px 10px;cursor:pointer" title="Tap to copy"></div>
       </div>
     </div>
+    <!-- Calibration (CALIBRATION_SPEC.md Phase C) — sits under Scheduling
+         because the buffer it suggests is the field directly above it. What
+         the last N finished jobs say about two settings that were guessed,
+         next to what those settings currently are. Read-only until Adopt,
+         which writes that ONE field through the ordinary saveSettings()
+         path: no cascade, no re-pricing of past jobs. -->
+    <div class="card">
+      <div class="card-header">Calibration</div>
+      <div class="settings-note">What your finished jobs say about the settings they were priced with. Suggestions only — nothing moves until you tap Adopt, and adopting one changes that setting from here on: no quote, invoice or past job is re-priced.</div>
+      <div class="field-row">
+        <div class="field-label">Jobs to look at<small>the most recent finished jobs that have days logged — a job with no log is left out entirely, not counted as zero</small></div>
+        <input type="number" class="field-input" id="s-calib-n" value="8" min="1" max="50" step="1" inputmode="numeric" onchange="renderCalibration()">
+      </div>
+      <div id="calibration-body" style="padding:2px 16px 14px"></div>
+    </div>
     <button class="btn btn-danger" onclick="clearEverything()">Clear Everything</button>
     <div class="card">
       <div class="card-header">Xero Integration</div>
@@ -2038,7 +2053,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.39.6</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.40.0</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -8439,6 +8454,10 @@ function goTab(tab) {
   if (tab==='shoplist') openShopList();
   if (tab==='jobs') renderJobs();
   if (tab==='schedule') renderScheduleStrip();
+  // Calibration reads across every finished job's logs, so it can't be
+  // painted from memory at startup like the rest of Settings -- it's a
+  // server round-trip taken when the screen is actually opened.
+  if (tab==='settings') renderCalibration();
   // NB no renderActuals() here — actuals live only on the server, so the
   // screen is entered via openActuals(), which loads before it renders.
   // goTab('actuals') on its own would paint a stale or empty list.
@@ -8749,6 +8768,161 @@ function loadSettings() {
   var depCode = document.getElementById('s-deposit-account-code');
   if (depCode) depCode.value = settings.depositAccountCode || '620';
   loadDepositBankAccounts();
+}
+
+// ── Calibration suggestions (Settings → Calibration) ───────────────────────
+// CALIBRATION_SPEC.md Phase C, the payoff for the labour log and the actuals
+// log: what the last N finished jobs say about two settings that FEATURES.md
+// has always flagged as guessed. Everything here is read from
+// GET /api/calibration-suggestions — the client does no arithmetic of its
+// own, so the figure on screen and the figure the route computed cannot
+// drift apart.
+//
+// Two rules from the spec drive the whole card:
+//   • Suggestions, never auto-tuning. Nothing is written until Adopt, and
+//     Adopt writes ONE settings field. No cascade, no recalculation of past
+//     jobs — accepted quotes are frozen anyway (ACCEPTED_SNAPSHOT_SPEC.md),
+//     and re-pricing live drafts off a calibration read is nobody's ask.
+//   • A suggestion with no data says so ON ITS OWN LINE. Hiding the card
+//     when half of it can't be computed loses the other half, and hiding the
+//     unavailable half loses the reason it's unavailable — which is usually
+//     actionable ("no sprayed jobs yet" means log a sprayed one).
+var calibrationData = null;
+var calibrationLoadSeq = 0;   // only the newest request may paint
+
+function calibrationN() {
+  var el = document.getElementById('s-calib-n');
+  var n = el ? parseInt(el.value, 10) : 8;
+  // Same clamp the route applies, so the number in the box always matches
+  // the sample described underneath it.
+  n = Math.min(50, Math.max(1, n > 0 ? n : 8));
+  if (el && +el.value !== n) el.value = n;
+  return n;
+}
+
+// Re-read on every open and every change of N. These figures move as jobs
+// finish, and a stale suggestion is worse than a slow one.
+function renderCalibration() {
+  var body = document.getElementById('calibration-body');
+  if (!body) return;
+  var n = calibrationN();
+  var seq = ++calibrationLoadSeq;
+  calibrationData = null;
+  body.innerHTML = '<div style="font-size:13px;color:var(--text2);padding:6px 0">Reading your finished jobs…</div>';
+  apiGet('/api/calibration-suggestions?n=' + n).then(function(d) {
+    if (seq !== calibrationLoadSeq) return;
+    calibrationData = d;
+    paintCalibration();
+  }).catch(function(err) {
+    if (seq !== calibrationLoadSeq) return;
+    // Offline or a database without db/setup.sql run: say which, rather than
+    // leaving the card empty and looking broken.
+    body.innerHTML = '<div style="font-size:13px;color:var(--text2);padding:6px 0">Couldn\'t read the jobs'
+      + (navigator.onLine === false ? ' — you\'re offline. This one needs the server.' : '. ' + escapeHtml(err.message || ''))
+      + '</div>';
+  });
+}
+
+// One suggestion block. `s` is the route's days/wallCoverage object; the rest
+// is the wording that can't come from the server.
+function calibrationBlockHtml(title, s, headline, working, notes) {
+  var body;
+  if (!s.available) {
+    body = '<div style="font-size:13px;color:var(--text2);margin-top:4px">Not enough data yet — ' + escapeHtml(s.reason || 'nothing to compare') + '.</div>';
+  } else {
+    var cur = s.setting.current, sug = s.setting.suggested;
+    body = '<div style="font-size:22px;font-weight:700;color:var(--text);margin:6px 0 2px">' + headline + '</div>'
+      + '<div style="font-size:13px;color:var(--text2);line-height:1.5">' + working + '</div>'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px">'
+      +   '<div style="font-size:13px;color:var(--text2)">' + escapeHtml(s.setting.label) + ' is <strong style="color:var(--text)">' + cur + '%</strong>'
+      +     (sug === cur ? ' — the same as this suggests' : ' · suggested <strong style="color:var(--accent)">' + sug + '%</strong>') + '</div>'
+      +   (sug === cur ? ''
+          : '<button onclick="adoptCalibrationSetting(\'' + s.setting.key + '\')" style="flex:none;background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:10px;padding:8px 14px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer">Adopt ' + sug + '%</button>')
+      + '</div>';
+  }
+  return '<div style="border-top:1px solid var(--border);padding:12px 0 4px">'
+    + '<div style="font-size:11px;font-weight:600;letter-spacing:.8px;color:var(--text2);text-transform:uppercase">' + escapeHtml(title) + '</div>'
+    + body
+    + (notes || []).map(function(nte) {
+        return '<div style="font-size:11px;color:var(--text2);line-height:1.45;margin-top:6px">' + nte + '</div>';
+      }).join('')
+    + '</div>';
+}
+
+function paintCalibration() {
+  var body = document.getElementById('calibration-body');
+  if (!body || !calibrationData) return;
+  var d = calibrationData;
+  var plural = function(n, one, many) { return n + ' ' + (n === 1 ? one : (many || one + 's')); };
+
+  // ── Days on site ────────────────────────────────────────────────────────
+  var ds = d.days, dSample = ds.sample;
+  var dNotes = [];
+  if (ds.available) {
+    // The spec is explicit that the ratio cannot tell you WHICH figure is
+    // wrong, and the card has to say so rather than implying the buffer is
+    // the answer just because it's the one with a button.
+    dNotes.push('A day over is a day of the day rate absorbed. This can\'t tell you whether it\'s the buffer or the daily overhead that\'s out — the buffer is the whole-job figure, so it\'s the one offered here; the call is yours.');
+  }
+  if (dSample.jobsWithoutEstimate) {
+    dNotes.push(plural(dSample.jobsWithoutEstimate, 'job') + ' in this sample ' + (dSample.jobsWithoutEstimate === 1 ? 'has' : 'have') + ' no on-site estimate to compare against (imported from Xero, or accepted before estimates were stamped) and ' + (dSample.jobsWithoutEstimate === 1 ? 'sits' : 'sit') + ' out of this figure.');
+  }
+  var dHeadline = ds.available
+    ? (Math.abs(ds.overrunPct) < 0.05 ? 'Bang on the estimate'
+       : Math.abs(ds.overrunPct) + '% ' + (ds.overrunPct > 0 ? 'over' : 'under') + ' the estimate')
+    : '';
+  var dWorking = ds.available
+    ? 'Across ' + plural(dSample.jobs, 'job') + ': ' + dSample.estimatedDays + ' days estimated, <strong style="color:var(--text)">' + dSample.actualDays + ' logged</strong>.'
+    : '';
+
+  // ── Sprayed wall paint ──────────────────────────────────────────────────
+  var ws = d.wallCoverage, wSample = ws.sample;
+  var wNotes = [];
+  if (ws.available) {
+    wNotes.push('Matched tin for tin on Xero item code, so wall paint bought under a code the estimate never named — a different band, a product changed mid-job — isn\'t in this figure. The working: '
+      + wSample.items.map(function(i) { return escapeHtml(i.itemCode) + ' ' + i.estimated + '→' + i.actual; }).join(' · ') + '.');
+    wNotes.push('The suggested figure applies the overrun on top of the current uplift, since the estimate already had it in. On a job that mixed sprayed and rolled rooms both sets of tins are in the total, so treat it as a steer rather than a measurement.');
+  }
+  if (wSample.jobsWithoutActuals) {
+    wNotes.push(plural(wSample.jobsWithoutActuals, 'sprayed job') + ' in this sample ' + (wSample.jobsWithoutActuals === 1 ? 'has' : 'have') + ' no wall paint logged on On Site, so ' + (wSample.jobsWithoutActuals === 1 ? 'it\'s' : 'they\'re') + ' left out rather than counted as using none.');
+  }
+  var wHeadline = ws.available
+    ? (Math.abs(ws.overPct) < 0.05 ? 'Exactly as estimated'
+       : Math.abs(ws.overPct) + '% ' + (ws.overPct > 0 ? 'more' : 'less') + ' paint than estimated')
+    : '';
+  var wWorking = ws.available
+    ? 'Across ' + plural(wSample.jobs, 'sprayed job') + ': ' + wSample.estimatedQuantity + ' tins estimated, <strong style="color:var(--text)">' + wSample.actualQuantity + ' used</strong>.'
+    : '';
+
+  body.innerHTML =
+      calibrationBlockHtml('Days on site', ds, dHeadline, dWorking, dNotes)
+    + calibrationBlockHtml('Sprayed wall paint', ws, wHeadline, wWorking, wNotes)
+    + '<div style="border-top:1px solid var(--border);padding-top:10px;margin-top:8px;font-size:11px;color:var(--text2);line-height:1.45">'
+    + 'The sundries % and the exterior assumed areas aren\'t here on purpose: nothing in the app tracks the first, and the second has two unknowns (assumed area and coverage rate) behind one litres figure. Both stay judgement calls.'
+    + '</div>';
+}
+
+// Adopt: write ONE settings field, through the same saveSettings() every
+// other Settings input uses. saveSettings() reads every input on the screen,
+// so setting this one value is the entire change — and because the field is
+// a real SETTINGS_FIELDS row, the input the user would have edited by hand
+// now shows the adopted figure too.
+function adoptCalibrationSetting(key) {
+  if (!calibrationData) return;
+  var s = key === 'bufferPct' ? calibrationData.days : calibrationData.wallCoverage;
+  if (!s || !s.available || s.setting.key !== key) return;
+  var field = SETTINGS_FIELDS.filter(function(f) { return f[0] === key; })[0];
+  var el = field && document.getElementById(field[1]);
+  if (!el) { toast('Couldn\'t find that setting to change'); return; }
+  if (!confirm('Set ' + s.setting.label + ' to ' + s.setting.suggested + '%?\n\nIt was ' + s.setting.current + '%. This applies to quotes from now on — nothing already quoted, accepted or invoiced is re-priced.')) return;
+  el.value = s.setting.suggested;
+  saveSettings();
+  // Repaint from the value we just wrote rather than re-fetching: the PUT is
+  // in flight (and may be queued offline), so asking the server what the
+  // setting is right now could honestly answer with the old one.
+  s.setting.current = s.setting.suggested;
+  paintCalibration();
+  toast(s.setting.label + ' set to ' + s.setting.suggested + '%');
 }
 
 // ── Rate functions ──────────────────────────────────────────────────────────

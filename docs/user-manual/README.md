@@ -494,8 +494,44 @@ Menu (☰) → **Settings**. Everything that isn't a calculation rate lives here
 | **Xero Integration** | Connect / disconnect |
 | **Materials (Xero Items)** | Refresh your product list from Xero and set the default product for each role |
 | **Quote & Invoice Text** | The per-job-type wording templates for quotes and final invoices |
+| **Calibration** | What your finished jobs say about two of your settings — see below |
 | **Appearance** | Light / Dark / Auto theme (this device only) |
 | **Backup** | Export and import everything — see below |
+
+### Calibration — let finished jobs correct your settings
+
+Some of the figures behind your prices started life as sensible guesses. This card
+compares them against what actually happened on your last few finished jobs.
+
+![Calibration card](images/23-calibration.png)
+
+**Days on site** adds up the days you logged on *On Site → Time on site* and compares
+them with the days those jobs were quoted for. If you're consistently running over, the
+percentage is the **Schedule buffer** you should probably be padding quotes with.
+
+**Sprayed wall paint** does the same for tins: on jobs where at least one room had
+**Spray walls** on, it compares the wall paint the estimate asked for against what you
+logged as used, and turns the difference into a **Spraying uplift** figure.
+
+Three things worth knowing:
+
+- **Jobs with nothing logged are left out completely** — not counted as zero. A job you
+  never logged days for says nothing about how long jobs take, so it isn't allowed to.
+  The card tells you when it has left jobs out, and why.
+- **Nothing changes until you tap Adopt.** Adopting sets that one setting for quotes from
+  now on. No quote, invoice or finished job is re-priced — accepted quotes are frozen
+  anyway.
+- **Change "Jobs to look at"** to widen or narrow the sample. Eight is a reasonable
+  default; drop it to 3 if you've recently changed how you work.
+
+If a suggestion says *"not enough data yet"*, it's telling you what's missing — usually
+that no sprayed job in the sample has its materials logged. It'll appear on its own once
+the data does.
+
+The sundries % and the exterior assumed areas aren't offered here, and that's deliberate:
+nothing in the app tracks what you actually spend on sundries, and an exterior paint
+overrun could be the assumed area or the coverage rate — there's no way to tell which.
+Those stay your judgement call.
 
 ---
 
@@ -526,6 +562,6 @@ Settings → **Backup**:
 
 ---
 
-*Manual for NH Estimator v2.39.6. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.40.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
