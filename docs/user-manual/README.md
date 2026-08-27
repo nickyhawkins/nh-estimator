@@ -109,7 +109,7 @@ Once there's more than one room, **Bulk edit** appears on the Interior header. T
 
 ![Selecting rooms for a bulk edit](images/22-bulk-select.png)
 
-The panel that opens covers the fields worth doing in one go: a product and colour band for each of the seven paint roles (walls, ceiling, woodwork topcoat, woodwork primer — with a **None** option for a self-priming topcoat — mist coat, feature wall and panelling), coat counts for walls/ceiling/woodwork/doors/frames, a mist coat toggle for walls and ceiling, and prep level (the room's own, and doors/frames' independent scale):
+The panel that opens covers the fields worth doing in one go: a product and colour band for each of the seven paint roles (walls, ceiling, woodwork topcoat, woodwork primer — with a **None** option for a self-priming topcoat — mist coat, feature wall and panelling), coat counts for walls/ceiling/woodwork/doors/frames, a mist coat toggle for walls and ceiling, and the room's prep level (which covers doors and frames too):
 
 ![Bulk edit panel — product pickers](images/22b-bulk-panel-top.png)
 
@@ -121,7 +121,7 @@ Tap **Preview changes** to see exactly what would move, room by room, `old → n
 
 ![Reviewing a bulk edit before applying](images/22d-bulk-preview.png)
 
-Nothing is saved until you tap **Apply**; **Back** returns to the panel with every field still set. Afterwards the rooms are ordinary rooms — open any one and edit it as normal, nothing is locked. Staircase/HSL rooms take part too, but only for the fields that actually move their price: door coats, frame coats, door/frame prep and every product override apply normally, while wall/ceiling/woodwork coats, the mist toggles and the room's own prep are skipped (a staircase room's total is worked out and frozen when you save the staircase form itself — change those on the staircase form instead).
+Nothing is saved until you tap **Apply**; **Back** returns to the panel with every field still set. Afterwards the rooms are ordinary rooms — open any one and edit it as normal, nothing is locked. Staircase/HSL rooms take part too, but only for the fields that actually move their price: door coats, frame coats and every product override apply normally, while wall/ceiling/woodwork coats, the mist toggles and the prep level are skipped (a staircase room's total is worked out and frozen when you save the staircase form itself — change those on the staircase form instead).
 
 Rooms and fitted units can also be **duplicated** — tap the ⧉ icon on their card in the Measure list. Everything copies: dimensions, coats, prep, colours and products, dropped in right below the original as "(copy)". This is the fast way to do bedrooms 2/3/4, or two matching alcove units either side of a chimney breast — measure one, copy it, change a couple of numbers. A copy always starts its own client sign-off from Pending (it never inherits the original's ✓), and on an accepted job it arrives flagged as a variation, same as anything else added after acceptance.
 
@@ -130,6 +130,8 @@ Rooms and fitted units can also be **duplicated** — tap the ⧉ icon on their 
 ![Add Room form](images/04-add-room.png)
 
 The form is in two halves, and it follows how you actually work: **walk the room** first — every card that asks you to look at something and count it — then **decide the scheme** once at the end, in the last three cards. Nothing makes you jump back and forth between measuring and pricing while you're stood there with a tape.
+
+**Every card is collapsed when the form opens**, so what you see first is a short index of the room rather than a page to scroll past — tap a heading to open that card, tap it again to fold it away. The two exceptions are at the top: **Room Details** (the room name and the Staircase / HSL toggle) is always on screen, since you touch both on every room, and **Dimensions** starts open because you fill it in every time. Dimensions is still an ordinary section, so once you've measured you can collapse it too and keep the rest of the form in view.
 
 Only the top matters for a basic room:
 
@@ -147,11 +149,11 @@ Only the top matters for a basic room:
 
 The rest of the measuring cards follow in the order you'd meet them moving round the room — all optional, all collapsed until you tap them, and you skip whatever the room hasn't got:
 
-- **Doors & Frames** — doors and their frames are priced as separate line items, each with its own quantity, coats and prep:
+- **Doors & Frames** — doors and their frames are priced as separate line items, each with its own quantity and coats:
 
   ![Doors & Frames card](images/04d-doors-frames.png)
 
-  Leave a Door or Frame's quantity at 0 to price just the other one. Per line you'll also find **Fire door** (an FD30/FD60 intumescent-compatible surcharge, edges included in the coverage calc), **ironmongery** (remove-and-refit, or mask-in-place — mutually exclusive), **Self-priming paint** (skips the primer coat for one extra topcoat instead — once the paint has a Coverage Rates entry in Rates with Self-priming set, that entry takes over and this toggle is replaced by a note), and **Both sides** (price the whole leaf as one line instead of just the face seen from this room — handy for a door between two painted rooms, split one face each).
+  Leave a Door or Frame's quantity at 0 to price just the other one. Their prep comes from the room's **Preparation** card — there's one prep decision per room, not a separate one here. Per line you'll also find **Fire door** (an FD30/FD60 intumescent-compatible surcharge, edges included in the coverage calc), **ironmongery** (remove-and-refit, or mask-in-place — mutually exclusive), **Self-priming paint** (skips the primer coat for one extra topcoat instead — once the paint has a Coverage Rates entry in Rates with Self-priming set, that entry takes over and this toggle is replaced by a note), and **Both sides** (price the whole leaf as one line instead of just the face seen from this room — handy for a door between two painted rooms, split one face each).
 - **Extras** — windows (m²), window sills and radiators. Each adds its own time and paint.
 - **Feature Wall** — one wall in a different finish: paint, or wallpaper (standard, wide vinyl or mural).
 - **Wallpaper** — lining and finish paper for walls or ceiling, priced per roll with an automatic **rolls-to-order** count, plus a free-text note for the paper itself. Covered in detail in [Wallpaper](#wallpaper--rolls-to-order) below.
@@ -168,7 +170,7 @@ Once you've stopped measuring, the last three cards are the pricing decisions �
   ![Coats card with the three spray toggles](images/04c-coats-spray.png)
 
   **Spray walls** is off by default (also adds the spray sundries bump for the extra masking); **Spray ceiling** and **Spray woodwork** are on by default, since ceilings and woodwork are normally sprayed. A surface's toggle adds the Rates spraying uplift % to its litres on top of the standard or per-product rate — labour time is unchanged either way.
-- **Preparation** — Minimal / Standard / Heavy, or a custom percentage. This scales labour. **Making Good** adds a fixed £ amount for repairs.
+- **Preparation** — Minimal / Standard / Heavy, or a custom percentage. This scales labour across the whole room, doors and frames included. **Making Good** adds a fixed £ amount for repairs.
 - **Paint & Colour** — each surface takes your default product from Settings; override the product, colour band or colour here when a room is different.
 
 Two cards at the bottom sum up what you've entered:
@@ -537,6 +539,6 @@ Settings → **Backup**:
 
 ---
 
-*Manual for NH Estimator v2.39.7. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.39.8. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
