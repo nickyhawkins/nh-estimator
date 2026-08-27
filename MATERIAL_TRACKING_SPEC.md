@@ -31,12 +31,24 @@ Three purposes, all wanted, all served by one view:
 
 **Actuals must NOT be stored on materials-snapshot lines.**
 
-`recalculateMaterialsSnapshot()` is a deliberate full overwrite — its own comment says it "discards every prior edit, deletion, and custom line", and it regenerates `id: uid()` for every line on every run. So:
+`recalculateMaterialsSnapshot()` rebuilds the estimate-derived lines wholesale on every run. So:
 
 - Snapshot line **ids are not stable** across recalcs. Anything keyed on them orphans immediately.
+  (**v2.31.0** reuses the id when a rebuilt line matches an existing one on
+  `matEstimateKey()` — product + role + colour — but a line whose product or
+  colour changes still gets a fresh id, so this constraint stands as written.)
 - Recalculate is a **normal, expected action** (rooms changed → re-pull materials). If actuals hung off snapshot lines, one tap mid-job would **silently destroy every actual logged so far** — and under this billing model that's destroying the invoice, not just a note to self.
 
 Therefore: **actuals are their own per-job list**, joined to the estimate for display only. The snapshot stays the estimate; actuals survive recalculation untouched. This is the load-bearing decision in this spec — don't "simplify" it later by folding actuals into the snapshot.
+
+**v2.31.0 — the snapshot itself is no longer a full overwrite.** It used to be
+("discards every prior edit, deletion, and custom line"), and that silently
+destroyed hand-entered materials, which is the bug that changed it. Recalculate
+is now a merge: lines with `source: 'manual'` are carried across untouched, and
+an estimate line whose `quantity` has been typed away from its `calcQuantity`
+keeps the human's figure. This does **not** soften the constraint above — the
+merge protects the *snapshot's* manual content, not actuals, and actuals still
+must not hang off snapshot lines.
 
 ## Data model
 
@@ -251,8 +263,11 @@ Ships whole (table → API → view → add-missing → totals). ~~Reached from 
 - Labour lines carry over from the quote unchanged (quoted = billed). Only materials come from actuals.
 
 **Phase 3 — margin / calibration**
-- Cache `PurchaseDetails.UnitPrice` for accounts **311** (paint) and **314** (sundries) from the `/Items` call the app already makes — currently discarded by the `SalesDetails.AccountCode === '202'` filter. No new scope, no new request, no typing.
-- Margin per job = Σ(actual × 202) − Σ(actual × 311/314).
+
+> **Margin half BUILT 2026-08-07 (v2.11.0).** `groupMaterialItems()` keeps `purchasePrice` on both buckets, the client's `materialItemIndex` carries it, and the Job Profitability card (Summary, once Invoiced) prices used materials at Σ(actual × 311/314) with sell ÷ 1.2 as a flagged fallback for rows without a purchase price. Free-text rows are counted at face value with no markup assumed — "not in margin", per the rule below. The `/material-groups` server log reports how many items carried a purchase price: that's the live-payload verification (prices had only ever been seen in the CSV export). Cross-job calibration below remains unbuilt, still gated on history.
+
+- Cache `PurchaseDetails.UnitPrice` for accounts **311** (paint) and **314** (sundries) from the `/Items` call the app already makes — ~~currently discarded by the `SalesDetails.AccountCode === '202'` filter~~ **done (v2.11.0)**: the filter stays, `PurchaseDetails` is no longer discarded. No new scope, no new request, no typing.
+- Margin per job = Σ(actual × 202) − Σ(actual × 311/314). **Done (v2.11.0)** — surfaced as the Materials section of the Job Profitability card.
 - Cross-job calibration (is wall coverage really 11 m²/L? are the exterior assumed areas right?) needs history, so it lands naturally once Phase 1 has run on a few real jobs. Don't build it before there's data to look at.
 
 ## Xero notes

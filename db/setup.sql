@@ -197,6 +197,87 @@ CREATE UNIQUE INDEX IF NOT EXISTS labour_log_job_date ON labour_log (job_id, wor
 CREATE INDEX IF NOT EXISTS labour_log_job ON labour_log (job_id);
 
 
+-- ── Accepted-quote snapshots ────────────────────────────────────────────
+-- THE AGREED FIGURES. Everything else in this schema stores INPUTS (room
+-- dimensions, toggles, material lines) that the app re-prices from the
+-- current Rates page every time it renders. That is right for a draft and
+-- catastrophic for an accepted quote: change a coverage rate or a labour
+-- constant and every quote the client already signed silently re-prices
+-- itself, invoiced jobs included. This table is the fix -- the calc
+-- pipeline is run ONCE at acceptance and its whole output serialised here,
+-- and from that moment the accepted view/PDF/final invoice read this row
+-- instead of the calc functions.
+--
+-- Three properties are the whole point, and none of them is decoration:
+--
+-- 1. APPEND-ONLY. There is no UPDATE and no DELETE path anywhere in the app
+--    (routes/api.js exposes GET and POST only, and the POST is a bare
+--    INSERT). Amending an accepted quote writes a NEW row at version + 1;
+--    the superseded row stays exactly as written, which is what makes the
+--    history auditable rather than merely retained.
+-- 2. A TABLE, not another key on jobs.data. jobs.data is PUT-merged whole
+--    on every status change, note edit and schedule tweak -- a snapshot
+--    living there would be one careless spread away from being rewritten
+--    by a caller that had no idea it was carrying it. Separate rows can
+--    only be written by the one route that writes them.
+-- 3. SELF-CONTAINED. data holds the finished line items, prices and totals,
+--    NOT ids pointing at rooms/materials_snapshot rows that will be edited,
+--    recalculated or deleted later in the job's life. A snapshot must still
+--    render correctly after the job it came from has been rebuilt.
+--
+-- reconciliation_level distinguishes a snapshot captured by the app at the
+-- moment of acceptance ('full') from one rebuilt after the fact by
+-- scripts/migrate-accepted-snapshots.js out of Xero export figures --
+-- 'xero_lines' where Xero had the itemised detail, 'totals_only' where it
+-- had nothing but a total. The last of those is honest about being a
+-- reconstruction and the UI says so; it is still infinitely better than
+-- re-deriving the figures from today's rates.
+CREATE TABLE IF NOT EXISTS quote_snapshots (
+  id VARCHAR PRIMARY KEY,
+  job_id VARCHAR NOT NULL,
+  version INTEGER NOT NULL,
+  accepted_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  reconciliation_level VARCHAR NOT NULL DEFAULT 'full',
+  note VARCHAR NOT NULL DEFAULT '',
+  data JSONB NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+-- One row per revision per job. The POST derives version from MAX+1 inside
+-- the same statement, so this index is the storage-level guarantee that two
+-- devices accepting at once can't both claim v1 -- the loser gets a 409 and
+-- retries, rather than silently overwriting the winner.
+CREATE UNIQUE INDEX IF NOT EXISTS quote_snapshots_job_version
+  ON quote_snapshots (job_id, version);
+CREATE INDEX IF NOT EXISTS quote_snapshots_job ON quote_snapshots (job_id);
+
+-- ── Shopping list ───────────────────────────────────────────────────────
+-- The Price Lookup screen's companion: a flat, GLOBAL list (not job-scoped
+-- -- a shop run buys for whatever's on) of things to pick up. Rows come from
+-- either a Price Lookup result ("Add to list": name/code/inc-VAT price
+-- copied in at add time -- a snapshot, deliberately not re-priced later) or
+-- free text ("+ Add item": masking tape, a specific brush -- no code, NULL
+-- price). Nothing here touches Xero. Ticked rows stay until "Clear ticked"
+-- so the list shows what's already in the trolley mid-shop. Client-generated
+-- ids + per-row PUT upsert, same contract as labour_log/material_actuals.
+CREATE TABLE IF NOT EXISTS shopping_list (
+  id VARCHAR PRIMARY KEY,
+  name VARCHAR NOT NULL,
+  item_code VARCHAR NOT NULL DEFAULT '',
+  price NUMERIC,                          -- inc VAT; NULL = free-text item, no price
+  ticked BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+-- Source-job names (e.g. ["Ermine Street"]) for rows added from a job's
+-- materials list, so mid-shop the list says WHY a tin is on it. Metadata
+-- only -- the list itself stays one flat, global list, never fragmented
+-- into per-job views. Job NAMES, not ids, snapshotted at add time: the
+-- tag must still read after the job is renamed/deleted, and it's display-
+-- only so nothing joins on it. Adding an already-listed item (same code,
+-- or same free-text name) from another job appends its tag to the
+-- existing row rather than duplicating the line.
+ALTER TABLE shopping_list ADD COLUMN IF NOT EXISTS job_tags JSONB NOT NULL DEFAULT '[]';
+
 -- Debt Management App tables live in db/setup-debt.sql — run that file
 -- ONLY on an instance with DEBT_APP_ENABLED=true (it contains personal
 -- seed data). See MULTI_INSTANCE_PILOT_SPEC.md WS2.

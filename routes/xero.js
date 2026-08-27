@@ -16,7 +16,23 @@ const XERO_API_URL = 'https://api.xero.com/api.xro/2.0';
 // invoices was the invalid name, then kept after v1.10.3 removed the
 // wrong one. Do not add accounting.transactions back unless the app's
 // portal configuration changes.
-const SCOPES = 'openid profile email offline_access accounting.contacts accounting.settings.read accounting.invoices';
+//
+// 2026-08-19: accounting.banktransactions + accounting.payments added for
+// deposits (DEPOSITS_SPEC.md). These are the GRANULAR replacements for the
+// coarse accounting.transactions that failed in July, and both were proved
+// permitted for this app BEFORE being added here, by a server-side scope
+// bisect (every variant including this full set 302'd on to login.xero.com
+// rather than bouncing back an invalid_scope). That probe, and the July
+// /connect-info and /connect-test diagnostics with it, were REMOVED once
+// they had answered — see DEPOSITS_SPEC.md; git history has them if the
+// question ever needs asking again. banktransactions creates the
+// RECEIVE-PREPAYMENT that IS the deposit; payments reads the resulting
+// prepayment's status and RemainingCredit back.
+// ⚠ SCOPES ARE GRANTED AT AUTH TIME: Xero must be reconnected ONCE
+// (Summary → Connect Xero) before the first deposit write, exactly as the
+// invoice builder needed in July. Until then POST /create-prepayment 403s
+// — and says precisely that rather than showing a bare error.
+const SCOPES = 'openid profile email offline_access accounting.contacts accounting.settings.read accounting.invoices accounting.banktransactions accounting.payments';
 
 // Builds the {Contacts:[...]} entry for a Xero contact create/update PUT.
 // Fields left blank are OMITTED (undefined keys never reach JSON.stringify),
@@ -73,48 +89,6 @@ async function putXeroContact(accessToken, tenantId, payload) {
   return saved;
 }
 
-// Diagnostic for the 2026-07-22/23 invalid_scope investigation: shows
-// exactly what /connect sends to Xero (and which build is live) WITHOUT
-// redirecting there — Xero's error page hides the failing request, so
-// this is the ground truth to compare against. No secrets: the scope
-// list and redirect URI appear in every authorize URL anyway.
-router.get('/connect-info', (req, res) => {
-  res.json({
-    build: require('../package.json').version,
-    scope: SCOPES,
-    clientIdSet: !!process.env.XERO_CLIENT_ID,
-    redirectUri: process.env.XERO_REDIRECT_URI || null
-  });
-});
-
-// Scope bisect for the invalid_scope investigation — FIXED variants only,
-// no free-form scope injection. Each redirects to Xero's authorize page:
-// REACHING THE LOGIN SCREEN means that scope set passed validation; the
-// tester should then close the tab WITHOUT logging in (the callback also
-// refuses to exchange these, see the state check there, so a stray login
-// can't save a weaker token over the real one).
-const SCOPE_TESTS = {
-  oidc:         'openid profile email offline_access',
-  contacts:     'openid profile email offline_access accounting.contacts',
-  settingsread: 'openid profile email offline_access accounting.settings.read',
-  settings:     'openid profile email offline_access accounting.settings',
-  transactions: 'openid profile email offline_access accounting.transactions',
-  invoices:     'openid profile email offline_access accounting.invoices',
-  full:         SCOPES
-};
-router.get('/connect-test/:variant', (req, res) => {
-  const scope = SCOPE_TESTS[req.params.variant];
-  if (!scope) return res.status(400).json({ error: 'unknown variant', variants: Object.keys(SCOPE_TESTS) });
-  const params = new URLSearchParams({
-    response_type: 'code',
-    client_id: process.env.XERO_CLIENT_ID,
-    redirect_uri: process.env.XERO_REDIRECT_URI,
-    scope,
-    state: 'xero-scope-test'
-  });
-  res.redirect(`${XERO_AUTH_URL}?${params}`);
-});
-
 // Step 1: Redirect to Xero login
 router.get('/connect', (req, res) => {
   const params = new URLSearchParams({
@@ -131,9 +105,12 @@ router.get('/connect', (req, res) => {
 router.get('/xero/callback', async (req, res) => {
   const { code } = req.query;
   if (!code) return res.redirect('/?error=xero_auth_failed');
-  // A completed /connect-test login must NEVER be exchanged: its token
-  // would carry the test's reduced scopes and silently replace the real
-  // one, breaking API access until the next proper reconnect.
+  // A scope-probe login must NEVER be exchanged: its token would carry the
+  // probe's reduced scopes and silently replace the real one, breaking API
+  // access until the next proper reconnect. The probes themselves are gone
+  // (removed 2026-08-19, having answered the deposits scope question), but
+  // this guard stays — an authorize page opened before that and completed
+  // afterwards would still land here carrying this state.
   if (req.query.state === 'xero-scope-test') return res.redirect('/?error=scope_test_not_a_real_connect');
 
   try {
@@ -380,7 +357,14 @@ router.get('/accepted-quotes', async (req, res) => {
       }
     });
     const jobsResult = await db.query('SELECT data FROM jobs');
-    const linkedQuoteIds = new Set(jobsResult.rows.map(r => r.data && r.data.xeroQuoteId).filter(Boolean));
+    // Both quote links per job: the main quote AND the variation quote
+    // (sendVariationQuote in public/index.html — the small pending-extras
+    // confirmation document). A variation quote the client accepts through
+    // Xero would otherwise list here as an importable "new job" for work
+    // that's already a tracked variation on an existing one.
+    const linkedQuoteIds = new Set(jobsResult.rows
+      .flatMap(r => [r.data && r.data.xeroQuoteId, r.data && r.data.variationQuoteId])
+      .filter(Boolean));
     const quotes = (quotesRes.data.Quotes || [])
       .filter(q => !linkedQuoteIds.has(q.QuoteID))
       .map(q => {
@@ -621,13 +605,21 @@ function groupMaterialItems(items) {
   const unmodellable = [];
   items.forEach(i => {
     const price = i.SalesDetails?.UnitPrice ?? null;
+    // The 311/314 purchase side, kept for the materials-margin view
+    // (material tracking Phase 3, MATERIAL_TRACKING_SPEC.md) — this line is
+    // the whole “lossy 202 filter” fix: the filter itself stays (every
+    // material item sells on 202), it just stops discarding PurchaseDetails.
+    // Which purchase ACCOUNT (311 paint / 314 sundries) is deliberately not
+    // carried — read whichever the item has, don't special-case (the spec's
+    // own rule); nothing downstream needs the account, only the price.
+    const purchasePrice = i.PurchaseDetails?.UnitPrice ?? null;
     // Code first, name second — see the bucket-order note above.
     if (SUNDRY_CODE_RE.test(i.Code || '')) {
       // Flat by design: no size, no band, no tin optimisation. The description
       // is the raw Xero name because that IS the product — there's no
       // range/band/size to rebuild it from, and a sundry's name is already
       // what it should read as on a quote.
-      sundries.push({ itemCode: i.Code, description: i.Name, price });
+      sundries.push({ itemCode: i.Code, description: i.Name, price, purchasePrice });
       return;
     }
     const { range, band, sizeL, trueL, isPerLitre } = parseItemName(i.Name);
@@ -637,7 +629,7 @@ function groupMaterialItems(items) {
     }
     if (!paint[range]) paint[range] = {};
     if (!paint[range][band]) paint[range][band] = [];
-    paint[range][band].push({ sizeL, trueL, price, itemCode: i.Code, isPerLitre });
+    paint[range][band].push({ sizeL, trueL, price, purchasePrice, itemCode: i.Code, isPerLitre });
   });
   Object.values(paint).forEach(bands =>
     Object.values(bands).forEach(sizes => sizes.sort((a, b) => a.sizeL - b.sizeL))
@@ -700,10 +692,17 @@ router.get('/material-groups', async (req, res) => {
     // means a parse regression is eating real paint, which is otherwise
     // silent. It is NOT expected to be zero, and treating it as an error
     // bucket is how the next LT-class bug would hide among the residents.
+    // The purchase-price count is the Phase 3 live-payload verification the
+    // specs demand (purchase prices had only ever been SEEN in the CSV
+    // export, never confirmed on the API): it should sit near the full item
+    // count. Zero means the API isn't returning PurchaseDetails after all
+    // and the profitability card is running entirely on its sell ÷ 1.2
+    // fallback — it says so on the card, but this line is where to confirm.
+    const withPurchase = salesItems.filter(i => +i.PurchaseDetails?.UnitPrice > 0).length;
     console.log(
       `Material groups: ${allItems.length} total items, ${salesItems.length} on account 202 -> ` +
       `${Object.keys(buckets.paint).length} paint ranges, ${buckets.sundries.length} sundries, ` +
-      `${buckets.unmodellable.length} unmodellable`
+      `${buckets.unmodellable.length} unmodellable; ${withPurchase}/${salesItems.length} carry a purchase price`
     );
     if (buckets.unmodellable.length) {
       console.log('  unmodellable: ' + buckets.unmodellable.map(u => u.itemCode).join(', '));
@@ -716,9 +715,73 @@ router.get('/material-groups', async (req, res) => {
   }
 });
 
+// ── Price Lookup: flat list of every account-202 sales item ────────────────
+// Unlike /material-groups this skips the range/band/size parsing entirely and
+// returns raw Name/Code/UnitPrice — the Price Lookup screen is a read-only
+// till check, so the unmodellable items (Isomat kg products etc.) must appear
+// here too. Same fetch, same cache shape and TTL as material-groups, held
+// separately so a ?fresh=1 on one doesn't evict the other.
+let salesItemsCache = null;          // { at: epoch-ms, body: [{name,code,price}] }
+const SALES_ITEMS_TTL_MS = 5 * 60 * 1000;
+
+router.get('/sales-items', async (req, res) => {
+  try {
+    if (!req.query.fresh && salesItemsCache && Date.now() - salesItemsCache.at < SALES_ITEMS_TTL_MS) {
+      return res.json(salesItemsCache.body);
+    }
+    const accessToken = await getAccessToken();
+    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    const tenantId = result.rows[0]?.xero_tenant_id;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
+    }
+
+    const itemsRes = await axios.get(`${XERO_API_URL}/Items`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Xero-Tenant-Id': tenantId,
+        Accept: 'application/json'
+      }
+    });
+
+    const allItems = itemsRes.data.Items || [];
+    const items = allItems
+      .filter(i => i.SalesDetails?.AccountCode === '202')
+      .map(i => ({
+        name: i.Name || i.Code || '',
+        code: i.Code || '',
+        // Xero's SalesDetails.UnitPrice is the till price — VAT already in it.
+        // The 20% split is done client-side; this stays the untouched figure
+        // so it can be checked against Xero digit for digit.
+        price: +i.SalesDetails?.UnitPrice || 0
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    console.log(`Sales items: ${items.length} on account 202 (of ${allItems.length} total)`);
+    salesItemsCache = { at: Date.now(), body: items };
+    res.json(items);
+  } catch (err) {
+    console.error('Sales items fetch error:', err.response?.data || err.message);
+    res.status(500).json({ error: xeroErrorMessage(err) });
+  }
+});
+
+// Xero reports a quote's dates TWICE and the two forms are not
+// interchangeable: DateString/ExpiryDateString in ISO, and Date/ExpiryDate
+// in .NET "/Date(1755...)/" form whenever Accept is application/json. Every
+// quote update has to send Date back (it's mandatory on the POST), and
+// passing the .NET form through is not the same as sending nothing -- Xero
+// can't read it and silently re-dates the quote to TODAY, which is how a
+// July quote ends up issued in August. So parse whichever form is present
+// rather than trusting either to be there.
+function xeroDateOnly(isoString, netDate) {
+  if (isoString) return String(isoString).split('T')[0];
+  const ms = /\/Date\((-?\d+)/.exec(String(netDate || ''));
+  return ms ? new Date(+ms[1]).toISOString().split('T')[0] : undefined;
+}
+
 // Create quote in Xero
 router.post('/create-quote', async (req, res) => {
-  const { clientName, jobName, xeroRef, rooms, exterior, kitchen, materials, settings, markup, markupType, commercial, commercialPct, standalone, standaloneTopUp, standaloneCalcDays, standaloneDiaryDays, paymentTerms, paymentSummary, contactId, newContact, updateQuoteId } = req.body;
+  const { clientName, jobName, xeroRef, rooms, exterior, kitchen, fittedUnit, custom, materials, settings, markup, markupType, commercial, commercialPct, standalone, standaloneTopUp, standaloneCalcDays, standaloneDiaryDays, labourSpreadTarget, labourAdjustment, paymentTerms, paymentSummary, contactId, newContact, updateQuoteId } = req.body;
 
   try {
     const accessToken = await getAccessToken();
@@ -755,6 +818,7 @@ router.post('/create-quote', async (req, res) => {
     if (rooms) rooms.forEach(r => { rawLabourSubtotal += r.total; });
     if (exterior && exterior.cost > 0) rawLabourSubtotal += exterior.cost;
     if (kitchen && kitchen.cost > 0) rawLabourSubtotal += kitchen.cost;
+    if (fittedUnit && fittedUnit.cost > 0) rawLabourSubtotal += fittedUnit.cost;
     // Commercial job (estimating-app-edits.md): applies BEFORE markup/
     // discount, same order as the client's applyMarkupAmount() -- a flat £
     // markup's ratio is expressed against the commercial-adjusted base too,
@@ -767,7 +831,16 @@ router.post('/create-quote', async (req, res) => {
     // the client's computeDepositPlan) but NOT the sundries base further
     // down -- the quote's sundries % never applied to it client-side.
     const standaloneAmount = standalone ? (+standaloneTopUp || 0) : 0;
-    const afterCommercialBase = (rawLabourSubtotal + standaloneAmount) * commercialMult;
+    // Custom line items (client's customItemsSplit()): the marked share
+    // takes commercial%+markup like labour, so it joins the fixed-£ ratio
+    // base here -- but NOT rawLabourSubtotal, whose other job is the
+    // sundries % base further down (typed-in prices carry no consumables).
+    // The flat share (markup toggled off client-side: margin already baked
+    // into the entered price) never sees mu at all -- its lines below go
+    // out exactly as entered.
+    const customItems = (custom && Array.isArray(custom.items)) ? custom.items : [];
+    const customMarkedTotal = custom ? (+custom.marked || 0) : 0;
+    const afterCommercialBase = (rawLabourSubtotal + standaloneAmount + customMarkedTotal) * commercialMult;
     const markupRatioVal = markupType === 'fixed'
       ? (afterCommercialBase > 0 ? markup / afterCommercialBase : 0)
       : (markup / 100);
@@ -776,11 +849,39 @@ router.post('/create-quote', async (req, res) => {
     // Helper to format currency
     const fmt = (n) => Math.round(n * 100) / 100;
 
-    // Add each room
+    // ── The labour spread (client's computeDepositPlan adjustment pool) ───
+    // The standalone upcharge used to be its own line here and the quote
+    // total was whatever the lines happened to add up to. Both changed
+    // together: the upcharge and the client's clean-£5 price rounding are
+    // now ONE pool spread across the measured labour lines, so the client
+    // sees the work they asked about and no line they can't account for.
+    //
+    // The client computes the TARGET those lines must sum to
+    // (labourSpreadTarget) rather than just sending the pool, so the Xero
+    // document carries the same per-line amounts as the client's own quote
+    // page and PDF instead of a set derived from a second, slightly
+    // different markup basis. labourAdjustment (the pool itself) is only
+    // read by the no-labour-lines guard below.
+    //
+    // Eligible = the engine-priced work lines: rooms, exterior items, the
+    // kitchen and fitted units. Custom line items (typed-in prices),
+    // sundries (a stated % of labour) and materials (real Xero sell prices)
+    // are all figures the client can check, so nothing may move them.
+    // spreadIdx holds their positions in lineItems as they are pushed.
+    const spreadIdx = [];
+    const spreadTarget = +labourSpreadTarget;
+    const spreadPool = +labourAdjustment || 0;
+
+    // Add each room. Description falls back to the bare name for older
+    // clients: the client composes the full text (template block on the
+    // first labour line, "same as above" on the rest — TEXT_TEMPLATES_
+    // SPEC.md) because only it knows which line is first across
+    // rooms/exterior/kitchen. This route stays a passthrough.
     if (rooms) {
       rooms.forEach(room => {
+        spreadIdx.push(lineItems.length);
         lineItems.push({
-          Description: room.name,
+          Description: room.description || room.name,
           Quantity: 1,
           UnitAmount: fmt(room.total * mu),
           AccountCode: '201'
@@ -795,8 +896,9 @@ router.post('/create-quote', async (req, res) => {
     if (exterior && exterior.items && exterior.items.length > 0) {
       exterior.items.forEach(item => {
         if (item.total > 0) {
+          spreadIdx.push(lineItems.length);
           lineItems.push({
-            Description: item.label || 'Exterior',
+            Description: item.description || item.label || 'Exterior',
             Quantity: 1,
             UnitAmount: fmt(item.total * mu),
             AccountCode: '201'
@@ -804,6 +906,7 @@ router.post('/create-quote', async (req, res) => {
         }
       });
     } else if (exterior && exterior.cost > 0) {
+      spreadIdx.push(lineItems.length);
       lineItems.push({
         Description: 'Exterior Works',
         Quantity: 1,
@@ -819,29 +922,112 @@ router.post('/create-quote', async (req, res) => {
     // split is visible on the app's own Kitchen tab and Summary breakdown;
     // the Xero quote only needs the one billable total.
     if (kitchen && kitchen.cost > 0) {
+      spreadIdx.push(lineItems.length);
       lineItems.push({
-        Description: 'Kitchen Cabinet Spraying',
+        Description: kitchen.description || 'Kitchen Cabinet Spraying',
         Quantity: 1,
         UnitAmount: fmt(kitchen.cost * mu),
         AccountCode: '201'
       });
     }
 
-    // Standalone job diary-day rounding -- the labour top-up from charging
-    // full diary days rather than the fractional calculated days, as its
-    // own labelled line (after the per-room/exterior/kitchen labour it
-    // rounds up, before materials/sundries) so the client can see exactly
-    // what it covers. Same account and markup treatment as the labour
-    // lines above.
-    if (standaloneAmount > 0.005) {
-      const dayFig = (n) => (n % 1 === 0 ? n.toFixed(0) : n.toFixed(1));
-      const daysNote = (+standaloneCalcDays > 0 && +standaloneDiaryDays > 0)
-        ? ` (${(+standaloneCalcDays).toFixed(1)} days' work charged as ${dayFig(+standaloneDiaryDays)} full days on site)`
-        : '';
+    // Fitted Units -- one line per named unit (v2.20.0, job.fittedUnits is
+    // a list now), mirroring exterior's per-item lines so two alcove units
+    // read apart on the quote. Falls back to the old single lump line if an
+    // older client sends only fittedUnit.cost with no itemised array. The
+    // shelf/bay/door split stays visible on the app's own Fitted Unit
+    // screen and Summary breakdown.
+    if (fittedUnit && fittedUnit.items && fittedUnit.items.length > 0) {
+      fittedUnit.items.forEach(item => {
+        if (item.total > 0) {
+          spreadIdx.push(lineItems.length);
+          lineItems.push({
+            Description: item.description || item.name || 'Fitted Unit / Shelving',
+            Quantity: 1,
+            UnitAmount: fmt(item.total * mu),
+            AccountCode: '201'
+          });
+        }
+      });
+    } else if (fittedUnit && fittedUnit.cost > 0) {
+      spreadIdx.push(lineItems.length);
       lineItems.push({
-        Description: 'Standalone job — diary day rounding' + daysNote,
+        Description: fittedUnit.description || 'Fitted Unit / Shelving',
         Quantity: 1,
-        UnitAmount: fmt(standaloneAmount * mu),
+        UnitAmount: fmt(fittedUnit.cost * mu),
+        AccountCode: '201'
+      });
+    }
+
+    // Custom line items -- itemised with their own description/qty/unit
+    // price, mirroring exterior's per-item lines. Marked lines get the
+    // same mu as every labour line above; markup-off lines go out at the
+    // entered price untouched (no commercial% either -- the client app
+    // adds them after applyMarkupAmount() entirely).
+    customItems.forEach(item => {
+      const qty = (+item.quantity > 0) ? +item.quantity : 1;
+      const unitPrice = +item.unitPrice || 0;
+      if (qty * unitPrice <= 0) return;
+      lineItems.push({
+        Description: item.description || 'Custom line',
+        Quantity: qty,
+        UnitAmount: fmt(item.applyMarkup === false ? unitPrice : unitPrice * mu),
+        AccountCode: '201'
+      });
+    });
+
+    // Distribute the adjustment pool across the labour lines pushed above.
+    // Proportional to what each line already carries, so a single line
+    // simply takes the whole pool with no special case; then rounded to the
+    // penny with the leftover (a penny or two at most) dropped on the
+    // LARGEST line, where it is least visible and can never make a small
+    // line look wrong. Mirrors spreadOntoLabourLines() in public/index.html
+    // -- same rule, same target, so the two produce identical amounts.
+    //
+    // NB the quote's own document total still differs from the app's clean
+    // figure by the spray-sundries bump, which this route has never
+    // included (see the sundries line below, and the matching note in the
+    // app's buildFinalInvoiceModel). That predates this spread and is
+    // deliberately mirrored, not fixed here.
+    const dayFig = (n) => (n % 1 === 0 ? n.toFixed(0) : n.toFixed(1));
+    const standaloneDaysNote = (+standaloneCalcDays > 0 && +standaloneDiaryDays > 0)
+      ? ` (${(+standaloneCalcDays).toFixed(1)} days' work charged as ${dayFig(+standaloneDiaryDays)} full days on site)`
+      : '';
+    if (!(spreadTarget > 0)) {
+      // Older client: no spread in the payload, so the top-up keeps its own
+      // line exactly as it always did rather than going missing.
+      if (standaloneAmount > 0.005) {
+        lineItems.push({
+          Description: 'Standalone job — diary day rounding' + standaloneDaysNote,
+          Quantity: 1,
+          UnitAmount: fmt(standaloneAmount * mu),
+          AccountCode: '201'
+        });
+      }
+    } else if (spreadIdx.length > 0) {
+      const spreadLines = spreadIdx.map(i => lineItems[i]);
+      const base = spreadLines.reduce((sum, l) => sum + l.UnitAmount, 0);
+      const pool = spreadTarget - base;
+      if (base > 0.005) {
+        spreadLines.forEach(l => { l.UnitAmount = fmt(l.UnitAmount + pool * (l.UnitAmount / base)); });
+      } else {
+        spreadLines.forEach((l, i) => { l.UnitAmount = fmt(i === 0 ? pool : l.UnitAmount); });
+      }
+      const rounded = spreadLines.reduce((sum, l) => sum + l.UnitAmount, 0);
+      const remainder = fmt(spreadTarget - rounded);
+      if (remainder !== 0) {
+        let largest = spreadLines[0];
+        spreadLines.forEach(l => { if (l.UnitAmount > largest.UnitAmount) largest = l; });
+        largest.UnitAmount = fmt(largest.UnitAmount + remainder);
+      }
+    } else if (spreadPool > 0.005) {
+      // Guard, not a normal path: pool money with no labour line to hide it
+      // in. Better a labelled line than money that silently vanishes off
+      // the quote. Same fallback buildClientQuoteModel() renders.
+      lineItems.push({
+        Description: standalone ? 'Standalone job — diary day rounding' + standaloneDaysNote : 'Price adjustment',
+        Quantity: 1,
+        UnitAmount: fmt(spreadPool),
         AccountCode: '201'
       });
     }
@@ -924,31 +1110,46 @@ router.post('/create-quote', async (req, res) => {
       if (['ACCEPTED', 'DECLINED', 'INVOICED', 'DELETED'].includes(existing.Status)) {
         return res.status(409).json({ error: `Quote ${existing.QuoteNumber || ''} is ${existing.Status.toLowerCase()} in Xero and can't be amended — send a new quote instead` });
       }
-      const quoteDate = existing.DateString ? existing.DateString.split('T')[0] : new Date().toISOString().split('T')[0];
+      const quoteDate = xeroDateOnly(existing.DateString, existing.Date) || new Date().toISOString().split('T')[0];
+      // Same whole-quote rewrite as /update-quote-status below: a scalar
+      // left out of this payload is CLEARED in Xero, so Title and the
+      // expiry date are carried over from the quote as it stands, and
+      // Terms/Summary fall back to what's already there if this send
+      // didn't build them. Reference already had that fallback.
+      const expiryDate = xeroDateOnly(existing.ExpiryDateString, existing.ExpiryDate);
       // No Status field: echoing the quote's own status back (even
       // unchanged) makes Xero reject the update with "Please provide a
       // valid Status Code" — a documented Quotes-API quirk. Omitting it
       // updates the lines and leaves the status exactly as it is, which is
       // the intent here anyway (the guard above already rejected the
       // unamendable states).
-      await axios.post(
+      const amendRes = await axios.post(
         `${XERO_API_URL}/Quotes/${encodeURIComponent(updateQuoteId)}`,
         { Quotes: [{
           QuoteID: updateQuoteId,
+          // The quote's identity, kept explicitly -- see /update-quote-status.
+          QuoteNumber: existing.QuoteNumber || undefined,
           Contact: { ContactID: existing.Contact.ContactID },
           Date: quoteDate,
           Reference: xeroRef || existing.Reference || '',
           LineItems: lineItems,
           LineAmountTypes: 'NoTax',
-          Terms: paymentTerms || undefined,
-          Summary: paymentSummary || undefined
+          Terms: paymentTerms || existing.Terms || undefined,
+          Summary: paymentSummary || existing.Summary || undefined,
+          Title: existing.Title || undefined,
+          ExpiryDate: expiryDate
         }] },
         { headers }
       );
+      // Report the number Xero holds AFTER the write, not the one read
+      // before it: the app stores this on the job, and a number that moved
+      // during the update would otherwise be recorded wrong until someone
+      // noticed the app and Xero disagreeing.
+      const amended = amendRes.data.Quotes && amendRes.data.Quotes[0];
       return res.json({
         ok: true, updated: true,
         quoteId: updateQuoteId,
-        quoteNumber: existing.QuoteNumber || 'updated',
+        quoteNumber: (amended && amended.QuoteNumber) || existing.QuoteNumber || 'updated',
         status: existing.Status,
         contactId: existing.Contact.ContactID
       });
@@ -1058,21 +1259,75 @@ router.post('/update-quote-status', async (req, res) => {
       return res.json({ ok: true, status: current });
     }
 
-    // A status update POST still requires the mandatory quote fields
-    // (Contact + Date) alongside QuoteID; everything else (line items,
-    // terms) is left off and survives untouched. DateString is preferred
-    // because with Accept: application/json the Date property comes back
-    // in .NET "/Date(ms)/" form, not ISO.
-    const quoteDate = quote.DateString ? quote.DateString.split('T')[0] : quote.Date;
+    // A status update POST rewrites the WHOLE quote, not just the status
+    // ("you are always updating the entire quote" -- Xero's own Quotes
+    // docs), so every SCALAR field left out of the payload comes back
+    // BLANK. Only LineItems are special-cased: an omitted array is left
+    // alone, which is what made the old Contact+Date+Status-only payload
+    // look safe -- the lines survived, so nothing looked wrong, while the
+    // quote's Reference was silently wiped every time a job was marked
+    // accepted/declined (or took the DRAFT -> SENT hop). Nicky types a
+    // reference on every quote and found them all blank in Xero
+    // (2026-08-21): the create path had put it there and this one erased
+    // it minutes later.
+    //
+    // So echo the quote's own values back and change ONLY the status. All
+    // of these are read from the GET above, i.e. whatever is in Xero right
+    // now -- including anything edited inside Xero, which this must not
+    // stomp either. Empty ones stay undefined (dropped by JSON.stringify),
+    // which is the same nothing they already were. DateString/
+    // ExpiryDateString are preferred because with Accept: application/json
+    // the Date properties come back in .NET "/Date(ms)/" form, not ISO.
+    //
+    // QuoteNumber is in the payload for the same reason, and it matters
+    // more than the rest: it is the quote's IDENTITY, the number printed on
+    // the PDF the client is holding. Omitted, it is reissued by the rewrite
+    // like any other missing scalar -- the quote keeps its QuoteID and
+    // silently takes the next number in the sequence.
+    //
+    // Six of Nicky's jobs were found recorded under numbers Xero no longer
+    // had, each QuoteID still alive under a HIGHER number for the same
+    // client and date (QU-0311 -> QU-0312, QU-0306 -> QU-0308, QU-0296 ->
+    // QU-0298 ...). Nicky confirmed 2026-08-21 that he has never renumbered
+    // a quote by hand and that ANY update made in the app moved the number,
+    // which is what settles it: the app's own writes were reissuing them,
+    // here and on the amend path both. (One quote, QU-0304, kept its number
+    // while losing its reference and looked like a counter-example -- most
+    // likely its reference was typed into the app AFTER that quote was
+    // sent, so Xero never had it to lose.)
+    //
+    // Renumbering is worse than it sounds: the client's copy and Xero's
+    // then disagree about which document is which. Hence both belt and
+    // braces -- the number is sent explicitly, AND the number Xero reports
+    // back is returned to the client so the app records what Xero actually
+    // holds rather than what it assumed.
+    const quoteDate = xeroDateOnly(quote.DateString, quote.Date);
+    const expiryDate = xeroDateOnly(quote.ExpiryDateString, quote.ExpiryDate);
     const postStatus = (status) => axios.post(
       `${XERO_API_URL}/Quotes/${quoteId}`,
-      { Quotes: [{ QuoteID: quoteId, Contact: { ContactID: quote.Contact.ContactID }, Date: quoteDate, Status: status }] },
+      { Quotes: [{
+        QuoteID: quoteId,
+        QuoteNumber: quote.QuoteNumber || undefined,
+        Contact: { ContactID: quote.Contact.ContactID },
+        Date: quoteDate,
+        Status: status,
+        Reference: quote.Reference || undefined,
+        Title: quote.Title || undefined,
+        Summary: quote.Summary || undefined,
+        Terms: quote.Terms || undefined,
+        ExpiryDate: expiryDate
+      }] },
       { headers }
     );
 
     if (current === 'DRAFT') await postStatus('SENT');
-    await postStatus(target);
-    res.json({ ok: true, status: target });
+    const finalRes = await postStatus(target);
+    const written = finalRes.data.Quotes && finalRes.data.Quotes[0];
+    res.json({
+      ok: true,
+      status: target,
+      quoteNumber: (written && written.QuoteNumber) || quote.QuoteNumber || null
+    });
   } catch (err) {
     console.error('Update quote status error:', err.response?.data || err.message);
     const xeroMsg = err.response?.data?.Elements?.[0]?.ValidationErrors?.[0]?.Message
@@ -1199,8 +1454,223 @@ router.get('/quote-statuses', async (req, res) => {
   }
 });
 
+// ── Deposits / prepayments (DEPOSITS_SPEC.md) ──────────────────────────────
+//
+// A deposit CANNOT be POSTed to /Prepayments — that endpoint is read-only.
+// A prepayment is born as a bank transaction of type RECEIVE-PREPAYMENT, and
+// Xero returns its PrepaymentID on the created transaction, so one write
+// gets both ids and there is no matching step to drift.
+//
+// Allocation to the invoice is deliberately NOT done here: Xero refuses to
+// allocate against a DRAFT invoice, and the invoice builder only ever
+// creates drafts on purpose (FINAL_INVOICE_SPEC.md). Nicky authorises and
+// allocates in Xero, as he already does. The app creates and reports.
+
+// The RECEIVE-PREPAYMENT payload, kept pure so its shape can be asserted
+// without touching Xero (exported at the bottom for the smoke harness).
+//
+// NB the job name rides the line DESCRIPTION, not Reference: Xero only
+// supports Reference on SPEND/RECEIVE bank transactions, and a prepayment's
+// own Reference is read-only (it returns the invoice number). Setting it
+// here would look right and silently vanish.
+function buildPrepaymentPayload({ contactId, bankAccountId, date, amount, description, accountCode }) {
+  return {
+    BankTransactions: [{
+      Type: 'RECEIVE-PREPAYMENT',
+      Contact: { ContactID: contactId },
+      BankAccount: { AccountID: bankAccountId },
+      // The date the money was RECEIVED, not today — the bank feed has to
+      // match this, and a wrong date is reconciliation work for someone.
+      Date: date,
+      Status: 'AUTHORISED',
+      // Not VAT registered: same NoTax treatment as every other document
+      // this app writes.
+      LineAmountTypes: 'NoTax',
+      LineItems: [{
+        Description: description || 'Deposit',
+        Quantity: 1,
+        UnitAmount: Math.round((+amount || 0) * 100) / 100,
+        AccountCode: String(accountCode)
+      }]
+    }]
+  };
+}
+
+// Bank accounts for the Settings picker. Covered by the accounting.settings
+// .read scope the app has always had — no new permission needed for this.
+router.get('/bank-accounts', async (req, res) => {
+  try {
+    const accessToken = await getAccessToken();
+    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    const tenantId = result.rows[0]?.xero_tenant_id;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
+    }
+    const accRes = await axios.get(`${XERO_API_URL}/Accounts?where=${encodeURIComponent('Type=="BANK"')}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Xero-Tenant-Id': tenantId,
+        Accept: 'application/json'
+      }
+    });
+    const accounts = (accRes.data.Accounts || [])
+      .filter(a => a.Status !== 'ARCHIVED')
+      .map(a => ({
+        accountId: a.AccountID,
+        name: a.Name,
+        code: a.Code || '',
+        bankAccountNumber: a.BankAccountNumber || ''
+      }));
+    res.json({ ok: true, accounts });
+  } catch (err) {
+    console.error('Bank accounts error:', err.response?.data || err.message);
+    res.status(500).json({ error: xeroErrorMessage(err) });
+  }
+});
+
+// Create the deposit in Xero. The bank account and posting code come from
+// the SERVER's settings row, never from the request body: the browser
+// should not get to name which account real money posts to.
+router.post('/create-prepayment', async (req, res) => {
+  const { contactId, amount, date, description, idempotencyKey } = req.body;
+  const value = Math.round((+amount || 0) * 100) / 100;
+  if (!contactId) {
+    return res.status(400).json({ error: 'This job has no linked Xero contact — sync the contact first, or the deposit can never be allocated to its invoice' });
+  }
+  if (!(value > 0)) {
+    return res.status(400).json({ error: 'A deposit amount greater than zero is required' });
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) {
+    return res.status(400).json({ error: 'A received date (YYYY-MM-DD) is required' });
+  }
+
+  try {
+    const accessToken = await getAccessToken();
+    const result = await db.query('SELECT xero_tenant_id, data FROM settings WHERE id = 1');
+    const tenantId = result.rows[0]?.xero_tenant_id;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
+    }
+    const stored = result.rows[0]?.data || {};
+    const bankAccountId = stored.depositBankAccountId;
+    const accountCode = String(stored.depositAccountCode || '620');
+    if (!bankAccountId) {
+      return res.status(400).json({ error: 'No deposit bank account is set — choose one in Settings → Deposits (Xero) first' });
+    }
+
+    const headers = {
+      Authorization: `Bearer ${accessToken}`,
+      'Xero-Tenant-Id': tenantId,
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    };
+
+    // Pre-flight the posting account (620 Prepayments by default). ONLY a
+    // positive "Xero says this code is missing or archived" blocks the
+    // write — if the lookup itself fails we carry on and let the real call
+    // be the judge, because refusing to record a deposit over a failed
+    // diagnostic would be worse than the thing it's diagnosing.
+    try {
+      const codeRes = await axios.get(`${XERO_API_URL}/Accounts?where=${encodeURIComponent(`Code=="${accountCode}"`)}`, { headers });
+      const account = (codeRes.data.Accounts || [])[0];
+      if (!account) {
+        return res.status(400).json({ error: `Account ${accountCode} doesn't exist in Xero — check Settings → Deposits (Xero). Nothing was created.` });
+      }
+      if (account.Status === 'ARCHIVED') {
+        return res.status(400).json({ error: `Account ${accountCode} (${account.Name}) is archived in Xero — unarchive it or pick another code. Nothing was created.` });
+      }
+    } catch (lookupErr) {
+      console.warn('Deposit account pre-check failed, continuing:', lookupErr.response?.data || lookupErr.message);
+    }
+
+    // Same key on every retry of the SAME deposit = Xero returns the
+    // original result instead of a second transaction. The client stores
+    // the key on the deposit record and only regenerates it if the amount
+    // or date changes before a successful sync.
+    if (idempotencyKey) headers['Idempotency-Key'] = String(idempotencyKey).slice(0, 128);
+
+    const txRes = await axios.put(
+      `${XERO_API_URL}/BankTransactions`,
+      buildPrepaymentPayload({ contactId, bankAccountId, date, amount: value, description, accountCode }),
+      { headers }
+    );
+    const tx = (txRes.data.BankTransactions || [])[0];
+    if (!tx || !tx.BankTransactionID) throw new Error('Xero did not return a bank transaction');
+
+    // A transaction with no PrepaymentID means the money IS in Xero but not
+    // as a prepayment — report it as a success with a warning rather than
+    // an error, because an error here would invite a retry and a retry
+    // would be a duplicate deposit.
+    res.json({
+      ok: true,
+      prepaymentId: tx.PrepaymentID || null,
+      bankTransactionId: tx.BankTransactionID,
+      total: tx.Total ?? value,
+      warning: tx.PrepaymentID ? null : 'Xero created the transaction but did not return a prepayment id — check it in Xero before recording another.'
+    });
+  } catch (err) {
+    console.error('Create prepayment error:', err.response?.data || err.message);
+    const status = err.response?.status;
+    // Deposits were the reason accounting.banktransactions/payments joined
+    // SCOPES — a token granted before that can't write one until Xero is
+    // reconnected once. Say so instead of a bare 403.
+    const hint = (status === 401 || status === 403)
+      ? ' — this usually means Xero needs reconnecting once to grant the new deposit permissions (Summary → Connect Xero)'
+      : '';
+    res.status(500).json({ error: xeroErrorMessage(err) + hint });
+  }
+});
+
+// Read prepayment status back for the Summary chip. Same contract as
+// /quote-statuses: a poll, so per-id failures never fail the batch — a hard
+// 404 reports DELETED (the deposit was removed in Xero, which the app must
+// stop claiming is synced) and anything else reports null, which the client
+// ignores until the next open.
+router.get('/prepayment-status', async (req, res) => {
+  const ids = String(req.query.ids || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (!ids.length) return res.status(400).json({ error: 'ids is required' });
+
+  try {
+    const accessToken = await getAccessToken();
+    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    const tenantId = result.rows[0]?.xero_tenant_id;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
+    }
+    const headers = {
+      Authorization: `Bearer ${accessToken}`,
+      'Xero-Tenant-Id': tenantId,
+      Accept: 'application/json'
+    };
+
+    const prepayments = await Promise.all(ids.map(id =>
+      axios.get(`${XERO_API_URL}/Prepayments/${encodeURIComponent(id)}`, { headers })
+        .then(r => {
+          const p = (r.data.Prepayments || [])[0];
+          if (!p) return { prepaymentId: id, status: null };
+          return {
+            prepaymentId: id,
+            status: p.Status || null,
+            total: p.Total ?? null,
+            // RemainingCredit is the whole allocation story: equal to Total
+            // means nothing has been applied yet, zero means fully applied.
+            remainingCredit: p.RemainingCredit ?? null,
+            invoiceNumber: p.InvoiceNumber || p.Reference || null,
+            allocationCount: (p.Allocations || []).length
+          };
+        })
+        .catch(err => ({ prepaymentId: id, status: err.response?.status === 404 ? 'DELETED' : null }))
+    ));
+    res.json({ ok: true, prepayments });
+  } catch (err) {
+    console.error('Prepayment status error:', err.response?.data || err.message);
+    res.status(500).json({ error: xeroErrorMessage(err) });
+  }
+});
+
 module.exports = router;
 module.exports.getAccessToken = getAccessToken;
+module.exports.buildPrepaymentPayload = buildPrepaymentPayload;
 // Exported for the tin-fill checks in scripts/check_item_parse.py's Node
 // counterpart and for ad-hoc verification against a real Xero export.
 module.exports.parseItemName = parseItemName;

@@ -126,12 +126,16 @@ Free-text actuals list at the bottom (no estimate to compare against).
 
 ### 3. Margin (this IS material tracking Phase 3)
 
-- **Prerequisite plumbing:** `/material-groups` (`routes/xero.js:490`) filters on
-  `SalesDetails` and throws `PurchaseDetails` away. Keep
-  `purchasePrice: i.PurchaseDetails?.UnitPrice ?? null` and the purchase
-  `AccountCode` on each item in the payload/cache. **Verify against the live payload
-  first** — purchase prices have only ever been seen in the CSV export, never read from
-  the API (same caveat class as the `TIK015` Status field note in FEATURES.md).
+- **Prerequisite plumbing: BUILT 2026-08-07 (v2.11.0).** `/material-groups` keeps
+  `purchasePrice: i.PurchaseDetails?.UnitPrice ?? null` on each item in the
+  payload/cache (the purchase `AccountCode` is deliberately NOT carried — the
+  spec's own rule is "read whichever the item has, don't special-case", and
+  nothing downstream needs the account, only the price). The live-payload
+  verification — purchase prices had only ever been seen in the CSV export,
+  never read from the API — is a running check rather than a one-off: the
+  `/material-groups` server log prints `N/M carry a purchase price` on every
+  fresh fetch, and the profitability card states on-screen when it's running
+  on the sell ÷ 1.2 fallback instead of real prices.
 - Per actual row: billable = `actual_quantity` × 202 sales price; cost = `actual_quantity`
   × 311/314 purchase price; margin = difference. Job totals of each.
 - **Free-text rows are excluded from margin** (no purchase price) — show them listed under

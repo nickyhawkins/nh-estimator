@@ -25,6 +25,19 @@
 >   `new-cycle` now returns the fresh timestamps and the client adopts
 >   them.
 >
+> **Part 2 A is BUILT** (2026-08-08, v2.12.0): "+ Add debt" on the Edit
+> tab (server assigns ids — `debt_plan_debts.id` is a plain INTEGER PK, so
+> `POST /api/debts/add` uses MAX(id)+1), and an `archived` flag instead of
+> delete (history snapshots reference debt ids), with a Restore list on the
+> Edit tab. `getCurrentTarget()`'s HMRC exclusion is now the data-driven
+> `min === 0 && !due` rule suggested here. Alongside it, missed-payment
+> tracking landed: a per-debt "missed this cycle" toggle (mutually
+> exclusive with the paid tick) excludes the debt from cycle totals and the
+> sweep split, and archives the missed ids into `cycle_history.notes` as
+> `{"missed":[ids]}` — the notes-rendering half of Part 2 D remains open.
+> New columns are applied lazily by routes/debt.js on first API request
+> (setup.sql still documents them for fresh installs).
+>
 > **Part 2 B is BUILT** (read-only scope, as agreed): `debt-sw.js` now
 > caches the app shell (navigations network-first, cached shell as the
 > no-signal fallback; API calls never intercepted), and `debt.html` keeps a

@@ -26,6 +26,48 @@ the CSV export stay blind to the flag (they're live working views). Verified in 
 40-check Chromium smoke run: auto-flag default, original-scope Labour invariance,
 quote-resend exclusion, free-line CRUD/persistence, chips, pre-acceptance hiding.
 
+**Addendum 2026-08-10 (v2.13.0): the client-facing variation quote — the Xero
+section's "plausible later" — is BUILT.** Trigger was a job imported from Xero
+(`importAcceptedQuote()`): variations needing the client's yes, but no measured
+rooms, so no quote document existed to show — and `createXeroQuote()` rightly
+filters variations out of the main quote anyway. The Variations card (On Site)
+now carries **"Send variation quote to Xero"** whenever Pending lines exist: a
+small SEPARATE Xero DRAFT quote of *just the still-Pending lines* (approved =
+already agreed, declined = dead; re-showing an approved line means tapping it
+back to Pending first). Pricing is `buildVariationQuoteLines()` — per-line
+`raw × varMk` / flat-verbatim plus the pending-scoped sundries line, the exact
+composition `computeVariationsView()`/final invoice use. Transport rides
+`/auth/create-quote`'s custom-items path (`applyMarkup:false` = lines go out
+exactly as entered; a roomless payload means the server adds no lines of its
+own); all lines land on account 201, accepted as cosmetic since the document is
+never invoiced from Xero. The link lives in its own
+`variationQuoteId/Number/Status` fields — `xeroQuoteId` (the accepted quote's
+record) is never touched — with the same DRAFT/SENT amend-in-place rule as the
+main quote, so pending-line changes update one document rather than minting
+duplicates. The inward status poll (`syncQuoteAnswersFromXero`) watches it too:
+an ACCEPTED answer given through Xero's portal shows on the card and *prompts*
+the per-line ✓ taps — sign-off stays a deliberate act with note + timestamp,
+never a silent flip. `/auth/accepted-quotes` filters variation quotes out of
+the import list (an accepted one would otherwise offer to import as a "new
+job"). Imported jobs' compact Summary gained a variations subtotal row (free
+lines keep such jobs roomless, so the money was invisible outside On Site) and
+its footer now points at the variation-quote + final-invoice path. Money flow
+is unchanged: the variation quote is a display/approval vehicle only — billing
+still happens on the final invoice.
+
+The in-app **Quote ⤴ page** (openClientQuote, v2.5.0) joined in the same
+build: it used to mirror createXeroQuote's variation filter wholesale and
+refused to open on roomless imported jobs ("add rooms first") — the exact
+on-site "show the client the costs" moment this whole addendum exists for. It
+now renders a separated "Variations — extras beyond the original quote" card
+(pending flagged *awaiting approval*, approved flagged ✓, declined omitted —
+client-facing page, internal record stays internal) priced by
+computeVariationsView(), a gold "Job total incl. variations" bar under the
+total (Summary's hero-sub rule), and on imported jobs an "Original quote — as
+agreed" line in place of the work card, with the £0 payment/terms cards hidden
+(that money's collection lives in Xero). The original-scope cards still mirror
+createXeroQuote() exactly.
+
 **Addendum 2026-07-23 (v1.11.0, per Nicky's layout review):** the Variations card
 moved from Summary to the renamed **On Site** screen (was "Materials") — extras get
 agreed on site, in the same moment days are logged. Summary keeps the money (the
@@ -61,12 +103,40 @@ Plus one genuinely new lightweight type for the odd job that isn't worth measuri
 
 ### The flag's rules
 
-- **Auto-on**: any room/ext/kitchen/panelling item added while `job.status` is `accepted`
-  (or later) defaults `isVariation: true`, with a visible chip on the form so it's never
-  silent. Toggleable off at entry — "I forgot to measure the utility room before quoting"
-  is a correction to original scope, not a variation, and the person on site knows which
-  it is. The app defaults; Nicky decides. (Same control-is-the-judgement philosophy as
-  sundries.)
+- **Auto-on** (`variationDefaultsOn()`): any room/ext/fitted-unit/panelling item added
+  while `job.status` is `accepted` (or later) defaults `isVariation: true`, with a visible
+  chip on the form so it's never silent. Toggleable off at entry — "I forgot to measure the
+  utility room before quoting" is a correction to original scope, not a variation, and the
+  person on site knows which it is. The app defaults; Nicky decides. (Same
+  control-is-the-judgement philosophy as sundries.) The kitchen is the one exception, see
+  the deviations above.
+
+  `variationDefaultsOn()` is deliberately **separate from `variationApplies()`**, which
+  only answers "does the concept apply at all" and still governs whether the toggle row is
+  visible. Two fixes on 2026-08-19 (v2.34.1), both found from one live job:
+
+  - **Fitted units never took the default at all.** `newFittedUnit()` created the unit
+    without the flag, so on the same measure-out a room and a fitted unit behaved
+    differently. `addFittedUnit()` re-applies the default when it reuses a **blank**
+    leftover unit, so one created before acceptance can't come back with a stale flag; a
+    unit with real bays/shelves/doors is never re-flagged, so a deliberate toggle-off on
+    priced work stands.
+
+  - **The default INVERTS on a Xero-imported job** (`XERO_IMPORTED_JOBS_SPEC.md`). Those
+    jobs are imported **already-accepted and roomless**, then measured out precisely so the
+    materials and the internal estimate are real. Every room added during that measure-out
+    is the ORIGINAL scope being written down late, not extra work — so auto-on flagged the
+    entire retro-measure as variations, and on a honoured job **variations stack on top of
+    the agreed labour**, i.e. it silently billed the client again for work the agreed price
+    already covered. On those jobs the default is OFF and the toggle stays visible: the
+    retro-measure is the normal case, a genuine extra agreed after the Xero quote is the
+    exception and gets flagged by hand. Both signals count — the `isXeroImported` flag, and
+    an importer-created job not yet flagged (its rooms are necessarily the retro-measure).
+    The Summary toggle card says this out loud, since it reverses what every other accepted
+    job does.
+
+  **Items saved before these fixes keep whatever flag they were given** — the toggle on the
+  item's own form is the fix for those.
 - Items added pre-acceptance can't be flagged — the concept doesn't exist yet, the chip
   doesn't render.
 - Editing a pre-acceptance room after acceptance does NOT flag it — edits to original
