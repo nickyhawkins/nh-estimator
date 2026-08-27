@@ -781,7 +781,7 @@ function xeroDateOnly(isoString, netDate) {
 
 // Create quote in Xero
 router.post('/create-quote', async (req, res) => {
-  const { clientName, jobName, xeroRef, rooms, exterior, kitchen, fittedUnit, custom, materials, settings, markup, markupType, commercial, commercialPct, standalone, standaloneTopUp, standaloneCalcDays, standaloneDiaryDays, paymentTerms, paymentSummary, contactId, newContact, updateQuoteId } = req.body;
+  const { clientName, jobName, xeroRef, rooms, exterior, kitchen, fittedUnit, custom, materials, settings, markup, markupType, commercial, commercialPct, standalone, standaloneTopUp, standaloneCalcDays, standaloneDiaryDays, labourSpreadTarget, labourAdjustment, paymentTerms, paymentSummary, contactId, newContact, updateQuoteId } = req.body;
 
   try {
     const accessToken = await getAccessToken();
@@ -849,6 +849,29 @@ router.post('/create-quote', async (req, res) => {
     // Helper to format currency
     const fmt = (n) => Math.round(n * 100) / 100;
 
+    // ── The labour spread (client's computeDepositPlan adjustment pool) ───
+    // The standalone upcharge used to be its own line here and the quote
+    // total was whatever the lines happened to add up to. Both changed
+    // together: the upcharge and the client's clean-£5 price rounding are
+    // now ONE pool spread across the measured labour lines, so the client
+    // sees the work they asked about and no line they can't account for.
+    //
+    // The client computes the TARGET those lines must sum to
+    // (labourSpreadTarget) rather than just sending the pool, so the Xero
+    // document carries the same per-line amounts as the client's own quote
+    // page and PDF instead of a set derived from a second, slightly
+    // different markup basis. labourAdjustment (the pool itself) is only
+    // read by the no-labour-lines guard below.
+    //
+    // Eligible = the engine-priced work lines: rooms, exterior items, the
+    // kitchen and fitted units. Custom line items (typed-in prices),
+    // sundries (a stated % of labour) and materials (real Xero sell prices)
+    // are all figures the client can check, so nothing may move them.
+    // spreadIdx holds their positions in lineItems as they are pushed.
+    const spreadIdx = [];
+    const spreadTarget = +labourSpreadTarget;
+    const spreadPool = +labourAdjustment || 0;
+
     // Add each room. Description falls back to the bare name for older
     // clients: the client composes the full text (template block on the
     // first labour line, "same as above" on the rest — TEXT_TEMPLATES_
@@ -856,6 +879,7 @@ router.post('/create-quote', async (req, res) => {
     // rooms/exterior/kitchen. This route stays a passthrough.
     if (rooms) {
       rooms.forEach(room => {
+        spreadIdx.push(lineItems.length);
         lineItems.push({
           Description: room.description || room.name,
           Quantity: 1,
@@ -872,6 +896,7 @@ router.post('/create-quote', async (req, res) => {
     if (exterior && exterior.items && exterior.items.length > 0) {
       exterior.items.forEach(item => {
         if (item.total > 0) {
+          spreadIdx.push(lineItems.length);
           lineItems.push({
             Description: item.description || item.label || 'Exterior',
             Quantity: 1,
@@ -881,6 +906,7 @@ router.post('/create-quote', async (req, res) => {
         }
       });
     } else if (exterior && exterior.cost > 0) {
+      spreadIdx.push(lineItems.length);
       lineItems.push({
         Description: 'Exterior Works',
         Quantity: 1,
@@ -896,6 +922,7 @@ router.post('/create-quote', async (req, res) => {
     // split is visible on the app's own Kitchen tab and Summary breakdown;
     // the Xero quote only needs the one billable total.
     if (kitchen && kitchen.cost > 0) {
+      spreadIdx.push(lineItems.length);
       lineItems.push({
         Description: kitchen.description || 'Kitchen Cabinet Spraying',
         Quantity: 1,
@@ -913,6 +940,7 @@ router.post('/create-quote', async (req, res) => {
     if (fittedUnit && fittedUnit.items && fittedUnit.items.length > 0) {
       fittedUnit.items.forEach(item => {
         if (item.total > 0) {
+          spreadIdx.push(lineItems.length);
           lineItems.push({
             Description: item.description || item.name || 'Fitted Unit / Shelving',
             Quantity: 1,
@@ -922,6 +950,7 @@ router.post('/create-quote', async (req, res) => {
         }
       });
     } else if (fittedUnit && fittedUnit.cost > 0) {
+      spreadIdx.push(lineItems.length);
       lineItems.push({
         Description: fittedUnit.description || 'Fitted Unit / Shelving',
         Quantity: 1,
@@ -947,21 +976,58 @@ router.post('/create-quote', async (req, res) => {
       });
     });
 
-    // Standalone job diary-day rounding -- the labour top-up from charging
-    // full diary days rather than the fractional calculated days, as its
-    // own labelled line (after the per-room/exterior/kitchen labour it
-    // rounds up, before materials/sundries) so the client can see exactly
-    // what it covers. Same account and markup treatment as the labour
-    // lines above.
-    if (standaloneAmount > 0.005) {
-      const dayFig = (n) => (n % 1 === 0 ? n.toFixed(0) : n.toFixed(1));
-      const daysNote = (+standaloneCalcDays > 0 && +standaloneDiaryDays > 0)
-        ? ` (${(+standaloneCalcDays).toFixed(1)} days' work charged as ${dayFig(+standaloneDiaryDays)} full days on site)`
-        : '';
+    // Distribute the adjustment pool across the labour lines pushed above.
+    // Proportional to what each line already carries, so a single line
+    // simply takes the whole pool with no special case; then rounded to the
+    // penny with the leftover (a penny or two at most) dropped on the
+    // LARGEST line, where it is least visible and can never make a small
+    // line look wrong. Mirrors spreadOntoLabourLines() in public/index.html
+    // -- same rule, same target, so the two produce identical amounts.
+    //
+    // NB the quote's own document total still differs from the app's clean
+    // figure by the spray-sundries bump, which this route has never
+    // included (see the sundries line below, and the matching note in the
+    // app's buildFinalInvoiceModel). That predates this spread and is
+    // deliberately mirrored, not fixed here.
+    const dayFig = (n) => (n % 1 === 0 ? n.toFixed(0) : n.toFixed(1));
+    const standaloneDaysNote = (+standaloneCalcDays > 0 && +standaloneDiaryDays > 0)
+      ? ` (${(+standaloneCalcDays).toFixed(1)} days' work charged as ${dayFig(+standaloneDiaryDays)} full days on site)`
+      : '';
+    if (!(spreadTarget > 0)) {
+      // Older client: no spread in the payload, so the top-up keeps its own
+      // line exactly as it always did rather than going missing.
+      if (standaloneAmount > 0.005) {
+        lineItems.push({
+          Description: 'Standalone job — diary day rounding' + standaloneDaysNote,
+          Quantity: 1,
+          UnitAmount: fmt(standaloneAmount * mu),
+          AccountCode: '201'
+        });
+      }
+    } else if (spreadIdx.length > 0) {
+      const spreadLines = spreadIdx.map(i => lineItems[i]);
+      const base = spreadLines.reduce((sum, l) => sum + l.UnitAmount, 0);
+      const pool = spreadTarget - base;
+      if (base > 0.005) {
+        spreadLines.forEach(l => { l.UnitAmount = fmt(l.UnitAmount + pool * (l.UnitAmount / base)); });
+      } else {
+        spreadLines.forEach((l, i) => { l.UnitAmount = fmt(i === 0 ? pool : l.UnitAmount); });
+      }
+      const rounded = spreadLines.reduce((sum, l) => sum + l.UnitAmount, 0);
+      const remainder = fmt(spreadTarget - rounded);
+      if (remainder !== 0) {
+        let largest = spreadLines[0];
+        spreadLines.forEach(l => { if (l.UnitAmount > largest.UnitAmount) largest = l; });
+        largest.UnitAmount = fmt(largest.UnitAmount + remainder);
+      }
+    } else if (spreadPool > 0.005) {
+      // Guard, not a normal path: pool money with no labour line to hide it
+      // in. Better a labelled line than money that silently vanishes off
+      // the quote. Same fallback buildClientQuoteModel() renders.
       lineItems.push({
-        Description: 'Standalone job — diary day rounding' + daysNote,
+        Description: standalone ? 'Standalone job — diary day rounding' + standaloneDaysNote : 'Price adjustment',
         Quantity: 1,
-        UnitAmount: fmt(standaloneAmount * mu),
+        UnitAmount: fmt(spreadPool),
         AccountCode: '201'
       });
     }
