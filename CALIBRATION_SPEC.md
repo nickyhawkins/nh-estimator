@@ -1,9 +1,13 @@
 # Calibration Loop — Spec (labour actuals + estimate-vs-actual + settings suggestions)
 
-**Status: Phase A BUILT 2026-07-22 (same day as scoping); Phases B and C not started.**
+**Status: ALL THREE PHASES SHIPPED.** Phase A BUILT 2026-07-22 (same day as scoping).
+**Phase B shipped as the Job Profitability card**, not as the separate screen sketched
+below — 2026-08-05 (v2.5.0), reworked 2026-08-07 (v2.10.0) and given real purchase
+prices the same day (v2.11.0); see the status note on Phase B. **Phase C BUILT
+2026-08-27 (v2.40.0)** — see the status note on Phase C.
 Idea #1 in `FEATURES_2.0_IDEAS.md`. This spec ABSORBS material tracking Phase 3
-(`MATERIAL_TRACKING_SPEC.md`'s margin/calibration phase, parked "needs history") — when
-B/C ship, Phase 3 is done and should be marked so there.
+(`MATERIAL_TRACKING_SPEC.md`'s margin/calibration phase, parked "needs history") — with
+B and C both shipped, **Phase 3 is done**, and `FEATURES.md`'s Phase 3 bullet says so.
 
 **Phase A as built:** `labour_log` table in `db/setup.sql` (**needs the manual
 `psql … -f db/setup.sql` deploy step, same as `material_actuals` did**),
@@ -93,6 +97,34 @@ CREATE INDEX IF NOT EXISTS labour_log_job ON labour_log (job_id);
 
 ## Phase B — estimate-vs-actual per job
 
+**Status: SHIPPED as the Job Profitability card** (2026-08-05 v2.5.0; reworked
+2026-08-07 v2.10.0; real purchase prices 2026-08-07 v2.11.0). It landed in a different
+place from the sketch below and that is the shipped design — **do not build the screen
+described here a second time.** What differs, and why it's fine:
+
+- **Where it lives.** A card on **Summary** (plus the "Recently invoiced" glance on
+  Home, from the persisted `profitSnapshot`), not a separate screen off the Jobs list.
+  Summary is the job's money page; a second screen would have been a second place to
+  look for the same three numbers.
+- **The gotcha below was solved the way this spec says to solve it (option b).**
+  The card reads `job.data.acceptedSnapshot.estOnSiteDays` / `estWorkingDays` — stamped
+  at acceptance, shared with `SCHEDULING_SPEC.md` — with the live original-scope
+  `realisticDays()` only as the pre-snapshot fallback. Nothing depends on the compared
+  job being the active one. Since v2.38.0 the quoted side reads the frozen
+  `quote_snapshots` row as well (`ACCEPTED_SNAPSHOT_SPEC.md`), so margin on finished
+  work can't drift when a rate is nudged.
+- **The 311/314 purchase prices are real** (v2.11.0), exactly as section 3 below
+  requires — actuals cost at the Xero purchase price, sell ÷ 1.2 surviving only as a
+  fallback the card names on screen when it's running on it.
+- **Framing changed in v2.10.0** and is better than section 3's: instead of one blended
+  margin (which treated the day rate as a cost when it's a sale price), the card answers
+  three separate questions — Billing (quoted+variations vs invoiced), Schedule (quoted
+  days vs days logged, with the day variance as the labour story) and Materials (quoted
+  materials vs actual cost as used, plus markup banked). Free-text rows stay out of
+  margin and are listed, as required. Labour margin is still not computed.
+
+The original sketch, kept for the reasoning behind each figure:
+
 A read-only comparison screen for a job, reachable from the Jobs list on any job with
 status `completed` (and from the Materials screen once completed). Three sections:
 
@@ -146,6 +178,36 @@ Free-text actuals list at the bottom (no estimate to compare against).
 
 ## Phase C — settings suggestions
 
+**Status: BUILT 2026-08-27 (v2.40.0).** `GET /api/calibration-suggestions?n=8` in
+`routes/api.js` — a read-only aggregation, no writes and no Xero call (quantities only;
+money is Phase B's job) — and a **Calibration card on Settings**, under Scheduling
+because the buffer it suggests is the field directly above it. Both suggestions, and
+only those two. As built, differing from the text below in one respect that matters:
+
+- **`cwSpray` no longer exists**, so the coverage suggestion targets **`sprayUpliftPct`**.
+  v2.19.0 (`PRODUCT_COVERAGE_SPEC.md`) replaced the sprayed wall *rate* with a flat %
+  uplift on top of whichever rate is in play. The implied figure therefore multiplies
+  *through* the current uplift — `(1 + u/100) × ratio − 1` — because the estimate already
+  had it baked in. Suggesting `cw` instead would be wrong: the sample is sprayed jobs
+  only, and `cw` prices every rolled job too. The card says the figure is a steer rather
+  than a measurement on jobs that mixed sprayed and rolled rooms.
+- Sprayed jobs are found from `rooms.data->>'sprayWalls'`; the estimate side is
+  `materials_snapshot` rows with `role = 'wall'` (so hand-added lines, which carry no
+  role, stay out) rolled up by `itemCode`, matched to `material_actuals.item_code`.
+- **Two exclusions follow the same principle as the zero-days one.** A job with no
+  labour rows is excluded in the SQL, and a sprayed job whose wall codes have no actuals
+  logged is excluded from the coverage figure — untracked is not "used none". Both are
+  counted and stated on the card, never silently dropped, as are jobs with no
+  `estOnSiteDays` (Xero imports, and jobs accepted before the snapshot shipped).
+- Adopt writes the one field through the ordinary `saveSettings()` path and repaints from
+  the value just written (the PUT may still be in flight, or queued offline).
+- Verified by `npm run test:calibration` (`scripts/test-calibration-suggestions.js`, 43
+  route checks against a real database over a six-job fixture — the exclusions, the
+  ordering, item-code matching, both derived settings, the no-sprayed-jobs case, the
+  floor at zero and the empty case) and driven end-to-end in a browser (17 checks: the
+  rendered card, Adopt writing exactly one setting and nothing else, N re-querying, and
+  the unavailable half saying so while the other half still shows its figure).
+
 A card on Settings (or a screen off it): each suggestion computed across the **last N
 completed jobs that have labour logs** (N editable, default 8; a job with zero logged days
 is excluded — no data, not "zero days").
@@ -176,11 +238,13 @@ recalcs of past jobs.
 
 ## Build order
 
-1. Phase A table + API + card (small; starts accumulating value immediately — **ship this
-   even if B/C wait**, history is the scarce resource, exactly the mistake Phase 3 parked on)
-2. `acceptedSnapshot` stash on acceptance (shared with scheduling — coordinate)
-3. Phase B screen (needs the purchase-price plumbing + live-payload verification)
-4. Phase C suggestions (needs a few completed jobs' data before it shows anything — fine)
+1. ~~Phase A table + API + card~~ **DONE 2026-07-22** (small; starts accumulating value
+   immediately — **ship this even if B/C wait**, history is the scarce resource, exactly
+   the mistake Phase 3 parked on)
+2. ~~`acceptedSnapshot` stash on acceptance~~ **DONE 2026-07-22** (shared with scheduling)
+3. ~~Phase B screen~~ **DONE 2026-08-05/08-07** as the Job Profitability card
+4. ~~Phase C suggestions~~ **DONE 2026-08-27** (needed a few completed jobs' data before
+   it showed anything — which is why it came last)
 
 ## Gotchas / for Nicky to confirm
 

@@ -706,6 +706,246 @@ router.delete('/labour/:id', async (req, res) => {
   }
 });
 
+// ── Calibration suggestions ────────────────────────────────────────────────
+// CALIBRATION_SPEC.md Phase C — the payoff for the labour log (Phase A) and
+// the actuals log. Across the last N finished jobs: what the accepted quote
+// assumed, what the logs say actually happened, and the ONE setting each
+// gap implies. The route is a read-only aggregation and writes nothing;
+// adopting a suggestion is a client-side write of a single settings field
+// through the ordinary saveSettings() path, with no recalculation of past
+// jobs ("suggestions, never auto-tuning" — the spec's design principle).
+//
+// No prices and no Xero call anywhere in here — quantities only. Money is
+// the Job Profitability card's job (Phase B, shipped v2.10.0/v2.11.0), and
+// pulling purchase prices in would make a calibration read fail whenever
+// Xero is down, for a figure this screen doesn't show.
+//
+// Two suggestions, and deliberately only two. NOT the sundries %: it is
+// never itemised on a quote and never tracked (MATERIAL_TRACKING_SPEC.md),
+// so there is no data and this must not pretend otherwise. NOT the exterior
+// assumed areas: assumed area and coverage rate are two unknowns behind one
+// litres figure, and no amount of tins tells you which of them is wrong.
+//
+// ⚠ The spec names the coverage suggestion's target `cwSpray`. That setting
+// no longer exists — v2.19.0 (PRODUCT_COVERAGE_SPEC.md) replaced the sprayed
+// wall RATE with `sprayUpliftPct`, a flat % of extra litres applied on top of
+// whichever rate is in play. So the sprayed-wall figure is expressed as the
+// uplift it implies. Adopting `cw` instead would be wrong: this sample is
+// sprayed jobs only, and `cw` prices every rolled job too.
+const CALIBRATION_DEFAULT_N = 8;
+const CALIBRATION_MAX_N = 50;
+
+const calibSum = (xs) => xs.reduce((a, b) => a + b, 0);
+const calibRound = (x, dp) => {
+  const f = Math.pow(10, dp);
+  return Math.round(x * f) / f;
+};
+
+router.get('/calibration-suggestions', async (req, res) => {
+  const asked = parseInt(req.query.n, 10);
+  const n = Math.min(CALIBRATION_MAX_N, Math.max(1, asked > 0 ? asked : CALIBRATION_DEFAULT_N));
+  try {
+    // The included set. Finished means completed OR invoiced — the work is
+    // done either way, and waiting for the invoice would throw away the most
+    // recent job every time. Ordered by when it finished (ISO strings sort
+    // chronologically), id as the tiebreak so paging is deterministic.
+    //
+    // A job with NO labour_log rows is excluded here, in the WHERE clause,
+    // rather than included with zero days: no data is not "we did it in no
+    // time", and averaging that zero in would drag every ratio down. Every
+    // job finished before the labour log shipped is therefore invisible to
+    // this screen, which is correct — there is nothing to learn from them.
+    const jobsResult = await db.query(`
+      SELECT j.id, j.name,
+             j.data->>'status' AS status,
+             COALESCE(j.data->>'invoicedAt', j.data->>'completedAt') AS finished_at,
+             j.data->'acceptedSnapshot'->>'estOnSiteDays' AS est_on_site_days
+        FROM jobs j
+       WHERE j.data->>'status' IN ('completed', 'invoiced')
+         AND EXISTS (SELECT 1 FROM labour_log l WHERE l.job_id = j.id)
+       ORDER BY COALESCE(j.data->>'invoicedAt', j.data->>'completedAt') DESC NULLS LAST,
+                j.id DESC
+       LIMIT $1
+    `, [n]);
+
+    const ids = jobsResult.rows.map(r => r.id);
+    const settingsRow = await db.query('SELECT data FROM settings WHERE id = 1');
+    const settings = (settingsRow.rows[0] && settingsRow.rows[0].data) || {};
+    // Same defaults as the client's SETTINGS_FIELDS table. A settings blob
+    // saved before a field existed has no key, and reading that as 0 would
+    // make the suggested figure quietly wrong rather than obviously absent.
+    const currentBufferPct = settings.bufferPct != null ? +settings.bufferPct : 0;
+    const currentSprayUpliftPct = settings.sprayUpliftPct != null ? +settings.sprayUpliftPct : 30;
+
+    let labourRows = [], sprayRows = [], estRows = [], actRows = [];
+    if (ids.length) {
+      [labourRows, sprayRows, estRows, actRows] = (await Promise.all([
+        db.query('SELECT job_id, SUM(days) AS days FROM labour_log WHERE job_id = ANY($1) GROUP BY job_id', [ids]),
+        // Which jobs were sprayed: the room flag the quote was built from.
+        // At least one sprayed room makes the job's wall paint a sprayed
+        // job's wall paint — a job is not sprayed room-by-room in practice,
+        // and the estimate's tins are bought as one lot regardless.
+        db.query(`SELECT DISTINCT job_id FROM rooms
+                   WHERE job_id = ANY($1) AND data->>'sprayWalls' = 'true'`, [ids]),
+        // The estimate's wall paint, rolled up by item code exactly as the
+        // actuals join does elsewhere: one item code is a PRICE band covering
+        // many colours, so two colours on one range are two snapshot lines
+        // sharing a code. role='wall' is stamped by recalculateMaterialsSnapshot()
+        // on estimate-derived lines only, so hand-added lines (which carry no
+        // role) stay out of a figure about what the calculation predicted.
+        // The regex guard is belt-and-braces against a non-numeric quantity
+        // in an old blob 500ing the whole card on a ::numeric cast.
+        db.query(`SELECT job_id, data->>'itemCode' AS item_code,
+                         SUM((data->>'quantity')::numeric) AS quantity
+                    FROM materials_snapshot
+                   WHERE job_id = ANY($1)
+                     AND data->>'role' = 'wall'
+                     AND COALESCE(data->>'itemCode', '') <> ''
+                     AND data->>'quantity' ~ '^-?[0-9]+(\\.[0-9]+)?$'
+                   GROUP BY job_id, data->>'itemCode'`, [ids]),
+        db.query(`SELECT job_id, item_code, SUM(actual_quantity) AS quantity
+                    FROM material_actuals
+                   WHERE job_id = ANY($1) AND item_code IS NOT NULL
+                   GROUP BY job_id, item_code`, [ids]),
+      ])).map(r => r.rows);
+    }
+
+    const daysByJob = new Map(labourRows.map(r => [r.job_id, +r.days || 0]));
+    const sprayedJobs = new Set(sprayRows.map(r => r.job_id));
+    const byJobAndCode = (rows) => {
+      const out = new Map();
+      rows.forEach(r => {
+        if (!out.has(r.job_id)) out.set(r.job_id, new Map());
+        out.get(r.job_id).set(r.item_code, +r.quantity || 0);
+      });
+      return out;
+    };
+    const estByJob = byJobAndCode(estRows);
+    const actByJob = byJobAndCode(actRows);
+
+    const jobs = jobsResult.rows.map(r => ({
+      id: r.id,
+      name: r.name,
+      status: r.status,
+      finishedAt: r.finished_at,
+      estOnSiteDays: r.est_on_site_days == null || r.est_on_site_days === ''
+        ? null : +r.est_on_site_days,
+      actualDays: daysByJob.get(r.id) || 0,
+      sprayedWalls: sprayedJobs.has(r.id),
+    }));
+
+    // ── Days ratio ────────────────────────────────────────────────────────
+    // Σ days logged vs Σ on-site days the accepted quote was priced on. Only
+    // jobs whose acceptedSnapshot carries an estimate can take part: a job
+    // imported from Xero stamps estOnSiteDays null (the app never estimated
+    // it) and a job accepted before that snapshot shipped has none at all.
+    // Those are counted and reported rather than silently dropped.
+    const withEst = jobs.filter(j => j.estOnSiteDays > 0);
+    const estDays = calibRound(calibSum(withEst.map(j => j.estOnSiteDays)), 1);
+    const actualDays = calibRound(calibSum(withEst.map(j => j.actualDays)), 1);
+    const daysRatio = estDays > 0 ? actualDays / estDays : null;
+    const days = {
+      available: daysRatio != null,
+      // The ratio can't say WHICH figure is wrong — overheadMins stretching
+      // each day, or the buffer that pads the whole job. bufferPct is the one
+      // this offers because it's the whole-job knob the whole-job ratio maps
+      // onto; the card says as much, and the call stays Nicky's.
+      setting: {
+        key: 'bufferPct',
+        label: 'Schedule buffer',
+        current: currentBufferPct,
+        // Jobs coming in UNDER estimate can't push the buffer below zero —
+        // there's no such thing as negative slippage padding — so the
+        // suggestion floors at 0 and the ratio itself carries the good news.
+        suggested: daysRatio == null ? null : Math.max(0, Math.round((daysRatio - 1) * 100)),
+      },
+      ratio: daysRatio == null ? null : calibRound(daysRatio, 4),
+      overrunPct: daysRatio == null ? null : calibRound((daysRatio - 1) * 100, 1),
+      sample: {
+        jobs: withEst.length,
+        estimatedDays: estDays,
+        actualDays,
+        jobsWithoutEstimate: jobs.length - withEst.length,
+      },
+      reason: daysRatio != null ? null
+        : (jobs.length ? 'none of these jobs carry an on-site estimate to compare against'
+                       : 'no finished jobs with days logged yet'),
+    };
+
+    // ── Sprayed wall coverage ─────────────────────────────────────────────
+    // Σ wall tins estimated vs Σ wall tins actually used, across the sprayed
+    // jobs only. Matched by item code: an actuals row is a PRODUCT, so
+    // without that restriction a tin of ceiling white bought on the same job
+    // would land in the wall figure. The blind spot is the mirror image —
+    // wall paint bought under a code the estimate never named (a different
+    // band, a mid-job product change) doesn't count — which is why the card
+    // shows the per-code working rather than just a percentage.
+    const sprayedInSample = jobs.filter(j => j.sprayedWalls);
+    const itemTotals = new Map();
+    let estQty = 0, actQty = 0, coverageJobs = 0, jobsWithoutActuals = 0;
+    sprayedInSample.forEach(j => {
+      const est = estByJob.get(j.id);
+      if (!est || !est.size) return;               // nothing estimated for walls
+      const act = actByJob.get(j.id) || new Map();
+      // A job whose wall codes have no actuals at all is the materials
+      // equivalent of a job with no days logged: materials simply weren't
+      // tracked. Excluded outright, for exactly the reason the spec gives
+      // for zero-day jobs — not folded in as "used no paint".
+      let jobAct = 0;
+      est.forEach((q, code) => { jobAct += act.get(code) || 0; });
+      if (jobAct <= 0) { jobsWithoutActuals++; return; }
+      coverageJobs++;
+      est.forEach((q, code) => {
+        const a = act.get(code) || 0;
+        estQty += q;
+        actQty += a;
+        const cur = itemTotals.get(code) || { itemCode: code, estimated: 0, actual: 0 };
+        cur.estimated += q;
+        cur.actual += a;
+        itemTotals.set(code, cur);
+      });
+    });
+    const coverageRatio = coverageJobs > 0 && estQty > 0 ? actQty / estQty : null;
+    // Implied uplift: the estimate already had the current uplift baked into
+    // its litres, so the correction multiplies through it —
+    // (1 + u/100) × ratio − 1 — rather than replacing it with the ratio.
+    // Approximate on a job with both sprayed and rolled rooms (the rolled
+    // rooms' tins are in the same total and carry no uplift), which the card
+    // says out loud rather than implying a precision that isn't there.
+    const impliedUplift = coverageRatio == null ? null
+      : Math.max(0, Math.round(((1 + currentSprayUpliftPct / 100) * coverageRatio - 1) * 100));
+    const wallCoverage = {
+      available: coverageRatio != null,
+      setting: {
+        key: 'sprayUpliftPct',
+        label: 'Spraying uplift',
+        current: currentSprayUpliftPct,
+        suggested: impliedUplift,
+      },
+      ratio: coverageRatio == null ? null : calibRound(coverageRatio, 4),
+      overPct: coverageRatio == null ? null : calibRound((coverageRatio - 1) * 100, 1),
+      sample: {
+        jobs: coverageJobs,
+        sprayedJobs: sprayedInSample.length,
+        jobsWithoutActuals,
+        estimatedQuantity: calibRound(estQty, 2),
+        actualQuantity: calibRound(actQty, 2),
+        items: Array.from(itemTotals.values())
+          .map(i => ({ itemCode: i.itemCode, estimated: calibRound(i.estimated, 2), actual: calibRound(i.actual, 2) }))
+          .sort((a, b) => b.estimated - a.estimated),
+      },
+      reason: coverageRatio != null ? null
+        : (!sprayedInSample.length ? 'no sprayed-wall jobs in this sample'
+           : jobsWithoutActuals ? 'the sprayed jobs here have no wall-paint actuals logged'
+           : 'no wall paint on the estimate for the sprayed jobs here'),
+    };
+
+    res.json({ n, jobs, days, wallCoverage });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Shopping list ──────────────────────────────────────────────────────────
 // Global, not job-scoped — a shop run buys for whatever jobs are on. Server
 // is the single source of truth (no localStorage mirror by design); the
