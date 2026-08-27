@@ -70,7 +70,11 @@ app.get('/manifest.json', async (req, res) => {
     name = result.rows[0]?.data?.businessName || null;
   } catch (err) { /* fall back to the stock name — installability beats freshness */ }
   res.setHeader('Cache-Control', 'no-cache');
-  res.json({ ...manifestTemplate, name: name || manifestTemplate.name });
+  res.json({
+    ...manifestTemplate,
+    name: name || manifestTemplate.name,
+    short_name: name || manifestTemplate.short_name,
+  });
 });
 
 // Static files. Images get a long cache lifetime (they change rarely and the
