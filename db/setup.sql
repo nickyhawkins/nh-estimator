@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS rooms (
 ALTER TABLE rooms ADD COLUMN IF NOT EXISTS job_id VARCHAR;
 UPDATE rooms SET job_id = 'default' WHERE job_id IS NULL;
 ALTER TABLE rooms ALTER COLUMN job_id SET NOT NULL;
+CREATE INDEX IF NOT EXISTS rooms_job ON rooms (job_id);
 
 -- HSL state table
 CREATE TABLE IF NOT EXISTS hsl_state (
@@ -64,6 +65,7 @@ CREATE TABLE IF NOT EXISTS exterior_items (
 ALTER TABLE exterior_items ADD COLUMN IF NOT EXISTS job_id VARCHAR;
 UPDATE exterior_items SET job_id = 'default' WHERE job_id IS NULL;
 ALTER TABLE exterior_items ALTER COLUMN job_id SET NOT NULL;
+CREATE INDEX IF NOT EXISTS exterior_items_job ON exterior_items (job_id);
 
 -- Colours table (job-scoped list of {number, label, brand, code}, same
 -- lifecycle as rooms/exterior_items — not a permanent setting, cleared
@@ -120,6 +122,7 @@ CREATE TABLE IF NOT EXISTS materials_snapshot (
 ALTER TABLE materials_snapshot ADD COLUMN IF NOT EXISTS job_id VARCHAR;
 UPDATE materials_snapshot SET job_id = 'default' WHERE job_id IS NULL;
 ALTER TABLE materials_snapshot ALTER COLUMN job_id SET NOT NULL;
+CREATE INDEX IF NOT EXISTS materials_snapshot_job ON materials_snapshot (job_id);
 
 -- Material actuals (job-scoped log of what was really bought and used, as
 -- opposed to materials_snapshot's estimate of what SHOULD be needed).
