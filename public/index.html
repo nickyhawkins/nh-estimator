@@ -486,9 +486,9 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
           <div class="toggle" id="bulk-tog-mistCeil" onclick="bulkToggleMist('mistCeil')"></div>
         </div>
         <div style="padding:6px 16px 0;font-size:12px;color:var(--text3);line-height:1.5">Woodwork has no mist coat in this app — walls and ceilings are the only surfaces it is priced for.</div>
-        <!-- Prep levels, built by buildBulkPrepRows() from BULK_PREP_FIELDS --
-             the room's own and the doors/frames' independent one, which are
-             separate scales on the room form and stay separate here. -->
+        <!-- Prep level, built by buildBulkPrepRows() from BULK_PREP_FIELDS.
+             One entry now: doors and frames lost their independent prep and
+             follow the room's, so setting it here covers them too. -->
         <div id="bulk-prep-rows"></div>
       </div>
       <div style="padding:12px 16px 0;display:flex;gap:10px">
@@ -604,33 +604,35 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       </div>
     </div>
     <div class="card" id="card-dimensions">
-      <div class="card-header">Dimensions</div>
-      <div class="field-row">
-        <div class="field-label">Room shape<small>Perimeter / Segments for L-shapes &amp; odd rooms</small></div>
-        <div class="seg" id="seg-shape" style="flex:1.5">
-          <button class="seg-btn active" onclick="setRoomShape('box')">Standard</button>
-          <button class="seg-btn" onclick="setRoomShape('perimeter')">Perimeter</button>
-          <button class="seg-btn" onclick="setRoomShape('segments')">Segments</button>
+      <div class="card-header sec-toggle" onclick="toggleFormSection('dimensions')"><span>Dimensions</span><span class="sec-chev open" id="sec-chev-dimensions">›</span></div>
+      <div class="card-body open" id="sec-dimensions">
+        <div class="field-row">
+          <div class="field-label">Room shape<small>Perimeter / Segments for L-shapes &amp; odd rooms</small></div>
+          <div class="seg" id="seg-shape" style="flex:1.5">
+            <button class="seg-btn active" onclick="setRoomShape('box')">Standard</button>
+            <button class="seg-btn" onclick="setRoomShape('perimeter')">Perimeter</button>
+            <button class="seg-btn" onclick="setRoomShape('segments')">Segments</button>
+          </div>
         </div>
+        <div id="shape-box-fields">
+          <div class="field-row"><div class="field-label">Length<small>metres</small></div><input type="number" class="field-input" id="r-l" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+          <div class="field-row"><div class="field-label">Width<small>metres</small></div><input type="number" class="field-input" id="r-w" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+        </div>
+        <div id="shape-perimeter-fields" style="display:none">
+          <div class="field-row"><div class="field-label">Wall perimeter<small>linear metres — total run of wall, measured round the room</small></div><input type="number" class="field-input" id="r-perim" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+        </div>
+        <div id="shape-segments-fields" style="display:none">
+          <div class="subsection-label">Room zones<small>rectangular zones (length × width) that make up the room — e.g. the two legs of an L-shape, or main room + alcove. Walls and ceiling both sum across zones</small></div>
+          <div id="segments-list"></div>
+          <div class="field-row" style="cursor:pointer" onclick="addSegment()"><div class="field-label" style="color:var(--accent);font-weight:600">+ Add zone</div></div>
+        </div>
+        <div class="field-row"><div class="field-label">Ceiling height<small>metres</small></div><input type="number" class="field-input" id="r-h" value="2.4" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+        <div class="toggle-row" id="row-sloped" style="border-top:1px solid var(--border)">
+          <div class="toggle-label">Sloped ceiling<small>Slope makes length × width wrong — type the measured ceiling area instead</small></div>
+          <div class="toggle" id="tog-sloped" onclick="toggleSlopedCeiling()"></div>
+        </div>
+        <div class="field-row" id="row-ceil-area" style="display:none"><div class="field-label">Ceiling area<small>m² — measured, since it doesn't follow from the walls</small></div><input type="number" class="field-input" id="r-ceil-area" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
       </div>
-      <div id="shape-box-fields">
-        <div class="field-row"><div class="field-label">Length<small>metres</small></div><input type="number" class="field-input" id="r-l" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
-        <div class="field-row"><div class="field-label">Width<small>metres</small></div><input type="number" class="field-input" id="r-w" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
-      </div>
-      <div id="shape-perimeter-fields" style="display:none">
-        <div class="field-row"><div class="field-label">Wall perimeter<small>linear metres — total run of wall, measured round the room</small></div><input type="number" class="field-input" id="r-perim" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
-      </div>
-      <div id="shape-segments-fields" style="display:none">
-        <div class="subsection-label">Room zones<small>rectangular zones (length × width) that make up the room — e.g. the two legs of an L-shape, or main room + alcove. Walls and ceiling both sum across zones</small></div>
-        <div id="segments-list"></div>
-        <div class="field-row" style="cursor:pointer" onclick="addSegment()"><div class="field-label" style="color:var(--accent);font-weight:600">+ Add zone</div></div>
-      </div>
-      <div class="field-row"><div class="field-label">Ceiling height<small>metres</small></div><input type="number" class="field-input" id="r-h" value="2.4" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
-      <div class="toggle-row" id="row-sloped" style="border-top:1px solid var(--border)">
-        <div class="toggle-label">Sloped ceiling<small>Slope makes length × width wrong — type the measured ceiling area instead</small></div>
-        <div class="toggle" id="tog-sloped" onclick="toggleSlopedCeiling()"></div>
-      </div>
-      <div class="field-row" id="row-ceil-area" style="display:none"><div class="field-label">Ceiling area<small>m² — measured, since it doesn't follow from the walls</small></div><input type="number" class="field-input" id="r-ceil-area" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
     </div>
     <div class="card searchable-card" id="card-shape-addons">
       <div class="card-header sec-toggle" onclick="toggleFormSection('shapeaddons')"><span>Bay Window &amp; Alcove/Dormer</span><span class="sec-chev" id="sec-chev-shapeaddons">›</span></div>
@@ -696,25 +698,43 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       <div class="field-row"><div class="field-label">Woodwork coats<small>spindles / newels / strings</small></div><div class="seg" id="seg-hsl-swc"><button class="seg-btn" onclick="setHSLSeg('swc',1)">1</button><button class="seg-btn active" onclick="setHSLSeg('swc',2)">2</button><button class="seg-btn" onclick="setHSLSeg('swc',3)">3</button></div></div>
     </div>
     <div class="card">
-      <div class="card-header">Coats</div>
-      <div class="field-row"><div class="field-label">Walls</div><div class="seg" id="seg-wc"><button class="seg-btn" onclick="setSeg('wc',0)">0</button><button class="seg-btn" onclick="setSeg('wc',1)">1</button><button class="seg-btn active" onclick="setSeg('wc',2)">2</button><button class="seg-btn" onclick="setSeg('wc',3)">3</button></div></div>
-      <div class="field-row"><div class="field-label">Ceiling</div><div class="seg" id="seg-cc"><button class="seg-btn" onclick="setSeg('cc',0)">0</button><button class="seg-btn" onclick="setSeg('cc',1)">1</button><button class="seg-btn active" onclick="setSeg('cc',2)">2</button><button class="seg-btn" onclick="setSeg('cc',3)">3</button></div></div>
-      <div class="field-row"><div class="field-label">Woodwork</div><div class="seg" id="seg-xc"><button class="seg-btn" onclick="setSeg('xc',0)">0</button><button class="seg-btn" onclick="setSeg('xc',1)">1</button><button class="seg-btn active" onclick="setSeg('xc',2)">2</button><button class="seg-btn" onclick="setSeg('xc',3)">3</button></div></div>
-      <div class="toggle-row" style="border-top:1px solid var(--border)">
-        <div class="toggle-label">Spray walls<small>Adds the Rates spraying uplift % to wall litres (on top of the standard or per-product rate), and this room's labour picks up the spray sundries bump. Labour time is unchanged</small></div>
-        <div class="toggle" id="tog-spray" onclick="toggleSprayWalls()"></div>
+      <div class="card-header sec-toggle" onclick="toggleFormSection('doorframe')"><span>Doors &amp; Frames</span><span class="sec-chev" id="sec-chev-doorframe">›</span></div>
+      <div class="card-body" id="sec-doorframe">
+        <div class="subsection-label">Door<small>leave qty at 0 to price frames only</small></div>
+        <div class="field-row"><div class="field-label">Qty</div><input type="number" class="field-input" id="r-door-qty" placeholder="0" min="0" step="1" inputmode="numeric" oninput="previewRoom()"></div>
+        <div class="field-row"><div class="field-label">Coats</div><div class="seg" id="seg-door-coats"><button class="seg-btn" onclick="setDoorFrameSeg('door',0)">0</button><button class="seg-btn" onclick="setDoorFrameSeg('door',1)">1</button><button class="seg-btn active" onclick="setDoorFrameSeg('door',2)">2</button><button class="seg-btn" onclick="setDoorFrameSeg('door',3)">3</button></div></div>
+        <div class="subsection-label">Frame<small>leave qty at 0 to price doors only</small></div>
+        <div class="field-row"><div class="field-label">Qty</div><input type="number" class="field-input" id="r-frame-qty" placeholder="0" min="0" step="1" inputmode="numeric" oninput="previewRoom()"></div>
+        <div class="field-row"><div class="field-label">Coats</div><div class="seg" id="seg-frame-coats"><button class="seg-btn" onclick="setDoorFrameSeg('frame',0)">0</button><button class="seg-btn" onclick="setDoorFrameSeg('frame',1)">1</button><button class="seg-btn active" onclick="setDoorFrameSeg('frame',2)">2</button><button class="seg-btn" onclick="setDoorFrameSeg('frame',3)">3</button></div></div>
+        <div class="toggle-row" style="border-top:1px solid var(--border)">
+          <div class="toggle-label">Both sides<small>Price the whole leaf (both faces) in this qty — off prices just the side visible from this room</small></div>
+          <div class="toggle" id="tog-doorbothsides" onclick="toggleDoorBothSides()"></div>
+        </div>
+        <div class="toggle-row" style="border-top:1px solid var(--border)">
+          <div class="toggle-label">Fire door (FD30/FD60)<small>Intumescent-compatible coating surcharge; includes edges in the coat/coverage calc</small></div>
+          <div class="toggle" id="tog-firedoor" onclick="toggleFireDoor()"></div>
+        </div>
+        <div class="toggle-row" style="border-top:1px solid var(--border)">
+          <div class="toggle-label">Self-priming paint<small>Skips the primer coat, adds one extra topcoat instead — set per product in Rates → Paint Coverage once the woodwork paint has an entry there</small></div>
+          <div class="toggle" id="tog-doorselfpriming" onclick="toggleDoorSelfPriming()"></div>
+          <span id="driven-doorselfpriming" style="display:none;flex-shrink:0;font-size:12px;font-weight:600;color:var(--text2);text-align:right;max-width:45%"></span>
+        </div>
+        <div class="toggle-row" style="border-top:1px solid var(--border)">
+          <div class="toggle-label">Remove &amp; refit ironmongery<small>Handles/hinges/locks taken off and refitted</small></div>
+          <div class="toggle" id="tog-ironremove" onclick="toggleDoorIronmongery('remove')"></div>
+        </div>
+        <div class="toggle-row" style="border-top:1px solid var(--border)">
+          <div class="toggle-label">Mask ironmongery in place<small>Cheaper than removing — mutually exclusive with removing</small></div>
+          <div class="toggle" id="tog-ironmask" onclick="toggleDoorIronmongery('mask')"></div>
+        </div>
       </div>
-      <div class="toggle-row">
-        <div class="toggle-label">Spray ceiling<small>On by default — ceilings are normally sprayed. Adds the spraying uplift % to ceiling litres; turn off for a rolled ceiling</small></div>
-        <div class="toggle on" id="tog-sprayceil" onclick="toggleSprayCeiling()"></div>
-      </div>
-      <div class="toggle-row">
-        <div class="toggle-label">Spray woodwork<small>On by default — woodwork is normally sprayed. Adds the spraying uplift % to topcoat &amp; primer litres; turn off for brushed woodwork</small></div>
-        <div class="toggle on" id="tog-spraywood" onclick="toggleSprayWoodwork()"></div>
-      </div>
-      <div class="toggle-row" id="variation-row" style="border-top:1px solid var(--border);display:none">
-        <div class="toggle-label" style="color:var(--accent)">Variation<small>Extra scope on top of the accepted quote — listed under On Site › Variations. Turn off if this is a correction to the original quote</small></div>
-        <div class="toggle" id="tog-variation" onclick="toggleRoomVariation()"></div>
+    </div>
+    <div class="card" id="card-extras">
+      <div class="card-header sec-toggle" onclick="toggleFormSection('extras')"><span>Extras</span><span class="sec-chev" id="sec-chev-extras">›</span></div>
+      <div class="card-body" id="sec-extras">
+        <div class="field-row"><div class="field-label">Windows<small>total m² — woodwork; comes off wall area, painted only when Woodwork coats &gt; 0</small></div><input type="number" class="field-input" id="r-win" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+        <div class="field-row"><div class="field-label">Window sills<small>count — painted wooden sills on unpainted (plastic) windows</small></div><input type="number" class="field-input" id="r-sills" placeholder="0" min="0" step="1" inputmode="numeric" oninput="previewRoom()"></div>
+        <div class="field-row"><div class="field-label">Radiators<small>m²</small></div><input type="number" class="field-input" id="r-rads" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
       </div>
     </div>
     <div class="card searchable-card">
@@ -780,71 +800,14 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
         </div>
       </div>
     </div>
-    <div class="card" id="card-excluded-walls">
-      <div class="card-header sec-toggle" onclick="toggleFormSection('excluded')"><span>Excluded Walls</span><span class="sec-chev" id="sec-chev-excluded">›</span></div>
-      <div class="card-body" id="sec-excluded">
-        <div class="subsection-label">Excluded Walls<small>walls you're not painting — e.g. wallpaper that's staying. Each width × height comes off the painted wall area (and mist coat); leave empty to skip</small></div>
-        <div id="excluded-walls-list"></div>
-        <div class="field-row" style="cursor:pointer" onclick="addExcludedWall()"><div class="field-label" style="color:var(--accent);font-weight:600">+ Add excluded wall</div></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-header sec-toggle" onclick="toggleFormSection('doorframe')"><span>Doors &amp; Frames</span><span class="sec-chev" id="sec-chev-doorframe">›</span></div>
-      <div class="card-body" id="sec-doorframe">
-        <div class="subsection-label">Door<small>leave qty at 0 to price frames only</small></div>
-        <div class="field-row"><div class="field-label">Qty</div><input type="number" class="field-input" id="r-door-qty" placeholder="0" min="0" step="1" inputmode="numeric" oninput="previewRoom()"></div>
-        <div class="field-row"><div class="field-label">Coats</div><div class="seg" id="seg-door-coats"><button class="seg-btn" onclick="setDoorFrameSeg('door',0)">0</button><button class="seg-btn" onclick="setDoorFrameSeg('door',1)">1</button><button class="seg-btn active" onclick="setDoorFrameSeg('door',2)">2</button><button class="seg-btn" onclick="setDoorFrameSeg('door',3)">3</button></div></div>
-        <div class="subsection-label">Frame<small>leave qty at 0 to price doors only</small></div>
-        <div class="field-row"><div class="field-label">Qty</div><input type="number" class="field-input" id="r-frame-qty" placeholder="0" min="0" step="1" inputmode="numeric" oninput="previewRoom()"></div>
-        <div class="field-row"><div class="field-label">Coats</div><div class="seg" id="seg-frame-coats"><button class="seg-btn" onclick="setDoorFrameSeg('frame',0)">0</button><button class="seg-btn" onclick="setDoorFrameSeg('frame',1)">1</button><button class="seg-btn active" onclick="setDoorFrameSeg('frame',2)">2</button><button class="seg-btn" onclick="setDoorFrameSeg('frame',3)">3</button></div></div>
-        <div class="toggle-row" style="border-top:1px solid var(--border)">
-          <div class="toggle-label">Both sides<small>Price the whole leaf (both faces) in this qty — off prices just the side visible from this room</small></div>
-          <div class="toggle" id="tog-doorbothsides" onclick="toggleDoorBothSides()"></div>
-        </div>
-        <div class="field-row" style="border-top:1px solid var(--border)">
-          <div class="field-label">Prep level<small>independent of the room's own prep</small></div>
-          <div class="seg" id="seg-doorframe-prep" style="flex:1.5">
-            <button class="seg-btn active" onclick="setDoorFramePrep(10)">Minimal</button>
-            <button class="seg-btn" onclick="setDoorFramePrep(25)">Standard</button>
-            <button class="seg-btn" onclick="setDoorFramePrep(40)">Heavy</button>
-            <button class="seg-btn" onclick="setDoorFramePrep(-1)">Custom</button>
-          </div>
-        </div>
-        <div class="field-row" id="doorframe-prep-custom-row" style="display:none;border-top:1px solid var(--border)">
-          <div class="field-label">Custom prep %<small>uplift on door/frame labour only</small></div>
-          <input type="number" class="field-input" id="r-doorframe-prep-custom" placeholder="0" min="0" max="100" step="5" inputmode="numeric" oninput="previewRoom()">
-        </div>
-        <div class="toggle-row" style="border-top:1px solid var(--border)">
-          <div class="toggle-label">Fire door (FD30/FD60)<small>Intumescent-compatible coating surcharge; includes edges in the coat/coverage calc</small></div>
-          <div class="toggle" id="tog-firedoor" onclick="toggleFireDoor()"></div>
-        </div>
-        <div class="toggle-row" style="border-top:1px solid var(--border)">
-          <div class="toggle-label">Self-priming paint<small>Skips the primer coat, adds one extra topcoat instead — set per product in Rates → Paint Coverage once the woodwork paint has an entry there</small></div>
-          <div class="toggle" id="tog-doorselfpriming" onclick="toggleDoorSelfPriming()"></div>
-          <span id="driven-doorselfpriming" style="display:none;flex-shrink:0;font-size:12px;font-weight:600;color:var(--text2);text-align:right;max-width:45%"></span>
-        </div>
-        <div class="toggle-row" style="border-top:1px solid var(--border)">
-          <div class="toggle-label">Remove &amp; refit ironmongery<small>Handles/hinges/locks taken off and refitted</small></div>
-          <div class="toggle" id="tog-ironremove" onclick="toggleDoorIronmongery('remove')"></div>
-        </div>
-        <div class="toggle-row" style="border-top:1px solid var(--border)">
-          <div class="toggle-label">Mask ironmongery in place<small>Cheaper than removing — mutually exclusive with removing</small></div>
-          <div class="toggle" id="tog-ironmask" onclick="toggleDoorIronmongery('mask')"></div>
-        </div>
-      </div>
-    </div>
-    <div class="card" id="card-extras">
-      <div class="card-header sec-toggle" onclick="toggleFormSection('extras')"><span>Extras</span><span class="sec-chev" id="sec-chev-extras">›</span></div>
-      <div class="card-body" id="sec-extras">
-        <div class="field-row"><div class="field-label">Windows<small>total m² — woodwork; comes off wall area, painted only when Woodwork coats &gt; 0</small></div><input type="number" class="field-input" id="r-win" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
-        <div class="field-row"><div class="field-label">Window sills<small>count — painted wooden sills on unpainted (plastic) windows</small></div><input type="number" class="field-input" id="r-sills" placeholder="0" min="0" step="1" inputmode="numeric" oninput="previewRoom()"></div>
-        <div class="field-row"><div class="field-label">Radiators<small>m²</small></div><input type="number" class="field-input" id="r-rads" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
-      </div>
-    </div>
     <div class="card">
       <div class="card-header sec-toggle" onclick="toggleFormSection('wallpaper')"><span>Wallpaper</span><span class="sec-chev" id="sec-chev-wallpaper">›</span></div>
       <div class="card-body" id="sec-wallpaper">
         <div class="field-row">
+          <div class="field-label">Pattern / product note<small>your own reference — pattern name, supplier, anything about the type. Never shown to the client</small></div>
+          <input type="text" class="field-input wide" id="r-wp-note" placeholder="e.g. Cole &amp; Son Woods, paste-the-wall" autocorrect="off">
+        </div>
+        <div class="field-row" style="border-top:1px solid var(--border)">
           <div class="field-label">Walls<small>both can be on — e.g. line out then finish</small></div>
           <div class="seg" id="seg-wpw" style="flex:1.5">
             <button class="seg-btn" onclick="toggleWP('wpw','lining')">Lining</button>
@@ -893,18 +856,12 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
         <div class="breakdown-row" id="wp-r-ceil-rolls-row" style="display:none;background:var(--accent-faint)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Ceiling rolls to order</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="wp-r-ceil-rolls">—</span></div>
       </div>
     </div>
-    <div class="card">
-      <div class="card-header sec-toggle" onclick="toggleFormSection('mist')"><span>Mist Coat</span><span class="sec-chev" id="sec-chev-mist">›</span></div>
-      <div class="card-body" id="sec-mist">
-        <div class="toggle-row">
-          <div class="toggle-label">Mist coat — Walls<small>Adds a mist coat pass to walls</small></div>
-          <div class="toggle" id="tog-mw" onclick="toggleMist('mw')"></div>
-        </div>
-        <div class="toggle-row" style="border-top:1px solid var(--border)">
-          <div class="toggle-label">Mist coat — Ceiling<small>Adds a mist coat pass to ceiling</small></div>
-          <div class="toggle" id="tog-mc" onclick="toggleMist('mc')"></div>
-        </div>
-        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Manual area override<small>m² — for when only part is new plaster; blank uses the selected surface(s) above</small></div><input type="number" class="field-input" id="r-mist-area" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+    <div class="card" id="card-excluded-walls">
+      <div class="card-header sec-toggle" onclick="toggleFormSection('excluded')"><span>Excluded Walls</span><span class="sec-chev" id="sec-chev-excluded">›</span></div>
+      <div class="card-body" id="sec-excluded">
+        <div class="subsection-label">Excluded Walls<small>walls you're not painting — e.g. wallpaper that's staying. Each width × height comes off the painted wall area (and mist coat); leave empty to skip</small></div>
+        <div id="excluded-walls-list"></div>
+        <div class="field-row" style="cursor:pointer" onclick="addExcludedWall()"><div class="field-label" style="color:var(--accent);font-weight:600">+ Add excluded wall</div></div>
       </div>
     </div>
     <div class="card searchable-card">
@@ -929,6 +886,44 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
         <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Colour<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-panel" style="flex-wrap:wrap"></div></div>
         <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Product<small>no default — choose explicitly</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-panel-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('panel')" onfocus="onRoomRangeSearchInput('panel')"><div id="r-panel-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
         <div class="field-row" id="r-panel-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-panel-band" onchange="onRoomOverrideBandSelect('panel')"></select></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header sec-toggle" onclick="toggleFormSection('mist')"><span>Mist Coat</span><span class="sec-chev" id="sec-chev-mist">›</span></div>
+      <div class="card-body" id="sec-mist">
+        <div class="toggle-row">
+          <div class="toggle-label">Mist coat — Walls<small>Adds a mist coat pass to walls</small></div>
+          <div class="toggle" id="tog-mw" onclick="toggleMist('mw')"></div>
+        </div>
+        <div class="toggle-row" style="border-top:1px solid var(--border)">
+          <div class="toggle-label">Mist coat — Ceiling<small>Adds a mist coat pass to ceiling</small></div>
+          <div class="toggle" id="tog-mc" onclick="toggleMist('mc')"></div>
+        </div>
+        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Manual area override<small>m² — for when only part is new plaster; blank uses the selected surface(s) above</small></div><input type="number" class="field-input" id="r-mist-area" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header sec-toggle" onclick="toggleFormSection('coats')"><span>Coats</span><span class="sec-chev" id="sec-chev-coats">›</span></div>
+      <div class="card-body" id="sec-coats">
+        <div class="field-row"><div class="field-label">Walls</div><div class="seg" id="seg-wc"><button class="seg-btn" onclick="setSeg('wc',0)">0</button><button class="seg-btn" onclick="setSeg('wc',1)">1</button><button class="seg-btn active" onclick="setSeg('wc',2)">2</button><button class="seg-btn" onclick="setSeg('wc',3)">3</button></div></div>
+        <div class="field-row"><div class="field-label">Ceiling</div><div class="seg" id="seg-cc"><button class="seg-btn" onclick="setSeg('cc',0)">0</button><button class="seg-btn" onclick="setSeg('cc',1)">1</button><button class="seg-btn active" onclick="setSeg('cc',2)">2</button><button class="seg-btn" onclick="setSeg('cc',3)">3</button></div></div>
+        <div class="field-row"><div class="field-label">Woodwork</div><div class="seg" id="seg-xc"><button class="seg-btn" onclick="setSeg('xc',0)">0</button><button class="seg-btn" onclick="setSeg('xc',1)">1</button><button class="seg-btn active" onclick="setSeg('xc',2)">2</button><button class="seg-btn" onclick="setSeg('xc',3)">3</button></div></div>
+        <div class="toggle-row" style="border-top:1px solid var(--border)">
+          <div class="toggle-label">Spray walls<small>Adds the Rates spraying uplift % to wall litres (on top of the standard or per-product rate), and this room's labour picks up the spray sundries bump. Labour time is unchanged</small></div>
+          <div class="toggle" id="tog-spray" onclick="toggleSprayWalls()"></div>
+        </div>
+        <div class="toggle-row">
+          <div class="toggle-label">Spray ceiling<small>On by default — ceilings are normally sprayed. Adds the spraying uplift % to ceiling litres; turn off for a rolled ceiling</small></div>
+          <div class="toggle on" id="tog-sprayceil" onclick="toggleSprayCeiling()"></div>
+        </div>
+        <div class="toggle-row">
+          <div class="toggle-label">Spray woodwork<small>On by default — woodwork is normally sprayed. Adds the spraying uplift % to topcoat &amp; primer litres; turn off for brushed woodwork</small></div>
+          <div class="toggle on" id="tog-spraywood" onclick="toggleSprayWoodwork()"></div>
+        </div>
+        <div class="toggle-row" id="variation-row" style="border-top:1px solid var(--border);display:none">
+          <div class="toggle-label" style="color:var(--accent)">Variation<small>Extra scope on top of the accepted quote — listed under On Site › Variations. Turn off if this is a correction to the original quote</small></div>
+          <div class="toggle" id="tog-variation" onclick="toggleRoomVariation()"></div>
+        </div>
       </div>
     </div>
     <div class="card">
@@ -4653,14 +4648,16 @@ var fwWpCommercialType = 'none';
 var fwMuralPriceMode = 'perArea';
 var prepPct  = 10; // 10 (Minimal, default), 25 (Standard), 40 (Heavy), or -1 for custom
 // Door / Frame: independent line items (own qty/coats each, so either can be
-// priced alone), independent prep (doorFramePrepPct, same 10/25/40/-1
-// precedent as panelPrepPct below), and their own toggles. Fire door +
+// priced alone) with their own toggles. They carry the ROOM's prep uplift:
+// they used to have an independent doorFramePrepPct, which was one decision
+// too many on a form filled in on site, so calcRoom() applies prepPct to
+// them instead (it has to do so explicitly -- their labour sits outside
+// baseTotal, see the doorFramePrepUp comment there). Fire door +
 // ironmongery are per-line-item flags (this room's whole Door line is or
 // isn't fire-rated) rather than per-physical-door, matching how every other
 // toggle in this file (mistWall, sprayWalls, etc.) applies to a whole
 // section rather than tracking individual units.
 var doorCoats = 2, frameCoats = 2;
-var doorFramePrepPct = 10;
 var doorFireDoor = false, doorSelfPriming = false;
 var doorIronRemove = false, doorIronMask = false;
 // Both sides: prices the whole leaf (both faces) as one line instead of the
@@ -8489,12 +8486,21 @@ function updateNavBadge() {
   });
 }
 
-// Collapsible room-form sections (Extras/Preparation/Mist Coat/Paint &
-// Colour/Wallpaper) -- purely presentational, mirrors the existing
-// toggleRoomBd() chevron pattern used on the Summary screen. Collapsed by
-// default each time the room screen is entered (resetFormSections, called
-// from both goScreen('room') and editRoom() since editRoom doesn't route
-// through goScreen).
+// Collapsible room-form sections -- purely presentational, mirrors the
+// existing toggleRoomBd() chevron pattern used on the Summary screen. Every
+// section is collapsed each time the room screen is entered
+// (resetFormSections, called from both goScreen('room') and editRoom() since
+// editRoom doesn't route through goScreen), so the form opens as a short
+// index of the room rather than a page you scroll past.
+//
+// FORM_SECTIONS_OPEN_BY_DEFAULT is the exception list: Dimensions is the one
+// card you fill in on every single room, so it starts open -- but it is a
+// real section like the rest, so it can still be collapsed out of the way
+// mid-visit. Room Details (name + the Staircase/HSL toggle that swaps the
+// whole form) is not a collapsible section at all and is always on screen,
+// and neither are the staircase geometry cards the toggle reveals -- they
+// are that room's Dimensions.
+var FORM_SECTIONS_OPEN_BY_DEFAULT = ['dimensions'];
 function toggleFormSection(id) {
   var body = document.getElementById('sec-'+id);
   var chev = document.getElementById('sec-chev-'+id);
@@ -8505,6 +8511,12 @@ function toggleFormSection(id) {
 function resetFormSections() {
   document.querySelectorAll('#screen-room .card-body').forEach(function(el) { el.classList.remove('open'); });
   document.querySelectorAll('#screen-room .sec-chev').forEach(function(el) { el.classList.remove('open'); });
+  FORM_SECTIONS_OPEN_BY_DEFAULT.forEach(function(id) {
+    var body = document.getElementById('sec-'+id);
+    var chev = document.getElementById('sec-chev-'+id);
+    if (body) body.classList.add('open');
+    if (chev) chev.classList.add('open');
+  });
 }
 // Exterior form sections default OPEN (unlike the room form's collapsed
 // Extras/Prep/etc) -- still collapsible mid-visit via toggleFormSection(),
@@ -8522,14 +8534,11 @@ function goScreen(name) {
   if (name==='room') {
     resetFormSections();
     editId=null; coats={wc:2,cc:2,xc:2}; mistWall=false; mistCeil=false; sprayWalls=false; sprayCeiling=true; sprayWoodwork=true; prepPct=10;
-    doorCoats=2; frameCoats=2; doorFramePrepPct=10;
+    doorCoats=2; frameCoats=2;
     doorFireDoor=false; doorSelfPriming=false; doorIronRemove=false; doorIronMask=false;
     doorBothSides=false; selfPrimingWoodwork=false;
     document.querySelectorAll('#seg-door-coats .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===2);});
     document.querySelectorAll('#seg-frame-coats .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===2);});
-    document.querySelectorAll('#seg-doorframe-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===0);});
-    document.getElementById('doorframe-prep-custom-row').style.display = 'none';
-    document.getElementById('r-doorframe-prep-custom').value = '';
     ['tog-firedoor','tog-doorselfpriming','tog-doorbothsides','tog-ironremove','tog-ironmask','tog-selfprimingwoodwork'].forEach(function(id){
       document.getElementById(id).classList.remove('on');
     });
@@ -8600,6 +8609,7 @@ function goScreen(name) {
     document.getElementById('r-wp-roll-len').value='10.05';
     document.getElementById('r-wp-roll-width').value='0.53';
     document.getElementById('r-wp-repeat').value='';
+    document.getElementById('r-wp-note').value='';
     ['wp-rolls-header-row','wp-roll-len-row','wp-roll-width-row','wp-match-row','wp-spare-row','wp-repeat-row','wp-r-wall-labour-row','wp-r-ceil-labour-row','wp-r-droplen-row','wp-r-drops-row','wp-r-rolls-row','wp-r-ceil-droplen-row','wp-r-ceil-drops-row','wp-r-ceil-rolls-row'].forEach(function(id){
       var el=document.getElementById(id); if(el) el.style.display='none';
     });
@@ -8975,12 +8985,19 @@ function calcRoom(r) {
   var winCost  = win>0 && xc>0 ? win*winMins()*r2 : 0;
   var woodCost = r.woodCostOverride != null ? +r.woodCostOverride :
                  (xc>0 ? perim*skirtMins(xc)*r2 : 0);
+  // The room's prep uplift, hoisted above the door/frame block because both
+  // need it -- doors and frames used to carry their own independent
+  // doorFramePrepPct and no longer do (one prep decision per room).
+  var prepUp  = r.prepPct >= 0 ? r.prepPct : (+r.prepCustom||0);
   // Door + Frame: independent line items (own qty/coats each -- see
-  // doorFrameLabourCost()), with their own prep% independent of the room's
-  // (prepUp below), same pattern as panelling's panelPrepUp. Fire door
+  // doorFrameLabourCost()). Their labour sits OUTSIDE baseTotal (added to
+  // preFloorTotal below, same as panelling), so the room's prep can't reach
+  // them through the baseTotal*(1+prepUp/100) branch -- it is applied here
+  // instead, which is why doorFramePrepUp still exists as a separate figure
+  // for the Summary breakdown even though it is now just prepUp. Fire door
   // surcharge + ironmongery are flat £/door add-ons, so they're added AFTER
   // the prep multiplier, never scaled by it.
-  var doorFramePrepUp = r.doorFramePrepPct >= 0 ? r.doorFramePrepPct : (+r.doorFramePrepCustom||0);
+  var doorFramePrepUp = prepUp;
   var doorFrameLabour = doorFrameLabourCost('int', doorQty, frameQty, doorCoats, frameCoats, r2, !!r.doorBothSides);
   var doorCost  = doorFrameLabour.doorCost  * (1 + doorFramePrepUp/100);
   var frameCost = doorFrameLabour.frameCost * (1 + doorFramePrepUp/100);
@@ -9084,7 +9101,6 @@ function calcRoom(r) {
       panelPrepUp = panelResult.panelPrepUp;
 
   var baseTotal = wallCost+ceilCost+winCost+woodCost+radCost+sillCost+featureWallOwnCost+mistWCost+mistCCost+wpwCost+wpcCost+featureWallWpCost;
-  var prepUp  = r.prepPct >= 0 ? r.prepPct : (+r.prepCustom||0);
   var makingGood = +r.makingGood||0;
   // panelCost already carries its own prep multiplier (panelPrepUp above)
   // and is added AFTER the room's own prep/totalOverride branch, not
@@ -9092,8 +9108,11 @@ function calcRoom(r) {
   // SECOND time on top of panelling's independent one. Additive in both
   // branches (not just the non-override one) so an HSL/staircase room's
   // totalOverride can still carry panelling, e.g. wainscoting under stairs.
-  // doorFrameCost is the same story -- its own prep (doorFramePrepUp above),
-  // added post-total like panelling rather than folded into baseTotal.
+  // doorFrameCost is the same story -- prep already applied at doorCost/
+  // frameCost above, added post-total like panelling rather than folded
+  // into baseTotal. It is the room's own prep % either way now, but it has
+  // to be multiplied in up there rather than left to the baseTotal branch,
+  // or door labour would come out unprepped.
   var roomBaseTotal = r.totalOverride != null
     ? +r.totalOverride
     : baseTotal * (1 + prepUp/100) + makingGood;
@@ -15445,14 +15464,14 @@ function renderHome() {
 //      the room's prep -- are skipped there: writing them would move the
 //      room's litres and its breakdown while leaving its price stale. The
 //      fields priced OUTSIDE that override are not skipped, because they
-//      still move the price correctly: doors, frames and their own prep
+//      still move the price correctly: doors and frames
 //      (calcRoom adds doorFrameCost after the totalOverride branch), and
 //      every product override, which only ever affects litres. Per field,
 //      via frozenOnHSL -- not per room.
 //   4. The apply step writes the exact same keys buildRoomFromForm() writes
 //      -- <role>RangeOverride/<role>BandOverride, primerNone, wc/cc/xc,
-//      doorCoats/frameCoats, mistWall/mistCeil, prepPct/prepCustom and
-//      doorFramePrepPct/doorFramePrepCustom. No new schema, no "bulk
+//      doorCoats/frameCoats, mistWall/mistCeil and prepPct/prepCustom.
+//      No new schema, no "bulk
 //      applied" marker, no lock. A bulk-edited room is indistinguishable
 //      from a hand-edited one and stays editable one-by-one exactly as
 //      before.
@@ -15524,11 +15543,7 @@ var BULK_PREP_FIELDS = [
   { key: 'room',      label: 'Prep level',      section: 'Preparation',
     pctKey: 'prepPct',          customKey: 'prepCustom',
     surface: null,            frozenOnHSL: true,
-    hint: 'the room\'s own prep uplift' },
-  { key: 'doorframe', label: 'Door/frame prep', section: 'Door / Frame Preparation',
-    pctKey: 'doorFramePrepPct', customKey: 'doorFramePrepCustom',
-    surface: 'doorsOrFrames', frozenOnHSL: false,
-    hint: 'doors and frames carry their own prep, independent of the room\'s' }
+    hint: 'the room\'s prep uplift — doors and frames follow it too' }
 ];
 // Same 0-3 range the room form's coat segs offer.
 var BULK_COAT_MAX = 3;
@@ -15536,8 +15551,7 @@ var BULK_COAT_MAX = 3;
 // room"), as opposed to the field labels above ("Woodwork coats").
 var BULK_SURFACE_LABELS = {
   walls: 'walls', ceiling: 'ceiling', wood: 'woodwork', doors: 'doors', frames: 'frames',
-  mist: 'mist coat', featurewall: 'painted feature wall', panel: 'panelling',
-  doorsOrFrames: 'doors or frames'
+  mist: 'mist coat', featurewall: 'painted feature wall', panel: 'panelling'
 };
 // The one non-surface skip reason: see rule 3 at the top.
 var BULK_HSL_REASON = 'a staircase room’s labour is set on the staircase form';
@@ -15628,7 +15642,7 @@ function buildBulkPrepRows() {
     return '<div class="subsection-label">' + escapeHtml(f.section) + '<small>' + escapeHtml(f.hint) + '</small></div>' +
       '<div style="padding:10px 16px 12px"><div class="seg" id="bulk-seg-prep-' + f.key + '">' + btns + '</div></div>' +
       '<div class="field-row" id="bulk-prep-custom-row-' + f.key + '" style="display:none">' +
-        '<div class="field-label">Custom prep %<small>uplift on the ' + (f.key === 'room' ? 'room total' : 'door and frame labour') + '</small></div>' +
+        '<div class="field-label">Custom prep %<small>uplift on the room total</small></div>' +
         '<input type="number" class="field-input" id="bulk-prep-custom-' + f.key + '" placeholder="0" min="0" max="100" step="5" inputmode="numeric"></div>';
   }).join('');
 }
@@ -15711,8 +15725,6 @@ function bulkSurfacesOf(r, pendingMist) {
     wood: woodArea > 0,
     doors: (+r.doorQty || 0) > 0,
     frames: (+r.frameQty || 0) > 0,
-    // Door/frame prep multiplies both line items at once, so either is enough.
-    doorsOrFrames: (+r.doorQty || 0) > 0 || (+r.frameQty || 0) > 0,
     // Mist paint is only bought where a mist coat is actually switched on.
     mist: !!(r.mistWall || r.mistCeil || (pm.mistWall && walls) || (pm.mistCeil && ceiling)),
     // In wallpaper mode the feature wall isn't painted at all (calcRoom
@@ -16496,15 +16508,6 @@ function setDoorFrameSeg(which, val) {
   });
   previewRoom();
 }
-function setDoorFramePrep(val) {
-  doorFramePrepPct = val;
-  var vals = [10, 25, 40, -1];
-  document.querySelectorAll('#seg-doorframe-prep .seg-btn').forEach(function(b,i){
-    b.classList.toggle('active', vals[i]===val);
-  });
-  document.getElementById('doorframe-prep-custom-row').style.display = val===-1 ? 'flex' : 'none';
-  previewRoom();
-}
 function toggleFireDoor() {
   doorFireDoor = !doorFireDoor;
   document.getElementById('tog-firedoor').classList.toggle('on', doorFireDoor);
@@ -16944,8 +16947,6 @@ function previewRoomNow() {
     doorQty:+document.getElementById('r-door-qty').value||0,
     frameQty:+document.getElementById('r-frame-qty').value||0,
     doorCoats:doorCoats, frameCoats:frameCoats,
-    doorFramePrepPct:doorFramePrepPct,
-    doorFramePrepCustom:+document.getElementById('r-doorframe-prep-custom').value,
     doorFireDoor:doorFireDoor, doorSelfPriming:doorSelfPriming,
     doorIronRemove:doorIronRemove, doorIronMask:doorIronMask,
     doorBothSides:doorBothSides, selfPrimingWoodwork:selfPrimingWoodwork,
@@ -17224,10 +17225,6 @@ function editRoom(id) {
   frameCoats = r.frameCoats!=null ? +r.frameCoats : 2;
   document.querySelectorAll('#seg-door-coats .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===doorCoats);});
   document.querySelectorAll('#seg-frame-coats .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===frameCoats);});
-  doorFramePrepPct = r.doorFramePrepPct != null ? r.doorFramePrepPct : 10;
-  document.querySelectorAll('#seg-doorframe-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',[10,25,40,-1][i]===doorFramePrepPct);});
-  document.getElementById('r-doorframe-prep-custom').value = r.doorFramePrepCustom||'';
-  document.getElementById('doorframe-prep-custom-row').style.display = doorFramePrepPct===-1?'flex':'none';
   doorFireDoor=!!r.doorFireDoor; doorSelfPriming=!!r.doorSelfPriming;
   doorIronRemove=!!r.doorIronRemove; doorIronMask=!!r.doorIronMask;
   doorBothSides=!!r.doorBothSides; selfPrimingWoodwork=!!r.selfPrimingWoodwork;
@@ -17279,6 +17276,9 @@ function editRoom(id) {
   // saved BEFORE this fix, this just shows whatever raw number was stored
   // divided by 10 -- it does not attempt to guess or correct old data.
   document.getElementById('r-wp-repeat').value = r.wpRepeatMm ? r.wpRepeatMm/10 : '';
+  // Personal reference only -- deliberately not surfaced on the Quote view,
+  // the Xero quote or the Colours screen.
+  document.getElementById('r-wp-note').value = r.wpNote||'';
   updateWPRollSpecVisibility();
   document.getElementById('del-room-btn').style.display='block';
   ['wc','cc','xc'].forEach(function(k){setSeg(k,+r[k]);});
@@ -17397,8 +17397,6 @@ function buildRoomFromForm() {
     doorQty:+document.getElementById('r-door-qty').value||0,
     frameQty:+document.getElementById('r-frame-qty').value||0,
     doorCoats:doorCoats, frameCoats:frameCoats,
-    doorFramePrepPct:doorFramePrepPct,
-    doorFramePrepCustom:+document.getElementById('r-doorframe-prep-custom').value,
     doorFireDoor:doorFireDoor, doorSelfPriming:doorSelfPriming,
     doorIronRemove:doorIronRemove, doorIronMask:doorIronMask,
     doorBothSides:doorBothSides, selfPrimingWoodwork:selfPrimingWoodwork,
@@ -17412,6 +17410,7 @@ function buildRoomFromForm() {
     wpMatch:wpMatch,
     wpRepeatMm:wpRepeatCmFromInput(),
     wpSpareRoll:wpSpareRoll,
+    wpNote:(document.getElementById('r-wp-note').value||'').trim()||undefined,
     prepPct:prepPct,
     prepCustom:+document.getElementById('r-prep-custom').value,
     makingGood:+document.getElementById('r-making-good').value,
@@ -17725,7 +17724,7 @@ function calcHSLNow() {
   // times as skirting.
   var doorQtyDisp = +document.getElementById('r-door-qty').value||0;
   var frameQtyDisp = +document.getElementById('r-frame-qty').value||0;
-  var doorFramePrepUpDisp = doorFramePrepPct>=0 ? doorFramePrepPct : (+document.getElementById('r-doorframe-prep-custom').value||0);
+  var doorFramePrepUpDisp = prepPct>=0 ? prepPct : (+document.getElementById('r-prep-custom').value||0);
   var spindles= +document.getElementById('hsl-spindles').value||0;
   var newels  = +document.getElementById('hsl-newels').value||0;
   var swc     = hslCoats.swc;
@@ -17796,7 +17795,8 @@ function calcHSLNow() {
   var prepUpDisp = prepPct >= 0 ? prepPct : (+document.getElementById('r-prep-custom').value||0);
   var makingGoodDisp = +document.getElementById('r-making-good').value||0;
   // doorCostDisp already carries its own independent prep multiplier (see
-  // doorFramePrepUpDisp above), same reasoning as calcRoom()'s doorFrameCost
+  // doorFramePrepUpDisp above -- the room's own prep), same reasoning as
+  // calcRoom()'s doorFrameCost
   // -- added AFTER the room's own prep, not inside the bracket it applies to.
   var totalCostDisp = (wallCostDisp+ceilCostDisp+skirtCostDisp+calcWoodCost+wpwCostDisp+wpcCostDisp+mistCostDisp+winCostDisp+radCostDisp) * (1+prepUpDisp/100) + makingGoodDisp + doorCostDisp;
   var totalTimeDisp = totalCostDisp/r2/60/hpd;
