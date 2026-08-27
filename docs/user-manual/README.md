@@ -103,6 +103,26 @@ Tap the **`+` button** (bottom right) and choose what you're adding:
 
 > **Quick add:** walking a big house? Tap **Quick add** instead and just type the room names one after another — Living Room, Hall, Bedroom 1… — then go back round measuring each one on a second pass. Much faster than filling in a full form in every doorway.
 
+### Bulk edit
+
+Once there's more than one room, **Bulk edit** appears on the Interior header. Tap it and every room gets a tick box — pick the ones you want (or **Select all**), then **Edit N rooms**:
+
+![Selecting rooms for a bulk edit](images/22-bulk-select.png)
+
+The panel that opens covers the fields worth doing in one go: a product and colour band for each of the seven paint roles (walls, ceiling, woodwork topcoat, woodwork primer — with a **None** option for a self-priming topcoat — mist coat, feature wall and panelling), coat counts for walls/ceiling/woodwork/doors/frames, a mist coat toggle for walls and ceiling, and prep level (the room's own, and doors/frames' independent scale):
+
+![Bulk edit panel — product pickers](images/22b-bulk-panel-top.png)
+
+![Bulk edit panel — coats, mist coat and prep](images/22c-bulk-panel-prep.png)
+
+**Every field starts on "No change" and stays there unless you set it** — nothing carries over from the last time you used it, and a field you don't touch is left alone on every room. Two rules worth knowing: it **never invents a surface a room hasn't got** (ask for woodwork coats and a room with no woodwork is skipped, marked N/A in the preview), and **mist coat only ever adds** — ticking a surface turns it on where it's off, but leaving it unticked never turns an existing mist coat off. Coats work the other way and the form says so: the number you type is the exact coat count, not an increase.
+
+Tap **Preview changes** to see exactly what would move, room by room, `old → new`, before anything is written:
+
+![Reviewing a bulk edit before applying](images/22d-bulk-preview.png)
+
+Nothing is saved until you tap **Apply**; **Back** returns to the panel with every field still set. Afterwards the rooms are ordinary rooms — open any one and edit it as normal, nothing is locked. Staircase/HSL rooms take part too, but only for the fields that actually move their price: door coats, frame coats, door/frame prep and every product override apply normally, while wall/ceiling/woodwork coats, the mist toggles and the room's own prep are skipped (a staircase room's total is worked out and frozen when you save the staircase form itself — change those on the staircase form instead).
+
 Rooms and fitted units can also be **duplicated** — tap the ⧉ icon on their card in the Measure list. Everything copies: dimensions, coats, prep, colours and products, dropped in right below the original as "(copy)". This is the fast way to do bedrooms 2/3/4, or two matching alcove units either side of a chimney breast — measure one, copy it, change a couple of numbers. A copy always starts its own client sign-off from Pending (it never inherits the original's ✓), and on an accepted job it arrives flagged as a variation, same as anything else added after acceptance.
 
 ### Adding a room
@@ -506,6 +526,6 @@ Settings → **Backup**:
 
 ---
 
-*Manual for NH Estimator v2.39.1. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.39.6. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
