@@ -260,10 +260,20 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
 .nav-menu-sync{padding:10px 14px;font-size:12px;border-top:1px solid var(--border);color:#27ae60}
 .nav-menu-sync.saving{color:#f39c12}
 .nav-menu-sync.offline{color:#c0392b}
-.nav-ham-badge{display:none;position:absolute;top:-2px;right:-4px;min-width:16px;height:16px;padding:0 4px;background:var(--danger,#c0392b);color:#fff;font-size:10px;font-weight:700;line-height:16px;text-align:center;border-radius:9px;font-family:'DM Sans',sans-serif}
+/* Outstanding-materials count on the bottom bar's On Site icon. Named for
+   where it lives, and deliberately used by exactly ONE element:
+   updateNavBadge() writes the count into every span carrying this class, so
+   a second user would silently inherit a number that isn't about it. It was
+   .nav-ham-badge until v2.41.1 and did have a second user -- the hamburger
+   button -- left over from when Materials was a row INSIDE that menu. v2.0
+   moved On Site to the bottom bar and put Colours in the menu in its place,
+   and the badge stayed, so the hamburger showed a count for something the
+   menu no longer contained. */
+.nav-onsite-badge{display:none;position:absolute;top:-2px;right:-4px;min-width:16px;height:16px;padding:0 4px;background:var(--danger,#c0392b);color:#fff;font-size:10px;font-weight:700;line-height:16px;text-align:center;border-radius:9px;font-family:'DM Sans',sans-serif}
 /* Shopping-list count on the Price Lookup basket button. Its own class, NOT
-   .nav-ham-badge: updateNavBadge() writes the outstanding-materials count
-   into every .nav-ham-badge span, and this badge counts something else. */
+   .nav-onsite-badge, for the same reason: that one is written by
+   updateNavBadge() from the outstanding-materials count, and this badge
+   counts something else. */
 .basket-badge{display:none;position:absolute;top:-2px;right:-4px;min-width:16px;height:16px;padding:0 4px;background:var(--accent);color:#fff;font-size:10px;font-weight:700;line-height:16px;text-align:center;border-radius:9px;font-family:'DM Sans',sans-serif}
 .nav-menu-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:300}
 .nav-menu-backdrop.open{display:block}
@@ -351,7 +361,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     <div onclick="goTab('jobs')" id="home-job-name" style="flex:1;font-weight:700;font-size:15px;color:var(--text);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">My Job &rsaquo;</div>
     <div class="topbar-sub" id="home-sub"></div>
     <div class="chip" id="home-chip" style="display:none">£0</div>
-    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰</button>
   </div>
   <div class="content">
     <div class="empty" id="measure-empty">
@@ -526,7 +536,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
   <div class="topbar">
     <span class="brand-slot" style="display:flex;align-items:center;min-width:0"><img class="brand-logo" src="/logo.png" style="height:36px;width:auto;max-width:150px;object-fit:contain" alt="Logo"><span class="brand-name" style="display:none;font-weight:700;color:var(--accent);font-size:15px;line-height:1.15;max-width:150px;overflow:hidden"></span></span>
     <div style="flex:1"></div>
-    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰</button>
   </div>
   <div class="content">
     <div id="attention-strip"></div>
@@ -1032,13 +1042,13 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
      Bottom-bar tab in v2.0 (was hamburger-only) -- always entered via
      openActuals(), which loads server data before rendering, never a bare
      goTab('actuals'). No back button: it's a top-level tab now. The
-     outstanding-count badge is load-bearing, not decoration: see
-     updateNavBadge(). -->
+     outstanding-count badge on this tab's bottom-bar icon is load-bearing,
+     not decoration: see updateNavBadge(). -->
 <div id="screen-actuals" class="screen">
   <div class="topbar">
     <div class="topbar-title">On Site</div>
     <button onclick="goInvoiceList()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:20px;padding:6px 14px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Invoice ›</button>
-    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰</button>
   </div>
   <div class="content">
     <div id="actuals-body"></div>
@@ -1083,7 +1093,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
          retired rather than left as a second, redundant path in. -->
     <button onclick="openClientQuote()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:20px;padding:6px 14px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Quote ⤴</button>
     <button onclick="exportCSV()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:20px;padding:6px 14px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Export ↓</button>
-    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰</button>
   </div>
   <!-- Compact stand-in for the quote panel once a job is quoted or beyond
        (see updateXeroPanelCollapse) — the full form + Send button are
@@ -1519,7 +1529,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     <button class="back-btn" onclick="goBack()">←</button>
     <div class="topbar-title">Kitchen</div>
     <div class="chip" id="k-chip" style="display:none">£0</div>
-    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰</button>
   </div>
   <div class="content">
     <div class="card">
@@ -1599,7 +1609,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     <button class="back-btn" onclick="goBack()">←</button>
     <div class="topbar-title">Fitted Unit</div>
     <div class="chip" id="fu-chip" style="display:none">£0</div>
-    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰</button>
   </div>
   <div class="content">
     <div class="card">
@@ -1683,7 +1693,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
   <div class="topbar">
     <button class="back-btn" onclick="goTab('dash')">←</button>
     <div class="topbar-title">Colours</div>
-    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰</button>
   </div>
   <div class="content">
     <div class="empty" id="colours-empty">
@@ -1710,7 +1720,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
   <div class="topbar">
     <button class="back-btn" onclick="goTab('dash')">←</button>
     <div class="topbar-title">Price Lookup</div>
-    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="goTab('shoplist')" title="Shopping list">🛒<span class="basket-badge" id="shoplist-badge"></span></button><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="goTab('shoplist')" title="Shopping list">🛒<span class="basket-badge" id="shoplist-badge"></span></button><button class="nav-ham-btn" onclick="toggleNavMenu()">☰</button>
   </div>
   <div class="content">
     <input type="search" class="field-input" id="pricelookup-search" placeholder="Search name or code…"
@@ -1751,7 +1761,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
   <div class="topbar">
     <button class="back-btn" onclick="goTab('pricelookup')">←</button>
     <div class="topbar-title">Shopping List</div>
-    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰<span class="nav-ham-badge"></span></button>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰</button>
   </div>
   <div class="content">
     <div class="empty" id="shoplist-empty" style="display:none;flex:0 1 auto;padding:32px 20px">
@@ -1975,7 +1985,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
 <nav class="navbar">
   <button class="nav-item active" id="nav-dash" onclick="goTab('dash')"><span class="nav-icon">🏠</span><span class="nav-label">Home</span></button>
   <button class="nav-item" id="nav-home" onclick="goTab('home')"><span class="nav-icon">📐</span><span class="nav-label">Measure</span></button>
-  <button class="nav-item" id="nav-actuals" onclick="openActuals()"><span class="nav-icon">🛠️<span class="nav-ham-badge"></span></span><span class="nav-label">On Site</span></button>
+  <button class="nav-item" id="nav-actuals" onclick="openActuals()"><span class="nav-icon">🛠️<span class="nav-onsite-badge"></span></span><span class="nav-label">On Site</span></button>
   <button class="nav-item" id="nav-summary" onclick="goTab('summary')"><span class="nav-icon">📋</span><span class="nav-label">Summary</span></button>
 </nav>
 
@@ -2048,7 +2058,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.41.0</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.41.1</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -8773,13 +8783,19 @@ function closeNavMenu() {
 // paint without a Materials visit, and from renderActuals() so it stays
 // correct after every tick/edit/add/remove without needing a special hook at
 // each call site.
-// Also lights the outstanding count on the bottom bar's On Site icon
-// (v2.0 — .nav-ham-badge is shared markup on both the hamburger button and
-// nav-actuals now).
+// It lights ONE badge: the outstanding count on the bottom bar's On Site
+// icon, which is where tapping it takes you. Until v2.41.1 the class was
+// .nav-ham-badge and the hamburger button carried it too, so the same number
+// appeared twice on every screen -- a leftover from when Materials was a row
+// inside that menu, which v2.0 moved to the bottom bar without taking the
+// badge off the button. A badge on the hamburger pointed at a menu that has
+// held nothing about materials since. Keep this selector matching exactly one
+// element: anything else that adopts the class inherits a count about
+// something it isn't (which is why the basket badge has its own).
 function updateNavBadge() {
   var n = 0;
   try { n = actualsTotals().outstanding; } catch (e) { /* actuals not loaded yet — show clear, not an error */ }
-  document.querySelectorAll('.nav-ham-badge').forEach(function(el) {
+  document.querySelectorAll('.nav-onsite-badge').forEach(function(el) {
     if (n > 0) { el.textContent = n > 99 ? '99+' : n; el.style.display = 'inline-block'; }
     else { el.style.display = 'none'; }
   });
