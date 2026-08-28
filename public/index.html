@@ -140,6 +140,32 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 .seg-btn{flex:1;padding:7px 4px;border:none;background:transparent;color:var(--text2);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;border-radius:8px;cursor:pointer;transition:all .15s}
 .seg-btn.active{background:var(--accent);color:#fff}
 
+/* ── Area colour slot (placeholder-first colour labelling) ─────────────────
+   One free-text field per painted area, with the colour-library autocomplete
+   under it and one-tap chips for colours already on this job. Replaces the
+   old numbered segmented control. The dropdown is IN FLOW rather than
+   absolutely positioned: .card is overflow:hidden, and an overlay dropdown
+   inside a room card was clipped by it -- pushing the card open costs a
+   little scroll and can't be cut off. */
+.field-row.colour-slot-row{display:block}
+.colour-slot{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}
+.colour-slot-field{flex:1 1 100%}
+.colour-name{width:100%;text-align:left;font-family:'DM Sans',sans-serif;font-size:15px;box-sizing:border-box}
+.colour-name::placeholder{color:var(--text3);font-style:italic}
+.colour-dd{display:none;flex:1 1 100%;margin-top:6px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);max-height:280px;overflow-y:auto}
+.colour-dd.open{display:block}
+.colour-pick{max-width:48%;font-size:12px;font-weight:600;padding:5px 10px;border-radius:20px;border:1px solid var(--border);background:var(--surface2);color:var(--text2);cursor:pointer;font-family:'DM Sans',sans-serif;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.colour-pick.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.colour-pick-hint{font-size:11px;color:var(--text3);flex:1 1 100%;margin-top:2px}
+/* Colours tab: one row per AREA, so the job-wide view reads as "where", not
+   as a list of numbers waiting to be named. */
+.area-row{padding:12px 16px;border-bottom:1px solid var(--border)}
+.area-row:last-child{border-bottom:none}
+.area-row-head{display:flex;align-items:baseline;gap:8px}
+.area-row-name{font-size:14px;font-weight:600;flex:1;min-width:0}
+.area-row-role{font-size:12px;color:var(--text2)}
+.area-row-state{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+
 /* Toggle */
 .toggle-row{display:flex;align-items:center;padding:14px 16px;gap:12px}
 .toggle-label{flex:1;font-size:15px;font-weight:500}
@@ -606,7 +632,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       <div class="card-header">Room Details</div>
       <div class="field-row">
         <div class="field-label">Room Name</div>
-        <input type="text" class="field-input wide" id="r-name" placeholder="e.g. Kitchen" autocorrect="off">
+        <input type="text" class="field-input wide" id="r-name" placeholder="e.g. Kitchen" autocorrect="off" onchange="refreshColourSlots()">
       </div>
       <div class="toggle-row" style="border-top:1px solid var(--border)">
         <div class="toggle-label">Staircase / HSL<small>Hall, stairs &amp; landing — swaps in staircase geometry below</small></div>
@@ -761,7 +787,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
           </div>
         </div>
         <div id="fw-paint-fields">
-          <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Colour<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-featurewall" style="flex-wrap:wrap"></div></div>
+          <div class="field-row colour-slot-row" style="border-top:1px solid var(--border)"><div class="field-label">Colour<small>leave blank to decide later</small></div><div class="colour-slot" id="seg-colour-featurewall"></div></div>
           <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Product<small>defaults to the wall product</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-featurewall-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('featurewall')" onfocus="onRoomRangeSearchInput('featurewall')"><div id="r-featurewall-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
           <div class="field-row" id="r-featurewall-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-featurewall-band" onchange="onRoomOverrideBandSelect('featurewall')"></select></div>
         </div>
@@ -893,7 +919,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
           <div class="field-label">Custom prep %<small>uplift on panelling cost only</small></div>
           <input type="number" class="field-input" id="r-panel-prep-custom" placeholder="0" min="0" max="100" step="5" inputmode="numeric" oninput="previewRoom()">
         </div>
-        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Colour<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-panel" style="flex-wrap:wrap"></div></div>
+        <div class="field-row colour-slot-row" style="border-top:1px solid var(--border)"><div class="field-label">Colour<small>leave blank to decide later</small></div><div class="colour-slot" id="seg-colour-panel"></div></div>
         <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Product<small>no default — choose explicitly</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-panel-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('panel')" onfocus="onRoomRangeSearchInput('panel')"><div id="r-panel-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
         <div class="field-row" id="r-panel-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-panel-band" onchange="onRoomOverrideBandSelect('panel')"></select></div>
       </div>
@@ -967,9 +993,9 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       <div class="card-header sec-toggle" onclick="toggleFormSection('paint')"><span>Paint &amp; Colour</span><span class="sec-chev" id="sec-chev-paint">›</span></div>
       <div class="card-body" id="sec-paint">
         <div class="subsection-label">Colour</div>
-        <div class="field-row"><div class="field-label">Wall<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-wall" style="flex-wrap:wrap"></div></div>
-        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Ceiling<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-ceiling" style="flex-wrap:wrap"></div></div>
-        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Woodwork<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-woodwork" style="flex-wrap:wrap"></div></div>
+        <div class="field-row colour-slot-row"><div class="field-label">Wall<small>leave blank to decide later</small></div><div class="colour-slot" id="seg-colour-wall"></div></div>
+        <div class="field-row colour-slot-row" style="border-top:1px solid var(--border)"><div class="field-label">Ceiling<small>leave blank to decide later</small></div><div class="colour-slot" id="seg-colour-ceiling"></div></div>
+        <div class="field-row colour-slot-row" style="border-top:1px solid var(--border)"><div class="field-label">Woodwork<small>leave blank to decide later</small></div><div class="colour-slot" id="seg-colour-woodwork"></div></div>
         <div class="subsection-label">Wall Paint</div>
         <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-wall-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('wall')" onfocus="onRoomRangeSearchInput('wall')"><div id="r-wall-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
         <div class="field-row" id="r-wall-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-wall-band" onchange="onRoomOverrideBandSelect('wall')"></select></div>
@@ -1586,7 +1612,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     </div>
     <div class="card searchable-card">
       <div class="card-header">Colour &amp; Product</div>
-      <div class="field-row"><div class="field-label">Colour<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-kitchen" style="flex-wrap:wrap"></div></div>
+      <div class="field-row colour-slot-row"><div class="field-label">Colour<small>leave blank to decide later</small></div><div class="colour-slot" id="seg-colour-kitchen"></div></div>
       <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Product<small>no default — choose explicitly</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="k-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('kitchen')" onfocus="onRoomRangeSearchInput('kitchen')"><div id="k-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
       <div class="field-row" id="k-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="k-band" onchange="onRoomOverrideBandSelect('kitchen')"></select></div>
     </div>
@@ -1677,7 +1703,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     </div>
     <div class="card searchable-card">
       <div class="card-header">Colour &amp; Product</div>
-      <div class="field-row"><div class="field-label">Colour<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-fittedunit" style="flex-wrap:wrap"></div></div>
+      <div class="field-row colour-slot-row"><div class="field-label">Colour<small>leave blank to decide later</small></div><div class="colour-slot" id="seg-colour-fittedunit"></div></div>
       <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Product<small>topcoat — defaults to the woodwork topcoat in Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="fu-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('fittedunit')" onfocus="onRoomRangeSearchInput('fittedunit')"><div id="fu-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
       <div class="field-row" id="fu-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="fu-band" onchange="onRoomOverrideBandSelect('fittedunit')"></select></div>
     </div>
@@ -1699,9 +1725,14 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     <div class="empty" id="colours-empty">
       <div class="empty-icon">🎨</div>
       <div class="empty-title">No colours yet</div>
-      <div class="empty-sub">Tap + to add a colour as you discuss them</div>
+      <div class="empty-sub">Measure a room and its surfaces appear here, named after where they go until you know the colour</div>
     </div>
     <div id="colours-list" style="display:none">
+      <!-- Every area's colour field, job-wide. This is the read/edit view now
+           (see renderColours) -- not a queue of things to finish, just where
+           you can see what's decided and change any of it from one place. -->
+      <div class="card" id="colour-areas-card"></div>
+      <div class="section-title" style="margin:16px 0 8px">What to buy</div>
       <div class="card" id="colours-cards"></div>
     </div>
   </div>
@@ -1837,7 +1868,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       <div class="card-header">Label</div>
       <div class="field-row">
         <div class="field-label">Description<small>e.g. Front elevation, Rear fascias</small></div>
-        <input type="text" class="field-input wide" id="ex-label" placeholder="e.g. Front elevation" autocorrect="off">
+        <input type="text" class="field-input wide" id="ex-label" placeholder="e.g. Front elevation" autocorrect="off" onchange="refreshColourSlots()">
       </div>
       <div class="toggle-row" id="ex-variation-row" style="border-top:1px solid var(--border);display:none">
         <div class="toggle-label" style="color:var(--accent)">Variation<small>Extra scope on top of the accepted quote — listed under On Site › Variations. Turn off if this is a correction to the original quote</small></div>
@@ -1948,8 +1979,8 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     <div class="card">
       <div class="card-header sec-toggle" onclick="toggleFormSection('ext-colours')"><span>Paint Colours</span><span class="sec-chev open" id="sec-chev-ext-colours">›</span></div>
       <div class="card-body open" id="sec-ext-colours">
-      <div class="field-row"><div class="field-label">Masonry colour<small>defaults to Colour 1</small></div><div class="seg" id="seg-colour-ext-masonry" style="flex-wrap:wrap"></div></div>
-      <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Woodwork colour<small>windows, doors, fascia, sash</small></div><div class="seg" id="seg-colour-ext-woodwork" style="flex-wrap:wrap"></div></div>
+      <div class="field-row colour-slot-row"><div class="field-label">Masonry colour<small>leave blank to decide later</small></div><div class="colour-slot" id="seg-colour-ext-masonry"></div></div>
+      <div class="field-row colour-slot-row" style="border-top:1px solid var(--border)"><div class="field-label">Woodwork colour<small>windows, doors, fascia, sash — leave blank to decide later</small></div><div class="colour-slot" id="seg-colour-ext-woodwork"></div></div>
       </div>
     </div>
     <div class="card searchable-card">
@@ -2494,6 +2525,7 @@ async function apiDeleteStrict(path) {
 var pendingSaves = { rooms: null, colours: null, extItems: null, materials: null };
 
 function saveRooms() {
+  invalidateColourPlaceholders();
   localStorage.setItem('pe-rooms', JSON.stringify(rooms));
   // One transactional replace-all request (see PUT /rooms in routes/api.js)
   // -- previously a DELETE followed by one PUT per room, which was O(rooms)
@@ -4001,8 +4033,16 @@ async function createXeroQuote(forceNew) {
     }
     // Non-chargeable (tracking-only) lines never reach Xero -- they're
     // internal shopping-list entries, not client-facing quote content.
-    var materials = materialsSnapshot.filter(function(l) { return l.chargeable !== false; }).map(function(l) {
-      return { itemCode: l.itemCode, description: l.description, quantity: l.quantity, unitAmount: l.unitAmount };
+    // Consolidated (one line per product + size) and carrying the decided
+    // colour in the description, the same way the invoice already does and
+    // the same way Summary and the client's PDF now read. ItemCode is left
+    // strictly alone -- it is the inventory item, the same code for every
+    // colour in a band, and pricing runs off it.
+    var materials = consolidateMaterialLines(
+      materialsSnapshot.filter(function(l) { return l.chargeable !== false; })
+    ).map(function(g) {
+      return { itemCode: g.itemCode, description: materialGroupDescription(g),
+               quantity: g.quantity, unitAmount: g.unitAmount };
     });
     var materialsTotal = materials.reduce(function(sum, m) { return sum + (+m.quantity||0)*(+m.unitAmount||0); }, 0);
 
@@ -5454,11 +5494,16 @@ function buildAcceptedQuoteSnapshot(job) {
     return { description: row.label, note: row.sub || '', quantity: 1,
              unitPrice: money(row.amount), lineTotal: money(row.amount) };
   });
-  var materialLines = chargeableMats.map(function(l) {
-    return { itemCode: l.itemCode || '', description: l.description || '',
-             quantity: +l.quantity || 0, unitPrice: money(l.unitAmount), unitAmount: money(l.unitAmount),
-             lineTotal: money((+l.quantity || 0) * (+l.unitAmount || 0)),
-             isPerLitre: !!l.isPerLitre };
+  // Consolidated through the same function the printed quote uses, so the
+  // frozen flat lines and the frozen document can't describe the same
+  // materials differently -- and so re-reading a snapshot years later shows
+  // the line the client was actually shown.
+  var materialLines = consolidateMaterialLines(chargeableMats).map(function(g) {
+    return { itemCode: g.itemCode || '', description: materialGroupDescription(g),
+             note: materialPartsDetail(g.parts),
+             quantity: g.quantity, unitPrice: money(g.unitAmount), unitAmount: money(g.unitAmount),
+             lineTotal: money(g.quantity * g.unitAmount),
+             isPerLitre: !!g.isPerLitre };
   });
   var sumOf = function(rows) { return money(rows.reduce(function(t, r) { return t + r.lineTotal; }, 0)); };
   var labourAgreed = sumOf(workLines);
@@ -10716,18 +10761,17 @@ function saveMaterialsSnapshot() {
 // into place; the array order persists through the bulk save (the server
 // stamps clock_timestamp per row and GET orders by it).
 var matReorderMode = false;
+
+// The consolidated groups Summary last rendered. Every group control (the
+// quantity box, reset, delete, reorder, the chargeable tag) is handed a group
+// KEY through an onclick attribute rather than a serialised object, so it
+// looks the group back up here -- same pattern as colourDropdownMatches.
+var summaryMatGroups = [];
 function toggleMatReorder() {
   matReorderMode = !matReorderMode;
   renderSummary();
 }
-function moveMaterialLine(id, dir) {
-  var i = materialsSnapshot.findIndex(function(l) { return l.id === id; });
-  var j = i + dir;
-  if (i < 0 || j < 0 || j >= materialsSnapshot.length) return;
-  var tmp = materialsSnapshot[i]; materialsSnapshot[i] = materialsSnapshot[j]; materialsSnapshot[j] = tmp;
-  saveMaterialsSnapshot();
-  renderSummary();
-}
+
 
 // Where a snapshot line came from. `source` is the field going forward;
 // `custom` is the original flag and is still written alongside it, so lines
@@ -10857,6 +10901,21 @@ function materialsSnapshotTotal() {
   return materialsSnapshot.reduce(function(sum, l) { return l.chargeable === false ? sum : sum + (+l.quantity||0) * (+l.unitAmount||0); }, 0);
 }
 
+// The quantity write itself, without the undo/save/render around it. Shared
+// with the consolidated-group edit below, which sets several lines at once
+// and must stamp calcQuantity on each of them the same way.
+function writeMaterialLineQuantity(line, next) {
+  // Lines snapshotted before calcQuantity existed carry no calculated figure.
+  // The quantity they hold right now IS the calculation's answer (nothing else
+  // has ever written it), so stamp it before overwriting -- otherwise this
+  // edit wouldn't register as an override and the next Recalculate would
+  // wipe it, which is the whole bug.
+  if (line.calcQuantity == null && matLineSource(line) === 'estimate') {
+    line.calcQuantity = +line.quantity || 0;
+  }
+  line.quantity = Math.max(0, +next || 0);
+}
+
 // Typing over a quantity is what makes an estimate line "yours" -- from here
 // on a Recalculate keeps this figure instead of overwriting it (see the merge
 // in recalculateMaterialsSnapshot). calcQuantity is left alone: it's the
@@ -10870,15 +10929,98 @@ function setMaterialLineQuantity(id, value) {
   // Coalesced per line: a burst of edits to one box undoes back to the figure
   // it held before the burst started, not one keystroke at a time.
   pushUndo('Quantity — ' + line.description, 'materials', 'qty:' + id);
-  // Lines snapshotted before calcQuantity existed carry no calculated figure.
-  // The quantity they hold right now IS the calculation's answer (nothing else
-  // has ever written it), so stamp it before overwriting -- otherwise this
-  // edit wouldn't register as an override and the next Recalculate would
-  // wipe it, which is the whole bug.
-  if (line.calcQuantity == null && matLineSource(line) === 'estimate') {
-    line.calcQuantity = +line.quantity || 0;
-  }
-  line.quantity = next;
+  writeMaterialLineQuantity(line, next);
+  saveMaterialsSnapshot();
+  renderSummary();
+}
+
+// ── Editing a consolidated group ───────────────────────────────────────────
+// Summary shows one row per product+size (consolidateMaterialLines), but the
+// SNAPSHOT LINES are still what the quote, the invoice and materials tracking
+// read -- so a figure typed on a group has to land back on them.
+//
+// It is spread in PROPORTION to what each line currently holds, with the
+// rounding remainder put on the largest, so the split between colours stays
+// what the calculation worked out while the total is exactly what was typed.
+// A group of one line -- most of them -- is just the old direct edit, byte
+// for byte.
+// Rows address their group by INDEX, not by key: a key is built out of the
+// product description, and an apostrophe in one ("Painter's tape") would end
+// the JS string inside the onclick attribute. An index can't.
+function summaryMaterialGroup(i) {
+  return (summaryMatGroups || [])[+i] || null;
+}
+
+function setMaterialGroupQuantity(i, value) {
+  var g = summaryMaterialGroup(i);
+  if (!g) return;
+  if (g.lines.length === 1) { setMaterialLineQuantity(g.lines[0].id, value); return; }
+  var next = Math.max(0, +value || 0);
+  if (Math.abs(next - g.quantity) < 0.0001) return;
+  var round = g.isPerLitre
+    ? function(n) { return Math.round(n * 10) / 10; }
+    : function(n) { return Math.round(n); };
+  pushUndo('Quantity — ' + g.description, 'materials', 'qty:' + g.key);
+  var assigned = 0, biggest = 0;
+  var shares = g.lines.map(function(l, i) {
+    var share = g.quantity > 0 ? (+l.quantity || 0) / g.quantity : 1 / g.lines.length;
+    var v = Math.max(0, round(next * share));
+    assigned += v;
+    if ((+l.quantity || 0) > (+g.lines[biggest].quantity || 0)) biggest = i;
+    return v;
+  });
+  shares[biggest] = Math.max(0, round(shares[biggest] + (next - assigned)));
+  g.lines.forEach(function(l, i) { writeMaterialLineQuantity(l, shares[i]); });
+  saveMaterialsSnapshot();
+  renderSummary();
+}
+
+// Puts every overridden line in the group back on the calculation's own
+// figure -- the group's "reset to N" chip.
+function resetMaterialGroupQuantity(i) {
+  var g = summaryMaterialGroup(i);
+  if (!g) return;
+  if (g.lines.length === 1) { resetMaterialLineQuantity(g.lines[0].id); return; }
+  pushUndo('Quantity — ' + g.description, 'materials', 'qty:' + g.key);
+  g.lines.forEach(function(l) { if (l.calcQuantity != null) l.quantity = +l.calcQuantity || 0; });
+  saveMaterialsSnapshot();
+  renderSummary();
+}
+
+// Deleting the row deletes the product, every colour of it -- which is what
+// the row now says it is. One undo entry puts them all back.
+function deleteMaterialGroup(i) {
+  var g = summaryMaterialGroup(i);
+  if (!g) return;
+  pushUndoWithToast('Delete — ' + g.description, 'materials', null, 'Removed ' + g.description);
+  var ids = {};
+  g.lines.forEach(function(l) { ids[l.id] = true; });
+  materialsSnapshot = materialsSnapshot.filter(function(l) { return !ids[l.id]; });
+  saveMaterialsSnapshot();
+  renderSummary();
+}
+
+// Chargeable only makes sense on manually-added lines, and the group key
+// carries the flag, so a group is all-manual or it never shows the control.
+function toggleMaterialGroupChargeable(i) {
+  var g = summaryMaterialGroup(i);
+  if (!g || !g.custom) return;
+  pushUndo('Chargeable — ' + g.description, 'materials', 'charge:' + g.key);
+  var on = !g.chargeable;
+  g.lines.forEach(function(l) { l.chargeable = on; });
+  saveMaterialsSnapshot();
+  renderSummary();
+}
+
+// Reorder mode moves the whole product, not one of its colour lines: the
+// snapshot array is rebuilt group by group so the members of a group always
+// stay adjacent and in their own original order.
+function moveMaterialGroup(idx, dir) {
+  var groups = consolidateMaterialLines(materialsSnapshot);
+  var i = +idx, j = i + dir;
+  if (!(i >= 0 && i < groups.length) || j < 0 || j >= groups.length) return;
+  var tmp = groups[i]; groups[i] = groups[j]; groups[j] = tmp;
+  materialsSnapshot = groups.reduce(function(acc, g) { return acc.concat(g.lines); }, []);
   saveMaterialsSnapshot();
   renderSummary();
 }
@@ -10889,27 +11031,6 @@ function resetMaterialLineQuantity(id) {
   if (!line || line.calcQuantity == null) return;
   pushUndo('Quantity — ' + line.description, 'materials', 'qty:' + id);
   line.quantity = +line.calcQuantity || 0;
-  saveMaterialsSnapshot();
-  renderSummary();
-}
-
-function deleteMaterialLine(id) {
-  var line = materialsSnapshot.find(function(l) { return l.id === id; });
-  if (!line) return;
-  pushUndoWithToast('Delete — ' + line.description, 'materials', null,
-    'Removed ' + line.description);
-  materialsSnapshot = materialsSnapshot.filter(function(l) { return l.id !== id; });
-  saveMaterialsSnapshot();
-  renderSummary();
-}
-
-// Chargeable only makes sense on a manually-added line -- auto-calculated
-// rows are always real, priced quote lines and never show this control.
-function toggleMaterialChargeable(id) {
-  var line = materialsSnapshot.find(function(l) { return l.id === id; });
-  if (!line || matLineSource(line) !== 'manual') return;
-  pushUndo('Chargeable — ' + line.description, 'materials', 'charge:' + id);
-  line.chargeable = line.chargeable === false;
   saveMaterialsSnapshot();
   renderSummary();
 }
@@ -11281,6 +11402,118 @@ function rollUpEstimateByItem(lines) {
   return out;
 }
 
+// ── Consolidated materials (Summary + the client's quote) ──────────────────
+// The On Site tab has always shown ONE row per product+size with the areas
+// that drove it underneath -- you shop per product, and two tins of the same
+// paint are two tins whichever rooms they are for. The Summary and the quote
+// listed the same materials as repeated, un-consolidated lines instead, so a
+// job with the same paint in two rooms printed "Tikkurila Optiva 5 - Colours
+// 3ltr" twice in a row with no way to tell why. Same content, same grouping
+// rule, one shape everywhere.
+//
+// The SNAPSHOT LINES ARE STILL THE RECORD. This is a view over them: the
+// quote, the invoice, materials tracking and the accepted-quote snapshot all
+// still read materialsSnapshot, and every edit made on a group is written
+// back onto its member lines (see setMaterialGroupQuantity). Nothing about
+// how litres become tins moves -- computeRoleGroups still buckets by product
+// and colour exactly as before, which is what keeps a group's per-area
+// breakdown meaningful in the first place.
+//
+// Grouped by the same key rollUpEstimateByItem uses (item code, or the
+// description for a free-text line) PLUS the chargeable flag -- a
+// tracking-only line is not on the client's bill and must never be merged
+// into one that is.
+function consolidateMaterialLines(lines) {
+  var byKey = {}, out = [];
+  (lines || []).forEach(function(l) {
+    var chargeable = l.chargeable !== false;
+    var key = materialKey(l) + (chargeable ? '|c' : '|t');
+    var g = byKey[key];
+    if (!g) {
+      g = byKey[key] = {
+        key: key,
+        itemCode: l.itemCode || null,
+        description: l.description || '',
+        quantity: 0,
+        calcQuantity: 0,
+        hasCalc: true,
+        unitAmount: +l.unitAmount || 0,
+        isPerLitre: !!l.isPerLitre,
+        chargeable: chargeable,
+        custom: true,
+        overridden: false,
+        lines: [],
+        parts: []
+      };
+      out.push(g);
+    }
+    g.lines.push(l);
+    g.quantity += +l.quantity || 0;
+    if (l.calcQuantity == null) g.hasCalc = false; else g.calcQuantity += +l.calcQuantity || 0;
+    if (matLineOverridden(l)) g.overridden = true;
+    if (matLineSource(l) !== 'manual') g.custom = false;
+    // Price collision: the same code can carry a different unitAmount if a
+    // custom line was priced by hand. Prefer the real (calculated) line's
+    // price; never silently average two prices into a third that is neither.
+    // Same rule as rollUpEstimateByItem, for the same reason.
+    if (matLineSource(l) !== 'manual') g.unitAmount = +l.unitAmount || 0;
+    // isPerLitre disagreeing across lines sharing a code is a bug, not a case
+    // to merge -- one item is per-litre or it isn't. Latch true so a per-litre
+    // line is never silently relabelled as tins.
+    if (g.lines.length > 1 && g.isPerLitre !== !!l.isPerLitre) g.isPerLitre = true;
+    if (l.colourNumber != null) {
+      g.parts.push({ colourNumber: l.colourNumber, role: l.role, quantity: +l.quantity || 0 });
+    }
+  });
+  // Summing per-line floats reintroduces binary noise (same reason
+  // rollUpEstimateByItem rounds here). Round once, at the end.
+  out.forEach(function(g) {
+    g.quantity = Math.round(g.quantity * 100) / 100;
+    g.calcQuantity = g.hasCalc ? Math.round(g.calcQuantity * 100) / 100 : null;
+    g.lineTotal = Math.round(g.quantity * g.unitAmount * 100) / 100;
+  });
+  return out;
+}
+
+// The per-area breakdown printed under a consolidated product line:
+//   "Bedroom Main Walls · 1 · Lounge Main Walls · 1"
+// Under placeholder-first labelling a colour that hasn't been decided reads
+// as the area it covers, so this line answers "why two tins?" without anyone
+// having named anything yet; once a colour IS named it reads as the colour,
+// which is the more useful answer by then.
+//
+// Roles are only named when the line actually spans more than one (v2.25.2)
+// -- the common one-role case keeps its familiar colour-only label. A single
+// part prints its colour with no quantity: the row's own quantity already
+// says it. Shared by On Site, Summary and the client's quote so the three
+// can never drift.
+function materialPartsDetail(parts) {
+  var live = (parts || []).filter(function(p) { return p.quantity > 0; });
+  if (!live.length) return '';
+  if (live.length === 1) return colourLabelFor(live[0].colourNumber);
+  var roles = {};
+  live.forEach(function(p) { if (p.role) roles[p.role] = true; });
+  var showRoles = Object.keys(roles).length > 1;
+  return live.map(function(p) {
+    return (showRoles && ROLE_LABELS[p.role] ? ROLE_LABELS[p.role] + ' — ' : '')
+      + colourLabelFor(p.colourNumber) + ' · ' + (Math.round(p.quantity * 100) / 100);
+  }).join('  ·  ');
+}
+
+// The consolidated line as it should READ on a quote: the same colour-for-
+// band substitution invoices have done since v2.38.5, applied to a group.
+// Only DECIDED colours substitute (see namedColourNames) -- a placeholder is
+// a location, and "Optiva 5 - Lounge Feature Wall 3ltr" on a client's quote
+// reads like a mistake, so an undecided line keeps the generic band wording
+// it has always had and the area is named in the breakdown underneath
+// instead, where it belongs.
+function materialGroupDescription(g) {
+  return describeWithColours(g.description, namedColourNames(
+    (g.parts || []).filter(function(p) { return p.quantity > 0; })
+                   .map(function(p) { return p.colourNumber; })
+  ));
+}
+
 // The 202 sell price for a row: what the client is charged. Prefer the LIVE
 // Xero price over the one frozen into the snapshot at Recalculate time -- the
 // invoice should bill the item's real current sell price, and the snapshot's
@@ -11631,6 +11864,7 @@ function completeJobOnSite() {
 }
 
 function renderActuals() {
+  invalidateColourPlaceholders();
   var el = document.getElementById('actuals-body');
   if (!el) return;
   var t = actualsTotals();
@@ -11671,18 +11905,9 @@ function renderActuals() {
     // than one group (see buildRoleRows), so this is where a single-colour
     // job's tins get named on screen -- the invoice names them on the line
     // itself instead (materialDescriptionWithColour).
-    var parts = (r.parts || []).filter(function(p) { return p.quantity > 0; });
-    // Only name roles when the row actually spans more than one (v2.25.2)
-    // -- the common one-role case keeps its familiar colour-only label.
-    var partRoles = {};
-    parts.forEach(function(p) { if (p.role) partRoles[p.role] = true; });
-    var showRoles = Object.keys(partRoles).length > 1;
-    var detail = parts.length > 1
-      ? parts.map(function(p) {
-          return (showRoles && ROLE_LABELS[p.role] ? ROLE_LABELS[p.role] + ' — ' : '')
-            + colourLabelFor(p.colourNumber) + ' · ' + (Math.round(p.quantity * 100) / 100);
-        }).join('  ·  ')
-      : (parts.length === 1 ? colourLabelFor(parts[0].colourNumber) : '');
+    // Shared with Summary and the client's quote now that those consolidate
+    // the same way this screen always has -- see materialPartsDetail().
+    var detail = materialPartsDetail(r.parts);
     // Manually-added rows (onEstimate false) carry their own single
     // colourNumber rather than the estimate's aggregated parts -- see the
     // schema comment on material_actuals.colour_number.
@@ -11704,7 +11929,7 @@ function renderActuals() {
         + '<div class="field-row"><div class="field-label">Description</div><input type="text" class="field-input wide" id="act-edit-desc" value="'+escapeHtml(r.description)+'" autocorrect="off"></div>'
         + '<div class="field-row"><div class="field-label">Colour<small>optional</small></div><select class="field-input wide" id="act-edit-colour">'
           + '<option value="">— No colour —</option>'
-          + colours.map(function(c) { return '<option value="'+c.number+'"'+(c.number === manualColourNumber ? ' selected' : '')+'>'+escapeHtml(c.label || ('Colour '+c.number))+'</option>'; }).join('')
+          + colours.map(function(c) { return '<option value="'+c.number+'"'+(c.number === manualColourNumber ? ' selected' : '')+'>'+escapeHtml(colourLabelFor(c.number))+'</option>'; }).join('')
         + '</select></div>'
         + '<div class="field-row"><div class="field-label">Unit price</div><input type="number" class="field-input" id="act-edit-price" value="'+price+'" min="0" step="0.01" inputmode="decimal"></div>'
         + '<div style="display:flex;gap:8px;margin-top:8px">'
@@ -11748,7 +11973,7 @@ function renderActuals() {
       + '<div class="field-row"><div class="field-label">Description</div><input type="text" class="field-input wide" id="act-add-desc" placeholder="e.g. Extra roller sleeves" autocorrect="off"></div>'
       + '<div class="field-row"><div class="field-label">Colour<small>optional</small></div><select class="field-input wide" id="act-add-colour">'
         + '<option value="">— No colour —</option>'
-        + colours.map(function(c) { return '<option value="'+c.number+'">'+escapeHtml(c.label || ('Colour '+c.number))+'</option>'; }).join('')
+        + colours.map(function(c) { return '<option value="'+c.number+'">'+escapeHtml(colourLabelFor(c.number))+'</option>'; }).join('')
       + '</select></div>'
       + '<div class="field-row"><div class="field-label">Unit price<small>prefills from Xero — change it if the shop price has moved</small></div><input type="number" class="field-input" id="act-add-price" value="0" min="0" step="0.01" inputmode="decimal"></div>'
       + '<div class="field-row"><div class="field-label">Quantity</div><input type="number" class="field-input" id="act-add-qty" value="1" min="0" step="1" inputmode="decimal"></div>'
@@ -12032,13 +12257,36 @@ async function addActualFromPicker() {
 function materialColourNames(row) {
   if (!row.onEstimate) {
     var manual = row.actual ? row.actual.colourNumber : null;
-    return manual == null ? [] : [colourLabelFor(manual)];
+    return manual == null ? [] : namedColourNames([manual]);
   }
+  return namedColourNames((row.parts || [])
+    .filter(function(p) { return p.quantity > 0; })
+    .map(function(p) { return p.colourNumber; }));
+}
+
+// The colours to put INSIDE a product name, named and de-duplicated -- or
+// nothing at all, if any of them is still undecided.
+//
+// ALL OR NOTHING, deliberately. These strings replace the colour band inside
+// a product name on a client's quote or invoice: "Tikkurila Optiva 5 - White
+// 3ltr". If one of the three tins on that line is a colour nobody has picked
+// yet, saying "White" claims something about it that isn't true, and saying
+// the placeholder ("Lounge Feature Wall") puts a location where a colour goes
+// and reads like a mistake. So the line keeps the generic band wording it has
+// always had until every colour on it is decided -- and the areas are named in
+// the breakdown under the line either way (materialPartsDetail), so nothing is
+// lost by waiting.
+//
+// Before this, an undecided colour fell through colourLabelFor and reached
+// Xero as "Tikkurila Helmi 10 - Colour 2 3ltr", which was worse than either.
+function namedColourNames(nums) {
   var seen = {}, names = [];
-  (row.parts || []).forEach(function(p) {
-    if (!(p.quantity > 0) || p.colourNumber == null || seen[p.colourNumber]) return;
-    seen[p.colourNumber] = true;
-    names.push(colourLabelFor(p.colourNumber));
+  var list = (nums || []).filter(function(n) { return n != null; });
+  if (!list.every(colourIsNamed)) return [];
+  list.forEach(function(n) {
+    if (seen[n]) return;
+    seen[n] = true;
+    names.push(colourLabelFor(n));
   });
   return names;
 }
@@ -12101,9 +12349,16 @@ var MAT_RANGE_COLOUR_PAREN_RE = /\s*\((?:colours?|white|clear|tinted)\)\s*$/i;
 // characters (the same one the invoice text block is checked against in
 // createFinalInvoice) and a full colour name is tens.
 function materialDescriptionWithColour(row) {
-  var names = materialColourNames(row);
-  var desc = row.description || '';
-  if (!names.length) return desc;
+  return describeWithColours(row.description || '', materialColourNames(row));
+}
+
+// The string surgery itself, split out from materialDescriptionWithColour so
+// the quote's consolidated groups can read the same way the invoice's rolled-
+// up rows already do (materialGroupDescription) without a second, drifting
+// copy of the rules above.
+function describeWithColours(desc, names) {
+  desc = desc || '';
+  if (!names || !names.length) return desc;
   var colour = names.join(' / ');
   var size = desc.match(MAT_SIZE_RE) || desc.match(MAT_SIZE_ML_RE);
   if (!size) return desc + ' — ' + colour;
@@ -12759,6 +13014,7 @@ var colours = [];
 var colourLibrary = [];
 
 function saveColours() {
+  invalidateColourPlaceholders();
   localStorage.setItem('pe-colours', JSON.stringify(colours));
   var jobId = activeJobId;
   var payload = colours.map(function(c) { return { number: c.number, label: c.label, brand: c.brand||'', code: c.code||'' }; });
@@ -12773,20 +13029,257 @@ function saveColours() {
 // place that reads/renders `colours` calls this first so colour 1 always
 // exists; it's idempotent and only persists when it actually had to seed.
 function ensureDefaultColour() {
-  // Defaults to "White" rather than blank -- an unlabelled Colour 1 read
-  // as if adding Colour 2 for an accent/feature wall had left every other
-  // surface's colour undefined too. Labelling it makes clear Colour 1 is
-  // the base/default and stays that way. Also backfills any EXISTING
-  // colour 1 still sitting blank from before this default existed (older
-  // jobs), not just newly created ones.
+  // Seeded as "White" rather than blank: it is the base every surface falls
+  // back to, and on the overwhelming majority of jobs the ceilings and
+  // woodwork really are white, so it is a decision rather than a guess.
+  //
+  // It is seeded ON CREATION ONLY. It used to also backfill any colour 1
+  // still sitting blank, which under placeholder-first labelling would fight
+  // the user: clearing colour 1's name means "not decided yet, show me the
+  // areas", and re-stamping "White" over that took the decision back off
+  // them. Existing jobs already carry the label from the old backfill, so
+  // nothing moves for them.
   var c1 = colours.find(function(c){ return c.number === 1; });
   if (!c1) {
     colours.unshift({ number: 1, label: 'White', brand: '', code: '' });
     saveColours();
-  } else if (!c1.label) {
-    c1.label = 'White';
-    saveColours();
   }
+}
+
+// ── Placeholder-first colour labelling (COLOUR_HANDLING_SPEC.md) ───────────
+// A colour used to be a NUMBER you assigned on the room screen and, quite
+// separately, a NAME you remembered to go and type on the Colours tab. Over
+// one room that works. Over six it turns the Colours tab into a queue of
+// "Colour 3 -- which one was that?", and colours are usually only decided
+// AFTER the measure (often after the job is accepted) anyway, so "decide
+// later" is the normal case rather than the exception.
+//
+// So an unnamed colour now reads as WHERE IT GOES. The numbering underneath
+// is completely unchanged -- it is still what buckets litres into tins
+// (computeRoleGroups), still what materials tracking joins on, still what
+// every already-saved job holds, so there is nothing to migrate -- but
+// nobody is shown a bare "Colour 3" any more: a colour with no name of its
+// own is labelled by the areas that use it ("Lounge Feature Wall"), and
+// typing the real name over that is the same single field, edited in place.
+//
+// An AREA is one painted surface of one room / exterior item / kitchen /
+// fitted unit: the smallest thing that can carry its own colour. The list is
+// DERIVED from rooms and exterior items every time it is asked for, never
+// stored, so it cannot drift from what is actually being painted -- and a
+// surface with no coats on it is not an area at all.
+var AREA_ROLE_WORDS = {
+  wall: 'Main Walls', ceiling: 'Ceiling', woodwork: 'Woodwork',
+  featurewall: 'Feature Wall', panel: 'Panelling',
+  masonry: 'Masonry', extwoodwork: 'Woodwork'
+};
+
+function areaPlaceholder(owner, role) {
+  var name = String(owner == null ? '' : owner).trim();
+  var word = AREA_ROLE_WORDS[role];
+  if (!word) return name || 'Colour';
+  return name ? name + ' ' + word : word;
+}
+
+// Every area in the job, with the colour number it currently carries.
+//
+// `live` folds in an edit that has not been saved yet. The room and exterior
+// screens keep their colour numbers in temp form state (roomColourNumbers /
+// extColourNumbers) until Save, so without this the question that decides
+// rename-vs-fork below -- "is any OTHER area on this colour?" -- would be
+// answered against a stale row. Shape (either half optional):
+//   { roomId, roomName, roomNums }  ·  { extId, extLabel, extNums }
+// A room being ADDED is not in `rooms` at all yet, so its areas are taken on
+// trust from the form: every role, since which surfaces end up with coats is
+// not settled until Save.
+function colourAreas(live) {
+  live = live || {};
+  var out = [];
+  var add = function(owner, role, num, ref) {
+    out.push({ owner: owner, role: role, label: areaPlaceholder(owner, role),
+               num: +num || 1, ref: ref || null });
+  };
+  var liveRoomSeen = false;
+  rooms.forEach(function(r) {
+    var editing = !!(live.roomNums && live.roomId && live.roomId === r.id);
+    if (editing) liveRoomSeen = true;
+    var name = editing && live.roomName ? live.roomName : (r.name || 'Room');
+    var n = editing ? live.roomNums : {
+      wall: r.colourNumber || 1, ceiling: r.ceilingColourNumber || 1,
+      woodwork: r.woodworkColourNumber || 1,
+      featurewall: r.featureWallColourNumber || 1, panel: r.panelColourNumber || 1
+    };
+    if (+r.wc > 0) add(name, 'wall', n.wall, { kind: 'room', id: r.id, role: 'wall' });
+    if (+r.cc > 0) add(name, 'ceiling', n.ceiling, { kind: 'room', id: r.id, role: 'ceiling' });
+    if (+r.xc > 0) add(name, 'woodwork', n.woodwork, { kind: 'room', id: r.id, role: 'woodwork' });
+    if (+r.featureWallArea > 0 && (r.featureWallMode || 'paint') === 'paint') {
+      add(name, 'featurewall', n.featurewall, { kind: 'room', id: r.id, role: 'featurewall' });
+    }
+    if ((r.panelItems || []).length) add(name, 'panel', n.panel, { kind: 'room', id: r.id, role: 'panel' });
+  });
+  if (live.roomNums && !liveRoomSeen) {
+    ['wall', 'ceiling', 'woodwork', 'featurewall', 'panel'].forEach(function(role) {
+      add(live.roomName || 'Room', role, live.roomNums[role]);
+    });
+  }
+  var liveExtSeen = false;
+  extItems.forEach(function(it) {
+    var editing = !!(live.extNums && live.extId && live.extId === it.id);
+    if (editing) liveExtSeen = true;
+    var name = editing && live.extLabel ? live.extLabel : (it.label || 'Exterior');
+    var mNum = editing ? live.extNums['ext-masonry'] : (it.masonryColourNumber || 1);
+    var wNum = editing ? live.extNums['ext-woodwork'] : (it.extWoodworkColourNumber || 1);
+    if (editing || extMasonryLitres(it) > 0) add(name, 'masonry', mNum, { kind: 'ext', id: it.id, role: 'masonry' });
+    if (editing || extWoodworkLitres(it) > 0) add(name, 'extwoodwork', wNum, { kind: 'ext', id: it.id, role: 'extwoodwork' });
+  });
+  if (live.extNums && !liveExtSeen) {
+    add(live.extLabel || 'Exterior', 'masonry', live.extNums['ext-masonry'], null);
+    add(live.extLabel || 'Exterior', 'extwoodwork', live.extNums['ext-woodwork'], null);
+  }
+  // Kitchen and fitted units persist their colour immediately (no Save
+  // button), so they never need a live override -- but they are areas like
+  // any other, and their own name IS the area name.
+  var job = activeJob();
+  if (job) {
+    var k = ensureKitchenShape(job);
+    if (calcKitchen(k).total > 0.005) {
+      out.push({ owner: 'Kitchen Cabinets', role: 'kitchen', label: 'Kitchen Cabinets',
+                 num: +k.colourNumber || 1, ref: { kind: 'kitchen', id: 'kitchen', role: 'kitchen' } });
+    }
+    fittedUnitList(job).forEach(function(fu) {
+      out.push({ owner: fittedUnitName(fu), role: 'fittedunit', label: fittedUnitName(fu),
+                 num: +fu.colourNumber || 1, ref: { kind: 'fittedunit', id: fu.id, role: 'fittedunit' } });
+    });
+  }
+  return out;
+}
+
+// How many areas sit on each colour. One is what makes a colour "this area's
+// own", and therefore safe to rename in place.
+function colourUsageCounts(live) {
+  var counts = {};
+  colourAreas(live).forEach(function(a) { counts[a.num] = (counts[a.num] || 0) + 1; });
+  return counts;
+}
+
+// Colour number -> the area names that use it. Memoised because
+// colourLabelFor is called hundreds of times per render and each call would
+// otherwise re-walk every room; dropped by invalidateColourPlaceholders() on
+// every save and every colour mutation, and again on the next microtask as a
+// backstop. A call carrying `live` never touches the cache -- it is asking
+// about an unsaved edit, which is by definition not what everyone else
+// should see.
+var colourPlaceholderCache = null;
+// Anything that moves a colour, a room or an exterior item drops the map.
+// The microtask reset below is only a backstop for a mutation that forgot to
+// say so; it is NOT enough on its own, because a handler that edits and then
+// re-renders synchronously (every one of them does) would render off the map
+// built before its own edit.
+function invalidateColourPlaceholders() { colourPlaceholderCache = null; }
+function colourPlaceholderMap(live) {
+  if (!live && colourPlaceholderCache) return colourPlaceholderCache;
+  var byNum = {};
+  colourAreas(live).forEach(function(a) {
+    if (!byNum[a.num]) byNum[a.num] = [];
+    if (byNum[a.num].indexOf(a.label) === -1) byNum[a.num].push(a.label);
+  });
+  if (!live) {
+    colourPlaceholderCache = byNum;
+    Promise.resolve().then(function() { colourPlaceholderCache = null; });
+  }
+  return byNum;
+}
+
+// What an unnamed colour reads as. Two areas are both named in full ("Lounge
+// Feature Wall · Hall Feature Wall"); beyond that the list would be longer
+// than anything it is printed beside, so it counts instead. A colour on no
+// area at all -- one typed in ahead of the measure, or left behind by a
+// re-measure -- has nothing to be named after and falls back to its number,
+// the same last resort as before.
+function colourPlaceholderFor(num, live) {
+  var names = colourPlaceholderMap(live)[num] || [];
+  if (!names.length) return 'Colour ' + num;
+  if (names.length <= 2) return names.join(' · ');
+  return names[0] + ' + ' + (names.length - 1) + ' more';
+}
+
+// Has this colour been DECIDED, as opposed to still reading as the area it
+// covers? The client-facing paths care about the difference: a placeholder
+// is a location, not a colour, and "Optiva 5 - Lounge Feature Wall 3ltr" on
+// a quote reads like a mistake (see materialColourNames).
+function colourIsNamed(num) {
+  var c = colours.find(function(x) { return x.number === num; });
+  return !!(c && c.label);
+}
+
+function findColour(num) {
+  return colours.find(function(x) { return x.number === num; }) || null;
+}
+
+// Appends a colour and returns its number. Callers save.
+function addColourEntry(label, brand, code) {
+  ensureDefaultColour();
+  invalidateColourPlaceholders();
+  var next = Math.max.apply(null, colours.map(function(c) { return c.number; })) + 1;
+  colours.push({ number: next, label: label || '', brand: brand || '', code: code || '' });
+  return next;
+}
+
+// Naming an area's colour. ONE free-text field does all of it:
+//
+//   · blank                     -> undecided again; the colour goes back to
+//                                  reading as the area it covers
+//   · a name already in the job -> the area JOINS that colour, so the two
+//                                  places share one tin instead of ordering
+//                                  two. This is what makes re-typing "Dead
+//                                  Salmon" in the hallway do the right thing
+//                                  without anyone having to reach for the
+//                                  quick-pick chips (which do the same act
+//                                  by tap).
+//   · anything else             -> renamed in place when this area is the
+//                                  ONLY one on that colour; FORKED onto a
+//                                  new colour when it is not, because naming
+//                                  the lounge feature wall must never
+//                                  silently rename the hall's walls too.
+//
+// Returns the colour number the area should now be on -- assigning it is the
+// caller's job, since only the caller knows where the area's number lives.
+function applyAreaColourName(current, text, brand, code, live) {
+  ensureDefaultColour();
+  invalidateColourPlaceholders();
+  text = String(text == null ? '' : text).trim();
+  var owned = (colourUsageCounts(live)[current] || 0) <= 1;
+  var target = findColour(current);
+  if (!text) {
+    if (owned) {
+      if (target) { target.label = ''; target.brand = ''; target.code = ''; }
+      return current;
+    }
+    return addColourEntry('', '', '');
+  }
+  var existing = colours.find(function(c) {
+    return c.label && c.label.toLowerCase() === text.toLowerCase();
+  });
+  if (existing && existing.number !== current) return existing.number;
+  if (owned || existing) {
+    if (target) { target.label = text; target.brand = brand || ''; target.code = code || ''; }
+    return current;
+  }
+  return addColourEntry(text, brand, code);
+}
+
+// A fork (or a re-pick) can leave the colour it moved off with no area at
+// all. An UNNAMED one is pure clutter at that point -- no name of its own
+// and nothing left to be named after -- so it goes. A NAMED one stays: it
+// may have been entered ahead of the measure, and that is a decision, not
+// litter. Colour 1 always stays; it is the fallback every unset area
+// resolves to.
+function pruneOrphanColour(num, live) {
+  invalidateColourPlaceholders();
+  if (num === 1) return;
+  var c = findColour(num);
+  if (!c || c.label) return;
+  if ((colourUsageCounts(live)[num] || 0) > 0) return;
+  colours = colours.filter(function(x) { return x.number !== num; });
 }
 
 // THE one place a colour number becomes words. Shared by the Colour
@@ -12818,11 +13311,14 @@ function ensureDefaultColour() {
 // always shown a code. Everything degrades: a colour matched to a library
 // entry with no code (387 of the 1221 seeded ones) reads "Dulux Timeless",
 // one that never matched the library at all is just its name, and an
-// unnamed colour falls back to "Colour N" -- which is all anyone knows
-// about it, and the same fallback the pickers use.
+// unnamed colour falls back to the AREAS IT COVERS ("Lounge Feature Wall")
+// rather than to "Colour N" -- see colourPlaceholderFor(). That fallback is
+// for reading, not for billing: the client-facing product descriptions ask
+// colourIsNamed() first and leave the generic colour band alone until a
+// colour has actually been decided.
 function colourLabelFor(num) {
   var c = colours.find(function(x){ return x.number === num; });
-  if (!c || !c.label) return 'Colour ' + num;
+  if (!c || !c.label) return colourPlaceholderFor(num);
   return [c.brand || '', c.code ? 'No. ' + c.code : '', c.label]
     .filter(Boolean).join(' ');
 }
@@ -12841,14 +13337,24 @@ function roomColourSchedule(r) {
   if (+r.featureWallArea > 0 && (r.featureWallMode||'paint')==='paint') parts.push({ role: 'Feature wall', num: r.featureWallColourNumber || 1 });
   if (!parts.length) return null;
   if (parts.every(function(p){ return p.num === parts[0].num; })) {
-    return colourLabelFor(parts[0].num);
+    return colourScheduleLabel(parts[0].num);
   }
   var byColour = {}, order = [];
   parts.forEach(function(p){
     if (!byColour[p.num]) { byColour[p.num] = []; order.push(p.num); }
     byColour[p.num].push(p.role);
   });
-  return order.map(function(num){ return byColour[num].join('/') + ': ' + colourLabelFor(num); }).join(' · ');
+  return order.map(function(num){ return byColour[num].join('/') + ': ' + colourScheduleLabel(num); }).join(' · ');
+}
+
+// The schedule is a list of ROOMS and the colours in them, and it prints on
+// the client's quote. An undecided colour reads as the area it covers
+// everywhere else, which here would be the row talking to itself ("Lounge —
+// Walls: Lounge Main Walls") and, on the client's copy, would look like a
+// colour they had never heard of. So the schedule says the plain truth
+// instead, and the row's own room name supplies the "where".
+function colourScheduleLabel(num) {
+  return colourIsNamed(num) ? colourLabelFor(num) : 'To be confirmed';
 }
 
 // Colours tab doubles as the job's paint/ordering view: beyond naming a
@@ -13137,12 +13643,71 @@ function clearShopTicked() {
   renderShopList();
 }
 
+// ── The Colours tab ────────────────────────────────────────────────────────
+// No longer a stop in the flow with a queue of unnamed things waiting on it.
+// It is the JOB-WIDE view of every area's colour field: what has been decided
+// and what hasn't, all editable from one place, in the same free-text field
+// the room screen uses. Under it, the ordering roll-up stays exactly as it
+// was -- which surfaces each colour covers and the litres/tins to buy for it,
+// reusing Summary's own materialRow() HTML so the numbers can't drift apart.
+// Rooms = input the work, Summary = the price, Colours = what to buy.
 function renderColours() {
+  invalidateColourPlaceholders();
   ensureDefaultColour();
   var list  = document.getElementById('colours-list');
   var empty = document.getElementById('colours-empty');
   var cards = document.getElementById('colours-cards');
+  var areasCard = document.getElementById('colour-areas-card');
   empty.style.display = 'none'; list.style.display = 'block';
+
+  // ── Every area, decided or not ───────────────────────────────────────────
+  var areas = colourAreas();
+  var areasHtml = '', lastOwner = null, named = 0;
+  areas.forEach(function(a, i) {
+    var slot = 'j' + i;
+    var num = a.num;
+    var isNamed = colourIsNamed(num);
+    if (isNamed) named++;
+    registerColourSlot(slot, {
+      apply: function(label, brand, code) {
+        var next = applyAreaColourName(num, label, brand, code, null);
+        if (next !== num) { setAreaColourNumber(a.ref, next); pruneOrphanColour(num, null); }
+        saveColours();
+        renderColours();
+      },
+      pick: function(picked) {
+        if (picked === num) return;
+        setAreaColourNumber(a.ref, picked);
+        pruneOrphanColour(num, null);
+        saveColours();
+        renderColours();
+      }
+    });
+    var roleWord = a.label === a.owner ? '' : (AREA_ROLE_WORDS[a.role] || '');
+    var head = a.owner !== lastOwner
+      ? '<div class="subsection-label">' + escapeHtml(a.owner) + '</div>' : '';
+    lastOwner = a.owner;
+    areasHtml += head
+      + '<div class="area-row">'
+      +   '<div class="area-row-head">'
+      +     '<div class="area-row-name">' + escapeHtml(roleWord || a.label) + '</div>'
+      +     '<div class="area-row-state" style="color:' + (isNamed ? 'var(--accent)' : 'var(--text3)') + '">'
+      +       (isNamed ? 'Named' : 'To decide') + '</div>'
+      +   '</div>'
+      +   '<div class="colour-slot">' + colourSlotHtml(slot, num, a.label, null) + '</div>'
+      + '</div>';
+  });
+  areasCard.innerHTML = areas.length
+    ? '<div class="card-header">Colours by area'
+        + '<span style="text-transform:none;letter-spacing:normal;font-weight:600;color:'
+        + (named === areas.length ? 'var(--accent)' : 'var(--text2)') + '">'
+        + named + ' of ' + areas.length + ' named</span></div>' + areasHtml
+    : '<div class="card-header">Colours by area</div>'
+      + '<div style="padding:14px 16px;font-size:13px;color:var(--text2);line-height:1.5">'
+      + 'Measure a room or an exterior item and every painted surface shows up here, '
+      + 'named after where it goes until you know the colour.</div>';
+
+  // ── What to buy, per colour ──────────────────────────────────────────────
   var mats = computeMaterials();
   var allMatRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows, mats.featureWallRows, mats.panelRows, mats.masonryRows, mats.extTopcoatRows, mats.extPrimerRows, mats.fuTopcoatRows, mats.fuPrimerRows);
   cards.innerHTML = colours.slice().sort(function(a, b){ return a.number - b.number; }).map(function(c) {
@@ -13167,21 +13732,13 @@ function renderColours() {
     if (masonryItems.length) sub += '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Masonry (ext)</span><span class="breakdown-sub-value">'+escapeHtml(masonryItems.join(', '))+'</span></div>';
     if (extWoodItems.length) sub += '<div class="breakdown-sub-row"><span class="breakdown-sub-label">Woodwork (ext)</span><span class="breakdown-sub-value">'+escapeHtml(extWoodItems.join(', '))+'</span></div>';
     matRows.forEach(function(r){ sub += r.html; });
-    // Row wraps on mobile (flex-wrap, scoped to this row only -- .field-row
-    // elsewhere stays single-line) instead of the chips fighting for shrink
-    // space: a long product tag like "Dulux Heritage · No. 1780058" was
-    // forced nowrap with no min-width:0, so it just spilled off the card's
-    // right edge on narrow screens ($colours-cards is overflow:visible, so
-    // it wasn't even clipped -- see that rule). Letting the row drop the
-    // chips to their own line keeps the full tag readable instead of
-    // truncating it (BUG FIX 2026-07-15).
+    // The name is edited on the area rows above now, so this list is the
+    // read side: what each colour is, where it goes, and what to buy for it.
+    // An unnamed one still reads as its areas rather than as its number.
     var brandChip = c.brand ? '<div class="chip" style="min-width:0;white-space:normal;word-break:break-word">'+escapeHtml(c.brand)+(c.code ? ' · No. '+escapeHtml(c.code) : '')+'</div>' : '';
     var rowHtml = '<div class="field-row" style="flex-wrap:wrap">'+
       '<div class="room-icon" style="font-size:16px;font-weight:700">'+c.number+'</div>'+
-      '<div style="position:relative">'+
-        '<input type="text" class="field-input wide" id="c-label-'+c.number+'" placeholder="Name this colour (optional)" autocorrect="off" autocomplete="off" value="'+escapeHtml(c.label||'')+'" oninput="onColourLabelInput('+c.number+',this.value)" onfocus="onColourLabelInput('+c.number+',this.value)" onchange="renameColour('+c.number+',this.value)">'+
-        '<div id="colour-dd-'+c.number+'" style="display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:260px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div>'+
-      '</div>'+
+      '<div style="flex:1;min-width:120px;font-size:15px;font-weight:500'+(c.label ? '' : ';color:var(--text2);font-style:italic')+'">'+escapeHtml(colourLabelFor(c.number))+'</div>'+
       brandChip+
       (surfaces ? '<div class="chip">'+surfaces+'</div>' : '')+
       (c.number===1 ? '' : '<div onclick="deleteColour('+c.number+')" style="color:var(--danger);font-size:22px;padding:0 4px;cursor:pointer">×</div>')+
@@ -13195,39 +13752,179 @@ function renderColours() {
   }).join('');
 }
 
+// Writes an area's colour number back to wherever that area keeps it. Rooms
+// and exterior items are saved rows here (the Colours tab is not their edit
+// screen, so there is no form state to go through); kitchen and fitted units
+// persist immediately as they always have.
+function setAreaColourNumber(ref, num) {
+  if (!ref) return;
+  invalidateColourPlaceholders();
+  if (ref.kind === 'room') {
+    var r = rooms.find(function(x){ return x.id === ref.id; });
+    if (!r) return;
+    if (ref.role === 'wall') r.colourNumber = num;
+    else if (ref.role === 'ceiling') r.ceilingColourNumber = num;
+    else if (ref.role === 'woodwork') r.woodworkColourNumber = num;
+    else if (ref.role === 'featurewall') r.featureWallColourNumber = num;
+    else if (ref.role === 'panel') r.panelColourNumber = num;
+    saveRooms();
+    return;
+  }
+  if (ref.kind === 'ext') {
+    var it = extItems.find(function(x){ return x.id === ref.id; });
+    if (!it) return;
+    if (ref.role === 'masonry') it.masonryColourNumber = num;
+    else it.extWoodworkColourNumber = num;
+    saveExtItems();
+    return;
+  }
+  if (ref.kind === 'kitchen') {
+    var job = activeJob();
+    if (!job) return;
+    ensureKitchenShape(job).colourNumber = num;
+    saveKitchenJob();
+    return;
+  }
+  if (ref.kind === 'fittedunit') {
+    var job2 = activeJob();
+    if (!job2) return;
+    var fu = fittedUnitList(job2).find(function(u){ return u.id === ref.id; });
+    if (!fu) return;
+    fu.colourNumber = num;
+    saveFittedUnitJob();
+  }
+}
+
+// Still here for a colour decided ahead of the measure -- the client has
+// picked Dead Salmon but nothing has been measured yet, so there is no area
+// to type it on. It lands in the job's list, ready to be picked (or simply
+// typed again) on whichever area it turns out to cover.
 function addColour() {
   ensureDefaultColour();
-  var nextNumber = Math.max.apply(null, colours.map(function(c){ return c.number; })) + 1;
-  colours.push({ number: nextNumber, label: '', brand: '', code: '' });
+  var label = (prompt('Colour name') || '').trim();
+  if (!label) return;
+  var matches = colourLibrary.filter(function(l){ return l.name.toLowerCase() === label.toLowerCase(); });
+  var match = matches.length === 1 ? matches[0] : null;
+  var existing = colours.find(function(c){ return c.label && c.label.toLowerCase() === label.toLowerCase(); });
+  if (!existing) addColourEntry(label, match ? match.brand : '', match ? match.code : '');
   saveColours();
   renderColours();
 }
 
-// Plain blur-commit path (no dropdown selection): if the typed text
-// happens to exactly match a library entry, autofill brand/code anyway;
-// otherwise it's free text and carries no brand/code metadata.
-// Guarded against firing while this row's dropdown/save-form is open --
-// clicking from the label input into the save-form's own Brand/Code
-// fields blurs the label input too, and committing here would wipe out
-// the save-form (a full renderColours() rebuild) before the user can use
-// it. The dropdown's own click handlers (selectLibraryColour,
-// confirmSaveColour, the outside-click listener below) commit instead.
+// ── Colour name slots ──────────────────────────────────────────────────────
+// A colour name is typed in several places now -- every area field on the
+// room, exterior, kitchen and fitted-unit screens, and every row of the
+// Colours tab's job-wide area list -- and they all want the same colour-
+// library autocomplete underneath. A SLOT is one such field: an id string
+// for its DOM nodes plus what to do with whatever gets typed or picked.
+//
+// Keyed by SLOT rather than by colour number, which is the whole reason this
+// exists: two areas can legitimately sit on the same colour, and keying the
+// element ids by number would have them share (and fight over) one input and
+// one dropdown.
+var colourSlots = {};
+function registerColourSlot(slot, handlers) { colourSlots[slot] = handlers; }
+
+// The field itself: the name (or, unnamed, the ghost text saying where it
+// goes), then one-tap chips for every colour already on this job. There is
+// no "+" any more -- typing a name the job doesn't have creates the colour,
+// typing one it does joins it.
+function colourSlotHtml(slot, num, placeholder, live) {
+  var c = findColour(num) || { label: '', brand: '', code: '' };
+  // The ghost text is THIS AREA's placeholder -- "Lounge Feature Wall" --
+  // never the colour's derived one. On a colour shared by six areas the
+  // derived name reads "Lounge Main Walls + 5 more", which is the right
+  // label on the buy list and useless on the field for one of them.
+  var alsoOn = (colourUsageCounts(live)[num] || 0) - 1;
+  // Quick-pick: the OTHER colours on this job, one tap each. The current one
+  // is not among them -- the field above already says what it is, and a chip
+  // repeating it just made every row taller. Capped so a job with a dozen
+  // colours doesn't bury the field it belongs to; anything past the cap is
+  // still reachable by typing its name, which joins it (applyAreaColourName).
+  var chips = colours.slice()
+    .sort(function(a, b){ return a.number - b.number; })
+    .filter(function(x) { return x.number !== num; })
+    .slice(0, 6)
+    .map(function(x) {
+      return '<div class="colour-pick" onclick="pickColourSlot(\'' + slot + '\',' + x.number + ')">'
+        + escapeHtml(colourChipLabel(x.number, live)) + '</div>';
+    }).join('');
+  return '<div class="colour-slot-field">'
+    +   '<input type="text" class="field-input colour-name" id="c-label-' + slot + '"'
+    +     ' placeholder="' + escapeHtml(placeholder) + '" autocorrect="off" autocomplete="off"'
+    +     ' value="' + escapeHtml(c.label || '') + '"'
+    +     ' oninput="onColourLabelInput(\'' + slot + '\',this.value)"'
+    +     ' onfocus="onColourLabelInput(\'' + slot + '\',this.value)"'
+    // Enter/Done commits. Without it the only commit path is the
+    // outside-click listener (the change event is deliberately swallowed
+    // while the dropdown is open), so tapping the keyboard's Done key and
+    // putting the phone away would have lost the name.
+    +     ' onkeydown="if(event.key===\'Enter\'){event.preventDefault();hideColourDropdown(\'' + slot + '\');commitColourSlotText(\'' + slot + '\',this.value);}"'
+    +     ' onchange="commitColourSlotText(\'' + slot + '\',this.value)">'
+    + '</div>'
+    + '<div class="colour-dd" id="colour-dd-' + slot + '"></div>'
+    + (c.brand ? '<div class="chip">' + escapeHtml(c.brand) + (c.code ? ' · No. ' + escapeHtml(c.code) : '') + '</div>' : '')
+    + chips
+    // Says what typing here will do before it does it: on a colour several
+    // areas share, a new name forks onto a colour of its own rather than
+    // renaming everyone else's (see applyAreaColourName).
+    + (alsoOn > 0 ? '<div class="colour-pick-hint">Also on ' + alsoOn + ' other area'
+        + (alsoOn === 1 ? '' : 's') + ' · renaming here changes only this one</div>' : '');
+}
+
+// A colour as it reads on a quick-pick chip: short enough that two fit on a
+// phone. The full label (brand + code + name, or every area a placeholder
+// covers) is right on the list this chip picks from and on the buy list --
+// here it only has to be recognisable.
+function colourChipLabel(num, live) {
+  var c = findColour(num);
+  if (c && c.label) return c.label;
+  var names = colourPlaceholderMap(live)[num] || [];
+  if (!names.length) return 'Colour ' + num;
+  return names.length === 1 ? names[0] : names[0] + ' +' + (names.length - 1);
+}
+
+function pickColourSlot(slot, num) {
+  var s = colourSlots[slot];
+  if (s && s.pick) s.pick(num);
+}
+
+function commitColourSlot(slot, label, brand, code) {
+  var s = colourSlots[slot];
+  if (s && s.apply) s.apply(label, brand, code);
+}
+
+// Plain blur-commit path (no dropdown selection): if the typed text happens
+// to exactly match a library entry, autofill brand/code anyway; otherwise
+// it's free text and carries no brand/code metadata.
+// Guarded against firing while this slot's dropdown/save-form is open --
+// clicking from the name input into the save-form's own Brand/Code fields
+// blurs the input too, and committing here would wipe out the save-form (a
+// full re-render) before it can be used. The dropdown's own click handlers
+// (selectLibraryColour, confirmSaveColour, the outside-click listener below)
+// commit instead.
 // A name shared by several brands is ambiguous, so autofill only when the
 // name resolves to exactly ONE library entry. With two brands sharing a
 // name, first-match-wins would put a confidently wrong code in front of the
 // merchant; a blank brand chip reads as "unresolved" and is the safer
 // failure. Picking from the dropdown resolves it explicitly.
-function renameColour(number, label) {
-  if (colourDropdownFor === number) return;
-  label = label.trim();
+function commitColourSlotText(slot, label) {
+  // Only stand down while this slot's dropdown/save-form is actually OPEN.
+  // Guarding on colourDropdownFor alone (which is set on focus) swallowed
+  // every commit from the moment the field was touched, leaving the
+  // outside-click listener as the only way a name could ever land.
+  var dd = document.getElementById('colour-dd-' + slot);
+  if (colourDropdownFor === slot && dd && dd.classList.contains('open')) return;
+  label = String(label == null ? '' : label).trim();
   var matches = colourLibrary.filter(function(l){ return l.name.toLowerCase() === label.toLowerCase(); });
   var match = matches.length === 1 ? matches[0] : null;
-  commitColour(number, label, match ? match.brand : '', match ? match.code : '');
+  commitColourSlot(slot, label, match ? match.brand : '', match ? match.code : '');
 }
 
 function commitColour(number, label, brand, code) {
-  var c = colours.find(function(x){ return x.number === number; });
+  var c = findColour(number);
   if (!c) return;
+  invalidateColourPlaceholders();
   c.label = label;
   c.brand = brand || '';
   c.code = code || '';
@@ -13235,20 +13932,20 @@ function commitColour(number, label, brand, code) {
   renderColours();
 }
 
-// ── Colour reference library autocomplete (Colours tab) ─────────────────────
+// ── Colour reference library autocomplete ───────────────────────────────────
 // Mirrors the Xero contact autocomplete pattern (onXeroClientInput etc.)
 // but filters the in-memory colourLibrary instead of hitting a server
-// search endpoint -- the whole library (~500 entries) is cheap to keep
+// search endpoint -- the whole library (~1200 entries) is cheap to keep
 // client-side and filter on every keystroke.
 var colourDropdownMatches = [];
 var colourDropdownFor = null;
 
-function onColourLabelInput(number, value) {
-  colourDropdownFor = number;
-  var q = value.trim();
-  var dd = document.getElementById('colour-dd-'+number);
+function onColourLabelInput(slot, value) {
+  colourDropdownFor = slot;
+  var q = String(value == null ? '' : value).trim();
+  var dd = document.getElementById('colour-dd-'+slot);
   if (!dd) return;
-  if (q.length < 2) { dd.style.display = 'none'; return; }
+  if (q.length < 2) { dd.classList.remove('open'); return; }
   var qLower = q.toLowerCase();
   colourDropdownMatches = colourLibrary.filter(function(c){
     // Matches on code too, not just name -- RAL Classic stores its number as
@@ -13258,7 +13955,7 @@ function onColourLabelInput(number, value) {
       || (c.code && c.code.toLowerCase().indexOf(qLower) !== -1);
   }).slice(0, 8);
   var html = colourDropdownMatches.map(function(c, i){
-    return '<div style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:14px" onmousedown="event.preventDefault()" onclick="selectLibraryColour('+number+','+i+')">'
+    return '<div style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:14px" onmousedown="event.preventDefault()" onclick="selectLibraryColour(\''+slot+'\','+i+')">'
       + '<div style="font-weight:600;color:var(--text)">' + escapeHtml(c.name) + '</div>'
       + '<div style="font-size:12px;color:var(--text2)">' + escapeHtml(c.brand) + (c.code ? ' · No. ' + escapeHtml(c.code) : '') + '</div>'
       + '</div>';
@@ -13270,26 +13967,26 @@ function onColourLabelInput(number, value) {
   // different brand. The library's real key is name+brand -- matching the
   // UNIQUE(name, brand) constraint the table has always had.
   var exact = colourLibrary.some(function(c){ return c.name.toLowerCase() === qLower; });
-  html += '<div style="padding:10px 12px;cursor:pointer;color:var(--accent);font-weight:600;font-size:14px" onmousedown="event.preventDefault()" onclick="showSaveColourForm('+number+')">'
+  html += '<div style="padding:10px 12px;cursor:pointer;color:var(--accent);font-weight:600;font-size:14px" onmousedown="event.preventDefault()" onclick="showSaveColourForm(\''+slot+'\')">'
     + (exact ? '+ Add “' + escapeHtml(q) + '” under another brand' : '+ Save “' + escapeHtml(q) + '” to your colour library')
     + '</div>';
   dd.innerHTML = html;
-  dd.style.display = 'block';
+  dd.classList.add('open');
 }
 
-function selectLibraryColour(number, idx) {
+function selectLibraryColour(slot, idx) {
   var c = colourDropdownMatches[idx];
   if (!c) return;
-  var input = document.getElementById('c-label-'+number);
+  var input = document.getElementById('c-label-'+slot);
   if (input) input.value = c.name;
-  commitColour(number, c.name, c.brand, c.code);
-  hideColourDropdown(number);
+  hideColourDropdown(slot);
+  commitColourSlot(slot, c.name, c.brand, c.code);
 }
 
-function showSaveColourForm(number) {
-  var input = document.getElementById('c-label-'+number);
+function showSaveColourForm(slot) {
+  var input = document.getElementById('c-label-'+slot);
   var q = input ? input.value.trim() : '';
-  var dd = document.getElementById('colour-dd-'+number);
+  var dd = document.getElementById('colour-dd-'+slot);
   if (!dd || !q) return;
   // Show what's already filed under this name so it's obvious which brands
   // are taken -- saving the same name+brand again overwrites that entry's
@@ -13304,21 +14001,21 @@ function showSaveColourForm(number) {
     '<div style="padding:10px 12px;background:var(--surface2)">'
     + '<div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Save “'+escapeHtml(q)+'” to colour library</div>'
     + alreadyHtml
-    + '<input type="text" id="cs-brand-'+number+'" placeholder="Brand (e.g. Farrow &amp; Ball)" autocorrect="off" style="width:100%;box-sizing:border-box;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:\'DM Sans\',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none;margin-bottom:6px">'
-    + '<input type="text" id="cs-code-'+number+'" placeholder="Code (optional)" autocorrect="off" style="width:100%;box-sizing:border-box;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:\'DM Sans\',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none;margin-bottom:8px">'
+    + '<input type="text" id="cs-brand-'+slot+'" placeholder="Brand (e.g. Farrow &amp; Ball)" autocorrect="off" style="width:100%;box-sizing:border-box;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:\'DM Sans\',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none;margin-bottom:6px">'
+    + '<input type="text" id="cs-code-'+slot+'" placeholder="Code (optional)" autocorrect="off" style="width:100%;box-sizing:border-box;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:\'DM Sans\',sans-serif;font-size:14px;border-radius:var(--rs);padding:8px 12px;outline:none;margin-bottom:8px">'
     + '<div style="display:flex;gap:8px">'
-    + '<button onclick="confirmSaveColour('+number+')" style="flex:1;background:var(--accent);color:white;border:none;border-radius:var(--rs);padding:8px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer">Save</button>'
-    + '<button onclick="skipSaveColour('+number+')" style="flex:1;background:none;border:1px solid var(--border);color:var(--text2);border-radius:var(--rs);padding:8px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer">Skip</button>'
+    + '<button onclick="confirmSaveColour(\''+slot+'\')" style="flex:1;background:var(--accent);color:white;border:none;border-radius:var(--rs);padding:8px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer">Save</button>'
+    + '<button onclick="skipSaveColour(\''+slot+'\')" style="flex:1;background:none;border:1px solid var(--border);color:var(--text2);border-radius:var(--rs);padding:8px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer">Skip</button>'
     + '</div>'
     + '</div>';
 }
 
-function confirmSaveColour(number) {
-  var input = document.getElementById('c-label-'+number);
+function confirmSaveColour(slot) {
+  var input = document.getElementById('c-label-'+slot);
   var q = input ? input.value.trim() : '';
   if (!q) return;
-  var brandEl = document.getElementById('cs-brand-'+number);
-  var codeEl = document.getElementById('cs-code-'+number);
+  var brandEl = document.getElementById('cs-brand-'+slot);
+  var codeEl = document.getElementById('cs-code-'+slot);
   var brand = brandEl ? brandEl.value.trim() : '';
   var code = codeEl ? codeEl.value.trim() : '';
   if (brand) {
@@ -13326,7 +14023,7 @@ function confirmSaveColour(number) {
     // local cache: same name under a NEW brand is a new entry, same
     // name+brand just refreshes the code. Pushing blindly would leave the
     // cache holding a duplicate the server doesn't have, and the duplicate
-    // would then make the name look ambiguous to renameColour.
+    // would then make the name look ambiguous to commitColourSlotText.
     var existing = colourLibrary.find(function(c){
       return c.name.toLowerCase() === q.toLowerCase() && c.brand.toLowerCase() === brand.toLowerCase();
     });
@@ -13345,30 +14042,30 @@ function confirmSaveColour(number) {
       body: JSON.stringify({ name: q, brand: brand, code: code })
     }).catch(function(){});
   }
-  commitColour(number, q, brand, code);
-  hideColourDropdown(number);
+  hideColourDropdown(slot);
+  commitColourSlot(slot, q, brand, code);
 }
 
 // Declining to save to the library still commits the typed text as free
 // text (per the fallback spec) -- only the library-save step is skipped.
-function skipSaveColour(number) {
-  var input = document.getElementById('c-label-'+number);
+function skipSaveColour(slot) {
+  var input = document.getElementById('c-label-'+slot);
   var label = input ? input.value.trim() : '';
-  hideColourDropdown(number);
-  commitColour(number, label, '', '');
+  hideColourDropdown(slot);
+  commitColourSlot(slot, label, '', '');
 }
 
-function hideColourDropdown(number) {
-  var dd = document.getElementById('colour-dd-'+number);
-  if (dd) dd.style.display = 'none';
-  if (colourDropdownFor === number) colourDropdownFor = null;
+function hideColourDropdown(slot) {
+  var dd = document.getElementById('colour-dd-'+slot);
+  if (dd) dd.classList.remove('open');
+  if (colourDropdownFor === slot) colourDropdownFor = null;
 }
 
 document.addEventListener('click', function(e){
   if (colourDropdownFor == null) return;
-  var number = colourDropdownFor;
-  var input = document.getElementById('c-label-'+number);
-  var dd = document.getElementById('colour-dd-'+number);
+  var slot = colourDropdownFor;
+  var input = document.getElementById('c-label-'+slot);
+  var dd = document.getElementById('colour-dd-'+slot);
   if (!input || !dd) return;
   // Use composedPath (captured at dispatch time) rather than dd.contains(e.target) --
   // a click on a dropdown row (e.g. "+ Save to library") runs its own onclick
@@ -13378,14 +14075,14 @@ document.addEventListener('click', function(e){
   var path = typeof e.composedPath === 'function' ? e.composedPath() : [e.target];
   var insideDd = path.indexOf(dd) !== -1;
   if (e.target !== input && !insideDd) {
-    hideColourDropdown(number); // clears colourDropdownFor so the renameColour guard above no longer blocks
-    renameColour(number, input.value);
+    hideColourDropdown(slot); // clears colourDropdownFor so the guard above no longer blocks
+    commitColourSlotText(slot, input.value);
   }
 });
 
 function deleteColour(number) {
   if (number === 1) return; // the default colour — can be renamed, not removed
-  if (!confirm('Delete this colour?')) return;
+  if (!confirm('Delete this colour?\n\nAnything still on it goes back to reading as the area it covers.')) return;
   colours = colours.filter(function(c){ return c.number !== number; });
   saveColours();
   renderColours();
@@ -13407,10 +14104,10 @@ var roomColourNumbers = { wall: 1, ceiling: 1, woodwork: 1, featurewall: 1, pane
 // Kitchen's colour selection isn't temp/form-local like the room roles above
 // -- it writes straight to job.kitchen.colourNumber and persists immediately
 // (no Save button on the Kitchen screen -- see saveKitchenJob()'s comment).
-// These two accessors let populateRoomColourChips/setRoomColour/
-// addRoomColourInline below treat 'kitchen' as just one more role instead of
-// needing their own hand-copied twin, which is what Kitchen used to have
-// (populateKitchenColourChips/setKitchenColour/addKitchenColourInline).
+// These two accessors let populateRoomColourChips below treat 'kitchen' as
+// just one more role instead of needing its own hand-copied twin, which is
+// what Kitchen used to have (populateKitchenColourChips/setKitchenColour/
+// addKitchenColourInline).
 function colourNumberOf(role) {
   if (role === 'kitchen') {
     var job = activeJob();
@@ -13426,6 +14123,7 @@ function colourNumberOf(role) {
   return roomColourNumbers[role];
 }
 function setColourNumberOf(role, number) {
+  invalidateColourPlaceholders();
   if (role === 'kitchen') {
     var job = activeJob();
     if (!job) return;
@@ -13443,38 +14141,90 @@ function setColourNumberOf(role, number) {
   roomColourNumbers[role] = number;
 }
 
+// The unsaved edit currently on screen, for colourAreas(). Scoped to the
+// screen that is actually active: roomColourNumbers/extColourNumbers hold
+// whatever the LAST room or exterior edit left in them, so handing them over
+// while the Kitchen screen is open would have the usage counts insisting a
+// room nobody is editing is on some other colour. Returns null when neither
+// form is open, which is also what tells colourPlaceholderMap it may use its
+// cache.
+function liveColourState() {
+  var st = null;
+  var roomScreen = document.getElementById('screen-room');
+  if (roomScreen && roomScreen.classList.contains('active')) {
+    var nameEl = document.getElementById('r-name');
+    st = st || {};
+    st.roomId = editId || null;
+    st.roomName = (nameEl && nameEl.value.trim()) || 'Room';
+    st.roomNums = roomColourNumbers;
+  }
+  var extScreen = document.getElementById('screen-extform');
+  if (extScreen && extScreen.classList.contains('active')) {
+    var labelEl = document.getElementById('ex-label');
+    st = st || {};
+    st.extId = editExtId || null;
+    st.extLabel = (labelEl && labelEl.value.trim()) || 'Exterior';
+    st.extNums = extColourNumbers;
+  }
+  return st;
+}
+
+// The auto-generated placeholder for one area on the screen it is edited
+// from -- room name + surface, the unit's own name, "Kitchen Cabinets". Used
+// as the ghost text when the colour has no name AND covers no saved area yet
+// (a room still being added, or a surface whose coats are still at zero).
+function areaPlaceholderForRole(role) {
+  if (role === 'kitchen') return 'Kitchen Cabinets';
+  if (role === 'fittedunit') return fittedUnitName(currentFittedUnit());
+  if (role === 'ext-masonry' || role === 'ext-woodwork') {
+    var labelEl = document.getElementById('ex-label');
+    return areaPlaceholder((labelEl && labelEl.value.trim()) || 'Exterior',
+                           role === 'ext-masonry' ? 'masonry' : 'extwoodwork');
+  }
+  var nameEl = document.getElementById('r-name');
+  return areaPlaceholder((nameEl && nameEl.value.trim()) || 'Room', role);
+}
+
+var ROOM_COLOUR_ROLES = ['wall','ceiling','woodwork','featurewall','panel','kitchen','fittedunit'];
+var EXT_COLOUR_ROLES  = ['ext-masonry','ext-woodwork'];
+
+// One area, one free-text field. (Still called populateRoomColourChips
+// because every caller in the room/kitchen/fitted-unit screens does; the
+// chips are now the quick-pick row under the field.)
 function populateRoomColourChips(role) {
   var seg = document.getElementById('seg-colour-'+role);
   if (!seg) return;
   ensureDefaultColour();
-  var list = colours.slice().sort(function(a,b){ return a.number - b.number; });
-  var current = colourNumberOf(role);
-  var html = list.map(function(c) {
-    var label = c.label ? c.label : ('Colour '+c.number);
-    return '<button type="button" class="seg-btn'+(c.number===current?' active':'')+'" onclick="setRoomColour(\''+role+'\','+c.number+')">'+escapeHtml(label)+'</button>';
-  }).join('');
-  html += '<button type="button" class="seg-btn" onclick="addRoomColourInline(\''+role+'\')">+</button>';
-  seg.innerHTML = html;
+  var slot = 'a-' + role;
+  var cur = colourNumberOf(role);
+  registerColourSlot(slot, {
+    apply: function(label, brand, code) {
+      var next = applyAreaColourName(cur, label, brand, code, liveColourState());
+      if (next !== cur) { setColourNumberOf(role, next); pruneOrphanColour(cur, liveColourState()); }
+      saveColours();
+      refreshColourSlots();
+    },
+    pick: function(picked) {
+      if (picked === cur) return;
+      setColourNumberOf(role, picked);
+      pruneOrphanColour(cur, liveColourState());
+      saveColours();
+      refreshColourSlots();
+    }
+  });
+  seg.innerHTML = colourSlotHtml(slot, cur, areaPlaceholderForRole(role), liveColourState());
 }
 
-function setRoomColour(role, number) {
-  setColourNumberOf(role, number);
-  populateRoomColourChips(role);
-}
-
-function addRoomColourInline(role) {
-  ensureDefaultColour();
-  var nextNumber = Math.max.apply(null, colours.map(function(c){ return c.number; })) + 1;
-  colours.push({ number: nextNumber, label: '' });
-  saveColours();
-  setColourNumberOf(role, nextNumber);
-  // The new colour is now available to the other pickers too, even
-  // though only this one's selection actually changed.
-  ['wall','ceiling','woodwork','featurewall','panel','kitchen','fittedunit'].forEach(populateRoomColourChips);
+// Every slot on screen, re-read. A rename or a re-pick changes what the
+// OTHER areas' quick-pick chips say (and can retire a colour entirely), so
+// they all get rebuilt rather than just the one that was touched.
+function refreshColourSlots() {
+  ROOM_COLOUR_ROLES.forEach(populateRoomColourChips);
+  EXT_COLOUR_ROLES.forEach(populateExtColourChips);
 }
 
 // ── Exterior item colour chips ──────────────────────────────────────────────
-// Same chip UI/lifecycle as roomColourNumbers, but for exterior items: a
+// Same field/lifecycle as roomColourNumbers, but for exterior items: a
 // masonry colour (drives the masonry role) and one exterior-woodwork colour
 // shared across windows/doors/fascia/sash (drives extTopcoat + extPrimer).
 // DOM ids use 'ext-masonry'/'ext-woodwork'; the saved fields are
@@ -13485,28 +14235,26 @@ function populateExtColourChips(role) {
   var seg = document.getElementById('seg-colour-'+role);
   if (!seg) return;
   ensureDefaultColour();
-  var list = colours.slice().sort(function(a,b){ return a.number - b.number; });
-  var html = list.map(function(c) {
-    var label = c.label ? c.label : ('Colour '+c.number);
-    return '<button type="button" class="seg-btn'+(c.number===extColourNumbers[role]?' active':'')+'" onclick="setExtColour(\''+role+'\','+c.number+')">'+escapeHtml(label)+'</button>';
-  }).join('');
-  html += '<button type="button" class="seg-btn" onclick="addExtColourInline(\''+role+'\')">+</button>';
-  seg.innerHTML = html;
+  var slot = 'a-' + role;
+  var cur = extColourNumbers[role];
+  registerColourSlot(slot, {
+    apply: function(label, brand, code) {
+      var next = applyAreaColourName(cur, label, brand, code, liveColourState());
+      if (next !== cur) { extColourNumbers[role] = next; pruneOrphanColour(cur, liveColourState()); }
+      saveColours();
+      refreshColourSlots();
+    },
+    pick: function(picked) {
+      if (picked === cur) return;
+      extColourNumbers[role] = picked;
+      pruneOrphanColour(cur, liveColourState());
+      saveColours();
+      refreshColourSlots();
+    }
+  });
+  seg.innerHTML = colourSlotHtml(slot, cur, areaPlaceholderForRole(role), liveColourState());
 }
 
-function setExtColour(role, number) {
-  extColourNumbers[role] = number;
-  populateExtColourChips(role);
-}
-
-function addExtColourInline(role) {
-  ensureDefaultColour();
-  var nextNumber = Math.max.apply(null, colours.map(function(c){ return c.number; })) + 1;
-  colours.push({ number: nextNumber, label: '' });
-  saveColours();
-  extColourNumbers[role] = nextNumber;
-  ['ext-masonry','ext-woodwork'].forEach(populateExtColourChips);
-}
 
 // ── Room product overrides (room edit screen) ───────────────────────────────
 // Generic across all five material roles — wall/ceiling/topcoat/primer/mist
@@ -13794,7 +14542,7 @@ var exSelfPrimingWoodwork = false;
 // "8 matching casements" is one row, not eight -- everything on the row,
 // repairs included, applies to EACH window in the group; a window needing
 // different repairs gets its own row. Mirrors the materials-list add/remove
-// idiom (addCustomMaterialLine/deleteMaterialLine), not a new UI pattern.
+// idiom (addCustomMaterialLine/deleteMaterialGroup), not a new UI pattern.
 var extFormWindows = [];
 var extFormSashWindows = [];
 
@@ -15184,6 +15932,7 @@ function editExtItem(id) {
   ['masonry','extTopcoat','extPrimer'].forEach(populateRoomOverridePicker);
   document.getElementById('extform-title').textContent = 'Edit Exterior';
   document.getElementById('ex-label').value = item.label||'';
+  refreshColourSlots();   // same reason as editRoom: the ghost text needs the label
   document.getElementById('ex-masonry').value = item.masonry||'';
   document.getElementById('ex-fascia').value  = item.fascia||'';
   extFormWindows = (item.windows || legacyWindowList(item.wins)).map(function(w){ return Object.assign({ qty: extWindowQty(w), panes: w.panes||2, size: 'medium', access: 'ground' }, w); });
@@ -15272,6 +16021,7 @@ function clearExteriorItems() {
 }
 
 function saveExtItems() {
+  invalidateColourPlaceholders();
   localStorage.setItem('pe-extitems', JSON.stringify(extItems));
   var jobId = activeJobId, payload = extItems;
   pendingSaves.extItems = apiPut('/api/extitems?job_id='+encodeURIComponent(jobId), { items: extItems })
@@ -17683,6 +18433,10 @@ function editRoom(id) {
   document.getElementById('r-fw-vinyl-rollwidth').value = r.fwVinylRollWidthCm || 137;
   document.getElementById('room-title').textContent='Edit Room';
   document.getElementById('r-name').value=r.name||'';
+  // After the name, not before: an area's colour field is ghosted with
+  // "<room> <surface>", and the colour chips above were populated while
+  // r-name still held the last room's (or nothing at all).
+  refreshColourSlots();
   document.getElementById('r-l').value=r.l||'';
   document.getElementById('r-w').value=r.w||'';
   document.getElementById('r-h').value=r.h;
@@ -18812,6 +19566,7 @@ function refreshSummaryTab() {
 }
 
 function renderSummary() {
+  invalidateColourPlaceholders();
   updateXeroPanelCollapse(); // panel vs collapsed bar tracks job status
   var empty=document.getElementById('sum-empty');
   var data=document.getElementById('sum-data');
@@ -19045,8 +19800,15 @@ function renderSummary() {
   // guess estimate contributing nothing to the total. Only rows that
   // actually resolved to real lineItems feed the editable snapshot.
   var unmappedRowsHtml = allMatRows.filter(function(r){ return r.lineItems.length === 0; }).map(function(r){ return r.html; }).join('');
-  var editableRowsHtml = materialsSnapshot.map(function(l){
-    var cost = (+l.quantity||0) * (+l.unitAmount||0);
+  // ONE ROW PER PRODUCT + SIZE, the way On Site has always shown them, with
+  // the areas that drove the quantity underneath (see
+  // consolidateMaterialLines). The itemised list is not going anywhere --
+  // product, tin size, quantity and price all still print, per Nicky -- this
+  // is purely about the same paint in two rooms reading as one line with its
+  // reasons under it instead of as two identical lines in a row.
+  summaryMatGroups = consolidateMaterialLines(materialsSnapshot);
+  var editableRowsHtml = summaryMatGroups.map(function(g, gi){
+    var first = g.lines[0];
     // Fixed widths on qty + price (not just the qty input) so the group's
     // total width is constant row to row -- otherwise a longer price on one
     // row pushes everything after it, and the qty column visibly "jumps"
@@ -19055,50 +19817,57 @@ function renderSummary() {
     // are always chargeable (see recalculateMaterialsSnapshot), so they never
     // show the tag. Missing chargeable (lines saved before this existed)
     // reads as chargeable, matching materialsSnapshotTotal()'s same rule.
-    var isChargeable = l.chargeable !== false;
-    var isManual = matLineSource(l) === 'manual';
-    var chargeableTag = isManual
-      ? '<div class="mat-chargeable-tag'+(isChargeable?' on':'')+'" onclick="toggleMaterialChargeable(\''+l.id+'\')">'+(isChargeable?'Chargeable':'Tracking only')+'</div>'
+    var chargeableTag = g.custom
+      ? '<div class="mat-chargeable-tag'+(g.chargeable?' on':'')+'" onclick="toggleMaterialGroupChargeable('+gi+')">'+(g.chargeable?'Chargeable':'Tracking only')+'</div>'
       : '';
     // Which lines a Recalculate will rebuild, and which are yours -- the
     // distinction the merge now acts on, made visible so it can be trusted
     // (and so a typed-over quantity is never mistaken for a calculated one).
-    var sourceNote = isManual
+    var sourceNote = g.custom
       ? '<span style="font-size:11px;font-weight:600;color:var(--text2)"> · added by you</span>'
-      : (matLineOverridden(l)
+      : (g.overridden && g.calcQuantity != null
           ? '<span style="font-size:11px;font-weight:600;color:var(--text2)"> · edited · '
-            + '<span onclick="event.stopPropagation();resetMaterialLineQuantity(\''+l.id+'\')" style="color:var(--accent);cursor:pointer;white-space:nowrap">reset to '
-            + (Math.round((+l.calcQuantity || 0) * 100) / 100) + '</span></span>'
+            + '<span onclick="event.stopPropagation();resetMaterialGroupQuantity('+gi+')" style="color:var(--accent);cursor:pointer;white-space:nowrap">reset to '
+            + g.calcQuantity + '</span></span>'
           : '');
     // Opt-in add to the (global) shopping list — see addMaterialToShopList.
     // "On list" is best-effort read-only state: shopList may simply not be
     // fetched yet this session, in which case the chip just reads "Add to
     // list" and tapping it is a harmless no-op re-add (shopListAdd dedupes).
+    // Keyed on the group's first line: the shopping list is per PRODUCT and
+    // carries no quantity, so every line in a group would add the same entry.
     var jobNameForTag = (activeJob() && activeJob().name) || '';
     var onShopList = shopList !== null && shopList.some(function(i) {
       return !i.ticked
-        && (l.itemCode ? i.code === l.itemCode : !i.code && i.name.trim().toLowerCase() === l.description.trim().toLowerCase())
+        && (g.itemCode ? i.code === g.itemCode : !i.code && i.name.trim().toLowerCase() === g.description.trim().toLowerCase())
         && (!jobNameForTag || (i.jobTags || []).indexOf(jobNameForTag) !== -1);
     });
-    var shopTag = '<div class="mat-chargeable-tag'+(onShopList?' on':'')+'" id="mat-shop-'+l.id+'"'
+    var shopTag = '<div class="mat-chargeable-tag'+(onShopList?' on':'')+'" id="mat-shop-'+first.id+'"'
       + (chargeableTag ? ' style="margin-left:6px"' : '')
-      + ' onclick="addMaterialToShopList(\''+l.id+'\')">'+(onShopList?'✓ On list':'🛒 Add to list')+'</div>';
+      + ' onclick="addMaterialToShopList(\''+first.id+'\')">'+(onShopList?'✓ On list':'🛒 Add to list')+'</div>';
+    // The colour goes where the generic colour band was, exactly as it
+    // already does on the invoice -- but only once it has been decided (see
+    // materialGroupDescription). Until then the areas below the line say
+    // which surfaces this paint is for.
+    var label = materialGroupDescription(g);
+    var detail = materialPartsDetail(g.parts);
     if (matReorderMode) {
       var arrowStyle = 'width:38px;height:38px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:var(--rs);background:var(--surface2);color:var(--accent);font-size:16px;cursor:pointer';
-      return '<div class="mat-row"><div><div class="mat-label">'+escapeHtml(l.description)+'</div>'+
-        '<div class="mat-detail">'+fmt(+l.unitAmount||0)+(l.isPerLitre?'/ltr':' each')+'</div></div>'+
+      return '<div class="mat-row"><div><div class="mat-label">'+escapeHtml(label)+'</div>'+
+        '<div class="mat-detail">'+fmt(g.unitAmount)+(g.isPerLitre?'/ltr':' each')+'</div></div>'+
         '<div style="display:flex;align-items:center;gap:8px">'+
-          '<div style="'+arrowStyle+'" onclick="moveMaterialLine(\''+l.id+'\',-1)">▲</div>'+
-          '<div style="'+arrowStyle+'" onclick="moveMaterialLine(\''+l.id+'\',1)">▼</div>'+
+          '<div style="'+arrowStyle+'" onclick="moveMaterialGroup('+gi+',-1)">▲</div>'+
+          '<div style="'+arrowStyle+'" onclick="moveMaterialGroup('+gi+',1)">▼</div>'+
         '</div></div>';
     }
-    return swipeDeleteWrap('deleteMaterialLine', l.id,
-      '<div class="mat-row"><div><div class="mat-label">'+escapeHtml(l.description)+'</div>'+
-      '<div class="mat-detail">'+fmt(+l.unitAmount||0)+(l.isPerLitre?'/ltr':' each')+sourceNote+'</div>'+chargeableTag+shopTag+'</div>'+
+    return swipeDeleteWrap('deleteMaterialGroup', gi,
+      '<div class="mat-row"><div style="min-width:0"><div class="mat-label">'+escapeHtml(label)+'</div>'+
+      (detail ? '<div class="mat-detail">'+escapeHtml(detail)+'</div>' : '')+
+      '<div class="mat-detail">'+fmt(g.unitAmount)+(g.isPerLitre?'/ltr':' each')+sourceNote+'</div>'+chargeableTag+shopTag+'</div>'+
       '<div style="display:flex;align-items:center;gap:10px">'+
-        '<input type="number" class="field-input" style="width:60px;padding:6px 8px;text-align:center" value="'+l.quantity+'" min="0" step="1" onchange="setMaterialLineQuantity(\''+l.id+'\',this.value)">'+
-        '<div class="mat-val" style="width:72px;text-align:right">'+fmt(cost)+'</div>'+
-        '<div onclick="deleteMaterialLine(\''+l.id+'\')" style="color:var(--text3);font-size:18px;cursor:pointer;padding:8px;margin-left:4px">×</div>'+
+        '<input type="number" class="field-input" style="width:60px;padding:6px 8px;text-align:center" value="'+g.quantity+'" min="0" step="'+(g.isPerLitre?'0.1':'1')+'" onchange="setMaterialGroupQuantity('+gi+',this.value)">'+
+        '<div class="mat-val" style="width:72px;text-align:right">'+fmt(g.lineTotal)+'</div>'+
+        '<div onclick="deleteMaterialGroup('+gi+')" style="color:var(--text3);font-size:18px;cursor:pointer;padding:8px;margin-left:4px">×</div>'+
       '</div></div>');
   }).join('');
 
@@ -19673,7 +20442,7 @@ function renderSummary() {
     '<div><div class="section-title" style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:14px">Materials'+
       '<span style="display:flex;align-items:center;gap:14px">'+
       undoChipHtml()+
-      (materialsSnapshot.length > 1 ? '<span onclick="toggleMatReorder()" style="font-size:12px;font-weight:600;color:var(--accent);cursor:pointer;text-transform:none;letter-spacing:normal">'+(matReorderMode ? 'Done' : 'Reorder')+'</span>' : '')+
+      (summaryMatGroups.length > 1 ? '<span onclick="toggleMatReorder()" style="font-size:12px;font-weight:600;color:var(--accent);cursor:pointer;text-transform:none;letter-spacing:normal">'+(matReorderMode ? 'Done' : 'Reorder')+'</span>' : '')+
       '</span>'+
     '</div>'+
     '<div class="card">'+
@@ -19703,7 +20472,7 @@ function renderSummary() {
       // the same way an auto-generated line's colour does.
       '<div class="field-row"><div class="field-label">Colour<small>optional</small></div><select class="field-input wide" id="add-mat-colour">'+
         '<option value="">— No colour —</option>'+
-        colours.map(function(c){ return '<option value="'+c.number+'">'+escapeHtml(c.label || ('Colour '+c.number))+'</option>'; }).join('')+
+        colours.map(function(c){ return '<option value="'+c.number+'">'+escapeHtml(colourLabelFor(c.number))+'</option>'; }).join('')+
       '</select></div>'+
       '<div class="field-row"><div class="field-label">Unit price</div><input type="number" class="field-input" id="add-mat-price" value="0" min="0" step="0.01" inputmode="decimal"></div>'+
       '<div class="field-row"><div class="field-label">Quantity</div><input type="number" class="field-input" id="add-mat-qty" value="1" min="0" step="1" inputmode="numeric"></div>'+
@@ -20016,11 +20785,19 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
   // totals under them are read side by side by someone who will notice a
   // penny, so every figure on the page is the figure that is summed.
   var pence = function(n) { return Math.round((+n || 0) * 100) / 100; };
+  // Consolidated exactly as Summary and On Site show them: one line per
+  // product + tin size, the decided colour substituted into the product name
+  // where the generic colour band was (invoices have read this way since
+  // v2.38.5), and the areas that drove the quantity named underneath. The
+  // client used to get the same paint listed twice in a row with nothing to
+  // tell the two lines apart.
   var matRows = [];
-  chargeableMats.forEach(function(l) {
-    var lineTotal = (+l.quantity || 0) * (+l.unitAmount || 0);
-    if (lineTotal <= 0.005) return;
-    matRows.push({ emoji: '', label: l.description, sub: (+l.quantity || 0) + ' × ' + money(+l.unitAmount || 0), amount: pence(lineTotal) });
+  consolidateMaterialLines(chargeableMats).forEach(function(g) {
+    if (g.lineTotal <= 0.005) return;
+    matRows.push({ emoji: '', label: materialGroupDescription(g),
+                   sub: g.quantity + ' × ' + money(g.unitAmount),
+                   sub2: materialPartsDetail(g.parts),
+                   amount: pence(g.lineTotal) });
   });
   var matRowsTotal = pence(matRows.reduce(function(t, r) { return t + r.amount; }, 0));
 
@@ -20169,7 +20946,11 @@ function buildClientQuoteHtml(m) {
   var lineRow = function(row) {
     var name = (row.emoji ? row.emoji + ' ' : '') + esc(row.label);
     return '<div class="line"><div class="line-l"><div class="line-name">' + name + '</div>'
-      + (row.sub ? '<div class="line-sub">' + esc(row.sub) + '</div>' : '') + '</div>'
+      + (row.sub ? '<div class="line-sub">' + esc(row.sub) + '</div>' : '')
+      // sub2 is the materials breakdown -- which areas this product's tins
+      // are for. Its own line rather than appended to sub: "3 × £31.50 —
+      // Walls — White · 2" reads as one run-on string with two meanings.
+      + (row.sub2 ? '<div class="line-sub">' + esc(row.sub2) + '</div>' : '') + '</div>'
       + '<div class="line-v">' + money(row.amount) + '</div></div>';
   };
   var subtotalRow = function(label, amount) {
@@ -20477,7 +21258,8 @@ async function buildClientQuotePdf(m) {
     var amtW = pdfTextWidth(pdfSanitise(amt), true, 10) + 14;
     var labelW = W - amtW;
     var lines = pdfWrap(pdfSanitise(r.label), !!bold, 10, labelW);
-    var subs = r.sub ? pdfWrap(pdfSanitise(r.sub), false, 8.5, labelW) : [];
+    var subs = (r.sub ? pdfWrap(pdfSanitise(r.sub), false, 8.5, labelW) : [])
+      .concat(r.sub2 ? pdfWrap(pdfSanitise(r.sub2), false, 8.5, labelW) : []);
     var h = lines.length * 12.5 + subs.length * 10.5 + 8;
     d.need(h);
     var top = d.y, yy = top - 10;
