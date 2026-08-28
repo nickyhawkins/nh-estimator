@@ -1,6 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const db = require('../db');
+const { ensureClientQuoteSchema, ensureClientToken, VARIATION_KINDS, VARIATION_STATUSES } = require('../lib/clientQuote');
 const router = express.Router();
 
 // The build number the app shows in its menu, read from package.json so it
@@ -125,6 +126,12 @@ router.delete('/jobs/:id', async (req, res) => {
       db.query('DELETE FROM quote_snapshots WHERE job_id = $1', [id]).catch(err => {
         if (err.code !== '42P01') throw err;
       }),
+      // NB job_variations is NOT in this list and must not be added: it is
+      // the one table here with a real foreign key (see db/setup.sql), so
+      // deleting the job below cascades its published client-facing lines
+      // away automatically. Deleting them here first would work too, but the
+      // cascade is what guarantees a live public URL can never outlive the
+      // job behind it -- including on paths that never come through here.
     ]);
     await db.query('DELETE FROM jobs WHERE id = $1', [id]);
     res.json({ ok: true });
@@ -242,6 +249,16 @@ router.post('/quote-snapshots', async (req, res) => {
        RETURNING id, job_id, version, accepted_at, reconciliation_level, note, data, created_at`,
       [crypto.randomUUID(), jobId, acceptedAt || new Date().toISOString(), level, note || '', data]
     );
+    // A snapshot is written at acceptance and nowhere else, which makes this
+    // the natural moment to mint the job's client link (CLIENT_APPROVAL_SPEC.md
+    // build order step 2) -- so a link exists before the first mid-job extra
+    // does. Deliberately not awaited and deliberately swallowed: a link that
+    // can be minted lazily on first use is never worth failing an acceptance
+    // over, and ensureClientToken() is idempotent so the lazy path just finds
+    // it already there.
+    ensureClientQuoteSchema()
+      .then(() => ensureClientToken(jobId))
+      .catch(err => console.warn('Client link could not be minted at acceptance', err.message));
     res.json({ ok: true, snapshot: mapSnapshotRow(result.rows[0]) });
   } catch (err) {
     // 23505 = unique_violation on quote_snapshots_job_version: another device
@@ -251,6 +268,169 @@ router.post('/quote-snapshots', async (req, res) => {
       return res.status(409).json({ error: 'That revision number was just taken — reload and try again.' });
     }
     res.status(500).json({ error: err.message });
+  }
+});
+
+
+
+// ── Client-facing variation approval ───────────────────────────────────────
+// The AUTHENTICATED half of CLIENT_APPROVAL_SPEC.md. The client's own page
+// lives in routes/publicQuote.js, mounted ahead of the login gate; these three
+// routes are what Nicky's app uses to mint the link and put lines on it.
+//
+//   GET  /api/jobs/:id/client-variations   the link + every published line
+//   PUT  /api/jobs/:id/client-variations   publish/refresh the priced lines
+//   POST /api/jobs/:id/client-link         mint the link without publishing
+//
+// The PRICES are computed in the browser and posted here, not derived on the
+// server, and that is not laziness: the calc engine is the app (rooms,
+// coverage rates, markup, sundries, the per-job overrides), it runs nowhere
+// else, and a second implementation of it on the server is exactly the
+// duplicate-totalling-function failure this repo keeps writing specs about.
+// What the server owns is the RECORD: once a line is published the amount on
+// it is frozen for as long as the client hasn't answered it, and permanently
+// once they have.
+router.use(['/jobs/:id/client-variations', '/jobs/:id/client-link'], async (req, res, next) => {
+  try {
+    await ensureClientQuoteSchema();
+    next();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const mapClientVariationRow = (r) => ({
+  id: r.id,
+  kind: r.source_kind,
+  sourceId: r.source_id,
+  description: r.description,
+  amount: +r.amount || 0,
+  status: r.status,
+  approvedAt: r.approved_at,
+  declinedAt: r.declined_at,
+  updatedAt: r.updated_at,
+});
+
+// The path the client opens. Returned as a path rather than a full URL
+// because the server has no reliable idea what hostname the instance is
+// reached on (Render proxies, custom domains) -- the app pairs it with its
+// own location.origin, which is by definition the right one.
+const clientQuotePath = (jobId, token) =>
+  '/quote/' + encodeURIComponent(jobId) + '/' + encodeURIComponent(token);
+
+async function readClientVariations(jobId) {
+  const [jobResult, rowsResult] = await Promise.all([
+    db.query('SELECT client_token FROM jobs WHERE id = $1', [jobId]),
+    db.query(
+      `SELECT id, source_kind, source_id, description, amount, status, approved_at, declined_at, updated_at
+         FROM job_variations WHERE job_id = $1 ORDER BY created_at ASC`, [jobId]
+    ),
+  ]);
+  if (!jobResult.rows.length) return null;
+  const token = jobResult.rows[0].client_token || null;
+  return {
+    token,
+    path: token ? clientQuotePath(jobId, token) : null,
+    variations: rowsResult.rows.map(mapClientVariationRow),
+  };
+}
+
+// Read-back. Loaded with the job (alongside its quote snapshots) so the
+// Variations card can show what the client has answered -- this is the only
+// way a client's tap ever reaches the app.
+router.get('/jobs/:id/client-variations', async (req, res) => {
+  try {
+    const out = await readClientVariations(req.params.id);
+    if (!out) return res.status(404).json({ error: 'job not found' });
+    res.json(out);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Mints the job's link without touching the published lines. Used by the
+// acceptance path, so a job has a shareable link from the moment its quote is
+// accepted rather than only once the first extra comes up.
+router.post('/jobs/:id/client-link', async (req, res) => {
+  try {
+    const token = await ensureClientToken(req.params.id);
+    if (!token) return res.status(404).json({ error: 'job not found' });
+    res.json({ ok: true, token, path: clientQuotePath(req.params.id, token) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Publish. Takes the whole current variation line set for the job and makes
+// the client's page match it, in one transaction. Three rules, all of them
+// about not moving ground the client is standing on:
+//
+//   1. An existing line is only re-described and re-priced while its status
+//      is still 'pending' (the ON CONFLICT ... WHERE below). Re-measuring a
+//      room after the client approved the extra does not re-price what they
+//      agreed to.
+//   2. Lines that have dropped out of the payload -- unflagged, deleted,
+//      never sent -- are removed only while still pending. An answered line
+//      stays as the record that it was offered and answered, which is the
+//      same rule the app's own card follows for declined variations.
+//   3. A line's status is only ever set when the row is CREATED, from the
+//      app's own internal sign-off, so an extra Nicky already agreed by hand
+//      lands on the page as read-only history rather than asking the client
+//      to approve something they already said yes to on the doorstep. Once
+//      the row exists, publishing never touches its status again -- the
+//      answer on it is the client's and only the client's.
+router.put('/jobs/:id/client-variations', async (req, res) => {
+  const jobId = req.params.id;
+  const lines = Array.isArray(req.body && req.body.lines) ? req.body.lines : null;
+  if (!lines) return res.status(400).json({ error: 'lines (an array) is required' });
+  const clean = [];
+  for (const l of lines) {
+    const kind = String((l && l.kind) || '');
+    const sourceId = String((l && l.sourceId) || '');
+    if (!VARIATION_KINDS.has(kind) || !sourceId) {
+      return res.status(400).json({ error: 'each line needs a known kind and a sourceId' });
+    }
+    const amount = Math.round((+(l.amount) || 0) * 100) / 100;
+    const status = VARIATION_STATUSES.has(l && l.status) ? l.status : 'pending';
+    clean.push({
+      kind,
+      sourceId,
+      description: String(l.description || '').trim() || 'Variation',
+      amount,
+      status,
+    });
+  }
+  const client = await db.pool.connect();
+  try {
+    const token = await ensureClientToken(jobId);
+    if (!token) return res.status(404).json({ error: 'job not found' });
+    await client.query('BEGIN');
+    for (const l of clean) {
+      await client.query(
+        `INSERT INTO job_variations (id, job_id, source_kind, source_id, description, amount, status, approved_at, declined_at)
+              VALUES ($1, $2, $3, $4, $5, $6, $7::varchar,
+                      CASE WHEN $7::varchar = 'approved' THEN NOW() END,
+                      CASE WHEN $7::varchar = 'declined' THEN NOW() END)
+         ON CONFLICT (job_id, source_kind, source_id) DO UPDATE
+                SET description = EXCLUDED.description, amount = EXCLUDED.amount, updated_at = NOW()
+              WHERE job_variations.status = 'pending'`,
+        [crypto.randomUUID(), jobId, l.kind, l.sourceId, l.description, l.amount, l.status]
+      );
+    }
+    await client.query(
+      `DELETE FROM job_variations
+             WHERE job_id = $1 AND status = 'pending'
+               AND source_kind || ':' || source_id <> ALL($2::text[])`,
+      [jobId, clean.map(l => l.kind + ':' + l.sourceId)]
+    );
+    await client.query('COMMIT');
+    const out = await readClientVariations(jobId);
+    res.json(Object.assign({ ok: true }, out));
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (e) {}
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 
@@ -1292,6 +1472,20 @@ router.get('/backup/export', async (req, res) => {
       if (err.code === '42P01') return { rows: [] };
       throw err;
     });
+    // Published client-facing variation lines (jobs[].clientVariations),
+    // additive on the same v1 shape. What is worth restoring here is the
+    // ANSWER, not the link: a backup that brought back "the client approved
+    // the landing ceiling at £320 on 14 Aug" is restoring a fact, while
+    // restoring the token would resurrect a public URL for a job that now has
+    // a different id -- so client_token is deliberately not exported at all
+    // and a restored job mints a fresh link on its next Send for approval.
+    const clientVariationsResult = await db.query(
+      `SELECT id, job_id, source_kind, source_id, description, amount, status, approved_at, declined_at
+         FROM job_variations ORDER BY created_at ASC`
+    ).catch(err => {
+      if (err.code === '42P01') return { rows: [] };
+      throw err;
+    });
 
     // One pass per table to bucket rows by job_id, rather than filtering
     // each job's rows out of the full result N times.
@@ -1306,6 +1500,7 @@ router.get('/backup/export', async (req, res) => {
     const actualsByJob = byJob(actualsResult.rows);
     const labourByJob = byJob(labourResult.rows);
     const snapshotsByJob = byJob(snapshotsResult.rows);
+    const clientVariationsByJob = byJob(clientVariationsResult.rows);
 
     const jobs = jobsResult.rows.map(j => ({
       job: { id: j.id, name: j.name, data: j.data || {} },
@@ -1337,6 +1532,16 @@ router.get('/backup/export', async (req, res) => {
         reconciliationLevel: r.reconciliation_level,
         note: r.note || '',
         data: r.data,
+      })),
+      clientVariations: (clientVariationsByJob[j.id] || []).map(r => ({
+        id: r.id,
+        kind: r.source_kind,
+        sourceId: r.source_id,
+        description: r.description,
+        amount: r.amount == null ? 0 : +r.amount,
+        status: r.status,
+        approvedAt: r.approved_at,
+        declinedAt: r.declined_at,
       })),
     }));
 
@@ -1427,6 +1632,30 @@ async function copyJobRows(entry, newJobId) {
       [crypto.randomUUID(), newJobId, version, sn.acceptedAt || new Date().toISOString(),
         RECONCILIATION_LEVELS.has(sn.reconciliationLevel) ? sn.reconciliationLevel : 'full',
         sn.note || '', sn.data]
+    );
+  }
+  // Published client-facing variation lines, with their answers and answer
+  // dates intact -- a restore that brought back a job's extras but not which
+  // of them the client had agreed to would leave the exact ambiguity this
+  // feature exists to remove. The link itself is NOT restored (see the export
+  // note): the new job has no client_token, so the restored lines are private
+  // until the next Send for approval mints a fresh one.
+  //
+  // Duplicate simply omits this key, like materialActuals and labourLog -- a
+  // template copy is a fresh draft, and inheriting another client's answers
+  // would be worse than useless.
+  for (const cv of (entry.clientVariations || [])) {
+    if (!cv || !VARIATION_KINDS.has(cv.kind) || !cv.sourceId) continue;
+    const status = VARIATION_STATUSES.has(cv.status) ? cv.status : 'pending';
+    await ensureClientQuoteSchema();
+    await db.query(
+      `INSERT INTO job_variations (id, job_id, source_kind, source_id, description, amount, status, approved_at, declined_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (job_id, source_kind, source_id) DO NOTHING`,
+      [crypto.randomUUID(), newJobId, cv.kind, String(cv.sourceId), cv.description || 'Variation',
+        +cv.amount || 0, status,
+        status === 'approved' ? (cv.approvedAt || new Date().toISOString()) : null,
+        status === 'declined' ? (cv.declinedAt || new Date().toISOString()) : null]
     );
   }
 }

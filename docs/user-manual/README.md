@@ -452,6 +452,26 @@ Once a job is accepted, the **🛠 On Site** tab is your day-to-day companion:
 - **Variations** — the client asks for "just one more room" mid-job? Add the room (or exterior item, fitted unit) on Measure and flick its **Variation** toggle. It's priced with the same engine but kept separate from the accepted quote, and appears in its own Variations card here. Each variation carries a status — tap **✓ Approved by client** to record their yes (with an optional note; the date is stamped automatically), or mark one Declined to drop it from the totals and the final invoice while keeping the record. Anything still Pending gets called out before the final invoice will let it through.
 - **Invoice ›** (top right) shows the materials list formatted for invoicing, with a **Copy** button.
 
+### Let the client approve extras themselves
+
+Under the Variations card, **Send for approval** creates a private web page for this job and puts the link on your clipboard — text it, WhatsApp it, or email it to the client.
+
+![The Variations card with the client approval link](images/24-variation-approval-card.png)
+
+They open it on their phone. No login, no app to install:
+
+![The client's approval page](images/23-client-approval.png)
+
+The page shows **the original quote as a single total** (never the itemised breakdown — they've already had that document), then every extra since, with **Approve** and **Decline** buttons on the ones still waiting. The total at the bottom is the original quote plus the extras they've said yes to — pending ones aren't in it, so the figure is never a bill for work they haven't agreed to.
+
+A few things worth knowing:
+
+- **Their answer comes back to you.** Tap **Check answers** on the card, or just reopen the job — the app pulls their taps in and sets the line's status for you, with a note saying it came from the link. If *you* already recorded an answer by hand, yours stands: the person who was there wins.
+- **Nothing goes to Xero.** This is entirely separate from **Send variation quote to Xero** below it. Approved extras still reach Xero the usual way — as lines on the final invoice.
+- **Prices are frozen once they answer.** Re-measure a room after the client approved that extra and the page keeps the figure they agreed to. Tapping **Send for approval** again updates the same page — it never creates a second link — and refreshes the prices only on the extras still awaiting an answer.
+- **Withdrawing an extra.** Remove or unflag a variation and it disappears from their page next time you send — unless they'd already answered it, in which case it stays as the record.
+- **The link is the password.** Anyone with it can see this job's totals and answer its extras, so treat it like the quote itself. It's specific to one job and doesn't expire.
+
 When the work's done, tap **Mark Completed** — the job moves on, and Home reminds you it needs invoicing until you do.
 
 ---
@@ -461,7 +481,7 @@ When the work's done, tap **Mark Completed** — the job moves on, and Home remi
 On a **Completed** job, On Site shows **Build final invoice**. The builder assembles the whole money story in one list:
 
 - labour **as quoted** (the frozen accepted figure, not the hours it took),
-- plus **approved variations**,
+- plus **approved variations** (including the ones the client approved on their own link),
 - plus the **actual materials** used (from your ticked-off list),
 - minus any **deposit already recorded and synced to Xero**.
 

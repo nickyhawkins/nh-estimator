@@ -68,6 +68,25 @@ agreed" line in place of the work card, with the £0 payment/terms cards hidden
 (that money's collection lives in Xero). The original-scope cards still mirror
 createXeroQuote() exactly.
 
+**Addendum 2026-08-28 (v2.41.0): the client answers for themselves.** The Xero
+variation quote above solved "show the client the extras" for the case with signal,
+a Xero connection and an email address. `CLIENT_APPROVAL_SPEC.md` solves the case
+this app actually lives in: a phone, mid-job, one bar. **Send for approval** on the
+Variations card mints a private link (`/quote/:jobId/:token`, mounted ahead of the
+login gate — the client has no account and never will) and copies it ready to text.
+The page shows the original quote as ONE total, every extra since with its status
+and date, Approve/Decline on the pending ones, and a running total of original +
+approved. No Xero anywhere in the flow. The prices are **published from the browser**
+into the new `job_variations` table rather than computed server-side — the calc
+engine is `index.html`, and a published price has to freeze the way an accepted
+quote does — with each line carrying its own folded share of sundries, which changes
+no total. The client's answer is **pulled back** (with the job's data, or via *Check
+answers*) and adopted onto the `isVariation` carrier, **but only where the internal
+status is still Pending**: an answer recorded by hand always wins, because the person
+who was there knows what was agreed. That is a deliberate relaxation of the Xero
+poll's prompt-don't-flip rule, valid only because an Approve on this page is per-line
+and unambiguous where a whole-quote ACCEPTED is not.
+
 **Addendum 2026-07-23 (v1.11.0, per Nicky's layout review):** the Variations card
 moved from Summary to the renamed **On Site** screen (was "Materials") — extras get
 agreed on site, in the same moment days are logged. Summary keeps the money (the
