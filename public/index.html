@@ -2048,7 +2048,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.40.0</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.41.0</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -4373,6 +4373,11 @@ async function initApp() {
       // here, and a late arrival would mean the first paint shows live
       // today's-rates figures for a quote the client already signed.
       loadQuoteSnapshots(syncJobId),
+      // Published client-facing variation lines + the job's approval link.
+      // Storing only: the answers are adopted onto the app's own record once
+      // this Promise.all has settled, since a room the client approved has to
+      // be IN MEMORY before its sign-off can be written to.
+      loadClientVariations(syncJobId),
       // Xero status, then (if connected) the material-groups cache --
       // populated at startup, not just on a manual Settings "Refresh from
       // Xero", since computeMaterials() needs it wherever it runs. The
@@ -4389,6 +4394,9 @@ async function initApp() {
         });
       })
     ]);
+    // Everything has landed, so a client's Approve/Decline can now be written
+    // onto the room/item that carries it (see adoptClientVariationAnswers).
+    applyClientVariationAnswers(syncJobId);
     updateNavBadge();
     serverAvailable = true;
   } catch(err) {
@@ -4770,8 +4778,12 @@ async function loadActiveJobData() {
     // has to land before renderSummary() below or an accepted job would flash
     // its LIVE figures -- today's rates on a quote the client already signed
     // -- for a frame before the frozen ones replace them.
-    loadQuoteSnapshots(jobId)
+    loadQuoteSnapshots(jobId),
+    // Same job-scoped, no-mirror treatment, and adopted below for the same
+    // reason as in initApp: only once the rooms/items are in memory.
+    loadClientVariations(jobId)
   ]);
+  applyClientVariationAnswers(jobId);
   ensureDefaultColour();
   matReorderMode = false; // reorder mode is per-visit, not per-job state
   // Undo is scoped to one job's materials/actuals, and the lists it restores
@@ -6947,6 +6959,7 @@ function variationsCardHtml(v) {
         '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Variations subtotal<small style="display:block;font-weight:400;color:var(--text2)">job total incl. variations shows on Summary</small></span>'+
           '<span class="breakdown-value" style="color:var(--accent)">'+fmt(variationsTotal)+'</span></div>'
       : '<div style="padding:0 16px 4px;font-size:12px;color:var(--text2)">Mid-job extras land here — new rooms/exteriors added from now on are flagged automatically, or add a quick priced line below. Kept separate from the accepted quote; settled on the final invoice.</div>')+
+    (hasAny ? clientApprovalBlockHtml(v) : '')+
     (hasAny ? variationQuoteBlockHtml(v) : '')+
     form+
     (freeVarFormOpen ? '' : '<div style="padding:10px 16px'+(hasAny?';border-top:1px solid var(--border)':'')+'">'+
@@ -6990,6 +7003,273 @@ function deleteFreeVariation(id) {
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   persistJobData(job);
   renderActuals(); renderSummary(); renderJobs();
+}
+
+// ── Client-facing approval link (CLIENT_APPROVAL_SPEC.md) ─────────────────
+// The other half of the Xero variation quote below, and the one that works
+// when there is no signal for Xero, no email address, and a client standing
+// in the hall: a token-gated web page (routes/publicQuote.js) showing the
+// ORIGINAL quote total as one figure, every extra since, and an Approve /
+// Decline button on each one still awaiting an answer.
+//
+// Nothing here touches Xero. Approved extras reach Xero exactly as they
+// always have — as line items on the final invoice, at invoicing time.
+//
+// Why the PRICES are posted to the server rather than computed there: the
+// calc engine is this file. It reads the rooms, the coverage rates, the
+// per-job markup override, the sundries percentages — none of which the
+// server has any view of, and a second implementation of it over there is
+// precisely the duplicate-totalling-function failure this repo keeps writing
+// specs about. So the browser prices the lines and the server keeps the
+// record, and once a line is published its amount is frozen for as long as
+// the client hasn't answered it (and permanently once they have).
+var clientVariations = [];        // the published rows, as the server holds them
+var clientVariationsJobId = null; // which job those rows belong to
+var clientQuoteLinkPath = null;   // '/quote/<jobId>/<token>', or null before first send
+
+// Both reads below are guarded on clientVariationsJobId, NOT just on the
+// state being populated. A render between switching job and that job's fetch
+// landing would otherwise show the PREVIOUS client's link and answer tally
+// under the new job's variations — and the link is a credential, so copying
+// the wrong one sends one client another's prices.
+function clientVariationsAreForActiveJob() {
+  return clientVariationsJobId != null && clientVariationsJobId === activeJobId;
+}
+function clientQuoteLinkUrl() {
+  if (!clientVariationsAreForActiveJob()) return null;
+  return clientQuoteLinkPath ? location.origin + clientQuoteLinkPath : null;
+}
+function activeJobClientVariations() {
+  return clientVariationsAreForActiveJob() ? clientVariations : [];
+}
+
+// One published line per variation, priced EXACTLY as the final invoice will
+// bill it — with this line's share of sundries folded into its own figure
+// rather than published as a separate sundries row. That is a presentation
+// decision with an arithmetic guarantee behind it: the client's page has to
+// answer "what does this one extra cost" per row, and a shared sundries line
+// that swells and shrinks as rows get approved is unanswerable. Folding
+// changes no total — varSundries in computeVariationsView() is itself just
+// these same two percentages over these same per-line bases, so the folded
+// lines sum to the same variations subtotal the app shows.
+//
+// Scope: pending and approved lines. Pending is the ask. Approved is included
+// so the running total on the client's page is a real "what the job now
+// costs" figure rather than one that quietly omits extras agreed on the
+// doorstep. Internally-declined lines are left out — a line withdrawn before
+// the client answered should disappear from their page (the publish route
+// deletes still-pending lines that stop being sent), and one the CLIENT
+// declined stays there as history because that row is no longer pending.
+function buildClientVariationLines() {
+  var job = activeJob();
+  if (!job) return [];
+  var varMk = (1 + commercialRatio()) * (effectiveMarkupType() === 'fixed' ? 1 : 1 + effectiveMarkup() / 100);
+  var sPct = (settings.sundriesPct || 0) / 100;
+  var spPct = (settings.sundriesSprayPct || 0) / 100;
+  var out = [];
+  var add = function(kind, id, name, amount, status) {
+    if (!(amount > 0.005)) return;
+    if (status === 'declined') return;
+    out.push({ kind: kind, sourceId: String(id), description: name || 'Variation',
+               amount: Math.round(amount * 100) / 100, status: status });
+  };
+  var measured = function(kind, id, name, calc, src) {
+    add(kind, id, name, (calc.total + calc.total * sPct + (calc.sprayLabour || 0) * spPct) * varMk,
+        variationStatusOf(src));
+  };
+  rooms.forEach(function(r) { if (r.isVariation) measured('room', r.id, r.name, calcRoom(r), r); });
+  extItems.forEach(function(it) { if (it.isVariation) measured('ext', it.id, it.label || 'Exterior', calcExtItem(it), it); });
+  if (job.kitchen && job.kitchen.isVariation) {
+    measured('kitchen', 'kitchen', 'Kitchen cabinet spraying', calcKitchen(job.kitchen), job.kitchen);
+  }
+  fittedUnitList(job).forEach(function(f) {
+    if (f.isVariation) measured('fittedunit', f.id, fittedUnitName(f), calcFittedUnit(f), f);
+  });
+  // Free lines price the same way they do everywhere else: 'hours' from the
+  // raw hourly rate with sundries and markup on top, 'flat' verbatim (the
+  // typed figure IS the agreed price — marking it up would change the number
+  // that was agreed out loud).
+  var hourlyRate = (settings.dr || 0) / (settings.hpd || 7);
+  ((job.freeVariations) || []).forEach(function(fv) {
+    var st = variationStatusOf(fv);
+    if (fv.mode === 'flat') add('free', fv.id, fv.label, +fv.amount || 0, st);
+    else add('free', fv.id, fv.label, (+fv.hours || 0) * hourlyRate * (1 + sPct) * varMk, st);
+  });
+  return out;
+}
+
+// Fetches the published rows for a job. Storing only — the adoption below is
+// a SEPARATE call made after the job's rooms/exterior items have landed,
+// because an answer can only be adopted onto a carrier that's actually in
+// memory, and on startup this fetch races the collection fetches.
+function loadClientVariations(jobId) {
+  return apiGet('/api/jobs/' + encodeURIComponent(jobId) + '/client-variations')
+    .then(function(resp) {
+      if (jobId !== activeJobId) return;
+      clientVariations = (resp && resp.variations) || [];
+      clientVariationsJobId = jobId;
+      clientQuoteLinkPath = (resp && resp.path) || null;
+    })
+    .catch(function() {
+      // A failed fetch must not read as "the client has answered nothing":
+      // the card falls back to showing no link rather than an empty answer
+      // set, and the app's own sign-off record is untouched either way.
+      if (jobId !== activeJobId) return;
+      clientVariations = []; clientVariationsJobId = jobId; clientQuoteLinkPath = null;
+    });
+}
+
+// The ONLY path by which a client's tap reaches the app's own record.
+//
+// Guarded on the internal status still being Pending, and that guard is the
+// whole design: an answer Nicky has already recorded by hand — on the
+// doorstep, over the phone, from a text — always wins over a later tap on the
+// link, because the person who was there knows what was agreed. This is the
+// same instinct as the Xero status poll (which prompts the ✓ taps rather than
+// flipping lines), relaxed on the one point where relaxing it is safe: an
+// approve on THIS page is per-line and unambiguous, so it's adopted rather
+// than merely announced, with a note saying where it came from.
+function adoptClientVariationAnswers(jobId) {
+  var job = jobs.find(function(j) { return j.id === jobId; });
+  if (!job || jobId !== activeJobId || clientVariationsJobId !== jobId) return 0;
+  var savedRooms = false, savedExt = false, adopted = 0;
+  clientVariations.forEach(function(cv) {
+    if (cv.status !== 'approved' && cv.status !== 'declined') return;
+    var t = findVariationEntry(cv.kind, cv.sourceId);
+    if (!t || variationStatusOf(t.obj) !== 'pending') return;
+    t.obj.variationStatus = cv.status;
+    t.obj.variationApprovedAt = cv.status === 'approved' ? (cv.approvedAt || new Date().toISOString()) : null;
+    t.obj.variationApprovalNote = cv.status === 'approved' ? 'Approved by the client on the shared link' : '';
+    adopted++;
+    if (cv.kind === 'room') savedRooms = true;
+    else if (cv.kind === 'ext') savedExt = true;
+  });
+  if (!adopted) return 0;
+  if (savedRooms) saveRooms();
+  if (savedExt) saveExtItems();
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  return adopted;
+}
+
+// Adopt + tell Nicky + repaint, as one step. Called after a job's collections
+// have loaded, and again after every manual refresh/send.
+function applyClientVariationAnswers(jobId) {
+  var n = adoptClientVariationAnswers(jobId);
+  if (n) {
+    toast(n === 1 ? 'The client answered a variation on the link'
+                  : 'The client answered ' + n + ' variations on the link');
+    renderHome(); renderExterior(); renderSummary(); renderJobs();
+  }
+  renderActuals();
+  return n;
+}
+
+// "Send for approval": ensures the job has a link, publishes the current
+// priced lines onto it, and puts the URL on the clipboard ready to text.
+// Idempotent — tapping it again after a re-measure updates the page the
+// client is already looking at rather than minting a second link.
+async function sendVariationsForApproval() {
+  if (blockIfOffline('Sending variations for client approval')) return;
+  var job = activeJob();
+  if (!job) return;
+  var lines = buildClientVariationLines();
+  if (!lines.length) {
+    alert('Nothing to send — every variation on this job is declined, or priced at £0.');
+    return;
+  }
+  var already = !!clientQuoteLinkPath;
+  var pending = lines.filter(function(l) { return l.status === 'pending'; });
+  var listText = pending.map(function(l) { return '• ' + l.description + ' — ' + fmt(l.amount); }).join('\n');
+  if (!confirm((already ? 'Update the client\'s approval page?' : 'Send these variations for client approval?')
+    + (pending.length ? '\n\nAwaiting their answer:\n' + listText : '\n\nNothing is awaiting an answer — this just refreshes the page.')
+    + '\n\nThey get a private link showing the original quote total, these extras, and an Approve/Decline button on each.'
+    + ' Nothing goes to Xero.')) return;
+  var btn = document.getElementById('client-approval-btn');
+  if (btn) { btn.disabled = true; btn.textContent = already ? 'Updating…' : 'Creating link…'; }
+  try {
+    var resp = await fetch('/api/jobs/' + encodeURIComponent(job.id) + '/client-variations', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lines: lines })
+    });
+    var result = await resp.json();
+    if (!resp.ok || !result.ok) throw new Error(result.error || 'the server returned no detail');
+    clientVariations = result.variations || [];
+    clientVariationsJobId = job.id;
+    clientQuoteLinkPath = result.path || null;
+    // Publishing can bring back answers given since the last look — adopt
+    // them in the same breath rather than leaving the card showing Pending on
+    // a line the client has already answered.
+    applyClientVariationAnswers(job.id);
+    copyClientQuoteLink(true);
+  } catch (err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Error — try again'; }
+    reportFailure('Could not send the variations for approval', err);
+  }
+}
+
+// Pulls the client's answers without republishing. The link is a web page,
+// not a push channel — this is the "have they answered yet?" tap.
+async function refreshClientVariationAnswers() {
+  if (blockIfOffline('Checking the client\'s answers')) return;
+  var job = activeJob();
+  if (!job) return;
+  var btn = document.getElementById('client-approval-refresh');
+  if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+  await loadClientVariations(job.id);
+  if (!applyClientVariationAnswers(job.id)) toast('No new answers from the client yet');
+}
+
+function copyClientQuoteLink(silentOnFail) {
+  var url = clientQuoteLinkUrl();
+  if (!url) return;
+  var done = function(msg) { toast(msg); };
+  navigator.clipboard.writeText(url).then(function() {
+    done('Link copied — text or email it to the client');
+  }).catch(function() {
+    // navigator.clipboard needs a secure context and iOS Safari can still
+    // refuse it. The URL is printed on the card in full for exactly this
+    // case, so the fallback is to say so rather than to lose the tap.
+    if (!silentOnFail) alert('Couldn\'t copy automatically — the link is shown on the card, press and hold to copy it:\n\n' + url);
+    else done('Link ready on the card below');
+  });
+}
+
+// The card's client-approval block: the send/update button, the shareable
+// link once one exists, and a one-line tally of where the client has got to.
+function clientApprovalBlockHtml(v) {
+  var job = activeJob();
+  if (!job) return '';
+  var url = clientQuoteLinkUrl();
+  var approved = 0, declined = 0, awaiting = 0;
+  activeJobClientVariations().forEach(function(cv) {
+    if (cv.status === 'approved') approved++;
+    else if (cv.status === 'declined') declined++;
+    else awaiting++;
+  });
+  var bits = '<button id="client-approval-btn" onclick="sendVariationsForApproval()" style="width:100%;background:var(--accent);color:white;border:none;border-radius:var(--rs);padding:10px;font-size:13px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer">'
+    + (url ? 'Update the client\'s approval page' : 'Send for approval') + '</button>';
+  if (!url) {
+    bits += '<div style="font-size:11px;color:var(--text2);margin-top:6px">Creates a private link showing the original quote total, these extras and an Approve/Decline on each. No login for them, nothing to Xero.</div>';
+  } else {
+    bits += '<div style="margin-top:8px;font-size:11px;color:var(--text2)">Client link — press and hold to copy, or tap Copy:</div>'
+      + '<div style="display:flex;gap:8px;align-items:center;margin-top:4px">'
+      + '<div style="flex:1;min-width:0;font-family:\'DM Mono\',monospace;font-size:11px;color:var(--text2);background:var(--bg);border:1px solid var(--border);border-radius:var(--rs);padding:7px 9px;overflow-x:auto;white-space:nowrap;-webkit-user-select:all;user-select:all">'
+      + escapeHtml(url) + '</div>'
+      + '<span onclick="copyClientQuoteLink()" style="color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;padding:4px">Copy</span>'
+      + '</div>'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:8px;font-size:12px;color:var(--text2)">'
+      + '<span>' + (approved ? '<span style="color:var(--success);font-weight:600">' + approved + ' approved</span>' : '')
+        + (approved && (declined || awaiting) ? ' · ' : '')
+        + (declined ? declined + ' declined' : '')
+        + (declined && awaiting ? ' · ' : '')
+        + (awaiting ? awaiting + ' awaiting their answer' : '')
+        + (!approved && !declined && !awaiting ? 'Nothing published yet' : '') + '</span>'
+      + '<span id="client-approval-refresh" onclick="refreshClientVariationAnswers()" style="color:var(--accent);font-weight:700;cursor:pointer;white-space:nowrap">Check answers</span>'
+      + '</div>';
+  }
+  return '<div style="padding:12px 16px;border-top:1px solid var(--border)">' + bits + '</div>';
 }
 
 // ── Variation quote (client-facing confirmation) ───────────────────────────

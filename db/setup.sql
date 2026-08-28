@@ -281,6 +281,65 @@ CREATE TABLE IF NOT EXISTS shopping_list (
 -- existing row rather than duplicating the line.
 ALTER TABLE shopping_list ADD COLUMN IF NOT EXISTS job_tags JSONB NOT NULL DEFAULT '[]';
 
+-- ── Client-facing variation approval ────────────────────────────────────
+-- A shareable, token-gated page per job (routes/publicQuote.js) where the
+-- CLIENT sees the original quote total and each extra added since, and taps
+-- Approve or Decline before the work goes ahead. No login: the client has no
+-- account and never will, so the token in the URL is the whole credential --
+-- 192 bits of base64url, generated once per job and never rotated (rotating
+-- it would silently break a link already texted to someone).
+--
+-- Deliberately NOT stored on jobs.data: that blob is PUT-merged whole on
+-- every status change and note edit, and a credential one careless spread
+-- away from being wiped is not a credential.
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS client_token VARCHAR;
+CREATE UNIQUE INDEX IF NOT EXISTS jobs_client_token ON jobs (client_token) WHERE client_token IS NOT NULL;
+
+-- The PUBLISHED variation lines -- what one client was actually shown and
+-- what they answered. This is not where the app keeps its variations: those
+-- ride the ordinary room/exterior/kitchen/free-line lifecycle flagged
+-- isVariation (VARIATIONS_SPEC.md) and are priced by the calc engine in the
+-- browser. This table is a SNAPSHOT of that pricing at the moment it was
+-- sent, for the same reason quote_snapshots exists one section up: an extra
+-- the client approved at £320 has to still read £320 after the day rate
+-- moves, and the server has no calc engine to re-derive it with anyway.
+--
+-- Two consequences worth stating, because both look like omissions:
+--
+-- 1. A line's amount is only ever rewritten while its status is 'pending'.
+--    Re-publishing after a re-measure updates what the client hasn't
+--    answered yet; it can never re-price something they already agreed to.
+-- 2. The client's answer does NOT reach into the app's own record on its
+--    own. routes/api.js hands it back and the app adopts it onto the
+--    isVariation carrier -- but only where the internal status is still
+--    Pending, so an answer Nicky has already recorded by hand always wins.
+--
+-- This carries the schema's ONLY foreign key. Everywhere else, child rows
+-- are cleaned up by hand in DELETE /jobs/:id, which is fine for data the app
+-- can regenerate. An orphan here is a price a client agreed to, still live on
+-- a public URL, under a job that no longer exists -- ON DELETE CASCADE makes
+-- that unrepresentable rather than something to remember.
+CREATE TABLE IF NOT EXISTS job_variations (
+  id VARCHAR PRIMARY KEY,
+  job_id VARCHAR NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  source_kind VARCHAR NOT NULL,   -- room | ext | kitchen | fittedunit | free
+  source_id VARCHAR NOT NULL,     -- the in-app carrier's id ('kitchen' for the kitchen)
+  description VARCHAR NOT NULL,   -- denormalised: the line must still read after
+                                  -- the room it came from is renamed or deleted
+  amount NUMERIC NOT NULL DEFAULT 0,          -- as published, markup + sundries share folded in
+  status VARCHAR NOT NULL DEFAULT 'pending',  -- pending | approved | declined
+  approved_at TIMESTAMP,
+  declined_at TIMESTAMP,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+-- One published line per app-side carrier per job: tapping "Send for
+-- approval" twice must UPDATE the line the client is looking at, never mint a
+-- second copy of the same extra beside it. The publish route upserts on this
+-- index, same pattern as material_actuals_job_item and labour_log_job_date.
+CREATE UNIQUE INDEX IF NOT EXISTS job_variations_source ON job_variations (job_id, source_kind, source_id);
+CREATE INDEX IF NOT EXISTS job_variations_job ON job_variations (job_id);
+
 -- Debt Management App tables live in db/setup-debt.sql — run that file
 -- ONLY on an instance with DEBT_APP_ENABLED=true (it contains personal
 -- seed data). See MULTI_INSTANCE_PILOT_SPEC.md WS2.

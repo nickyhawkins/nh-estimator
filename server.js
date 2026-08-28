@@ -50,6 +50,15 @@ if (!DEBT_APP_ENABLED) {
   app.use((req, res, next) => (req.path.startsWith('/debt') ? res.status(404).end() : next()));
 }
 
+// Client-facing variation approval (CLIENT_APPROVAL_SPEC.md). Mounted
+// DELIBERATELY AHEAD of the login gate below: the reader is a customer
+// holding a link that was texted to them, not a user of this app, and there
+// is no account for them to sign into. The token in the URL is the whole
+// credential — see routes/publicQuote.js for how it's checked and what the
+// page will and won't show. Everything it serves is scoped to one job by
+// that token; nothing else on the instance is reachable through it.
+app.use(require('./routes/publicQuote'));
+
 // App login gate (MULTI_INSTANCE_PILOT_SPEC.md WS1). Mounted after the
 // session (it needs req.session) and before EVERYTHING else that serves
 // data — including express.static, which would otherwise hand out
