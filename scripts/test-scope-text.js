@@ -543,6 +543,35 @@ check('int-ext quote adds the exterior one',
 check('int-ext quote labels which half is which',
   intExtQ.includes('INSIDE') && intExtQ.includes('OUTSIDE'), intExtQ);
 
+// ── 14. The exterior templates use the exterior scope ──────────────────────
+// {extSurfaces} exists, so neither exterior template should still be asking
+// for its scope and coats to be typed in by hand.
+['ext-woodwork', 'ext-render'].forEach(id => {
+  const t = api.DEFAULT_TEXT_TEMPLATES.find(x => x.id === id);
+  check(id + ' — uses {extSurfaces}', t.body.includes('{extSurfaces}'), t.body);
+  check(id + ' — no hand-typed coats marker left', !/\[X\] coats/.test(t.body), t.body);
+  ['quote', 'invoice'].forEach(mode => {
+    const out = api.renderTemplateText(t.body, mode, Object.assign(
+      { rooms: 'x', completedDate: '7 August 2026' }, EXT_PRODUCTS,
+      { extSurfaces: ext(mode, [EXT_FULL]) }));
+    check(id + ' / ' + mode + ' — scope reaches the render',
+      out.includes('Dulux Weathershield'), out);
+    check(id + ' / ' + mode + ' — no unresolved placeholder',
+      !/\{[a-zA-Z][a-zA-Z0-9]*\}/.test(out), out);
+  });
+});
+// The render template's own wording either side of the placeholder survives.
+const renderQ = api.renderTemplateText(
+  api.DEFAULT_TEXT_TEMPLATES.find(x => x.id === 'ext-render').body, 'quote',
+  Object.assign({ rooms: 'x', completedDate: 'x' }, EXT_PRODUCTS,
+    { extSurfaces: ext('quote', [{ masonry: 60 }]) }));
+check('ext-render keeps its brush/roller/spray sentence',
+  renderQ.includes('Brush, roller or airless spray as appropriate'), renderQ);
+// The scope sentence already ends "...applied in 2 coats", so the wording
+// after it must not open with "Applied" again.
+check('ext-render does not say "applied" twice in a row',
+  !/applied in \d coats\. Applied/.test(renderQ), renderQ);
+
 // ── Report ─────────────────────────────────────────────────────────────────
 pass.forEach(n => console.log('  ok   ' + n));
 fail.forEach(n => console.log('  FAIL ' + n));

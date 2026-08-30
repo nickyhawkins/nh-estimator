@@ -87,6 +87,16 @@ placeholders now build it from the live rooms:
   lifted verbatim from the seeded Painting / Exterior Woodwork / Exterior
   Render bodies** — the two halves keep wording Nicky already uses, under
   INSIDE and OUTSIDE headings, rather than a preamble written for him.
+- **The exterior templates use it too.** `ext-woodwork` was still asking for
+  "[doors / windows / fascias / soffits]" and "[X] coats" by hand, and
+  `ext-render` for its coats — all measured. Their own wording either side
+  of the placeholder is untouched (the render template's brush/roller/spray
+  sentence was re-opened so it does not read "applied in 2 coats. Applied
+  by…"). **Still deliberately hand-typed markers**: the wallpaper paper
+  name/supplier (`wpNote` is personal reference, never client-facing — see
+  v2.39.8) and Kitchen's product/colour (untracked, declined 2026-07-16).
+  Fitted Units and Fire Doors keep theirs; the fitted-unit product and
+  counts ARE tracked, but that one was left alone by request.
 - **`roomScopeShort()`** puts the same scope in a few words —
   *"ceiling, walls and woodwork"* — on the client quote view's `sub` line,
   which for rooms was empty (`extScopeShort()` does the same for exterior items, replacing the bare "exterior"). Surfaces only, no products or coats: the
@@ -108,7 +118,7 @@ walls, ceiling and woodwork all measured renders the seeded sentence back
 character for character in both tenses. Templates already edited in Settings
 keep their own wording (`settings.textTemplates` is copy-on-write) — paste
 the placeholder in, or Reset to defaults. Verified by `npm run test:scope`,
-133 checks, pure node against the real source.
+147 checks, pure node against the real source.
 
 **As built — deviations from the spec below, all deliberate:**
 
