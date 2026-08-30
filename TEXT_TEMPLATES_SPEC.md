@@ -5,6 +5,40 @@
 *text* blocks that lived in iOS text-replacement shortcuts (";;paint" etc.),
 seeded verbatim from the reference copy Nicky supplied at build time.
 
+**Extended 2026-08-30, v2.44.0 — the scope sentence is measured, not
+hardcoded.** The seeded bodies named ceilings, walls and woodwork in fixed
+prose with only the *products* as placeholders, so a walls-only job promised
+a client two surfaces nobody was painting, and a measured feature wall,
+panelling, radiator, sill or mist coat was never mentioned at all. Two
+placeholders now build it from the live rooms:
+
+- **`{surfaces}`** — the painted scope. Gates **mirror `calcRoom()`'s**: a
+  surface appears only where it is actually priced (windows and sills need
+  woodwork coats; a painted feature wall needs wall coats; a papered one is
+  carved out of the paint entirely; panelling, doors and frames each need
+  their own count *and* coats). Read-only against the calc engine. The
+  woodwork clause names only the pieces counted; a product shared with the
+  walls or woodwork isn't named twice; a papered feature wall makes the
+  painted ones *"remaining walls"*. Coats are stated only where every
+  measured surface agrees — the old sentence always printed the first room's
+  wall coats, wrong the moment a ceiling took three.
+- **`{papered}`** — what is being papered, for the "hung to …" line. Falls
+  back to the seeded `[feature wall/walls]` marker.
+
+A **job-level union**, matching the block it lives in (the text rides the
+first Xero line, every later line reads "same as above") and the same
+whole-job resolution the product placeholders already used. `{surfaces}`
+resolves to `''` rather than a literal token when nothing is painted — the
+one deliberate exception to the "unresolved stays visible" rule in point 1
+below, since a papering-only job must not leave `{surfaces}` on a client
+document; an unresolved *product* inside the sentence still surfaces in the
+preview warning. **The no-movement property is the contract**: a job with
+walls, ceiling and woodwork all measured renders the seeded sentence back
+character for character in both tenses. Templates already edited in Settings
+keep their own wording (`settings.textTemplates` is copy-on-write) — paste
+the placeholder in, or Reset to defaults. Verified by `npm run test:scope`,
+72 checks, pure node against the real source.
+
 **As built — deviations from the spec below, all deliberate:**
 
 1. **Placeholders resolve BEFORE pairs**, not after. The seeded headers nest a

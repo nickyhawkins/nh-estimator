@@ -412,6 +412,41 @@ Once the job is **Accepted**, the status card carries the deposit line — unles
 
 The line then shows where things stand — *not in Xero yet*, *in Xero · unallocated*, or *in Xero · allocated ✓* — read back from Xero, which stays the boss: void or delete the deposit there and the app notices and stops saying it's synced. A failed sync loses nothing — the deposit stays recorded, the line turns red with the reason, and **Try again** is safe. Fixing a mistake (a typo, a refund) is done in Xero, not here — the app never edits or deletes a deposit that's already landed.
 
+### The quote description
+
+Under the breakdown sits the **Quote description** — the wording that rides the
+first line item on the Xero quote (every later line reads *"Bedroom 1 – same as
+above"*). It's written for you from the job: the app picks the wording template
+that fits the work (Painting, Wallpapering, Kitchen Cabinet Spraying and so on —
+all editable in **Settings → Quote & Invoice Text**), fills in your products and
+coats, and puts it in future tense for a quote and past tense for the final
+invoice.
+
+**It says what you actually measured.** Quote only the walls and it won't promise
+ceilings and woodwork. Measure a feature wall, panelling, radiators, window sills
+or a mist coat on new plaster and each one gets named — with its own product if
+you gave it one:
+
+> *Ceilings finished in Tikkurila Anti Reflex 2, walls in Tikkurila Optiva 5, the
+> feature wall in Farrow & Ball Estate Emulsion, and all woodwork including
+> skirtings, window sills and radiators in Tikkurila Helmi 30, each applied in 2
+> coats. Newly plastered walls will be mist coated prior to finishing.*
+
+A papered feature wall isn't listed as painted — it moves to the wallpapering
+line instead, which names what's being papered. Where surfaces disagree on coats,
+no coat figure is stated rather than a wrong one. It's a whole-job sentence, so
+woodwork measured in one room puts woodwork in the wording for the job.
+
+The box is editable: type in it and your version sticks from then on (**↺ Reset
+to template** goes back). Sending stamps the exact wording onto the quote, so a
+document you've already sent never changes underneath you.
+
+> **If you've edited your templates in Settings**, your saved copies keep whatever
+> wording you gave them. To pick this up, put **`{surfaces}`** where the scope
+> sentence should go (and **`{papered}`** where a wallpapering line names what's
+> being papered) — or use **Reset to defaults** to take the supplied templates
+> back.
+
 ### Sending to Xero
 
 Expand the **client panel** at the top of Summary:
