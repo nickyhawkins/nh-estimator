@@ -1349,7 +1349,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     </div>
     <div class="card">
       <div class="card-header">Quote &amp; Invoice Text</div>
-      <div class="settings-note">One template per job type. The quote version goes on the first line of the Xero quote (other lines read "same as above"); the invoice version prefills the final-invoice builder when the job's done. Syntax: <strong>{quote wording|invoice wording}</strong> where the two differ, lines starting <strong>Q:&nbsp;</strong> are quote-only, <strong>I:&nbsp;</strong> invoice-only, and {rooms}, {wallProduct}, {ceilingProduct}, {woodProduct}, {wallCoats}, {completedDate} fill in from the job automatically.</div>
+      <div class="settings-note">One template per job type — nine seeded, including <strong>Interior &amp; Exterior</strong> for a job with rooms and exterior items in it. The quote version goes on the first line of the Xero quote (each other room states its own scope underneath, or reads "same as above" where it matches — until you edit the text by hand, which turns those off); the invoice version prefills the final-invoice builder when the job's done. Syntax: <strong>{quote wording|invoice wording}</strong> where the two differ, lines starting <strong>Q:&nbsp;</strong> are quote-only, <strong>I:&nbsp;</strong> invoice-only, and {rooms}, {wallProduct}, {ceilingProduct}, {woodProduct}, {wallCoats}, {completedDate} fill in from the job automatically. <strong>{surfaces}</strong> writes the scope sentence from what you actually measured — only the surfaces with coats on them, plus a feature wall, panelling, radiators, sills or a mist coat where they were measured, each naming its own paint where it differs — and <strong>{papered}</strong> names what is being papered, <strong>{extSurfaces}</strong> and <strong>{unitSurfaces}</strong> do the same job as {surfaces} for the exterior items and the fitted units, and <strong>{kitchenCoats}</strong> is the kitchen&rsquo;s coat count.</div>
       <div id="text-templates-list"></div>
       <div style="padding:12px 16px;display:flex;gap:8px;border-top:1px solid var(--border)">
         <button onclick="addTextTemplate()" style="flex:1;background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">+ Add template</button>
@@ -2808,12 +2808,12 @@ var DEFAULT_TEXT_TEMPLATES = [
     'Q: All furniture and flooring will be fully protected prior to any work commencing. Surfaces will be thoroughly prepared including filling, sanding and caulking as required to ensure a smooth, quality finish.',
     'Q:',
     'Q: PAINTING & DECORATING',
-    'Q: Ceilings finished in {ceilingProduct}, walls in {wallProduct}, and all woodwork including skirtings, door frames and doors in {woodProduct}, each applied in {wallCoats} coats. All work carried out to a high standard using professional techniques and quality trade materials.',
+    'Q: {surfaces} All work carried out to a high standard using professional techniques and quality trade materials.',
     'Q:',
     'Q: COMPLETION',
     'Q: On completion all protection will be removed and the areas left clean and tidy. A final inspection will be carried out to ensure you are completely happy with the finished result.',
     'I: Surfaces prepared including filling, sanding and caulking as required.',
-    'I: Ceiling finished in {ceilingProduct}, walls in {wallProduct}, woodwork including skirtings, door frames and doors in {woodProduct}, {wallCoats} coats throughout.',
+    'I: {surfaces}',
     'I: Work completed on {completedDate}. Protection removed and area left clean on completion.'
   ].join('\n') },
   { id: 'wallpapering', name: 'Wallpapering', body: [
@@ -2823,12 +2823,12 @@ var DEFAULT_TEXT_TEMPLATES = [
     'Q: All furniture and flooring will be fully protected prior to any work commencing. Walls will be thoroughly prepared including filling, sanding and caulking all joints and edges as required. All surfaces will be sized/lined prior to hanging to ensure correct adhesion and a quality finish throughout.',
     'Q:',
     'Q: WALLPAPERING',
-    'Q: [X] lengths of [paper name/supplier] to be hung to [room/feature wall], with seams carefully matched and trimmed for a consistent pattern throughout. All work carried out to a high standard using professional techniques and quality trade materials.',
+    'Q: [X] lengths of [paper name/supplier] to be hung to {papered}, with seams carefully matched and trimmed for a consistent pattern throughout. All work carried out to a high standard using professional techniques and quality trade materials.',
     'Q:',
     'Q: COMPLETION',
     'Q: On completion all protection will be removed, all trimmings cleared away and the areas left clean and tidy. A final inspection will be carried out to ensure you are completely happy with the finished result.',
     'I: Walls prepared including filling, sanding and caulking, sized/lined prior to hanging.',
-    'I: [X] lengths of [paper name/supplier] hung to [room/feature wall], seams matched and trimmed for a consistent pattern throughout.',
+    'I: [X] lengths of [paper name/supplier] hung to {papered}, seams matched and trimmed for a consistent pattern throughout.',
     'I: Work completed on {completedDate}. Protection removed, trimmings cleared and area left clean on completion.'
   ].join('\n') },
   { id: 'paint-paper', name: 'Painting & Papering', body: [
@@ -2838,31 +2838,31 @@ var DEFAULT_TEXT_TEMPLATES = [
     'Q: All furniture and flooring will be fully protected prior to any work commencing. Surfaces will be thoroughly prepared including filling, sanding and caulking all joints and edges as required. Walls will be sized prior to hanging to ensure correct adhesion and a quality finish throughout.',
     'Q:',
     'Q: PAINTING & DECORATING',
-    'Q: Ceiling finished in {ceilingProduct}, remaining walls in {wallProduct}, and all woodwork including skirtings, door frames and doors in {woodProduct}, each applied in {wallCoats} coats.',
+    'Q: {surfaces}',
     'Q:',
     'Q: WALLPAPERING',
-    'Q: [X] lengths of [paper name/supplier] to be hung to [feature wall/walls], with seams carefully matched and trimmed for a consistent pattern throughout. All work carried out to a high standard using professional techniques and quality trade materials.',
+    'Q: [X] lengths of [paper name/supplier] to be hung to {papered}, with seams carefully matched and trimmed for a consistent pattern throughout. All work carried out to a high standard using professional techniques and quality trade materials.',
     'Q:',
     'Q: COMPLETION',
     'Q: On completion all protection will be removed, all trimmings cleared away and the areas left clean and tidy. A final inspection will be carried out to ensure you are completely happy with the finished result.',
     'I: Surfaces prepared including filling, sanding and caulking, walls sized prior to hanging.',
-    'I: Ceiling finished in {ceilingProduct}, remaining walls in {wallProduct}, woodwork including skirtings, door frames and doors in {woodProduct}, {wallCoats} coats throughout.',
-    'I: [X] lengths of [paper name/supplier] hung to [feature wall/walls], seams matched and trimmed for a consistent pattern throughout.',
+    'I: {surfaces}',
+    'I: [X] lengths of [paper name/supplier] hung to {papered}, seams matched and trimmed for a consistent pattern throughout.',
     'I: Work completed on {completedDate}. Protection removed, trimmings cleared and area left clean on completion.'
   ].join('\n') },
   { id: 'fitted-units', name: 'Fitted Units & Shelving', body: [
     '{Painting of fitted units, {rooms}:|Painting of fitted units — {rooms}}',
     '',
     'Q: PROTECTION & PREPARATION',
-    'Q: All surrounding surfaces, flooring and adjacent fittings will be fully protected prior to any work commencing. Unit doors, frames and shelving will be prepared including filling, sanding and priming as required to ensure a smooth, quality finish.',
+    'Q: All surrounding surfaces, flooring and adjacent fittings will be fully protected prior to any work commencing. Unit doors, frames and shelving will be prepared including filling and sanding as required to ensure a smooth, quality finish.',
     'Q:',
     'Q: PAINTING & DECORATING',
-    'Q: Fitted units to be painted with [X] coats of [product], [spray/brush] finish throughout. All doors, frames and shelving finished to a durable, professional-grade standard using quality trade materials.',
+    'Q: {unitSurfaces} Finished by [spray/brush] throughout, all doors, frames and shelving to a durable, professional-grade standard using quality trade materials.',
     'Q:',
     'Q: COMPLETION',
     'Q: On completion all protection will be removed and the areas left clean and tidy. A final inspection will be carried out to ensure you are completely happy with the finished result.',
-    'I: Unit doors, frames and shelving prepared including filling, sanding and priming as required.',
-    'I: Fitted units painted with [X] coats of [product], [spray/brush] finish throughout.',
+    'I: Unit doors, frames and shelving prepared including filling and sanding as required.',
+    'I: {unitSurfaces} Finished by [spray/brush] throughout.',
     'I: Work completed on {completedDate}. Protection removed and area left clean on completion.'
   ].join('\n') },
   { id: 'fire-doors', name: 'Fire Doors & Ironmongery', body: [
@@ -2887,13 +2887,47 @@ var DEFAULT_TEXT_TEMPLATES = [
     'Q: All surrounding surfaces, worktops, appliances and flooring will be fully protected prior to any work commencing. All cabinet doors and drawer fronts will be carefully removed and labelled. Surfaces will be thoroughly degreased, sanded and primed as required to ensure excellent adhesion and a factory-quality finish. Where new handles are to be fitted, existing holes will be filled and fresh ones drilled.',
     'Q:',
     'Q: SPRAYING',
-    'Q: Cabinet doors, drawer fronts and frames to be sprayed with [X] coats of [product] in [colour/finish], using professional airless spray equipment in controlled conditions for a smooth, even finish throughout. All work carried out using professional techniques and quality trade materials.',
+    'Q: Cabinet doors, drawer fronts and frames to be sprayed with {kitchenCoats} coats of [product] in [colour/finish], using professional airless spray equipment in controlled conditions for a smooth, even finish throughout. All work carried out using professional techniques and quality trade materials.',
     'Q:',
     'Q: REHANG & COMPLETION',
     'Q: On completion all doors and drawer fronts will be carefully rehung and adjusted, all protection removed and the kitchen left clean and tidy. A final inspection will be carried out to ensure you are completely happy with the finished result.',
     'I: All doors and drawer fronts removed and labelled; surfaces degreased, sanded and primed as required.',
-    'I: Cabinet doors, drawer fronts and frames sprayed with [X] coats of [product] in [colour/finish], airless-sprayed in controlled conditions for a smooth, even finish throughout.',
+    'I: Cabinet doors, drawer fronts and frames sprayed with {kitchenCoats} coats of [product] in [colour/finish], airless-sprayed in controlled conditions for a smooth, even finish throughout.',
     'I: Doors and drawer fronts rehung and adjusted. Work completed on {completedDate}. Protection removed and kitchen left clean on completion.'
+  ].join('\n') },
+  // Interior & Exterior (v2.45.0): a job with rooms AND exterior items used
+  // to get the plain Painting template, whose prep paragraph promises a
+  // client that "all furniture and flooring will be fully protected" and
+  // says nothing about the outside of their house. Every sentence below is
+  // lifted verbatim from the seeded Painting, Exterior Woodwork and
+  // Exterior Render bodies — the two halves of the job each keep the
+  // wording they already had, under headings that say which is which.
+  { id: 'int-ext', name: 'Interior & Exterior', body: [
+    '{Painting of {rooms}:|Painting — {rooms}}',
+    '',
+    'Q: INSIDE — PROTECTION & PREPARATION',
+    'Q: All furniture and flooring will be fully protected prior to any work commencing. Surfaces will be thoroughly prepared including filling, sanding and caulking as required to ensure a smooth, quality finish.',
+    'Q:',
+    'Q: INSIDE — PAINTING & DECORATING',
+    'Q: {surfaces} All work carried out to a high standard using professional techniques and quality trade materials.',
+    'Q:',
+    'Q: OUTSIDE — PROTECTION & PREPARATION',
+    'Q: All surrounding surfaces, windows, doors and landscaping will be fully protected prior to any work commencing. Exterior surfaces will be thoroughly prepared including sanding, filling and priming of bare or damaged areas as required, with any cracks, holes or defects filled and made good.',
+    'Q:',
+    'Q: OUTSIDE — PAINTING',
+    'Q: {extSurfaces} All work carried out to a high standard using professional techniques and quality trade materials suited to exterior conditions.',
+    'Q:',
+    'Q: COMPLETION',
+    'Q: On completion all protection will be removed and the areas left clean and tidy. A final inspection will be carried out to ensure you are completely happy with the finished result.',
+    'I: INSIDE',
+    'I: Surfaces prepared including filling, sanding and caulking as required.',
+    'I: {surfaces}',
+    'I:',
+    'I: OUTSIDE',
+    'I: Exterior surfaces prepared including sanding, filling and priming of bare or damaged areas, with any cracks, holes and defects filled and made good.',
+    'I: {extSurfaces}',
+    'I:',
+    'I: Work completed on {completedDate}. Protection removed and the areas left clean on completion.'
   ].join('\n') },
   { id: 'ext-woodwork', name: 'Exterior Woodwork', body: [
     '{Exterior Woodwork:|Exterior Woodwork}',
@@ -2902,12 +2936,12 @@ var DEFAULT_TEXT_TEMPLATES = [
     'Q: All surrounding surfaces will be fully protected prior to any work commencing. Woodwork will be thoroughly prepared including sanding, filling and priming of bare or damaged areas as required to ensure a smooth, lasting finish, with restoration and repairs carried out where necessary.',
     'Q:',
     'Q: PAINTING',
-    'Q: Exterior woodwork including [doors / windows / fascias / soffits] to be finished with [X] coats of {extWoodProduct} throughout. All work carried out to a high standard using professional techniques and quality trade materials suited to exterior conditions.',
+    'Q: {extSurfaces} All work carried out to a high standard using professional techniques and quality trade materials suited to exterior conditions.',
     'Q:',
     'Q: COMPLETION',
     'Q: On completion all protection will be removed and the areas left clean and tidy. A final inspection will be carried out to ensure you are completely happy with the finished result.',
     'I: Woodwork prepared including sanding, filling and priming of bare or damaged areas, with restoration and repairs carried out where necessary.',
-    'I: Exterior woodwork including [doors / windows / fascias / soffits] finished with [X] coats of {extWoodProduct} throughout.',
+    'I: {extSurfaces}',
     'I: Work completed on {completedDate}. Protection removed and area left clean on completion.'
   ].join('\n') },
   { id: 'ext-render', name: 'Exterior Render', body: [
@@ -2917,12 +2951,12 @@ var DEFAULT_TEXT_TEMPLATES = [
     'Q: All surrounding surfaces, windows, doors and landscaping will be fully protected prior to any work commencing. Render will be thoroughly inspected and any cracks, holes or defects filled and made good. Surfaces will be cleaned down and allowed to dry fully before painting commences.',
     'Q:',
     'Q: PAINTING',
-    'Q: Rendered surfaces to be painted with [X] coats of {masonryProduct} throughout, applied by brush, roller or airless spray to achieve an even, consistent finish. All work carried out to a high standard using professional techniques and quality trade materials.',
+    'Q: {extSurfaces} Brush, roller or airless spray as appropriate, for an even, consistent finish. All work carried out to a high standard using professional techniques and quality trade materials.',
     'Q:',
     'Q: COMPLETION',
     'Q: On completion all protection will be removed and the areas left clean and tidy. A final inspection will be carried out to ensure you are completely happy with the finished result.',
     'I: Render inspected, cracks, holes and defects filled and made good; surfaces cleaned down prior to painting.',
-    'I: Rendered surfaces painted with [X] coats of {masonryProduct} throughout, applied for an even, consistent finish.',
+    'I: {extSurfaces} Applied for an even, consistent finish.',
     'I: Work completed on {completedDate}. Protection removed and area left clean on completion.'
   ].join('\n') }
 ];
@@ -2977,6 +3011,415 @@ function englishJoin(names) {
   return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
 }
 
+// ── Measured scope in words: {surfaces} and {papered} ──────────────────────
+//
+// The seeded templates used to hardcode the scope sentence -- "Ceilings
+// finished in X, walls in Y, and all woodwork ... in Z" -- which promised a
+// client three surfaces on a job where only the walls were measured, and
+// never once mentioned the extras that WERE measured and priced: a feature
+// wall, panelling, radiators, sills, a mist coat on new plaster. These two
+// placeholders build that sentence from the live rooms instead. A surface
+// earns its clause by having been measured; nothing else appears.
+//
+// Deliberately a JOB-LEVEL union, matching the block it lives in: the
+// rendered text rides the FIRST Xero line and every later line reads "same
+// as above" (see the quote builder), so one room with woodwork puts woodwork
+// in the sentence for the whole job. Same whole-job resolution the product
+// placeholders already use, for the same reason.
+//
+// The gates below MIRROR calcRoom()'s -- a surface is "measured" here only
+// where it is actually priced there (windows and sills need woodwork coats;
+// a painted feature wall needs wall coats; a papered one is carved out of
+// the paint entirely). Read-only against the calc engine: no pricing field
+// is written, and nothing here feeds a rate.
+function scopeFacts(liveRooms) {
+  var f = { ceiling:false, walls:false, skirtings:false, doors:false, frames:false,
+            windows:false, sills:false, rads:false, panelling:false,
+            fwPaint:false, fwPaper:false, wpWalls:false, wpCeiling:false,
+            mistWalls:false, mistCeiling:false, coats:{},
+            // Every DISTINCT product seen, not the first: two rooms whose
+            // panelling is in different paints have no single answer, and
+            // the sentence names none rather than picking one. Same rule
+            // buildTemplateValues applies to the wall/ceiling/woodwork
+            // products, kept here because these two roles have no Settings
+            // default to resolve against -- they are per-room pickers only.
+            fwProducts:[], panelProducts:[] };
+  function noteProduct(list, p) { if (p && list.indexOf(p) < 0) list.push(p); }
+  (liveRooms || []).forEach(function(r) {
+    var wc = +r.wc || 0, cc = +r.cc || 0, xc = +r.xc || 0;
+    var fwArea = Math.max(+r.featureWallArea || 0, 0);
+    // Wallpaper mode takes the feature wall out of the paint altogether
+    // (calcRoom's fwWallpaper branch zeroes its labour AND its litres), so
+    // it can never count as painted wall here either.
+    var fwPapered = fwArea > 0 && (r.featureWallMode || 'paint') === 'wallpaper';
+    if (cc > 0) { f.ceiling = true; f.coats[cc] = true; }
+    if (wc > 0) {
+      f.walls = true; f.coats[wc] = true;
+      if (fwArea > 0 && !fwPapered) {
+        f.fwPaint = true;
+        noteProduct(f.fwProducts, effectiveRoleRange(r, 'featurewall'));
+      }
+    }
+    if (fwPapered) f.fwPaper = true;
+    if (xc > 0) {
+      f.skirtings = true; f.coats[xc] = true;
+      // Windows and sills are woodwork -- calcRoom gates both on woodwork
+      // coats, so a room with window m² and 0 woodwork coats has had its
+      // wall area reduced but nothing painted, and must not claim them.
+      if (+r.win > 0) f.windows = true;
+      if (+r.sills > 0) f.sills = true;
+    }
+    if (+r.doorQty > 0 && +r.doorCoats > 0) { f.doors = true; f.coats[+r.doorCoats] = true; }
+    if (+r.frameQty > 0 && +r.frameCoats > 0) { f.frames = true; f.coats[+r.frameCoats] = true; }
+    if (+r.rads > 0) f.rads = true;
+    (r.panelItems || []).forEach(function(p) {
+      if (Math.max(+p.width||0,0) * Math.max(+p.height||0,0) > 0 && +p.coats > 0) {
+        f.panelling = true; f.coats[+p.coats] = true;
+        noteProduct(f.panelProducts, effectiveRoleRange(r, 'panel'));
+      }
+    });
+    if (r.wpWallLining || r.wpWallFinish) f.wpWalls = true;
+    if (r.wpCeilLining || r.wpCeilFinish) f.wpCeiling = true;
+    if (r.mistWall) f.mistWalls = true;
+    if (r.mistCeil) f.mistCeiling = true;
+  });
+  return f;
+}
+
+// The painted scope. Returns '' when nothing is painted -- NOT the literal
+// token, unlike the product placeholders: those stay visible because they
+// SHOULD be filled in by hand, whereas an absent scope sentence is the
+// correct answer for a papering-only job and must not leave "{surfaces}" on
+// a client document. An unresolved PRODUCT inside the sentence does still
+// come through as its literal token, so the existing unresolved-token
+// warning on the previews keeps working exactly as before.
+//
+// A job with walls, ceiling and woodwork all measured renders the seeded
+// sentence back character for character, in both tenses -- the whole point:
+// nothing moves on an ordinary job, detail only appears where it was
+// actually measured.
+function buildScopeSentence(mode, liveRooms, vals) {
+  var f = scopeFacts(liveRooms);
+  var inv = mode === 'invoice';
+  function product(key) {
+    // The literal token when the product is unknown, so it surfaces in the
+    // preview's unresolved-token warning rather than silently vanishing.
+    return (vals && vals[key]) ? String(vals[key]) : '{' + key + '}';
+  }
+  var parts = [];
+  if (f.ceiling) parts.push((inv ? 'ceiling' : 'ceilings') + ' finished in ' + product('ceilingProduct'));
+  // "remaining walls" when a papered feature wall has been carved out of
+  // them -- the seeded Painting & Papering template's own wording, and the
+  // accurate one: the walls being painted are what is left over.
+  if (f.walls) parts.push((f.fwPaper ? 'remaining walls in ' : 'walls in ') + product('wallProduct'));
+  // A clause may only go bare where sharing the NEXT clause's paint is
+  // true -- that is how English reads a list, and it is why a surface with
+  // no single product lists them all rather than staying silent. So the
+  // feature wall drops its product exactly when it IS the wall paint
+  // (effectiveRoleRange's own fallback), and never otherwise.
+  var fwProduct = englishJoin(f.fwProducts);
+  if (f.fwPaint) {
+    parts.push(fwProduct && fwProduct !== vals.wallProduct
+      ? 'the feature wall in ' + fwProduct
+      : 'the feature wall');
+  }
+  // Panelling the same way, against the woodwork it sits next to: often a
+  // different paint (it has its own per-room picker for exactly that
+  // reason), so it is named unless it genuinely matches. With NO product
+  // chosen anywhere it stays bare and reads as the woodwork's -- the
+  // closest thing to true available, since nothing else has been said.
+  var panelProduct = englishJoin(f.panelProducts);
+  if (f.panelling) {
+    parts.push(panelProduct && panelProduct !== vals.woodProduct
+      ? 'wall panelling in ' + panelProduct
+      : 'wall panelling');
+  }
+  // Woodwork: the "including ..." list is what was actually counted, so a
+  // room with no doors stops promising doors. Radiators ride this clause
+  // rather than one of their own -- they are gloss work, done with the
+  // woodwork, and that is how the sentence reads out loud.
+  var wood = [];
+  if (f.skirtings) wood.push('skirtings');
+  if (f.frames)    wood.push('door frames');
+  if (f.doors)     wood.push('doors');
+  if (f.windows)   wood.push('window frames');
+  if (f.sills)     wood.push('window sills');
+  if (f.rads)      wood.push('radiators');
+  if (wood.length) {
+    parts.push(f.skirtings
+      ? (inv ? '' : 'all ') + 'woodwork including ' + englishJoin(wood) + ' in ' + product('woodProduct')
+      : englishJoin(wood) + ' in ' + product('woodProduct'));
+  }
+  if (!parts.length) return '';
+  // Quote keeps the seeded sentence's Oxford comma before "and"; the
+  // invoice line never had an "and" at all. Both reproduced exactly.
+  // Two parts normally join with a bare "and" -- but not when a clause has
+  // already spent one listing its own paints, or "in A and B and walls in
+  // C" makes the reader work out which "and" is which.
+  var listed = (vals && vals._multiProduct) || {};
+  var anyListed = f.fwProducts.length > 1 || f.panelProducts.length > 1 ||
+    ['wall', 'ceiling', 'topcoat'].some(function(role) { return listed[role]; });
+  var body = parts.length === 1 ? parts[0]
+    : inv ? parts.join(', ')
+    : parts.slice(0, -1).join(', ') + (parts.length > 2 || anyListed ? ', and ' : ' and ') + parts[parts.length - 1];
+  body = body.charAt(0).toUpperCase() + body.slice(1);
+  // One coat figure only when every measured surface agrees on it. Today's
+  // sentence always states the FIRST room's wall coats, which is wrong the
+  // moment a ceiling took three; saying nothing beats saying a wrong number.
+  var coats = Object.keys(f.coats);
+  if (coats.length === 1) {
+    body += inv ? ', ' + coats[0] + ' coats throughout'
+                : ', ' + (parts.length > 1 ? 'each applied in ' : 'applied in ') + coats[0] + ' coats';
+  }
+  body += '.';
+  if (f.mistWalls || f.mistCeiling) {
+    var newPlaster = f.mistWalls && f.mistCeiling ? 'Newly plastered walls and ceilings'
+                   : f.mistWalls ? 'Newly plastered walls' : 'Newly plastered ceilings';
+    body += ' ' + newPlaster + (inv ? ' were' : ' will be') + ' mist coated prior to finishing.';
+  }
+  return body;
+}
+
+// What is being papered, for the wallpapering templates' "hung to ..."
+// line. Falls back to the seeded square-bracket marker rather than to
+// nothing, so a template that reaches this with no papering measured still
+// shows the same edit-me marker it always did.
+function buildPaperedPhrase(liveRooms) {
+  var f = scopeFacts(liveRooms);
+  var parts = [];
+  if (f.fwPaper)   parts.push('the feature wall');
+  if (f.wpWalls)   parts.push('the walls');
+  if (f.wpCeiling) parts.push('the ceiling');
+  return parts.length ? englishJoin(parts) : '[feature wall/walls]';
+}
+
+// ── The same, for exterior items ───────────────────────────────────────────
+// Exterior lines used to read a bare "{label} - same as above" against a
+// block describing INTERIOR rooms, which on a mixed job billed a client for
+// scaffold-and-ladder work beside a claim of ceilings and skirtings. Same
+// shape as scopeFacts/buildScopeSentence above, gated the way calcExtItem
+// gates each element, and read-only against it.
+function extScopeFacts(items) {
+  var f = { masonry:false, textured:false, fascia:false, windows:false, sash:false,
+            doors:false, frames:false, garage:false, porch:false, repairs:false, coats:{} };
+  (items || []).forEach(function(it) {
+    var mc = it.coats || {};
+    // Coats default to 2 throughout calcExtItem (mc['ex-...']||2), so the
+    // default is what an unset element is actually priced at.
+    function note(key) { f.coats[Math.max(1, +mc[key] || 2)] = true; }
+    if (+it.masonry > 0) { f.masonry = true; if (it.texturedRender) f.textured = true; note('ex-masonry'); }
+    if (+it.fascia > 0) { f.fascia = true; note('ex-fascia'); }
+    var wins = it.windows || legacyWindowList(it.wins);
+    var sash = it.sashWindows || legacyWindowList(it.sash);
+    if (extWindowCount(wins) > 0) { f.windows = true; note('ex-wins'); }
+    // Sash restoration is a fixed prime-and-paint pass with no coats
+    // control of its own (calcExtItem hardcodes 2), so it contributes a
+    // clause but never a coats figure -- it has no opinion to disagree with.
+    if (extWindowCount(sash) > 0) f.sash = true;
+    if (+it.doorQty > 0 && (+(mc['ex-door'] || 2)) > 0) { f.doors = true; note('ex-door'); }
+    if (+it.frameQty > 0 && (+(mc['ex-frame'] || 2)) > 0) { f.frames = true; note('ex-frame'); }
+    if (+it.garage > 0) f.garage = true;
+    if (+it.porch > 0) f.porch = true;
+    // Repairs are per-window now (resin/reglaze/draught, plus sash cords
+    // and beads); item.resin/item.reglaze are the pre-split legacy fields
+    // and still price, so they still count as repairs here.
+    var anyRepair = wins.concat(sash).some(function(w) {
+      return +w.resin > 0 || +w.reglaze > 0 || w.draught || w.cords || w.staffBeads || w.partingBeads;
+    });
+    if (anyRepair || +it.resin > 0 || +it.reglaze > 0) f.repairs = true;
+  });
+  return f;
+}
+
+function buildExtScopeSentence(mode, items, vals) {
+  var f = extScopeFacts(items);
+  var inv = mode === 'invoice';
+  function product(key) {
+    return (vals && vals[key]) ? String(vals[key]) : '{' + key + '}';
+  }
+  var parts = [];
+  if (f.masonry) {
+    parts.push((f.textured ? 'textured rendered surfaces' : 'rendered surfaces') +
+               ' in ' + product('masonryProduct'));
+  }
+  var wood = [];
+  if (f.fascia)  wood.push('fascias and soffits');
+  if (f.windows) wood.push('window frames');
+  if (f.sash)    wood.push('sash windows');
+  if (f.frames)  wood.push('door frames');
+  if (f.doors)   wood.push('doors');
+  if (f.garage)  wood.push('garage doors');
+  if (f.porch)   wood.push('porch');
+  if (wood.length) parts.push('exterior woodwork including ' + englishJoin(wood) + ' in ' + product('extWoodProduct'));
+  if (!parts.length) return '';
+  // The masonry and woodwork clauses each carry their own product, so the
+  // two never join in a way that lets one borrow the other's paint.
+  var body = parts.length === 1 ? parts[0] : parts.join(', ');
+  body = (inv ? '' : '') + body.charAt(0).toUpperCase() + body.slice(1);
+  var coats = Object.keys(f.coats);
+  if (coats.length === 1) {
+    body += inv ? ', ' + coats[0] + ' coats throughout'
+                : ', ' + (parts.length > 1 ? 'each applied in ' : 'applied in ') + coats[0] + ' coats';
+  }
+  body += '.';
+  if (f.sash || f.repairs) {
+    // Echoes the seeded Exterior Woodwork line's own wording rather than
+    // inventing a second way to say it.
+    body += inv ? ' Restoration and repairs were carried out where necessary.'
+                : ' Restoration and repairs will be carried out where necessary.';
+  }
+  return body;
+}
+
+// One exterior item's own scope, for the line that item appears on.
+function extItemScopeSentence(mode, item, vals) {
+  return buildExtScopeSentence(mode, [item], vals);
+}
+
+// The short form, for the client quote view's sub-line — same register as
+// roomScopeShort. Falls back to the bare "exterior" that line used to show,
+// so an item with nothing describable still reads as exterior work.
+function extScopeShort(item) {
+  var f = extScopeFacts([item]);
+  var parts = [];
+  if (f.masonry) parts.push(f.textured ? 'textured render' : 'render');
+  if (f.fascia)  parts.push('fascias and soffits');
+  if (f.windows) parts.push('windows');
+  if (f.sash)    parts.push('sash windows');
+  if (f.doors || f.frames) parts.push('doors');
+  if (f.garage)  parts.push('garage doors');
+  if (f.porch)   parts.push('porch');
+  return parts.length ? 'exterior — ' + englishJoin(parts) : 'exterior';
+}
+
+// ── The same, for fitted units ─────────────────────────────────────────────
+// The seeded template asked for "[X] coats of [product]" by hand, though the
+// counts, the prep level and the product are all on the unit. Counts appear
+// here where they do not for the kitchen: a fitted unit IS its bays, shelves
+// and doors -- that is the whole description of the thing -- whereas a
+// kitchen's counts are a bill of quantities behind one price.
+function fuScopeFacts(units) {
+  var f = { bays:0, shelves:0, doors:0, bothSides:false, bare:false, painted:false, products:[] };
+  (units || []).forEach(function(u) {
+    var doors = Math.max(0, +u.doorCount || 0);
+    f.bays += Math.max(0, +u.bayCount || 0);
+    f.shelves += Math.max(0, +u.shelfCount || 0);
+    f.doors += doors;
+    if (doors > 0 && u.doorBothSides) f.bothSides = true;
+    // calcFittedUnit's own test: anything not explicitly 'painted' is bare,
+    // and bare is what buys the extra priming pass.
+    if ((u.prepLevel || 'bare') !== 'painted') f.bare = true; else f.painted = true;
+    // The unit's own picker writes `range` (not a ...RangeOverride), falling
+    // back to the Settings woodwork topcoat -- computeRoleGroups' chain for
+    // the fittedunit role, mirrored here so the text and the tins agree.
+    var p = u.range || ((settings.materials || {}).topcoat || {}).range || '';
+    if (p && f.products.indexOf(p) < 0) f.products.push(p);
+  });
+  return f;
+}
+
+function buildFuScopeSentence(mode, units, vals) {
+  var f = fuScopeFacts(units);
+  var inv = mode === 'invoice';
+  function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
+  var bits = [];
+  if (f.bays)    bits.push(plural(f.bays, 'bay', 'bays'));
+  if (f.shelves) bits.push(plural(f.shelves, 'shelf', 'shelves'));
+  if (f.doors)   bits.push(plural(f.doors, 'door', 'doors') + (f.bothSides ? ' painted both sides' : ''));
+  if (!bits.length) return '';
+  var product = f.products.length ? englishJoin(f.products)
+    : ((vals && vals.woodProduct) ? String(vals.woodProduct) : '{woodProduct}');
+  // Two topcoats is not a guess: calcFittedUnit hardcodes topcoats = 2 (the
+  // bare unit's third pass is the primer, which the prep note below covers).
+  var body = 'Fitted units including ' + englishJoin(bits) + ' in ' + product +
+             (inv ? ', 2 coats throughout.' : ', applied in 2 coats.');
+  // prepLevel, in words. Both states can appear at once across several units.
+  if (f.bare && f.painted) {
+    body += inv ? ' Bare surfaces were primed and existing paintwork keyed and sanded first.'
+                : ' Bare surfaces will be primed and existing paintwork keyed and sanded first.';
+  } else if (f.bare) {
+    body += inv ? ' Bare surfaces were primed first.' : ' Bare surfaces will be primed first.';
+  } else if (f.painted) {
+    body += inv ? ' Existing paintwork was keyed and sanded first.'
+                : ' Existing paintwork will be keyed and sanded first.';
+  }
+  return body;
+}
+
+// The product values a scope sentence reads, over ANY room list: the whole
+// job for the block on the quote's first line, a single room for that
+// room's own line. Split out of buildTemplateValues so the job-wide
+// sentence and a per-room one can never resolve a product differently --
+// they are the same code over a different list, and a one-room list is
+// simply the case where every "do the rooms agree" question has one answer.
+function scopeProductValues(roomList) {
+  var matsDef = settings.materials || {};
+  var multi = {};
+  function roleProduct(overrideField, role, uses) {
+    var def = (matsDef[role] && matsDef[role].range) || null;
+    var seen = [];
+    (roomList || []).forEach(function(r) {
+      if (uses && !uses(r)) return;
+      var p = r[overrideField] || def;
+      if (p && seen.indexOf(p) < 0) seen.push(p);
+    });
+    if (seen.length > 1) multi[role] = true;
+    return seen.length ? englishJoin(seen) : def;
+  }
+  return {
+    // The "uses this surface" gates mirror calcRoom()'s, same as the scope
+    // sentence's own: woodwork covers doors, frames and radiators as well
+    // as skirtings, since they are all painted out of the topcoat tin.
+    wallProduct: roleProduct('wallRangeOverride', 'wall', function(r) { return +r.wc > 0; }),
+    ceilingProduct: roleProduct('ceilingRangeOverride', 'ceiling', function(r) { return +r.cc > 0; }),
+    woodProduct: roleProduct('topcoatRangeOverride', 'topcoat', function(r) {
+      return +r.xc > 0 || (+r.doorQty > 0 && +r.doorCoats > 0) ||
+             (+r.frameQty > 0 && +r.frameCoats > 0) || +r.rads > 0;
+    }),
+    _multiProduct: multi
+  };
+}
+
+// One room's own scope sentence, for the Xero line that room appears on.
+// Every later labour line used to read a bare "{name} - same as above",
+// which was honest while the block above it was generic boilerplate and
+// stopped being honest once that block enumerated a scope: a walls-only
+// room inherited a claim of ceilings and woodwork, printed beside its own
+// price. This is the same builder over one room.
+function roomScopeSentence(mode, room) {
+  return buildScopeSentence(mode, [room], scopeProductValues([room]));
+}
+
+// The same scope in a few words, for the client quote view's sub-line --
+// which sits in small type under a room name and is a note, not a
+// paragraph (the kitchen's "outside faces only" sets the register).
+// Surfaces only: the products and coats are already in the description
+// block and on the materials list, and repeating them here would bury the
+// one thing this line is for, which is what THIS room is having done.
+// Woodwork collapses to the word "woodwork" once skirtings are in it --
+// the pieces are named in full on the Xero line, and a sub-line reading
+// "skirtings, door frames, doors and window sills" is a list, not a note.
+function roomScopeShort(room) {
+  var f = scopeFacts([room]);
+  var parts = [];
+  if (f.ceiling)   parts.push('ceiling');
+  if (f.walls)     parts.push('walls');
+  if (f.fwPaint)   parts.push('feature wall');
+  if (f.fwPaper)   parts.push('papered feature wall');
+  if (f.wpWalls)   parts.push('papered walls');
+  if (f.wpCeiling) parts.push('papered ceiling');
+  if (f.panelling) parts.push('panelling');
+  var wood = [];
+  if (f.frames)  wood.push('door frames');
+  if (f.doors)   wood.push('doors');
+  if (f.windows) wood.push('window frames');
+  if (f.sills)   wood.push('window sills');
+  if (f.rads)    wood.push('radiators');
+  if (f.skirtings) parts.push('woodwork');
+  else if (wood.length) parts.push(englishJoin(wood));
+  return englishJoin(parts);
+}
+
 var LONG_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 function formatLongDate(iso) {
   var p = String(iso).slice(0, 10).split('-');
@@ -2986,40 +3429,70 @@ function formatLongDate(iso) {
 
 // Placeholder values from live job data — the point of the feature: the
 // products/coats were already entered while estimating, so a non-default
-// room needs no extra typing. Products read the FIRST non-variation room's
-// override, else the Settings role default (woodwork's role key is
-// 'topcoat' throughout the materials engine). Per-room deviations are what
-// the editable preview is for — deliberately no per-room resolution here.
+// room needs no extra typing. A product is the one the live rooms AGREE on
+// (woodwork's role key is 'topcoat' throughout the materials engine); where
+// they genuinely differ, none is named -- see roleProduct below.
 function buildTemplateValues(mode) {
   var job = activeJob() || {};
   var liveRooms = rooms.filter(function(r) { return !r.isVariation; });
   var liveExt = extItems.filter(function(it) { return !it.isVariation; });
   var first = liveRooms[0] || null;
   var matsDef = settings.materials || {};
-  function roleProduct(overrideField, role) {
-    if (first && first[overrideField]) return first[overrideField];
-    return (matsDef[role] && matsDef[role].range) || null;
-  }
+  // Wall/ceiling/woodwork products come from the shared resolver, which the
+  // per-room sentences use too -- see scopeProductValues. EVERY product the
+  // rooms use on a surface is named, not the first room's: naming one paint
+  // on a job that uses three reads as a statement of fact on a client
+  // document, and naming NONE is worse still, since a bare "walls" sitting
+  // in a list reads as sharing the next clause's paint.
+  var prods = scopeProductValues(liveRooms);
+  var multi = prods._multiProduct;
+  // Exterior items get the same treatment, keyed off the override alone:
+  // unlike a room there is no single "does this item use masonry" flag
+  // cheap to read here, so an item carrying a stale override contributes a
+  // product it isn't painting. Listing one paint too many is a smaller
+  // wrong than asserting the wrong one.
   function extRoleProduct(overrideField, role) {
-    var withOv = liveExt.filter(function(it) { return it[overrideField]; })[0];
-    if (withOv) return withOv[overrideField];
-    return (matsDef[role] && matsDef[role].range) || null;
+    var def = (matsDef[role] && matsDef[role].range) || null;
+    var seen = [];
+    liveExt.forEach(function(it) {
+      var p = it[overrideField];
+      if (p && seen.indexOf(p) < 0) seen.push(p);
+    });
+    if (seen.length > 1) multi[role] = true;
+    return seen.length ? englishJoin(seen) : def;
   }
-  var names = liveRooms.map(function(r) { return r.name; }).filter(Boolean);
+  // Exterior item labels join the room names: a job painting the front
+  // elevation as well as two rooms had a header reading "Painting of Living
+  // Room and Bathroom", silently omitting half the work it headed.
+  var names = liveRooms.map(function(r) { return r.name; }).filter(Boolean)
+    .concat(liveExt.map(function(it) { return it.label; }).filter(Boolean));
   var vals = {
     // {rooms} must ALWAYS resolve (see renderTemplateText's pair note) —
     // job name is the fallback when there are no rooms (exterior/kitchen
     // jobs), and it's the right text there anyway.
     rooms: names.length ? englishJoin(names) : (job.name || 'the property'),
-    wallProduct: roleProduct('wallRangeOverride', 'wall'),
-    ceilingProduct: roleProduct('ceilingRangeOverride', 'ceiling'),
-    woodProduct: roleProduct('topcoatRangeOverride', 'topcoat'),
+    wallProduct: prods.wallProduct,
+    ceilingProduct: prods.ceilingProduct,
+    woodProduct: prods.woodProduct,
     wallCoats: first && +first.wc > 0 ? +first.wc : null,
     ceilingCoats: first && +first.cc > 0 ? +first.cc : null,
     woodCoats: first && +first.xc > 0 ? +first.xc : null,
     masonryProduct: extRoleProduct('masonryRangeOverride', 'masonry'),
     extWoodProduct: extRoleProduct('extTopcoatRangeOverride', 'extTopcoat')
   };
+  // Built last: the scope sentence quotes the product values above, so it
+  // has to see them resolved. Both go through the same mode the rest of the
+  // render uses, so the tense switch owns the wording as it always has.
+  vals._multiProduct = multi;
+  vals.surfaces = buildScopeSentence(mode, liveRooms, vals);
+  vals.extSurfaces = buildExtScopeSentence(mode, liveExt, vals);
+  vals.unitSurfaces = buildFuScopeSentence(mode,
+    fittedUnitList(job).filter(function(f) { return !f.isVariation; }), vals);
+  // Kitchen coats ARE tracked (calcKitchen clamps 1-4, default 2); its
+  // product and colour are not, and stay [markers] — declined 2026-07-16.
+  vals.kitchenCoats = (job.kitchen && !job.kitchen.isVariation)
+    ? Math.max(1, Math.min(4, +job.kitchen.coats || 2)) : null;
+  vals.papered = buildPaperedPhrase(liveRooms);
   if (mode === 'invoice') {
     // Last day actually on site beats the day the Completed button was
     // tapped; labour_log is already loaded per active job.
@@ -3051,6 +3524,13 @@ function suggestTemplateId() {
   if (hasExt && !hasPaint && !hasWp && !hasKitchen && !hasFittedUnit) {
     return liveExt.some(function(it) { return +it.masonry > 0; }) ? 'ext-render' : 'ext-woodwork';
   }
+  // Interior AND exterior in one job: the plain Painting template's prep
+  // paragraph covers furniture and flooring and nothing outside, so a mixed
+  // job now suggests the template that has both halves. Wallpaper still
+  // wins where it is involved -- paint-paper/wallpapering carry hanging
+  // wording that int-ext has no equivalent for, and the exterior detail
+  // still reaches the client on the exterior lines' own scope.
+  if (hasPaint && hasExt && !hasWp) return 'int-ext';
   if (hasWp && hasPaint) return 'paint-paper';
   if (hasWp) return 'wallpapering';
   return 'painting';
@@ -3109,7 +3589,11 @@ function updateTemplateCardNote() {
   var ta = document.getElementById('xero-template-text');
   if (!note || !ta) return;
   var leftovers = unresolvedTemplateTokens(ta.value);
-  var msg = 'Goes on the first line of the quote — the other lines read \u201Csame as above\u201D.';
+  // The note tracks the actual behaviour: once the text is hand-edited the
+  // app stops generating per-room scope lines, so it stops promising them.
+  var msg = (activeJob() && activeJob().quoteText != null)
+    ? 'Goes on the first line of the quote — the other lines read \u201Csame as above\u201D.'
+    : 'Goes on the first line of the quote. Each other room states its own scope, or reads \u201Csame as above\u201D where it matches. Editing this text turns those off.';
   if (leftovers.length) msg += ' <span style="color:var(--warn);font-weight:600">Unfilled: ' + escapeHtml(leftovers.join(' ')) + '</span>';
   if (ta.value.length > 3000) msg += ' <span style="color:' + (ta.value.length > 3800 ? 'var(--danger)' : 'var(--warn)') + ';font-weight:600">' + ta.value.length + ' / 4000 characters (Xero limit)</span>';
   note.innerHTML = msg;
@@ -3167,7 +3651,15 @@ var TEMPLATE_SAMPLE_VALUES = {
   ceilingProduct: 'Tikkurila Anti Reflex 2', woodProduct: 'Tikkurila Helmi 30',
   wallCoats: 2, ceilingCoats: 2, woodCoats: 2,
   masonryProduct: '[masonry paint]', extWoodProduct: '[exterior wood paint]',
-  completedDate: '7 August 2026'
+  completedDate: '7 August 2026',
+  // A worked example rather than a live render: the Settings preview has no
+  // job behind it, and {surfaces} is only interesting when it shows what a
+  // measured extra actually looks like in the sentence.
+  surfaces: 'Ceilings finished in Tikkurila Anti Reflex 2, walls in Tikkurila Optiva 5, the feature wall, and all woodwork including skirtings, doors and radiators in Tikkurila Helmi 30, each applied in 2 coats.',
+  papered: 'the feature wall',
+  extSurfaces: 'Rendered surfaces in Dulux Weathershield, exterior woodwork including fascias and soffits and window frames in Dulux Weathershield Gloss, each applied in 2 coats.',
+  unitSurfaces: 'Fitted units including 3 bays, 9 shelves and 4 doors in Tikkurila Helmi 30, applied in 2 coats. Bare surfaces will be primed first.',
+  kitchenCoats: 2
 };
 
 function renderTextTemplatesSettings() {
@@ -3193,7 +3685,7 @@ function renderTextTemplatesSettings() {
           ? '<div style="background:var(--surface2);border-radius:var(--rs);padding:10px;font-size:13px;line-height:1.5;white-space:pre-wrap">' + escapeHtml(renderTemplateText(t.body, templatePreviewMode, TEMPLATE_SAMPLE_VALUES)) + '</div>'
           : '<textarea class="field-input" rows="14" style="width:100%;box-sizing:border-box;font-size:13px;line-height:1.5;resize:vertical;text-align:left;font-family:\'DM Sans\',sans-serif" onchange="onTemplateBodyChange(\'' + escapeHtml(t.id) + '\', this.value)">' + escapeHtml(t.body) + '</textarea>') +
         '<div style="display:flex;justify-content:space-between;align-items:center">' +
-          '<div style="font-size:12px;color:var(--text2)">{quote wording|invoice wording} · lines starting \u201CQ: \u201D quote-only, \u201CI: \u201D invoice-only · {rooms} {wallProduct} {ceilingProduct} {woodProduct} {wallCoats} {completedDate} fill from the job</div>' +
+          '<div style="font-size:12px;color:var(--text2)">{quote wording|invoice wording} · lines starting \u201CQ: \u201D quote-only, \u201CI: \u201D invoice-only · {rooms} {wallProduct} {ceilingProduct} {woodProduct} {wallCoats} {completedDate} fill from the job · {surfaces} lists only what was measured (feature wall, panelling, radiators, sills…) · {papered} names what is being papered</div>' +
           '<div onclick="deleteTextTemplate(\'' + escapeHtml(t.id) + '\')" style="font-size:12px;color:var(--danger);font-weight:600;cursor:pointer;white-space:nowrap;padding-left:10px">Delete</div>' +
         '</div>' +
       '</div>';
@@ -4108,13 +4600,47 @@ async function createXeroQuote(forceNew) {
         blockAttached = true;
         return label + '\n\n' + quoteBlock;
       };
+      // A later room's line carries THAT ROOM's scope instead of a bare
+      // "same as above" — see roomScopeSentence. Every Xero line has a
+      // price beside it, so "Bathroom £450 - same as above" pointing at a
+      // block that enumerates ceilings, walls and woodwork bills a client
+      // for work that room isn't having.
+      //
+      // Two rules keep it quiet. A room whose scope MATCHES the block's own
+      // sentence goes back to a plain "same as above" — eight identical
+      // bedrooms stay tidy, and variation shows only where there is
+      // variation. And the moment the description has been edited by hand
+      // the app stops generating scope lines entirely (the block is then
+      // Nicky's wording, not the template's, and a generated sentence
+      // underneath it would be text he didn't write and can't edit).
+      var handEdited = !!(activeJob() && activeJob().quoteText != null);
+      var jobScope = handEdited ? null
+        : buildScopeSentence('quote', quoteRooms, scopeProductValues(quoteRooms));
       // Same order the server pushes lines: rooms → exterior → kitchen →
       // fitted units (per named unit). Custom line items are deliberately
       // NOT in the chain — a custom item's description IS its own text.
       // (There is no standalone top-up line to skip any more: it is spread
       // across these same labour lines — see labourSpreadTarget below.)
-      roomData.forEach(function(rd) { rd.description = withBlock(rd.name); });
-      exteriorData.forEach(function(ed) { if (ed.total > 0) ed.description = withBlock(ed.label || 'Exterior'); });
+      // Kitchen and fitted-unit lines keep the bare "same as above": there
+      // is no scope builder for them, and inventing wording here would put
+      // prose on a client document that nothing tests.
+      var tplValues = handEdited ? null : buildTemplateValues('quote');
+      var extJobScope = handEdited ? null : buildExtScopeSentence('quote', quoteExtItems, tplValues);
+      var scopedLine = function(label, own, jobWide) {
+        return (!own || own === jobWide)
+          ? label + ' - same as above'
+          : label + '\n\n' + own + '\n\nPreparation and completion as above.';
+      };
+      roomData.forEach(function(rd, i) {
+        if (!blockAttached || jobScope == null) { rd.description = withBlock(rd.name); return; }
+        rd.description = scopedLine(rd.name, roomScopeSentence('quote', quoteRooms[i]), jobScope);
+      });
+      exteriorData.forEach(function(ed, i) {
+        if (ed.total <= 0) return;
+        var label = ed.label || 'Exterior';
+        if (!blockAttached || extJobScope == null) { ed.description = withBlock(label); return; }
+        ed.description = scopedLine(label, extItemScopeSentence('quote', quoteExtItems[i], tplValues), extJobScope);
+      });
       if (kitchenTotal > 0) kitchenDescription = withBlock(kitchenLabel);
       fittedUnitData.forEach(function(fd) { if (fd.total > 0) fd.description = withBlock(fd.name); });
       // Xero caps a LineItem Description at 4,000 characters — block loudly
@@ -12606,17 +13132,29 @@ function buildFinalInvoiceModel() {
   // markup distributing over the ORIGINAL base only).
   var rawOrig = 0, ttOrig = 0, sprayOrig = 0;
   var labour = [];
+  // Products for the exterior scope sentences below, resolved once.
+  var invTplValues = buildTemplateValues('invoice');
   rooms.forEach(function(r, i) {
     if (r.isVariation) return;
     var c = roomCalcs[i];
     ttOrig += c.time; sprayOrig += c.sprayLabour || 0;
-    if (c.total > 0.005) { rawOrig += c.total; labour.push({ id: 'r' + i, desc: r.name, raw: c.total }); }
+    // scope: this room's own past-tense sentence, for the invoice line it
+    // ends up on — the same treatment the quote gives its room lines.
+    // Kitchen and fitted-unit lines have no scope builder and get none.
+    if (c.total > 0.005) {
+      rawOrig += c.total;
+      labour.push({ id: 'r' + i, desc: r.name, raw: c.total, scope: roomScopeSentence('invoice', r) });
+    }
   });
   extItems.forEach(function(it, i) {
     if (it.isVariation) return;
     var c = extCalcs[i];
     ttOrig += c.time; sprayOrig += c.sprayLabour || 0;
-    if (c.total > 0.005) { rawOrig += c.total; labour.push({ id: 'e' + i, desc: it.label || 'Exterior', raw: c.total }); }
+    if (c.total > 0.005) {
+      rawOrig += c.total;
+      labour.push({ id: 'e' + i, desc: it.label || 'Exterior', raw: c.total,
+                    scope: extItemScopeSentence('invoice', it, invTplValues) });
+    }
   });
   if (job && job.kitchen && !kitchenIsVar && kitchenCalc.total > 0.005) {
     rawOrig += kitchenCalc.total; ttOrig += kitchenCalc.time;
@@ -12886,7 +13424,9 @@ function toggleFinalInvLine(section, id) {
 // edited/stamp-on-create semantics as the quote text.
 function invoiceDescNoteText(text) {
   var leftovers = unresolvedTemplateTokens(text);
-  var msg = 'Goes on the first labour line — the other labour lines read “same as above”.';
+  var msg = (activeJob() && activeJob().invoiceText != null)
+    ? 'Goes on the first labour line — the other labour lines read “same as above”.'
+    : 'Goes on the first labour line. Each other room states its own scope, or reads “same as above” where it matches. Editing this text turns those off.';
   if (leftovers.length) msg += ' <span style="color:var(--warn);font-weight:600">Unfilled: ' + escapeHtml(leftovers.join(' ')) + '</span>';
   if (text.length > 3000) msg += ' <span style="color:' + (text.length > 3800 ? 'var(--danger)' : 'var(--warn)') + ';font-weight:600">' + text.length + ' / 4000 characters (Xero limit)</span>';
   return msg;
@@ -13039,11 +13579,29 @@ async function createFinalInvoice() {
   // after the MATERIALS block, per v2.7.2).
   var invBlock = (s.invoiceText || '').trim();
   var invAttached = false;
+  // Mirrors the quote's rule exactly (see createXeroQuote): a later room
+  // line carries its own scope unless that matches the block's sentence, and
+  // nothing is generated at all once the invoice text has been hand-edited.
+  var invHandEdited = !!(activeJob() && activeJob().invoiceText != null);
+  var invLiveRooms = rooms.filter(function(r) { return !r.isVariation; });
+  var invLiveExt = extItems.filter(function(it) { return !it.isVariation; });
+  var invTpl = invHandEdited ? null : buildTemplateValues('invoice');
+  // A room line compares against the rooms' union, an exterior line against
+  // the exterior union -- comparing either against the other's would make
+  // every line look like a deviation and print scope on all of them.
+  var invJobScope = invHandEdited ? null
+    : buildScopeSentence('invoice', invLiveRooms, scopeProductValues(invLiveRooms));
+  var invExtScope = invHandEdited ? null
+    : buildExtScopeSentence('invoice', invLiveExt, invTpl);
   s.labour.forEach(function(l) {
     if (l.dropped) return;
     var desc = l.desc;
     if (invBlock) {
-      desc = invAttached ? l.desc + ' - same as above' : l.desc + '\n\n' + invBlock;
+      var jobWide = /^e\d/.test(String(l.id)) ? invExtScope : invJobScope;
+      if (!invAttached) desc = l.desc + '\n\n' + invBlock;
+      else if (jobWide != null && l.scope && l.scope !== jobWide)
+        desc = l.desc + '\n\n' + l.scope + '\n\nPreparation and completion as above.';
+      else desc = l.desc + ' - same as above';
       invAttached = true;
     }
     lines.push({ description: desc, quantity: 1, unitAmount: l.amount, accountCode: '201' });
@@ -20952,12 +21510,14 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
   var roomLines = quoteRooms.map(function(r) {
     var c = calcRoom(r);
     tcS += c.total; ttS += c.time; sprayS += c.sprayLabour || 0;
-    return { name: r.name, emoji: r.emoji || '', raw: c.total };
+    // scope: the short surface note for this room's line on the client's
+    // copy, which showed a name and a price and nothing else.
+    return { name: r.name, emoji: r.emoji || '', raw: c.total, scope: roomScopeShort(r) };
   });
   var extLines = quoteExtItems.map(function(it) {
     var c = calcExtItem(it);
     tcS += c.total; ttS += c.time; sprayS += c.sprayLabour || 0;
-    return { name: it.label || 'Exterior', emoji: '🏡', raw: c.total };
+    return { name: it.label || 'Exterior', emoji: '🏡', raw: c.total, scope: extScopeShort(it) };
   });
   if (kitchenCalc.total > 0.005) {
     tcS += kitchenCalc.total; ttS += kitchenCalc.time;
@@ -20995,10 +21555,10 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
   // adding up.
   var workRows = [];
   roomLines.forEach(function(l) {
-    workRows.push({ emoji: l.emoji || '', label: l.name, sub: '', amount: l.raw * lineMult, labour: true });
+    workRows.push({ emoji: l.emoji || '', label: l.name, sub: l.scope || '', amount: l.raw * lineMult, labour: true });
   });
   extLines.forEach(function(l) {
-    workRows.push({ emoji: l.emoji || '', label: l.name, sub: 'exterior', amount: l.raw * lineMult, labour: true });
+    workRows.push({ emoji: l.emoji || '', label: l.name, sub: l.scope || 'exterior', amount: l.raw * lineMult, labour: true });
   });
   if (kitchenCalc.total > 0.005) {
     // The sub line is the client's scope note: outside-faces-only is

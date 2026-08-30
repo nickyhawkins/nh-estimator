@@ -412,6 +412,102 @@ Once the job is **Accepted**, the status card carries the deposit line — unles
 
 The line then shows where things stand — *not in Xero yet*, *in Xero · unallocated*, or *in Xero · allocated ✓* — read back from Xero, which stays the boss: void or delete the deposit there and the app notices and stops saying it's synced. A failed sync loses nothing — the deposit stays recorded, the line turns red with the reason, and **Try again** is safe. Fixing a mistake (a typo, a refund) is done in Xero, not here — the app never edits or deletes a deposit that's already landed.
 
+### The quote description
+
+Under the breakdown sits the **Quote description** — the wording that rides the
+first line item on the Xero quote. It's written for you from the job: the app picks the wording template
+that fits the work (Painting, Wallpapering, Kitchen Cabinet Spraying and so on —
+all editable in **Settings → Quote & Invoice Text**), fills in your products and
+coats, and puts it in future tense for a quote and past tense for the final
+invoice.
+
+A job with **both rooms and exterior items** gets the **Interior & Exterior**
+template, which has an INSIDE half and an OUTSIDE half — so a client reads the
+promise about their furniture and flooring *and* the one about their windows,
+doors and landscaping, instead of only the indoor one.
+
+**It says what you actually measured.** Quote only the walls and it won't promise
+ceilings and woodwork. Measure a feature wall, panelling, radiators, window sills
+or a mist coat on new plaster and each one gets named — with its own product if
+you gave it one:
+
+> *Ceilings finished in Tikkurila Anti Reflex 2, walls in Tikkurila Optiva 5, the
+> feature wall in Farrow & Ball Estate Emulsion, and all woodwork including
+> skirtings, window sills and radiators in Tikkurila Helmi 30, each applied in 2
+> coats. Newly plastered walls will be mist coated prior to finishing.*
+
+A papered feature wall isn't listed as painted — it moves to the wallpapering
+line instead, which names what's being papered.
+
+**It never states a paint the job doesn't use.** It's a whole-job sentence, so
+woodwork measured in one room puts woodwork in the wording for the job — and
+where the rooms use *different* paints on the same surface, every one of them is
+named rather than whichever room came first:
+
+> *Ceilings finished in Tikkurila Anti Reflex 2, walls in Tikkurila Optiva 5 and
+> Dulux Diamond Matt, and all woodwork including skirtings in Tikkurila Helmi 30,
+> each applied in 2 coats.*
+
+Only rooms that actually paint a surface get a say — an old product left on a
+room with no wall coats doesn't count as a second paint — and a surface no room
+paints at all keeps your Settings default. Coats work differently, because
+there's nothing to list: where the surfaces disagree, no coat figure is stated
+rather than a wrong one. Type the detail into the box yourself whenever you'd
+rather spell out which room gets which.
+
+**Each other room says what *it* is having.** The block itself goes on the first
+line only — repeating the protection and completion paragraphs on every line
+would be noise, and they're the same for every room. But each Xero line carries
+its own price, so instead of a bare *"Bathroom — same as above"* the later lines
+state that room's own scope:
+
+```
+Living Room   [the full block]
+Bathroom      Walls in Tikkurila Optiva 5, applied in 2 coats.
+              Preparation and completion as above.
+Bedroom 1     same as above
+Hall          Ceilings finished in Tikkurila Anti Reflex 2, applied in 2 coats.
+              Preparation and completion as above.
+```
+
+A room whose scope matches the block's goes back to a plain **"same as above"** —
+so eight identical bedrooms stay tidy, and the detail appears only where a room
+genuinely differs. Your own client quote view gets the short version of the same
+thing under each room name: *"ceiling, walls and woodwork"*, *"walls"*.
+
+The box is editable: type in it and your version sticks from then on (**↺ Reset
+to template** goes back). **Editing it also turns the per-room lines off** — once
+the wording is yours, the app stops adding sentences underneath it that you
+didn't write and can't edit; every other line goes back to "same as above".
+Sending stamps the exact wording onto the quote, so a document you've already
+sent never changes underneath you.
+
+**Exterior items get the same treatment**, from what you measured on them —
+render (textured or not), fascias and soffits, windows, sash windows, doors,
+garage doors, a porch — with repairs and restoration noted where you've logged
+any. Each exterior line compares against the other *exterior* lines, so it only
+carries text where it genuinely differs from them.
+
+**Fitted units** describe themselves too — *"Fitted units including 3 bays, 9
+shelves and 4 doors painted both sides in Tikkurila Helmi 30, applied in 2
+coats. Bare surfaces will be primed first."* — with the product coming from the
+unit's own picker (or your Settings woodwork topcoat) and the priming note
+following each unit's **Bare / Already painted** setting. The **kitchen** fills
+in its coat count; its product and colour aren't tracked in the app, so those
+stay as `[product]` and `[colour/finish]` markers for you to type over, along
+with the fitted units' `[spray/brush]` and the wallpaper templates'
+`[paper name/supplier]`.
+
+On the Xero quote, the kitchen and fitted-unit *lines* still read "same as
+above" under the block — only rooms and exterior items get a per-line scope
+sentence.
+
+> **If you've edited your templates in Settings**, your saved copies keep whatever
+> wording you gave them. To pick this up, put **`{surfaces}`** where the scope
+> sentence should go (and **`{papered}`** where a wallpapering line names what's
+> being papered) — or use **Reset to defaults** to take the supplied templates
+> back.
+
 ### Sending to Xero
 
 Expand the **client panel** at the top of Summary:
@@ -623,6 +719,6 @@ Settings → **Backup**:
 
 ---
 
-*Manual for NH Estimator v2.44.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.45.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
