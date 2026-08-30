@@ -421,6 +421,11 @@ all editable in **Settings → Quote & Invoice Text**), fills in your products a
 coats, and puts it in future tense for a quote and past tense for the final
 invoice.
 
+A job with **both rooms and exterior items** gets the **Interior & Exterior**
+template, which has an INSIDE half and an OUTSIDE half — so a client reads the
+promise about their furniture and flooring *and* the one about their windows,
+doors and landscaping, instead of only the indoor one.
+
 **It says what you actually measured.** Quote only the walls and it won't promise
 ceilings and woodwork. Measure a feature wall, panelling, radiators, window sills
 or a mist coat on new plaster and each one gets named — with its own product if
@@ -477,9 +482,15 @@ didn't write and can't edit; every other line goes back to "same as above".
 Sending stamps the exact wording onto the quote, so a document you've already
 sent never changes underneath you.
 
-Exterior items, the kitchen and fitted units keep the plain "same as above" —
-the scope sentence is built from room measurements, and there's no equivalent
-for those yet.
+**Exterior items get the same treatment**, from what you measured on them —
+render (textured or not), fascias and soffits, windows, sash windows, doors,
+garage doors, a porch — with repairs and restoration noted where you've logged
+any. Each exterior line compares against the other *exterior* lines, so it only
+carries text where it genuinely differs from them.
+
+The kitchen and fitted units keep the plain "same as above" — the scope
+sentences are built from room and exterior measurements, and there's no
+equivalent for those yet.
 
 > **If you've edited your templates in Settings**, your saved copies keep whatever
 > wording you gave them. To pick this up, put **`{surfaces}`** where the scope

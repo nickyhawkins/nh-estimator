@@ -57,11 +57,39 @@ placeholders now build it from the live rooms:
   generated at all (the block is then Nicky's wording, and a generated
   sentence under it would be text he did not write and cannot edit). The
   final invoice mirrors this exactly, in past tense, off `l.scope` stamped
-  on each room's labour line. Exterior/kitchen/fitted-unit lines keep the
-  bare "same as above" — there is no scope builder for them.
+  on each labour line as it is built. Kitchen and fitted-unit lines keep the
+  bare "same as above" — there is no scope builder for them, and inventing
+  prose for a client document that nothing tests is how the interior
+  problem started.
+- **`{extSurfaces}` does all of the above for EXTERIOR items**
+  (`buildExtScopeSentence()`), gated the way `calcExtItem` gates each
+  element: render (textured or not), fascias and soffits, windows, sash
+  windows, doors, frames, garage doors, porch. Masonry names
+  `{masonryProduct}` and the woodwork clause `{extWoodProduct}`, so neither
+  can borrow the other's paint; coats come per element (defaulting to the 2
+  the calc defaults to) and are stated only where they agree; sash work
+  contributes a clause but never a coats figure, having no coats control of
+  its own. Sash work or per-window repairs add a "restoration and repairs"
+  sentence in the seeded Exterior Woodwork body's own words. Exterior lines
+  compare against the EXTERIOR union, never the rooms' — comparing across
+  the two would mark every line a deviation.
+- **`{rooms}` includes exterior item labels.** A mixed job's header read
+  "Painting of Living Room and Bathroom" while also painting the front
+  elevation, silently omitting half the work it headed.
+- **A ninth seeded template, `int-ext` "Interior & Exterior"**, suggested by
+  `suggestTemplateId()` when a job has interior paint AND exterior items and
+  no wallpaper (wallpaper still wins: paint-paper/wallpapering carry hanging
+  wording int-ext has no equivalent for, and the exterior detail still
+  reaches the client on the exterior lines' own scope). Before it, such a
+  job got the plain Painting template, whose prep paragraph promises a
+  client that "all furniture and flooring will be fully protected" and says
+  nothing about the outside of their house. **Every sentence in it is
+  lifted verbatim from the seeded Painting / Exterior Woodwork / Exterior
+  Render bodies** — the two halves keep wording Nicky already uses, under
+  INSIDE and OUTSIDE headings, rather than a preamble written for him.
 - **`roomScopeShort()`** puts the same scope in a few words —
   *"ceiling, walls and woodwork"* — on the client quote view's `sub` line,
-  which for rooms was empty. Surfaces only, no products or coats: the
+  which for rooms was empty (`extScopeShort()` does the same for exterior items, replacing the bare "exterior"). Surfaces only, no products or coats: the
   register is the kitchen's existing "outside faces only", a note rather
   than a paragraph. It rides `quoteModel` so it reaches the accepted-quote
   snapshot's `note` as well.
@@ -80,7 +108,7 @@ walls, ceiling and woodwork all measured renders the seeded sentence back
 character for character in both tenses. Templates already edited in Settings
 keep their own wording (`settings.textTemplates` is copy-on-write) — paste
 the placeholder in, or Reset to defaults. Verified by `npm run test:scope`,
-102 checks, pure node against the real source.
+133 checks, pure node against the real source.
 
 **As built — deviations from the spec below, all deliberate:**
 

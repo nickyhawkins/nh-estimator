@@ -1340,7 +1340,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     </div>
     <div class="card">
       <div class="card-header">Quote &amp; Invoice Text</div>
-      <div class="settings-note">One template per job type. The quote version goes on the first line of the Xero quote (each other room states its own scope underneath, or reads "same as above" where it matches — until you edit the text by hand, which turns those off); the invoice version prefills the final-invoice builder when the job's done. Syntax: <strong>{quote wording|invoice wording}</strong> where the two differ, lines starting <strong>Q:&nbsp;</strong> are quote-only, <strong>I:&nbsp;</strong> invoice-only, and {rooms}, {wallProduct}, {ceilingProduct}, {woodProduct}, {wallCoats}, {completedDate} fill in from the job automatically. <strong>{surfaces}</strong> writes the scope sentence from what you actually measured — only the surfaces with coats on them, plus a feature wall, panelling, radiators, sills or a mist coat where they were measured, each naming its own paint where it differs — and <strong>{papered}</strong> names what is being papered.</div>
+      <div class="settings-note">One template per job type — nine seeded, including <strong>Interior &amp; Exterior</strong> for a job with rooms and exterior items in it. The quote version goes on the first line of the Xero quote (each other room states its own scope underneath, or reads "same as above" where it matches — until you edit the text by hand, which turns those off); the invoice version prefills the final-invoice builder when the job's done. Syntax: <strong>{quote wording|invoice wording}</strong> where the two differ, lines starting <strong>Q:&nbsp;</strong> are quote-only, <strong>I:&nbsp;</strong> invoice-only, and {rooms}, {wallProduct}, {ceilingProduct}, {woodProduct}, {wallCoats}, {completedDate} fill in from the job automatically. <strong>{surfaces}</strong> writes the scope sentence from what you actually measured — only the surfaces with coats on them, plus a feature wall, panelling, radiators, sills or a mist coat where they were measured, each naming its own paint where it differs — and <strong>{papered}</strong> names what is being papered, and <strong>{extSurfaces}</strong> does the same job as {surfaces} for the exterior items.</div>
       <div id="text-templates-list"></div>
       <div style="padding:12px 16px;display:flex;gap:8px;border-top:1px solid var(--border)">
         <button onclick="addTextTemplate()" style="flex:1;background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">+ Add template</button>
@@ -2886,6 +2886,40 @@ var DEFAULT_TEXT_TEMPLATES = [
     'I: Cabinet doors, drawer fronts and frames sprayed with [X] coats of [product] in [colour/finish], airless-sprayed in controlled conditions for a smooth, even finish throughout.',
     'I: Doors and drawer fronts rehung and adjusted. Work completed on {completedDate}. Protection removed and kitchen left clean on completion.'
   ].join('\n') },
+  // Interior & Exterior (v2.44.0): a job with rooms AND exterior items used
+  // to get the plain Painting template, whose prep paragraph promises a
+  // client that "all furniture and flooring will be fully protected" and
+  // says nothing about the outside of their house. Every sentence below is
+  // lifted verbatim from the seeded Painting, Exterior Woodwork and
+  // Exterior Render bodies — the two halves of the job each keep the
+  // wording they already had, under headings that say which is which.
+  { id: 'int-ext', name: 'Interior & Exterior', body: [
+    '{Painting of {rooms}:|Painting — {rooms}}',
+    '',
+    'Q: INSIDE — PROTECTION & PREPARATION',
+    'Q: All furniture and flooring will be fully protected prior to any work commencing. Surfaces will be thoroughly prepared including filling, sanding and caulking as required to ensure a smooth, quality finish.',
+    'Q:',
+    'Q: INSIDE — PAINTING & DECORATING',
+    'Q: {surfaces} All work carried out to a high standard using professional techniques and quality trade materials.',
+    'Q:',
+    'Q: OUTSIDE — PROTECTION & PREPARATION',
+    'Q: All surrounding surfaces, windows, doors and landscaping will be fully protected prior to any work commencing. Exterior surfaces will be thoroughly prepared including sanding, filling and priming of bare or damaged areas as required, with any cracks, holes or defects filled and made good.',
+    'Q:',
+    'Q: OUTSIDE — PAINTING',
+    'Q: {extSurfaces} All work carried out to a high standard using professional techniques and quality trade materials suited to exterior conditions.',
+    'Q:',
+    'Q: COMPLETION',
+    'Q: On completion all protection will be removed and the areas left clean and tidy. A final inspection will be carried out to ensure you are completely happy with the finished result.',
+    'I: INSIDE',
+    'I: Surfaces prepared including filling, sanding and caulking as required.',
+    'I: {surfaces}',
+    'I:',
+    'I: OUTSIDE',
+    'I: Exterior surfaces prepared including sanding, filling and priming of bare or damaged areas, with any cracks, holes and defects filled and made good.',
+    'I: {extSurfaces}',
+    'I:',
+    'I: Work completed on {completedDate}. Protection removed and the areas left clean on completion.'
+  ].join('\n') },
   { id: 'ext-woodwork', name: 'Exterior Woodwork', body: [
     '{Exterior Woodwork:|Exterior Woodwork}',
     '',
@@ -3150,6 +3184,105 @@ function buildPaperedPhrase(liveRooms) {
   return parts.length ? englishJoin(parts) : '[feature wall/walls]';
 }
 
+// ── The same, for exterior items ───────────────────────────────────────────
+// Exterior lines used to read a bare "{label} - same as above" against a
+// block describing INTERIOR rooms, which on a mixed job billed a client for
+// scaffold-and-ladder work beside a claim of ceilings and skirtings. Same
+// shape as scopeFacts/buildScopeSentence above, gated the way calcExtItem
+// gates each element, and read-only against it.
+function extScopeFacts(items) {
+  var f = { masonry:false, textured:false, fascia:false, windows:false, sash:false,
+            doors:false, frames:false, garage:false, porch:false, repairs:false, coats:{} };
+  (items || []).forEach(function(it) {
+    var mc = it.coats || {};
+    // Coats default to 2 throughout calcExtItem (mc['ex-...']||2), so the
+    // default is what an unset element is actually priced at.
+    function note(key) { f.coats[Math.max(1, +mc[key] || 2)] = true; }
+    if (+it.masonry > 0) { f.masonry = true; if (it.texturedRender) f.textured = true; note('ex-masonry'); }
+    if (+it.fascia > 0) { f.fascia = true; note('ex-fascia'); }
+    var wins = it.windows || legacyWindowList(it.wins);
+    var sash = it.sashWindows || legacyWindowList(it.sash);
+    if (extWindowCount(wins) > 0) { f.windows = true; note('ex-wins'); }
+    // Sash restoration is a fixed prime-and-paint pass with no coats
+    // control of its own (calcExtItem hardcodes 2), so it contributes a
+    // clause but never a coats figure -- it has no opinion to disagree with.
+    if (extWindowCount(sash) > 0) f.sash = true;
+    if (+it.doorQty > 0 && (+(mc['ex-door'] || 2)) > 0) { f.doors = true; note('ex-door'); }
+    if (+it.frameQty > 0 && (+(mc['ex-frame'] || 2)) > 0) { f.frames = true; note('ex-frame'); }
+    if (+it.garage > 0) f.garage = true;
+    if (+it.porch > 0) f.porch = true;
+    // Repairs are per-window now (resin/reglaze/draught, plus sash cords
+    // and beads); item.resin/item.reglaze are the pre-split legacy fields
+    // and still price, so they still count as repairs here.
+    var anyRepair = wins.concat(sash).some(function(w) {
+      return +w.resin > 0 || +w.reglaze > 0 || w.draught || w.cords || w.staffBeads || w.partingBeads;
+    });
+    if (anyRepair || +it.resin > 0 || +it.reglaze > 0) f.repairs = true;
+  });
+  return f;
+}
+
+function buildExtScopeSentence(mode, items, vals) {
+  var f = extScopeFacts(items);
+  var inv = mode === 'invoice';
+  function product(key) {
+    return (vals && vals[key]) ? String(vals[key]) : '{' + key + '}';
+  }
+  var parts = [];
+  if (f.masonry) {
+    parts.push((f.textured ? 'textured rendered surfaces' : 'rendered surfaces') +
+               ' in ' + product('masonryProduct'));
+  }
+  var wood = [];
+  if (f.fascia)  wood.push('fascias and soffits');
+  if (f.windows) wood.push('window frames');
+  if (f.sash)    wood.push('sash windows');
+  if (f.frames)  wood.push('door frames');
+  if (f.doors)   wood.push('doors');
+  if (f.garage)  wood.push('garage doors');
+  if (f.porch)   wood.push('porch');
+  if (wood.length) parts.push('exterior woodwork including ' + englishJoin(wood) + ' in ' + product('extWoodProduct'));
+  if (!parts.length) return '';
+  // The masonry and woodwork clauses each carry their own product, so the
+  // two never join in a way that lets one borrow the other's paint.
+  var body = parts.length === 1 ? parts[0] : parts.join(', ');
+  body = (inv ? '' : '') + body.charAt(0).toUpperCase() + body.slice(1);
+  var coats = Object.keys(f.coats);
+  if (coats.length === 1) {
+    body += inv ? ', ' + coats[0] + ' coats throughout'
+                : ', ' + (parts.length > 1 ? 'each applied in ' : 'applied in ') + coats[0] + ' coats';
+  }
+  body += '.';
+  if (f.sash || f.repairs) {
+    // Echoes the seeded Exterior Woodwork line's own wording rather than
+    // inventing a second way to say it.
+    body += inv ? ' Restoration and repairs were carried out where necessary.'
+                : ' Restoration and repairs will be carried out where necessary.';
+  }
+  return body;
+}
+
+// One exterior item's own scope, for the line that item appears on.
+function extItemScopeSentence(mode, item, vals) {
+  return buildExtScopeSentence(mode, [item], vals);
+}
+
+// The short form, for the client quote view's sub-line — same register as
+// roomScopeShort. Falls back to the bare "exterior" that line used to show,
+// so an item with nothing describable still reads as exterior work.
+function extScopeShort(item) {
+  var f = extScopeFacts([item]);
+  var parts = [];
+  if (f.masonry) parts.push(f.textured ? 'textured render' : 'render');
+  if (f.fascia)  parts.push('fascias and soffits');
+  if (f.windows) parts.push('windows');
+  if (f.sash)    parts.push('sash windows');
+  if (f.doors || f.frames) parts.push('doors');
+  if (f.garage)  parts.push('garage doors');
+  if (f.porch)   parts.push('porch');
+  return parts.length ? 'exterior — ' + englishJoin(parts) : 'exterior';
+}
+
 // The product values a scope sentence reads, over ANY room list: the whole
 // job for the block on the quote's first line, a single room for that
 // room's own line. Split out of buildTemplateValues so the job-wide
@@ -3265,7 +3398,11 @@ function buildTemplateValues(mode) {
     if (seen.length > 1) multi[role] = true;
     return seen.length ? englishJoin(seen) : def;
   }
-  var names = liveRooms.map(function(r) { return r.name; }).filter(Boolean);
+  // Exterior item labels join the room names: a job painting the front
+  // elevation as well as two rooms had a header reading "Painting of Living
+  // Room and Bathroom", silently omitting half the work it headed.
+  var names = liveRooms.map(function(r) { return r.name; }).filter(Boolean)
+    .concat(liveExt.map(function(it) { return it.label; }).filter(Boolean));
   var vals = {
     // {rooms} must ALWAYS resolve (see renderTemplateText's pair note) —
     // job name is the fallback when there are no rooms (exterior/kitchen
@@ -3285,6 +3422,7 @@ function buildTemplateValues(mode) {
   // render uses, so the tense switch owns the wording as it always has.
   vals._multiProduct = multi;
   vals.surfaces = buildScopeSentence(mode, liveRooms, vals);
+  vals.extSurfaces = buildExtScopeSentence(mode, liveExt, vals);
   vals.papered = buildPaperedPhrase(liveRooms);
   if (mode === 'invoice') {
     // Last day actually on site beats the day the Completed button was
@@ -3317,6 +3455,13 @@ function suggestTemplateId() {
   if (hasExt && !hasPaint && !hasWp && !hasKitchen && !hasFittedUnit) {
     return liveExt.some(function(it) { return +it.masonry > 0; }) ? 'ext-render' : 'ext-woodwork';
   }
+  // Interior AND exterior in one job: the plain Painting template's prep
+  // paragraph covers furniture and flooring and nothing outside, so a mixed
+  // job now suggests the template that has both halves. Wallpaper still
+  // wins where it is involved -- paint-paper/wallpapering carry hanging
+  // wording that int-ext has no equivalent for, and the exterior detail
+  // still reaches the client on the exterior lines' own scope.
+  if (hasPaint && hasExt && !hasWp) return 'int-ext';
   if (hasWp && hasPaint) return 'paint-paper';
   if (hasWp) return 'wallpapering';
   return 'painting';
@@ -4404,17 +4549,26 @@ async function createXeroQuote(forceNew) {
       // NOT in the chain — a custom item's description IS its own text.
       // (There is no standalone top-up line to skip any more: it is spread
       // across these same labour lines — see labourSpreadTarget below.)
-      // Exterior/kitchen/fitted-unit lines keep the bare "same as above":
-      // there is no scope builder for them, and inventing one here would
-      // put wording on a client document that nothing tests.
+      // Kitchen and fitted-unit lines keep the bare "same as above": there
+      // is no scope builder for them, and inventing wording here would put
+      // prose on a client document that nothing tests.
+      var tplValues = handEdited ? null : buildTemplateValues('quote');
+      var extJobScope = handEdited ? null : buildExtScopeSentence('quote', quoteExtItems, tplValues);
+      var scopedLine = function(label, own, jobWide) {
+        return (!own || own === jobWide)
+          ? label + ' - same as above'
+          : label + '\n\n' + own + '\n\nPreparation and completion as above.';
+      };
       roomData.forEach(function(rd, i) {
         if (!blockAttached || jobScope == null) { rd.description = withBlock(rd.name); return; }
-        var own = roomScopeSentence('quote', quoteRooms[i]);
-        rd.description = (!own || own === jobScope)
-          ? rd.name + ' - same as above'
-          : rd.name + '\n\n' + own + '\n\nPreparation and completion as above.';
+        rd.description = scopedLine(rd.name, roomScopeSentence('quote', quoteRooms[i]), jobScope);
       });
-      exteriorData.forEach(function(ed) { if (ed.total > 0) ed.description = withBlock(ed.label || 'Exterior'); });
+      exteriorData.forEach(function(ed, i) {
+        if (ed.total <= 0) return;
+        var label = ed.label || 'Exterior';
+        if (!blockAttached || extJobScope == null) { ed.description = withBlock(label); return; }
+        ed.description = scopedLine(label, extItemScopeSentence('quote', quoteExtItems[i], tplValues), extJobScope);
+      });
       if (kitchenTotal > 0) kitchenDescription = withBlock(kitchenLabel);
       fittedUnitData.forEach(function(fd) { if (fd.total > 0) fd.description = withBlock(fd.name); });
       // Xero caps a LineItem Description at 4,000 characters — block loudly
@@ -12829,13 +12983,15 @@ function buildFinalInvoiceModel() {
   // markup distributing over the ORIGINAL base only).
   var rawOrig = 0, ttOrig = 0, sprayOrig = 0;
   var labour = [];
+  // Products for the exterior scope sentences below, resolved once.
+  var invTplValues = buildTemplateValues('invoice');
   rooms.forEach(function(r, i) {
     if (r.isVariation) return;
     var c = roomCalcs[i];
     ttOrig += c.time; sprayOrig += c.sprayLabour || 0;
     // scope: this room's own past-tense sentence, for the invoice line it
     // ends up on — the same treatment the quote gives its room lines.
-    // Rooms only; exterior/kitchen/fitted-unit lines have no scope builder.
+    // Kitchen and fitted-unit lines have no scope builder and get none.
     if (c.total > 0.005) {
       rawOrig += c.total;
       labour.push({ id: 'r' + i, desc: r.name, raw: c.total, scope: roomScopeSentence('invoice', r) });
@@ -12845,7 +13001,11 @@ function buildFinalInvoiceModel() {
     if (it.isVariation) return;
     var c = extCalcs[i];
     ttOrig += c.time; sprayOrig += c.sprayLabour || 0;
-    if (c.total > 0.005) { rawOrig += c.total; labour.push({ id: 'e' + i, desc: it.label || 'Exterior', raw: c.total }); }
+    if (c.total > 0.005) {
+      rawOrig += c.total;
+      labour.push({ id: 'e' + i, desc: it.label || 'Exterior', raw: c.total,
+                    scope: extItemScopeSentence('invoice', it, invTplValues) });
+    }
   });
   if (job && job.kitchen && !kitchenIsVar && kitchenCalc.total > 0.005) {
     rawOrig += kitchenCalc.total; ttOrig += kitchenCalc.time;
@@ -13274,15 +13434,23 @@ async function createFinalInvoice() {
   // line carries its own scope unless that matches the block's sentence, and
   // nothing is generated at all once the invoice text has been hand-edited.
   var invHandEdited = !!(activeJob() && activeJob().invoiceText != null);
+  var invLiveRooms = rooms.filter(function(r) { return !r.isVariation; });
+  var invLiveExt = extItems.filter(function(it) { return !it.isVariation; });
+  var invTpl = invHandEdited ? null : buildTemplateValues('invoice');
+  // A room line compares against the rooms' union, an exterior line against
+  // the exterior union -- comparing either against the other's would make
+  // every line look like a deviation and print scope on all of them.
   var invJobScope = invHandEdited ? null
-    : buildScopeSentence('invoice', rooms.filter(function(r) { return !r.isVariation; }),
-        scopeProductValues(rooms.filter(function(r) { return !r.isVariation; })));
+    : buildScopeSentence('invoice', invLiveRooms, scopeProductValues(invLiveRooms));
+  var invExtScope = invHandEdited ? null
+    : buildExtScopeSentence('invoice', invLiveExt, invTpl);
   s.labour.forEach(function(l) {
     if (l.dropped) return;
     var desc = l.desc;
     if (invBlock) {
+      var jobWide = /^e\d/.test(String(l.id)) ? invExtScope : invJobScope;
       if (!invAttached) desc = l.desc + '\n\n' + invBlock;
-      else if (invJobScope != null && l.scope && l.scope !== invJobScope)
+      else if (jobWide != null && l.scope && l.scope !== jobWide)
         desc = l.desc + '\n\n' + l.scope + '\n\nPreparation and completion as above.';
       else desc = l.desc + ' - same as above';
       invAttached = true;
@@ -21200,7 +21368,7 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
   var extLines = quoteExtItems.map(function(it) {
     var c = calcExtItem(it);
     tcS += c.total; ttS += c.time; sprayS += c.sprayLabour || 0;
-    return { name: it.label || 'Exterior', emoji: '🏡', raw: c.total };
+    return { name: it.label || 'Exterior', emoji: '🏡', raw: c.total, scope: extScopeShort(it) };
   });
   if (kitchenCalc.total > 0.005) {
     tcS += kitchenCalc.total; ttS += kitchenCalc.time;
@@ -21241,7 +21409,7 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
     workRows.push({ emoji: l.emoji || '', label: l.name, sub: l.scope || '', amount: l.raw * lineMult, labour: true });
   });
   extLines.forEach(function(l) {
-    workRows.push({ emoji: l.emoji || '', label: l.name, sub: 'exterior', amount: l.raw * lineMult, labour: true });
+    workRows.push({ emoji: l.emoji || '', label: l.name, sub: l.scope || 'exterior', amount: l.raw * lineMult, labour: true });
   });
   if (kitchenCalc.total > 0.005) {
     // The sub line is the client's scope note: outside-faces-only is

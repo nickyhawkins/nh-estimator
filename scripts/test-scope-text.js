@@ -79,7 +79,9 @@ const sandbox = `
   var settings = { materials: {
     wall:    { range: 'Tikkurila Optiva 5' },
     ceiling: { range: 'Tikkurila Anti Reflex 2' },
-    topcoat: { range: 'Tikkurila Helmi 30' }
+    topcoat: { range: 'Tikkurila Helmi 30' },
+    masonry: { range: 'Dulux Weathershield' },
+    extTopcoat: { range: 'Weathershield Gloss' }
   } };
   function effectiveRoleRange(r, role) {
     var override = r[role + 'RangeOverride'];
@@ -89,6 +91,10 @@ const sandbox = `
   }
   // The globals buildTemplateValues reads, so the product resolution can be
   // driven for real rather than hand-fed a values object.
+  // Calc-engine helpers extScopeFacts reads, reproduced as they are.
+  function extWindowQty(w) { return Math.max(1, +w.qty || 1); }
+  function extWindowCount(list) { return list.reduce(function(s, w) { return s + extWindowQty(w); }, 0); }
+  function legacyWindowList(qty) { return (+qty || 0) > 0 ? [{ panes: 2, qty: +qty }] : []; }
   var rooms = [], extItems = [], labourLog = [];
   function activeJob() { return { name: 'Test Job' }; }
 `;
@@ -102,6 +108,10 @@ new Function('exports', sandbox + [
   extractFn('scopeProductValues'),
   extractFn('roomScopeSentence'),
   extractFn('roomScopeShort'),
+  extractFn('extScopeFacts'),
+  extractFn('buildExtScopeSentence'),
+  extractFn('extItemScopeSentence'),
+  extractFn('extScopeShort'),
   extractFn('renderTemplateText'),
   extractFn('formatLongDate'),
   extractFn('buildTemplateValues'),
@@ -114,11 +124,20 @@ new Function('exports', sandbox + [
   'exports.DEFAULT_TEXT_TEMPLATES = DEFAULT_TEXT_TEMPLATES;',
   'exports.roomScopeSentence = roomScopeSentence;',
   'exports.roomScopeShort = roomScopeShort;',
+  'exports.buildExtScopeSentence = buildExtScopeSentence;',
+  'exports.extItemScopeSentence = extItemScopeSentence;',
+  'exports.extScopeShort = extScopeShort;',
   'exports.scopeProductValues = scopeProductValues;',
   // Drives the REAL product resolution: set the room list, get the values
   // object a render would actually be given.
   'exports.valuesFor = function(mode, rs, xs) { rooms = rs || []; extItems = xs || []; return buildTemplateValues(mode); };'
 ].join('\n'))(api);
+
+// An exterior item measured the ordinary way: render, fascias, windows and
+// a front door, all at the coats calcExtItem defaults to.
+const EXT_PRODUCTS = { masonryProduct: 'Dulux Weathershield', extWoodProduct: 'Weathershield Gloss' };
+const EXT_FULL = { label: 'Front Elevation', masonry: 60, fascia: 12,
+                   windows: [{ qty: 4 }], doorQty: 1 };
 
 const PRODUCTS = {
   wallProduct: 'Tikkurila Optiva 5',
@@ -352,7 +371,8 @@ const tpl = id => api.DEFAULT_TEXT_TEMPLATES.find(t => t.id === id);
 const values = rooms => Object.assign({
   rooms: 'Living Room',
   masonryProduct: 'Dulux Weathershield', extWoodProduct: 'Dulux Weathershield Gloss'
-}, PRODUCTS, { surfaces: scope('quote', rooms), papered: api.buildPaperedPhrase(rooms) });
+}, PRODUCTS, { surfaces: scope('quote', rooms), papered: api.buildPaperedPhrase(rooms),
+   extSurfaces: api.buildExtScopeSentence('quote', [EXT_FULL], EXT_PRODUCTS) });
 const wallsOnly = api.renderTemplateText(tpl('painting').body, 'quote', values([{ name: 'Living Room', wc: 2 }]));
 check('painting template, walls-only job never says "ceiling"', !/ceiling/i.test(wallsOnly), wallsOnly);
 check('painting template, walls-only job never says "woodwork"', !/woodwork/i.test(wallsOnly), wallsOnly);
@@ -376,7 +396,8 @@ check('paint & paper template does not also paint the papered feature wall',
 api.DEFAULT_TEXT_TEMPLATES.forEach(t => {
   ['quote', 'invoice'].forEach(mode => {
     const out = api.renderTemplateText(t.body, mode, Object.assign({ completedDate: '7 August 2026' },
-      values([FULL]), { surfaces: scope(mode, [FULL]) }));
+      values([FULL]), { surfaces: scope(mode, [FULL]),
+        extSurfaces: api.buildExtScopeSentence(mode, [EXT_FULL], EXT_PRODUCTS) }));
     check(t.id + ' / ' + mode + ' — no unresolved placeholder',
       !/\{[a-zA-Z][a-zA-Z0-9]*\}/.test(out), out);
     check(t.id + ' / ' + mode + ' — no blank line left where a value was dropped',
@@ -437,6 +458,90 @@ eq('short note: radiators with no skirtings are named, not called woodwork',
 eq('short note: a papered feature wall', shortOf({ wc: 2, featureWallArea: 6, featureWallMode: 'wallpaper' }),
   'walls and papered feature wall');
 eq('short note: nothing measured', shortOf({}), '');
+
+// ── 12. Exterior scope ─────────────────────────────────────────────────────
+const ext = (mode, items) => api.buildExtScopeSentence(mode, items, EXT_PRODUCTS);
+eq('a full exterior item, quote',
+  ext('quote', [EXT_FULL]),
+  'Rendered surfaces in Dulux Weathershield, exterior woodwork including fascias and soffits, window frames and doors in Weathershield Gloss, each applied in 2 coats.');
+eq('a full exterior item, invoice',
+  ext('invoice', [EXT_FULL]),
+  'Rendered surfaces in Dulux Weathershield, exterior woodwork including fascias and soffits, window frames and doors in Weathershield Gloss, 2 coats throughout.');
+eq('render only — no woodwork promised',
+  ext('quote', [{ masonry: 60 }]),
+  'Rendered surfaces in Dulux Weathershield, applied in 2 coats.');
+eq('textured render is named as such',
+  ext('quote', [{ masonry: 60, texturedRender: true }]),
+  'Textured rendered surfaces in Dulux Weathershield, applied in 2 coats.');
+eq('windows only, with no render',
+  ext('quote', [{ windows: [{ qty: 3 }] }]),
+  'Exterior woodwork including window frames in Weathershield Gloss, applied in 2 coats.');
+eq('coats read from the item, not assumed',
+  ext('quote', [{ masonry: 60, coats: { 'ex-masonry': 3 } }]),
+  'Rendered surfaces in Dulux Weathershield, applied in 3 coats.');
+eq('elements disagreeing on coats state none',
+  ext('quote', [{ masonry: 60, fascia: 10, coats: { 'ex-masonry': 3, 'ex-fascia': 2 } }]),
+  'Rendered surfaces in Dulux Weathershield, exterior woodwork including fascias and soffits in Weathershield Gloss.');
+eq('sash windows bring the restoration note, and never a coats figure of their own',
+  ext('quote', [{ sashWindows: [{ qty: 2 }] }]),
+  'Exterior woodwork including sash windows in Weathershield Gloss. Restoration and repairs will be carried out where necessary.');
+eq('per-window repairs bring the note too, invoice tense',
+  ext('invoice', [{ windows: [{ qty: 2, resin: 1 }] }]),
+  'Exterior woodwork including window frames in Weathershield Gloss, 2 coats throughout. Restoration and repairs were carried out where necessary.');
+eq('legacy flat window count still counts',
+  ext('quote', [{ wins: 3 }]),
+  'Exterior woodwork including window frames in Weathershield Gloss, applied in 2 coats.');
+eq('garage and porch', ext('quote', [{ garage: 1, porch: 2, coats: {} }]),
+  'Exterior woodwork including garage doors and porch in Weathershield Gloss.');
+eq('nothing measured — empty, never a literal token', ext('quote', [{}]), '');
+// Union across items, the same way the room block unions across rooms.
+eq('two items union into the block sentence',
+  ext('quote', [{ masonry: 60 }, { windows: [{ qty: 2 }] }]),
+  'Rendered surfaces in Dulux Weathershield, exterior woodwork including window frames in Weathershield Gloss, each applied in 2 coats.');
+
+// An exterior line compares against the EXTERIOR union, never the rooms' —
+// comparing across the two would print scope on every line.
+const extLine = (mode, items, i) => {
+  const own = api.extItemScopeSentence(mode, items[i], EXT_PRODUCTS);
+  const jobWide = ext(mode, items);
+  const label = items[i].label || 'Exterior';
+  return (!own || own === jobWide) ? label + ' - same as above'
+    : label + '\n\n' + own + '\n\nPreparation and completion as above.';
+};
+const EXTS = [{ label: 'Front Elevation', masonry: 60 }, { label: 'Rear Windows', windows: [{ qty: 4 }] }];
+eq('an exterior item differing from the exterior union states its own scope',
+  extLine('quote', EXTS, 1),
+  'Rear Windows\n\nExterior woodwork including window frames in Weathershield Gloss, applied in 2 coats.\n\nPreparation and completion as above.');
+eq('a lone exterior item matches the union and collapses',
+  extLine('quote', [EXT_FULL], 0), 'Front Elevation - same as above');
+
+eq('short exterior note for the client view', api.extScopeShort(EXT_FULL),
+  'exterior — render, fascias and soffits, windows and doors');
+eq('short exterior note falls back to the old bare label', api.extScopeShort({}), 'exterior');
+
+// ── 13. The Interior & Exterior template ───────────────────────────────────
+const intExt = api.DEFAULT_TEXT_TEMPLATES.find(t => t.id === 'int-ext');
+check('the ninth template exists', !!intExt);
+['quote', 'invoice'].forEach(mode => {
+  const out = api.renderTemplateText(intExt.body, mode, Object.assign(
+    { rooms: 'Living Room and Front Elevation', completedDate: '7 August 2026' },
+    PRODUCTS, EXT_PRODUCTS,
+    { surfaces: scope(mode, [FULL]), extSurfaces: ext(mode, [EXT_FULL]) }));
+  check('int-ext / ' + mode + ' — carries the interior scope', out.includes('Tikkurila Helmi 30'), out);
+  check('int-ext / ' + mode + ' — carries the exterior scope', out.includes('Dulux Weathershield'), out);
+  check('int-ext / ' + mode + ' — no unresolved placeholder', !/\{[a-zA-Z][a-zA-Z0-9]*\}/.test(out), out);
+});
+const intExtQ = api.renderTemplateText(intExt.body, 'quote', Object.assign(
+  { rooms: 'x', completedDate: 'x' }, PRODUCTS, EXT_PRODUCTS,
+  { surfaces: scope('quote', [FULL]), extSurfaces: ext('quote', [EXT_FULL]) }));
+// The preamble is the point of the template: the interior promise about
+// furniture and flooring must not be the only one a mixed job makes.
+check('int-ext quote keeps the interior protection promise',
+  intExtQ.includes('All furniture and flooring will be fully protected'), intExtQ);
+check('int-ext quote adds the exterior one',
+  intExtQ.includes('windows, doors and landscaping will be fully protected'), intExtQ);
+check('int-ext quote labels which half is which',
+  intExtQ.includes('INSIDE') && intExtQ.includes('OUTSIDE'), intExtQ);
 
 // ── Report ─────────────────────────────────────────────────────────────────
 pass.forEach(n => console.log('  ok   ' + n));
