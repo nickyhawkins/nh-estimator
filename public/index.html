@@ -3058,43 +3058,34 @@ function scopeFacts(liveRooms) {
 function buildScopeSentence(mode, liveRooms, vals) {
   var f = scopeFacts(liveRooms);
   var inv = mode === 'invoice';
-  var mixed = (vals && vals._mixedProducts) || {};
   function product(key) {
     // The literal token when the product is unknown, so it surfaces in the
     // preview's unresolved-token warning rather than silently vanishing.
     return (vals && vals[key]) ? String(vals[key]) : '{' + key + '}';
   }
-  // Rooms disagreeing on a surface's paint is not the same as not knowing
-  // it: the surface still gets its clause, with no "in X" claimed. An
-  // unknown product still shows its fill-me-in token.
-  function surface(noun, key, role) {
-    return mixed[role] ? noun : noun + ' in ' + product(key);
-  }
-  // One product across every room that has this per-room-only role, or none.
-  function only(list) { return list.length === 1 ? list[0] : null; }
   var parts = [];
-  if (f.ceiling) {
-    parts.push(mixed.ceiling ? (inv ? 'ceiling' : 'ceilings')
-      : (inv ? 'ceiling' : 'ceilings') + ' finished in ' + product('ceilingProduct'));
-  }
+  if (f.ceiling) parts.push((inv ? 'ceiling' : 'ceilings') + ' finished in ' + product('ceilingProduct'));
   // "remaining walls" when a papered feature wall has been carved out of
   // them -- the seeded Painting & Papering template's own wording, and the
   // accurate one: the walls being painted are what is left over.
-  if (f.walls) parts.push(surface(f.fwPaper ? 'remaining walls' : 'walls', 'wallProduct', 'wall'));
-  // The feature wall carries its own product only when one was chosen for
-  // it; effectiveRoleRange falls back to the room's wall product, in which
-  // case naming it again would just repeat the wall clause.
-  var fwProduct = only(f.fwProducts);
+  if (f.walls) parts.push((f.fwPaper ? 'remaining walls in ' : 'walls in ') + product('wallProduct'));
+  // A clause may only go bare where sharing the NEXT clause's paint is
+  // true -- that is how English reads a list, and it is why a surface with
+  // no single product lists them all rather than staying silent. So the
+  // feature wall drops its product exactly when it IS the wall paint
+  // (effectiveRoleRange's own fallback), and never otherwise.
+  var fwProduct = englishJoin(f.fwProducts);
   if (f.fwPaint) {
     parts.push(fwProduct && fwProduct !== vals.wallProduct
       ? 'the feature wall in ' + fwProduct
       : 'the feature wall');
   }
-  // Same dedupe as the feature wall: panelling is often a different paint
-  // from the rest of the woodwork (it has its own per-room picker for
-  // exactly that reason), but where it matches, naming the same product
-  // twice in one sentence reads like a mistake.
-  var panelProduct = only(f.panelProducts);
+  // Panelling the same way, against the woodwork it sits next to: often a
+  // different paint (it has its own per-room picker for exactly that
+  // reason), so it is named unless it genuinely matches. With NO product
+  // chosen anywhere it stays bare and reads as the woodwork's -- the
+  // closest thing to true available, since nothing else has been said.
+  var panelProduct = englishJoin(f.panelProducts);
   if (f.panelling) {
     parts.push(panelProduct && panelProduct !== vals.woodProduct
       ? 'wall panelling in ' + panelProduct
@@ -3112,16 +3103,22 @@ function buildScopeSentence(mode, liveRooms, vals) {
   if (f.sills)     wood.push('window sills');
   if (f.rads)      wood.push('radiators');
   if (wood.length) {
-    parts.push(surface(f.skirtings
-      ? (inv ? '' : 'all ') + 'woodwork including ' + englishJoin(wood)
-      : englishJoin(wood), 'woodProduct', 'topcoat'));
+    parts.push(f.skirtings
+      ? (inv ? '' : 'all ') + 'woodwork including ' + englishJoin(wood) + ' in ' + product('woodProduct')
+      : englishJoin(wood) + ' in ' + product('woodProduct'));
   }
   if (!parts.length) return '';
   // Quote keeps the seeded sentence's Oxford comma before "and"; the
   // invoice line never had an "and" at all. Both reproduced exactly.
+  // Two parts normally join with a bare "and" -- but not when a clause has
+  // already spent one listing its own paints, or "in A and B and walls in
+  // C" makes the reader work out which "and" is which.
+  var listed = (vals && vals._multiProduct) || {};
+  var anyListed = f.fwProducts.length > 1 || f.panelProducts.length > 1 ||
+    ['wall', 'ceiling', 'topcoat'].some(function(role) { return listed[role]; });
   var body = parts.length === 1 ? parts[0]
     : inv ? parts.join(', ')
-    : parts.slice(0, -1).join(', ') + (parts.length > 2 ? ', and ' : ' and ') + parts[parts.length - 1];
+    : parts.slice(0, -1).join(', ') + (parts.length > 2 || anyListed ? ', and ' : ' and ') + parts[parts.length - 1];
   body = body.charAt(0).toUpperCase() + body.slice(1);
   // One coat figure only when every measured surface agrees on it. Today's
   // sentence always states the FIRST room's wall coats, which is wrong the
@@ -3171,25 +3168,29 @@ function buildTemplateValues(mode) {
   var liveExt = extItems.filter(function(it) { return !it.isVariation; });
   var first = liveRooms[0] || null;
   var matsDef = settings.materials || {};
-  // Roles the rooms disagree on, for the scope sentence: a disagreement is
-  // not the same as an unknown product, and the two read differently (the
-  // clause drops its "in X" rather than showing a fill-me-in token). The
-  // leading underscore keeps this off the placeholder namespace -- the
-  // renderer's token regex requires a letter first, so no template can ever
+  // Surfaces that ended up listing more than one paint. A clause reading
+  // "in A and B" would otherwise collide with the "and" joining two clauses
+  // ("...in A and B and walls in C"), so the sentence takes its comma form.
+  // Leading underscore keeps it off the placeholder namespace -- the
+  // renderer's token regex requires a letter first, so no template can
   // reference it by accident.
-  var mixed = {};
-  // One product, or none. Naming the first room's paint on a job that uses
-  // three of them reads as a statement of fact on a client document, so a
-  // genuine disagreement names nothing and lets the surface stand alone.
+  var multi = {};
+  // EVERY product the rooms use on this surface, not the first room's.
+  // Naming one paint on a job that uses three reads as a statement of fact
+  // on a client document; naming all of them is the honest answer and stays
+  // unambiguous, because "walls in A and B" binds its products to its own
+  // surface -- which a bare "walls" sitting in a list does NOT: it reads as
+  // sharing the next clause's paint.
+  //
   // Two deliberate narrowings:
   //   · Only rooms that actually PAINT the surface are consulted. A stale
-  //     override left on a room with 0 wall coats is not a disagreement --
-  //     nothing is being painted there for it to disagree about.
+  //     override left on a room with 0 wall coats is not a second paint --
+  //     nothing is being painted there for it to be a paint on.
   //   · A surface NO room paints keeps the Settings default, exactly as
   //     before, so a hand-edited template that mentions it still resolves.
-  // An override and the Settings default count as different products when
-  // they differ, which is the common case: one room overridden, the rest on
-  // the default, really is two paints on that surface.
+  // An override and the Settings default are two products when they differ,
+  // which is the common case: one room overridden and the rest on the
+  // default really is two paints on that surface.
   function roleProduct(overrideField, role, uses) {
     var def = (matsDef[role] && matsDef[role].range) || null;
     var seen = [];
@@ -3198,13 +3199,14 @@ function buildTemplateValues(mode) {
       var p = r[overrideField] || def;
       if (p && seen.indexOf(p) < 0) seen.push(p);
     });
-    if (seen.length > 1) { mixed[role] = true; return null; }
-    return seen.length === 1 ? seen[0] : def;
+    if (seen.length > 1) multi[role] = true;
+    return seen.length ? englishJoin(seen) : def;
   }
   // Exterior items get the same treatment, keyed off the override alone:
   // unlike a room there is no single "does this item use masonry" flag
-  // cheap to read here, and the failure mode of being too eager is an
-  // omitted product, never a wrong one.
+  // cheap to read here, so an item carrying a stale override contributes a
+  // product it isn't painting. Listing one paint too many is a smaller
+  // wrong than asserting the wrong one.
   function extRoleProduct(overrideField, role) {
     var def = (matsDef[role] && matsDef[role].range) || null;
     var seen = [];
@@ -3212,8 +3214,8 @@ function buildTemplateValues(mode) {
       var p = it[overrideField];
       if (p && seen.indexOf(p) < 0) seen.push(p);
     });
-    if (seen.length > 1) { mixed[role] = true; return null; }
-    return seen.length === 1 ? seen[0] : def;
+    if (seen.length > 1) multi[role] = true;
+    return seen.length ? englishJoin(seen) : def;
   }
   var names = liveRooms.map(function(r) { return r.name; }).filter(Boolean);
   var vals = {
@@ -3239,7 +3241,7 @@ function buildTemplateValues(mode) {
   // Built last: the scope sentence quotes the product values above, so it
   // has to see them resolved. Both go through the same mode the rest of the
   // render uses, so the tense switch owns the wording as it always has.
-  vals._mixedProducts = mixed;
+  vals._multiProduct = multi;
   vals.surfaces = buildScopeSentence(mode, liveRooms, vals);
   vals.papered = buildPaperedPhrase(liveRooms);
   if (mode === 'invoice') {

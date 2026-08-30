@@ -435,20 +435,21 @@ you gave it one:
 A papered feature wall isn't listed as painted — it moves to the wallpapering
 line instead, which names what's being papered.
 
-**It never states something the job doesn't agree on.** It's a whole-job
-sentence, so woodwork measured in one room puts woodwork in the wording for the
-job — and where the rooms use *different* paints on the same surface, that
-surface is named without a product rather than claiming whichever room came
-first:
+**It never states a paint the job doesn't use.** It's a whole-job sentence, so
+woodwork measured in one room puts woodwork in the wording for the job — and
+where the rooms use *different* paints on the same surface, every one of them is
+named rather than whichever room came first:
 
-> *Ceilings finished in Tikkurila Anti Reflex 2, walls, and all woodwork
-> including skirtings in Tikkurila Helmi 30, each applied in 2 coats.*
+> *Ceilings finished in Tikkurila Anti Reflex 2, walls in Tikkurila Optiva 5 and
+> Dulux Diamond Matt, and all woodwork including skirtings in Tikkurila Helmi 30,
+> each applied in 2 coats.*
 
 Only rooms that actually paint a surface get a say — an old product left on a
-room with no wall coats isn't a disagreement — and a surface no room paints at
-all keeps your Settings default. Coats work the same way: where the surfaces
-disagree, no coat figure is stated rather than a wrong one. Type the detail into
-the box yourself whenever you'd rather spell it out.
+room with no wall coats doesn't count as a second paint — and a surface no room
+paints at all keeps your Settings default. Coats work differently, because
+there's nothing to list: where the surfaces disagree, no coat figure is stated
+rather than a wrong one. Type the detail into the box yourself whenever you'd
+rather spell out which room gets which.
 
 The box is editable: type in it and your version sticks from then on (**↺ Reset
 to template** goes back). Sending stamps the exact wording onto the quote, so a

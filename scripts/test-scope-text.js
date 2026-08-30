@@ -228,24 +228,31 @@ eq('coats agree across rooms — one figure',
   scope('quote', [{ name: 'Hall', wc: 3 }, { name: 'Landing', wc: 3 }]),
   'Walls in Tikkurila Optiva 5, applied in 3 coats.');
 
-// ── 5b. Rooms disagreeing on a product name none of them ───────────────────
+// ── 5b. Every paint a surface uses, not the first room's ───────────────────
 // Driven through the real buildTemplateValues, so this covers the
 // resolution itself and not just the sentence that reads it.
 const vf = (mode, rs) => api.valuesFor(mode, rs);
 const sentenceFor = (mode, rs) => vf(mode, rs).surfaces;
 
-eq('two wall paints across rooms — the walls claim neither',
+eq('two wall paints across rooms — both named, bound to the walls',
   sentenceFor('quote', [
     { name: 'Lounge', wc: 2, wallRangeOverride: 'Tikkurila Optiva 5' },
     { name: 'Hall',   wc: 2, wallRangeOverride: 'Dulux Diamond Matt' }
   ]),
-  'Walls, applied in 2 coats.');
+  'Walls in Tikkurila Optiva 5 and Dulux Diamond Matt, applied in 2 coats.');
 eq('one room overridden, the rest on the Settings default — still two paints',
   sentenceFor('quote', [
     { name: 'Lounge', wc: 2, wallRangeOverride: 'Dulux Diamond Matt' },
     { name: 'Hall',   wc: 2 }
   ]),
-  'Walls, applied in 2 coats.');
+  'Walls in Dulux Diamond Matt and Tikkurila Optiva 5, applied in 2 coats.');
+eq('three wall paints — all three named',
+  sentenceFor('quote', [
+    { name: 'A', wc: 2, wallRangeOverride: 'P1' },
+    { name: 'B', wc: 2, wallRangeOverride: 'P2' },
+    { name: 'C', wc: 2, wallRangeOverride: 'P3' }
+  ]),
+  'Walls in P1, P2 and P3, applied in 2 coats.');
 eq('rooms agreeing via an override that matches the default — one paint, named',
   sentenceFor('quote', [
     { name: 'Lounge', wc: 2, wallRangeOverride: 'Tikkurila Optiva 5' },
@@ -258,48 +265,59 @@ eq('a stale override on a room that paints no walls is not a disagreement',
     { name: 'Hall',   cc: 2, wallRangeOverride: 'Dulux Diamond Matt' }
   ]),
   'Ceilings finished in Tikkurila Anti Reflex 2 and walls in Tikkurila Optiva 5, each applied in 2 coats.');
-eq('disagreement on one surface leaves the others naming their paint',
+eq('two wall paints leave the other surfaces naming their own',
   sentenceFor('quote', [
     { name: 'Lounge', wc: 2, cc: 2, xc: 2, wallRangeOverride: 'Tikkurila Optiva 5' },
     { name: 'Hall',   wc: 2, cc: 2, xc: 2, wallRangeOverride: 'Dulux Diamond Matt' }
   ]),
-  'Ceilings finished in Tikkurila Anti Reflex 2, walls, and all woodwork including skirtings in Tikkurila Helmi 30, each applied in 2 coats.');
-eq('ceilings disagreeing — the lead clause drops its product too',
+  'Ceilings finished in Tikkurila Anti Reflex 2, walls in Tikkurila Optiva 5 and Dulux Diamond Matt, and all woodwork including skirtings in Tikkurila Helmi 30, each applied in 2 coats.');
+eq('two ceiling paints — the lead clause lists both',
   sentenceFor('quote', [
     { name: 'Lounge', cc: 2, wc: 2, ceilingRangeOverride: 'Dulux Trade Matt' },
     { name: 'Hall',   cc: 2, wc: 2 }
   ]),
-  'Ceilings and walls in Tikkurila Optiva 5, each applied in 2 coats.');
-eq('woodwork disagreeing, invoice tense',
+  'Ceilings finished in Dulux Trade Matt and Tikkurila Anti Reflex 2, and walls in Tikkurila Optiva 5, each applied in 2 coats.');
+eq('two woodwork paints, invoice tense',
   sentenceFor('invoice', [
     { name: 'Lounge', xc: 2, topcoatRangeOverride: 'Tikkurila Helmi 30' },
     { name: 'Hall',   xc: 2, topcoatRangeOverride: 'Dulux Satinwood' }
   ]),
-  'Woodwork including skirtings, 2 coats throughout.');
-eq('two rooms panelled in different paints — panelling claims neither',
+  'Woodwork including skirtings in Tikkurila Helmi 30 and Dulux Satinwood, 2 coats throughout.');
+eq('two rooms panelled in different paints — both named, never left bare beside the woodwork',
   sentenceFor('quote', [
-    { name: 'Lounge', wc: 2, panelItems: PANEL, panelRangeOverride: 'Little Greene Intelligent Eggshell' },
-    { name: 'Hall',   wc: 2, panelItems: PANEL, panelRangeOverride: 'Dulux Satinwood' }
+    { name: 'Lounge', wc: 2, xc: 2, panelItems: PANEL, panelRangeOverride: 'Little Greene Intelligent Eggshell' },
+    { name: 'Hall',   wc: 2, xc: 2, panelItems: PANEL, panelRangeOverride: 'Dulux Satinwood' }
   ]),
-  'Walls in Tikkurila Optiva 5 and wall panelling, each applied in 2 coats.');
-eq('two feature walls in different paints — the clause claims neither',
+  'Walls in Tikkurila Optiva 5, wall panelling in Little Greene Intelligent Eggshell and Dulux Satinwood, and all woodwork including skirtings in Tikkurila Helmi 30, each applied in 2 coats.');
+eq('two feature walls in different paints — both named, never left bare beside the walls',
   sentenceFor('quote', [
     { name: 'Lounge',  wc: 2, featureWallArea: 8, featurewallRangeOverride: 'Farrow & Ball Estate' },
     { name: 'Bedroom', wc: 2, featureWallArea: 6, featurewallRangeOverride: 'Little Greene Absolute Matt' }
   ]),
-  'Walls in Tikkurila Optiva 5 and the feature wall, each applied in 2 coats.');
+  'Walls in Tikkurila Optiva 5, and the feature wall in Farrow & Ball Estate and Little Greene Absolute Matt, each applied in 2 coats.');
+
+// Two clauses normally join with a bare "and". A clause that has spent one
+// listing its own paints must not, or the reader has to work out which
+// "and" is which -- "in A and B and walls in C".
+check('two parts join with a bare "and" while no clause lists two paints',
+  sentenceFor('quote', [{ wc: 2, cc: 2 }]).indexOf('Anti Reflex 2 and walls') > 0,
+  sentenceFor('quote', [{ wc: 2, cc: 2 }]));
+check('two parts take the comma form once a clause lists two paints',
+  sentenceFor('quote', [{ wc: 2, cc: 2, wallRangeOverride: 'A' }, { wc: 2, cc: 2, wallRangeOverride: 'B' }])
+    .indexOf('Anti Reflex 2, and walls in A and B') > 0,
+  sentenceFor('quote', [{ wc: 2, cc: 2, wallRangeOverride: 'A' }, { wc: 2, cc: 2, wallRangeOverride: 'B' }]));
 
 // The standalone placeholders resolve the same way, so a hand-edited
 // template that still writes "{wallProduct}" cannot state a paint the job
 // does not agree on -- it falls to the visible fill-me-in token instead.
-check('{wallProduct} is null where rooms disagree',
-  vf('quote', [{ wc: 2, wallRangeOverride: 'A' }, { wc: 2, wallRangeOverride: 'B' }]).wallProduct === null);
+check('{wallProduct} lists every paint the rooms use, never just the first',
+  vf('quote', [{ wc: 2, wallRangeOverride: 'A' }, { wc: 2, wallRangeOverride: 'B' }]).wallProduct === 'A and B');
 check('{wallProduct} keeps the Settings default when no room paints walls',
   vf('quote', [{ cc: 2 }]).wallProduct === 'Tikkurila Optiva 5');
 check('a single room still resolves its own override',
   vf('quote', [{ wc: 2, wallRangeOverride: 'Dulux Diamond Matt' }]).wallProduct === 'Dulux Diamond Matt');
-check('radiators count as woodwork users for the disagreement check',
-  vf('quote', [{ rads: 2, topcoatRangeOverride: 'A' }, { xc: 2, topcoatRangeOverride: 'B' }]).woodProduct === null);
+check('radiators count as woodwork users when collecting paints',
+  vf('quote', [{ rads: 2, topcoatRangeOverride: 'A' }, { xc: 2, topcoatRangeOverride: 'B' }]).woodProduct === 'A and B');
 
 // ── 6. Job-level union across rooms ────────────────────────────────────────
 eq('one room with woodwork puts woodwork in the sentence for the job',
