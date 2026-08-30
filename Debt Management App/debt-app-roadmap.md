@@ -483,3 +483,107 @@ Native Web Push (iOS 16.4+ Home Screen web apps, plus desktop/Android browsers) 
 - **Delivery:** `lib/debtNotify.js`'s `broadcast()` fans each message out to ntfy (if `NTFY_TOPIC` is set) and every Web Push subscription; a failure in one transport never blocks the other. Due-date pushes carry a stable per-debt `tag` so the daily re-reminder replaces yesterday's banner instead of stacking. The 8am cron is now always scheduled (subscriptions appear at runtime, so there's no startup env check that can rule notifications out).
 - **Frontend:** `public/debt-sw.js` (push-only service worker, scope `/debt` — deliberately no fetch handler, so online behaviour is unchanged) + `public/debt-manifest.json`. The Notifications card gains a "Push to this device" row: Enable asks permission → subscribes → saves; states cover enabled/disabled/blocked, and an iOS Safari tab shows "add to Home Screen first" since Apple only exposes push to installed web apps. "Send test notification" now exercises both transports and only errors if neither is set up.
 - **iOS setup:** the app must be added to the Home Screen (it already is, in Nicky's case — but push must be ENABLED from inside the installed app, not from a Safari tab). If the home-screen copy predates this feature, remove and re-add it once so it picks up the service worker.
+
+---
+
+## Feature 8 — Floor & target payments — BUILT
+
+Every debt now carries **two** numbers instead of one:
+
+- **Floor** — the minimum committed payment, sized to a worst-case income
+  month. This is the figure a creditor is told and held to.
+- **Target** — the planned payment in an average month. This is what the
+  existing budget-driven plan already produced; nothing about the payoff
+  simulation changed.
+
+A cycle is judged on both, separately. Meeting every floor is "on track"
+even when targets slip, which removes the all-or-nothing month that made
+catching up feel impossible on irregular income.
+
+### Data model
+
+| Where | Column | Notes |
+|---|---|---|
+| `debt_plan_debts` | `floor_payment NUMERIC` | **Nullable on purpose.** `NULL` = no floor agreed yet (Brewers' arrears-only trade account, HMRC pre-Time-to-Pay); a floor of `0` would read as a commitment to pay nothing and count as met every cycle. Backfilled once from `min`. |
+| `debt_plan_settings` | `buffer_target NUMERIC DEFAULT 0` | `0` = buffer off, and off is the default — filling it diverts real money, so it is opted into rather than guessed at. |
+| `debt_plan_cashflow` | `buffer_pot NUMERIC` | Cash cushion. Survives a cycle close, like a savings balance. |
+| `debt_plan_cashflow` | `floor_shortfalls JSONB` | Running per-debt ledger `[{id,name,amount,since}]`. Written at cycle close, cleared only by an explicit user action. |
+| `debt_plan_cashflow` | `floor_paid_this_cycle JSONB` | Debts where the floor went out but the target didn't. |
+| `debt_plan_income_log` | `buffer_amt NUMERIC` | So deleting an income entry reverses its buffer top-up too. |
+
+The floor backfill (`floor_payment = min`) sits inside a not-exists guard in
+both `db/setup-debt.sql` and `ensureSchema()` in `routes/debt.js`, so it runs
+exactly once. Without that guard, clearing a floor back to "not set" in the
+app would be undone by the next restart.
+
+### The third payment state
+
+A cycle payment used to be paid, missed, or neither. It now has a fourth
+state — **floor paid** — and that state is the only reason the two verdicts
+can ever differ: with a binary tick, "floors met, target missed" is
+unreachable, because paying a debt at all means paying it in full.
+`setPaymentState()` is the single place an id moves between the three lists,
+so the pot is refunded for whatever the old state took and charged for
+whatever the new one takes.
+
+Most debts' target *is* their floor (the plan pays their contractual minimum
+and no more), so the flex zone is the surplus above the minimums — roughly
+£260/month at the current figures, exactly as the spec estimated. The debt
+receiving the arrears or snowball money is the one with real room between
+the two numbers.
+
+### Allocation order (`allocateIncome()` in `public/debt.html`)
+
+1. **Buffer** — up to `bufferTarget`, if not already full.
+2. **Floors** — the uncovered floor need, arrears first (highest arrears
+   first, matching `simulate()`), into the business/personal pot each debt
+   is paid from. Pot balances count toward the floors before new money does.
+3. **Savings** — `savingsPct` of gross, but never out of the floor money.
+4. **Targets** — the rest of the ordinary sweep, split by remaining need.
+5. **Living** — the remainder.
+
+Floors come **out of** the sweep, not on top of it, so a month whose floors
+are already covered splits exactly as it did before this feature existed.
+Only a light month escalates, pushing more of the income at the floors.
+
+### Behind tracking
+
+When a cycle closes with a floor unmet, the shortfall is recorded per debt in
+`floor_shortfalls` and shown in a "Behind on floors" panel. It is **inert**:
+nothing is added to what the plan asks for next cycle. The only route back
+into the plan is the explicit **Catch up** button, which adds the shortfall to
+that debt's arrears (putting it back at the front of the arrears-first order)
+and says so first, including the warning about double-counting when the next
+statement will already show it. **Clear** drops the entry without touching the
+plan. Automatic compounding is the pressure this feature exists to remove.
+
+The closing cycle's verdict (`floorsMet` / `targetMet`) and the shortfalls it
+recorded are archived into `debt_plan_cycle_history.notes` as JSON alongside
+the existing `missed` ids, and shown as badges on the History tab. Cycles
+closed before this feature have no verdict and render without them.
+
+### Tests
+
+`npm run test:floors` (`scripts/test-floor-payments.js`) — no database, no
+browser, no server. It extracts the real script block out of `public/debt.html`
+and runs it in a vm with a stub DOM, so it exercises the functions the phone
+runs. 46 checks covering: null floor ≠ zero floor, the two verdicts diverging,
+the four payment states and their pot arithmetic, allocation order and
+conservation, floors coming out of the sweep, and — the promise the whole
+feature rests on — that a carried shortfall does not increase the next cycle's
+required payment.
+
+### Deliberately left open (see the spec's open questions)
+
+These were **not** resolved in code, and the defaults chosen are editable
+rather than decisions:
+
+- **Van** keeps a floor seeded from its £400 minimum like any other debt, and
+  is not special-cased out of the floor system. Clearing the floor in Edit
+  Debts takes it out of the floors verdict if that's the answer.
+- **HMRC** has no minimum, so it starts with no floor and sits outside the
+  floors verdict until a Time to Pay arrangement gives it one — the same
+  data-driven route by which it already joins the payment plan.
+- **Surplus above floors** follows the existing strict arrears-first/snowball
+  order rather than splitting proportionally.
+- **`bufferTarget` is a fixed amount**, not a percentage of the floor total.
