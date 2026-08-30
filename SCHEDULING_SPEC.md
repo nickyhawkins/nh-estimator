@@ -107,6 +107,29 @@ EXTENDS the name rather than replacing it: with a title, the event (and the week
 blocks) read **"job name — schedule title"**; with no title, the fallback dedupes
 name-equals-client (case-insensitive) instead of repeating it.
 
+**Addendum 2026-08-30 (v2.43.1) — one label, client always in it.** The v1.10.2 rules
+leaked: the client only ever appeared in a calendar entry when there was NO calendar
+title, and never appeared in the app's own Schedule views at all — the client name was
+reaching the calendar only because job names happened to contain it. Taking the client
+back out of job names (to stop "Lauren Lowe - Kitchen — Kitchen") therefore lost the
+client from the schedule entirely. Both labels are now built the same way, from three
+parts — **`xeroClient` — `name` — `scheduleTitle`** — with any part another already
+spells out dropped, and a part that *contains* an earlier one taking its slot:
+
+| client | name | title | reads |
+|---|---|---|---|
+| Lauren Lowe | Kitchen | Kitchen | Lauren Lowe — Kitchen |
+| Lauren Lowe | Lauren Lowe - Kitchen | Kitchen | Lauren Lowe - Kitchen |
+| Lauren Lowe | Kitchen | Kitchen & hallway | Lauren Lowe — Kitchen & hallway |
+| — | Kitchen | — | Kitchen |
+
+So a legacy name that still embeds the client can't double it up, a title that just
+repeats the name collapses, and a job with no client saved still reads as its name.
+`scheduleLabelParts()` (`public/index.html`) and `icsScheduleSummary()`
+(`routes/api.js`) are the same algorithm on both sides — **keep them in sync**; the
+Schedule form's placeholder and its "in calendar as …" preview both render through the
+client one, so the form shows the real entry text (including the client) before saving.
+
 ## Purpose
 
 `onSiteDays` (`realisticDays()`, `public/index.html:~3050`) already answers "how long will
