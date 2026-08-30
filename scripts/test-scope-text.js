@@ -99,6 +99,17 @@ const sandbox = `
   function activeJob() { return JOB; }
   var JOB = { name: 'Test Job' };
   function fittedUnitList(job) { return (job && job.fittedUnits) || []; }
+  // buildTemplateValues asks "does this line get pushed at all" when picking
+  // the block's subject. Only the >0 test matters here, so these stand in
+  // for the calc engine: anything measured prices, nothing measured doesn't.
+  function calcExtItem(it) {
+    var f = extScopeFacts([it]);
+    return { total: (f.masonry || f.fascia || f.windows || f.sash || f.doors ||
+                     f.frames || f.garage || f.porch) ? 1 : 0 };
+  }
+  function calcFittedUnit(u) {
+    return { total: ((+u.bayCount || 0) + (+u.shelfCount || 0) + (+u.doorCount || 0)) ? 1 : 0 };
+  }
 `;
 
 const api = {};
@@ -264,7 +275,11 @@ eq('coats agree across rooms — one figure',
 // Driven through the real buildTemplateValues, so this covers the
 // resolution itself and not just the sentence that reads it.
 const vf = (mode, rs) => api.valuesFor(mode, rs);
-const sentenceFor = (mode, rs) => vf(mode, rs).surfaces;
+// buildScopeSentence over a MULTI-ROOM list. The block itself no longer
+// takes this path -- it describes the one line it sits on (section 17) --
+// but the builder is general over any list, and these hold the
+// list-every-paint rules that a bare "walls" in a list would break.
+const sentenceFor = (mode, rs) => api.buildScopeSentence(mode, rs, api.scopeProductValues(rs));
 
 eq('two wall paints across rooms — both named, bound to the walls',
   sentenceFor('quote', [
@@ -342,14 +357,18 @@ check('two parts take the comma form once a clause lists two paints',
 // The standalone placeholders resolve the same way, so a hand-edited
 // template that still writes "{wallProduct}" cannot state a paint the job
 // does not agree on -- it falls to the visible fill-me-in token instead.
-check('{wallProduct} lists every paint the rooms use, never just the first',
-  vf('quote', [{ wc: 2, wallRangeOverride: 'A' }, { wc: 2, wallRangeOverride: 'B' }]).wallProduct === 'A and B');
-check('{wallProduct} keeps the Settings default when no room paints walls',
+check('scopeProductValues lists every paint across a multi-room list',
+  api.scopeProductValues([{ wc: 2, wallRangeOverride: 'A' }, { wc: 2, wallRangeOverride: 'B' }]).wallProduct === 'A and B');
+// The BLOCK, though, is about one line: {wallProduct} is that room's paint,
+// not a list gathered from rooms the line is not about.
+check('{wallProduct} on the block is the subject room\'s paint alone',
+  vf('quote', [{ wc: 2, wallRangeOverride: 'A' }, { wc: 2, wallRangeOverride: 'B' }]).wallProduct === 'A');
+check('{wallProduct} keeps the Settings default when the subject paints no walls',
   vf('quote', [{ cc: 2 }]).wallProduct === 'Tikkurila Optiva 5');
 check('a single room still resolves its own override',
   vf('quote', [{ wc: 2, wallRangeOverride: 'Dulux Diamond Matt' }]).wallProduct === 'Dulux Diamond Matt');
 check('radiators count as woodwork users when collecting paints',
-  vf('quote', [{ rads: 2, topcoatRangeOverride: 'A' }, { xc: 2, topcoatRangeOverride: 'B' }]).woodProduct === 'A and B');
+  api.scopeProductValues([{ rads: 2, topcoatRangeOverride: 'A' }, { xc: 2, topcoatRangeOverride: 'B' }]).woodProduct === 'A and B');
 
 // ── 6. Job-level union across rooms ────────────────────────────────────────
 eq('one room with woodwork puts woodwork in the sentence for the job',
@@ -418,11 +437,11 @@ api.DEFAULT_TEXT_TEMPLATES.forEach(t => {
 // The rule the quote and invoice builders both apply: a later room's line
 // carries its OWN scope unless that matches the block's job-wide sentence,
 // in which case the bare "same as above" is accurate and is kept.
-const jobScopeOf = (mode, rs) => api.buildScopeSentence(mode, rs, api.scopeProductValues(rs));
+// The baseline is the SUBJECT room -- the one the block sits on.
 const lineFor = (mode, rs, i) => {
   const own = api.roomScopeSentence(mode, rs[i]);
-  const jobScope = jobScopeOf(mode, rs);
-  return (!own || own === jobScope) ? rs[i].name + ' - same as above'
+  const baseline = api.roomScopeSentence(mode, rs[0]);
+  return (!own || own === baseline) ? rs[i].name + ' - same as above'
     : rs[i].name + '\n\n' + own + '\n\nPreparation and completion as above.';
 };
 
@@ -449,11 +468,12 @@ eq('a room with no describable painted scope falls back to "same as above"',
   lineFor('quote', [FULL, { name: 'Snug', featureWallArea: 6, featureWallMode: 'wallpaper' }], 1),
   'Snug - same as above');
 
-// The job-wide sentence is the union, so it is what a fully-scoped room
-// matches against — proving the collapse is comparing like with like.
-eq('the job block still reads as the union across every room',
-  jobScopeOf('quote', MIXED),
-  'Ceilings finished in Tikkurila Anti Reflex 2, walls in Tikkurila Optiva 5, and all woodwork including skirtings in Tikkurila Helmi 30, each applied in 2 coats.');
+// The block is the FIRST line's scope, so that is what the later lines
+// match against — the collapse compares like with like, and "same as above"
+// is literally true rather than approximately.
+eq('the block reads as the subject room\'s scope, not a union across the job',
+  vf('quote', MIXED).surfaces,
+  api.roomScopeSentence('quote', MIXED[0]));
 
 // ── 11. The short scope note for the client quote view ─────────────────────
 const shortOf = r => api.roomScopeShort(r);
@@ -512,7 +532,7 @@ eq('two items union into the block sentence',
 // comparing across the two would print scope on every line.
 const extLine = (mode, items, i) => {
   const own = api.extItemScopeSentence(mode, items[i], EXT_PRODUCTS);
-  const jobWide = ext(mode, items);
+  const jobWide = api.extItemScopeSentence(mode, items[0], EXT_PRODUCTS);
   const label = items[i].label || 'Exterior';
   return (!own || own === jobWide) ? label + ' - same as above'
     : label + '\n\n' + own + '\n\nPreparation and completion as above.';
@@ -643,6 +663,52 @@ api.DEFAULT_TEXT_TEMPLATES.forEach(t => {
   if (t.id === 'fire-doors') return;  // manual-only choice; its doors are measured on rooms
   check(t.id + ' — no hand-typed coats marker', !/\[X\] coats/.test(t.body), t.body);
 });
+
+// ── 17. The block describes the line it sits on ────────────────────────────
+// It rides ONE Xero line carrying ONE room's price, so a header listing
+// every room in the job (and a scope sentence unioned across them) put
+// job-level text on a line-level item.
+const HOUSE = [
+  { name: 'Lounge', wc: 2, cc: 2, xc: 2, rads: 2 },
+  { name: 'Bathroom', wc: 2 },
+  { name: 'Entrance Hall and Landing', wc: 2, cc: 2, xc: 2, rads: 1 }
+];
+eq('{rooms} names the subject room alone, not every room in the job',
+  vf('quote', HOUSE).rooms, 'Lounge');
+eq('{surfaces} is the subject room\'s scope',
+  vf('quote', HOUSE).surfaces, api.roomScopeSentence('quote', HOUSE[0]));
+check('the block never claims a surface only another room has',
+  vf('quote', [{ name: 'A', wc: 2 }, { name: 'B', wc: 2, cc: 2, xc: 2 }]).surfaces.indexOf('woodwork') < 0,
+  vf('quote', [{ name: 'A', wc: 2 }, { name: 'B', wc: 2, cc: 2, xc: 2 }]).surfaces);
+// A room name containing "and" can no longer collide with a list join,
+// because there is no list.
+check('a room name containing "and" is no longer joined into a list',
+  vf('quote', [HOUSE[2], HOUSE[0]]).rooms === 'Entrance Hall and Landing');
+
+// With no rooms, the block's line is the first exterior item, and it is
+// that item the header and scope describe.
+const XS2 = [{ label: 'Front Elevation', masonry: 60 }, { label: 'Rear Windows', windows: [{ qty: 4 }] }];
+eq('an exterior-only job takes its first item as the subject',
+  api.valuesFor('quote', [], XS2).rooms, 'Front Elevation');
+eq('and that item\'s scope, not a union across the items',
+  api.valuesFor('quote', [], XS2).extSurfaces,
+  api.extItemScopeSentence('quote', XS2[0], EXT_PRODUCTS));
+// With rooms present the block sits on a room's line, so it carries NO
+// exterior scope -- the exterior lines carry their own.
+eq('a mixed job\'s block claims no exterior work on its room line',
+  api.valuesFor('quote', HOUSE, XS2).extSurfaces, '');
+eq('and no fitted-unit work either', api.valuesFor('quote', HOUSE, XS2).unitSurfaces, '');
+// The int-ext template must still make its OUTSIDE protection promise even
+// with no exterior scope sentence on that line.
+const mixedBlock = api.renderTemplateText(
+  api.DEFAULT_TEXT_TEMPLATES.find(t => t.id === 'int-ext').body, 'quote',
+  Object.assign(api.valuesFor('quote', HOUSE, XS2), { completedDate: '7 August 2026' }));
+check('int-ext keeps its OUTSIDE protection promise on a room line',
+  mixedBlock.includes('windows, doors and landscaping will be fully protected'), mixedBlock);
+check('int-ext leaves no stray token or blank run where the exterior scope was',
+  !/\{[a-zA-Z]/.test(mixedBlock) && !/\n{3,}/.test(mixedBlock), JSON.stringify(mixedBlock));
+check('int-ext header names the subject room only',
+  mixedBlock.startsWith('Painting of Lounge:'), mixedBlock.split('\n')[0]);
 
 // ── Report ─────────────────────────────────────────────────────────────────
 pass.forEach(n => console.log('  ok   ' + n));

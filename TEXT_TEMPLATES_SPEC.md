@@ -52,7 +52,7 @@ placeholders now build it from the live rooms:
   ceilings and woodwork. The block still appears once — protection, prep
   and completion genuinely are shared, hence the trailing "Preparation and
   completion as above." Two rules keep it quiet: a room whose sentence
-  MATCHES the block's own job-wide one goes back to a plain "same as
+  MATCHES the block's own (the first line's) goes back to a plain "same as
   above", and once the description has been **hand-edited** nothing is
   generated at all (the block is then Nicky's wording, and a generated
   sentence under it would be text he did not write and cannot edit). The
@@ -71,11 +71,14 @@ placeholders now build it from the live rooms:
   contributes a clause but never a coats figure, having no coats control of
   its own. Sash work or per-window repairs add a "restoration and repairs"
   sentence in the seeded Exterior Woodwork body's own words. Exterior lines
-  compare against the EXTERIOR union, never the rooms' — comparing across
-  the two would mark every line a deviation.
-- **`{rooms}` includes exterior item labels.** A mixed job's header read
-  "Painting of Living Room and Bathroom" while also painting the front
-  elevation, silently omitting half the work it headed.
+  compare against the block's own scope like every other line, so on a job
+  whose block sits on a room they always state their own — the block
+  carries no exterior scope to be "the same as".
+- **`{rooms}` names the block's subject**, one line's room or exterior item
+  — see the subject rule below. (It briefly listed every room AND every
+  exterior label, to stop a mixed job's header omitting half the work it
+  headed; the subject rule replaced that, since a header on the Lounge's
+  line should name the Lounge.)
 - **A ninth seeded template, `int-ext` "Interior & Exterior"**, suggested by
   `suggestTemplateId()` when a job has interior paint AND exterior items and
   no wallpaper (wallpaper still wins: paint-paper/wallpapering carry hanging
@@ -120,10 +123,25 @@ placeholders now build it from the live rooms:
   than a paragraph. It rides `quoteModel` so it reaches the accepted-quote
   snapshot's `note` as well.
 
-`{surfaces}` in the BLOCK is a **job-level union**, matching what the block
-is — the one text on the first Xero line, standing for the whole job — and
-the same whole-job resolution the product placeholders already used. The
-per-room lines below it are where a single room's own scope is stated.
+**The block describes the LINE IT SITS ON, not the job** (superseding point
+2's "one text for the whole quote"). It rides one Xero line carrying one
+room's price; `{rooms}` listing every room and `{surfaces}` unioning across
+them put job-level text on a line-level item — *"Lounge £X … Painting of
+Lounge, Kitchen/Diner … and W.C.:"*, crediting the Lounge with radiators
+only the bedrooms had. `buildTemplateValues` picks a **subject**: the first
+line the server pushes, in its order (rooms → exterior → kitchen → fitted
+units). `{rooms}`, `{surfaces}`, `{extSurfaces}`, `{unitSurfaces}` and the
+product placeholders all describe it; a scope sentence for a kind of line
+the block is not on resolves to `''` and drops its line. Every collapse
+baseline follows, so "same as above" means same as the first line — and a
+line of a different kind never matches, correctly, the block having no
+scope of that kind to be the same as. This also dissolved the run-on
+header and the collision where a room named "Entrance Hall and Landing"
+read as two items against `englishJoin`'s own "and": there is no list left.
+`scopeProductValues`' multi-room listing survives in the builder and its
+tests but is now unreachable from the app — one room cannot disagree with
+itself.
+
 `{surfaces}`
 resolves to `''` rather than a literal token when nothing is painted — the
 one deliberate exception to the "unresolved stays visible" rule in point 1
@@ -134,7 +152,7 @@ walls, ceiling and woodwork all measured renders the seeded sentence back
 character for character in both tenses. Templates already edited in Settings
 keep their own wording (`settings.textTemplates` is copy-on-write) — paste
 the placeholder in, or Reset to defaults. Verified by `npm run test:scope`,
-176 checks, pure node against the real source.
+188 checks, pure node against the real source.
 
 **As built — deviations from the spec below, all deliberate:**
 

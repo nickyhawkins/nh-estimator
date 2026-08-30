@@ -1349,7 +1349,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     </div>
     <div class="card">
       <div class="card-header">Quote &amp; Invoice Text</div>
-      <div class="settings-note">One template per job type — nine seeded, including <strong>Interior &amp; Exterior</strong> for a job with rooms and exterior items in it. The quote version goes on the first line of the Xero quote (each other room states its own scope underneath, or reads "same as above" where it matches — until you edit the text by hand, which turns those off); the invoice version prefills the final-invoice builder when the job's done. Syntax: <strong>{quote wording|invoice wording}</strong> where the two differ, lines starting <strong>Q:&nbsp;</strong> are quote-only, <strong>I:&nbsp;</strong> invoice-only, and {rooms}, {wallProduct}, {ceilingProduct}, {woodProduct}, {wallCoats}, {completedDate} fill in from the job automatically. <strong>{surfaces}</strong> writes the scope sentence from what you actually measured — only the surfaces with coats on them, plus a feature wall, panelling, radiators, sills or a mist coat where they were measured, each naming its own paint where it differs — and <strong>{papered}</strong> names what is being papered, <strong>{extSurfaces}</strong> and <strong>{unitSurfaces}</strong> do the same job as {surfaces} for the exterior items and the fitted units, and <strong>{kitchenCoats}</strong> is the kitchen&rsquo;s coat count.</div>
+      <div class="settings-note">One template per job type — nine seeded, including <strong>Interior &amp; Exterior</strong> for a job with rooms and exterior items in it. The quote version describes the FIRST line of the Xero quote — that room — with each other line stating its own scope underneath, or reading "same as above" where it matches the first (until you edit the text by hand, which turns those off); the invoice version prefills the final-invoice builder when the job's done. Syntax: <strong>{quote wording|invoice wording}</strong> where the two differ, lines starting <strong>Q:&nbsp;</strong> are quote-only, <strong>I:&nbsp;</strong> invoice-only, and {rooms}, {wallProduct}, {ceilingProduct}, {woodProduct}, {wallCoats}, {completedDate} fill in from the job automatically. <strong>{surfaces}</strong> writes the scope sentence from what you actually measured — only the surfaces with coats on them, plus a feature wall, panelling, radiators, sills or a mist coat where they were measured, each naming its own paint where it differs — and <strong>{papered}</strong> names what is being papered, <strong>{extSurfaces}</strong> and <strong>{unitSurfaces}</strong> do the same job as {surfaces} for the exterior items and the fitted units, and <strong>{kitchenCoats}</strong> is the kitchen&rsquo;s coat count.</div>
       <div id="text-templates-list"></div>
       <div style="padding:12px 16px;display:flex;gap:8px;border-top:1px solid var(--border)">
         <button onclick="addTextTemplate()" style="flex:1;background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">+ Add template</button>
@@ -2915,7 +2915,8 @@ var DEFAULT_TEXT_TEMPLATES = [
     'Q: All surrounding surfaces, windows, doors and landscaping will be fully protected prior to any work commencing. Exterior surfaces will be thoroughly prepared including sanding, filling and priming of bare or damaged areas as required, with any cracks, holes or defects filled and made good.',
     'Q:',
     'Q: OUTSIDE — PAINTING',
-    'Q: {extSurfaces} All work carried out to a high standard using professional techniques and quality trade materials suited to exterior conditions.',
+    'Q: {extSurfaces}',
+    'Q: All work carried out to a high standard using professional techniques and quality trade materials suited to exterior conditions.',
     'Q:',
     'Q: COMPLETION',
     'Q: On completion all protection will be removed and the areas left clean and tidy. A final inspection will be carried out to ensure you are completely happy with the finished result.',
@@ -3444,7 +3445,10 @@ function buildTemplateValues(mode) {
   // on a job that uses three reads as a statement of fact on a client
   // document, and naming NONE is worse still, since a bare "walls" sitting
   // in a list reads as sharing the next clause's paint.
-  var prods = scopeProductValues(liveRooms);
+  // Scoped to the SUBJECT too (see below): the whole block describes one
+  // line, so {wallProduct} and friends must name that line's paint, not a
+  // list gathered from rooms the line is not about.
+  var prods = scopeProductValues(liveRooms[0] ? [liveRooms[0]] : liveRooms);
   var multi = prods._multiProduct;
   // Exterior items get the same treatment, keyed off the override alone:
   // unlike a room there is no single "does this item use masonry" flag
@@ -3454,23 +3458,41 @@ function buildTemplateValues(mode) {
   function extRoleProduct(overrideField, role) {
     var def = (matsDef[role] && matsDef[role].range) || null;
     var seen = [];
-    liveExt.forEach(function(it) {
+    (subjectExt ? [subjectExt] : liveExt).forEach(function(it) {
       var p = it[overrideField];
       if (p && seen.indexOf(p) < 0) seen.push(p);
     });
     if (seen.length > 1) multi[role] = true;
     return seen.length ? englishJoin(seen) : def;
   }
-  // Exterior item labels join the room names: a job painting the front
-  // elevation as well as two rooms had a header reading "Painting of Living
-  // Room and Bathroom", silently omitting half the work it headed.
-  var names = liveRooms.map(function(r) { return r.name; }).filter(Boolean)
-    .concat(liveExt.map(function(it) { return it.label; }).filter(Boolean));
+  // ── The block describes the LINE IT SITS ON ────────────────────────────
+  // The rendered block rides ONE Xero line — the first the server pushes —
+  // and that line carries one room's price. It used to describe the whole
+  // JOB: {rooms} listed every room, {surfaces} was the union across them.
+  // So a line reading "Lounge £X" opened "Painting of Lounge, Kitchen/Diner,
+  // Bedroom 1 … and W.C.:" and credited the Lounge with radiators only the
+  // bedrooms had. That was coherent while every later line was a bare "same
+  // as above" and the block stood for the job; it stopped being coherent
+  // once the later lines carried their own scope.
+  //
+  // The subject is therefore whatever the block's line is about, in the
+  // order the server pushes lines: rooms → exterior → kitchen → fitted
+  // units. The generic halves of the template (protection, preparation,
+  // standards, completion) are true of every line and stay as they are —
+  // only the header and the scope sentence are line-specific, which is why
+  // the later lines need nothing but their own scope and "Preparation and
+  // completion as above."
+  var subjectRoom = liveRooms[0] || null;
+  var subjectExt = subjectRoom ? null : liveExt.filter(function(it) { return calcExtItem(it).total > 0.005; })[0] || null;
+  var liveUnits = fittedUnitList(job).filter(function(f) { return !f.isVariation; });
+  var subjectUnit = (subjectRoom || subjectExt) ? null
+    : liveUnits.filter(function(f) { return calcFittedUnit(f).total > 0.005; })[0] || null;
   var vals = {
     // {rooms} must ALWAYS resolve (see renderTemplateText's pair note) —
-    // job name is the fallback when there are no rooms (exterior/kitchen
-    // jobs), and it's the right text there anyway.
-    rooms: names.length ? englishJoin(names) : (job.name || 'the property'),
+    // the job name is the fallback when the block's line is the kitchen's
+    // or a job has nothing named, and it is the right text there anyway.
+    rooms: (subjectRoom && subjectRoom.name) || (subjectExt && subjectExt.label) ||
+           (job.name || 'the property'),
     wallProduct: prods.wallProduct,
     ceilingProduct: prods.ceilingProduct,
     woodProduct: prods.woodProduct,
@@ -3484,10 +3506,15 @@ function buildTemplateValues(mode) {
   // has to see them resolved. Both go through the same mode the rest of the
   // render uses, so the tense switch owns the wording as it always has.
   vals._multiProduct = multi;
-  vals.surfaces = buildScopeSentence(mode, liveRooms, vals);
-  vals.extSurfaces = buildExtScopeSentence(mode, liveExt, vals);
-  vals.unitSurfaces = buildFuScopeSentence(mode,
-    fittedUnitList(job).filter(function(f) { return !f.isVariation; }), vals);
+  // Each scope sentence describes the subject, or is EMPTY when the subject
+  // is something else. An empty one drops its line rather than leaving a
+  // token, so the int-ext block on a room's line keeps its OUTSIDE
+  // protection promise (true wherever the job goes) without claiming
+  // exterior work on a line priced for the Lounge — the exterior lines
+  // carry that themselves.
+  vals.surfaces = subjectRoom ? buildScopeSentence(mode, [subjectRoom], vals) : '';
+  vals.extSurfaces = subjectExt ? buildExtScopeSentence(mode, [subjectExt], vals) : '';
+  vals.unitSurfaces = subjectUnit ? buildFuScopeSentence(mode, [subjectUnit], vals) : '';
   // Kitchen coats ARE tracked (calcKitchen clamps 1-4, default 2); its
   // product and colour are not, and stay [markers] — declined 2026-07-16.
   vals.kitchenCoats = (job.kitchen && !job.kitchen.isVariation)
@@ -3593,7 +3620,7 @@ function updateTemplateCardNote() {
   // app stops generating per-room scope lines, so it stops promising them.
   var msg = (activeJob() && activeJob().quoteText != null)
     ? 'Goes on the first line of the quote — the other lines read \u201Csame as above\u201D.'
-    : 'Goes on the first line of the quote. Each other room states its own scope, or reads \u201Csame as above\u201D where it matches. Editing this text turns those off.';
+    : 'Describes the first line of the quote \u2014 that room. Each other room states its own scope, or reads \u201Csame as above\u201D where it matches this one. Editing this text turns those off.';
   if (leftovers.length) msg += ' <span style="color:var(--warn);font-weight:600">Unfilled: ' + escapeHtml(leftovers.join(' ')) + '</span>';
   if (ta.value.length > 3000) msg += ' <span style="color:' + (ta.value.length > 3800 ? 'var(--danger)' : 'var(--warn)') + ';font-weight:600">' + ta.value.length + ' / 4000 characters (Xero limit)</span>';
   note.innerHTML = msg;
@@ -3647,7 +3674,7 @@ function ensureOwnTemplates() {
 var openTemplateId = null;
 var templatePreviewMode = 'edit'; // 'edit' | 'quote' | 'invoice' — for the open template
 var TEMPLATE_SAMPLE_VALUES = {
-  rooms: 'Living Room and Hallway', wallProduct: 'Tikkurila Optiva 5',
+  rooms: 'Living Room', wallProduct: 'Tikkurila Optiva 5',
   ceilingProduct: 'Tikkurila Anti Reflex 2', woodProduct: 'Tikkurila Helmi 30',
   wallCoats: 2, ceilingCoats: 2, woodCoats: 2,
   masonryProduct: '[masonry paint]', extWoodProduct: '[exterior wood paint]',
@@ -4614,35 +4641,49 @@ async function createXeroQuote(forceNew) {
       // Nicky's wording, not the template's, and a generated sentence
       // underneath it would be text he didn't write and can't edit).
       var handEdited = !!(activeJob() && activeJob().quoteText != null);
-      var jobScope = handEdited ? null
-        : buildScopeSentence('quote', quoteRooms, scopeProductValues(quoteRooms));
       // Same order the server pushes lines: rooms → exterior → kitchen →
       // fitted units (per named unit). Custom line items are deliberately
       // NOT in the chain — a custom item's description IS its own text.
       // (There is no standalone top-up line to skip any more: it is spread
       // across these same labour lines — see labourSpreadTarget below.)
-      // Kitchen and fitted-unit lines keep the bare "same as above": there
-      // is no scope builder for them, and inventing wording here would put
-      // prose on a client document that nothing tests.
+      //
+      // "same as above" means same as THE BLOCK, and the block now describes
+      // its own line (see buildTemplateValues' subject note), so each kind
+      // of line collapses against the subject's scope and nothing else. A
+      // baseline of null means the block carries no scope of that kind —
+      // the exterior lines on a job whose block sits on a room, say — and
+      // then no line of that kind may claim to be the same as it.
       var tplValues = handEdited ? null : buildTemplateValues('quote');
-      var extJobScope = handEdited ? null : buildExtScopeSentence('quote', quoteExtItems, tplValues);
-      var scopedLine = function(label, own, jobWide) {
-        return (!own || own === jobWide)
+      var roomBaseline = (handEdited || !quoteRooms.length) ? null
+        : roomScopeSentence('quote', quoteRooms[0]);
+      var extBaseline = (handEdited || quoteRooms.length) ? null
+        : extItemScopeSentence('quote', quoteExtItems.filter(function(it) { return calcExtItem(it).total > 0.005; })[0], tplValues);
+      var fuBaseline = (handEdited || quoteRooms.length || quoteExtItems.length) ? null
+        : buildFuScopeSentence('quote', [quoteFittedUnits.filter(function(f) { return calcFittedUnit(f).total > 0.005; })[0]].filter(Boolean), tplValues);
+      var scopedLine = function(label, own, baseline) {
+        return (!own || own === baseline)
           ? label + ' - same as above'
           : label + '\n\n' + own + '\n\nPreparation and completion as above.';
       };
       roomData.forEach(function(rd, i) {
-        if (!blockAttached || jobScope == null) { rd.description = withBlock(rd.name); return; }
-        rd.description = scopedLine(rd.name, roomScopeSentence('quote', quoteRooms[i]), jobScope);
+        if (!blockAttached || handEdited) { rd.description = withBlock(rd.name); return; }
+        rd.description = scopedLine(rd.name, roomScopeSentence('quote', quoteRooms[i]), roomBaseline);
       });
       exteriorData.forEach(function(ed, i) {
         if (ed.total <= 0) return;
         var label = ed.label || 'Exterior';
-        if (!blockAttached || extJobScope == null) { ed.description = withBlock(label); return; }
-        ed.description = scopedLine(label, extItemScopeSentence('quote', quoteExtItems[i], tplValues), extJobScope);
+        if (!blockAttached || handEdited) { ed.description = withBlock(label); return; }
+        ed.description = scopedLine(label, extItemScopeSentence('quote', quoteExtItems[i], tplValues), extBaseline);
       });
+      // Kitchen has no scope builder — its counts are a bill of quantities
+      // behind one price, deliberately not on a client document — so its
+      // line stays as it was.
       if (kitchenTotal > 0) kitchenDescription = withBlock(kitchenLabel);
-      fittedUnitData.forEach(function(fd) { if (fd.total > 0) fd.description = withBlock(fd.name); });
+      fittedUnitData.forEach(function(fd, i) {
+        if (fd.total <= 0) return;
+        if (!blockAttached || handEdited) { fd.description = withBlock(fd.name); return; }
+        fd.description = scopedLine(fd.name, buildFuScopeSentence('quote', [quoteFittedUnits[i]], tplValues), fuBaseline);
+      });
       // Xero caps a LineItem Description at 4,000 characters — block loudly
       // here rather than let Xero reject the quote (or worse, truncate).
       var tooLong = roomData.concat(exteriorData, fittedUnitData).map(function(d) { return (d.description || '').length; })
@@ -13163,7 +13204,8 @@ function buildFinalInvoiceModel() {
   fuInvUnits.forEach(function(e, i) {
     if (e.unit.isVariation || e.calc.total <= 0.005) return;
     rawOrig += e.calc.total; ttOrig += e.calc.time;
-    labour.push({ id: 'fu' + i, desc: fittedUnitName(e.unit), raw: e.calc.total });
+    labour.push({ id: 'fu' + i, desc: fittedUnitName(e.unit), raw: e.calc.total,
+                  scope: buildFuScopeSentence('invoice', [e.unit], invTplValues) });
   });
   var muVal = effectiveMarkup();
   var fixed = effectiveMarkupType() === 'fixed';
@@ -13426,7 +13468,7 @@ function invoiceDescNoteText(text) {
   var leftovers = unresolvedTemplateTokens(text);
   var msg = (activeJob() && activeJob().invoiceText != null)
     ? 'Goes on the first labour line — the other labour lines read “same as above”.'
-    : 'Goes on the first labour line. Each other room states its own scope, or reads “same as above” where it matches. Editing this text turns those off.';
+    : 'Describes the first labour line. Each other line states its own scope, or reads “same as above” where it matches this one. Editing this text turns those off.';
   if (leftovers.length) msg += ' <span style="color:var(--warn);font-weight:600">Unfilled: ' + escapeHtml(leftovers.join(' ')) + '</span>';
   if (text.length > 3000) msg += ' <span style="color:' + (text.length > 3800 ? 'var(--danger)' : 'var(--warn)') + ';font-weight:600">' + text.length + ' / 4000 characters (Xero limit)</span>';
   return msg;
@@ -13583,23 +13625,22 @@ async function createFinalInvoice() {
   // line carries its own scope unless that matches the block's sentence, and
   // nothing is generated at all once the invoice text has been hand-edited.
   var invHandEdited = !!(activeJob() && activeJob().invoiceText != null);
-  var invLiveRooms = rooms.filter(function(r) { return !r.isVariation; });
-  var invLiveExt = extItems.filter(function(it) { return !it.isVariation; });
-  var invTpl = invHandEdited ? null : buildTemplateValues('invoice');
-  // A room line compares against the rooms' union, an exterior line against
-  // the exterior union -- comparing either against the other's would make
-  // every line look like a deviation and print scope on all of them.
-  var invJobScope = invHandEdited ? null
-    : buildScopeSentence('invoice', invLiveRooms, scopeProductValues(invLiveRooms));
-  var invExtScope = invHandEdited ? null
-    : buildExtScopeSentence('invoice', invLiveExt, invTpl);
+  // Mirrors the quote exactly: the block describes the line it sits on, so
+  // "same as above" means same as THAT line. The baseline is the first
+  // labour line's own scope -- whatever kind of line that is -- and a line
+  // of a different kind can never match it, which is right: the block
+  // carries no scope of that other kind to be the same as.
+  var invBaseline = null;
+  if (!invHandEdited) {
+    var firstScoped = s.labour.filter(function(l) { return !l.dropped; })[0];
+    invBaseline = (firstScoped && firstScoped.scope) || null;
+  }
   s.labour.forEach(function(l) {
     if (l.dropped) return;
     var desc = l.desc;
     if (invBlock) {
-      var jobWide = /^e\d/.test(String(l.id)) ? invExtScope : invJobScope;
       if (!invAttached) desc = l.desc + '\n\n' + invBlock;
-      else if (jobWide != null && l.scope && l.scope !== jobWide)
+      else if (!invHandEdited && l.scope && l.scope !== invBaseline)
         desc = l.desc + '\n\n' + l.scope + '\n\nPreparation and completion as above.';
       else desc = l.desc + ' - same as above';
       invAttached = true;
