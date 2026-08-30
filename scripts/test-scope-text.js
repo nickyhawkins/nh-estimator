@@ -87,6 +87,10 @@ const sandbox = `
     if (role === 'featurewall') return r.wallRangeOverride || (settings.materials.wall || {}).range || '';
     return (settings.materials[role] || {}).range || '';
   }
+  // The globals buildTemplateValues reads, so the product resolution can be
+  // driven for real rather than hand-fed a values object.
+  var rooms = [], extItems = [], labourLog = [];
+  function activeJob() { return { name: 'Test Job' }; }
 `;
 
 const api = {};
@@ -96,12 +100,18 @@ new Function('exports', sandbox + [
   extractFn('buildScopeSentence'),
   extractFn('buildPaperedPhrase'),
   extractFn('renderTemplateText'),
+  extractFn('formatLongDate'),
+  extractFn('buildTemplateValues'),
+  extractVar('LONG_MONTHS'),
   extractVar('DEFAULT_TEXT_TEMPLATES'),
   'exports.buildScopeSentence = buildScopeSentence;',
   'exports.buildPaperedPhrase = buildPaperedPhrase;',
   'exports.renderTemplateText = renderTemplateText;',
   'exports.scopeFacts = scopeFacts;',
-  'exports.DEFAULT_TEXT_TEMPLATES = DEFAULT_TEXT_TEMPLATES;'
+  'exports.DEFAULT_TEXT_TEMPLATES = DEFAULT_TEXT_TEMPLATES;',
+  // Drives the REAL product resolution: set the room list, get the values
+  // object a render would actually be given.
+  'exports.valuesFor = function(mode, rs, xs) { rooms = rs || []; extItems = xs || []; return buildTemplateValues(mode); };'
 ].join('\n'))(api);
 
 const PRODUCTS = {
@@ -217,6 +227,79 @@ eq('coats disagree across surfaces — no figure stated rather than a wrong one'
 eq('coats agree across rooms — one figure',
   scope('quote', [{ name: 'Hall', wc: 3 }, { name: 'Landing', wc: 3 }]),
   'Walls in Tikkurila Optiva 5, applied in 3 coats.');
+
+// ── 5b. Rooms disagreeing on a product name none of them ───────────────────
+// Driven through the real buildTemplateValues, so this covers the
+// resolution itself and not just the sentence that reads it.
+const vf = (mode, rs) => api.valuesFor(mode, rs);
+const sentenceFor = (mode, rs) => vf(mode, rs).surfaces;
+
+eq('two wall paints across rooms — the walls claim neither',
+  sentenceFor('quote', [
+    { name: 'Lounge', wc: 2, wallRangeOverride: 'Tikkurila Optiva 5' },
+    { name: 'Hall',   wc: 2, wallRangeOverride: 'Dulux Diamond Matt' }
+  ]),
+  'Walls, applied in 2 coats.');
+eq('one room overridden, the rest on the Settings default — still two paints',
+  sentenceFor('quote', [
+    { name: 'Lounge', wc: 2, wallRangeOverride: 'Dulux Diamond Matt' },
+    { name: 'Hall',   wc: 2 }
+  ]),
+  'Walls, applied in 2 coats.');
+eq('rooms agreeing via an override that matches the default — one paint, named',
+  sentenceFor('quote', [
+    { name: 'Lounge', wc: 2, wallRangeOverride: 'Tikkurila Optiva 5' },
+    { name: 'Hall',   wc: 2 }
+  ]),
+  'Walls in Tikkurila Optiva 5, applied in 2 coats.');
+eq('a stale override on a room that paints no walls is not a disagreement',
+  sentenceFor('quote', [
+    { name: 'Lounge', wc: 2 },
+    { name: 'Hall',   cc: 2, wallRangeOverride: 'Dulux Diamond Matt' }
+  ]),
+  'Ceilings finished in Tikkurila Anti Reflex 2 and walls in Tikkurila Optiva 5, each applied in 2 coats.');
+eq('disagreement on one surface leaves the others naming their paint',
+  sentenceFor('quote', [
+    { name: 'Lounge', wc: 2, cc: 2, xc: 2, wallRangeOverride: 'Tikkurila Optiva 5' },
+    { name: 'Hall',   wc: 2, cc: 2, xc: 2, wallRangeOverride: 'Dulux Diamond Matt' }
+  ]),
+  'Ceilings finished in Tikkurila Anti Reflex 2, walls, and all woodwork including skirtings in Tikkurila Helmi 30, each applied in 2 coats.');
+eq('ceilings disagreeing — the lead clause drops its product too',
+  sentenceFor('quote', [
+    { name: 'Lounge', cc: 2, wc: 2, ceilingRangeOverride: 'Dulux Trade Matt' },
+    { name: 'Hall',   cc: 2, wc: 2 }
+  ]),
+  'Ceilings and walls in Tikkurila Optiva 5, each applied in 2 coats.');
+eq('woodwork disagreeing, invoice tense',
+  sentenceFor('invoice', [
+    { name: 'Lounge', xc: 2, topcoatRangeOverride: 'Tikkurila Helmi 30' },
+    { name: 'Hall',   xc: 2, topcoatRangeOverride: 'Dulux Satinwood' }
+  ]),
+  'Woodwork including skirtings, 2 coats throughout.');
+eq('two rooms panelled in different paints — panelling claims neither',
+  sentenceFor('quote', [
+    { name: 'Lounge', wc: 2, panelItems: PANEL, panelRangeOverride: 'Little Greene Intelligent Eggshell' },
+    { name: 'Hall',   wc: 2, panelItems: PANEL, panelRangeOverride: 'Dulux Satinwood' }
+  ]),
+  'Walls in Tikkurila Optiva 5 and wall panelling, each applied in 2 coats.');
+eq('two feature walls in different paints — the clause claims neither',
+  sentenceFor('quote', [
+    { name: 'Lounge',  wc: 2, featureWallArea: 8, featurewallRangeOverride: 'Farrow & Ball Estate' },
+    { name: 'Bedroom', wc: 2, featureWallArea: 6, featurewallRangeOverride: 'Little Greene Absolute Matt' }
+  ]),
+  'Walls in Tikkurila Optiva 5 and the feature wall, each applied in 2 coats.');
+
+// The standalone placeholders resolve the same way, so a hand-edited
+// template that still writes "{wallProduct}" cannot state a paint the job
+// does not agree on -- it falls to the visible fill-me-in token instead.
+check('{wallProduct} is null where rooms disagree',
+  vf('quote', [{ wc: 2, wallRangeOverride: 'A' }, { wc: 2, wallRangeOverride: 'B' }]).wallProduct === null);
+check('{wallProduct} keeps the Settings default when no room paints walls',
+  vf('quote', [{ cc: 2 }]).wallProduct === 'Tikkurila Optiva 5');
+check('a single room still resolves its own override',
+  vf('quote', [{ wc: 2, wallRangeOverride: 'Dulux Diamond Matt' }]).wallProduct === 'Dulux Diamond Matt');
+check('radiators count as woodwork users for the disagreement check',
+  vf('quote', [{ rads: 2, topcoatRangeOverride: 'A' }, { xc: 2, topcoatRangeOverride: 'B' }]).woodProduct === null);
 
 // ── 6. Job-level union across rooms ────────────────────────────────────────
 eq('one room with woodwork puts woodwork in the sentence for the job',

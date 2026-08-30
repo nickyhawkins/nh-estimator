@@ -2994,7 +2994,14 @@ function scopeFacts(liveRooms) {
             windows:false, sills:false, rads:false, panelling:false,
             fwPaint:false, fwPaper:false, wpWalls:false, wpCeiling:false,
             mistWalls:false, mistCeiling:false, coats:{},
-            fwProduct:null, panelProduct:null };
+            // Every DISTINCT product seen, not the first: two rooms whose
+            // panelling is in different paints have no single answer, and
+            // the sentence names none rather than picking one. Same rule
+            // buildTemplateValues applies to the wall/ceiling/woodwork
+            // products, kept here because these two roles have no Settings
+            // default to resolve against -- they are per-room pickers only.
+            fwProducts:[], panelProducts:[] };
+  function noteProduct(list, p) { if (p && list.indexOf(p) < 0) list.push(p); }
   (liveRooms || []).forEach(function(r) {
     var wc = +r.wc || 0, cc = +r.cc || 0, xc = +r.xc || 0;
     var fwArea = Math.max(+r.featureWallArea || 0, 0);
@@ -3007,7 +3014,7 @@ function scopeFacts(liveRooms) {
       f.walls = true; f.coats[wc] = true;
       if (fwArea > 0 && !fwPapered) {
         f.fwPaint = true;
-        if (!f.fwProduct) f.fwProduct = effectiveRoleRange(r, 'featurewall');
+        noteProduct(f.fwProducts, effectiveRoleRange(r, 'featurewall'));
       }
     }
     if (fwPapered) f.fwPaper = true;
@@ -3025,7 +3032,7 @@ function scopeFacts(liveRooms) {
     (r.panelItems || []).forEach(function(p) {
       if (Math.max(+p.width||0,0) * Math.max(+p.height||0,0) > 0 && +p.coats > 0) {
         f.panelling = true; f.coats[+p.coats] = true;
-        if (!f.panelProduct) f.panelProduct = effectiveRoleRange(r, 'panel');
+        noteProduct(f.panelProducts, effectiveRoleRange(r, 'panel'));
       }
     });
     if (r.wpWallLining || r.wpWallFinish) f.wpWalls = true;
@@ -3051,31 +3058,46 @@ function scopeFacts(liveRooms) {
 function buildScopeSentence(mode, liveRooms, vals) {
   var f = scopeFacts(liveRooms);
   var inv = mode === 'invoice';
+  var mixed = (vals && vals._mixedProducts) || {};
   function product(key) {
     // The literal token when the product is unknown, so it surfaces in the
     // preview's unresolved-token warning rather than silently vanishing.
     return (vals && vals[key]) ? String(vals[key]) : '{' + key + '}';
   }
+  // Rooms disagreeing on a surface's paint is not the same as not knowing
+  // it: the surface still gets its clause, with no "in X" claimed. An
+  // unknown product still shows its fill-me-in token.
+  function surface(noun, key, role) {
+    return mixed[role] ? noun : noun + ' in ' + product(key);
+  }
+  // One product across every room that has this per-room-only role, or none.
+  function only(list) { return list.length === 1 ? list[0] : null; }
   var parts = [];
-  if (f.ceiling) parts.push((inv ? 'ceiling' : 'ceilings') + ' finished in ' + product('ceilingProduct'));
+  if (f.ceiling) {
+    parts.push(mixed.ceiling ? (inv ? 'ceiling' : 'ceilings')
+      : (inv ? 'ceiling' : 'ceilings') + ' finished in ' + product('ceilingProduct'));
+  }
   // "remaining walls" when a papered feature wall has been carved out of
   // them -- the seeded Painting & Papering template's own wording, and the
   // accurate one: the walls being painted are what is left over.
-  if (f.walls)   parts.push((f.fwPaper ? 'remaining walls in ' : 'walls in ') + product('wallProduct'));
+  if (f.walls) parts.push(surface(f.fwPaper ? 'remaining walls' : 'walls', 'wallProduct', 'wall'));
   // The feature wall carries its own product only when one was chosen for
   // it; effectiveRoleRange falls back to the room's wall product, in which
   // case naming it again would just repeat the wall clause.
+  var fwProduct = only(f.fwProducts);
   if (f.fwPaint) {
-    parts.push(f.fwProduct && f.fwProduct !== vals.wallProduct
-      ? 'the feature wall in ' + f.fwProduct
+    parts.push(fwProduct && fwProduct !== vals.wallProduct
+      ? 'the feature wall in ' + fwProduct
       : 'the feature wall');
   }
-  // Same dedupe as the feature wall: panelling is normally done in the
-  // woodwork paint, and naming the same product twice in one sentence reads
-  // like a mistake.
+  // Same dedupe as the feature wall: panelling is often a different paint
+  // from the rest of the woodwork (it has its own per-room picker for
+  // exactly that reason), but where it matches, naming the same product
+  // twice in one sentence reads like a mistake.
+  var panelProduct = only(f.panelProducts);
   if (f.panelling) {
-    parts.push(f.panelProduct && f.panelProduct !== vals.woodProduct
-      ? 'wall panelling in ' + f.panelProduct
+    parts.push(panelProduct && panelProduct !== vals.woodProduct
+      ? 'wall panelling in ' + panelProduct
       : 'wall panelling');
   }
   // Woodwork: the "including ..." list is what was actually counted, so a
@@ -3090,9 +3112,9 @@ function buildScopeSentence(mode, liveRooms, vals) {
   if (f.sills)     wood.push('window sills');
   if (f.rads)      wood.push('radiators');
   if (wood.length) {
-    parts.push(f.skirtings
-      ? (inv ? '' : 'all ') + 'woodwork including ' + englishJoin(wood) + ' in ' + product('woodProduct')
-      : englishJoin(wood) + ' in ' + product('woodProduct'));
+    parts.push(surface(f.skirtings
+      ? (inv ? '' : 'all ') + 'woodwork including ' + englishJoin(wood)
+      : englishJoin(wood), 'woodProduct', 'topcoat'));
   }
   if (!parts.length) return '';
   // Quote keeps the seeded sentence's Oxford comma before "and"; the
@@ -3140,24 +3162,58 @@ function formatLongDate(iso) {
 
 // Placeholder values from live job data — the point of the feature: the
 // products/coats were already entered while estimating, so a non-default
-// room needs no extra typing. Products read the FIRST non-variation room's
-// override, else the Settings role default (woodwork's role key is
-// 'topcoat' throughout the materials engine). Per-room deviations are what
-// the editable preview is for — deliberately no per-room resolution here.
+// room needs no extra typing. A product is the one the live rooms AGREE on
+// (woodwork's role key is 'topcoat' throughout the materials engine); where
+// they genuinely differ, none is named -- see roleProduct below.
 function buildTemplateValues(mode) {
   var job = activeJob() || {};
   var liveRooms = rooms.filter(function(r) { return !r.isVariation; });
   var liveExt = extItems.filter(function(it) { return !it.isVariation; });
   var first = liveRooms[0] || null;
   var matsDef = settings.materials || {};
-  function roleProduct(overrideField, role) {
-    if (first && first[overrideField]) return first[overrideField];
-    return (matsDef[role] && matsDef[role].range) || null;
+  // Roles the rooms disagree on, for the scope sentence: a disagreement is
+  // not the same as an unknown product, and the two read differently (the
+  // clause drops its "in X" rather than showing a fill-me-in token). The
+  // leading underscore keeps this off the placeholder namespace -- the
+  // renderer's token regex requires a letter first, so no template can ever
+  // reference it by accident.
+  var mixed = {};
+  // One product, or none. Naming the first room's paint on a job that uses
+  // three of them reads as a statement of fact on a client document, so a
+  // genuine disagreement names nothing and lets the surface stand alone.
+  // Two deliberate narrowings:
+  //   · Only rooms that actually PAINT the surface are consulted. A stale
+  //     override left on a room with 0 wall coats is not a disagreement --
+  //     nothing is being painted there for it to disagree about.
+  //   · A surface NO room paints keeps the Settings default, exactly as
+  //     before, so a hand-edited template that mentions it still resolves.
+  // An override and the Settings default count as different products when
+  // they differ, which is the common case: one room overridden, the rest on
+  // the default, really is two paints on that surface.
+  function roleProduct(overrideField, role, uses) {
+    var def = (matsDef[role] && matsDef[role].range) || null;
+    var seen = [];
+    liveRooms.forEach(function(r) {
+      if (uses && !uses(r)) return;
+      var p = r[overrideField] || def;
+      if (p && seen.indexOf(p) < 0) seen.push(p);
+    });
+    if (seen.length > 1) { mixed[role] = true; return null; }
+    return seen.length === 1 ? seen[0] : def;
   }
+  // Exterior items get the same treatment, keyed off the override alone:
+  // unlike a room there is no single "does this item use masonry" flag
+  // cheap to read here, and the failure mode of being too eager is an
+  // omitted product, never a wrong one.
   function extRoleProduct(overrideField, role) {
-    var withOv = liveExt.filter(function(it) { return it[overrideField]; })[0];
-    if (withOv) return withOv[overrideField];
-    return (matsDef[role] && matsDef[role].range) || null;
+    var def = (matsDef[role] && matsDef[role].range) || null;
+    var seen = [];
+    liveExt.forEach(function(it) {
+      var p = it[overrideField];
+      if (p && seen.indexOf(p) < 0) seen.push(p);
+    });
+    if (seen.length > 1) { mixed[role] = true; return null; }
+    return seen.length === 1 ? seen[0] : def;
   }
   var names = liveRooms.map(function(r) { return r.name; }).filter(Boolean);
   var vals = {
@@ -3165,9 +3221,15 @@ function buildTemplateValues(mode) {
     // job name is the fallback when there are no rooms (exterior/kitchen
     // jobs), and it's the right text there anyway.
     rooms: names.length ? englishJoin(names) : (job.name || 'the property'),
-    wallProduct: roleProduct('wallRangeOverride', 'wall'),
-    ceilingProduct: roleProduct('ceilingRangeOverride', 'ceiling'),
-    woodProduct: roleProduct('topcoatRangeOverride', 'topcoat'),
+    // The "uses this surface" gates mirror calcRoom()'s, same as the scope
+    // sentence's own: woodwork covers doors, frames and radiators as well as
+    // skirtings, since they are all painted out of the topcoat tin.
+    wallProduct: roleProduct('wallRangeOverride', 'wall', function(r) { return +r.wc > 0; }),
+    ceilingProduct: roleProduct('ceilingRangeOverride', 'ceiling', function(r) { return +r.cc > 0; }),
+    woodProduct: roleProduct('topcoatRangeOverride', 'topcoat', function(r) {
+      return +r.xc > 0 || (+r.doorQty > 0 && +r.doorCoats > 0) ||
+             (+r.frameQty > 0 && +r.frameCoats > 0) || +r.rads > 0;
+    }),
     wallCoats: first && +first.wc > 0 ? +first.wc : null,
     ceilingCoats: first && +first.cc > 0 ? +first.cc : null,
     woodCoats: first && +first.xc > 0 ? +first.xc : null,
@@ -3177,6 +3239,7 @@ function buildTemplateValues(mode) {
   // Built last: the scope sentence quotes the product values above, so it
   // has to see them resolved. Both go through the same mode the rest of the
   // render uses, so the tense switch owns the wording as it always has.
+  vals._mixedProducts = mixed;
   vals.surfaces = buildScopeSentence(mode, liveRooms, vals);
   vals.papered = buildPaperedPhrase(liveRooms);
   if (mode === 'invoice') {

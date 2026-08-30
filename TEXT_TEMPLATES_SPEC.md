@@ -22,6 +22,18 @@ placeholders now build it from the live rooms:
   painted ones *"remaining walls"*. Coats are stated only where every
   measured surface agrees — the old sentence always printed the first room's
   wall coats, wrong the moment a ceiling took three.
+- **Products follow the same agree-or-say-nothing rule.** `roleProduct()`
+  reads the product the live rooms *agree* on rather than the first room's
+  override; where they differ the surface is named with no paint claimed.
+  Only rooms that actually paint the surface are consulted (a stale override
+  on a room with 0 wall coats is not a disagreement), and a surface no room
+  paints keeps the Settings default, so an edited template that mentions it
+  still resolves. This reaches the standalone `{wallProduct}` /
+  `{ceilingProduct}` / `{woodProduct}` too — an edited template falls to its
+  fill-me-in token rather than asserting a paint — and exterior items get it
+  keyed off the override alone. Panelling and the feature wall have no
+  Settings default to fall back on (per-room pickers only), so they collect
+  every distinct product and name one only when there is exactly one.
 - **`{papered}`** — what is being papered, for the "hung to …" line. Falls
   back to the seeded `[feature wall/walls]` marker.
 
@@ -37,7 +49,7 @@ walls, ceiling and woodwork all measured renders the seeded sentence back
 character for character in both tenses. Templates already edited in Settings
 keep their own wording (`settings.textTemplates` is copy-on-write) — paste
 the placeholder in, or Reset to defaults. Verified by `npm run test:scope`,
-72 checks, pure node against the real source.
+87 checks, pure node against the real source.
 
 **As built — deviations from the spec below, all deliberate:**
 

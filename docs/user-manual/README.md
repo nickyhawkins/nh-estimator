@@ -433,9 +433,22 @@ you gave it one:
 > coats. Newly plastered walls will be mist coated prior to finishing.*
 
 A papered feature wall isn't listed as painted — it moves to the wallpapering
-line instead, which names what's being papered. Where surfaces disagree on coats,
-no coat figure is stated rather than a wrong one. It's a whole-job sentence, so
-woodwork measured in one room puts woodwork in the wording for the job.
+line instead, which names what's being papered.
+
+**It never states something the job doesn't agree on.** It's a whole-job
+sentence, so woodwork measured in one room puts woodwork in the wording for the
+job — and where the rooms use *different* paints on the same surface, that
+surface is named without a product rather than claiming whichever room came
+first:
+
+> *Ceilings finished in Tikkurila Anti Reflex 2, walls, and all woodwork
+> including skirtings in Tikkurila Helmi 30, each applied in 2 coats.*
+
+Only rooms that actually paint a surface get a say — an old product left on a
+room with no wall coats isn't a disagreement — and a surface no room paints at
+all keeps your Settings default. Coats work the same way: where the surfaces
+disagree, no coat figure is stated rather than a wrong one. Type the detail into
+the box yourself whenever you'd rather spell it out.
 
 The box is editable: type in it and your version sticks from then on (**↺ Reset
 to template** goes back). Sending stamps the exact wording onto the quote, so a
