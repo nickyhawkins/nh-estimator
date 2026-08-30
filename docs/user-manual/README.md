@@ -125,6 +125,16 @@ Nothing is saved until you tap **Apply**; **Back** returns to the panel with eve
 
 Rooms and fitted units can also be **duplicated** — tap the ⧉ icon on their card in the Measure list. Everything copies: dimensions, coats, prep, colours and products, dropped in right below the original as "(copy)". This is the fast way to do bedrooms 2/3/4, or two matching alcove units either side of a chimney breast — measure one, copy it, change a couple of numbers. A copy always starts its own client sign-off from Pending (it never inherits the original's ✓), and on an accepted job it arrives flagged as a variation, same as anything else added after acceptance.
 
+### Putting the list in order
+
+You measure in the order you walk the house, and the room you remembered on the way out lands at the bottom of the list. **Reorder** — on the **Interior**, **Exterior**, **Fitted Units** and **Custom Lines** headers, once that section has more than one row — walks them into the order you actually want:
+
+![Reordering the Measure list](images/03d-measure-reorder.png)
+
+Tap it and every row swaps its cost for **▲▼** arrows; tap those to walk a row up or down. It's one mode for the whole screen — every section's link reads **Done** while it's on, and any of them turns it back off. A row only ever moves **within its own section** (a room never walks into the exterior list), and the sections themselves keep their order. While you're reordering, rows don't open when tapped and can't be swiped away, so nothing gets deleted or edited by a stray finger — and the arrow at the top of a list is greyed out because there's nothing above it.
+
+**The order you set is the order everything downstream reads:** the Summary breakdown, the client-facing Quote view, the Xero quote, the CSV export and the final invoice. Each move saves as you make it, like any other change (offline included, queued until you're back in signal). Bulk edit and Reorder are one at a time — turning either on takes the other's link off the header until you're done.
+
 ### Adding a room
 
 ![Add Room form](images/04-add-room.png)
@@ -607,6 +617,6 @@ Settings → **Backup**:
 
 ---
 
-*Manual for NH Estimator v2.40.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.43.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

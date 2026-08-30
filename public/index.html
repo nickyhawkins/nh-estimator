@@ -278,6 +278,15 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 .nav-ham-btn{position:relative;background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;padding:4px;margin-left:4px;line-height:1}
 .room-dup-btn{background:none;border:none;color:var(--text3);font-size:15px;cursor:pointer;padding:6px 8px;line-height:1;flex:none}
 .room-dup-btn:active{color:var(--accent)}
+/* Reorder mode on the Measure lists: the row's cost and chevron give their
+   space up to a pair of arrows that walk it up or down its own section.
+   Same 38px targets as the Summary materials reorder this mirrors. */
+.move-arrows{display:flex;align-items:center;gap:8px;flex:none}
+.move-arrow{width:38px;height:38px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:var(--rs);background:var(--surface2);color:var(--accent);font-size:16px;cursor:pointer}
+.move-arrow:active{background:var(--border)}
+/* Top of the list has nothing above it: dimmed rather than absent, so every
+   row keeps the same footprint and the arrows never shuffle sideways. */
+.move-arrow.off{color:var(--text3);opacity:.35;cursor:default}
 .sync-dot{width:8px;height:8px;border-radius:50%;flex:none;display:inline-block;margin-left:6px;background:#27ae60;transition:background .3s}
 .sync-dot.saving{background:#f39c12}
 .sync-dot.offline{background:#c0392b}
@@ -402,6 +411,10 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
         <!-- Bulk Edit: switches the room rows below into checkbox mode.
              Hidden entirely with one room -- there is nothing to batch. -->
         <span id="bulk-edit-toggle" onclick="toggleBulkEdit()" style="color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;text-transform:none;letter-spacing:0">Bulk edit</span>
+        <!-- Reorder: one mode across the whole Measure screen (see
+             toggleMeasureReorder) -- every section's link reads Done while
+             it is on, and any of them leaves it. -->
+        <span id="rooms-reorder-toggle" onclick="toggleMeasureReorder()" style="display:none;color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;text-transform:none;letter-spacing:0">Reorder</span>
         <span onclick="clearRooms()" style="color:var(--danger);font-size:12px;font-weight:600;cursor:pointer;text-transform:none;letter-spacing:0">Clear</span>
       </span>
     </div>
@@ -424,7 +437,10 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     </div>
     <div class="section-title" id="ext-section-head" style="display:none;justify-content:space-between;align-items:center">
       <span>Exterior</span>
-      <span onclick="clearExteriorItems()" style="color:var(--danger);font-size:12px;font-weight:600;cursor:pointer;text-transform:none;letter-spacing:0">Clear</span>
+      <span style="display:flex;gap:14px;align-items:center">
+        <span id="ext-reorder-toggle" onclick="toggleMeasureReorder()" style="display:none;color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;text-transform:none;letter-spacing:0">Reorder</span>
+        <span onclick="clearExteriorItems()" style="color:var(--danger);font-size:12px;font-weight:600;cursor:pointer;text-transform:none;letter-spacing:0">Clear</span>
+      </span>
     </div>
     <div id="ext-list" style="display:none">
       <div class="card" id="ext-cards"></div>
@@ -443,8 +459,9 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
          (addFittedUnit()), tap to edit, swipe to delete (v2.25.1 -- the
          old zero-the-counts workaround stopped being reasonable once a
          unit carried a name, dimensions and door settings). -->
-    <div class="section-title" id="fu-section-head" style="display:none">
+    <div class="section-title" id="fu-section-head" style="display:none;justify-content:space-between;align-items:center">
       <span>Fitted Units</span>
+      <span id="fu-reorder-toggle" onclick="toggleMeasureReorder()" style="display:none;color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;text-transform:none;letter-spacing:0">Reorder</span>
     </div>
     <div id="fu-section-list" style="display:none">
       <div class="card" id="fu-section-cards"></div>
@@ -453,8 +470,9 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
          per-job LIST like rooms/exterior (swipe delete, tap to edit), but
          stored on the job object itself (job.customItems) like kitchen/
          fittedUnit -- entered via the + chooser (showAddCustomItem). -->
-    <div class="section-title" id="custom-section-head" style="display:none">
+    <div class="section-title" id="custom-section-head" style="display:none;justify-content:space-between;align-items:center">
       <span>Custom Lines</span>
+      <span id="custom-reorder-toggle" onclick="toggleMeasureReorder()" style="display:none;color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;text-transform:none;letter-spacing:0">Reorder</span>
     </div>
     <div id="custom-section-list" style="display:none">
       <div class="card" id="custom-cards"></div>
@@ -4836,6 +4854,7 @@ async function loadActiveJobData() {
   applyClientVariationAnswers(jobId);
   ensureDefaultColour();
   matReorderMode = false; // reorder mode is per-visit, not per-job state
+  measureReorderMode = false; // ditto, for the Measure lists
   // Undo is scoped to one job's materials/actuals, and the lists it restores
   // have just been replaced wholesale — an entry from the old job could only
   // ever write the wrong job's lines.
@@ -16049,13 +16068,17 @@ function _renderExteriorInner() {
   }
   list.style.display='block';
   var total=0;
-  cards.innerHTML = extItems.map(function(item) {
+  cards.innerHTML = extItems.map(function(item, i) {
     var c=calcExtItem(item); total+=c.total;
-    return swipeDeleteWrap('deleteExtItemFromList', item.id,
-      '<div class="room-item" onclick="editExtItem(this.dataset.id)" data-id="'+item.id+'">'+
-      '<div class="room-icon">'+item.emoji+'</div>'+
+    var info = '<div class="room-icon">'+item.emoji+'</div>'+
       '<div class="room-info"><div class="room-name">'+item.label+(item.isVariation?variationChipHtml(item):'')+'</div>'+
-      '<div class="room-meta">'+fmtD(c.time)+'</div></div>'+
+      '<div class="room-meta">'+fmtD(c.time)+'</div></div>';
+    if (measureReorderMode) {
+      return '<div class="room-item" style="cursor:default">'+info+
+        measureMoveArrows('moveExtItemInList', item.id, i > 0 ? extItems[i-1].id : '', i < extItems.length-1 ? extItems[i+1].id : '')+'</div>';
+    }
+    return swipeDeleteWrap('deleteExtItemFromList', item.id,
+      '<div class="room-item" onclick="editExtItem(this.dataset.id)" data-id="'+item.id+'">'+info+
       '<div class="room-cost">'+fmt(c.total)+'</div>'+
       '<div style="color:var(--text3);font-size:16px">›</div></div>');
   }).join('');
@@ -16101,19 +16124,26 @@ function _renderFittedUnitInner() {
   var job = activeJob();
   var list  = document.getElementById('fu-section-list');
   var cards = document.getElementById('fu-section-cards');
-  var units = job ? fittedUnitList(job) : [];
+  // A unit with no total is not rendered, so the visible list is filtered
+  // FIRST -- reorder's neighbours have to be the rows either side on screen,
+  // not either side in the array (the swap itself still works on the array,
+  // leaving the hidden units where they are).
+  var units = (job ? fittedUnitList(job) : []).filter(function(f) { return calcFittedUnit(f).total > 0; });
   measureFittedUnitTotal = 0;
   measureFittedUnitCount = 0;
-  var html = units.map(function(f) {
+  var html = units.map(function(f, i) {
     var fc = calcFittedUnit(f);
-    if (fc.total <= 0) return '';
     measureFittedUnitTotal += fc.total;
     measureFittedUnitCount++;
-    return swipeDeleteWrap('deleteFittedUnitFromList', f.id,
-      '<div class="room-item" onclick="editFittedUnit(this.dataset.id)" data-id="'+f.id+'">'+
-      '<div class="room-icon">📚</div>'+
+    var info = '<div class="room-icon">📚</div>'+
       '<div class="room-info"><div class="room-name">'+escapeHtml(fittedUnitName(f))+(f.isVariation?variationChipHtml(f):'')+'</div>'+
-      '<div class="room-meta">'+fmtD(fc.time)+'</div></div>'+
+      '<div class="room-meta">'+fmtD(fc.time)+'</div></div>';
+    if (measureReorderMode) {
+      return '<div class="room-item" style="cursor:default">'+info+
+        measureMoveArrows('moveFittedUnitInList', f.id, i > 0 ? units[i-1].id : '', i < units.length-1 ? units[i+1].id : '')+'</div>';
+    }
+    return swipeDeleteWrap('deleteFittedUnitFromList', f.id,
+      '<div class="room-item" onclick="editFittedUnit(this.dataset.id)" data-id="'+f.id+'">'+info+
       '<div class="room-cost">'+fmt(fc.total)+'</div>'+
       '<button class="room-dup-btn" title="Duplicate unit" onclick="event.stopPropagation();duplicateFittedUnit(this.dataset.id)" data-id="'+f.id+'">⧉</button>'+
       '<div style="color:var(--text3);font-size:16px">›</div></div>');
@@ -16299,13 +16329,17 @@ function _renderCustomInner() {
     return;
   }
   list.style.display='block';
-  cards.innerHTML = items.map(function(it) {
+  cards.innerHTML = items.map(function(it, i) {
     var qty = (+it.quantity > 0) ? +it.quantity : 1;
-    return swipeDeleteWrap('deleteCustomItemFromList', it.id,
-      '<div class="room-item" onclick="editCustomItem(this.dataset.id)" data-id="'+it.id+'">'+
-      '<div class="room-icon">✏️</div>'+
+    var info = '<div class="room-icon">✏️</div>'+
       '<div class="room-info"><div class="room-name">'+escapeHtml(it.description||'Custom line')+manualChipHtml(it)+'</div>'+
-      '<div class="room-meta">'+(qty !== 1 ? qty+' × '+fmt(+it.unitPrice||0) : 'manual price')+'</div></div>'+
+      '<div class="room-meta">'+(qty !== 1 ? qty+' × '+fmt(+it.unitPrice||0) : 'manual price')+'</div></div>';
+    if (measureReorderMode) {
+      return '<div class="room-item" style="cursor:default">'+info+
+        measureMoveArrows('moveCustomItemInList', it.id, i > 0 ? items[i-1].id : '', i < items.length-1 ? items[i+1].id : '')+'</div>';
+    }
+    return swipeDeleteWrap('deleteCustomItemFromList', it.id,
+      '<div class="room-item" onclick="editCustomItem(this.dataset.id)" data-id="'+it.id+'">'+info+
       '<div class="room-cost">'+fmt(customItemTotal(it))+'</div>'+
       '<div style="color:var(--text3);font-size:16px">›</div></div>');
   }).join('');
@@ -16336,8 +16370,14 @@ function updateMeasureChrome() {
   document.getElementById('rooms-section-head').style.display = rooms.length ? 'flex' : 'none';
   document.getElementById('ext-section-head').style.display = extItems.length ? 'flex' : 'none';
   document.getElementById('kitchen-section-head').style.display = hasKitchen ? 'block' : 'none';
-  document.getElementById('fu-section-head').style.display = hasFittedUnit ? 'block' : 'none';
-  document.getElementById('custom-section-head').style.display = customCount ? 'block' : 'none';
+  document.getElementById('fu-section-head').style.display = hasFittedUnit ? 'flex' : 'none';
+  document.getElementById('custom-section-head').style.display = customCount ? 'flex' : 'none';
+  // Reorder links, one per list that has rows to walk (see
+  // toggleMeasureReorder). Rooms' sits in the same header as Bulk edit.
+  renderReorderToggle('rooms-reorder-toggle', rooms.length);
+  renderReorderToggle('ext-reorder-toggle', extItems.length);
+  renderReorderToggle('fu-reorder-toggle', measureFittedUnitCount);
+  renderReorderToggle('custom-reorder-toggle', customCount);
   var chip = document.getElementById('home-chip'), sub = document.getElementById('home-sub');
   var note = document.getElementById('measure-cost-note');
   if (both) { chip.style.display = 'none'; sub.textContent = ''; if (note) note.style.display = 'none'; return; }
@@ -16351,6 +16391,117 @@ function updateMeasureChrome() {
   if (hasFittedUnit) parts.push(measureFittedUnitCount > 1 ? measureFittedUnitCount + ' fitted units' : 'fitted unit');
   if (customCount) parts.push(customCount + ' custom');
   sub.textContent = parts.join(' · ');
+}
+
+// ── Measure list reorder ───────────────────────────────────────────────────
+// Array order IS the order everything downstream reads: the Summary
+// breakdown, the client quote's lines, the Xero quote, the CSV and the final
+// invoice all walk rooms / extItems / job.fittedUnits / job.customItems as
+// they stand. But a measure is taken in whatever order the house is walked,
+// and the room remembered on the way out lands at the end -- so the list that
+// prices the job reads in a different order from the one the client's rooms
+// are actually in. Reorder mode walks a row into place with ▲▼, the same
+// pattern (and the same 38px targets) the Summary materials list has used
+// since v1.15.4.
+//
+// ONE mode across the whole screen rather than one per section, because it is
+// the screen being tidied -- every section's link reads Done while it is on,
+// and any of them leaves it. A row still only ever moves WITHIN its own list:
+// rooms, exterior items, fitted units and custom lines are different records
+// with different editors and different totals, and Kitchen is a single card
+// with nothing to reorder. The sections themselves keep their fixed order.
+//
+// Order persists through each list's ordinary save path, with no new schema
+// and no explicit position field: saveRooms()/saveExtItems() bulk-replace
+// server-side, where rows are re-inserted in array order stamped with
+// clock_timestamp() and read back ORDER BY created_at ASC, and fitted units
+// and custom lines ride job.data as plain arrays. Offline edits queue exactly
+// like every other change to those lists.
+var measureReorderMode = false;
+
+function toggleMeasureReorder() {
+  measureReorderMode = !measureReorderMode;
+  // Bulk edit ticks rooms and reorder moves them -- two modes over the same
+  // rows, so entering one leaves the other rather than stacking.
+  if (measureReorderMode && bulkEditMode) { bulkEditMode = false; bulkSelected = {}; }
+  swipeClose();
+  renderHome();
+}
+
+// What each section can offer the toggle. Fitted units are counted as
+// RENDERED, not as stored: a unit with no total yet isn't on the screen, and
+// offering to reorder a list of one visible row would be a link that does
+// nothing.
+function measureReorderCounts() {
+  var job = activeJob();
+  var fu = (job ? fittedUnitList(job) : []).filter(function(f) { return calcFittedUnit(f).total > 0; }).length;
+  return { rooms: rooms.length, ext: extItems.length, fu: fu, custom: jobCustomItems(job).length };
+}
+
+function measureHasReorderableList() {
+  var n = measureReorderCounts();
+  return n.rooms > 1 || n.ext > 1 || n.fu > 1 || n.custom > 1;
+}
+
+// The ▲▼ pair a row wears in reorder mode. Neighbours are passed by id, not
+// by index: the fitted-units list only renders units with a real total, so a
+// row's position on screen is not its position in the array.
+function measureMoveArrows(fn, id, prevId, nextId) {
+  function arrow(glyph, otherId) {
+    if (!otherId) return '<div class="move-arrow off">'+glyph+'</div>';
+    return '<div class="move-arrow" onclick="'+fn+'(\''+escapeHtml(String(id))+'\',\''+escapeHtml(String(otherId))+'\')">'+glyph+'</div>';
+  }
+  return '<div class="move-arrows">'+arrow('▲', prevId)+arrow('▼', nextId)+'</div>';
+}
+
+// Swaps two members of a list by id. A swap rather than a splice to a new
+// index, so a row the list isn't rendering -- a fitted unit with no total --
+// stays exactly where it is while the two visible rows trade places.
+function measureSwapById(arr, id, otherId) {
+  var i = arr.findIndex(function(x) { return String(x.id) === String(id); });
+  var j = arr.findIndex(function(x) { return String(x.id) === String(otherId); });
+  if (i < 0 || j < 0 || i === j) return false;
+  var tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+  return true;
+}
+
+// One mover per list, each persisting through that list's own save path --
+// the same call the row's editor makes, so a move syncs (and queues offline)
+// like any other edit to it.
+function moveRoomInList(id, otherId) {
+  if (!measureSwapById(rooms, id, otherId)) return;
+  saveRooms();
+  renderHome();
+}
+
+function moveExtItemInList(id, otherId) {
+  if (!measureSwapById(extItems, id, otherId)) return;
+  saveExtItems();
+  renderHome();
+}
+
+function moveFittedUnitInList(id, otherId) {
+  var job = activeJob();
+  if (!job || !measureSwapById(fittedUnitList(job), id, otherId)) return;
+  saveFittedUnitJob();
+  renderHome();
+}
+
+function moveCustomItemInList(id, otherId) {
+  var job = activeJob();
+  if (!job || !measureSwapById(jobCustomItems(job), id, otherId)) return;
+  saveCustomItems();
+  renderHome();
+}
+
+// Each section's link: hidden where that list has fewer than two rows on
+// screen (one row is not an order) or while bulk edit has the room rows,
+// and reading Done everywhere while the mode is on.
+function renderReorderToggle(elId, count) {
+  var el = document.getElementById(elId);
+  if (!el) return;
+  el.style.display = (count > 1 && !bulkEditMode) ? 'inline' : 'none';
+  el.textContent = measureReorderMode ? 'Done' : 'Reorder';
 }
 
 // Swipe-to-delete path for the home room list -- deleteRoom() (room editor)
@@ -16623,6 +16774,10 @@ function updateNotesFabDot() {
 // the exterior half too, so every existing renderHome() call site (job
 // switch, saves, goBack) refreshes the whole screen without changes.
 function renderHome() {
+  // Nothing left with two rows to walk between -- don't strand the screen in
+  // reorder mode (same guard as bulk mode's below, one step earlier because
+  // the rows themselves are drawn from it).
+  if (measureReorderMode && !measureHasReorderableList()) measureReorderMode = false;
   renderAttentionStrip();
   syncJobNotes();
   updateNotesFabDot();
@@ -16642,11 +16797,20 @@ function renderHome() {
   }
   list.style.display='block';
   var total=0;
-  cards.innerHTML = rooms.map(function(r) {
+  cards.innerHTML = rooms.map(function(r, i) {
     var c=calcRoom(r); total+=c.total;
-    var meta = '<div class="room-info"><div class="room-name">'+r.name+(r.isVariation?variationChipHtml(r):'')+'</div>'+
-      '<div class="room-meta">'+r.l+'×'+r.w+'×'+r.h+'m · '+fmtD(c.time)+'</div></div>'+
-      '<div class="room-cost">'+fmt(c.total)+'</div>';
+    var info = '<div class="room-info"><div class="room-name">'+r.name+(r.isVariation?variationChipHtml(r):'')+'</div>'+
+      '<div class="room-meta">'+r.l+'×'+r.w+'×'+r.h+'m · '+fmtD(c.time)+'</div></div>';
+    var meta = info + '<div class="room-cost">'+fmt(c.total)+'</div>';
+    // Reorder mode: the row is a handle, not a link -- no tap through to the
+    // editor and no swipe wrapper (a horizontal drag that deletes a room is
+    // the last thing you want while walking rooms up and down a list), and
+    // the cost gives its space to the arrows.
+    if (measureReorderMode) {
+      return '<div class="room-item" style="cursor:default">'+
+        '<div class="room-icon">'+r.emoji+'</div>'+info+
+        measureMoveArrows('moveRoomInList', r.id, i > 0 ? rooms[i-1].id : '', i < rooms.length-1 ? rooms[i+1].id : '')+'</div>';
+    }
     // Bulk mode: the row selects instead of opening, and loses its swipe
     // wrapper -- a horizontal drag that deletes a room is the last thing
     // you want while ticking through a list.
@@ -16781,6 +16945,8 @@ var BULK_PREP_LABELS = { 10: 'Minimal', 25: 'Standard', 40: 'Heavy' };
 function toggleBulkEdit() {
   bulkEditMode = !bulkEditMode;
   if (!bulkEditMode) bulkSelected = {};
+  // The other mode over these same rows -- see toggleMeasureReorder().
+  if (bulkEditMode) measureReorderMode = false;
   swipeClose();
   renderHome();
 }
@@ -16807,8 +16973,9 @@ function bulkToggleSelectAll() {
 function renderBulkChrome() {
   var toggle = document.getElementById('bulk-edit-toggle');
   if (toggle) {
-    // One room is not a batch.
-    toggle.style.display = rooms.length > 1 ? 'inline' : 'none';
+    // One room is not a batch -- and while the list is being reordered the
+    // other mode's link comes down rather than sitting next to its Done.
+    toggle.style.display = (rooms.length > 1 && !measureReorderMode) ? 'inline' : 'none';
     toggle.textContent = bulkEditMode ? 'Done' : 'Bulk edit';
   }
   var bar = document.getElementById('bulk-select-bar');
