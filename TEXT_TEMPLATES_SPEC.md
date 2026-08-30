@@ -5,7 +5,7 @@
 *text* blocks that lived in iOS text-replacement shortcuts (";;paint" etc.),
 seeded verbatim from the reference copy Nicky supplied at build time.
 
-**Extended 2026-08-30, v2.44.0 — the scope sentence is measured, not
+**Extended 2026-08-30, v2.45.0 — the scope sentence is measured, not
 hardcoded.** The seeded bodies named ceilings, walls and woodwork in fixed
 prose with only the *products* as placeholders, so a walls-only job promised
 a client two surfaces nobody was painting, and a measured feature wall,
