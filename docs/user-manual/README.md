@@ -438,6 +438,11 @@ Menu (☰) → **Jobs**. The app holds any number of jobs; the one you're workin
 
 ![Jobs screen](images/08-jobs.png)
 
+- **The client's name is the top line** of each row, with the job name and its status underneath — job names repeat ("Bedrooms" three times over), people don't. A job with no client saved shows its name on top instead; the client comes from the **Client** details on Summary's Xero panel.
+- **Search** (top of the screen) filters every group as you type: client name, job name, calendar title, or a Xero quote/invoice number off a piece of paper. Several words all have to match, but not in the same field — "priya bedrooms" finds it. A count and a **Clear** link sit under the box, and the search resets each time you open the screen.
+
+![Searching the jobs list](images/08b-jobs-search.png)
+
 - Jobs group by status: **Draft → Quoted → Accepted / Declined → Completed → Invoiced**.
 - **`+`** starts a new job. **⧉** duplicates a job as a quick template (notes aren't copied). Each job is fully separate — its own rooms, kitchen, colours and materials.
 - **Import an accepted quote from Xero** — took the job on before the app existed? Import the Xero quote and it becomes a job here, with the agreed price as the record (adjustable via the **Agreed figures** card, or the **Imported from Xero** toggle on Summary — see [The quote](#9-the-quote-summary)). If a listed quote actually belongs to a job already in the app, use **"Already a job in the app? Link it ›"** instead of importing a duplicate.
@@ -618,6 +623,6 @@ Settings → **Backup**:
 
 ---
 
-*Manual for NH Estimator v2.43.1. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.44.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

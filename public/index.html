@@ -627,6 +627,15 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     <div class="topbar-title">Jobs</div>
   </div>
   <div class="content">
+    <!-- Search: the list is grouped by status and grows for ever, so finding
+         a job means scrolling past every "Bedrooms" until you hit the right
+         person. Same input idiom as Price Lookup; matches name, client,
+         calendar title and Xero quote/invoice number. -->
+    <input type="search" class="field-input" id="jobs-search" placeholder="Search jobs or clients…"
+           autocorrect="off" autocapitalize="off" autocomplete="off" spellcheck="false"
+           oninput="filterJobsList()"
+           style="width:100%;text-align:left;padding:12px 14px;font-size:16px;font-family:'DM Sans',sans-serif;margin-bottom:10px">
+    <div id="jobs-search-count" style="display:none;font-size:12px;color:var(--text2);margin:-4px 0 10px 2px"></div>
     <div id="jobs-cards" style="display:flex;flex-direction:column;gap:16px"></div>
     <!-- Adopt accepted quotes made directly in Xero (pre-app jobs) so they
          can be scheduled and have days logged — see /auth/accepted-quotes. -->
@@ -8361,9 +8370,15 @@ function markMaterialsSeeded(seeded) {
 
 // One row's markup -- shared by all four grouped sections below rather
 // than duplicated per group. Declined AND Completed rows are dimmed (opacity
-// on the whole row) plus a strikethrough on the name specifically (not the
+// on the whole row) plus a strikethrough on the top line specifically (not the
 // status badges -- text-decoration:none on each span stops it inheriting the
 // strikethrough, which would otherwise read oddly on "· DECLINED" itself).
+//
+// v2.44.0 — the CLIENT is the top line when the job has one, with the job name
+// and its status badges underneath. Job names repeat across clients ("Bedrooms"
+// three times over), so the name was the wrong thing to scan a long list by;
+// the person isn't. A job with no client saved keeps the name on top rather
+// than leading with a blank, exactly like the schedule label's dedupe.
 function renderJobRow(j) {
   var isActive = j.id === activeJobId;
   var isQuoted = j.status === 'quoted';
@@ -8373,10 +8388,12 @@ function renderJobRow(j) {
   var isDeclined = j.status === 'declined';
   var isDimmed = isDeclined || isCompleted || isInvoiced;
   var nameColor = isDimmed ? 'var(--text3)' : 'var(--text)';
+  var client = (j.xeroClient || '').trim();
   return swipeDeleteWrap('deleteJob', j.id,
     '<div class="field-row" style="cursor:pointer'+(isDimmed ? ';opacity:.6' : '')+'" onclick="switchJob(\''+j.id+'\')">'+
-    '<div style="flex:1">'+
-      '<div style="font-weight:600;color:'+nameColor+(isDimmed ? ';text-decoration:line-through' : '')+'">'+escapeHtml(j.name)+
+    '<div style="flex:1;min-width:0">'+
+      (client ? '<div style="font-size:16px;font-weight:700;color:'+nameColor+(isDimmed ? ';text-decoration:line-through' : '')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escapeHtml(client)+'</div>' : '')+
+      '<div style="'+(client ? 'font-size:13px;font-weight:600;color:var(--text2)' : 'font-weight:600;color:'+nameColor+(isDimmed ? ';text-decoration:line-through' : ''))+'">'+escapeHtml(j.name)+
         (isQuoted ? ' <span style="color:var(--accent);font-size:12px;font-weight:700;text-decoration:none">· QUOTED</span>' : '')+
         (isAccepted ? ' <span style="color:var(--success);font-size:12px;font-weight:700;text-decoration:none">· ACCEPTED</span>' : '')+
         (isAccepted && j.xeroQuoteStatus === 'INVOICED' ? ' <span style="color:var(--text2);font-size:11px;font-weight:600;text-decoration:none">· invoiced in Xero</span>' : '')+
@@ -8391,7 +8408,6 @@ function renderJobRow(j) {
         (isDeclined ? ' <span style="color:var(--danger);font-size:12px;font-weight:700;text-decoration:none">· DECLINED</span>' : '')+
         (isActive ? ' <span style="color:var(--accent);font-size:12px;font-weight:700;text-decoration:none">· CURRENT</span>' : '')+
       '</div>'+
-      (j.xeroClient ? '<div style="font-size:12px;color:var(--text2)">'+escapeHtml(j.xeroClient)+'</div>' : '')+
       (isQuoted && j.quotedAt ? '<div style="font-size:12px;color:var(--text2)">Quote sent '+new Date(j.quotedAt).toLocaleDateString()+'</div>'
         : isAccepted && j.startDate ? '<div style="font-size:12px;color:var(--text2)">📅 Starts '+fmtShortDate(j.startDate)+' · '+j.scheduledDays+'d</div>'
         : (j.updatedAt ? '<div style="font-size:12px;color:var(--text2)">'+new Date(j.updatedAt).toLocaleDateString()+'</div>' : ''))+
@@ -8643,15 +8659,48 @@ function setImportedFigure(key, val) {
 // heading became "Draft" to match Summary's "Draft quote" language when
 // 'quoted' split out of it. A group with no jobs in it is skipped entirely
 // rather than showing an empty heading.
+// ── Jobs list search ────────────────────────────────────────────────────────
+// Per-visit, not per-job: cleared on entering the screen (goTab), and held in
+// a var rather than read off the input at render time so a re-render from
+// anywhere else (a status change, a delete) keeps the filter it was showing.
+var jobSearchQuery = '';
+
+function resetJobSearch() {
+  jobSearchQuery = '';
+  var el = document.getElementById('jobs-search');
+  if (el) el.value = '';
+}
+
+function filterJobsList() {
+  var el = document.getElementById('jobs-search');
+  jobSearchQuery = el ? el.value.trim() : '';
+  renderJobs();
+}
+
+function clearJobSearch() { resetJobSearch(); renderJobs(); }
+
+// Every word must land SOMEWHERE in the job's text, not all in one field, so
+// "lauren kitchen" finds Lauren Lowe's Kitchen even though neither field holds
+// both words. Quote and invoice numbers are in the haystack because looking a
+// job up from a piece of paper is the other reason to search.
+function jobMatchesSearch(j, terms) {
+  if (!terms.length) return true;
+  var hay = [j.name, j.xeroClient, j.scheduleTitle, j.xeroRef, j.xeroQuoteNumber, j.xeroInvoiceNumber]
+    .filter(Boolean).join(' ').toLowerCase();
+  return terms.every(function(t) { return hay.indexOf(t) !== -1; });
+}
+
 function renderJobs() {
   var container = document.getElementById('jobs-cards');
   if (!container) return;
-  var accepted = jobs.filter(function(j) { return j.status === 'accepted'; });
-  var quoted   = jobs.filter(function(j) { return j.status === 'quoted'; });
-  var completed = jobs.filter(function(j) { return j.status === 'completed'; });
-  var invoiced = jobs.filter(function(j) { return j.status === 'invoiced'; });
-  var declined = jobs.filter(function(j) { return j.status === 'declined'; });
-  var drafts   = jobs.filter(function(j) { return ['accepted','quoted','completed','invoiced','declined'].indexOf(j.status) === -1; });
+  var terms = jobSearchQuery.toLowerCase().split(/\s+/).filter(Boolean);
+  var shown = jobs.filter(function(j) { return jobMatchesSearch(j, terms); });
+  var accepted = shown.filter(function(j) { return j.status === 'accepted'; });
+  var quoted   = shown.filter(function(j) { return j.status === 'quoted'; });
+  var completed = shown.filter(function(j) { return j.status === 'completed'; });
+  var invoiced = shown.filter(function(j) { return j.status === 'invoiced'; });
+  var declined = shown.filter(function(j) { return j.status === 'declined'; });
+  var drafts   = shown.filter(function(j) { return ['accepted','quoted','completed','invoiced','declined'].indexOf(j.status) === -1; });
 
   function section(title, list) {
     if (!list.length) return '';
@@ -8661,8 +8710,21 @@ function renderJobs() {
     '</div>';
   }
 
+  var countEl = document.getElementById('jobs-search-count');
+  if (countEl) {
+    countEl.style.display = terms.length ? 'block' : 'none';
+    countEl.innerHTML = terms.length
+      ? shown.length + ' of ' + jobs.length + ' job' + (jobs.length === 1 ? '' : 's') +
+        ' · <span onclick="clearJobSearch()" style="color:var(--accent);font-weight:600;cursor:pointer">Clear</span>'
+      : '';
+  }
+
   container.innerHTML = section('Accepted', accepted) + section('Quoted', quoted) + section('Draft', drafts)
     + section('Completed', completed) + section('Invoiced', invoiced) + section('Declined', declined);
+  if (terms.length && !shown.length) {
+    container.innerHTML = '<div style="padding:20px 16px;color:var(--text2);font-size:14px;text-align:center">'+
+      'No jobs match &ldquo;'+escapeHtml(jobSearchQuery)+'&rdquo;</div>';
+  }
 }
 
 // ── Swipe-to-delete (touch devices) ─────────────────────────────────────────
@@ -8827,7 +8889,7 @@ function goTab(tab) {
   if (tab==='colours') renderColours();
   if (tab==='pricelookup') renderPriceLookup();
   if (tab==='shoplist') openShopList();
-  if (tab==='jobs') renderJobs();
+  if (tab==='jobs') { resetJobSearch(); renderJobs(); }
   if (tab==='schedule') renderScheduleStrip();
   // Calibration reads across every finished job's logs, so it can't be
   // painted from memory at startup like the rest of Settings -- it's a
