@@ -68,12 +68,18 @@ function extractVar(name) {
 // fallback chain it actually is (own override → the wall product for a
 // feature wall → the Settings default for the role). Everything else the
 // extracted functions touch is passed in.
+// NOTE the roles present here: Settings carries a job-wide default for
+// wall/ceiling/topcoat/primer/mist/masonry/extTopcoat/extPrimer and NOT for
+// panel or featurewall -- those two are per-room pickers only (the room
+// form says "no default -- choose explicitly" over the panelling one), and
+// a feature wall with no product of its own falls back to the room's wall
+// product. Adding a panel default here would make the fixture able to test
+// a state the app cannot reach.
 const sandbox = `
   var settings = { materials: {
     wall:    { range: 'Tikkurila Optiva 5' },
     ceiling: { range: 'Tikkurila Anti Reflex 2' },
-    topcoat: { range: 'Tikkurila Helmi 30' },
-    panel:   { range: 'Tikkurila Helmi 30' }
+    topcoat: { range: 'Tikkurila Helmi 30' }
   } };
   function effectiveRoleRange(r, role) {
     var override = r[role + 'RangeOverride'];
@@ -173,12 +179,22 @@ eq('papered feature wall is not painted — absent from the painted scope',
 eq('feature wall with no wall coats is not priced, so not claimed',
   scope('quote', [{ name: 'Lounge', cc: 2, featureWallArea: 8.4 }]),
   'Ceilings finished in Tikkurila Anti Reflex 2, applied in 2 coats.');
-eq('panelling in the woodwork paint — product not named twice',
-  scope('quote', [{ name: 'Hall', wc: 2, xc: 2, panelItems: [{ width: 3, height: 1.2, coats: 2 }] }]),
-  'Walls in Tikkurila Optiva 5, wall panelling, and all woodwork including skirtings in Tikkurila Helmi 30, each applied in 2 coats.');
+// Panelling is normally a DIFFERENT paint from the rest of the woodwork,
+// which is the whole reason it has its own per-room product picker. All
+// three states it can be in:
+const PANEL = [{ width: 3, height: 1.2, coats: 2 }];
 eq('panelling in a product of its own — that product named',
-  scope('quote', [{ name: 'Hall', wc: 2, panelItems: [{ width: 3, height: 1.2, coats: 2 }], panelRangeOverride: 'Little Greene Intelligent Eggshell' }]),
-  'Walls in Tikkurila Optiva 5 and wall panelling in Little Greene Intelligent Eggshell, each applied in 2 coats.');
+  scope('quote', [{ name: 'Hall', wc: 2, xc: 2, panelItems: PANEL, panelRangeOverride: 'Little Greene Intelligent Eggshell' }]),
+  'Walls in Tikkurila Optiva 5, wall panelling in Little Greene Intelligent Eggshell, and all woodwork including skirtings in Tikkurila Helmi 30, each applied in 2 coats.');
+eq('panelling deliberately set to the same paint as the woodwork — not named twice',
+  scope('quote', [{ name: 'Hall', wc: 2, xc: 2, panelItems: PANEL, panelRangeOverride: 'Tikkurila Helmi 30' }]),
+  'Walls in Tikkurila Optiva 5, wall panelling, and all woodwork including skirtings in Tikkurila Helmi 30, each applied in 2 coats.');
+eq('panelling with no product chosen — mentioned, but claims no paint (there is no Settings default for panel)',
+  scope('quote', [{ name: 'Hall', wc: 2, xc: 2, panelItems: PANEL }]),
+  'Walls in Tikkurila Optiva 5, wall panelling, and all woodwork including skirtings in Tikkurila Helmi 30, each applied in 2 coats.');
+eq('panelling in its own paint on a job with no other woodwork',
+  scope('invoice', [{ name: 'Hall', wc: 2, panelItems: PANEL, panelRangeOverride: 'Little Greene Intelligent Eggshell' }]),
+  'Walls in Tikkurila Optiva 5, wall panelling in Little Greene Intelligent Eggshell, 2 coats throughout.');
 eq('papered feature wall makes the painted walls the "remaining" ones',
   scope('quote', [{ name: 'Lounge', wc: 2, featureWallArea: 8.4, featureWallMode: 'wallpaper' }]),
   'Remaining walls in Tikkurila Optiva 5, applied in 2 coats.');
