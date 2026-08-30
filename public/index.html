@@ -6229,7 +6229,7 @@ function scheduleBlockHtml(job) {
           '<option value="all"'+(job.workAllDays ? ' selected' : '')+'>Every day, this job only</option>'+
         '</select>'+
       '</div>'+
-      '<input type="text" class="field-input wide" id="schedule-title" value="'+escapeHtml(job.scheduleTitle||'')+'" placeholder="Calendar title (optional) — shows as “'+escapeHtml(job.name)+' — …”" autocorrect="off" style="margin-bottom:8px">'+
+      '<input type="text" class="field-input wide" id="schedule-title" value="'+escapeHtml(job.scheduleTitle||'')+'" placeholder="Calendar title (optional) — shows as “'+escapeHtml(scheduleLabel({ xeroClient: job.xeroClient, name: job.name }))+' — …”" autocorrect="off" style="margin-bottom:8px">'+
       '<div id="schedule-overlap-hint" style="font-size:12px;color:var(--danger);min-height:14px;margin-bottom:8px"></div>'+
       '<div style="display:flex;gap:8px">'+
         '<button onclick="confirmSchedule()" style="flex:1;background:var(--accent);color:white;border:none;border-radius:var(--rs);padding:10px;font-size:13px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer">Save schedule</button>'+
@@ -6247,7 +6247,7 @@ function scheduleBlockHtml(job) {
     return '<div style="border-top:1px solid var(--border);padding:12px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'+
       '<div style="flex:1;min-width:0">'+
         '<div style="font-size:13px;font-weight:600">📅 Starts '+fmtShortDate(job.startDate)+' · '+job.scheduledDays+' day'+(job.scheduledDays === 1 ? '' : 's')+(last && last !== job.startDate ? ' → '+fmtShortDate(last) : '')+'</div>'+
-        (job.scheduleTitle ? '<div style="font-size:11px;color:var(--text2);margin-top:2px">in calendar as “'+escapeHtml(job.name+' — '+job.scheduleTitle)+'”</div>' : '')+
+        '<div style="font-size:11px;color:var(--text2);margin-top:2px">in calendar as “'+escapeHtml(scheduleLabel(job))+'”</div>'+
         (drift ? '<div style="font-size:12px;color:var(--danger);margin-top:2px">estimate now ~'+liveDays+' days, scheduled '+job.scheduledDays+'</div>' : '')+
       '</div>'+
       '<div onclick="toggleScheduleRow()" style="'+link+'">Reschedule</div>'+
@@ -6335,7 +6335,31 @@ function scheduleColour(id) {
   for (var i = 0; i < String(id).length; i++) h = (h * 31 + String(id).charCodeAt(i)) >>> 0;
   return SCHEDULE_COLOURS[h % SCHEDULE_COLOURS.length];
 }
-function scheduleLabel(j) { return j.scheduleTitle ? j.name + ' — ' + j.scheduleTitle : j.name; }
+// Schedule entries read "client — job name — calendar title", with any
+// part that's already carried by another dropped. Job names used to embed
+// the client ("Lauren Lowe - Kitchen"), which read as "Lauren Lowe - Kitchen
+// — Kitchen"; with the client taken back out of the name the client has to
+// come from the job's own client field or it's lost from the calendar
+// entirely (per Nicky 2026-08-30). The dedupe covers both: a legacy name
+// that still contains the client swallows the client part, and a title that
+// just repeats the name (or widens it) collapses to one.
+// KEEP IN SYNC with icsScheduleSummary() in routes/api.js — the iCloud feed
+// builds the same label server-side.
+function scheduleLabelParts(j) {
+  var parts = [];
+  [(j.xeroClient || '').trim(), (j.name || '').trim(), (j.scheduleTitle || '').trim()].forEach(function(p) {
+    if (!p) return;
+    var lp = p.toLowerCase();
+    for (var i = 0; i < parts.length; i++) {
+      var lk = parts[i].toLowerCase();
+      if (lk.indexOf(lp) !== -1) return;              // already spelled out by a part we kept
+      if (lp.indexOf(lk) !== -1) { parts[i] = p; return; } // this part says more — it wins the slot
+    }
+    parts.push(p);
+  });
+  return parts;
+}
+function scheduleLabel(j) { return scheduleLabelParts(j).join(' — ') || j.name || ''; }
 
 // One week row: 7 background day cells (Mon..Sun, weekends dimmed) plus an
 // overlay of bars. opts.monthIdx fades days outside that month; opts.dayNames

@@ -454,6 +454,7 @@ Menu (☰) → **Schedule** — or tap **Schedule ›** on an accepted job's Sum
 - **Tap a job's bar** → Open job, **Move start date** (then tap the new day), or Unschedule.
 - **Tap an empty day** → start a job there, or **block days** for holidays and time off.
 - The header tells you your **next free day** at all times.
+- **What a job is called on the calendar:** entries read **client — job name — calendar title**, skipping anything the others already say. So a Kitchen job for Lauren Lowe reads "Lauren Lowe — Kitchen" whether or not you typed a calendar title, and an older job still named "Lauren Lowe - Kitchen" doesn't say her name twice. The client comes from the job's **Client** details (Xero panel on Summary) — if a job has no client saved, the entry is just the job name.
 
 **A one-off day out of the ordinary**, without changing anything globally: tap the day itself → **start a job here** (or move a job there), and the confirm tells you what switches on — a Saturday turns on "Saturdays for this job only", a Sunday or bank holiday turns on "Every day for this job only". From an accepted job's own **Schedule ›** form, the same idea is the **Days worked** picker (Usual / + Saturdays / Every day), which switches itself if you pick such a start date. Automatic slot suggestions still only ever offer your usual working days, and your own blocked days always win.
 
@@ -617,6 +618,6 @@ Settings → **Backup**:
 
 ---
 
-*Manual for NH Estimator v2.43.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.43.1. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
