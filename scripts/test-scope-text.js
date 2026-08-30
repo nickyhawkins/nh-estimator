@@ -99,6 +99,9 @@ new Function('exports', sandbox + [
   extractFn('scopeFacts'),
   extractFn('buildScopeSentence'),
   extractFn('buildPaperedPhrase'),
+  extractFn('scopeProductValues'),
+  extractFn('roomScopeSentence'),
+  extractFn('roomScopeShort'),
   extractFn('renderTemplateText'),
   extractFn('formatLongDate'),
   extractFn('buildTemplateValues'),
@@ -109,6 +112,9 @@ new Function('exports', sandbox + [
   'exports.renderTemplateText = renderTemplateText;',
   'exports.scopeFacts = scopeFacts;',
   'exports.DEFAULT_TEXT_TEMPLATES = DEFAULT_TEXT_TEMPLATES;',
+  'exports.roomScopeSentence = roomScopeSentence;',
+  'exports.roomScopeShort = roomScopeShort;',
+  'exports.scopeProductValues = scopeProductValues;',
   // Drives the REAL product resolution: set the room list, get the values
   // object a render would actually be given.
   'exports.valuesFor = function(mode, rs, xs) { rooms = rs || []; extItems = xs || []; return buildTemplateValues(mode); };'
@@ -377,6 +383,60 @@ api.DEFAULT_TEXT_TEMPLATES.forEach(t => {
       !/\n{3,}/.test(out), JSON.stringify(out));
   });
 });
+
+// ── 10. Per-room scope, and when a line collapses to "same as above" ───────
+// The rule the quote and invoice builders both apply: a later room's line
+// carries its OWN scope unless that matches the block's job-wide sentence,
+// in which case the bare "same as above" is accurate and is kept.
+const jobScopeOf = (mode, rs) => api.buildScopeSentence(mode, rs, api.scopeProductValues(rs));
+const lineFor = (mode, rs, i) => {
+  const own = api.roomScopeSentence(mode, rs[i]);
+  const jobScope = jobScopeOf(mode, rs);
+  return (!own || own === jobScope) ? rs[i].name + ' - same as above'
+    : rs[i].name + '\n\n' + own + '\n\nPreparation and completion as above.';
+};
+
+const MIXED = [
+  { name: 'Living Room', wc: 2, cc: 2, xc: 2 },
+  { name: 'Bathroom',    wc: 2 },
+  { name: 'Landing',     wc: 2, cc: 2, xc: 2 }
+];
+eq('a walls-only room states its own scope instead of inheriting the job block',
+  lineFor('quote', MIXED, 1),
+  'Bathroom\n\nWalls in Tikkurila Optiva 5, applied in 2 coats.\n\nPreparation and completion as above.');
+eq('a room matching the job scope keeps the bare "same as above"',
+  lineFor('quote', MIXED, 2), 'Landing - same as above');
+eq('every room identical — no line gains any text',
+  lineFor('quote', [FULL, Object.assign({}, FULL, { name: 'Bedroom 1' })], 1),
+  'Bedroom 1 - same as above');
+eq('invoice tense on a per-room line',
+  lineFor('invoice', MIXED, 1),
+  'Bathroom\n\nWalls in Tikkurila Optiva 5, 2 coats throughout.\n\nPreparation and completion as above.');
+// A room priced for something the scope sentence can't describe (a papered
+// feature wall alone, say) has no sentence of its own, and must fall back
+// rather than emit an empty block.
+eq('a room with no describable painted scope falls back to "same as above"',
+  lineFor('quote', [FULL, { name: 'Snug', featureWallArea: 6, featureWallMode: 'wallpaper' }], 1),
+  'Snug - same as above');
+
+// The job-wide sentence is the union, so it is what a fully-scoped room
+// matches against — proving the collapse is comparing like with like.
+eq('the job block still reads as the union across every room',
+  jobScopeOf('quote', MIXED),
+  'Ceilings finished in Tikkurila Anti Reflex 2, walls in Tikkurila Optiva 5, and all woodwork including skirtings in Tikkurila Helmi 30, each applied in 2 coats.');
+
+// ── 11. The short scope note for the client quote view ─────────────────────
+const shortOf = r => api.roomScopeShort(r);
+eq('short note: a full room', shortOf(FULL), 'ceiling, walls and woodwork');
+eq('short note: walls only', shortOf({ wc: 2 }), 'walls');
+eq('short note: a feature wall and panelling',
+  shortOf({ wc: 2, xc: 2, featureWallArea: 6, panelItems: [{ width: 3, height: 1, coats: 2 }] }),
+  'walls, feature wall, panelling and woodwork');
+eq('short note: radiators with no skirtings are named, not called woodwork',
+  shortOf({ wc: 2, rads: 3 }), 'walls and radiators');
+eq('short note: a papered feature wall', shortOf({ wc: 2, featureWallArea: 6, featureWallMode: 'wallpaper' }),
+  'walls and papered feature wall');
+eq('short note: nothing measured', shortOf({}), '');
 
 // ── Report ─────────────────────────────────────────────────────────────────
 pass.forEach(n => console.log('  ok   ' + n));

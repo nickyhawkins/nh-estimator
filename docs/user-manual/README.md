@@ -415,8 +415,7 @@ The line then shows where things stand — *not in Xero yet*, *in Xero · unallo
 ### The quote description
 
 Under the breakdown sits the **Quote description** — the wording that rides the
-first line item on the Xero quote (every later line reads *"Bedroom 1 – same as
-above"*). It's written for you from the job: the app picks the wording template
+first line item on the Xero quote. It's written for you from the job: the app picks the wording template
 that fits the work (Painting, Wallpapering, Kitchen Cabinet Spraying and so on —
 all editable in **Settings → Quote & Invoice Text**), fills in your products and
 coats, and puts it in future tense for a quote and past tense for the final
@@ -451,9 +450,36 @@ there's nothing to list: where the surfaces disagree, no coat figure is stated
 rather than a wrong one. Type the detail into the box yourself whenever you'd
 rather spell out which room gets which.
 
+**Each other room says what *it* is having.** The block itself goes on the first
+line only — repeating the protection and completion paragraphs on every line
+would be noise, and they're the same for every room. But each Xero line carries
+its own price, so instead of a bare *"Bathroom — same as above"* the later lines
+state that room's own scope:
+
+```
+Living Room   [the full block]
+Bathroom      Walls in Tikkurila Optiva 5, applied in 2 coats.
+              Preparation and completion as above.
+Bedroom 1     same as above
+Hall          Ceilings finished in Tikkurila Anti Reflex 2, applied in 2 coats.
+              Preparation and completion as above.
+```
+
+A room whose scope matches the block's goes back to a plain **"same as above"** —
+so eight identical bedrooms stay tidy, and the detail appears only where a room
+genuinely differs. Your own client quote view gets the short version of the same
+thing under each room name: *"ceiling, walls and woodwork"*, *"walls"*.
+
 The box is editable: type in it and your version sticks from then on (**↺ Reset
-to template** goes back). Sending stamps the exact wording onto the quote, so a
-document you've already sent never changes underneath you.
+to template** goes back). **Editing it also turns the per-room lines off** — once
+the wording is yours, the app stops adding sentences underneath it that you
+didn't write and can't edit; every other line goes back to "same as above".
+Sending stamps the exact wording onto the quote, so a document you've already
+sent never changes underneath you.
+
+Exterior items, the kitchen and fitted units keep the plain "same as above" —
+the scope sentence is built from room measurements, and there's no equivalent
+for those yet.
 
 > **If you've edited your templates in Settings**, your saved copies keep whatever
 > wording you gave them. To pick this up, put **`{surfaces}`** where the scope

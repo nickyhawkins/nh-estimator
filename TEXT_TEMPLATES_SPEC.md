@@ -41,10 +41,36 @@ placeholders now build it from the live rooms:
   cannot happen.
 - **`{papered}`** — what is being papered, for the "hung to …" line. Falls
   back to the seeded `[feature wall/walls]` marker.
+- **Every later ROOM line carries its own scope** instead of a bare
+  "{name} - same as above" (`roomScopeSentence()` — the same builder over a
+  one-room list, so a per-room sentence and the job-wide one can never
+  resolve a product differently). Point 2 of the original build put the
+  block on line one and "same as above" on the rest, which was honest while
+  that block was generic boilerplate and stopped being honest the moment it
+  enumerated a scope: every Xero line carries a price, so a walls-only
+  bathroom reading "same as above" bills a client beside a claim of
+  ceilings and woodwork. The block still appears once — protection, prep
+  and completion genuinely are shared, hence the trailing "Preparation and
+  completion as above." Two rules keep it quiet: a room whose sentence
+  MATCHES the block's own job-wide one goes back to a plain "same as
+  above", and once the description has been **hand-edited** nothing is
+  generated at all (the block is then Nicky's wording, and a generated
+  sentence under it would be text he did not write and cannot edit). The
+  final invoice mirrors this exactly, in past tense, off `l.scope` stamped
+  on each room's labour line. Exterior/kitchen/fitted-unit lines keep the
+  bare "same as above" — there is no scope builder for them.
+- **`roomScopeShort()`** puts the same scope in a few words —
+  *"ceiling, walls and woodwork"* — on the client quote view's `sub` line,
+  which for rooms was empty. Surfaces only, no products or coats: the
+  register is the kitchen's existing "outside faces only", a note rather
+  than a paragraph. It rides `quoteModel` so it reaches the accepted-quote
+  snapshot's `note` as well.
 
-A **job-level union**, matching the block it lives in (the text rides the
-first Xero line, every later line reads "same as above") and the same
-whole-job resolution the product placeholders already used. `{surfaces}`
+`{surfaces}` in the BLOCK is a **job-level union**, matching what the block
+is — the one text on the first Xero line, standing for the whole job — and
+the same whole-job resolution the product placeholders already used. The
+per-room lines below it are where a single room's own scope is stated.
+`{surfaces}`
 resolves to `''` rather than a literal token when nothing is painted — the
 one deliberate exception to the "unresolved stays visible" rule in point 1
 below, since a papering-only job must not leave `{surfaces}` on a client
@@ -54,7 +80,7 @@ walls, ceiling and woodwork all measured renders the seeded sentence back
 character for character in both tenses. Templates already edited in Settings
 keep their own wording (`settings.textTemplates` is copy-on-write) — paste
 the placeholder in, or Reset to defaults. Verified by `npm run test:scope`,
-90 checks, pure node against the real source.
+102 checks, pure node against the real source.
 
 **As built — deviations from the spec below, all deliberate:**
 
