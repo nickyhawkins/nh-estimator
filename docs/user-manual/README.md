@@ -488,9 +488,19 @@ garage doors, a porch — with repairs and restoration noted where you've logged
 any. Each exterior line compares against the other *exterior* lines, so it only
 carries text where it genuinely differs from them.
 
-The kitchen and fitted units keep the plain "same as above" — the scope
-sentences are built from room and exterior measurements, and there's no
-equivalent for those yet.
+**Fitted units** describe themselves too — *"Fitted units including 3 bays, 9
+shelves and 4 doors painted both sides in Tikkurila Helmi 30, applied in 2
+coats. Bare surfaces will be primed first."* — with the product coming from the
+unit's own picker (or your Settings woodwork topcoat) and the priming note
+following each unit's **Bare / Already painted** setting. The **kitchen** fills
+in its coat count; its product and colour aren't tracked in the app, so those
+stay as `[product]` and `[colour/finish]` markers for you to type over, along
+with the fitted units' `[spray/brush]` and the wallpaper templates'
+`[paper name/supplier]`.
+
+On the Xero quote, the kitchen and fitted-unit *lines* still read "same as
+above" under the block — only rooms and exterior items get a per-line scope
+sentence.
 
 > **If you've edited your templates in Settings**, your saved copies keep whatever
 > wording you gave them. To pick this up, put **`{surfaces}`** where the scope

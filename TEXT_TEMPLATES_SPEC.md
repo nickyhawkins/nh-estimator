@@ -95,8 +95,24 @@ placeholders now build it from the live rooms:
   by…"). **Still deliberately hand-typed markers**: the wallpaper paper
   name/supplier (`wpNote` is personal reference, never client-facing — see
   v2.39.8) and Kitchen's product/colour (untracked, declined 2026-07-16).
-  Fitted Units and Fire Doors keep theirs; the fitted-unit product and
-  counts ARE tracked, but that one was left alone by request.
+  Fire Doors keeps its `[product]` (a manual-only template
+  `suggestTemplateId` never returns), and Fitted Units its `[spray/brush]`.
+  No seeded body asks for a coat count by hand any more.
+- **`{unitSurfaces}`** (`buildFuScopeSentence()`) does the same for FITTED
+  UNITS: bays, shelves and doors — "painted both sides" where that toggle is
+  on, since it doubles the work — the product from the unit's own `range`
+  picker falling back to the Settings woodwork topcoat (mirroring
+  `computeRoleGroups`' chain for the fittedunit role, so the text and the
+  tins agree), the 2 topcoats `calcFittedUnit` hardcodes, and **prepLevel in
+  words**: bare surfaces primed first, existing paintwork keyed and sanded,
+  or both where units differ. Counts appear here where they deliberately do
+  NOT for the kitchen — a fitted unit IS its bays, shelves and doors,
+  whereas a kitchen's per-tier counts are a bill of quantities behind one
+  price. `complexityUplift` stays out: a pricing figure that would only ever
+  justify a number. The template's prep line lost the word "priming", which
+  this now states precisely.
+- **`{kitchenCoats}`** fills the kitchen template's `[X]` from
+  `calcKitchen`'s own 1–4 clamp. Its product and colour stay markers.
 - **`roomScopeShort()`** puts the same scope in a few words —
   *"ceiling, walls and woodwork"* — on the client quote view's `sub` line,
   which for rooms was empty (`extScopeShort()` does the same for exterior items, replacing the bare "exterior"). Surfaces only, no products or coats: the
@@ -118,7 +134,7 @@ walls, ceiling and woodwork all measured renders the seeded sentence back
 character for character in both tenses. Templates already edited in Settings
 keep their own wording (`settings.textTemplates` is copy-on-write) — paste
 the placeholder in, or Reset to defaults. Verified by `npm run test:scope`,
-147 checks, pure node against the real source.
+176 checks, pure node against the real source.
 
 **As built — deviations from the spec below, all deliberate:**
 

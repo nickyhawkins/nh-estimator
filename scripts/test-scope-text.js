@@ -96,7 +96,9 @@ const sandbox = `
   function extWindowCount(list) { return list.reduce(function(s, w) { return s + extWindowQty(w); }, 0); }
   function legacyWindowList(qty) { return (+qty || 0) > 0 ? [{ panes: 2, qty: +qty }] : []; }
   var rooms = [], extItems = [], labourLog = [];
-  function activeJob() { return { name: 'Test Job' }; }
+  function activeJob() { return JOB; }
+  var JOB = { name: 'Test Job' };
+  function fittedUnitList(job) { return (job && job.fittedUnits) || []; }
 `;
 
 const api = {};
@@ -112,6 +114,8 @@ new Function('exports', sandbox + [
   extractFn('buildExtScopeSentence'),
   extractFn('extItemScopeSentence'),
   extractFn('extScopeShort'),
+  extractFn('fuScopeFacts'),
+  extractFn('buildFuScopeSentence'),
   extractFn('renderTemplateText'),
   extractFn('formatLongDate'),
   extractFn('buildTemplateValues'),
@@ -127,10 +131,11 @@ new Function('exports', sandbox + [
   'exports.buildExtScopeSentence = buildExtScopeSentence;',
   'exports.extItemScopeSentence = extItemScopeSentence;',
   'exports.extScopeShort = extScopeShort;',
+  'exports.buildFuScopeSentence = buildFuScopeSentence;',
   'exports.scopeProductValues = scopeProductValues;',
   // Drives the REAL product resolution: set the room list, get the values
   // object a render would actually be given.
-  'exports.valuesFor = function(mode, rs, xs) { rooms = rs || []; extItems = xs || []; return buildTemplateValues(mode); };'
+  'exports.valuesFor = function(mode, rs, xs, job) { rooms = rs || []; extItems = xs || []; JOB = job || { name: "Test Job" }; return buildTemplateValues(mode); };'
 ].join('\n'))(api);
 
 // An exterior item measured the ordinary way: render, fascias, windows and
@@ -138,6 +143,8 @@ new Function('exports', sandbox + [
 const EXT_PRODUCTS = { masonryProduct: 'Dulux Weathershield', extWoodProduct: 'Weathershield Gloss' };
 const EXT_FULL = { label: 'Front Elevation', masonry: 60, fascia: 12,
                    windows: [{ qty: 4 }], doorQty: 1 };
+// A fitted unit measured the ordinary way: bays, shelves and doors, bare.
+const FU_FULL = { bayCount: 3, shelfCount: 9, doorCount: 4, prepLevel: 'bare' };
 
 const PRODUCTS = {
   wallProduct: 'Tikkurila Optiva 5',
@@ -372,7 +379,8 @@ const values = rooms => Object.assign({
   rooms: 'Living Room',
   masonryProduct: 'Dulux Weathershield', extWoodProduct: 'Dulux Weathershield Gloss'
 }, PRODUCTS, { surfaces: scope('quote', rooms), papered: api.buildPaperedPhrase(rooms),
-   extSurfaces: api.buildExtScopeSentence('quote', [EXT_FULL], EXT_PRODUCTS) });
+   extSurfaces: api.buildExtScopeSentence('quote', [EXT_FULL], EXT_PRODUCTS),
+   unitSurfaces: api.buildFuScopeSentence('quote', [FU_FULL], PRODUCTS), kitchenCoats: 2 });
 const wallsOnly = api.renderTemplateText(tpl('painting').body, 'quote', values([{ name: 'Living Room', wc: 2 }]));
 check('painting template, walls-only job never says "ceiling"', !/ceiling/i.test(wallsOnly), wallsOnly);
 check('painting template, walls-only job never says "woodwork"', !/woodwork/i.test(wallsOnly), wallsOnly);
@@ -397,7 +405,8 @@ api.DEFAULT_TEXT_TEMPLATES.forEach(t => {
   ['quote', 'invoice'].forEach(mode => {
     const out = api.renderTemplateText(t.body, mode, Object.assign({ completedDate: '7 August 2026' },
       values([FULL]), { surfaces: scope(mode, [FULL]),
-        extSurfaces: api.buildExtScopeSentence(mode, [EXT_FULL], EXT_PRODUCTS) }));
+        extSurfaces: api.buildExtScopeSentence(mode, [EXT_FULL], EXT_PRODUCTS),
+        unitSurfaces: api.buildFuScopeSentence(mode, [FU_FULL], PRODUCTS), kitchenCoats: 2 }));
     check(t.id + ' / ' + mode + ' — no unresolved placeholder',
       !/\{[a-zA-Z][a-zA-Z0-9]*\}/.test(out), out);
     check(t.id + ' / ' + mode + ' — no blank line left where a value was dropped',
@@ -571,6 +580,69 @@ check('ext-render keeps its brush/roller/spray sentence',
 // after it must not open with "Applied" again.
 check('ext-render does not say "applied" twice in a row',
   !/applied in \d coats\. Applied/.test(renderQ), renderQ);
+
+// ── 15. Fitted units ───────────────────────────────────────────────────────
+const fu = (mode, units) => api.buildFuScopeSentence(mode, units, PRODUCTS);
+eq('a bare unit, quote', fu('quote', [FU_FULL]),
+  'Fitted units including 3 bays, 9 shelves and 4 doors in Tikkurila Helmi 30, applied in 2 coats. Bare surfaces will be primed first.');
+eq('a bare unit, invoice', fu('invoice', [FU_FULL]),
+  'Fitted units including 3 bays, 9 shelves and 4 doors in Tikkurila Helmi 30, 2 coats throughout. Bare surfaces were primed first.');
+eq('an already-painted unit gets the key-and-sand note, not the primer one',
+  fu('quote', [{ bayCount: 2, shelfCount: 4, prepLevel: 'painted' }]),
+  'Fitted units including 2 bays and 4 shelves in Tikkurila Helmi 30, applied in 2 coats. Existing paintwork will be keyed and sanded first.');
+eq('one bay, one shelf, one door — singulars',
+  fu('quote', [{ bayCount: 1, shelfCount: 1, doorCount: 1, prepLevel: 'painted' }]),
+  'Fitted units including 1 bay, 1 shelf and 1 door in Tikkurila Helmi 30, applied in 2 coats. Existing paintwork will be keyed and sanded first.');
+eq('doors painted both sides is said, since it doubles the work',
+  fu('quote', [{ doorCount: 4, doorBothSides: true, prepLevel: 'painted' }]),
+  'Fitted units including 4 doors painted both sides in Tikkurila Helmi 30, applied in 2 coats. Existing paintwork will be keyed and sanded first.');
+eq('both sides ignored where there are no doors',
+  fu('quote', [{ shelfCount: 3, doorBothSides: true, prepLevel: 'painted' }]),
+  'Fitted units including 3 shelves in Tikkurila Helmi 30, applied in 2 coats. Existing paintwork will be keyed and sanded first.');
+eq('counts sum across units, and both prep levels are said',
+  fu('quote', [{ bayCount: 2, prepLevel: 'bare' }, { bayCount: 3, shelfCount: 6, prepLevel: 'painted' }]),
+  'Fitted units including 5 bays and 6 shelves in Tikkurila Helmi 30, applied in 2 coats. Bare surfaces will be primed and existing paintwork keyed and sanded first.');
+eq("the unit's own product wins over the Settings woodwork topcoat",
+  fu('quote', [{ bayCount: 2, range: 'Little Greene Intelligent Eggshell', prepLevel: 'painted' }]),
+  'Fitted units including 2 bays in Little Greene Intelligent Eggshell, applied in 2 coats. Existing paintwork will be keyed and sanded first.');
+eq('two units in different products name both',
+  fu('quote', [{ bayCount: 1, range: 'A', prepLevel: 'painted' }, { bayCount: 1, range: 'B', prepLevel: 'painted' }]),
+  'Fitted units including 2 bays in A and B, applied in 2 coats. Existing paintwork will be keyed and sanded first.');
+eq('nothing counted — empty, never a literal token', fu('quote', [{ prepLevel: 'bare' }]), '');
+check('complexity uplift is a pricing figure and never reaches the text',
+  !/uplift|complexity/i.test(fu('quote', [{ bayCount: 2, complexityUplift: 25, prepLevel: 'bare' }])));
+
+const fuTpl = api.DEFAULT_TEXT_TEMPLATES.find(t => t.id === 'fitted-units');
+check('fitted-units template uses {unitSurfaces}', fuTpl.body.includes('{unitSurfaces}'), fuTpl.body);
+check('fitted-units template has no hand-typed coats or product marker left',
+  !/\[X\] coats/.test(fuTpl.body) && !/\[product\]/.test(fuTpl.body), fuTpl.body);
+check('fitted-units template keeps its spray/brush marker, which is not tracked',
+  fuTpl.body.includes('[spray/brush]'), fuTpl.body);
+// {unitSurfaces} now says exactly when priming happens, so the prep line
+// above it no longer claims it vaguely as well.
+check('fitted-units prep line no longer duplicates the priming statement',
+  !/sanding and priming/.test(fuTpl.body), fuTpl.body);
+
+// ── 16. Kitchen coats ──────────────────────────────────────────────────────
+const kTpl = api.DEFAULT_TEXT_TEMPLATES.find(t => t.id === 'kitchen-spray');
+check('kitchen template fills its coat count', kTpl.body.includes('{kitchenCoats}'), kTpl.body);
+check('kitchen template has no [X] coats marker left', !/\[X\] coats/.test(kTpl.body), kTpl.body);
+// The product and colour are NOT tracked in the app and must stay markers.
+check('kitchen product stays a hand-typed marker', kTpl.body.includes('[product]'), kTpl.body);
+check('kitchen colour stays a hand-typed marker', kTpl.body.includes('[colour/finish]'), kTpl.body);
+['quote', 'invoice'].forEach(mode => {
+  const out = api.renderTemplateText(kTpl.body, mode,
+    { rooms: 'x', completedDate: '7 August 2026', kitchenCoats: 3 });
+  check('kitchen / ' + mode + ' — the real coat count reaches the render',
+    out.includes('3 coats'), out);
+});
+
+// Every template's coats now come from the job, so no seeded body should
+// still be asking for a coat count to be typed in.
+api.DEFAULT_TEXT_TEMPLATES.forEach(t => {
+  if (t.id === 'fire-doors') return;  // manual-only choice; its doors are measured on rooms
+  check(t.id + ' — no hand-typed coats marker', !/\[X\] coats/.test(t.body), t.body);
+});
 
 // ── Report ─────────────────────────────────────────────────────────────────
 pass.forEach(n => console.log('  ok   ' + n));

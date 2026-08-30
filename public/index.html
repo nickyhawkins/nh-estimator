@@ -1340,7 +1340,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     </div>
     <div class="card">
       <div class="card-header">Quote &amp; Invoice Text</div>
-      <div class="settings-note">One template per job type — nine seeded, including <strong>Interior &amp; Exterior</strong> for a job with rooms and exterior items in it. The quote version goes on the first line of the Xero quote (each other room states its own scope underneath, or reads "same as above" where it matches — until you edit the text by hand, which turns those off); the invoice version prefills the final-invoice builder when the job's done. Syntax: <strong>{quote wording|invoice wording}</strong> where the two differ, lines starting <strong>Q:&nbsp;</strong> are quote-only, <strong>I:&nbsp;</strong> invoice-only, and {rooms}, {wallProduct}, {ceilingProduct}, {woodProduct}, {wallCoats}, {completedDate} fill in from the job automatically. <strong>{surfaces}</strong> writes the scope sentence from what you actually measured — only the surfaces with coats on them, plus a feature wall, panelling, radiators, sills or a mist coat where they were measured, each naming its own paint where it differs — and <strong>{papered}</strong> names what is being papered, and <strong>{extSurfaces}</strong> does the same job as {surfaces} for the exterior items.</div>
+      <div class="settings-note">One template per job type — nine seeded, including <strong>Interior &amp; Exterior</strong> for a job with rooms and exterior items in it. The quote version goes on the first line of the Xero quote (each other room states its own scope underneath, or reads "same as above" where it matches — until you edit the text by hand, which turns those off); the invoice version prefills the final-invoice builder when the job's done. Syntax: <strong>{quote wording|invoice wording}</strong> where the two differ, lines starting <strong>Q:&nbsp;</strong> are quote-only, <strong>I:&nbsp;</strong> invoice-only, and {rooms}, {wallProduct}, {ceilingProduct}, {woodProduct}, {wallCoats}, {completedDate} fill in from the job automatically. <strong>{surfaces}</strong> writes the scope sentence from what you actually measured — only the surfaces with coats on them, plus a feature wall, panelling, radiators, sills or a mist coat where they were measured, each naming its own paint where it differs — and <strong>{papered}</strong> names what is being papered, <strong>{extSurfaces}</strong> and <strong>{unitSurfaces}</strong> do the same job as {surfaces} for the exterior items and the fitted units, and <strong>{kitchenCoats}</strong> is the kitchen&rsquo;s coat count.</div>
       <div id="text-templates-list"></div>
       <div style="padding:12px 16px;display:flex;gap:8px;border-top:1px solid var(--border)">
         <button onclick="addTextTemplate()" style="flex:1;background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">+ Add template</button>
@@ -2845,15 +2845,15 @@ var DEFAULT_TEXT_TEMPLATES = [
     '{Painting of fitted units, {rooms}:|Painting of fitted units — {rooms}}',
     '',
     'Q: PROTECTION & PREPARATION',
-    'Q: All surrounding surfaces, flooring and adjacent fittings will be fully protected prior to any work commencing. Unit doors, frames and shelving will be prepared including filling, sanding and priming as required to ensure a smooth, quality finish.',
+    'Q: All surrounding surfaces, flooring and adjacent fittings will be fully protected prior to any work commencing. Unit doors, frames and shelving will be prepared including filling and sanding as required to ensure a smooth, quality finish.',
     'Q:',
     'Q: PAINTING & DECORATING',
-    'Q: Fitted units to be painted with [X] coats of [product], [spray/brush] finish throughout. All doors, frames and shelving finished to a durable, professional-grade standard using quality trade materials.',
+    'Q: {unitSurfaces} Finished by [spray/brush] throughout, all doors, frames and shelving to a durable, professional-grade standard using quality trade materials.',
     'Q:',
     'Q: COMPLETION',
     'Q: On completion all protection will be removed and the areas left clean and tidy. A final inspection will be carried out to ensure you are completely happy with the finished result.',
-    'I: Unit doors, frames and shelving prepared including filling, sanding and priming as required.',
-    'I: Fitted units painted with [X] coats of [product], [spray/brush] finish throughout.',
+    'I: Unit doors, frames and shelving prepared including filling and sanding as required.',
+    'I: {unitSurfaces} Finished by [spray/brush] throughout.',
     'I: Work completed on {completedDate}. Protection removed and area left clean on completion.'
   ].join('\n') },
   { id: 'fire-doors', name: 'Fire Doors & Ironmongery', body: [
@@ -2878,12 +2878,12 @@ var DEFAULT_TEXT_TEMPLATES = [
     'Q: All surrounding surfaces, worktops, appliances and flooring will be fully protected prior to any work commencing. All cabinet doors and drawer fronts will be carefully removed and labelled. Surfaces will be thoroughly degreased, sanded and primed as required to ensure excellent adhesion and a factory-quality finish. Where new handles are to be fitted, existing holes will be filled and fresh ones drilled.',
     'Q:',
     'Q: SPRAYING',
-    'Q: Cabinet doors, drawer fronts and frames to be sprayed with [X] coats of [product] in [colour/finish], using professional airless spray equipment in controlled conditions for a smooth, even finish throughout. All work carried out using professional techniques and quality trade materials.',
+    'Q: Cabinet doors, drawer fronts and frames to be sprayed with {kitchenCoats} coats of [product] in [colour/finish], using professional airless spray equipment in controlled conditions for a smooth, even finish throughout. All work carried out using professional techniques and quality trade materials.',
     'Q:',
     'Q: REHANG & COMPLETION',
     'Q: On completion all doors and drawer fronts will be carefully rehung and adjusted, all protection removed and the kitchen left clean and tidy. A final inspection will be carried out to ensure you are completely happy with the finished result.',
     'I: All doors and drawer fronts removed and labelled; surfaces degreased, sanded and primed as required.',
-    'I: Cabinet doors, drawer fronts and frames sprayed with [X] coats of [product] in [colour/finish], airless-sprayed in controlled conditions for a smooth, even finish throughout.',
+    'I: Cabinet doors, drawer fronts and frames sprayed with {kitchenCoats} coats of [product] in [colour/finish], airless-sprayed in controlled conditions for a smooth, even finish throughout.',
     'I: Doors and drawer fronts rehung and adjusted. Work completed on {completedDate}. Protection removed and kitchen left clean on completion.'
   ].join('\n') },
   // Interior & Exterior (v2.44.0): a job with rooms AND exterior items used
@@ -3283,6 +3283,60 @@ function extScopeShort(item) {
   return parts.length ? 'exterior — ' + englishJoin(parts) : 'exterior';
 }
 
+// ── The same, for fitted units ─────────────────────────────────────────────
+// The seeded template asked for "[X] coats of [product]" by hand, though the
+// counts, the prep level and the product are all on the unit. Counts appear
+// here where they do not for the kitchen: a fitted unit IS its bays, shelves
+// and doors -- that is the whole description of the thing -- whereas a
+// kitchen's counts are a bill of quantities behind one price.
+function fuScopeFacts(units) {
+  var f = { bays:0, shelves:0, doors:0, bothSides:false, bare:false, painted:false, products:[] };
+  (units || []).forEach(function(u) {
+    var doors = Math.max(0, +u.doorCount || 0);
+    f.bays += Math.max(0, +u.bayCount || 0);
+    f.shelves += Math.max(0, +u.shelfCount || 0);
+    f.doors += doors;
+    if (doors > 0 && u.doorBothSides) f.bothSides = true;
+    // calcFittedUnit's own test: anything not explicitly 'painted' is bare,
+    // and bare is what buys the extra priming pass.
+    if ((u.prepLevel || 'bare') !== 'painted') f.bare = true; else f.painted = true;
+    // The unit's own picker writes `range` (not a ...RangeOverride), falling
+    // back to the Settings woodwork topcoat -- computeRoleGroups' chain for
+    // the fittedunit role, mirrored here so the text and the tins agree.
+    var p = u.range || ((settings.materials || {}).topcoat || {}).range || '';
+    if (p && f.products.indexOf(p) < 0) f.products.push(p);
+  });
+  return f;
+}
+
+function buildFuScopeSentence(mode, units, vals) {
+  var f = fuScopeFacts(units);
+  var inv = mode === 'invoice';
+  function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
+  var bits = [];
+  if (f.bays)    bits.push(plural(f.bays, 'bay', 'bays'));
+  if (f.shelves) bits.push(plural(f.shelves, 'shelf', 'shelves'));
+  if (f.doors)   bits.push(plural(f.doors, 'door', 'doors') + (f.bothSides ? ' painted both sides' : ''));
+  if (!bits.length) return '';
+  var product = f.products.length ? englishJoin(f.products)
+    : ((vals && vals.woodProduct) ? String(vals.woodProduct) : '{woodProduct}');
+  // Two topcoats is not a guess: calcFittedUnit hardcodes topcoats = 2 (the
+  // bare unit's third pass is the primer, which the prep note below covers).
+  var body = 'Fitted units including ' + englishJoin(bits) + ' in ' + product +
+             (inv ? ', 2 coats throughout.' : ', applied in 2 coats.');
+  // prepLevel, in words. Both states can appear at once across several units.
+  if (f.bare && f.painted) {
+    body += inv ? ' Bare surfaces were primed and existing paintwork keyed and sanded first.'
+                : ' Bare surfaces will be primed and existing paintwork keyed and sanded first.';
+  } else if (f.bare) {
+    body += inv ? ' Bare surfaces were primed first.' : ' Bare surfaces will be primed first.';
+  } else if (f.painted) {
+    body += inv ? ' Existing paintwork was keyed and sanded first.'
+                : ' Existing paintwork will be keyed and sanded first.';
+  }
+  return body;
+}
+
 // The product values a scope sentence reads, over ANY room list: the whole
 // job for the block on the quote's first line, a single room for that
 // room's own line. Split out of buildTemplateValues so the job-wide
@@ -3423,6 +3477,12 @@ function buildTemplateValues(mode) {
   vals._multiProduct = multi;
   vals.surfaces = buildScopeSentence(mode, liveRooms, vals);
   vals.extSurfaces = buildExtScopeSentence(mode, liveExt, vals);
+  vals.unitSurfaces = buildFuScopeSentence(mode,
+    fittedUnitList(job).filter(function(f) { return !f.isVariation; }), vals);
+  // Kitchen coats ARE tracked (calcKitchen clamps 1-4, default 2); its
+  // product and colour are not, and stay [markers] — declined 2026-07-16.
+  vals.kitchenCoats = (job.kitchen && !job.kitchen.isVariation)
+    ? Math.max(1, Math.min(4, +job.kitchen.coats || 2)) : null;
   vals.papered = buildPaperedPhrase(liveRooms);
   if (mode === 'invoice') {
     // Last day actually on site beats the day the Completed button was
@@ -3587,7 +3647,10 @@ var TEMPLATE_SAMPLE_VALUES = {
   // job behind it, and {surfaces} is only interesting when it shows what a
   // measured extra actually looks like in the sentence.
   surfaces: 'Ceilings finished in Tikkurila Anti Reflex 2, walls in Tikkurila Optiva 5, the feature wall, and all woodwork including skirtings, doors and radiators in Tikkurila Helmi 30, each applied in 2 coats.',
-  papered: 'the feature wall'
+  papered: 'the feature wall',
+  extSurfaces: 'Rendered surfaces in Dulux Weathershield, exterior woodwork including fascias and soffits and window frames in Dulux Weathershield Gloss, each applied in 2 coats.',
+  unitSurfaces: 'Fitted units including 3 bays, 9 shelves and 4 doors in Tikkurila Helmi 30, applied in 2 coats. Bare surfaces will be primed first.',
+  kitchenCoats: 2
 };
 
 function renderTextTemplatesSettings() {
