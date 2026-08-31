@@ -309,7 +309,41 @@ function publicHeaders(res) {
   res.setHeader('Referrer-Policy', 'no-referrer');
 }
 
-router.use('/quote/:jobId/:token', async (req, res, next) => {
+// Two URL shapes reach the same page, and both stay supported forever:
+//
+//   /q/<token>                the SHORT link — what "Send for approval" mints
+//   /quote/<jobId>/<token>    the original — every link already texted out
+//
+// The short one is what a client actually receives. It is barely half the
+// length, so it survives a text message without wrapping into something that
+// looks broken, and it carries no job id — one less internal identifier on a
+// stranger's screen. Nothing was lost by dropping it: the token is already
+// globally unique (the jobs_client_token index), so the job id never did any
+// work in the URL beyond making it longer.
+const PUBLIC_PATHS = ['/q/:token', '/quote/:jobId/:token'];
+
+// Resolves either shape to the job it names. Looking a job up BY token is a
+// plain indexed lookup and is deliberately NOT the authorization decision --
+// it only chooses which row to check. The decision is still
+// loadClientQuote()'s constant-time compare, so rule 1 at the top of this file
+// holds identically for both shapes.
+async function resolveTarget(req) {
+  const token = req.params.token;
+  if (req.params.jobId) {
+    return {
+      jobId: req.params.jobId,
+      token,
+      base: '/quote/' + encodeURIComponent(req.params.jobId) + '/' + encodeURIComponent(token),
+    };
+  }
+  const found = await db.query('SELECT id FROM jobs WHERE client_token = $1', [token]);
+  // No row means no such link. jobId stays null, loadClientQuote() finds
+  // nothing, and the caller renders the same generic 404 as a wrong token --
+  // the two are indistinguishable from outside, exactly as before.
+  return { jobId: found.rows[0] ? found.rows[0].id : null, token, base: '/q/' + encodeURIComponent(token) };
+}
+
+router.use(PUBLIC_PATHS, async (req, res, next) => {
   publicHeaders(res);
   if (throttled(req.ip)) return res.status(429).type('text').send('Too many requests — try again shortly.');
   try {
@@ -322,11 +356,14 @@ router.use('/quote/:jobId/:token', async (req, res, next) => {
 });
 
 // The page. Public, no auth, token-gated.
-router.get('/quote/:jobId/:token', async (req, res) => {
+router.get(PUBLIC_PATHS, async (req, res) => {
   try {
-    const view = await loadClientQuote(req.params.jobId, req.params.token);
+    const { jobId, token, base } = await resolveTarget(req);
+    const view = await loadClientQuote(jobId, token);
     if (!view) { recordMiss(req.ip); return res.status(404).type('html').send(notFoundPage()); }
-    const base = '/quote/' + encodeURIComponent(req.params.jobId) + '/' + encodeURIComponent(req.params.token);
+    // Every action on the page is built from the base the reader arrived on,
+    // so a client on an old long link stays on long links and one on a short
+    // link stays short -- neither ever gets bounced to the other shape.
     // ?answered= is the no-JavaScript path's confirmation: the POST redirects
     // back here so the browser lands on a plain GET (nothing to re-submit on
     // refresh) and the flash says what happened.
@@ -357,17 +394,20 @@ router.get('/quote/:jobId/:token', async (req, res) => {
 //     approved_at and a declined_at and leave the audit trail ambiguous.
 function answerRoute(status) {
   return async (req, res) => {
-    const { jobId, token, variationId } = req.params;
-    const base = '/quote/' + encodeURIComponent(jobId) + '/' + encodeURIComponent(token);
+    const { variationId } = req.params;
     // Reply in kind: fetch (the page's own script) gets JSON, a real form
     // submission gets a redirect back to the page.
     const wantsJson = (req.headers.accept || '').includes('application/json');
+    let base = '/';
     const fail = (code, message, flash) => {
       if (wantsJson) return res.status(code).json({ ok: false, error: message });
       if (code === 404) return res.status(404).type('html').send(notFoundPage());
       return res.redirect(303, base + (flash ? '?answered=' + flash : ''));
     };
     try {
+      const target = await resolveTarget(req);
+      const { jobId, token } = target;
+      base = target.base;
       const view = await loadClientQuote(jobId, token);
       if (!view) { recordMiss(req.ip); return fail(404, 'not found'); }
       const stamp = status === 'approved'
@@ -404,7 +444,10 @@ function answerRoute(status) {
   };
 }
 
-router.post('/quote/:jobId/:token/variations/:variationId/approve', answerRoute('approved'));
-router.post('/quote/:jobId/:token/variations/:variationId/decline', answerRoute('declined'));
+// Both shapes, same action segment, so variationHtml() builds one action path
+// from whichever base the reader arrived on.
+const ACTION_PATHS = (verb) => PUBLIC_PATHS.map(p => p + '/variations/:variationId/' + verb);
+router.post(ACTION_PATHS('approve'), answerRoute('approved'));
+router.post(ACTION_PATHS('decline'), answerRoute('declined'));
 
 module.exports = router;

@@ -315,8 +315,14 @@ const mapClientVariationRow = (r) => ({
 // because the server has no reliable idea what hostname the instance is
 // reached on (Render proxies, custom domains) -- the app pairs it with its
 // own location.origin, which is by definition the right one.
-const clientQuotePath = (jobId, token) =>
-  '/quote/' + encodeURIComponent(jobId) + '/' + encodeURIComponent(token);
+//
+// The SHORT shape: the token is globally unique on its own (the
+// jobs_client_token index), so the job id was only ever making a texted link
+// longer and putting an internal identifier on a stranger's screen. The old
+// /quote/<jobId>/<token> shape still resolves -- see PUBLIC_PATHS in
+// routes/publicQuote.js -- so every link already sent keeps working; this is
+// only what NEW links look like.
+const clientQuotePath = (jobId, token) => '/q/' + encodeURIComponent(token);
 
 async function readClientVariations(jobId) {
   const [jobResult, rowsResult] = await Promise.all([
