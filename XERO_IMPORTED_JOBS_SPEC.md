@@ -108,6 +108,33 @@ The card renders on **both** Summary bodies: the full quote view (`renderSummary
 compact imported-job view (`importedJobSummaryHtml`), which is the **only** Summary a
 roomless imported job renders — i.e. exactly the jobs being retro-flagged.
 
+#### Where it is offered (v2.45.3)
+
+It originally rendered on **every** job. It only ever applies to the handful whose labour
+was agreed outside this app, so on an ordinary job it was a standing invitation to flip a
+flag that throws the app's whole labour side away. Both call sites now go through
+`xeroImportedSectionHtml(job)`, which renders the card when it can be meant and otherwise
+a single line — *"Labour agreed in a pre-app Xero quote?"* — that reveals it in place:
+
+| Case | Test | Why |
+|---|---|---|
+| already flagged | `jobIsXeroImported` | a flag that is ON is never hidden, nor is the figure feeding the quote |
+| came in through the importer | `importedQuoteSplit(job) != null` (an `importedFromXero` snapshot) | exactly the jobs the card exists to retro-flag — and the compact Summary is the only one they render, so the card is always on it |
+| revealed by hand | `job.id === xeroImportedRevealJobId` | below |
+
+The reveal is **session-only and per-job**, deliberately: there is nothing here worth
+persisting, and flipping the toggle on hands the job to case 1 from then on. It is **not**
+cleared when the toggle goes back off, so the card cannot vanish under the finger that just
+used it.
+
+Case 3 exists because case 2 cannot see every job that needs the flag. `linkQuoteToJob()`
+ties an existing app job to its accepted Xero quote but writes **no** `importedFromXero`
+snapshot, and a job typed in by hand against a quote agreed in Xero has no snapshot either.
+
+**This is visibility only.** Every field, helper and downstream branch is untouched, flagged
+jobs behave exactly as before, and the cleanup list at the end of this spec is still a
+separate future job that is still not this.
+
 ### 2. Measure tab — no changes to pricing, one changed default
 
 Rooms, materials and the day rate all work as normal. That calculated total **is** the
