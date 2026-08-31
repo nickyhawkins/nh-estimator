@@ -70,11 +70,27 @@ globalThis.__t = {
   });
   const sandbox = {
     console,
-    setTimeout, clearTimeout, setInterval, clearInterval,
+    setTimeout, clearTimeout, clearInterval,
+    // setInterval is stubbed, not passed through: debt.html registers a
+    // refresh poll at the top level (REFRESH_POLL_MS), and a real repeating
+    // timer in here would keep firing refreshIfStale() against the rejecting
+    // fetch below for as long as the process lives — and hold the process
+    // open after the checks have finished. Nothing under test is driven by
+    // it. setTimeout stays real; debounced saves rely on it.
+    setInterval: () => 0,
     fetch: () => Promise.reject(new Error('no network in this test')),
     localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
     navigator: { userAgent: 'node', serviceWorker: undefined },
-    document: { getElementById: el, body: { scrollHeight: 0 } },
+    // addEventListener/visibilityState: debt.html binds visibilitychange on
+    // document and focus on window at the top level, so the script cannot be
+    // evaluated at all without them (this file failed to LOAD, not to pass,
+    // once those landed). 'hidden' is both the safe answer and the true one —
+    // there is no window here — so any handler that does run declines to
+    // refresh rather than reaching for the network.
+    document: { getElementById: el, body: { scrollHeight: 0 },
+                addEventListener() {}, removeEventListener() {},
+                visibilityState: 'hidden' },
+    addEventListener() {}, removeEventListener() {},
     Notification: undefined,
     atob: (b) => Buffer.from(b, 'base64').toString('binary')
   };
