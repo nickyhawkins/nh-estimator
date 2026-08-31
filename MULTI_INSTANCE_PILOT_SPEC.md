@@ -27,7 +27,7 @@ The app has zero access control; anyone with the URL has full use of it.
   behaviour, so Nicky's instance is unaffected until she opts in).
 - Minimal login page at `/login` (standalone, matches app styling), POST
   to `/auth/login`, sets `req.session.authed`. Sessions already persist in
-  Postgres via connect-pg-simple with a 30-day cookie — one login per
+  Postgres via connect-pg-simple with a rolling 30-day cookie — one login per
   phone, then it behaves like an installed app.
 - `requireAuth` middleware in front of the SPA catch-all, `/api/*` and
   `/auth/*` (Xero). Exemptions: `/login`, `/auth/login`, static assets,

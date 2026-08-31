@@ -32,13 +32,31 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Session with PostgreSQL store
+// rolling: the 30-day cookie is re-sent on every response, so its expiry
+// moves forward with use instead of counting down from the login.
+//
+// This is what makes the login gate ONCE PER PHONE rather than once a month,
+// and that distinction decides whether the gate gets switched on at all.
+// Without it, a phone used every day still gets thrown back to the password
+// screen thirty days after signing in — which reads as "this app asks for a
+// password" and is exactly the friction that keeps APP_PASSWORD unset. An
+// unused control protects nothing, and since v2.41.0 there is a real reason
+// to want it on: the client-facing approval link (routes/publicQuote.js)
+// points at THIS origin, so a client who trims the link back to the domain
+// arrives at the app's front door. The gate is what makes that a login
+// screen rather than every job and every client's prices.
+//
+// Safe with saveUninitialized:false — a client reading /q/<token> has no
+// session, so nothing is created and no cookie is ever sent to them. Only a
+// signed-in device carries one, and only that device's expiry rolls.
 app.use(session({
   store: new pgSession({ pool: db.pool, tableName: 'session' }),
   secret: process.env.SESSION_SECRET || 'dev-secret-change-this',
   resave: false,
   saveUninitialized: false,
+  rolling: true,
   cookie: {
-    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days, refreshed on every request
     secure: process.env.NODE_ENV === 'production'
   }
 }));

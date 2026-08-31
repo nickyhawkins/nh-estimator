@@ -116,10 +116,26 @@ Public (`routes/publicQuote.js`, mounted in `server.js` **ahead of the login
 gate** — the reader has no account and never will):
 
 ```
-GET  /quote/:jobId/:token                                  the page
+GET  /q/:token                                      the page (SHORT — what links use)
+POST /q/:token/variations/:variationId/approve
+POST /q/:token/variations/:variationId/decline
+
+GET  /quote/:jobId/:token                           the original shape, kept working
 POST /quote/:jobId/:token/variations/:variationId/approve
 POST /quote/:jobId/:token/variations/:variationId/decline
 ```
+
+**Two URL shapes, both permanent.** The short one is what a client actually
+receives: 68 characters against 109, so it survives a text message without
+wrapping into something that looks broken, and it carries no job id — one less
+internal identifier on a stranger's screen. Nothing was lost by dropping it:
+the token is already globally unique (`jobs_client_token`), so the job id never
+did any work in the URL beyond making it longer. The long shape stays supported
+forever because links were already sent on it, and each page builds its action
+paths from the base the reader arrived on, so nobody is ever bounced between
+the two. Resolving a job **by** token is a plain indexed lookup and is
+deliberately not the authorization decision — that is still the constant-time
+compare, identically for both shapes.
 
 Authenticated (`routes/api.js`):
 
@@ -240,6 +256,30 @@ inheriting another client's answers would be worse than useless.
 4. Approve/decline POST routes.
 5. **Send for approval** on the Variations card, the shareable link with
    copy-to-clipboard, and the answer read-back.
+
+## The app's front door is the login gate, not the URL
+
+The approval link points at the same origin as the app, and *every* unmatched
+path on that origin serves the SPA — so the URL's shape was never going to be
+what stops a client trimming the link and finding the estimating app. Only
+`APP_PASSWORD` (MULTI_INSTANCE_PILOT_SPEC.md WS1) does that.
+
+The objection to switching it on was never security, it was friction: nobody
+wants to type a password on a phone on a roof. That objection was based on a
+misreading the code invited — the gate was always a 30-day Postgres-backed
+session, so once per month rather than once per opening, and since v2.45.5 the
+cookie is `rolling`, so its expiry moves forward with use. A phone that opens
+the app at least monthly logs in exactly once, ever.
+
+That is the trade this feature forces and it is worth stating plainly: shipping
+a client-facing link on the app's own origin makes the login gate load-bearing
+where it used to be optional. The instance that sends approval links should
+have `APP_PASSWORD` set.
+
+A separate client-facing hostname (a proxy in front that forwards only `/q/*`)
+would remove the need entirely, and is the right answer if the gate is ever
+genuinely unacceptable. It costs a domain and a proxy; the gate costs one
+login per phone. The gate won.
 
 ## Gotchas
 
