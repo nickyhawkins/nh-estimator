@@ -587,3 +587,64 @@ rather than decisions:
 - **Surplus above floors** follows the existing strict arrears-first/snowball
   order rather than splitting proportionally.
 - **`bufferTarget` is a fixed amount**, not a percentage of the floor total.
+
+---
+
+## Feature 9 — A plan that keeps itself up to date — BUILT (v2.48.0)
+
+The app had stalled: balances and arrears frozen for weeks, and every forecast still counting from July 2026. Three separate causes.
+
+### 9a. The calendar follows the live cycle
+
+`getMonthLabel()` was anchored to a literal `new Date(2026,6,1)`, and the header said "Starting July 2026" in plain HTML. Month 1 is now the month the **current cycle** opened, read from `debt_plan_settings.cycle_started_at` via `GET /debt/api/cycle-status`, which now returns `cycleStartedAt`, `nextRollAt`, `daysSinceStart` and `daysToRoll`. The header line renders live: *"August 2026 cycle · day 6 · renews 26 Sep"*. With no cycle loaded (offline, fresh install) it falls back to today's month, never to a hardcoded date.
+
+### 9b. Ticking a payment moves the money
+
+`setPaymentState()` debited a pot and moved an id between the three tick-lists — it never touched the balance or the arrears, so nothing could move between manual balance syncs. It now applies the payment as well:
+
+- **paid** → balance down by the full payment, arrears down by the arrears portion.
+- **floor** → balance down by `floorDue`, and arrears down only by `floorDue - minAmt`. Paying the contractual minimum clears no arrears; the arrears catch-up is the discretionary part on top, and that part wasn't paid.
+- **missed / untick** → exact reversal.
+
+Reversal has to be exact, and the applied figures are not simply "the payment" (arrears clamp to the balance; a short pot only gives what it holds), so each tick writes a ledger entry to the new `debt_plan_cashflow.applied_payments` JSONB column:
+
+```json
+{ "9": { "name": "NatWest Loan", "nominal": 778.72, "snowball": false,
+         "amount": 778.72, "arrearsAmt": 258.71, "potAmt": 778.72 } }
+```
+
+`nominal` is what the row displays and what History archives; the other three are what an un-tick puts back. Applied lazily by `routes/debt.js` like `floor_shortfalls`, so no manual `psql` run.
+
+Two consequences worth knowing:
+- A **ticked** row keeps showing what was actually paid. Re-running the sim would quote a different figure, because it is now working off the balance the payment already reduced.
+- An **unticked** row re-plans against the new balances. That is the point: clear one debt's arrears and the leftover budget visibly moves onto the next.
+
+`openSyncBalances()` had to learn this too — for a debt already ticked it seeds current balance + a month's interest, because the sim's month-1 remaining would subtract the same payment twice.
+
+### 9c. The cycle closes itself — `lib/debtCycle.js`
+
+A calendar month after it opened (`addMonths`, which clamps 31 Jan → 28 Feb rather than overflowing into March), a cycle closes on its own, in one transaction under `SELECT ... FOR UPDATE` on the settings row.
+
+**The governing rule: an automatic close does exactly what the manual close does, and nothing more.** It is the button pressing itself, not a second policy. Same history row, same `floorsMet`/`targetMet` verdict, same floor-shortfall merge, same things left alone — pots and buffer carry over, `floor_shortfalls` accumulates rather than resetting. In particular it does **not** add unmet floors to arrears: the shortfall ledger is where a missed floor belongs, deliberately inert until Catch up is tapped (Feature 8's whole point).
+
+The one thing it cannot borrow from the manual path is the payoff simulation, which is client-side only. Everything it needs comes from stored state instead: `floor_payment` per debt, the three tick-lists, and `applied_payments`. Two small consequences: the floor cap is the **balance** rather than the sim's planned payment (both say "you can't owe more than is left"), and `targetMet` is computed as "every debt in the plan paid in full" rather than "every row in the sim's month 1".
+
+`cycle_started_at` advances to *the boundary it crossed*, not `NOW()`, or every late rollover would push the next one further out and the cycle would drift off its day of the month. Months offline produce one history row per month, not one giant gap (capped at 12).
+
+It runs from two places: the 8am cron (`server.js`, inside the `DEBT_APP_ENABLED` gate, which then pushes "Cycle N closed…"), and the `/debt/api` middleware, throttled to one check per five minutes across all requests via a shared in-flight promise — so opening the app catches up instantly instead of waiting for the morning.
+
+**First-run grace.** The first time the roller ever runs against a database, `debt_plan_settings.auto_roll_started_at` is NULL. It stamps that column, adopts today as the start of the first auto-managed cycle, and closes nothing. This matters on deploy: the cycle open at that moment is months overdue *because nothing existed to close it*, and its balances and arrears had just been reconciled by hand. Closing it retroactively would have logged a month of unmet floors against figures that were already correct. The column is applied lazily by `lib/debtCycle.js` itself rather than `routes/debt.js`'s `ensureSchema`, because the cron can roll before any API request has been served.
+
+### 9d. Telling you what it did
+
+`notes` gains `autoRolled: true` alongside the verdict keys the manual close already writes. The Cash Flow tab reads it back as a banner naming the cycle, its floors verdict, and every shortfall that went onto the ledger, with an **Update my balances** button. That opens the sync modal in a new `'balances'` mode: it seeds the *current* balances (not a projection of the cycle that just began) and saves without archiving a second, empty cycle. Dismissal is stored per cycle number in `localStorage`, so the next rollover speaks up again. History marks auto-closed cycles with an `AUTO` badge.
+
+The 28-day nudge (banner and push) is reworded to match: it warns that the cycle renews and that unmet floors will go onto the catch-up ledger, rather than asking you to press a button.
+
+### 9e. Staying fresh without a reload
+
+`visibilitychange`, `focus` and a 5-minute poll re-run `loadState()`, so a server-side rollover or an edit from another device appears when you come back to the tab. Suppressed whenever a reload would discard local work: unsaved changes, a save still in flight (`persistInFlight`), an open modal, or a half-typed row in Edit Debts.
+
+### Known trade-off
+
+If you pay a debt outside the app and never tick it, the close records an unmet floor on the catch-up ledger. That is why the banner names every entry it added and points at the Behind panel — visible and reversible, not silent.

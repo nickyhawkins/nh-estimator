@@ -138,8 +138,13 @@ app.get('*', (req, res) => {
 // which would otherwise drift the reminders to 9am through BST.
 if (DEBT_APP_ENABLED) {
   const { sendDueNotifications, checkCycleReset, ntfyConfigured } = require('./lib/debtNotify');
+  const { rollDueCycles, notifyRolled } = require('./lib/debtCycle');
   cron.schedule('0 8 * * *', async () => {
     try {
+      // Roll first: a cycle that fell due overnight closes here, and the
+      // reminders below then reflect the new cycle rather than the dead one.
+      const rolled = await rollDueCycles();
+      if (rolled.length) await notifyRolled(rolled);
       await sendDueNotifications();
       await checkCycleReset();
     } catch (err) {

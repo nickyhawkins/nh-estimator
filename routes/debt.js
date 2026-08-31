@@ -3,6 +3,7 @@ const path = require('path');
 const db = require('../db');
 const { sendNtfy, ntfyConfigured } = require('../lib/debtNotify');
 const debtPush = require('../lib/debtPush');
+const debtCycle = require('../lib/debtCycle');
 const router = express.Router();
 
 // Multi-device conflict guard shared by the debts/settings/cashflow write
@@ -63,6 +64,11 @@ function ensureSchema() {
       await db.query(`ALTER TABLE debt_plan_cashflow ADD COLUMN IF NOT EXISTS floor_shortfalls JSONB NOT NULL DEFAULT '[]'`);
       await db.query(`ALTER TABLE debt_plan_cashflow ADD COLUMN IF NOT EXISTS floor_paid_this_cycle JSONB NOT NULL DEFAULT '[]'`);
       await db.query(`ALTER TABLE debt_plan_income_log ADD COLUMN IF NOT EXISTS buffer_amt NUMERIC NOT NULL DEFAULT 0`);
+      // Ledger of what a live "paid"/"floor" tick actually took off each
+      // balance, so un-ticking can put back exactly what it removed
+      // (recomputing from the now-reduced balances would give a different,
+      // wrong figure). See lib/debtCycle.js and db/setup-debt.sql.
+      await db.query(`ALTER TABLE debt_plan_cashflow ADD COLUMN IF NOT EXISTS applied_payments JSONB NOT NULL DEFAULT '{}'`);
     })().catch(err => { schemaReady = null; throw err; });
   }
   return schemaReady;
@@ -70,6 +76,11 @@ function ensureSchema() {
 router.use('/api', async (req, res, next) => {
   try {
     await ensureSchema();
+    // Catch up on any cycle that fell due while the app was closed, before
+    // the request reads state -- otherwise opening the app would show a
+    // months-old cycle until the next 8am cron. Throttled to one check per
+    // five minutes across all requests (see lib/debtCycle.js).
+    await debtCycle.rollDueCyclesThrottled();
     next();
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -106,7 +117,8 @@ router.get('/api/state', async (req, res) => {
         savingsPot: Number(c.savings_pot), paidThisCycle: c.paid_this_cycle,
         missedThisCycle: c.missed_this_cycle,
         floorPaidThisCycle: c.floor_paid_this_cycle,
-        bufferPot: Number(c.buffer_pot), floorShortfalls: c.floor_shortfalls
+        bufferPot: Number(c.buffer_pot), floorShortfalls: c.floor_shortfalls,
+        appliedPayments: c.applied_payments || {}
       },
       incomeLog: income.rows.map(e => ({
         id: e.id, amount: Number(e.amount), bizAmt: Number(e.biz_amt),
@@ -275,7 +287,7 @@ router.post('/api/settings', async (req, res) => {
 
 router.post('/api/cashflow', async (req, res) => {
   const { bizPot, perPot, savingsPot, bufferPot, paidThisCycle, missedThisCycle,
-    floorPaidThisCycle, floorShortfalls, clientUpdatedAt } = req.body;
+    floorPaidThisCycle, floorShortfalls, appliedPayments, clientUpdatedAt } = req.body;
   try {
     const current = await db.query('SELECT * FROM debt_plan_cashflow WHERE id = 1');
     const c = current.rows[0];
@@ -288,7 +300,8 @@ router.post('/api/cashflow', async (req, res) => {
           savingsPot: Number(c.savings_pot), paidThisCycle: c.paid_this_cycle,
           missedThisCycle: c.missed_this_cycle,
           floorPaidThisCycle: c.floor_paid_this_cycle,
-          bufferPot: Number(c.buffer_pot), floorShortfalls: c.floor_shortfalls
+          bufferPot: Number(c.buffer_pot), floorShortfalls: c.floor_shortfalls,
+          appliedPayments: c.applied_payments || {}
         },
         updatedAt: c.updated_at
       });
@@ -299,13 +312,15 @@ router.post('/api/cashflow', async (req, res) => {
               missed_this_cycle=COALESCE($5, missed_this_cycle),
               buffer_pot=COALESCE($6, buffer_pot),
               floor_shortfalls=COALESCE($7, floor_shortfalls),
-              floor_paid_this_cycle=COALESCE($8, floor_paid_this_cycle)
+              floor_paid_this_cycle=COALESCE($8, floor_paid_this_cycle),
+              applied_payments=COALESCE($9, applied_payments)
          WHERE id=1 RETURNING updated_at`,
       [bizPot, perPot, savingsPot, JSON.stringify(paidThisCycle || []),
         missedThisCycle === undefined ? null : JSON.stringify(missedThisCycle),
         bufferPot === undefined ? null : bufferPot,
         floorShortfalls === undefined ? null : JSON.stringify(floorShortfalls),
-        floorPaidThisCycle === undefined ? null : JSON.stringify(floorPaidThisCycle)]
+        floorPaidThisCycle === undefined ? null : JSON.stringify(floorPaidThisCycle),
+        appliedPayments === undefined ? null : JSON.stringify(appliedPayments)]
     );
     res.json({ ok: true, updatedAt: result.rows[0].updated_at });
   } catch (err) {
@@ -418,6 +433,7 @@ router.post('/api/new-cycle', async (req, res) => {
     const cashflowResult = await client.query(
       `UPDATE debt_plan_cashflow
           SET paid_this_cycle = '[]', missed_this_cycle = '[]', floor_paid_this_cycle = '[]',
+              applied_payments = '{}',
               floor_shortfalls = COALESCE($1, floor_shortfalls)
         WHERE id = 1 RETURNING updated_at`,
       [floorShortfalls === undefined ? null : JSON.stringify(floorShortfalls)]);
@@ -530,10 +546,10 @@ router.post('/api/notify-test', async (req, res) => {
 router.get('/api/cycle-status', async (req, res) => {
   try {
     const result = await db.query('SELECT cycle_started_at FROM debt_plan_settings WHERE id = 1');
-    const startedAt = result.rows[0]?.cycle_started_at;
-    if (!startedAt) return res.json({ daysSinceStart: 0, promptReset: false });
-    const daysSinceStart = Math.floor((Date.now() - new Date(startedAt).getTime()) / (1000 * 60 * 60 * 24));
-    res.json({ daysSinceStart, promptReset: daysSinceStart >= 28 });
+    // Carries cycleStartedAt/nextRollAt as well as the day counts: the
+    // frontend anchors its whole payoff calendar to the cycle's start month,
+    // so "month 1" tracks reality instead of a hardcoded date.
+    res.json(debtCycle.cycleStatusFor(result.rows[0]?.cycle_started_at));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
