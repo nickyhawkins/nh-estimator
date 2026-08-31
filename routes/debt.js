@@ -360,7 +360,7 @@ router.delete('/api/income/:id', async (req, res) => {
 // adopt them instead of its next save tripping the stale-write guard.
 router.post('/api/new-cycle', async (req, res) => {
   const { debts, debtsPaid, debtsMissed, bizPotClose, perPotClose,
-    floorShortfalls, cycleFloorShortfalls, floorsMet, targetMet } = req.body;
+    floorShortfalls, cycleFloorShortfalls, floorsMet, targetMet, arrearsAdded } = req.body;
   const client = await db.pool.connect();
   try {
     await client.query('BEGIN');
@@ -383,6 +383,14 @@ router.post('/api/new-cycle', async (req, res) => {
     if (Array.isArray(cycleFloorShortfalls) && cycleFloorShortfalls.length) {
       noteData.floorShortfalls = cycleFloorShortfalls.map(f => ({
         id: Number(f.id), name: String(f.name || ''), amount: Number(f.amount) || 0
+      }));
+    }
+    // Contractual minimums this cycle left uncovered, which the client has
+    // already folded into the arrears it sends up in `debts`. Archived so
+    // History can say what moved -- the same key the auto-roller writes.
+    if (Array.isArray(arrearsAdded) && arrearsAdded.length) {
+      noteData.arrearsAdded = arrearsAdded.map(a => ({
+        id: Number(a.id), name: String(a.name || ''), amount: Number(a.amount) || 0
       }));
     }
     const notes = Object.keys(noteData).length ? JSON.stringify(noteData) : null;
