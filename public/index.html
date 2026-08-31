@@ -8386,10 +8386,60 @@ function setJobHonouredLabour(val) {
   renderSummary();
 }
 
-// The toggle card itself. Rendered on BOTH Summary bodies -- the full quote
-// view and the compact imported-job one (importedJobSummaryHtml) -- because
-// the jobs this exists to flag are exactly the roomless ones that render the
-// compact view until they've been measured.
+// WHERE THE CARD IS OFFERED (v2.45.3). It used to render on every job. It
+// only ever applies to the handful whose labour was agreed OUTSIDE this app,
+// so on an ordinary job it was a standing invitation to flip a flag that
+// would throw the app's whole labour side away and quote materials against a
+// figure nobody had typed. It is now offered only where it can be meant:
+//
+//   1. the job is already flagged -- a flag that is ON is never hidden, nor
+//      is the figure feeding the quote.
+//   2. the job came in through the importer (an importedFromXero snapshot,
+//      hence importedQuoteSplit) -- these are exactly the jobs the card
+//      exists to retro-flag, and the compact Summary below is the only one
+//      they render until they're measured, so the card must be on it.
+//   3. it was revealed by hand this session -- xeroImportedRevealJobId.
+//
+// NOTHING about the feature is gated off or removed: every field, helper and
+// downstream branch is untouched, flagged jobs behave exactly as before, and
+// XERO_IMPORTED_JOBS_SPEC.md's cleanup list is still a separate future job
+// that is still not this. Visibility only -- a job that needs the flag is one
+// tap from it.
+function xeroImportedCardApplies(job) {
+  return jobIsXeroImported(job) || importedQuoteSplit(job) != null;
+}
+
+// Case 3: a job created by hand here whose labour was nevertheless agreed in
+// a pre-app Xero quote. linkQuoteToJob() is the live example -- it ties an
+// existing job to its accepted Xero quote but writes no importedFromXero
+// snapshot, so case 2 cannot see it. Session-only and per-job on purpose:
+// there is nothing here worth persisting, and flipping the toggle on hands
+// the job to case 1 from then on. Deliberately NOT cleared when the toggle
+// goes back off, so the card can't vanish under the finger that just used it.
+var xeroImportedRevealJobId = null;
+function revealXeroImportedCard() {
+  var job = activeJob();
+  if (!job) return;
+  xeroImportedRevealJobId = job.id;
+  renderSummary();
+}
+
+// What both Summary bodies call: the card where it applies, otherwise the one
+// line that offers it. The compact imported-job Summary always takes the
+// first branch (it is only ever rendered for importedFromXero jobs), so in
+// practice the link belongs to the full quote view alone.
+function xeroImportedSectionHtml(job) {
+  if (xeroImportedCardApplies(job) || (job && job.id === xeroImportedRevealJobId)) {
+    return xeroImportedCardHtml(job);
+  }
+  return '<div onclick="revealXeroImportedCard()" style="text-align:center;font-size:12px;color:var(--text2);font-weight:600;cursor:pointer;text-decoration:underline;padding:16px 16px 0">Labour agreed in a pre-app Xero quote?</div>';
+}
+
+// The toggle card itself. Reached through xeroImportedSectionHtml() from BOTH
+// Summary bodies -- the full quote view and the compact imported-job one
+// (importedJobSummaryHtml) -- because the jobs this exists to flag are
+// exactly the roomless ones that render the compact view until they've been
+// measured.
 function xeroImportedCardHtml(job) {
   var on = jobIsXeroImported(job);
   var amt = job && job.honouredLabourAmount != null ? String(job.honouredLabourAmount) : '';
@@ -9199,8 +9249,10 @@ function importedJobSummaryHtml(job) {
     '</div>'+
     // Same toggle card as the full Summary body. It belongs here above all —
     // the jobs being retro-flagged are exactly these roomless imported ones,
-    // and this is the only Summary they render until they're measured.
-    xeroImportedCardHtml(job)+
+    // and this is the only Summary they render until they're measured. Which
+    // is also why the visibility rule can never hide it here: every job
+    // reaching this body has an importedFromXero snapshot (case 2).
+    xeroImportedSectionHtml(job)+
     (vv.hasVariations
       ? '<div class="card" style="margin-top:16px">'+
           '<div class="field-row"><div class="field-label">Variations<small>'+
@@ -21050,8 +21102,11 @@ function renderSummary() {
     // Job-level toggles, in one group: Imported from Xero sits with
     // Commercial/Standalone because it's the same kind of flag on the same
     // job record. Unlike those two it changes NO pricing at all — only which
-    // figure is quoted and what the profitability card compares.
-    xeroImportedCardHtml(statusJob)+
+    // figure is quoted and what the profitability card compares. Unlike those
+    // two it is also the odd one out on an ordinary job, so here it collapses
+    // to a single offering line until it applies — see
+    // xeroImportedSectionHtml.
+    xeroImportedSectionHtml(statusJob)+
     '<div class="card" style="margin-top:16px">'+
       '<div class="card-header">Commercial Job</div>'+
       '<div class="toggle-row"><div class="toggle-label">Commercial job<small>Applies '+(settings.commercialPct!=null?settings.commercialPct:10)+'% before markup/discount below</small></div>'+
