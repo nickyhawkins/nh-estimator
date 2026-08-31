@@ -257,6 +257,30 @@ inheriting another client's answers would be worse than useless.
 5. **Send for approval** on the Variations card, the shareable link with
    copy-to-clipboard, and the answer read-back.
 
+## The app's front door is the login gate, not the URL
+
+The approval link points at the same origin as the app, and *every* unmatched
+path on that origin serves the SPA — so the URL's shape was never going to be
+what stops a client trimming the link and finding the estimating app. Only
+`APP_PASSWORD` (MULTI_INSTANCE_PILOT_SPEC.md WS1) does that.
+
+The objection to switching it on was never security, it was friction: nobody
+wants to type a password on a phone on a roof. That objection was based on a
+misreading the code invited — the gate was always a 30-day Postgres-backed
+session, so once per month rather than once per opening, and since v2.45.5 the
+cookie is `rolling`, so its expiry moves forward with use. A phone that opens
+the app at least monthly logs in exactly once, ever.
+
+That is the trade this feature forces and it is worth stating plainly: shipping
+a client-facing link on the app's own origin makes the login gate load-bearing
+where it used to be optional. The instance that sends approval links should
+have `APP_PASSWORD` set.
+
+A separate client-facing hostname (a proxy in front that forwards only `/q/*`)
+would remove the need entirely, and is the right answer if the gate is ever
+genuinely unacceptable. It costs a domain and a proxy; the gate costs one
+login per phone. The gate won.
+
 ## Gotchas
 
 - **Mount order in `server.js` is load-bearing.** The public router must sit
