@@ -590,7 +590,7 @@ rather than decisions:
 
 ---
 
-## Feature 9 — A plan that keeps itself up to date — BUILT (v2.48.0, arrears rule corrected v2.48.1)
+## Feature 9 — A plan that keeps itself up to date — BUILT (v2.48.0, arrears rule corrected v2.48.2)
 
 The app had stalled: balances and arrears frozen for weeks, and every forecast still counting from July 2026. Three separate causes.
 
@@ -627,7 +627,7 @@ A calendar month after it opened (`addMonths`, which clamps 31 Jan → 28 Feb ra
 
 **The governing rule: an automatic close does exactly what the manual close does, and nothing more.** It is the button pressing itself, not a second policy. Same history row, same `floorsMet`/`targetMet` verdict, same floor-shortfall merge, same arrears roll, same things left alone — pots and buffer carry over, `floor_shortfalls` accumulates rather than resetting.
 
-**Two different numbers move at a close, and they are not the same thing** (corrected in v2.48.1 — the first cut had this backwards):
+**Two different numbers move at a close, and they are not the same thing** (corrected in v2.48.2 — the first cut had this backwards):
 
 - The **minimum** (`debt_plan_debts.min`) is contractual. Whatever of it goes unpaid is genuinely overdue, so it is added to arrears, capped at the balance. That is simply true, and the plan should say so.
 - The **floor** (`floor_payment`) is discretionary — what Nicky has chosen to aim for, which may sit above or below the minimum. Missing it is not a debt to anyone, so it goes on the floor-shortfall ledger instead: recorded, visible, and inert until Catch up is tapped (Feature 8's whole point).
