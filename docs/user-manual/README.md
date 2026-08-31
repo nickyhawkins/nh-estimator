@@ -62,7 +62,7 @@ The app ships with sensible defaults (day rate £300, 20% markup, 25% deposit, s
 
 ![Home screen](images/01-home.png)
 
-The **Home** screen is your morning glance: the current job and its status, a **Materials to buy** count, what's **next on site**, and shortcut links. When something needs chasing — a quote that's gone unanswered too long, a finished job you haven't invoiced — it appears at the top of Home as an attention strip.
+The **Home** screen is your morning glance: the current job and its status, a **Materials to buy** count, **Next on site** — the client you're due at next and the date — and shortcut links. When something needs chasing — a quote that's gone unanswered too long, a finished job you haven't invoiced — it appears at the top of Home as an attention strip.
 
 The **bottom bar** is always visible and follows the life of a job, left to right:
 
