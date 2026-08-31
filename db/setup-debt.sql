@@ -222,3 +222,22 @@ ALTER TABLE debt_plan_cashflow ADD COLUMN IF NOT EXISTS floor_paid_this_cycle JS
 -- Buffer allocations are logged alongside the pot splits so deleting an
 -- income entry can reverse the buffer top-up too.
 ALTER TABLE debt_plan_income_log ADD COLUMN IF NOT EXISTS buffer_amt NUMERIC NOT NULL DEFAULT 0;
+
+-- Ledger of what each live "paid"/"floor" tick took off a balance this cycle,
+-- keyed by debt id -- ticking a payment now applies it to the debt straight
+-- away, which is what lets balances and arrears move between balance syncs:
+--   { "9": { "name": "NatWest Loan", "nominal": 778.72, "snowball": false,
+--            "amount": 778.72, "arrearsAmt": 258.71, "potAmt": 778.72 } }
+-- `nominal` is the figure displayed and archived to history; the other three
+-- are what an un-tick puts back (they differ from the payment whenever the
+-- arrears clamp bites or the pot held less than the payment). Cleared with
+-- the tick-lists when a cycle closes. ALSO applied lazily by routes/debt.js.
+ALTER TABLE debt_plan_cashflow ADD COLUMN IF NOT EXISTS applied_payments JSONB NOT NULL DEFAULT '{}';
+
+-- Stamped the first time the automatic cycle roller (lib/debtCycle.js) runs
+-- against this database. NULL means it has never run, and that first run is a
+-- grace: the cycle open at that moment predates the roller and has been
+-- reconciled by hand, so it adopts the date and closes nothing. ALSO applied
+-- lazily, by lib/debtCycle.js itself rather than routes/debt.js -- the 8am
+-- cron can roll before any API request has been served.
+ALTER TABLE debt_plan_settings ADD COLUMN IF NOT EXISTS auto_roll_started_at TIMESTAMP;
