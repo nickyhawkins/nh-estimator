@@ -398,6 +398,10 @@ Summary still shows the live calculation underneath, because that is how you pri
 
 ![The line between the agreed figures and the live working on an accepted job](images/07c-accepted-working-figures.png)
 
+If the live figure has moved away from the agreed one, the strap-line under the total says so — *"Same job priced today: £X — £Y more, broken down below"* — and a **Where the £Y difference is** card sits directly underneath telling you exactly where it went: labour agreed → today, materials agreed → today, the £5 rounding on its own line, and then whether the Rates page had anything to do with it. If nothing on Rates or Settings has changed since you accepted, it says so in as many words, so you know to look at the job — a room re-measured, or the materials list edited — rather than hunting through rates that never moved. None of it changes the agreed figures; **Amend** is still the only thing that does.
+
+![Where the difference is — the live figure attributed against the accepted one](images/07d-quote-drift.png)
+
 For the same reason the **Commercial job**, **Standalone job** and **Markup / Discount** controls stop taking taps once a job is accepted — they can't move a price that is already agreed. A strip above them says so, with **Unlock for amending** if you do want to change one: unlocking affects the working figures and whatever you freeze as the next revision, never the total already agreed.
 
 If the job genuinely needs to change after acceptance — a variation, a correction — Summary shows the current **Accepted quote — Revision N** and an **Amend → revision N+1** link, which re-runs the calculation once and freezes a new snapshot. The old revision stays on record; nothing is overwritten. Once there is more than one, a **History (N revisions)** link appears next to it: tap it for the list of every revision with its date, its total and what each amendment added or took off.

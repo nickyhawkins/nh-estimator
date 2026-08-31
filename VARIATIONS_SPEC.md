@@ -169,6 +169,21 @@ Plus one genuinely new lightweight type for the odd job that isn't worth measuri
   free lines by label) with its engine price, and a variations subtotal. The main
   labour/section totals EXCLUDE flagged items, so "Original quote" remains recognisable
   against the Xero quote, and: `job total = original total + variations total`.
+- **"Flagged" means flagged, whatever the client said.** The exclusion above is by the
+  `isVariation` flag alone — never by approval status. `computeVariationsView()` keeps two
+  sets of sums for exactly this reason: `varLabour`/`varTime`/`varSpray` count only
+  non-declined items (what the variations are *worth* — a declined one is worth nothing),
+  and `varLabourAll`/`varTimeAll`/`varSprayAll` count every flagged item (what is *not
+  part of the original quote* — a declined variation still isn't). Summary subtracts the
+  second to get `tcOrig`/`ttOrig`/`sprayOrig`.
+
+  Subtracting the first, as it did until v2.47.0, left a **declined** variation's labour
+  and time sitting inside the quote-facing total — money the client had turned down,
+  added to the headline figure, the deposit and the payment plan, while the variations
+  line beside it read "+ £0.00". The client quote, the Xero quote, the final invoice and
+  the accepted-quote snapshot all filter on `isVariation` alone, so Summary was the only
+  reader that disagreed with the document being sent. On an accepted job it surfaced as
+  phantom drift against the frozen figures with nothing having changed.
 - **Markup**: flagged items get the same markup treatment as everything else (incl. the
   per-job override from edits #2) — a variation is normal work at normal rates. Free
   `'flat'` lines are NOT marked up (the typed figure is the agreed price); `'hours'` lines

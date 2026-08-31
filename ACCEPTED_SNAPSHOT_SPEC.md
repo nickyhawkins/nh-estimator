@@ -181,6 +181,32 @@ with no snapshot must fall back to live rather than render blank.
 | Job profitability | `quotedTotal`, `quotedDays` and `quotedMaterials` come from the snapshot, so margin on finished work stops moving with the rates. |
 | Xero re-send | Can't read the snapshot (the payload is raw line totals plus a markup instruction the server applies), so instead the drift is put on screen: "accepted at £X (revision N) — sending now builds the quote at today's rates: £Y. Send anyway?" Only when the two differ. Nothing about it writes a snapshot. |
 
+### 3.2 The drift aside names the difference, not a cause
+
+The aside under the hero used to read *"Same job at today's rates: £X — not what was
+agreed"*. It names a **cause**, and usually the wrong one: every input feeds that figure —
+scope, the materials list, the job's own flags — and the rates are the one thing that
+most often has *not* moved. Someone reading it goes to the Rates page, finds nothing
+changed, and is left with a number they cannot account for.
+
+It now states the fact (*"Same job priced today: £X — £Y more, broken down below"*) and
+`quoteDriftCardHtml()` attributes it, from the snapshot alone:
+
+- **Labour** and **Materials**, agreed → today, each marked unchanged or moved. The
+  adjustment pool (the standalone upcharge and the round-up to the next £5) is spread
+  across the labour lines, so it is pulled out into its own row — otherwise an extra tin
+  of paint, which changes where the total lands against the next £5, reads as labour
+  having moved.
+- **Whether the Rates page is any part of it.** `rates` holds the whole settings blob as
+  it stood, so the scalars are diffed by name (using the Rates page's own labels, read off
+  the inputs it already renders) and the entire blob is compared besides. Only when every
+  key matches does the card say so — *"No rate or setting has changed since acceptance —
+  the difference is in the job itself"* — which is the sentence that actually answers the
+  question. A snapshot rebuilt from a Xero total has no `rates`, and says that instead of
+  guessing.
+
+The card renders only when the two figures differ, and reading it writes nothing.
+
 ### 3.1 One boundary, not five hints
 
 An accepted job's Summary carries both worlds, so the screen has to say where one
