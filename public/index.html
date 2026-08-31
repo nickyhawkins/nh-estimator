@@ -2116,7 +2116,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.48.2</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.48.3</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -4821,11 +4821,18 @@ async function createXeroQuote(forceNew) {
 // failure: offline, the literal in the HTML is the honest answer anyway, and
 // a version line is never worth an error message.
 function showBuildVersion() {
+  // The baked literal first, so appVersion is populated SYNCHRONOUSLY and a
+  // snapshot captured on site with no signal still records a version. The
+  // fetch below corrects it to what the server is really running.
+  var el0 = document.getElementById('build-version');
+  var baked = el0 && /v([0-9][0-9.]*)/.exec(el0.textContent || '');
+  if (baked) appVersion = baked[1];
   fetch('/api/version')
     .then(function(r) { return r.json(); })
     .then(function(d) {
       var el = document.getElementById('build-version');
       if (el && d && d.version) el.textContent = 'Build: v' + d.version;
+      if (d && d.version) appVersion = d.version;
     })
     .catch(function() {});
 }
@@ -5267,6 +5274,14 @@ function mergeSettings(raw) {
 // seed row db/setup.sql inserts -- so a fresh client talking to a
 // just-migrated DB still has somewhere valid to point at before the
 // first /api/jobs round trip in initApp() confirms/corrects it.
+// Which build of the app is running. Recorded into every snapshot from
+// v2.48.3 on, because the rates are only half of what prices a job: the CODE
+// that turns a room into a figure is the other half, and it changes. A quote
+// accepted the day doors and frames stopped carrying their own prep
+// percentage re-prices under the next release with no rate touched and no
+// room edited -- which reads, to anyone looking at it, as the app inventing
+// £25. Stored so the drift card can say so instead of blaming the job.
+var appVersion = null;
 var activeJobId = localStorage.getItem('pe-active-job-id') || 'default';
 var jobs = JSON.parse(localStorage.getItem('pe-jobs') || '[]');
 var rooms    = JSON.parse(localStorage.getItem('pe-rooms') || '[]');
@@ -6211,7 +6226,11 @@ function buildAcceptedQuoteSnapshot(job) {
     // table — a couple of KB against a permanent record of what the client
     // agreed and why it came to that. This is the field that makes a drift
     // question answerable instead of arguable.
-    rates: JSON.parse(JSON.stringify(settings))
+    rates: JSON.parse(JSON.stringify(settings)),
+    // The other half of "why did it come out at this figure" — see the
+    // appVersion declaration. null on snapshots taken before this shipped,
+    // which the drift card reports as not-knowable rather than as no-change.
+    appVersion: appVersion
   };
 }
 
@@ -6618,7 +6637,22 @@ function quoteDriftCardHtml(job, live) {
     }).concat(rates.tables.map(escapeHtml)).join(' · ')
       + (rates.named.length > 4 ? ' · and ' + (rates.named.length - 4) + ' more rates' : '') + '.';
   } else {
-    ratesLine = '<strong>Nothing that prices this job has changed on the Rates or Settings pages</strong> — every rate, the coverage table, the kitchen rates and the product choices are exactly as they were when this was accepted. The difference is in the job itself, on the lines above.';
+    // Nothing priced has moved, so the money came from one of the two places
+    // this card cannot see from the rates alone: the job's own scope, or the
+    // CALCULATION. Claiming the job outright was wrong — an accepted quote
+    // can re-price on a release that changes how a room is costed, with every
+    // input identical, and telling someone to go and look at rooms they never
+    // touched is worse than admitting the app might be the author.
+    var wasV = snap.data.appVersion, nowV = appVersion;
+    ratesLine = '<strong>Nothing that prices this job has changed on the Rates or Settings pages</strong> — every rate, the coverage table, the kitchen rates and the product choices are exactly as they were when this was accepted. ';
+    if (wasV && nowV && wasV !== nowV) {
+      ratesLine += 'The app itself has moved on though: <strong>v' + escapeHtml(wasV) + '</strong> when this was accepted, <strong>v' + escapeHtml(nowV)
+        + '</strong> now. A release that changes how a room is costed moves the figure with nothing on the job touched, and that is the likeliest reading of the lines above.';
+    } else if (wasV && nowV) {
+      ratesLine += 'The app is on the same build it was then (<strong>v' + escapeHtml(nowV) + '</strong>), so the difference is in the job itself, on the lines above.';
+    } else {
+      ratesLine += 'So it is either the job\'s own scope, or a change to how the app prices a room since — this quote was frozen before the app started recording which build it was on, so it can\'t tell you which.';
+    }
   }
 
   // The lines that moved. Without these the card stops one question short:

@@ -207,6 +207,17 @@ It now states the fact (*"Same job priced today: £X — £Y more, broken down b
   every line shifts slightly when the total does (markup and the adjustment pool are
   spread proportionally), so an untouched room drifting by 11p must not sit above the room
   that gained a coat of paint.
+- **Whether the app itself moved.** The rates are only half of what prices a job; the
+  code that turns a room into a figure is the other half, and it ships. A quote accepted
+  on the day doors and frames stopped carrying their own prep percentage (v2.39.8,
+  `01564b5`) re-prices under the next release with no rate touched and no room edited —
+  verified by pricing one identical room object against both builds: £567.86 at v2.39.6,
+  £618.21 at v2.48.2, same settings, same inputs. Against a hall full of doors and frames
+  that is the whole of an unexplained £25, and every check this card makes passes while it
+  happens. `appVersion` is therefore recorded in every snapshot from v2.48.3, and the card
+  names the two builds when they differ. Snapshots frozen before that carry `null`, and the
+  card says it cannot tell rather than blaming the job — sending someone to look at rooms
+  they never touched is worse than admitting the app may be the author.
 - **Whether the Rates page is any part of it.** `rates` holds the whole settings blob as it
   stood, but only the keys that can *move a price* are compared: the `SETTINGS_FIELDS`
   scalars (diffed by name, using the Rates page's own labels, read off the inputs it
