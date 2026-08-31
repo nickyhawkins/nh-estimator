@@ -396,6 +396,16 @@ Almost anything you do to the materials list — recalculating, deleting a line,
 
 Everything in this app is calculated from your current Rates and Settings — right up until a client says yes. The moment a quote is **Accepted**, the app takes one snapshot of every figure — every room's price, the materials, the totals — and from then on the client-facing views read that frozen record, not a fresh recalculation. So nudging a coverage rate or a day rate next month can't silently move the price on a job someone already agreed to.
 
+Summary still shows the live calculation underneath, because that is how you price an amendment and how you spot that your rates have moved since. A single rule marks where one ends and the other begins — **"Working figures — today's rates. Everything below this line is the live calculation, not what the client agreed."** Everything above it (the accepted-quote card, the total, the Labour figure, the deposit) is the agreed record; the **Room Breakdown** and **Materials** below it are today's maths on the same job — the breakdown because it is where a variation added after acceptance shows up, and where a room's days and per-surface detail live, and the materials list because it is the shopping list and you buy at today's prices. The **Cost Summary** card doesn't appear on an accepted job at all: it is the pre-markup working of a quote that has been superseded, and sitting under the accepted total it only ever read as that total's breakdown.
+
+![The line between the agreed figures and the live working on an accepted job](images/07c-accepted-working-figures.png)
+
+If the live figure has moved away from the agreed one, the strap-line under the total says so — *"Same job priced today: £X — £Y more, broken down below"* — and a **Where the £Y difference is** card sits directly underneath telling you exactly where it went: labour agreed → today, materials agreed → today, the £5 rounding on its own line, and then whether the Rates page had anything to do with it. If nothing on Rates or Settings has changed since you accepted, it says so in as many words, so you know to look at the job — a room re-measured, or the materials list edited — rather than hunting through rates that never moved. None of it changes the agreed figures; **Amend** is still the only thing that does.
+
+![Where the difference is — the live figure attributed against the accepted one](images/07d-quote-drift.png)
+
+For the same reason the **Commercial job**, **Standalone job** and **Markup / Discount** controls stop taking taps once a job is accepted — they can't move a price that is already agreed. A strip above them says so, with **Unlock for amending** if you do want to change one: unlocking affects the working figures and whatever you freeze as the next revision, never the total already agreed.
+
 If the job genuinely needs to change after acceptance — a variation, a correction — Summary shows the current **Accepted quote — Revision N** and an **Amend → revision N+1** link, which re-runs the calculation once and freezes a new snapshot. The old revision stays on record; nothing is overwritten. Once there is more than one, a **History (N revisions)** link appears next to it: tap it for the list of every revision with its date, its total and what each amendment added or took off.
 
 ### Client-facing quote view

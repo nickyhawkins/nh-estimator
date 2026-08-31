@@ -590,7 +590,7 @@ rather than decisions:
 
 ---
 
-## Feature 9 — A plan that keeps itself up to date — BUILT (v2.46.0)
+## Feature 9 — A plan that keeps itself up to date — BUILT (v2.48.0)
 
 The app had stalled: balances and arrears frozen for weeks, and every forecast still counting from July 2026. Three separate causes.
 

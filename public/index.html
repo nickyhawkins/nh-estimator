@@ -2116,7 +2116,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.46.0</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.48.0</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -6459,9 +6459,182 @@ function acceptedQuoteBannerHtml(job) {
     + '</div></div></div>';
 }
 
+// The Rates page's own label for a settings key, read off the input the page
+// already renders (SETTINGS_FIELDS carries the id). A second table of human
+// names would be one more thing to keep in step with the first; the label the
+// user actually reads on Rates is by definition the right one.
+function settingsFieldLabel(key) {
+  var field = SETTINGS_FIELDS.filter(function(f) { return f[0] === key; })[0];
+  var input = field && document.getElementById(field[1]);
+  var row = input && input.closest && input.closest('.field-row');
+  var label = row && row.querySelector('.field-label');
+  var text = label && label.childNodes[0] && label.childNodes[0].textContent;
+  return (text && text.trim()) || key;
+}
+
+// What, if anything, has moved on the Rates page since this quote was frozen.
+// The snapshot stores the whole settings blob verbatim, which is what makes
+// this answerable rather than arguable — the ~90 scalars are diffed by name,
+// and the WHOLE blob is compared as well so "nothing changed" is only ever
+// said when nothing changed, including the coverage-rate table and anything
+// else added to settings since.
+//   null      — the snapshot has no rates (rebuilt from a Xero total)
+//   .named    — scalar fields that differ, with their Rates-page labels
+//   .clean    — true only if the entire settings blob is identical
+function ratesDriftSince(snap) {
+  var was = snap && snap.data && snap.data.rates;
+  if (!was) return null;
+  var named = [];
+  SETTINGS_FIELDS.forEach(function(f) {
+    var k = f[0], a = was[k], b = settings[k];
+    if (a == null && b == null) return;
+    if (typeof a === 'object' || typeof b === 'object') return;
+    if (+a === +b || (a === b)) return;
+    named.push({ key: k, was: a, now: b });
+  });
+  // Key-order-independent, because JSON.stringify on two objects built at
+  // different times is not: comparing the raw strings reported "something in
+  // Settings changed" on a job where nothing had, which is a worse answer
+  // than the guess this whole card replaces.
+  var stable = function(v) {
+    if (v === null || typeof v !== 'object') return JSON.stringify(v === undefined ? null : v);
+    if (Array.isArray(v)) return '[' + v.map(stable).join(',') + ']';
+    return '{' + Object.keys(v).sort().map(function(k) { return JSON.stringify(k) + ':' + stable(v[k]); }).join(',') + '}';
+  };
+  var clean = false;
+  try { clean = stable(was) === stable(settings); } catch (e) { clean = false; }
+  return { named: named, clean: clean };
+}
+
+// "Why is this £25.00 more than what was agreed?" — asked by every accepted
+// job whose live figure has moved, and previously answered with a guess: the
+// aside said "at today's rates", which is only ever one of the possible
+// causes and, when the rates have not moved, simply the wrong one. Everything
+// needed to answer it properly is already in the snapshot, so this splits the
+// difference into the two sides that can move — labour and materials — and
+// states plainly whether the Rates page is any part of it.
+//
+// live: { total, materials, baseline } from renderSummary's own figures. The
+// labour side is derived as total − materials − baseline rather than read from
+// plan, so it cannot disagree with how the total is actually composed.
+function quoteDriftCardHtml(job, live) {
+  var snap = latestQuoteSnapshot(job);
+  if (!snap || !snap.data) return '';
+  var t = snap.data.totals || {};
+  var agreed = +frozenQuoteTotal(job) || 0;
+  var delta = live.total - agreed;
+  if (Math.abs(delta) <= 0.005) return '';
+
+  var money = function(n) { return Math.round((+n || 0) * 100) / 100; };
+  var liveMats = money(live.materials);
+  var hasSplit = t.labour != null && t.materials != null;
+  // The adjustment pool — the standalone upcharge and the round-up to the next
+  // £5 — is SPREAD across the labour lines, so it sits inside both labour
+  // figures. Left there, an extra tin of paint (which changes where the total
+  // lands against the next £5) shows up as labour having moved, which it has
+  // not. It gets its own row and comes out of both sides of the labour one.
+  var lab = snap.data.labour || {};
+  var wasPool = money((+lab.upchargeTotal || 0) + (+lab.roundingDelta || 0));
+  var livePool = money(live.pool);
+  var liveLabour = money(live.total - live.materials - (live.baseline || 0));
+  var wasLabour = money(t.labour);
+  var liveLabourCore = money(liveLabour - livePool), wasLabourCore = money(wasLabour - wasPool);
+  var wasMats = money(t.materials);
+
+  var row = function(label, was, now) {
+    var moved = Math.abs(now - was) > 0.005;
+    return '<div class="breakdown-row"><span class="breakdown-label"'
+      + (moved ? '' : ' style="color:var(--text2)"') + '>' + escapeHtml(label) + '</span>'
+      + '<span class="breakdown-value"' + (moved ? ' style="color:var(--accent);font-weight:600"' : ' style="color:var(--text2)"') + '>'
+      + fmt(was) + (moved ? ' → ' + fmt(now) : ' — unchanged') + '</span></div>';
+  };
+
+  var rates = ratesDriftSince(snap);
+  var ratesLine;
+  if (!rates) {
+    ratesLine = 'These figures were rebuilt from the Xero record, which doesn’t carry the rates behind them — so this can’t say whether the Rates page has moved.';
+  } else if (rates.named.length) {
+    ratesLine = 'Rates changed since acceptance: ' + rates.named.slice(0, 4).map(function(d) {
+      return escapeHtml(settingsFieldLabel(d.key)) + ' ' + d.was + ' → ' + d.now;
+    }).join(' · ') + (rates.named.length > 4 ? ' · and ' + (rates.named.length - 4) + ' more' : '') + '.';
+  } else if (rates.clean) {
+    ratesLine = '<strong>No rate or setting has changed since acceptance</strong> — the difference is in the job itself: scope measured differently, or the materials list edited since.';
+  } else {
+    ratesLine = 'No priced rate has changed, though something else in Settings has (a coverage-rate entry, most likely).';
+  }
+
+  return '<div class="card" style="margin-top:16px">'
+    + '<div class="card-header">Where the ' + fmt(Math.abs(delta)) + ' difference is</div>'
+    + '<div class="breakdown-row"><span class="breakdown-label">Agreed<small style="display:block;font-weight:400;color:var(--text2)">revision ' + snap.version + '</small></span>'
+    + '<span class="breakdown-value">' + fmt(agreed) + '</span></div>'
+    + '<div class="breakdown-row"><span class="breakdown-label">Same job priced today</span>'
+    + '<span class="breakdown-value" style="color:var(--accent);font-weight:600">' + fmt(live.total)
+    + ' <small style="font-weight:600">(' + (delta > 0 ? '+' : '−') + fmt(Math.abs(delta)) + ')</small></span></div>'
+    + (hasSplit
+        ? '<div class="card-header" style="border-top:1px solid var(--border)">Agreed → today</div>'
+          + row('Labour', wasLabourCore, liveLabourCore)
+          + row('Materials', wasMats, liveMats)
+          + (wasPool > 0.005 || livePool > 0.005
+              ? row('Rounding & upcharge', wasPool, livePool) : '')
+        : '')
+    + '<div style="padding:10px 16px;font-size:12px;line-height:1.5;color:var(--text2);border-top:1px solid var(--border)">' + ratesLine + '</div>'
+    + '<div style="padding:0 16px 12px;font-size:12px;line-height:1.5;color:var(--text2)">Nothing here changes what was agreed. Use <strong>Amend</strong> above if today’s figure is the one that should stand.</div>'
+    + '</div>';
+}
+
+// The one boundary on Summary between what was agreed and what the calc says
+// today. An accepted job's screen has to carry both -- the live working is how
+// an amendment gets priced and how rate drift becomes visible -- but before
+// this there was nothing separating them except a small note on the Room
+// Breakdown header, while Cost Summary and Materials sat unlabelled directly
+// underneath reading like a breakdown of the agreed total two screens above.
+// One rule, one sentence, in the same place every time, beats a differently
+// worded hint per card.
+function workingFiguresDividerHtml() {
+  return '<div style="margin-top:22px;margin-bottom:14px;padding-top:14px;border-top:2px solid var(--border)">'
+    + '<div style="font-size:13px;line-height:1.5;color:var(--text2)">'
+    + '<strong style="color:var(--text)">Working figures — today\u2019s rates.</strong> '
+    + 'Everything below this line is the live calculation, not what the client agreed. '
+    + 'The accepted figures are at the top of this screen.</div></div>';
+}
+
+// Commercial / Standalone / Markup on an accepted job are locked by default.
+// They cannot move the agreed total, and nudging one only to watch every
+// working figure shift while the headline stays put is exactly the confusion
+// the divider above exists to remove.
+//
+// Locked, though, and not removed: they DO still price the next revision,
+// because amendAcceptedQuote() re-runs the calc over the job's current
+// settings. So the lock opens on request and says what opening it is for. The
+// unlock is held per job id rather than as a session flag, so switching jobs
+// cannot carry it across -- there is no reset to forget to call.
+var acceptedPricingUnlockedFor = null;
+function acceptedPricingLocked(job) {
+  return jobQuoteIsFrozen(job) && acceptedPricingUnlockedFor !== (job && job.id);
+}
+function unlockAcceptedPricing() {
+  var job = activeJob();
+  if (!job) return;
+  acceptedPricingUnlockedFor = job.id;
+  renderSummary();
+}
+function acceptedPricingLockHtml(job) {
+  if (!jobQuoteIsFrozen(job)) return '';
+  var snap = latestQuoteSnapshot(job);
+  var nextRev = snap ? snap.version + 1 : 2;
+  if (!acceptedPricingLocked(job)) {
+    return '<div style="margin-top:16px;padding:10px 14px;border:1px solid var(--warn);border-radius:var(--rs);font-size:12px;line-height:1.5;color:var(--text2)">'
+      + '<strong style="color:var(--text)">Pricing controls unlocked.</strong> Changes move the working figures below and price revision '
+      + nextRev + ' if you amend. The accepted total does not move.</div>';
+  }
+  return '<div style="margin-top:16px;padding:10px 14px;background:var(--surface2);border-radius:var(--rs);font-size:12px;line-height:1.5;color:var(--text2)">'
+    + '<strong style="color:var(--text)">Pricing controls are locked.</strong> This quote was accepted \u2014 commercial, standalone and markup can\u2019t move the agreed total. '
+    + '<span onclick="unlockAcceptedPricing()" style="color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Unlock for amending</span></div>';
+}
+
 // The agreed line items, rendered from the snapshot and nothing else. This is
 // the card that replaces Summary's live room breakdown once a quote is
-// accepted -- the breakdown itself stays below it, relabelled as working.
+// accepted -- the breakdown itself stays below it, under the working divider.
 function frozenQuoteCardHtml(job) {
   var snap = latestQuoteSnapshot(job);
   if (!snap || !snap.data) return '';
@@ -7428,6 +7601,17 @@ function computeVariationsView(roomCalcs, extCalcs, kitchenCalc) {
   // room still sits in the rooms list until it's deleted/unflagged, and
   // the live time figures are a workload view, not a billing one.
   var varLabour=0, varTime=0, varSpray=0, varLines=[];
+  // The same three sums over EVERY flagged item, declined included. The pair
+  // exists because two different questions are being asked of one list:
+  // "what are the variations worth" (declined ones are worth nothing — they
+  // were offered and turned down) and "what is NOT part of the original
+  // quote" (a declined variation is still not part of it). Summary subtracts
+  // the second from the job totals to get the original scope; using the
+  // first left a declined variation's labour and time sitting inside the
+  // quote-facing total, where the client quote, the Xero quote, the final
+  // invoice and the accepted snapshot — all of which filter on isVariation
+  // alone — had already excluded it. Summary was the only reader disagreeing.
+  var varLabourAll=0, varTimeAll=0, varSprayAll=0;
   // Approved-only aggregates ride along for the profitability view — the
   // only variations money that provably belongs in a "what did this job
   // really make" comparison is money the client actually agreed to.
@@ -7440,17 +7624,20 @@ function computeVariationsView(roomCalcs, extCalcs, kitchenCalc) {
   };
   roomCalcs.forEach(function(c,ri){ if(rooms[ri].isVariation){
     var st = addLine('room', rooms[ri].id, rooms[ri].name, c.total, rooms[ri]);
+    varLabourAll+=c.total; varTimeAll+=c.time; varSprayAll+=c.sprayLabour||0;
     if (st !== 'declined') { varLabour+=c.total; varTime+=c.time; varSpray+=c.sprayLabour||0; }
     if (st === 'approved') { appLabour+=c.total; appSpray+=c.sprayLabour||0; }
   }});
   extCalcs.forEach(function(c,ei){ if(extItems[ei].isVariation){
     var st = addLine('ext', extItems[ei].id, extItems[ei].label||'Exterior', c.total, extItems[ei]);
+    varLabourAll+=c.total; varTimeAll+=c.time; varSprayAll+=c.sprayLabour||0;
     if (st !== 'declined') { varLabour+=c.total; varTime+=c.time; varSpray+=c.sprayLabour||0; }
     if (st === 'approved') { appLabour+=c.total; appSpray+=c.sprayLabour||0; }
   }});
   var kitchenIsVar = !!(job && job.kitchen && job.kitchen.isVariation) && kitchenCalc.total>0.005;
   if(kitchenIsVar){
     var kSt = addLine('kitchen', 'kitchen', 'Kitchen Cabinet Spraying', kitchenCalc.total, job.kitchen);
+    varLabourAll+=kitchenCalc.total; varTimeAll+=kitchenCalc.time;
     if (kSt !== 'declined') { varLabour+=kitchenCalc.total; varTime+=kitchenCalc.time; }
     if (kSt === 'approved') appLabour+=kitchenCalc.total;
   }
@@ -7463,6 +7650,7 @@ function computeVariationsView(roomCalcs, extCalcs, kitchenCalc) {
     if (fc.total <= 0.005) return;
     fittedUnitIsVar = true;
     var fuSt = addLine('fittedunit', f.id, fittedUnitName(f), fc.total, f);
+    varLabourAll+=fc.total; varTimeAll+=fc.time;
     if (fuSt !== 'declined') { varLabour+=fc.total; varTime+=fc.time; }
     if (fuSt === 'approved') appLabour+=fc.total;
   });
@@ -7496,6 +7684,7 @@ function computeVariationsView(roomCalcs, extCalcs, kitchenCalc) {
   var appSundries = (appLabour+appHoursRaw) * (settings.sundriesPct||0)/100 + appSpray * (settings.sundriesSprayPct||0)/100;
   var approvedTotal = (appLabour+appHoursRaw+appSundries)*varMk + appFlatSum;
   return { varLabour:varLabour, varTime:varTime, varSpray:varSpray, varLines:varLines,
+    varLabourAll:varLabourAll, varTimeAll:varTimeAll, varSprayAll:varSprayAll,
     freeVars:freeVars, freeHoursRaw:freeHoursRaw, freeHoursDays:freeHoursDays, freeFlatSum:freeFlatSum,
     hasVariations:hasVariations, kitchenIsVar:kitchenIsVar, fittedUnitIsVar:fittedUnitIsVar,
     varSundries:varSundries, varMk:varMk, variationsTotal:variationsTotal,
@@ -20690,9 +20879,13 @@ function renderSummary() {
   var varLabour=vView.varLabour, varTime=vView.varTime, varSpray=vView.varSpray, varLines=vView.varLines;
   var freeVars=vView.freeVars, freeHoursDays=vView.freeHoursDays;
   var hasVariations=vView.hasVariations;
-  var tcOrig = tcS - varLabour;
-  var ttOrig = ttS - varTime;
-  var sprayOrig = sprayLabourS - varSpray;
+  // ALL flagged items come out, declined ones included -- see the pair of
+  // accumulators in computeVariationsView(). What is left is the original
+  // scope, the same set the client quote, the Xero quote, the final invoice
+  // and the accepted snapshot each build from their own isVariation filter.
+  var tcOrig = tcS - vView.varLabourAll;
+  var ttOrig = ttS - vView.varTimeAll;
+  var sprayOrig = sprayLabourS - vView.varSprayAll;
   var onSiteDaysOrig = realisticDays(ttOrig);
   var ttAll = ttS + freeHoursDays;
   var onSiteDays = realisticDays(ttAll);
@@ -20882,6 +21075,8 @@ function renderSummary() {
   // loaded and the first moment a capture is even possible.
   captureSnapshotIfOwed(statusJob);
   var frozenQuote = jobQuoteIsFrozen(statusJob);
+  // Whether the three pricing controls below the hero take taps this render.
+  var pricingLocked = acceptedPricingLocked(statusJob);
   var frozenSnapshot = frozenQuote ? latestQuoteSnapshot(statusJob) : null;
   var frozenTotal = frozenQuote ? frozenQuoteTotal(statusJob) : null;
   var frozenLab = frozenQuote ? frozenQuoteLabour(statusJob) : null;
@@ -21041,7 +21236,13 @@ function renderSummary() {
       // Deposit (DEPOSITS_SPEC.md), from acceptance onward. `deposit` here is
       // the LIVE plan figure computed above — a forecast, passed in to prefill
       // the form and to flag drift against what was actually taken.
-      (statusJob && DEPOSIT_STATUSES.indexOf(jobStatus) !== -1 ? depositBlockHtml(statusJob, deposit) : '')+
+      //
+      // On a frozen job the AGREED deposit is what the client was asked for,
+      // so that is the plan this row nags against and prefills from. The live
+      // forecast would state a different figure from the Payment card further
+      // down the same screen, both labelled as the plan.
+      (statusJob && DEPOSIT_STATUSES.indexOf(jobStatus) !== -1
+        ? depositBlockHtml(statusJob, frozenQuote && frozenTotals.deposit != null ? +frozenTotals.deposit : deposit) : '')+
     '</div>'+
     profitCard+
     // Which of the two worlds the money below came from, said plainly. On an
@@ -21069,11 +21270,18 @@ function renderSummary() {
         ? '<div class="hero-sub">'+escapeHtml(snapshotLevelLabel(frozenSnapshot))
             +' · revision '+frozenSnapshot.version
             +(snapshotDateLabel(frozenSnapshot) ? ' · '+escapeHtml(snapshotDateLabel(frozenSnapshot)) : '')+'</div>'
-          // The live recalculation is still worth showing -- it's how you spot
-          // that rates have moved since -- but only ever as a labelled aside,
-          // never as the headline. Hidden when the two agree to the penny.
+          // The live recalculation is still worth showing -- it's how drift
+          // becomes visible at all -- but only ever as a labelled aside, never
+          // as the headline, and hidden when the two agree to the penny.
+          //
+          // It used to read "at today's RATES", which names a cause instead of
+          // stating a fact: every input feeds this figure, and when the rates
+          // have not moved (they usually have not) that caption sends you to
+          // the one page that isn't responsible. The aside now states the
+          // difference and the card below attributes it.
           + (Math.abs(quoteTotal - agreedTotal) > 0.005
-              ? '<div class="hero-sub" style="color:rgba(255,255,255,.55)">Same job at today\'s rates: '+fmt(quoteTotal)+' — not what was agreed</div>' : '')
+              ? '<div class="hero-sub" style="color:rgba(255,255,255,.55)">Same job priced today: '+fmt(quoteTotal)
+                + ' — ' + fmt(Math.abs(quoteTotal - agreedTotal)) + (quoteTotal > agreedTotal ? ' more' : ' less') + ', broken down below</div>' : '')
         : '<div class="hero-sub">'+ttAll.toFixed(1)+' days · '+
           (honouredLabour != null
             ? fmt(honouredLabour)+' labour as agreed + '+fmt(materialsTotal)+' materials as measured'
@@ -21092,13 +21300,30 @@ function renderSummary() {
       // what's being charged — relabelled so it can't be mistaken for the
       // honoured one in the hero above (item 3's "relabel where it's
       // displayed", no new field).
-      '<div class="stat-card"><div class="stat-label">Labour</div><div class="stat-value ac">'+fmt(tcOrig)+'</div>'+
+      // Money sitting directly under the accepted hero has to BE the accepted
+      // money -- a live labour figure here read as the breakdown of the total
+      // above it, which is the confusion the working divider further down
+      // exists to end. The raw labour behind the agreed quote is in the
+      // snapshot, so it prints; a Xero-rebuilt snapshot doesn't have it and
+      // says so rather than printing today's instead. (On Site next to it
+      // stays live on purpose: days are what gets booked in the diary, and
+      // they move with amendments and variations -- see
+      // ACCEPTED_SNAPSHOT_SPEC.md "What stays live, deliberately".)
+      '<div class="stat-card"><div class="stat-label">Labour</div><div class="stat-value ac">'+
+        (frozenQuote ? (frozenLab && frozenLab.rawLabour != null ? fmt(+frozenLab.rawLabour) : '—') : fmt(tcOrig))+'</div>'+
         '<small style="display:block;font-weight:400;color:var(--text2);margin-top:2px">'+
-          (honouredLabour != null ? 'internal estimate · before markup' : 'before markup')+
-          (hasVariations ? ' · original scope' : '')+'</small></div>'+
+          (frozenQuote
+            ? (frozenLab && frozenLab.rawLabour != null ? 'as agreed · before markup' : 'not in the reconciled figures')
+            : (honouredLabour != null ? 'internal estimate · before markup' : 'before markup'))+
+          (hasVariations && !frozenQuote ? ' · original scope' : '')+'</small></div>'+
       '<div class="stat-card"><div class="stat-label">On Site</div><div class="stat-value bl">'+fmtD(onSiteDays)+'</div>'+
         '<small style="display:block;font-weight:400;color:var(--text2);margin-top:2px">'+ttAll.toFixed(1)+'d working'+(hasVariations ? ' incl. variations' : '')+'</small></div>'+
     '</div>'+
+    // Why the two figures differ, attributed rather than guessed at. Sits
+    // directly under the aside that raises the question, and renders only
+    // when there is a difference to explain.
+    (frozenQuote ? quoteDriftCardHtml(statusJob, { total: quoteTotal, materials: materialsTotal,
+        baseline: importedBaseline, pool: plan.adjustmentPool }) : '')+
     // Job-level toggles, in one group: Imported from Xero sits with
     // Commercial/Standalone because it's the same kind of flag on the same
     // job record. Unlike those two it changes NO pricing at all — only which
@@ -21107,10 +21332,14 @@ function renderSummary() {
     // to a single offering line until it applies — see
     // xeroImportedSectionHtml.
     xeroImportedSectionHtml(statusJob)+
+    // One strip for all three pricing cards rather than a caveat on each --
+    // they are locked or unlocked together because they price together.
+    acceptedPricingLockHtml(statusJob)+
     '<div class="card" style="margin-top:16px">'+
       '<div class="card-header">Commercial Job</div>'+
       '<div class="toggle-row"><div class="toggle-label">Commercial job<small>Applies '+(settings.commercialPct!=null?settings.commercialPct:10)+'% before markup/discount below</small></div>'+
-        '<div class="toggle'+(activeJob()&&activeJob().commercial?' on':'')+'" onclick="setJobCommercial('+(activeJob()&&activeJob().commercial?'false':'true')+')"></div></div>'+
+        '<div class="toggle'+(activeJob()&&activeJob().commercial?' on':'')+'"'+
+        (pricingLocked ? ' style="opacity:.5"' : ' onclick="setJobCommercial('+(activeJob()&&activeJob().commercial?'false':'true')+')"')+'></div></div>'+
     '</div>'+
     // Standalone Job card -- same job-level toggle pattern and settings
     // group as Commercial Job above; the two flags are independent (a job
@@ -21119,7 +21348,8 @@ function renderSummary() {
     '<div class="card" style="margin-top:16px">'+
       '<div class="card-header">Standalone Job</div>'+
       '<div class="toggle-row"><div class="toggle-label">Standalone job<small>Charges labour for full diary days instead of calculated fractional days</small></div>'+
-        '<div class="toggle'+(activeJob()&&activeJob().standalone?' on':'')+'" onclick="setJobStandalone('+(activeJob()&&activeJob().standalone?'false':'true')+')"></div></div>'+
+        '<div class="toggle'+(activeJob()&&activeJob().standalone?' on':'')+'"'+
+        (pricingLocked ? ' style="opacity:.5"' : ' onclick="setJobStandalone('+(activeJob()&&activeJob().standalone?'false':'true')+')"')+'></div></div>'+
       (plan.standalone.on?
         '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label">Calculated labour</span>'+
           '<span class="breakdown-value">'+plan.standalone.calcDays.toFixed(1)+' days</span></div>'+
@@ -21132,12 +21362,12 @@ function renderSummary() {
       '<div class="card-header">Markup / Discount</div>'+
       '<div class="field-row"><div class="field-label">This quote<small>'+(activeJob()&&activeJob().markupOverride!=null?'overridden, default is '+settings.mu+'%':'default, from Settings')+(activeJob()&&activeJob().commercial?' — applied after the commercial adjustment above':'')+'</small></div>'+
         '<div style="display:flex;align-items:center;gap:10px">'+
-        (activeJob()&&activeJob().markupOverride!=null?'<div onclick="resetJobMarkup()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;text-decoration:underline">Reset</div>':'')+
-        '<div class="seg" style="width:76px">'+
-          '<button type="button" class="seg-btn'+(effectiveMarkupType()==='percent'?' active':'')+'" onclick="setJobMarkupType(\'percent\')">%</button>'+
-          '<button type="button" class="seg-btn'+(effectiveMarkupType()==='fixed'?' active':'')+'" onclick="setJobMarkupType(\'fixed\')">£</button>'+
+        (!pricingLocked&&activeJob()&&activeJob().markupOverride!=null?'<div onclick="resetJobMarkup()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;text-decoration:underline">Reset</div>':'')+
+        '<div class="seg" style="width:76px'+(pricingLocked?';opacity:.5':'')+'">'+
+          '<button type="button" class="seg-btn'+(effectiveMarkupType()==='percent'?' active':'')+'"'+(pricingLocked?' disabled':' onclick="setJobMarkupType(\'percent\')"')+'>%</button>'+
+          '<button type="button" class="seg-btn'+(effectiveMarkupType()==='fixed'?' active':'')+'"'+(pricingLocked?' disabled':' onclick="setJobMarkupType(\'fixed\')"')+'>£</button>'+
         '</div>'+
-        '<input type="number" class="field-input" style="width:70px" value="'+effectiveMarkup()+'" step="1" inputmode="'+(effectiveMarkupType()==='fixed'?'decimal':'numeric')+'" onchange="setJobMarkup(this.value)">'+
+        '<input type="number" class="field-input" style="width:70px'+(pricingLocked?';opacity:.5':'')+'" value="'+effectiveMarkup()+'" step="1" inputmode="'+(effectiveMarkupType()==='fixed'?'decimal':'numeric')+'"'+(pricingLocked?' disabled':' onchange="setJobMarkup(this.value)"')+'>'+
         '</div></div>'+
       '<div style="padding:0 16px 12px;font-size:12px;color:var(--text2)">Enter a negative number for a discount.</div>'+
     '</div>'+
@@ -21187,8 +21417,11 @@ function renderSummary() {
         }).join('')
       ) : '') +
     '</div>'+
-    '<div><div class="section-title" style="margin-bottom:8px">'+
-      (frozenQuote ? 'Room Breakdown <small style="text-transform:none;letter-spacing:normal;font-weight:400;color:var(--text2)">— live working at today’s rates, not the accepted figures above</small>' : 'Room Breakdown')+'</div>'+
+    // The boundary. Everything from here to the end of Summary is live: the
+    // room breakdown, the cost summary under it and the materials list under
+    // that. Only the first of the three used to say so.
+    (frozenQuote ? workingFiguresDividerHtml() : '')+
+    '<div><div class="section-title" style="margin-bottom:8px">Room Breakdown</div>'+
     '<div class="card">'+rows+
     (extItems.length>0?extItems.map(function(item,ei){
       var c=extCalcs[ei]; var mk=commercialMult*(1+mu);
@@ -21303,6 +21536,19 @@ function renderSummary() {
       '<div style="height:1px;background:var(--border)"></div>';
     }).join(''):'')+
     '</div></div>'+
+    // Cost Summary is the pre-markup working of THIS quote -- labour subtotal,
+    // sundries %, markup, the £5 round-up -- and on a frozen job that quote has
+    // been superseded by the snapshot. Shown there it was a third telling of the
+    // drift story (the hero's "same job at today's rates" aside is the first,
+    // the room breakdown the second) in the place most easily mistaken for a
+    // breakdown of the accepted total two cards above it. The one use it had
+    // left, previewing what an amendment would come to, amendAcceptedQuote()
+    // already covers: it prompts with revision N, revision N+1 and the delta
+    // before it writes anything. So on a frozen job the section simply is not
+    // rendered; the room breakdown (where a variation shows) and the materials
+    // list (the shopping list) stay, and they are what the working divider now
+    // covers.
+    (frozenQuote ? '' :
     '<div style="margin-top:16px"><div class="section-title" style="margin-bottom:8px">Cost Summary<small style="display:block;font-weight:400;text-transform:none;letter-spacing:normal;color:var(--text2)">Whole job, before materials</small></div>'+
     '<div class="card">'+
     '<div class="breakdown-row">'+
@@ -21360,8 +21606,10 @@ function renderSummary() {
     (plan.roundingDelta>0.005?'<div class="breakdown-row" style="border-top:1px solid var(--border)">'+
       '<span class="breakdown-label">Price rounding<small style="display:block;font-weight:400;color:var(--text2)">'+fmt(plan.rawTotal)+' rounded up to the next £'+QUOTE_ROUNDING_STEP+' · spread across the labour lines</small></span>'+
       '<span class="breakdown-value">'+fmt(plan.roundingDelta)+'</span></div>':'')+
-    '</div></div>'+
-    '<div><div class="section-title" style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:14px">Materials'+
+    '</div></div>')+
+    // Materials used to follow Cost Summary's own margin; on a frozen job it
+    // now follows the room breakdown card directly and needs its own.
+    '<div'+(frozenQuote?' style="margin-top:16px"':'')+'><div class="section-title" style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:14px">Materials'+
       '<span style="display:flex;align-items:center;gap:14px">'+
       undoChipHtml()+
       (summaryMatGroups.length > 1 ? '<span onclick="toggleMatReorder()" style="font-size:12px;font-weight:600;color:var(--accent);cursor:pointer;text-transform:none;letter-spacing:normal">'+(matReorderMode ? 'Done' : 'Reorder')+'</span>' : '')+

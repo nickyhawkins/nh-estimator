@@ -173,11 +173,79 @@ with no snapshot must fall back to live rather than render blank.
 | Path | Frozen behaviour |
 | --- | --- |
 | Client quote preview + PDF (`openClientQuote`) | Returns from the snapshot **before a single calc call**. Prints "revision N", and the footer says the figures don't change with later price revisions. PDF filename is `…-accepted-revN.pdf` — dated by the agreement, not the export. |
-| Summary | Hero shows the agreed total, labelled "Accepted Quote"; an "Agreed figures — revision N" banner; an agreed line-items card straight from the snapshot; deposit/balance from the snapshot. The live recalculation is still shown, but only as a labelled aside ("Same job at today's rates: £X — not what was agreed") and only when it differs. |
-| Room Breakdown | Stays live, relabelled *"live working at today's rates, not the accepted figures above"*. |
+| Summary | Hero shows the agreed total, labelled "Accepted Quote"; an "Agreed figures — revision N" banner; an agreed line-items card straight from the snapshot; deposit/balance from the snapshot. The Labour stat tile and the status card's deposit nag read the snapshot too, so every figure above the working divider is agreed money. The live recalculation is still shown, but only as a labelled aside ("Same job at today's rates: £X — not what was agreed") and only when it differs. |
+| Pricing controls | Commercial / Standalone / Markup are read-only, under one strip saying so, with **Unlock for amending** to open them (§3.1). |
+| Room Breakdown | Stays live, below the working divider (§3.1) rather than carrying a note of its own — it is where a variation added after acceptance shows as a priced row, and it holds the days and per-surface detail the snapshot does not. |
+| Cost Summary | **Not rendered.** It is the pre-markup working of a superseded quote, and under the accepted total it read as that total's breakdown (§3.1). |
 | Final invoice | Quoted-labour lines are replaced wholesale by the snapshot's work rows at the amounts it recorded. Still droppable — what's fixed is each line's price, not whether it's billed. Sundries are not re-derived (they're already one of the frozen rows). |
 | Job profitability | `quotedTotal`, `quotedDays` and `quotedMaterials` come from the snapshot, so margin on finished work stops moving with the rates. |
 | Xero re-send | Can't read the snapshot (the payload is raw line totals plus a markup instruction the server applies), so instead the drift is put on screen: "accepted at £X (revision N) — sending now builds the quote at today's rates: £Y. Send anyway?" Only when the two differ. Nothing about it writes a snapshot. |
+
+### 3.2 The drift aside names the difference, not a cause
+
+The aside under the hero used to read *"Same job at today's rates: £X — not what was
+agreed"*. It names a **cause**, and usually the wrong one: every input feeds that figure —
+scope, the materials list, the job's own flags — and the rates are the one thing that
+most often has *not* moved. Someone reading it goes to the Rates page, finds nothing
+changed, and is left with a number they cannot account for.
+
+It now states the fact (*"Same job priced today: £X — £Y more, broken down below"*) and
+`quoteDriftCardHtml()` attributes it, from the snapshot alone:
+
+- **Labour** and **Materials**, agreed → today, each marked unchanged or moved. The
+  adjustment pool (the standalone upcharge and the round-up to the next £5) is spread
+  across the labour lines, so it is pulled out into its own row — otherwise an extra tin
+  of paint, which changes where the total lands against the next £5, reads as labour
+  having moved.
+- **Whether the Rates page is any part of it.** `rates` holds the whole settings blob as
+  it stood, so the scalars are diffed by name (using the Rates page's own labels, read off
+  the inputs it already renders) and the entire blob is compared besides. Only when every
+  key matches does the card say so — *"No rate or setting has changed since acceptance —
+  the difference is in the job itself"* — which is the sentence that actually answers the
+  question. A snapshot rebuilt from a Xero total has no `rates`, and says that instead of
+  guessing.
+
+The card renders only when the two figures differ, and reading it writes nothing.
+
+### 3.1 One boundary, not five hints
+
+An accepted job's Summary carries both worlds, so the screen has to say where one
+ends. It used to say it once, on the Room Breakdown header — while **Cost Summary**
+and **Materials**, directly underneath and equally live, said nothing. Cost Summary
+was the worst of them: "Labour subtotal / + markup / Price rounding" reads as the
+breakdown of the accepted total two screens above it.
+
+`workingFiguresDividerHtml()` draws one rule after the Payment card instead —
+*"Working figures — today's rates. Everything below this line is the live
+calculation, not what the client agreed."* — and the per-card notes come off. A
+boundary in the same place every time is learnable; five differently worded hints
+are not.
+
+That makes a claim about everything **above** the line, which had to be made true:
+the Labour stat tile and the deposit nag both printed live figures next to the
+agreed total and now read the snapshot. On Site stays live — days are booked in a
+diary, not agreed in a quote.
+
+**Cost Summary is dropped entirely on a frozen job.** Of the three live sections
+it was the only one with nothing left to do. The room breakdown earns its place
+twice over — a variation agreed after acceptance is priced at today's rates and
+shows there and nowhere else, and the per-element working (prep, walls, ceiling,
+woodwork, days) is detail the snapshot does not hold. Materials is the shopping
+list, bought at today's prices. Cost Summary is the pre-markup working of the
+quote itself — labour subtotal, sundries %, markup, the £5 round-up — and once a
+snapshot governs, that quote is superseded. Drift is already stated at the top by
+the hero's "same job at today's rates" aside, and the one use left, previewing
+what an amendment would come to, `amendAcceptedQuote()` covers itself: it prompts
+with revision N, revision N+1 and the delta before writing anything.
+
+The three pricing controls are locked there (`acceptedPricingLocked()`), the way
+the deposit toggle already was: nudging markup on an accepted job moves every
+working figure while the headline stays put, which is precisely the confusion the
+divider exists to end. Locked, not removed — `amendAcceptedQuote()` re-runs the
+calc over the job's *current* settings, so they still price the next revision.
+**Unlock for amending** opens them, per job id (a session flag would survive a job
+switch and there would be a reset to forget). Nothing here reads or writes a
+snapshot.
 
 **What stays live, deliberately:** drafts and quoted jobs; material actuals, the labour
 log, variations and scheduling (none of those are the agreed quote — they're what's
