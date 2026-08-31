@@ -7115,9 +7115,19 @@ function renderScheduleStrip() {
 }
 
 // ── Calendar interactions: sheets, tap-to-schedule, tap-to-move ────────────
+// The sheet markup lives inside #screen-schedule, and a .screen that isn't
+// .active is display:none -- so a sheet opened from anywhere else (Summary's
+// revision history, v2.45.1) filled in and "showed" without a single pixel
+// reaching the screen. Re-home it under whichever screen is active on open:
+// it is position:fixed either way, so the calendar's own sheets look
+// identical, and leaving a screen still closes the sheet with it rather than
+// stranding a full-page backdrop over the next tab.
 function openScheduleSheet(html) {
+  var backdrop = document.getElementById('schedule-sheet-backdrop');
+  var screen = document.querySelector('.screen.active') || document.body;
+  if (backdrop.parentNode !== screen) screen.appendChild(backdrop);
   document.getElementById('schedule-sheet').innerHTML = html;
-  document.getElementById('schedule-sheet-backdrop').style.display = 'block';
+  backdrop.style.display = 'block';
 }
 function closeScheduleSheet() {
   document.getElementById('schedule-sheet-backdrop').style.display = 'none';
@@ -17397,7 +17407,12 @@ function nextScheduledGlance() {
     if (!best || j.startDate < best.startDate) best = j;
   });
   if (!best) return 'Nothing booked';
-  return escapeHtml(best.name) + '<br>' + fmtShortDate(best.startDate);
+  // The CLIENT, not the job name (v2.45.2, per Nicky): "next on site" is who
+  // you are turning up to, and job names are the work ("Kitchen", "Whole
+  // House") — several clients have one. Same rule and same fallback as the
+  // Jobs list rows: a job with no client saved keeps its name rather than
+  // going blank.
+  return escapeHtml((best.xeroClient || '').trim() || best.name || '') + '<br>' + fmtShortDate(best.startDate);
 }
 
 // Site notes (SITE_NOTES_SPEC.md Part 1): jobs.data.notes, one field,

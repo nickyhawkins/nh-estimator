@@ -62,7 +62,7 @@ The app ships with sensible defaults (day rate £300, 20% markup, 25% deposit, s
 
 ![Home screen](images/01-home.png)
 
-The **Home** screen is your morning glance: the current job and its status, a **Materials to buy** count, what's **next on site**, and shortcut links. When something needs chasing — a quote that's gone unanswered too long, a finished job you haven't invoiced — it appears at the top of Home as an attention strip.
+The **Home** screen is your morning glance: the current job and its status, a **Materials to buy** count, **Next on site** — the client you're due at next and the date — and shortcut links. When something needs chasing — a quote that's gone unanswered too long, a finished job you haven't invoiced — it appears at the top of Home as an attention strip.
 
 The **bottom bar** is always visible and follows the life of a job, left to right:
 
@@ -394,7 +394,7 @@ Almost anything you do to the materials list — recalculating, deleting a line,
 
 Everything in this app is calculated from your current Rates and Settings — right up until a client says yes. The moment a quote is **Accepted**, the app takes one snapshot of every figure — every room's price, the materials, the totals — and from then on the client-facing views read that frozen record, not a fresh recalculation. So nudging a coverage rate or a day rate next month can't silently move the price on a job someone already agreed to.
 
-If the job genuinely needs to change after acceptance — a variation, a correction — Summary shows the current **Accepted quote — Revision N** and an **Amend → revision N+1** link, which re-runs the calculation once and freezes a new snapshot. The old revision stays on record; nothing is overwritten.
+If the job genuinely needs to change after acceptance — a variation, a correction — Summary shows the current **Accepted quote — Revision N** and an **Amend → revision N+1** link, which re-runs the calculation once and freezes a new snapshot. The old revision stays on record; nothing is overwritten. Once there is more than one, a **History (N revisions)** link appears next to it: tap it for the list of every revision with its date, its total and what each amendment added or took off.
 
 ### Client-facing quote view
 
