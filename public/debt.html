@@ -378,7 +378,8 @@ function rollNotice(h){
   if(!n.autoRolled)return null;
   return {cycleNumber:h.cycleNumber,closedAt:h.closedAt,
     floorsMet:n.floorsMet===true,
-    shortfalls:Array.isArray(n.floorShortfalls)?n.floorShortfalls:[]};
+    shortfalls:Array.isArray(n.floorShortfalls)?n.floorShortfalls:[],
+    arrearsAdded:Array.isArray(n.arrearsAdded)?n.arrearsAdded:[]};
 }
 function dismissRollNotice(){
   const n=rollNotice(history[0]);
@@ -392,6 +393,45 @@ function formatBorrowedDate(d){
   if(!d)return '—';
   return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short'});
 }
+// Contractual minimums this cycle left uncovered. The MINIMUM is what is
+// owed under the agreement, so whatever of it goes unpaid is genuinely
+// overdue and joins arrears at close. The FLOOR is discretionary — what
+// you have chosen to aim for, above or below that minimum — so missing it
+// is not a debt to anyone and goes on the catch-up ledger instead. A floor
+// payment BELOW the minimum settles the floor and still leaves contractual
+// ground uncovered, which is why both can happen to the same debt.
+// Mirrors the same calculation in lib/debtCycle.js's rollOnce().
+function getUnpaidMinimums(){
+  const cyclePayments=getCyclePayments();
+  const out=[];
+  for(const d of debts){
+    if(d.balance<=0.005)continue;
+    const minDue=Math.min(Number(d.min)||0,d.balance);
+    if(minDue<=0.005)continue;
+    // Paying the target in full always covers the minimum (the plan's
+    // payment is built on top of it); a floor-only payment covers only as
+    // far as the floor reaches, which may fall short.
+    const cp=cyclePayments.find(x=>x.id===d.id);
+    const covered=paidThisCycle.includes(d.id)?minDue
+      :floorPaidThisCycle.includes(d.id)?(cp&&cp.floorDue!==null?cp.floorDue:0)
+      :0;
+    const unpaid=Math.max(0,minDue-covered);
+    if(unpaid<=0.005)continue;
+    const newArrears=Math.min(d.balance,d.arrears+unpaid);
+    if(newArrears-d.arrears<=0.005)continue; // already fully overdue
+    out.push({id:d.id,name:d.name,amount:round2(newArrears-d.arrears)});
+  }
+  return out;
+}
+// Applies that roll to `debts`. Called by BOTH close paths just before the
+// new-cycle POST, so a manual close and an automatic one leave the arrears
+// figures in exactly the same place.
+function applyUnpaidMinimums(list){
+  const byId={};
+  for(const a of list)byId[a.id]=a.amount;
+  debts=debts.map(d=>byId[d.id]?{...d,arrears:Math.min(d.balance,d.arrears+byId[d.id])}:d);
+}
+
 // Snapshot of what this cycle actually paid, for archiving to history.
 // Read before debts/paidThisCycle/incomeLog are cleared for the new cycle.
 function getCycleArchivePayload(){
@@ -421,8 +461,13 @@ function getCycleArchivePayload(){
     if(existing){existing.amount=round2(existing.amount+nf.amount);existing.name=nf.name;}
     else merged.push({...nf,since});
   }
+  // Contractual minimums left uncovered — these become arrears (see
+  // getUnpaidMinimums), and are archived so History and the rollover banner
+  // can say exactly what moved.
+  const arrearsAdded=getUnpaidMinimums();
   return {debtsPaid,debtsMissed,bizPotClose:bizPot,perPotClose:perPot,
-    floorShortfalls:merged,cycleFloorShortfalls,floorsMet:fs.floorsMet,targetMet:fs.targetMet};
+    floorShortfalls:merged,cycleFloorShortfalls,floorsMet:fs.floorsMet,targetMet:fs.targetMet,
+    arrearsAdded};
 }
 
 // For free text (notes, loan sources) interpolated into innerHTML/attribute
@@ -878,16 +923,21 @@ function renderAll(){
     const roll=rollNotice(history[0]);
     if(roll&&roll.cycleNumber>rollNoticeDismissed){
       const shortTotal=roll.shortfalls.reduce((sum,f)=>sum+(Number(f.amount)||0),0);
+      const owedTotal=roll.arrearsAdded.reduce((sum,a)=>sum+(Number(a.amount)||0),0);
       html+=`<div class="card" style="border:1px solid #6a5a1a;background:#1a1608;border-radius:10px;margin-bottom:8px">
         <div class="row" style="align-items:flex-start">
           <div style="font-size:13px;color:#e0c060">🔄 Cycle ${roll.cycleNumber} closed itself on ${new Date(roll.closedAt).toLocaleDateString('en-GB',{day:'numeric',month:'short'})} — it's archived under History.</div>
           <button onclick="dismissRollNotice()" style="background:none;border:none;color:#7c7f96;font-size:16px;padding:0 0 0 8px;flex-shrink:0">×</button>
         </div>
+        ${roll.arrearsAdded.length
+          ?`<div style="font-size:12px;color:#e05c5c;margin-top:8px;line-height:1.5">${fmt(owedTotal)} of unpaid minimums went into arrears — ${roll.arrearsAdded.map(a=>esc(a.name)+' '+fmt(a.amount)).join(', ')}. Paid one of these outside the app? Put it right under Edit Debts.</div>`
+          :''}
         ${roll.shortfalls.length
-          ?`<div style="font-size:12px;color:#e0923b;margin-top:8px;line-height:1.5">${fmt(shortTotal)} across ${roll.shortfalls.length} unmet floor${roll.shortfalls.length===1?'':'s'} went onto the catch-up ledger — ${roll.shortfalls.map(f=>esc(f.name)).join(', ')}. Paid one of these outside the app? Clear it from the Behind panel.</div>`
-          :roll.floorsMet
-            ?`<div style="font-size:12px;color:#7db87d;margin-top:8px">Every floor was met — nothing went on the ledger.</div>`
-            :''}
+          ?`<div style="font-size:12px;color:#e0923b;margin-top:8px;line-height:1.5">${fmt(shortTotal)} across ${roll.shortfalls.length} unmet floor${roll.shortfalls.length===1?'':'s'} went onto the catch-up ledger — ${roll.shortfalls.map(f=>esc(f.name)).join(', ')}. That one's discretionary; clear it from the Behind panel when you're ready.</div>`
+          :''}
+        ${!roll.arrearsAdded.length&&!roll.shortfalls.length
+          ?`<div style="font-size:12px;color:#7db87d;margin-top:8px">Everything was covered — nothing went into arrears or onto the ledger.</div>`
+          :''}
         <button class="btn-ghost" style="width:100%;margin-top:10px" onclick="openSyncBalances('balances')">Update my balances</button>
       </div>`;
     }
@@ -899,7 +949,7 @@ function renderAll(){
       const when=dtr==null?'soon':dtr<=0?'today':dtr===1?'tomorrow':`in ${dtr} days`;
       html+=`<div class="card" style="border:1px solid #6a5a1a;background:#1a1608;border-radius:10px;margin-bottom:8px">
         <div class="row" style="align-items:flex-start">
-          <div style="font-size:13px;color:#e0c060">📅 This cycle renews ${when}. Any floor still unmet then goes onto the catch-up ledger — tick off what you've paid, or close it now and sync your balances.</div>
+          <div style="font-size:13px;color:#e0c060">📅 This cycle renews ${when}. Any minimum still unpaid then goes into arrears, and any unmet floor onto the catch-up ledger — tick off what you've paid, or close it now and sync your balances.</div>
           <button onclick="cycleResetDismissed=true;renderAll()" style="background:none;border:none;color:#7c7f96;font-size:16px;padding:0 0 0 8px;flex-shrink:0">×</button>
         </div>
         <button class="btn-ghost" style="width:100%;margin-top:10px" onclick="startNewCycle()">Close it now</button>
@@ -1809,7 +1859,7 @@ function renderSyncModal(){
       <div class="modal" style="max-height:85vh;overflow-y:auto">
         <h2 style="font-size:18px;margin-bottom:6px">Update balances</h2>
         <div style="font-size:13px;color:#7c7f96;margin-bottom:16px;line-height:1.5">${syncMode==='balances'
-          ?`Each box holds what the app <strong style="color:#5b8def">currently thinks</strong> you owe. Check against your statements and correct anything that's out — including a payment you made outside the app that the cycle counted as an unmet floor.`
+          ?`Each box holds what the app <strong style="color:#5b8def">currently thinks</strong> you owe. Check against your statements and correct anything that's out — including a payment you made outside the app that the cycle counted as a missed minimum.`
           :`Each box shows the plan's <strong style="color:#5b8def">estimate</strong> after this cycle. Check against your statements and tweak where they differ — estimates drift because of interest and payment timing.`}</div>
         ${rows}
         <div style="font-size:12px;color:#555;margin-top:12px;line-height:1.5">Tip: if a debt is now cleared, set it to 0 and it'll drop out of the plan.</div>
@@ -1835,6 +1885,9 @@ function confirmBalancesOnly(){
 }
 async function confirmSync(){
   const archivePayload=getCycleArchivePayload(); // must read before debts/paidThisCycle change
+  // Unpaid minimums become arrears first, so a balance typed below them
+  // still clamps the rolled figure rather than the pre-roll one.
+  applyUnpaidMinimums(archivePayload.arrearsAdded);
   debts=debts.map(d=>{
     if(syncDraft[d.id]===undefined)return d;
     const nb=parseNum(syncDraft[d.id]);
@@ -1864,6 +1917,7 @@ async function confirmSync(){
 }
 async function confirmNewCycle(){
   const archivePayload=getCycleArchivePayload(); // must read before paidThisCycle/incomeLog clear
+  applyUnpaidMinimums(archivePayload.arrearsAdded);
   paidThisCycle=[];
   missedThisCycle=[];
   floorPaidThisCycle=[];
@@ -1872,7 +1926,10 @@ async function confirmNewCycle(){
   floorShortfalls=archivePayload.floorShortfalls;
   closeModal();renderAll();
   try{
-    const res=await fetch('/debt/api/new-cycle',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify(archivePayload)});
+    // `debts` goes with it now: the arrears roll above has to reach the
+    // server, and new-cycle is what writes balance/arrears. Skipping it
+    // would leave the roll local and lost on the next load.
+    const res=await fetch('/debt/api/new-cycle',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify({debts,...archivePayload})});
     if(res.ok)adoptCycleTimestamps(await res.json().catch(()=>null));
     else{saveError=true;}
   }catch(err){saveError=true;console.error('Failed to start new cycle',err);}

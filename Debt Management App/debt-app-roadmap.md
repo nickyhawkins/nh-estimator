@@ -590,7 +590,7 @@ rather than decisions:
 
 ---
 
-## Feature 9 — A plan that keeps itself up to date — BUILT (v2.48.0)
+## Feature 9 — A plan that keeps itself up to date — BUILT (v2.48.0, arrears rule corrected v2.48.1)
 
 The app had stalled: balances and arrears frozen for weeks, and every forecast still counting from July 2026. Three separate causes.
 
@@ -625,7 +625,16 @@ Two consequences worth knowing:
 
 A calendar month after it opened (`addMonths`, which clamps 31 Jan → 28 Feb rather than overflowing into March), a cycle closes on its own, in one transaction under `SELECT ... FOR UPDATE` on the settings row.
 
-**The governing rule: an automatic close does exactly what the manual close does, and nothing more.** It is the button pressing itself, not a second policy. Same history row, same `floorsMet`/`targetMet` verdict, same floor-shortfall merge, same things left alone — pots and buffer carry over, `floor_shortfalls` accumulates rather than resetting. In particular it does **not** add unmet floors to arrears: the shortfall ledger is where a missed floor belongs, deliberately inert until Catch up is tapped (Feature 8's whole point).
+**The governing rule: an automatic close does exactly what the manual close does, and nothing more.** It is the button pressing itself, not a second policy. Same history row, same `floorsMet`/`targetMet` verdict, same floor-shortfall merge, same arrears roll, same things left alone — pots and buffer carry over, `floor_shortfalls` accumulates rather than resetting.
+
+**Two different numbers move at a close, and they are not the same thing** (corrected in v2.48.1 — the first cut had this backwards):
+
+- The **minimum** (`debt_plan_debts.min`) is contractual. Whatever of it goes unpaid is genuinely overdue, so it is added to arrears, capped at the balance. That is simply true, and the plan should say so.
+- The **floor** (`floor_payment`) is discretionary — what Nicky has chosen to aim for, which may sit above or below the minimum. Missing it is not a debt to anyone, so it goes on the floor-shortfall ledger instead: recorded, visible, and inert until Catch up is tapped (Feature 8's whole point).
+
+A floor set **below** the minimum therefore does both: paying it settles the floor (nothing on the ledger) and still leaves contractual ground uncovered. A floor of £120 against a minimum of £205 puts £85 into arrears.
+
+The roll lives in `getUnpaidMinimums()` / `applyUnpaidMinimums()` on the client and the matching block in `rollOnce()`, and both close paths call it — a manual close and an automatic one leave the arrears figures in exactly the same place. `confirmNewCycle` now sends `debts` with its POST for this reason; previously it sent only the archive payload, and the roll would have been lost on the next load.
 
 The one thing it cannot borrow from the manual path is the payoff simulation, which is client-side only. Everything it needs comes from stored state instead: `floor_payment` per debt, the three tick-lists, and `applied_payments`. Two small consequences: the floor cap is the **balance** rather than the sim's planned payment (both say "you can't owe more than is left"), and `targetMet` is computed as "every debt in the plan paid in full" rather than "every row in the sim's month 1".
 
@@ -647,4 +656,4 @@ The 28-day nudge (banner and push) is reworded to match: it warns that the cycle
 
 ### Known trade-off
 
-If you pay a debt outside the app and never tick it, the close records an unmet floor on the catch-up ledger. That is why the banner names every entry it added and points at the Behind panel — visible and reversible, not silent.
+If you pay a debt outside the app and never tick it, the close counts its minimum as unpaid and adds it to arrears. That is why the banner names every debt and amount it moved and points at Edit Debts — visible and reversible, not silent.
