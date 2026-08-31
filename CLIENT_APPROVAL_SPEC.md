@@ -116,10 +116,26 @@ Public (`routes/publicQuote.js`, mounted in `server.js` **ahead of the login
 gate** — the reader has no account and never will):
 
 ```
-GET  /quote/:jobId/:token                                  the page
+GET  /q/:token                                      the page (SHORT — what links use)
+POST /q/:token/variations/:variationId/approve
+POST /q/:token/variations/:variationId/decline
+
+GET  /quote/:jobId/:token                           the original shape, kept working
 POST /quote/:jobId/:token/variations/:variationId/approve
 POST /quote/:jobId/:token/variations/:variationId/decline
 ```
+
+**Two URL shapes, both permanent.** The short one is what a client actually
+receives: 68 characters against 109, so it survives a text message without
+wrapping into something that looks broken, and it carries no job id — one less
+internal identifier on a stranger's screen. Nothing was lost by dropping it:
+the token is already globally unique (`jobs_client_token`), so the job id never
+did any work in the URL beyond making it longer. The long shape stays supported
+forever because links were already sent on it, and each page builds its action
+paths from the base the reader arrived on, so nobody is ever bounced between
+the two. Resolving a job **by** token is a plain indexed lookup and is
+deliberately not the authorization decision — that is still the constant-time
+compare, identically for both shapes.
 
 Authenticated (`routes/api.js`):
 
