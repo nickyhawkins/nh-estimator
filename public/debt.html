@@ -71,7 +71,7 @@
   <div class="inner">
     <div style="font-size:10px;letter-spacing:.15em;color:#7c7f96;text-transform:uppercase;margin-bottom:4px">Debt Snowball · Arrears First</div>
     <h1 style="font-size:24px;font-weight:700;color:#fff;letter-spacing:-.5px">Nicky's Payoff Plan</h1>
-    <div style="font-size:12px;color:#7c7f96;margin-top:2px">Starting July 2026</div>
+    <div id="cycleLine" style="font-size:12px;color:#7c7f96;margin-top:2px"></div>
     <div class="stat-grid" id="statGrid"></div>
     <div style="margin-top:16px">
       <label class="slider-label">Monthly debt target: <strong id="budgetLabel" style="color:#fff"></strong> <span style="color:#555">· drives the payoff plan</span></label>
@@ -128,6 +128,12 @@ let bufferTarget=0;
 let floorShortfalls=[];
 let incomeLog=[]; // {id, amount, bizAmt, perAmt, savedAmt, bufferAmt, date}
 let paidThisCycle=[]; // array of debt ids paid
+// What each tick actually took off a balance this cycle, keyed by debt id:
+// {name, nominal, amount, arrearsAmt, potAmt}. Ticking a payment applies it
+// to the debt straight away (that's what makes balances and arrears move
+// between cycles); this ledger is what lets an un-tick put back precisely
+// what was removed, clamping and pot-shortfalls included.
+let appliedPayments={};
 let missedThisCycle=[]; // debt ids deliberately skipped this cycle — mutually exclusive with paidThisCycle
 // Debt ids where the FLOOR was paid but the target wasn't — the third state a
 // payment can be in, and the only reason the two verdicts can differ. All
@@ -155,7 +161,10 @@ let debtsUpdatedAt=null;
 let settingsUpdatedAt=null;
 let cashflowUpdatedAt=null;
 let conflictBanner='';
-let cycleStatus={daysSinceStart:0,promptReset:false};
+let cycleStatus={cycleStartedAt:null,nextRollAt:null,daysSinceStart:0,daysToRoll:null,promptReset:false};
+// Cycle number of an auto-rollover whose "sync your balances" prompt has
+// been dismissed on this device.
+let rollNoticeDismissed=(()=>{try{return Number(localStorage.getItem('debtRollNoticeSeen'))||0;}catch(err){return 0;}})();
 let cycleResetDismissed=false;
 let borrowedActive=[]; // loaded from GET /debt/api/borrowed on init
 let borrowedRepaid=[];
@@ -182,6 +191,7 @@ let persistTimer=null;
 // call persist('settings') etc.; a bare persist() marks everything (safe
 // fallback for anything missed).
 const dirty={debts:false,settings:false,cashflow:false};
+let persistInFlight=0; // saves awaiting a response — a background refresh waits them out
 function persist(...kinds){
   (kinds.length?kinds:['debts','settings','cashflow']).forEach(k=>dirty[k]=true);
   clearTimeout(persistTimer);
@@ -190,13 +200,14 @@ function persist(...kinds){
 const PERSIST_BODIES={
   debts:()=>({debts,clientUpdatedAt:debtsUpdatedAt}),
   settings:()=>({budget,sweepPct,savingsPct,tightThreshold,lastMilestone,notifyDaysBefore,notificationsEnabled,bufferTarget,clientUpdatedAt:settingsUpdatedAt}),
-  cashflow:()=>({bizPot,perPot,savingsPot,bufferPot,paidThisCycle,missedThisCycle,floorPaidThisCycle,floorShortfalls,clientUpdatedAt:cashflowUpdatedAt})
+  cashflow:()=>({bizPot,perPot,savingsPot,bufferPot,paidThisCycle,missedThisCycle,floorPaidThisCycle,floorShortfalls,appliedPayments,clientUpdatedAt:cashflowUpdatedAt})
 };
 async function persistNow(){
   if(!loadedFromServer)return; // never push the fallback seed over real data
   const kinds=Object.keys(dirty).filter(k=>dirty[k]);
   if(!kinds.length)return;
   kinds.forEach(k=>dirty[k]=false);
+  persistInFlight++;
   try{
     const results=await Promise.all(kinds.map(k=>
       fetch('/debt/api/'+k,{method:'POST',headers:JSON_HEADERS,body:JSON.stringify(PERSIST_BODIES[k]())})));
@@ -210,6 +221,8 @@ async function persistNow(){
     kinds.forEach(k=>dirty[k]=true); // retried with the next save
     if(!saveError){saveError=true;renderAll();}
     console.error('Failed to save debt plan state',err);
+  }finally{
+    persistInFlight--;
   }
 }
 // Applies a write's outcome: on 409, another device saved more recently, so
@@ -233,6 +246,7 @@ async function handleWriteResponse(res,kind){
       paidThisCycle=body.current.paidThisCycle;missedThisCycle=body.current.missedThisCycle||[];
       floorPaidThisCycle=body.current.floorPaidThisCycle||[];
       floorShortfalls=body.current.floorShortfalls||[];
+      appliedPayments=body.current.appliedPayments||{};
       cashflowUpdatedAt=body.updatedAt;
     }
     conflictBanner="Updated on another device — your changes weren't saved. Refreshed to latest.";
@@ -265,6 +279,7 @@ function applyStatePayload(s){
   missedThisCycle=s.cashflow.missedThisCycle||[]; // ||[] — pre-feature offline snapshots lack it
   floorPaidThisCycle=s.cashflow.floorPaidThisCycle||[];
   floorShortfalls=s.cashflow.floorShortfalls||[];
+  appliedPayments=s.cashflow.appliedPayments||{}; // ||{} — pre-column rows and old offline snapshots
   incomeLog=s.incomeLog;
   debtsUpdatedAt=s.meta?.debtsUpdatedAt||null;
   settingsUpdatedAt=s.meta?.settingsUpdatedAt||null;
@@ -354,6 +369,25 @@ function renderCycleVerdict(notes){
     ${typeof notes.targetMet==='boolean'?badge(notes.targetMet,'Target'):''}
   </div>${shortTotal>0.005?`<div style="font-size:11px;color:#e0923b;margin-bottom:8px">${fmt(shortTotal)} short on ${shortfalls.length} floor${shortfalls.length===1?'':'s'} — ${shortfalls.map(f=>esc(f.name)).join(', ')}</div>`:''}`;
 }
+// Recognises the history row an automatic rollover wrote, so the app can say
+// the cycle turned over without you. Manual closes carry no autoRolled key
+// and come back null, as do older rows with no notes at all.
+function rollNotice(h){
+  if(!h)return null;
+  const n=parseCycleNotes(h.notes);
+  if(!n.autoRolled)return null;
+  return {cycleNumber:h.cycleNumber,closedAt:h.closedAt,
+    floorsMet:n.floorsMet===true,
+    shortfalls:Array.isArray(n.floorShortfalls)?n.floorShortfalls:[]};
+}
+function dismissRollNotice(){
+  const n=rollNotice(history[0]);
+  if(n){
+    rollNoticeDismissed=n.cycleNumber;
+    try{localStorage.setItem('debtRollNoticeSeen',String(n.cycleNumber));}catch(err){/* private mode */}
+  }
+  renderAll();
+}
 function formatBorrowedDate(d){
   if(!d)return '—';
   return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short'});
@@ -364,9 +398,13 @@ function getCycleArchivePayload(){
   const cyclePayments=getCyclePayments();
   // Floor-only payments belong in the archive too, at the amount that
   // actually left the pot — otherwise a floors-met cycle reads as £0 paid.
-  const debtsPaid=cyclePayments
-    .filter(p=>paidThisCycle.includes(p.id)||p.floorPaid)
-    .map(p=>({id:p.id,name:p.name,amount:paidThisCycle.includes(p.id)?p.amount:(p.floorDue||0)}));
+  const debtsPaid=[...paidThisCycle,...floorPaidThisCycle].map(raw=>{
+    const id=Number(raw);
+    const a=appliedPayments[id];
+    const p=cyclePayments.find(x=>x.id===id);
+    const fallback=p?(paidThisCycle.includes(id)?p.amount:(p.floorDue||0)):0;
+    return {id,name:a?.name||p?.name||('Debt '+id),amount:a?a.nominal:fallback};
+  }).filter(p=>p.amount>0.005);
   // Only ids that are genuinely among this cycle's payments — a stale missed
   // id (debt since cleared/edited away) shouldn't reach the history note.
   const debtsMissed=missedThisCycle.filter(id=>cyclePayments.some(p=>p.id===id));
@@ -396,8 +434,18 @@ const parseNum=(s)=>{const n=parseFloat(String(s).replace(/[^0-9.]/g,''));return
 const round2=(n)=>Math.round((Number(n)||0)*100)/100;
 const ord=(n)=>n+(['st','nd','rd'][n-1]||'th');
 
+// Month 1 of the projection is the month the CURRENT cycle opened, so every
+// forecast date counts forward from where you actually are. This was pinned
+// to July 2026, which is why "arrears cleared" and "debt-free" never moved
+// however much of the calendar went by. Falls back to today's month when the
+// cycle start hasn't loaded (offline, or a fresh install).
+function planStartDate(){
+  const raw=cycleStatus.cycleStartedAt?new Date(cycleStatus.cycleStartedAt):null;
+  const base=raw&&!isNaN(raw.getTime())?raw:new Date();
+  return new Date(base.getFullYear(),base.getMonth(),1);
+}
 function getMonthLabel(m,short=false){
-  const d=new Date(2026,6,1);d.setMonth(d.getMonth()+m-1);
+  const d=planStartDate();d.setMonth(d.getMonth()+m-1);
   return short?d.toLocaleString('en-GB',{month:'short',year:'2-digit'}):d.toLocaleString('en-GB',{month:'long',year:'numeric'});
 }
 
@@ -476,18 +524,45 @@ function getCyclePayments(){
   const months=getSim();
   const m1=months[0];
   if(!m1)return [];
-  return m1.payments.filter(p=>p.total>0.005).map(p=>{
+  const rows=m1.payments.filter(p=>p.total>0.005).map(p=>{
     const debt=debts.find(d=>d.id===p.id);
     const floor=floorOf(debt);
-    return {id:p.id,name:p.name,amount:p.total,due:debt?.due??99,arrears:p.arrearsPaid>0.005,snowball:p.extra>0.005,missed:missedThisCycle.includes(p.id),
+    // A row whose payment has already been applied keeps showing what was
+    // ACTUALLY paid. Re-running the sim would quote a different figure,
+    // because it is now working off the balance that payment already
+    // reduced. Unticked rows re-plan freely against the new balances, which
+    // is the point: clearing one debt's arrears moves the budget on.
+    const a=appliedPayments[p.id];
+    const total=a?a.nominal:p.total;
+    return {id:p.id,name:p.name,amount:total,due:debt?.due??99,arrears:(a?a.arrearsAmt:p.arrearsPaid)>0.005,
+      snowball:a?!!a.snowball:p.extra>0.005,missed:missedThisCycle.includes(p.id),
       floorPaid:floorPaidThisCycle.includes(p.id),
       account:debt?.account||'personal',
       floor,
+      // The split behind the payment, so applying a tick knows how much of it
+      // is arrears catch-up (the discretionary part) rather than the
+      // contractual minimum.
+      minAmt:p.minPaid,arrearsAmt:a?a.arrearsAmt:p.arrearsPaid,
       // What must actually go out to keep the commitment. Capped at the
       // planned payment: once a balance is nearly cleared you can't (and
       // needn't) send more than is left.
-      floorDue:floor===null?null:Math.min(floor,p.total)};
-  }).sort((a,b)=>a.due-b.due);
+      floorDue:floor===null?null:Math.min(floor,total)};
+  });
+  // A debt this cycle's payment cleared outright drops out of month 1 — keep
+  // its ticked row on the checklist rather than losing a payment you made.
+  for(const raw of [...paidThisCycle,...floorPaidThisCycle]){
+    const id=Number(raw);
+    if(rows.some(r=>r.id===id))continue;
+    const a=appliedPayments[id];
+    if(!a)continue;
+    const debt=debts.find(d=>d.id===id);
+    rows.push({id,name:debt?.name||a.name||('Debt '+id),amount:a.nominal,due:debt?.due??99,
+      arrears:a.arrearsAmt>0.005,snowball:!!a.snowball,missed:false,
+      floorPaid:floorPaidThisCycle.includes(id),account:debt?.account||'personal',
+      floor:floorOf(debt),minAmt:0,arrearsAmt:a.arrearsAmt,
+      floorDue:floorOf(debt)===null?null:Math.min(floorOf(debt),a.nominal)});
+  }
+  return rows.sort((a,b)=>a.due-b.due);
 }
 
 // ---------- Floors & targets ----------
@@ -603,6 +678,18 @@ function renderAll(){
 
   document.getElementById('budgetSlider').value=budget;
   document.getElementById('budgetLabel').textContent=fmt(budget);
+
+  // Live cycle line, in place of the old hardcoded "Starting July 2026".
+  const cycleLine=document.getElementById('cycleLine');
+  if(cycleLine){
+    const monthLabel=planStartDate().toLocaleString('en-GB',{month:'long',year:'numeric'});
+    const roll=cycleStatus.nextRollAt?new Date(cycleStatus.nextRollAt):null;
+    const dtr=cycleStatus.daysToRoll;
+    const soon=dtr!=null&&dtr<=3;
+    cycleLine.innerHTML=roll
+      ?`${monthLabel} cycle · day ${Math.max(1,(cycleStatus.daysSinceStart||0)+1)} · renews <span style="color:${soon?'#e0c060':'#7c7f96'}">${roll.toLocaleDateString('en-GB',{day:'numeric',month:'short'})}</span>`
+      :`${monthLabel} cycle`;
+  }
 
   const stats=[
     {label:'Total Debt',value:fmtS(totalDebt),color:'#7c7f96',border:'#2a2d3e'},
@@ -783,13 +870,39 @@ function renderAll(){
 
     // Cycle-reset nudge — same 28-day check as the daily push notification,
     // shown once per page load (dismissing doesn't persist server-side).
-    if(cycleStatus.promptReset && !cycleResetDismissed){
+    // A cycle that closed itself (the 8am cron, or catching up the moment the
+    // app was opened). It does exactly what the manual close does, so the one
+    // thing worth reporting is the verdict — and the balance sync the manual
+    // path used to force. Dismissal is per cycle number, so the next rollover
+    // speaks up again.
+    const roll=rollNotice(history[0]);
+    if(roll&&roll.cycleNumber>rollNoticeDismissed){
+      const shortTotal=roll.shortfalls.reduce((sum,f)=>sum+(Number(f.amount)||0),0);
       html+=`<div class="card" style="border:1px solid #6a5a1a;background:#1a1608;border-radius:10px;margin-bottom:8px">
         <div class="row" style="align-items:flex-start">
-          <div style="font-size:13px;color:#e0c060">📅 Your cycle is ${cycleStatus.daysSinceStart} days old — ready to start a new one?</div>
+          <div style="font-size:13px;color:#e0c060">🔄 Cycle ${roll.cycleNumber} closed itself on ${new Date(roll.closedAt).toLocaleDateString('en-GB',{day:'numeric',month:'short'})} — it's archived under History.</div>
+          <button onclick="dismissRollNotice()" style="background:none;border:none;color:#7c7f96;font-size:16px;padding:0 0 0 8px;flex-shrink:0">×</button>
+        </div>
+        ${roll.shortfalls.length
+          ?`<div style="font-size:12px;color:#e0923b;margin-top:8px;line-height:1.5">${fmt(shortTotal)} across ${roll.shortfalls.length} unmet floor${roll.shortfalls.length===1?'':'s'} went onto the catch-up ledger — ${roll.shortfalls.map(f=>esc(f.name)).join(', ')}. Paid one of these outside the app? Clear it from the Behind panel.</div>`
+          :roll.floorsMet
+            ?`<div style="font-size:12px;color:#7db87d;margin-top:8px">Every floor was met — nothing went on the ledger.</div>`
+            :''}
+        <button class="btn-ghost" style="width:100%;margin-top:10px" onclick="openSyncBalances('balances')">Update my balances</button>
+      </div>`;
+    }
+
+    // Renewal nudge — the cycle now closes on its own, so this is a warning to
+    // finish ticking rather than a prompt to press a button.
+    if(cycleStatus.promptReset && !cycleResetDismissed){
+      const dtr=cycleStatus.daysToRoll;
+      const when=dtr==null?'soon':dtr<=0?'today':dtr===1?'tomorrow':`in ${dtr} days`;
+      html+=`<div class="card" style="border:1px solid #6a5a1a;background:#1a1608;border-radius:10px;margin-bottom:8px">
+        <div class="row" style="align-items:flex-start">
+          <div style="font-size:13px;color:#e0c060">📅 This cycle renews ${when}. Any floor still unmet then goes onto the catch-up ledger — tick off what you've paid, or close it now and sync your balances.</div>
           <button onclick="cycleResetDismissed=true;renderAll()" style="background:none;border:none;color:#7c7f96;font-size:16px;padding:0 0 0 8px;flex-shrink:0">×</button>
         </div>
-        <button class="btn-ghost" style="width:100%;margin-top:10px" onclick="startNewCycle()">Start new cycle</button>
+        <button class="btn-ghost" style="width:100%;margin-top:10px" onclick="startNewCycle()">Close it now</button>
       </div>`;
     }
 
@@ -1125,7 +1238,7 @@ function renderAll(){
       const notes=parseCycleNotes(h.notes);
       html+=`<div class="card" style="border-radius:12px;margin-bottom:12px">
         <div class="row" style="margin-bottom:8px">
-          <span style="font-weight:700;font-size:14px">Cycle ${h.cycleNumber}</span>
+          <span style="font-weight:700;font-size:14px">Cycle ${h.cycleNumber}${notes.autoRolled?' <span class="badge" style="background:#2a2410;color:#e0c060;vertical-align:middle">AUTO</span>':''}</span>
           <span style="font-size:11px;color:#555">${dateRange}</span>
         </div>
         ${renderCycleVerdict(notes)}
@@ -1536,22 +1649,61 @@ function paymentState(id){
   if(missedThisCycle.includes(id))return 'missed';
   return 'unpaid';
 }
+// Ticking a payment takes it off the debt there and then — the balance drops,
+// and the arrears portion comes off the arrears — so the plan moves as you pay
+// instead of standing still until the next manual balance sync. Every delta is
+// recorded because none of them is simply "the payment": arrears are clamped
+// to the balance, and the pot only gives what it actually holds.
+function applyPayment(id,amount,arrearsPart,snowball){
+  const debt=debts.find(d=>d.id===id);
+  if(!debt)return;
+  const isBiz=debt.account==='business';
+  const potBefore=isBiz?bizPot:perPot;
+  const potAfter=Math.max(0,potBefore-amount);
+  const newBal=Math.max(0,debt.balance-amount);
+  const newArr=Math.min(Math.max(0,debt.arrears-Math.max(0,arrearsPart||0)),newBal);
+  appliedPayments={...appliedPayments,[id]:{
+    name:debt.name,nominal:amount,snowball:!!snowball,
+    amount:debt.balance-newBal,arrearsAmt:debt.arrears-newArr,potAmt:potBefore-potAfter
+  }};
+  debts=debts.map(d=>d.id===id?{...d,balance:newBal,arrears:newArr}:d);
+  if(isBiz)bizPot=potAfter; else perPot=potAfter;
+}
+// Puts back exactly what applyPayment took, pot included.
+function unapplyPayment(id){
+  const a=appliedPayments[id];
+  if(!a)return;
+  const debt=debts.find(d=>d.id===id);
+  debts=debts.map(d=>d.id===id?{...d,balance:d.balance+a.amount,arrears:d.arrears+a.arrearsAmt}:d);
+  if(debt?.account==='business')bizPot+=a.potAmt; else perPot+=a.potAmt;
+  const rest={...appliedPayments};delete rest[id];appliedPayments=rest;
+}
 function setPaymentState(id,next){
   const p=getCyclePayments().find(x=>x.id===id);
   if(!p)return;
-  const isBiz=p.account==='business';
-  const potAdd=v=>{ if(isBiz)bizPot=Math.max(0,bizPot+v); else perPot=Math.max(0,perPot+v); };
   const current=paymentState(id);
   if(current===next)next='unpaid'; // tapping the control you're already in undoes it
-  if(current==='paid')potAdd(p.amount);
-  else if(current==='floor')potAdd(p.floorDue||0);
+  // Leaving paid/floor restores the balance, the arrears and the pot from the
+  // ledger — not from a re-run of the sim, which is now working off the
+  // balance that payment already reduced.
+  if(current==='paid'||current==='floor')unapplyPayment(id);
   paidThisCycle=paidThisCycle.filter(x=>x!==id);
   floorPaidThisCycle=floorPaidThisCycle.filter(x=>x!==id);
   missedThisCycle=missedThisCycle.filter(x=>x!==id);
-  if(next==='paid'){paidThisCycle=[...paidThisCycle,id];potAdd(-p.amount);}
-  else if(next==='floor'){floorPaidThisCycle=[...floorPaidThisCycle,id];potAdd(-(p.floorDue||0));}
-  else if(next==='missed'){missedThisCycle=[...missedThisCycle,id];}
-  persist('cashflow');renderAll();
+  if(next==='paid'){
+    paidThisCycle=[...paidThisCycle,id];
+    applyPayment(id,p.amount,p.arrearsAmt,p.snowball);
+  }else if(next==='floor'){
+    // Paying only the floor sends the contractual minimum, so it clears no
+    // arrears unless the floor itself exceeds that minimum — the arrears
+    // catch-up is the discretionary part on top, and that part wasn't paid.
+    const due=p.floorDue||0;
+    floorPaidThisCycle=[...floorPaidThisCycle,id];
+    applyPayment(id,due,Math.max(0,due-(p.minAmt||0)),false);
+  }else if(next==='missed'){
+    missedThisCycle=[...missedThisCycle,id];
+  }
+  persist('cashflow','debts');renderAll();
 }
 function togglePaid(id){setPaymentState(id,'paid');}
 function togglePaidFloor(id){setPaymentState(id,'floor');}
@@ -1595,18 +1747,37 @@ function startNewCycle(){
       </div>
     </div>`;
 }
-function openSyncBalances(){
-  // Seed the draft with the PROJECTED balance after one cycle (month 1 of the sim).
-  // This mirrors what the plan expects to happen, giving a realistic starting estimate to tweak.
+// 'cycle' (the default) closes the cycle on save, as the manual flow always
+// has. 'balances' just corrects the figures — used after an automatic
+// rollover, where the cycle is already closed and archiving another one would
+// leave an empty history row.
+let syncMode='cycle';
+function openSyncBalances(mode){
+  syncMode=mode==='balances'?'balances':'cycle';
+  // Closing a cycle: seed the draft with the PROJECTED balance after it
+  // (month 1 of the sim), which is what the plan expects to happen and so a
+  // realistic figure to tweak. Reconciling after an automatic rollover: seed
+  // the CURRENT balance instead — the cycle already closed, so a projection
+  // of the one that just began would be a month ahead of the statement.
   syncDraft={};
   const months=getSim();
   const m1=months[0];
   debts.forEach(d=>{
     if(d.balance<=0.005)return;
     let projected=d.balance;
+    // 'balances' mode reconciles against a statement for a cycle that has
+    // already closed, so the current figure is the right starting point and
+    // no projection is applied at all.
+    if(syncMode!=='cycle'){ syncDraft[d.id]=projected.toFixed(2); return; }
+    // Already ticked: the payment has come off the balance already, so the
+    // estimate is just that balance plus a month's interest. Using the sim's
+    // month-1 remaining here would subtract the same payment a second time.
+    if(appliedPayments[d.id]){
+      projected=d.balance*(1+(d.apr/100/12));
+    }
     // A missed debt had no payment this cycle, so its estimate stays at the
     // current balance instead of assuming the plan's payment happened.
-    if(m1&&!missedThisCycle.includes(d.id)){
+    else if(m1&&!missedThisCycle.includes(d.id)){
       const p=m1.payments.find(x=>x.id===d.id);
       if(p&&p.wasActive){
         // A floor-only payment sent less than the plan assumed, so the
@@ -1627,7 +1798,7 @@ function renderSyncModal(){
     <div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #2a2d3e">
       <div style="flex:1">
         <div style="font-weight:600;font-size:14px">${esc(d.name)}</div>
-        <div style="font-size:11px;color:#555">now ${fmt(d.balance)} → est. shown${d.arrears>0.005?` · ${fmt(d.arrears)} arrears`:''}</div>
+        <div style="font-size:11px;color:#555">${syncMode==='balances'?'app has':'now'} ${fmt(d.balance)}${syncMode==='balances'?'':' → est. shown'}${d.arrears>0.005?` · ${fmt(d.arrears)} arrears`:''}</div>
       </div>
       <div style="width:120px">
         <input class="field-input" type="number" inputmode="decimal" value="${syncDraft[d.id]??d.balance.toFixed(2)}" oninput="syncDraft[${d.id}]=this.value" style="text-align:right">
@@ -1637,15 +1808,30 @@ function renderSyncModal(){
     <div class="modal-bg" onclick="if(event.target===this)closeModal()">
       <div class="modal" style="max-height:85vh;overflow-y:auto">
         <h2 style="font-size:18px;margin-bottom:6px">Update balances</h2>
-        <div style="font-size:13px;color:#7c7f96;margin-bottom:16px;line-height:1.5">Each box shows the plan's <strong style="color:#5b8def">estimate</strong> after this cycle. Check against your statements and tweak where they differ — estimates drift because of interest and payment timing.</div>
+        <div style="font-size:13px;color:#7c7f96;margin-bottom:16px;line-height:1.5">${syncMode==='balances'
+          ?`Each box holds what the app <strong style="color:#5b8def">currently thinks</strong> you owe. Check against your statements and correct anything that's out — including a payment you made outside the app that the cycle counted as an unmet floor.`
+          :`Each box shows the plan's <strong style="color:#5b8def">estimate</strong> after this cycle. Check against your statements and tweak where they differ — estimates drift because of interest and payment timing.`}</div>
         ${rows}
         <div style="font-size:12px;color:#555;margin-top:12px;line-height:1.5">Tip: if a debt is now cleared, set it to 0 and it'll drop out of the plan.</div>
         <div style="display:flex;gap:10px;margin-top:18px">
-          <button class="btn-primary" style="flex:1" onclick="confirmSync()">Save &amp; start new cycle</button>
+          <button class="btn-primary" style="flex:1" onclick="${syncMode==='balances'?'confirmBalancesOnly':'confirmSync'}()">${syncMode==='balances'?'Save balances':'Save &amp; start new cycle'}</button>
           <button class="btn-ghost" onclick="closeModal()">Cancel</button>
         </div>
       </div>
     </div>`;
+}
+// Balances-only save: an automatic rollover already closed and archived the
+// cycle, so this writes the corrected figures and nothing else.
+function confirmBalancesOnly(){
+  debts=debts.map(d=>{
+    if(syncDraft[d.id]===undefined)return d;
+    const nb=parseNum(syncDraft[d.id]);
+    return {...d,balance:nb,arrears:Math.min(d.arrears,nb)}; // arrears can't exceed the new balance
+  });
+  syncDraft={};
+  closeModal();
+  persist('debts');
+  dismissRollNotice(); // renders
 }
 async function confirmSync(){
   const archivePayload=getCycleArchivePayload(); // must read before debts/paidThisCycle change
@@ -1661,6 +1847,7 @@ async function confirmSync(){
   paidThisCycle=[];
   missedThisCycle=[];
   floorPaidThisCycle=[];
+  appliedPayments={};
   incomeLog=[];
   floorShortfalls=archivePayload.floorShortfalls;
   syncDraft={};
@@ -1680,6 +1867,7 @@ async function confirmNewCycle(){
   paidThisCycle=[];
   missedThisCycle=[];
   floorPaidThisCycle=[];
+  appliedPayments={};
   incomeLog=[];
   floorShortfalls=archivePayload.floorShortfalls;
   closeModal();renderAll();
@@ -2176,6 +2364,31 @@ document.getElementById('budgetSlider').addEventListener('input',e=>{
   persist('settings');
   scheduleRender();
 });
+
+// Keeps the app current on its own: a cycle that rolled over server-side, or
+// an edit made on another device, appears when you come back to the tab
+// instead of after a manual reload. Held off whenever there is local work a
+// reload would throw away — unsaved changes, a save still in flight, an open
+// modal, or a half-typed row in Edit Debts.
+const REFRESH_MIN_GAP_MS=60*1000;
+const REFRESH_POLL_MS=5*60*1000;
+let lastRefreshAt=Date.now();
+function refreshBlocked(){
+  return !loadedFromServer
+    || Object.values(dirty).some(Boolean)
+    || persistInFlight>0
+    || document.getElementById('modalRoot').innerHTML!==''
+    || Object.keys(editDraft).length>0;
+}
+async function refreshIfStale(){
+  if(refreshBlocked())return;
+  if(Date.now()-lastRefreshAt<REFRESH_MIN_GAP_MS)return;
+  lastRefreshAt=Date.now();
+  await loadState(); // renders
+}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refreshIfStale();});
+window.addEventListener('focus',()=>refreshIfStale());
+setInterval(()=>{if(document.visibilityState==='visible')refreshIfStale();},REFRESH_POLL_MS);
 
 loadState();
 initPush();
