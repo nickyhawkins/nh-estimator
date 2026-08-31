@@ -1337,6 +1337,30 @@ function icsContiguousRuns(span) {
   return runs;
 }
 
+// Calendar entry title: "client — job name — calendar title", dropping any
+// part another already spells out. The client used to ride along inside the
+// job name; now that it doesn't, it has to come from the job's own client
+// field or the calendar loses it (per Nicky 2026-08-30). The dedupe keeps
+// legacy names that still embed the client from doubling it up, and collapses
+// a calendar title that just repeats (or widens) the job name.
+// KEEP IN SYNC with scheduleLabelParts() in public/index.html — the app
+// builds the same label for its own Schedule views.
+function icsScheduleSummary(name, d) {
+  const parts = [];
+  for (const raw of [(d.xeroClient || '').trim(), String(name || '').trim(), (d.scheduleTitle ? String(d.scheduleTitle) : '').trim()]) {
+    if (!raw) continue;
+    const lp = raw.toLowerCase();
+    let handled = false;
+    for (let i = 0; i < parts.length; i++) {
+      const lk = parts[i].toLowerCase();
+      if (lk.includes(lp)) { handled = true; break; }
+      if (lp.includes(lk)) { parts[i] = raw; handled = true; break; }
+    }
+    if (!handled) parts.push(raw);
+  }
+  return parts.join(' — ') || String(name || '');
+}
+
 router.get('/schedule.ics', async (req, res) => {
   try {
     const settingsResult = await db.query('SELECT data FROM settings WHERE id = 1');
@@ -1362,17 +1386,7 @@ router.get('/schedule.ics', async (req, res) => {
       const workSat = d.workSaturdays != null ? !!d.workSaturdays : !!s.workSaturdays;
       const span = icsWorkingDaySpan(d.startDate, Math.ceil(+d.scheduledDays), workSat, !!d.workAllDays, holidays, blocked);
       if (!span.length) continue;
-      // Event title: "job name — scheduleTitle" when a title was typed at
-      // scheduling time (per Nicky 2026-07-22 — the title extends the name,
-      // it doesn't replace it); otherwise name — client, EXCEPT when
-      // they're the same text (job names are usually the client name,
-      // which read as "Smith — Smith" before this dedupe).
-      const title = (d.scheduleTitle && String(d.scheduleTitle).trim()) || '';
-      const client = (d.xeroClient || '').trim();
-      const sameName = client && client.toLowerCase() === String(row.name || '').trim().toLowerCase();
-      const summary = title
-        ? row.name + ' — ' + title
-        : row.name + (client && !sameName ? ' — ' + client : '');
+      const summary = icsScheduleSummary(row.name, d);
       const runs = icsContiguousRuns(span);
       runs.forEach((run, i) => {
         // DTEND is exclusive per RFC 5545: the day after this run's last booked day.

@@ -62,7 +62,7 @@ The app ships with sensible defaults (day rate £300, 20% markup, 25% deposit, s
 
 ![Home screen](images/01-home.png)
 
-The **Home** screen is your morning glance: the current job and its status, a **Materials to buy** count, what's **next on site**, and shortcut links. When something needs chasing — a quote that's gone unanswered too long, a finished job you haven't invoiced — it appears at the top of Home as an attention strip.
+The **Home** screen is your morning glance: the current job and its status, a **Materials to buy** count, **Next on site** — the client you're due at next and the date — and shortcut links. When something needs chasing — a quote that's gone unanswered too long, a finished job you haven't invoiced — it appears at the top of Home as an attention strip.
 
 The **bottom bar** is always visible and follows the life of a job, left to right:
 
@@ -80,7 +80,7 @@ The **menu (☰)**, top right on most screens, holds every other screen:
 | Item | What it's for |
 |---|---|
 | **Jobs** | Switch jobs, start a new one, import a pre-app Xero quote |
-| **Colours** | The job's colour schedule and paint-ordering quantities |
+| **Colours** | Every surface's colour, decided or not, and paint-ordering quantities |
 | **🔍 Price Lookup** | A till-check: search any Xero sales item for its price |
 | **🛒 Shopping List** | A running pick-up list, separate from any one job |
 | **Schedule** | The job calendar |
@@ -124,6 +124,16 @@ Tap **Preview changes** to see exactly what would move, room by room, `old → n
 Nothing is saved until you tap **Apply**; **Back** returns to the panel with every field still set. Afterwards the rooms are ordinary rooms — open any one and edit it as normal, nothing is locked. Staircase/HSL rooms take part too, but only for the fields that actually move their price: door coats, frame coats and every product override apply normally, while wall/ceiling/woodwork coats, the mist toggles and the prep level are skipped (a staircase room's total is worked out and frozen when you save the staircase form itself — change those on the staircase form instead).
 
 Rooms and fitted units can also be **duplicated** — tap the ⧉ icon on their card in the Measure list. Everything copies: dimensions, coats, prep, colours and products, dropped in right below the original as "(copy)". This is the fast way to do bedrooms 2/3/4, or two matching alcove units either side of a chimney breast — measure one, copy it, change a couple of numbers. A copy always starts its own client sign-off from Pending (it never inherits the original's ✓), and on an accepted job it arrives flagged as a variation, same as anything else added after acceptance.
+
+### Putting the list in order
+
+You measure in the order you walk the house, and the room you remembered on the way out lands at the bottom of the list. **Reorder** — on the **Interior**, **Exterior**, **Fitted Units** and **Custom Lines** headers, once that section has more than one row — walks them into the order you actually want:
+
+![Reordering the Measure list](images/03d-measure-reorder.png)
+
+Tap it and every row swaps its cost for **▲▼** arrows; tap those to walk a row up or down. It's one mode for the whole screen — every section's link reads **Done** while it's on, and any of them turns it back off. A row only ever moves **within its own section** (a room never walks into the exterior list), and the sections themselves keep their order. While you're reordering, rows don't open when tapped and can't be swiped away, so nothing gets deleted or edited by a stray finger — and the arrow at the top of a list is greyed out because there's nothing above it.
+
+**The order you set is the order everything downstream reads:** the Summary breakdown, the client-facing Quote view, the Xero quote, the CSV export and the final invoice. Each move saves as you make it, like any other change (offline included, queued until you're back in signal). Bulk edit and Reorder are one at a time — turning either on takes the other's link off the header until you're done.
 
 ### Adding a room
 
@@ -171,7 +181,7 @@ Once you've stopped measuring, the last three cards are the pricing decisions �
 
   **Spray walls** is off by default (also adds the spray sundries bump for the extra masking); **Spray ceiling** and **Spray woodwork** are on by default, since ceilings and woodwork are normally sprayed. A surface's toggle adds the Rates spraying uplift % to its litres on top of the standard or per-product rate — labour time is unchanged either way.
 - **Preparation** — Minimal / Standard / Heavy, or a custom percentage. This scales labour across the whole room, doors and frames included. **Making Good** adds a fixed £ amount for repairs.
-- **Paint & Colour** — each surface takes your default product from Settings; override the product, colour band or colour here when a room is different.
+- **Paint & Colour** — each surface takes your default product from Settings; override the product or colour band here when a room is different. The **colour** itself is a free-text box per surface (walls, ceiling, woodwork, and again on Feature Wall and Panelling), pre-filled with where it goes — leave it as it is and decide later. See [Colours](#7-colours).
 
 Two cards at the bottom sum up what you've entered:
 
@@ -253,7 +263,7 @@ Exterior work is priced per *item* — typically one per elevation ("Front eleva
 - **Garage Doors**, **Porch / Feature Door** — priced in days.
 - **Sash Window Restoration** — prime & paint plus resin repairs, reglazing, draught-proofing, cords and beads, added per window.
 - **Preparation** and **Making Good** — same idea as rooms.
-- **Paint Colours** — one masonry colour and one exterior woodwork colour per item.
+- **Paint Colours** — one masonry colour and one exterior woodwork colour per item, in the same free-text boxes the rooms use.
 
 Access uplifts for 1st floor and 2nd floor+ work are applied per item automatically; the percentages live in Rates. Exterior paint litres are estimated from assumed areas per unit (window, sash, door, garage, fascia width) — calibrate these in **Rates → Exterior Paint Coverage & Areas** as real jobs prove them out.
 
@@ -318,11 +328,21 @@ Type a **Description**, a **Unit price** (ex VAT) and an optional **Quantity** (
 
 ## 7. Colours
 
-Menu (☰) → **Colours** — the job's paint and ordering screen. As you and the client settle on colours, note each one here: a label for where it goes, plus brand and colour name from the built-in library of over 1,200 colours across Farrow & Ball, Little Greene, Dulux, Dulux Heritage, Paint & Paper Library and RAL Classic.
+**You never have to decide a colour to finish a measure.** Every painted surface starts out named after where it is — "Lounge Feature Wall", "Bedroom 1 Main Walls" — so a colour you haven't discussed yet still reads as something you recognise weeks later, instead of as "Colour 3". When the client makes their mind up, you type the real name over the top. Same box, same place, whenever it happens.
+
+Each surface's colour is one free-text field, on the room form under **Paint & Colour** and again on this screen. Type into it and the built-in library of over 1,200 colours (Farrow & Ball, Little Greene, Dulux, Dulux Heritage, Paint & Paper Library, RAL Classic) autocompletes as you go, filling in the brand and code the merchant needs. A colour that isn't in the library is fine as free text, and can be saved to the library for next time — including the same name under a second brand.
+
+Under the field are **quick-pick chips**: every other colour already on this job, one tap each. That's how a colour used in two places gets shared, so the job buys one tin between them rather than two. Typing the same name twice does the same thing — the second one joins the first rather than making a duplicate.
+
+Menu (☰) → **Colours** is the job-wide view of all of it:
 
 ![Colours screen](images/11-colours.png)
 
-Numbered colour slots are what the room forms' colour chips point at — so "wall colour 1" in a room always means colour 1 on this list. Each colour number shows which rooms and surfaces use it and **how much paint to order** — the same calculation Summary uses, so the two can never disagree. Look here, not at Summary, when you're actually buying paint. Typing a colour name autocompletes from the library, filling in brand and code for the merchant; an unmatched colour can be saved to the library for next time, including the same name under a second brand.
+**Colours by area** lists every painted surface in the job, room by room, each with the same editable field and marked **Named** or **To decide** — so you can see at a glance what's still open and settle any of it from one screen. It's somewhere to look, not a step you have to complete.
+
+Below that, **What to buy** is the ordering view, unchanged: each colour, the rooms and surfaces it covers, and **how much paint to order** — the same calculation Summary uses, so the two can never disagree. Look here, not at Summary, when you're actually buying paint.
+
+> **Naming a shared colour only changes the one you're on.** If six surfaces are all on the same undecided colour and you name one of them, that surface gets a colour of its own and the other five stay as they were — the field says so underneath while it's shared. To put them all on it, tap its quick-pick chip on each, or just type the name again.
 
 ---
 
@@ -353,12 +373,14 @@ Open **📋 Summary** and the job becomes a priced quote:
 The hero card shows the **total quote**, days on site, and the markup applied. Below it:
 
 - **Labour** (before markup) and **On Site days** at a glance.
-- **Imported from Xero (pre-app quote)** — a toggle for jobs originally agreed directly in Xero before this app existed. Turn it on to honour that agreed labour figure as-is instead of the app's own room calculation; materials still come from Measure as normal. Leave it off for anything measured and priced in the app.
+- **Imported from Xero (pre-app quote)** — a toggle for jobs originally agreed directly in Xero before this app existed. Turn it on to honour that agreed labour figure as-is instead of the app's own room calculation; materials still come from Measure as normal. It only applies to a handful of jobs, so it isn't shown on every one: it appears automatically on any job already using it and on any job brought in by **Import an accepted quote from Xero**. On an ordinary job you'll see a single line, **"Labour agreed in a pre-app Xero quote?"**, in its place — tap that and the toggle appears. Leave it off for anything measured and priced in the app.
 - **Commercial job** — a toggle that adds a percentage uplift (default 10%) before markup, for commercial rather than domestic work.
 - **Standalone job** — for a job booked on its own, where 1.6 calculated days still blocks out 2 diary days: this toggle charges labour at whole diary days × your day rate (rounding up to a full or half day, per the setting in Rates). It never discounts — if the calculated labour already beats the rounded figure, nothing changes. Both figures stay visible on the quote maths, and the top-up flows through markup, deposit, Xero and the final invoice like any other labour. A job can be commercial, standalone, both or neither.
 - **Markup / Discount** — this quote can override your default markup; enter a negative number for a discount.
 
 Scroll further for the full breakdown — every room, exterior item, kitchen, fitted unit and custom line priced, labour subtotal, sundries, markup — followed by the **Materials** list: each paint totalled in litres and converted into tins to buy.
+
+Materials list **one line per product and tin size**, the way On Site has always shown them, with the surfaces that line's tins are for underneath it: *"Lounge Main Walls · 2 · Bedroom 1 Main Walls · 1"*. The same paint in two rooms is one line of three tins, not two lines you can't tell apart. Once every colour on a line has a real name, the name replaces the generic colour band inside the product itself — *"Tikkurila Optiva 5 – Colours 3ltr"* becomes *"Tikkurila Optiva 5 – Farrow & Ball No. 28 Dead Salmon 3ltr"* — on Summary, on the client's quote and in Xero, exactly as it already reads on an invoice. Until then the line keeps the generic wording and the surfaces underneath say what it's for. Editing a quantity on one of these rows spreads it across the colours behind it in proportion; deleting one deletes that product.
 
 ![Summary breakdown](images/07b-summary-breakdown.png)
 
@@ -372,7 +394,7 @@ Almost anything you do to the materials list — recalculating, deleting a line,
 
 Everything in this app is calculated from your current Rates and Settings — right up until a client says yes. The moment a quote is **Accepted**, the app takes one snapshot of every figure — every room's price, the materials, the totals — and from then on the client-facing views read that frozen record, not a fresh recalculation. So nudging a coverage rate or a day rate next month can't silently move the price on a job someone already agreed to.
 
-If the job genuinely needs to change after acceptance — a variation, a correction — Summary shows the current **Accepted quote — Revision N** and an **Amend → revision N+1** link, which re-runs the calculation once and freezes a new snapshot. The old revision stays on record; nothing is overwritten.
+If the job genuinely needs to change after acceptance — a variation, a correction — Summary shows the current **Accepted quote — Revision N** and an **Amend → revision N+1** link, which re-runs the calculation once and freezes a new snapshot. The old revision stays on record; nothing is overwritten. Once there is more than one, a **History (N revisions)** link appears next to it: tap it for the list of every revision with its date, its total and what each amendment added or took off.
 
 ### Client-facing quote view
 
@@ -389,6 +411,105 @@ Once the job is **Accepted**, the status card carries the deposit line — unles
 3. **Apply it to the invoice in Xero** when you raise the invoice, exactly as before — the app can't do this step, since Xero won't let a payment be applied to a still-draft invoice.
 
 The line then shows where things stand — *not in Xero yet*, *in Xero · unallocated*, or *in Xero · allocated ✓* — read back from Xero, which stays the boss: void or delete the deposit there and the app notices and stops saying it's synced. A failed sync loses nothing — the deposit stays recorded, the line turns red with the reason, and **Try again** is safe. Fixing a mistake (a typo, a refund) is done in Xero, not here — the app never edits or deletes a deposit that's already landed.
+
+### The quote description
+
+Under the breakdown sits the **Quote description** — the wording that rides the
+**first line item** on the Xero quote, and describes that line. It's written for you from the job: the app picks the wording template
+that fits the work (Painting, Wallpapering, Kitchen Cabinet Spraying and so on —
+all editable in **Settings → Quote & Invoice Text**), fills in your products and
+coats, and puts it in future tense for a quote and past tense for the final
+invoice.
+
+A job with **both rooms and exterior items** gets the **Interior & Exterior**
+template, which has an INSIDE half and an OUTSIDE half — so a client reads the
+promise about their furniture and flooring *and* the one about their windows,
+doors and landscaping, instead of only the indoor one.
+
+**It says what you actually measured.** Quote only the walls and it won't promise
+ceilings and woodwork. Measure a feature wall, panelling, radiators, window sills
+or a mist coat on new plaster and each one gets named — with its own product if
+you gave it one:
+
+> *Ceilings finished in Tikkurila Anti Reflex 2, walls in Tikkurila Optiva 5, the
+> feature wall in Farrow & Ball Estate Emulsion, and all woodwork including
+> skirtings, window sills and radiators in Tikkurila Helmi 30, each applied in 2
+> coats. Newly plastered walls will be mist coated prior to finishing.*
+
+A papered feature wall isn't listed as painted — it moves to the wallpapering
+line instead, which names what's being papered.
+
+**It never states a paint the job doesn't use.** It's a whole-job sentence, so
+woodwork measured in one room puts woodwork in the wording for the job — and
+where the rooms use *different* paints on the same surface, every one of them is
+named rather than whichever room came first:
+
+> *Ceilings finished in Tikkurila Anti Reflex 2, walls in Tikkurila Optiva 5 and
+> Dulux Diamond Matt, and all woodwork including skirtings in Tikkurila Helmi 30,
+> each applied in 2 coats.*
+
+Only rooms that actually paint a surface get a say — an old product left on a
+room with no wall coats doesn't count as a second paint — and a surface no room
+paints at all keeps your Settings default. Coats work differently, because
+there's nothing to list: where the surfaces disagree, no coat figure is stated
+rather than a wrong one. Type the detail into the box yourself whenever you'd
+rather spell out which room gets which.
+
+**It describes one line, and every other line says what *it* is having.** Each
+Xero line carries its own price, so the block opens *"Painting of Lounge:"* and
+describes the Lounge — not a list of every room in the job on a line priced for
+one of them. The protection and completion paragraphs are true of every room, so
+they appear once and the later lines just point back at them:
+
+```
+Lounge        Painting of Lounge:
+              [protection · the Lounge's scope · completion]
+Kitchen       same as above
+Bedroom 1     same as above
+Bathroom      Ceilings finished in Tikkurila Anti Reflex 2 and walls in
+              Tikkurila Optiva 5, each applied in 2 coats.
+              Preparation and completion as above.
+W.C.          Walls in Tikkurila Optiva 5, applied in 2 coats.
+              Preparation and completion as above.
+```
+
+**"Same as above" now means exactly that** — same as the first line. A room
+matching it collapses, so identical bedrooms stay tidy and the detail appears
+only where a room genuinely differs. Your own client quote view gets the short
+version under each room name: *"ceiling, walls and woodwork"*, *"walls"*.
+
+The box is editable: type in it and your version sticks from then on (**↺ Reset
+to template** goes back). **Editing it also turns the per-room lines off** — once
+the wording is yours, the app stops adding sentences underneath it that you
+didn't write and can't edit; every other line goes back to "same as above".
+Sending stamps the exact wording onto the quote, so a document you've already
+sent never changes underneath you.
+
+**Exterior items get the same treatment**, from what you measured on them —
+render (textured or not), fascias and soffits, windows, sash windows, doors,
+garage doors, a porch — with repairs and restoration noted where you've logged
+any. Each exterior line compares against the other *exterior* lines, so it only
+carries text where it genuinely differs from them.
+
+**Fitted units** describe themselves too — *"Fitted units including 3 bays, 9
+shelves and 4 doors painted both sides in Tikkurila Helmi 30, applied in 2
+coats. Bare surfaces will be primed first."* — with the product coming from the
+unit's own picker (or your Settings woodwork topcoat) and the priming note
+following each unit's **Bare / Already painted** setting. The **kitchen** fills
+in its coat count; its product and colour aren't tracked in the app, so those
+stay as `[product]` and `[colour/finish]` markers for you to type over, along
+with the fitted units' `[spray/brush]` and the wallpaper templates'
+`[paper name/supplier]`.
+
+On the Xero quote, the kitchen and fitted-unit *lines* still read "same as
+above" under the block — only rooms and exterior items get a per-line scope
+sentence.
+
+> **If you've edited your templates in Settings**, your saved copies keep whatever
+> wording you gave them. To pick this up, put **`{surfaces}`** where the scope
+> sentence should go (and **`{papered}`** where a wallpapering line names what's
+> being papered) — or use **Reset to defaults** to take the supplied templates
+> back.
 
 ### Sending to Xero
 
@@ -416,6 +537,11 @@ Menu (☰) → **Jobs**. The app holds any number of jobs; the one you're workin
 
 ![Jobs screen](images/08-jobs.png)
 
+- **The client's name is the top line** of each row, with the job name and its status underneath — job names repeat ("Bedrooms" three times over), people don't. A job with no client saved shows its name on top instead; the client comes from the **Client** details on Summary's Xero panel.
+- **Search** (top of the screen) filters every group as you type: client name, job name, calendar title, or a Xero quote/invoice number off a piece of paper. Several words all have to match, but not in the same field — "priya bedrooms" finds it. A count and a **Clear** link sit under the box, and the search resets each time you open the screen.
+
+![Searching the jobs list](images/08b-jobs-search.png)
+
 - Jobs group by status: **Draft → Quoted → Accepted / Declined → Completed → Invoiced**.
 - **`+`** starts a new job. **⧉** duplicates a job as a quick template (notes aren't copied). Each job is fully separate — its own rooms, kitchen, colours and materials.
 - **Import an accepted quote from Xero** — took the job on before the app existed? Import the Xero quote and it becomes a job here, with the agreed price as the record (adjustable via the **Agreed figures** card, or the **Imported from Xero** toggle on Summary — see [The quote](#9-the-quote-summary)). If a listed quote actually belongs to a job already in the app, use **"Already a job in the app? Link it ›"** instead of importing a duplicate.
@@ -432,6 +558,7 @@ Menu (☰) → **Schedule** — or tap **Schedule ›** on an accepted job's Sum
 - **Tap a job's bar** → Open job, **Move start date** (then tap the new day), or Unschedule.
 - **Tap an empty day** → start a job there, or **block days** for holidays and time off.
 - The header tells you your **next free day** at all times.
+- **What a job is called on the calendar:** entries read **client — job name — calendar title**, skipping anything the others already say. So a Kitchen job for Lauren Lowe reads "Lauren Lowe — Kitchen" whether or not you typed a calendar title, and an older job still named "Lauren Lowe - Kitchen" doesn't say her name twice. The client comes from the job's **Client** details (Xero panel on Summary) — if a job has no client saved, the entry is just the job name.
 
 **A one-off day out of the ordinary**, without changing anything globally: tap the day itself → **start a job here** (or move a job there), and the confirm tells you what switches on — a Saturday turns on "Saturdays for this job only", a Sunday or bank holiday turns on "Every day for this job only". From an accepted job's own **Schedule ›** form, the same idea is the **Days worked** picker (Usual / + Saturdays / Every day), which switches itself if you pick such a start date. Automatic slot suggestions still only ever offer your usual working days, and your own blocked days always win.
 
@@ -596,6 +723,6 @@ Settings → **Backup**:
 
 ---
 
-*Manual for NH Estimator v2.40.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.45.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

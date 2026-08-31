@@ -5,6 +5,155 @@
 *text* blocks that lived in iOS text-replacement shortcuts (";;paint" etc.),
 seeded verbatim from the reference copy Nicky supplied at build time.
 
+**Extended 2026-08-30, v2.45.0 — the scope sentence is measured, not
+hardcoded.** The seeded bodies named ceilings, walls and woodwork in fixed
+prose with only the *products* as placeholders, so a walls-only job promised
+a client two surfaces nobody was painting, and a measured feature wall,
+panelling, radiator, sill or mist coat was never mentioned at all. Two
+placeholders now build it from the live rooms:
+
+- **`{surfaces}`** — the painted scope. Gates **mirror `calcRoom()`'s**: a
+  surface appears only where it is actually priced (windows and sills need
+  woodwork coats; a painted feature wall needs wall coats; a papered one is
+  carved out of the paint entirely; panelling, doors and frames each need
+  their own count *and* coats). Read-only against the calc engine. The
+  woodwork clause names only the pieces counted; a product shared with the
+  walls or woodwork isn't named twice; a papered feature wall makes the
+  painted ones *"remaining walls"*. Coats are stated only where every
+  measured surface agrees — the old sentence always printed the first room's
+  wall coats, wrong the moment a ceiling took three.
+- **A surface names EVERY paint it uses**, not the first room's.
+  `roleProduct()` collects the distinct products across the rooms that paint
+  the surface: *"walls in Tikkurila Optiva 5 and Dulux Diamond Matt"*. Only
+  rooms that actually paint it are consulted (a stale override on a room with
+  0 wall coats is not a second paint), and a surface no room paints keeps the
+  Settings default, so an edited template that mentions it still resolves.
+  The same values reach the standalone `{wallProduct}` / `{ceilingProduct}` /
+  `{woodProduct}`, and exterior items get it keyed off the override alone.
+  **Naming none was tried first (2026-08-30) and is wrong**: a bare clause in
+  an English list reads as sharing the next clause's paint, so *"walls, and
+  all woodwork including skirtings in Helmi 30"* asserts that the walls are
+  in the woodwork paint — a worse claim than the guess it replaced. Hence the
+  standing rule: **a clause may go bare only where that sharing is true** —
+  the feature wall in the wall paint, panelling in the woodwork paint — and
+  never otherwise. A clause that spends its "and" listing two paints also
+  forces the sentence's Oxford-comma join, so *"in A and B and walls in C"*
+  cannot happen.
+- **`{papered}`** — what is being papered, for the "hung to …" line. Falls
+  back to the seeded `[feature wall/walls]` marker.
+- **Every later ROOM line carries its own scope** instead of a bare
+  "{name} - same as above" (`roomScopeSentence()` — the same builder over a
+  one-room list, so a per-room sentence and the job-wide one can never
+  resolve a product differently). Point 2 of the original build put the
+  block on line one and "same as above" on the rest, which was honest while
+  that block was generic boilerplate and stopped being honest the moment it
+  enumerated a scope: every Xero line carries a price, so a walls-only
+  bathroom reading "same as above" bills a client beside a claim of
+  ceilings and woodwork. The block still appears once — protection, prep
+  and completion genuinely are shared, hence the trailing "Preparation and
+  completion as above." Two rules keep it quiet: a room whose sentence
+  MATCHES the block's own (the first line's) goes back to a plain "same as
+  above", and once the description has been **hand-edited** nothing is
+  generated at all (the block is then Nicky's wording, and a generated
+  sentence under it would be text he did not write and cannot edit). The
+  final invoice mirrors this exactly, in past tense, off `l.scope` stamped
+  on each labour line as it is built. Kitchen and fitted-unit lines keep the
+  bare "same as above" — there is no scope builder for them, and inventing
+  prose for a client document that nothing tests is how the interior
+  problem started.
+- **`{extSurfaces}` does all of the above for EXTERIOR items**
+  (`buildExtScopeSentence()`), gated the way `calcExtItem` gates each
+  element: render (textured or not), fascias and soffits, windows, sash
+  windows, doors, frames, garage doors, porch. Masonry names
+  `{masonryProduct}` and the woodwork clause `{extWoodProduct}`, so neither
+  can borrow the other's paint; coats come per element (defaulting to the 2
+  the calc defaults to) and are stated only where they agree; sash work
+  contributes a clause but never a coats figure, having no coats control of
+  its own. Sash work or per-window repairs add a "restoration and repairs"
+  sentence in the seeded Exterior Woodwork body's own words. Exterior lines
+  compare against the block's own scope like every other line, so on a job
+  whose block sits on a room they always state their own — the block
+  carries no exterior scope to be "the same as".
+- **`{rooms}` names the block's subject**, one line's room or exterior item
+  — see the subject rule below. (It briefly listed every room AND every
+  exterior label, to stop a mixed job's header omitting half the work it
+  headed; the subject rule replaced that, since a header on the Lounge's
+  line should name the Lounge.)
+- **A ninth seeded template, `int-ext` "Interior & Exterior"**, suggested by
+  `suggestTemplateId()` when a job has interior paint AND exterior items and
+  no wallpaper (wallpaper still wins: paint-paper/wallpapering carry hanging
+  wording int-ext has no equivalent for, and the exterior detail still
+  reaches the client on the exterior lines' own scope). Before it, such a
+  job got the plain Painting template, whose prep paragraph promises a
+  client that "all furniture and flooring will be fully protected" and says
+  nothing about the outside of their house. **Every sentence in it is
+  lifted verbatim from the seeded Painting / Exterior Woodwork / Exterior
+  Render bodies** — the two halves keep wording Nicky already uses, under
+  INSIDE and OUTSIDE headings, rather than a preamble written for him.
+- **The exterior templates use it too.** `ext-woodwork` was still asking for
+  "[doors / windows / fascias / soffits]" and "[X] coats" by hand, and
+  `ext-render` for its coats — all measured. Their own wording either side
+  of the placeholder is untouched (the render template's brush/roller/spray
+  sentence was re-opened so it does not read "applied in 2 coats. Applied
+  by…"). **Still deliberately hand-typed markers**: the wallpaper paper
+  name/supplier (`wpNote` is personal reference, never client-facing — see
+  v2.39.8) and Kitchen's product/colour (untracked, declined 2026-07-16).
+  Fire Doors keeps its `[product]` (a manual-only template
+  `suggestTemplateId` never returns), and Fitted Units its `[spray/brush]`.
+  No seeded body asks for a coat count by hand any more.
+- **`{unitSurfaces}`** (`buildFuScopeSentence()`) does the same for FITTED
+  UNITS: bays, shelves and doors — "painted both sides" where that toggle is
+  on, since it doubles the work — the product from the unit's own `range`
+  picker falling back to the Settings woodwork topcoat (mirroring
+  `computeRoleGroups`' chain for the fittedunit role, so the text and the
+  tins agree), the 2 topcoats `calcFittedUnit` hardcodes, and **prepLevel in
+  words**: bare surfaces primed first, existing paintwork keyed and sanded,
+  or both where units differ. Counts appear here where they deliberately do
+  NOT for the kitchen — a fitted unit IS its bays, shelves and doors,
+  whereas a kitchen's per-tier counts are a bill of quantities behind one
+  price. `complexityUplift` stays out: a pricing figure that would only ever
+  justify a number. The template's prep line lost the word "priming", which
+  this now states precisely.
+- **`{kitchenCoats}`** fills the kitchen template's `[X]` from
+  `calcKitchen`'s own 1–4 clamp. Its product and colour stay markers.
+- **`roomScopeShort()`** puts the same scope in a few words —
+  *"ceiling, walls and woodwork"* — on the client quote view's `sub` line,
+  which for rooms was empty (`extScopeShort()` does the same for exterior items, replacing the bare "exterior"). Surfaces only, no products or coats: the
+  register is the kitchen's existing "outside faces only", a note rather
+  than a paragraph. It rides `quoteModel` so it reaches the accepted-quote
+  snapshot's `note` as well.
+
+**The block describes the LINE IT SITS ON, not the job** (superseding point
+2's "one text for the whole quote"). It rides one Xero line carrying one
+room's price; `{rooms}` listing every room and `{surfaces}` unioning across
+them put job-level text on a line-level item — *"Lounge £X … Painting of
+Lounge, Kitchen/Diner … and W.C.:"*, crediting the Lounge with radiators
+only the bedrooms had. `buildTemplateValues` picks a **subject**: the first
+line the server pushes, in its order (rooms → exterior → kitchen → fitted
+units). `{rooms}`, `{surfaces}`, `{extSurfaces}`, `{unitSurfaces}` and the
+product placeholders all describe it; a scope sentence for a kind of line
+the block is not on resolves to `''` and drops its line. Every collapse
+baseline follows, so "same as above" means same as the first line — and a
+line of a different kind never matches, correctly, the block having no
+scope of that kind to be the same as. This also dissolved the run-on
+header and the collision where a room named "Entrance Hall and Landing"
+read as two items against `englishJoin`'s own "and": there is no list left.
+`scopeProductValues`' multi-room listing survives in the builder and its
+tests but is now unreachable from the app — one room cannot disagree with
+itself.
+
+`{surfaces}`
+resolves to `''` rather than a literal token when nothing is painted — the
+one deliberate exception to the "unresolved stays visible" rule in point 1
+below, since a papering-only job must not leave `{surfaces}` on a client
+document; an unresolved *product* inside the sentence still surfaces in the
+preview warning. **The no-movement property is the contract**: a job with
+walls, ceiling and woodwork all measured renders the seeded sentence back
+character for character in both tenses. Templates already edited in Settings
+keep their own wording (`settings.textTemplates` is copy-on-write) — paste
+the placeholder in, or Reset to defaults. Verified by `npm run test:scope`,
+188 checks, pure node against the real source.
+
 **As built — deviations from the spec below, all deliberate:**
 
 1. **Placeholders resolve BEFORE pairs**, not after. The seeded headers nest a

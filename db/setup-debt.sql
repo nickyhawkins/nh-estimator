@@ -175,3 +175,50 @@ CREATE TABLE IF NOT EXISTS debt_push_subscriptions (
   user_agent TEXT,
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+-- ── Floor & Target payments ─────────────────────────────────────────────
+-- Each debt carries two numbers: the TARGET (the plan's payment, driven by
+-- `min` + the monthly budget, unchanged) and a FLOOR — the minimum committed
+-- payment sized to a worst-case income month, which is the number creditors
+-- are told. A cycle is judged on both, so a light month that still meets
+-- every floor is "on track" rather than a failed month.
+--
+-- floor_payment is deliberately NULLABLE: NULL means "no floor agreed yet"
+-- (Brewers' arrears-only trade account, HMRC pre-Time-to-Pay), which keeps
+-- those debts out of the floors check instead of inventing a commitment for
+-- them. The backfill seeds every existing floor from its contractual minimum
+-- and runs EXACTLY ONCE — inside the not-exists guard — so clearing a floor
+-- back to "not set" in the app isn't undone by the next deploy.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'debt_plan_debts' AND column_name = 'floor_payment'
+  ) THEN
+    ALTER TABLE debt_plan_debts ADD COLUMN floor_payment NUMERIC;
+    UPDATE debt_plan_debts SET floor_payment = min WHERE min > 0;
+  END IF;
+END $$;
+
+-- Cash cushion filled BEFORE any debt allocation (see allocateIncome() in
+-- public/debt.html). buffer_target 0 = feature off, which is the default:
+-- turning it on diverts real money, so it's the user's choice, not a guess.
+ALTER TABLE debt_plan_settings ADD COLUMN IF NOT EXISTS buffer_target NUMERIC NOT NULL DEFAULT 0;
+ALTER TABLE debt_plan_cashflow ADD COLUMN IF NOT EXISTS buffer_pot NUMERIC NOT NULL DEFAULT 0;
+
+-- Per-debt floor shortfalls carried across cycles: [{id,name,amount,since}].
+-- Written when a cycle closes with a floor unmet, and only ever cleared by an
+-- explicit user action ("Catch up" or "Clear") — a shortfall is NEVER rolled
+-- into the next cycle's required payment on its own.
+ALTER TABLE debt_plan_cashflow ADD COLUMN IF NOT EXISTS floor_shortfalls JSONB NOT NULL DEFAULT '[]';
+
+-- The third state a cycle payment can be in: floor paid, target not. Without
+-- it the two verdicts could never diverge — every payment is all-or-nothing —
+-- and "floors met, target missed" is exactly the month this feature exists
+-- to stop treating as a failure. Mutually exclusive with paid_this_cycle and
+-- missed_this_cycle; cleared with them when a cycle closes.
+ALTER TABLE debt_plan_cashflow ADD COLUMN IF NOT EXISTS floor_paid_this_cycle JSONB NOT NULL DEFAULT '[]';
+
+-- Buffer allocations are logged alongside the pot splits so deleting an
+-- income entry can reverse the buffer top-up too.
+ALTER TABLE debt_plan_income_log ADD COLUMN IF NOT EXISTS buffer_amt NUMERIC NOT NULL DEFAULT 0;
