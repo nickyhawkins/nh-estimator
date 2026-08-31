@@ -21326,6 +21326,19 @@ function renderSummary() {
       '<div style="height:1px;background:var(--border)"></div>';
     }).join(''):'')+
     '</div></div>'+
+    // Cost Summary is the pre-markup working of THIS quote -- labour subtotal,
+    // sundries %, markup, the £5 round-up -- and on a frozen job that quote has
+    // been superseded by the snapshot. Shown there it was a third telling of the
+    // drift story (the hero's "same job at today's rates" aside is the first,
+    // the room breakdown the second) in the place most easily mistaken for a
+    // breakdown of the accepted total two cards above it. The one use it had
+    // left, previewing what an amendment would come to, amendAcceptedQuote()
+    // already covers: it prompts with revision N, revision N+1 and the delta
+    // before it writes anything. So on a frozen job the section simply is not
+    // rendered; the room breakdown (where a variation shows) and the materials
+    // list (the shopping list) stay, and they are what the working divider now
+    // covers.
+    (frozenQuote ? '' :
     '<div style="margin-top:16px"><div class="section-title" style="margin-bottom:8px">Cost Summary<small style="display:block;font-weight:400;text-transform:none;letter-spacing:normal;color:var(--text2)">Whole job, before materials</small></div>'+
     '<div class="card">'+
     '<div class="breakdown-row">'+
@@ -21383,8 +21396,10 @@ function renderSummary() {
     (plan.roundingDelta>0.005?'<div class="breakdown-row" style="border-top:1px solid var(--border)">'+
       '<span class="breakdown-label">Price rounding<small style="display:block;font-weight:400;color:var(--text2)">'+fmt(plan.rawTotal)+' rounded up to the next £'+QUOTE_ROUNDING_STEP+' · spread across the labour lines</small></span>'+
       '<span class="breakdown-value">'+fmt(plan.roundingDelta)+'</span></div>':'')+
-    '</div></div>'+
-    '<div><div class="section-title" style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:14px">Materials'+
+    '</div></div>')+
+    // Materials used to follow Cost Summary's own margin; on a frozen job it
+    // now follows the room breakdown card directly and needs its own.
+    '<div'+(frozenQuote?' style="margin-top:16px"':'')+'><div class="section-title" style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:14px">Materials'+
       '<span style="display:flex;align-items:center;gap:14px">'+
       undoChipHtml()+
       (summaryMatGroups.length > 1 ? '<span onclick="toggleMatReorder()" style="font-size:12px;font-weight:600;color:var(--accent);cursor:pointer;text-transform:none;letter-spacing:normal">'+(matReorderMode ? 'Done' : 'Reorder')+'</span>' : '')+
