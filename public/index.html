@@ -6459,9 +6459,59 @@ function acceptedQuoteBannerHtml(job) {
     + '</div></div></div>';
 }
 
+// The one boundary on Summary between what was agreed and what the calc says
+// today. An accepted job's screen has to carry both -- the live working is how
+// an amendment gets priced and how rate drift becomes visible -- but before
+// this there was nothing separating them except a small note on the Room
+// Breakdown header, while Cost Summary and Materials sat unlabelled directly
+// underneath reading like a breakdown of the agreed total two screens above.
+// One rule, one sentence, in the same place every time, beats a differently
+// worded hint per card.
+function workingFiguresDividerHtml() {
+  return '<div style="margin-top:22px;margin-bottom:14px;padding-top:14px;border-top:2px solid var(--border)">'
+    + '<div style="font-size:13px;line-height:1.5;color:var(--text2)">'
+    + '<strong style="color:var(--text)">Working figures — today\u2019s rates.</strong> '
+    + 'Everything below this line is the live calculation, not what the client agreed. '
+    + 'The accepted figures are at the top of this screen.</div></div>';
+}
+
+// Commercial / Standalone / Markup on an accepted job are locked by default.
+// They cannot move the agreed total, and nudging one only to watch every
+// working figure shift while the headline stays put is exactly the confusion
+// the divider above exists to remove.
+//
+// Locked, though, and not removed: they DO still price the next revision,
+// because amendAcceptedQuote() re-runs the calc over the job's current
+// settings. So the lock opens on request and says what opening it is for. The
+// unlock is held per job id rather than as a session flag, so switching jobs
+// cannot carry it across -- there is no reset to forget to call.
+var acceptedPricingUnlockedFor = null;
+function acceptedPricingLocked(job) {
+  return jobQuoteIsFrozen(job) && acceptedPricingUnlockedFor !== (job && job.id);
+}
+function unlockAcceptedPricing() {
+  var job = activeJob();
+  if (!job) return;
+  acceptedPricingUnlockedFor = job.id;
+  renderSummary();
+}
+function acceptedPricingLockHtml(job) {
+  if (!jobQuoteIsFrozen(job)) return '';
+  var snap = latestQuoteSnapshot(job);
+  var nextRev = snap ? snap.version + 1 : 2;
+  if (!acceptedPricingLocked(job)) {
+    return '<div style="margin-top:16px;padding:10px 14px;border:1px solid var(--warn);border-radius:var(--rs);font-size:12px;line-height:1.5;color:var(--text2)">'
+      + '<strong style="color:var(--text)">Pricing controls unlocked.</strong> Changes move the working figures below and price revision '
+      + nextRev + ' if you amend. The accepted total does not move.</div>';
+  }
+  return '<div style="margin-top:16px;padding:10px 14px;background:var(--surface2);border-radius:var(--rs);font-size:12px;line-height:1.5;color:var(--text2)">'
+    + '<strong style="color:var(--text)">Pricing controls are locked.</strong> This quote was accepted \u2014 commercial, standalone and markup can\u2019t move the agreed total. '
+    + '<span onclick="unlockAcceptedPricing()" style="color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Unlock for amending</span></div>';
+}
+
 // The agreed line items, rendered from the snapshot and nothing else. This is
 // the card that replaces Summary's live room breakdown once a quote is
-// accepted -- the breakdown itself stays below it, relabelled as working.
+// accepted -- the breakdown itself stays below it, under the working divider.
 function frozenQuoteCardHtml(job) {
   var snap = latestQuoteSnapshot(job);
   if (!snap || !snap.data) return '';
@@ -20830,6 +20880,8 @@ function renderSummary() {
   // loaded and the first moment a capture is even possible.
   captureSnapshotIfOwed(statusJob);
   var frozenQuote = jobQuoteIsFrozen(statusJob);
+  // Whether the three pricing controls below the hero take taps this render.
+  var pricingLocked = acceptedPricingLocked(statusJob);
   var frozenSnapshot = frozenQuote ? latestQuoteSnapshot(statusJob) : null;
   var frozenTotal = frozenQuote ? frozenQuoteTotal(statusJob) : null;
   var frozenLab = frozenQuote ? frozenQuoteLabour(statusJob) : null;
@@ -20989,7 +21041,13 @@ function renderSummary() {
       // Deposit (DEPOSITS_SPEC.md), from acceptance onward. `deposit` here is
       // the LIVE plan figure computed above — a forecast, passed in to prefill
       // the form and to flag drift against what was actually taken.
-      (statusJob && DEPOSIT_STATUSES.indexOf(jobStatus) !== -1 ? depositBlockHtml(statusJob, deposit) : '')+
+      //
+      // On a frozen job the AGREED deposit is what the client was asked for,
+      // so that is the plan this row nags against and prefills from. The live
+      // forecast would state a different figure from the Payment card further
+      // down the same screen, both labelled as the plan.
+      (statusJob && DEPOSIT_STATUSES.indexOf(jobStatus) !== -1
+        ? depositBlockHtml(statusJob, frozenQuote && frozenTotals.deposit != null ? +frozenTotals.deposit : deposit) : '')+
     '</div>'+
     profitCard+
     // Which of the two worlds the money below came from, said plainly. On an
@@ -21040,10 +21098,22 @@ function renderSummary() {
       // what's being charged — relabelled so it can't be mistaken for the
       // honoured one in the hero above (item 3's "relabel where it's
       // displayed", no new field).
-      '<div class="stat-card"><div class="stat-label">Labour</div><div class="stat-value ac">'+fmt(tcOrig)+'</div>'+
+      // Money sitting directly under the accepted hero has to BE the accepted
+      // money -- a live labour figure here read as the breakdown of the total
+      // above it, which is the confusion the working divider further down
+      // exists to end. The raw labour behind the agreed quote is in the
+      // snapshot, so it prints; a Xero-rebuilt snapshot doesn't have it and
+      // says so rather than printing today's instead. (On Site next to it
+      // stays live on purpose: days are what gets booked in the diary, and
+      // they move with amendments and variations -- see
+      // ACCEPTED_SNAPSHOT_SPEC.md "What stays live, deliberately".)
+      '<div class="stat-card"><div class="stat-label">Labour</div><div class="stat-value ac">'+
+        (frozenQuote ? (frozenLab && frozenLab.rawLabour != null ? fmt(+frozenLab.rawLabour) : '—') : fmt(tcOrig))+'</div>'+
         '<small style="display:block;font-weight:400;color:var(--text2);margin-top:2px">'+
-          (honouredLabour != null ? 'internal estimate · before markup' : 'before markup')+
-          (hasVariations ? ' · original scope' : '')+'</small></div>'+
+          (frozenQuote
+            ? (frozenLab && frozenLab.rawLabour != null ? 'as agreed · before markup' : 'not in the reconciled figures')
+            : (honouredLabour != null ? 'internal estimate · before markup' : 'before markup'))+
+          (hasVariations && !frozenQuote ? ' · original scope' : '')+'</small></div>'+
       '<div class="stat-card"><div class="stat-label">On Site</div><div class="stat-value bl">'+fmtD(onSiteDays)+'</div>'+
         '<small style="display:block;font-weight:400;color:var(--text2);margin-top:2px">'+ttAll.toFixed(1)+'d working'+(hasVariations ? ' incl. variations' : '')+'</small></div>'+
     '</div>'+
@@ -21052,10 +21122,14 @@ function renderSummary() {
     // job record. Unlike those two it changes NO pricing at all — only which
     // figure is quoted and what the profitability card compares.
     xeroImportedCardHtml(statusJob)+
+    // One strip for all three pricing cards rather than a caveat on each --
+    // they are locked or unlocked together because they price together.
+    acceptedPricingLockHtml(statusJob)+
     '<div class="card" style="margin-top:16px">'+
       '<div class="card-header">Commercial Job</div>'+
       '<div class="toggle-row"><div class="toggle-label">Commercial job<small>Applies '+(settings.commercialPct!=null?settings.commercialPct:10)+'% before markup/discount below</small></div>'+
-        '<div class="toggle'+(activeJob()&&activeJob().commercial?' on':'')+'" onclick="setJobCommercial('+(activeJob()&&activeJob().commercial?'false':'true')+')"></div></div>'+
+        '<div class="toggle'+(activeJob()&&activeJob().commercial?' on':'')+'"'+
+        (pricingLocked ? ' style="opacity:.5"' : ' onclick="setJobCommercial('+(activeJob()&&activeJob().commercial?'false':'true')+')"')+'></div></div>'+
     '</div>'+
     // Standalone Job card -- same job-level toggle pattern and settings
     // group as Commercial Job above; the two flags are independent (a job
@@ -21064,7 +21138,8 @@ function renderSummary() {
     '<div class="card" style="margin-top:16px">'+
       '<div class="card-header">Standalone Job</div>'+
       '<div class="toggle-row"><div class="toggle-label">Standalone job<small>Charges labour for full diary days instead of calculated fractional days</small></div>'+
-        '<div class="toggle'+(activeJob()&&activeJob().standalone?' on':'')+'" onclick="setJobStandalone('+(activeJob()&&activeJob().standalone?'false':'true')+')"></div></div>'+
+        '<div class="toggle'+(activeJob()&&activeJob().standalone?' on':'')+'"'+
+        (pricingLocked ? ' style="opacity:.5"' : ' onclick="setJobStandalone('+(activeJob()&&activeJob().standalone?'false':'true')+')"')+'></div></div>'+
       (plan.standalone.on?
         '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label">Calculated labour</span>'+
           '<span class="breakdown-value">'+plan.standalone.calcDays.toFixed(1)+' days</span></div>'+
@@ -21077,12 +21152,12 @@ function renderSummary() {
       '<div class="card-header">Markup / Discount</div>'+
       '<div class="field-row"><div class="field-label">This quote<small>'+(activeJob()&&activeJob().markupOverride!=null?'overridden, default is '+settings.mu+'%':'default, from Settings')+(activeJob()&&activeJob().commercial?' — applied after the commercial adjustment above':'')+'</small></div>'+
         '<div style="display:flex;align-items:center;gap:10px">'+
-        (activeJob()&&activeJob().markupOverride!=null?'<div onclick="resetJobMarkup()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;text-decoration:underline">Reset</div>':'')+
-        '<div class="seg" style="width:76px">'+
-          '<button type="button" class="seg-btn'+(effectiveMarkupType()==='percent'?' active':'')+'" onclick="setJobMarkupType(\'percent\')">%</button>'+
-          '<button type="button" class="seg-btn'+(effectiveMarkupType()==='fixed'?' active':'')+'" onclick="setJobMarkupType(\'fixed\')">£</button>'+
+        (!pricingLocked&&activeJob()&&activeJob().markupOverride!=null?'<div onclick="resetJobMarkup()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;text-decoration:underline">Reset</div>':'')+
+        '<div class="seg" style="width:76px'+(pricingLocked?';opacity:.5':'')+'">'+
+          '<button type="button" class="seg-btn'+(effectiveMarkupType()==='percent'?' active':'')+'"'+(pricingLocked?' disabled':' onclick="setJobMarkupType(\'percent\')"')+'>%</button>'+
+          '<button type="button" class="seg-btn'+(effectiveMarkupType()==='fixed'?' active':'')+'"'+(pricingLocked?' disabled':' onclick="setJobMarkupType(\'fixed\')"')+'>£</button>'+
         '</div>'+
-        '<input type="number" class="field-input" style="width:70px" value="'+effectiveMarkup()+'" step="1" inputmode="'+(effectiveMarkupType()==='fixed'?'decimal':'numeric')+'" onchange="setJobMarkup(this.value)">'+
+        '<input type="number" class="field-input" style="width:70px'+(pricingLocked?';opacity:.5':'')+'" value="'+effectiveMarkup()+'" step="1" inputmode="'+(effectiveMarkupType()==='fixed'?'decimal':'numeric')+'"'+(pricingLocked?' disabled':' onchange="setJobMarkup(this.value)"')+'>'+
         '</div></div>'+
       '<div style="padding:0 16px 12px;font-size:12px;color:var(--text2)">Enter a negative number for a discount.</div>'+
     '</div>'+
@@ -21132,8 +21207,11 @@ function renderSummary() {
         }).join('')
       ) : '') +
     '</div>'+
-    '<div><div class="section-title" style="margin-bottom:8px">'+
-      (frozenQuote ? 'Room Breakdown <small style="text-transform:none;letter-spacing:normal;font-weight:400;color:var(--text2)">— live working at today’s rates, not the accepted figures above</small>' : 'Room Breakdown')+'</div>'+
+    // The boundary. Everything from here to the end of Summary is live: the
+    // room breakdown, the cost summary under it and the materials list under
+    // that. Only the first of the three used to say so.
+    (frozenQuote ? workingFiguresDividerHtml() : '')+
+    '<div><div class="section-title" style="margin-bottom:8px">Room Breakdown</div>'+
     '<div class="card">'+rows+
     (extItems.length>0?extItems.map(function(item,ei){
       var c=extCalcs[ei]; var mk=commercialMult*(1+mu);

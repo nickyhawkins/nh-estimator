@@ -173,11 +173,40 @@ with no snapshot must fall back to live rather than render blank.
 | Path | Frozen behaviour |
 | --- | --- |
 | Client quote preview + PDF (`openClientQuote`) | Returns from the snapshot **before a single calc call**. Prints "revision N", and the footer says the figures don't change with later price revisions. PDF filename is `…-accepted-revN.pdf` — dated by the agreement, not the export. |
-| Summary | Hero shows the agreed total, labelled "Accepted Quote"; an "Agreed figures — revision N" banner; an agreed line-items card straight from the snapshot; deposit/balance from the snapshot. The live recalculation is still shown, but only as a labelled aside ("Same job at today's rates: £X — not what was agreed") and only when it differs. |
-| Room Breakdown | Stays live, relabelled *"live working at today's rates, not the accepted figures above"*. |
+| Summary | Hero shows the agreed total, labelled "Accepted Quote"; an "Agreed figures — revision N" banner; an agreed line-items card straight from the snapshot; deposit/balance from the snapshot. The Labour stat tile and the status card's deposit nag read the snapshot too, so every figure above the working divider is agreed money. The live recalculation is still shown, but only as a labelled aside ("Same job at today's rates: £X — not what was agreed") and only when it differs. |
+| Pricing controls | Commercial / Standalone / Markup are read-only, under one strip saying so, with **Unlock for amending** to open them (§3.1). |
+| Room Breakdown | Stays live, below the working divider (§3.1) rather than carrying a note of its own. |
 | Final invoice | Quoted-labour lines are replaced wholesale by the snapshot's work rows at the amounts it recorded. Still droppable — what's fixed is each line's price, not whether it's billed. Sundries are not re-derived (they're already one of the frozen rows). |
 | Job profitability | `quotedTotal`, `quotedDays` and `quotedMaterials` come from the snapshot, so margin on finished work stops moving with the rates. |
 | Xero re-send | Can't read the snapshot (the payload is raw line totals plus a markup instruction the server applies), so instead the drift is put on screen: "accepted at £X (revision N) — sending now builds the quote at today's rates: £Y. Send anyway?" Only when the two differ. Nothing about it writes a snapshot. |
+
+### 3.1 One boundary, not five hints
+
+An accepted job's Summary carries both worlds, so the screen has to say where one
+ends. It used to say it once, on the Room Breakdown header — while **Cost Summary**
+and **Materials**, directly underneath and equally live, said nothing. Cost Summary
+was the worst of them: "Labour subtotal / + markup / Price rounding" reads as the
+breakdown of the accepted total two screens above it.
+
+`workingFiguresDividerHtml()` draws one rule after the Payment card instead —
+*"Working figures — today's rates. Everything below this line is the live
+calculation, not what the client agreed."* — and the per-card notes come off. A
+boundary in the same place every time is learnable; five differently worded hints
+are not.
+
+That makes a claim about everything **above** the line, which had to be made true:
+the Labour stat tile and the deposit nag both printed live figures next to the
+agreed total and now read the snapshot. On Site stays live — days are booked in a
+diary, not agreed in a quote.
+
+The three pricing controls are locked there (`acceptedPricingLocked()`), the way
+the deposit toggle already was: nudging markup on an accepted job moves every
+working figure while the headline stays put, which is precisely the confusion the
+divider exists to end. Locked, not removed — `amendAcceptedQuote()` re-runs the
+calc over the job's *current* settings, so they still price the next revision.
+**Unlock for amending** opens them, per job id (a session flag would survive a job
+switch and there would be a reset to forget). Nothing here reads or writes a
+snapshot.
 
 **What stays live, deliberately:** drafts and quoted jobs; material actuals, the labour
 log, variations and scheduling (none of those are the agreed quote — they're what's
