@@ -197,13 +197,29 @@ It now states the fact (*"Same job priced today: £X — £Y more, broken down b
   across the labour lines, so it is pulled out into its own row — otherwise an extra tin
   of paint, which changes where the total lands against the next £5, reads as labour
   having moved.
-- **Whether the Rates page is any part of it.** `rates` holds the whole settings blob as
-  it stood, so the scalars are diffed by name (using the Rates page's own labels, read off
-  the inputs it already renders) and the entire blob is compared besides. Only when every
-  key matches does the card say so — *"No rate or setting has changed since acceptance —
-  the difference is in the job itself"* — which is the sentence that actually answers the
-  question. A snapshot rebuilt from a Xero total has no `rates`, and says that instead of
-  guessing.
+- **Which lines moved**, room by room, biggest mover first, with lines added since
+  acceptance and lines no longer in the job called out as such. `buildAcceptedQuoteSnapshot()`
+  prices the job as it stands in exactly the shape the record is stored in — it is what
+  Amend previews from — so the two line lists compare directly. Matching is by
+  description, which is fragile against a rename and deliberately tolerated: this is a
+  diagnostic, not a figure anyone is billed from, and a renamed room reading as one line
+  gone plus one line added is a true statement of what happened. Sorted by size because
+  every line shifts slightly when the total does (markup and the adjustment pool are
+  spread proportionally), so an untouched room drifting by 11p must not sit above the room
+  that gained a coat of paint.
+- **Whether the Rates page is any part of it.** `rates` holds the whole settings blob as it
+  stood, but only the keys that can *move a price* are compared: the `SETTINGS_FIELDS`
+  scalars (diffed by name, using the Rates page's own labels, read off the inputs it
+  already renders) plus `coverageRates`, `kitchenRates`, `materials` and
+  `standaloneRounding`. Comparing the whole blob — the first version of this — announced
+  *"something in Settings has changed"* on a job where the only thing that had changed was
+  that a backup had been exported: `lastBackupExportAt`, `blockedDays`, `icsKey`,
+  `paymentType`, the branding and the text templates all live in that blob and none of them
+  can move a figure by a penny. A wrong cause stated confidently is exactly what this card
+  exists to stop. A key the snapshot predates is not a change either — the field did not
+  exist when the quote was frozen, so it cannot have moved its figures. When nothing priced
+  has moved the card says so in as many words. A snapshot rebuilt from a Xero total has no
+  `rates`, and says that instead of guessing.
 
 The card renders only when the two figures differ, and reading it writes nothing.
 
