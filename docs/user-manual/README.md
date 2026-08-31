@@ -39,7 +39,9 @@ The app lives at your own web address (the one on your Render account). It's des
 - **iPhone:** open the app in Safari → tap the Share button → **Add to Home Screen**.
 - **Android:** open it in Chrome → menu (⋮) → **Add to Home screen** / **Install app**.
 
-If your copy of the app has a password set, you'll be asked for it the first time you open the app on a device — after that it stays signed in. If there's no password on your instance, guard the web address like you would any private page.
+If your copy of the app has a password set, you'll be asked for it the first time you open the app on a device — **once per phone, and then not again**. The sign-in refreshes itself every time you use the app, so it only ever comes back if you go a full month without opening it, get a new phone, or clear the browser's data. Let your phone save the password to iCloud Keychain (or your password manager) on that first login and even those rare times are a Face ID tap rather than typing.
+
+Setting a password is worth doing now that you can send clients an approval link: the link points at the same web address the app runs on, so a client who trimmed it back to the domain would otherwise land on your jobs. With a password set they get a sign-in screen and nothing else. If there's no password on your instance, guard the web address like you would any private page.
 
 ![Sign-in screen](images/16-login.png)
 
@@ -598,7 +600,7 @@ A few things worth knowing:
 - **Prices are frozen once they answer.** Re-measure a room after the client approved that extra and the page keeps the figure they agreed to. Tapping **Send for approval** again updates the same page — it never creates a second link — and refreshes the prices only on the extras still awaiting an answer.
 - **Withdrawing an extra.** Remove or unflag a variation and it disappears from their page next time you send — unless they'd already answered it, in which case it stays as the record.
 - **The link is the password.** Anyone with it can see this job's totals and answer its extras, so treat it like the quote itself. It's specific to one job and doesn't expire.
-- **What the client can reach.** The link only opens that one job's page. But it's the same web address the app runs on, so if someone trims the link back to the domain they land on the app's front door — which is why the app password (`APP_PASSWORD`) matters: with it set they get a login screen and nothing else. A custom domain makes the link read as your business rather than as a hosting provider, but it doesn't change what's behind the front door — the password does.
+- **What the client can reach.** The link only opens that one job's page. But it's the same web address the app runs on, so if someone trims the link back to the domain they land on the app's front door — which is why setting the app password matters (see [Getting started](#1-getting-started)): with it set they get a sign-in screen and nothing else, and it costs you one login per phone, not one per opening. A custom domain makes the link read as your business rather than as a hosting provider, but it doesn't change what's behind the front door — the password does.
 
 When the work's done, tap **Mark Completed** — the job moves on, and Home reminds you it needs invoicing until you do.
 
