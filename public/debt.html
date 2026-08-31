@@ -1729,14 +1729,25 @@ function unapplyPayment(id){
   const rest={...appliedPayments};delete rest[id];appliedPayments=rest;
 }
 function setPaymentState(id,next){
-  const p=getCyclePayments().find(x=>x.id===id);
+  let p=getCyclePayments().find(x=>x.id===id);
   if(!p)return;
   const current=paymentState(id);
   if(current===next)next='unpaid'; // tapping the control you're already in undoes it
   // Leaving paid/floor restores the balance, the arrears and the pot from the
   // ledger — not from a re-run of the sim, which is now working off the
   // balance that payment already reduced.
-  if(current==='paid'||current==='floor')unapplyPayment(id);
+  //
+  // ...and `p` has to be re-read once it has, because getCyclePayments() is
+  // derived from the balance the payment just moved. While a debt is
+  // floor-paid it reports amount = the floor, so upgrading floor -> paid off
+  // the stale `p` refunded the floor and charged the floor straight back: a
+  // net no-op that flipped the state and left the pot short by the rest of
+  // the target. Re-derive AFTER the unapply, when the balance is whole again
+  // and `amount` means the target once more.
+  if(current==='paid'||current==='floor'){
+    unapplyPayment(id);
+    p=getCyclePayments().find(x=>x.id===id)||p;
+  }
   paidThisCycle=paidThisCycle.filter(x=>x!==id);
   floorPaidThisCycle=floorPaidThisCycle.filter(x=>x!==id);
   missedThisCycle=missedThisCycle.filter(x=>x!==id);
