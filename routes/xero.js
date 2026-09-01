@@ -69,21 +69,38 @@ function buildContactPayload({ contactId, name, email, phone, street, town, post
 }
 
 // Shared by /create-quote's inline contact creation and /sync-contact --
-// PUT /Contacts creates a new contact when no ContactID is present in the
-// payload, or updates the existing one when it is.
+// creates a new contact when no ContactID is present in the payload, or
+// updates the existing one when it is.
+//
+// ⚠ THE VERB IS NOT COSMETIC. Xero's Accounting API splits the two: PUT only
+// ever CREATES, POST creates or updates. Sending an update through PUT made
+// Xero try to mint a SECOND contact with the same name and reject the whole
+// call with "Contact Name must be unique across all active contacts" -- which
+// is precisely what every attempt to edit a linked client reported, and why
+// contact details could be typed in but never changed once synced. So an
+// update (a payload carrying a ContactID) goes to POST /Contacts/{id}, the
+// same convention the quote amend below already uses; a create still goes to
+// PUT /Contacts, where "only new records" is exactly what is wanted.
+//
+// The verb/URL choice is its own function purely so a test can assert it
+// without a Xero connection -- see scripts/test-quote-total.js.
+function contactWriteRequest(payload) {
+  return payload && payload.ContactID
+    ? { method: 'post', url: `${XERO_API_URL}/Contacts/${encodeURIComponent(payload.ContactID)}` }
+    : { method: 'put', url: `${XERO_API_URL}/Contacts` };
+}
+
 async function putXeroContact(accessToken, tenantId, payload) {
-  const contactRes = await axios.put(
-    `${XERO_API_URL}/Contacts`,
-    { Contacts: [payload] },
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Xero-Tenant-Id': tenantId,
-        'Content-Type': 'application/json',
-        Accept: 'application/json'
-      }
+  const contactRes = await axios({
+    ...contactWriteRequest(payload),
+    data: { Contacts: [payload] },
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Xero-Tenant-Id': tenantId,
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
     }
-  );
+  });
   const saved = contactRes.data.Contacts && contactRes.data.Contacts[0];
   if (!saved || !saved.ContactID) throw new Error('Xero did not return a contact');
   return saved;
@@ -779,9 +796,345 @@ function xeroDateOnly(isoString, netDate) {
   return ms ? new Date(+ms[1]).toISOString().split('T')[0] : undefined;
 }
 
+// ── The quote's Xero LineItems ─────────────────────────────────────────────
+// Everything /create-quote sends to Xero as LineItems, built from the raw
+// per-room / exterior / kitchen / fitted-unit / custom / materials figures the
+// client posts. It lives out here, free of network and database calls, so
+// scripts/test-quote-total.js can run the real thing and assert what the route
+// can otherwise only promise: that the Xero document's own total lands EXACTLY
+// on the clean figure the app quoted, not a penny over it.
+function buildQuoteLineItems(body) {
+  const { rooms, exterior, kitchen, fittedUnit, custom, materials, settings,
+          markup, markupType, commercial, commercialPct,
+          standalone, standaloneTopUp, standaloneCalcDays, standaloneDiaryDays,
+          lineMult, sundriesTotal, quoteTotal,
+          labourSpreadTarget, labourAdjustment } = body;
+  const lineItems = [];
+  // A flat £ markup/discount (markupType: 'fixed') is expressed as a ratio
+  // of the raw labour subtotal, same as markupRatio()/mk in the client's
+  // Summary breakdown -- so it distributes proportionally across the
+  // per-room/exterior/kitchen lines below and still nets out to exactly
+  // rawLabourSubtotal + markup once every line is summed.
+  let rawLabourSubtotal = 0;
+  if (rooms) rooms.forEach(r => { rawLabourSubtotal += r.total; });
+  if (exterior && exterior.cost > 0) rawLabourSubtotal += exterior.cost;
+  if (kitchen && kitchen.cost > 0) rawLabourSubtotal += kitchen.cost;
+  if (fittedUnit && fittedUnit.cost > 0) rawLabourSubtotal += fittedUnit.cost;
+  // Commercial job (estimating-app-edits.md): applies BEFORE markup/
+  // discount, same order as the client's applyMarkupAmount() -- a flat £
+  // markup's ratio is expressed against the commercial-adjusted base too,
+  // so "commercial first, then markup" holds for both markup modes here,
+  // matching the app's own Summary breakdown exactly.
+  const commercialMult = commercial ? 1 + ((commercialPct != null ? commercialPct : 10) / 100) : 1;
+  // Standalone diary-day rounding (client's standaloneInfo()): a raw
+  // pre-markup labour top-up that becomes its own 201 line below. It
+  // joins the markup-ratio base here (it's chargeable labour, same as
+  // the client's computeDepositPlan) but NOT the sundries base further
+  // down -- the quote's sundries % never applied to it client-side.
+  const standaloneAmount = standalone ? (+standaloneTopUp || 0) : 0;
+  // Custom line items (client's customItemsSplit()): the marked share
+  // takes commercial%+markup like labour, so it joins the fixed-£ ratio
+  // base here -- but NOT rawLabourSubtotal, whose other job is the
+  // sundries % base further down (typed-in prices carry no consumables).
+  // The flat share (markup toggled off client-side: margin already baked
+  // into the entered price) never sees mu at all -- its lines below go
+  // out exactly as entered.
+  const customItems = (custom && Array.isArray(custom.items)) ? custom.items : [];
+  const customMarkedTotal = custom ? (+custom.marked || 0) : 0;
+  const afterCommercialBase = (rawLabourSubtotal + standaloneAmount + customMarkedTotal) * commercialMult;
+  const markupRatioVal = markupType === 'fixed'
+    ? (afterCommercialBase > 0 ? markup / afterCommercialBase : 0)
+    : (markup / 100);
+  // ONE multiplier turns a raw line total into the customer-facing £. The
+  // client already derives exactly that number (computeDepositPlan()'s
+  // lineMult) for its own quote page and PDF, so it now SENDS it and both
+  // documents multiply by the same thing. The derivation above is the
+  // older-client fallback only (a page loaded before this deploy and left
+  // open) -- it disagrees on a fixed-£
+  // markup, whose ratio base here leaves out the sundries the client's
+  // applyMarkupAmount() includes.
+  const mu = (+lineMult > 0) ? +lineMult : commercialMult * (1 + markupRatioVal);
+
+  // Helper to format currency
+  const fmt = (n) => Math.round(n * 100) / 100;
+
+  // ── The labour spread (client's computeDepositPlan adjustment pool) ───
+  // The standalone upcharge used to be its own line here and the quote
+  // total was whatever the lines happened to add up to. Both changed
+  // together: the upcharge and the client's clean-£5 price rounding are
+  // now ONE pool spread across the measured labour lines, so the client
+  // sees the work they asked about and no line they can't account for.
+  //
+  // The TARGET those lines must sum to is computed from the CLIENT's
+  // figures, not re-derived here, so the Xero document carries the same
+  // per-line amounts as the app's own quote page and PDF instead of a set
+  // derived from a second, slightly different basis -- see the spread
+  // itself at the foot of this function, which is where the target is
+  // resolved (and why it is resolved there, after every other line is
+  // priced). labourSpreadTarget is the older-client form of it;
+  // labourAdjustment (the pool itself) is only read by the
+  // no-labour-lines guard.
+  //
+  // Eligible = the engine-priced work lines: rooms, exterior items, the
+  // kitchen and fitted units. Custom line items (typed-in prices),
+  // sundries (a stated % of labour) and materials (real Xero sell prices)
+  // are all figures the client can check, so nothing may move them.
+  // spreadIdx holds their positions in lineItems as they are pushed.
+  const spreadIdx = [];
+  const spreadTarget = +labourSpreadTarget;
+  const spreadPool = +labourAdjustment || 0;
+
+  // Add each room. Description falls back to the bare name for older
+  // clients: the client composes the full text (template block on the
+  // first labour line, "same as above" on the rest — TEXT_TEMPLATES_
+  // SPEC.md) because only it knows which line is first across
+  // rooms/exterior/kitchen. This route stays a passthrough.
+  if (rooms) {
+    rooms.forEach(room => {
+      spreadIdx.push(lineItems.length);
+      lineItems.push({
+        Description: room.description || room.name,
+        Quantity: 1,
+        UnitAmount: fmt(room.total * mu),
+        AccountCode: '201'
+      });
+    });
+  }
+
+  // Add exterior — one line per exterior item (its own label + cost),
+  // mirroring how each room above is its own line, instead of a single
+  // lump "Exterior Works" total. Falls back to the lump line if an older
+  // client sends only exterior.cost with no itemised array.
+  if (exterior && exterior.items && exterior.items.length > 0) {
+    exterior.items.forEach(item => {
+      if (item.total > 0) {
+        spreadIdx.push(lineItems.length);
+        lineItems.push({
+          Description: item.description || item.label || 'Exterior',
+          Quantity: 1,
+          UnitAmount: fmt(item.total * mu),
+          AccountCode: '201'
+        });
+      }
+    });
+  } else if (exterior && exterior.cost > 0) {
+    spreadIdx.push(lineItems.length);
+    lineItems.push({
+      Description: 'Exterior Works',
+      Quantity: 1,
+      UnitAmount: fmt(exterior.cost * mu),
+      AccountCode: '201'
+    });
+  }
+
+  // Kitchen Cabinet Spray Calculator -- one lump line, unlike rooms/
+  // exterior's per-item breakdown, since a kitchen is a single per-job
+  // config (job.kitchen) rather than a list of separately-labelled
+  // things. The door/drawer/end-panel/filler/cornice/plinth/carcass
+  // split is visible on the app's own Kitchen tab and Summary breakdown;
+  // the Xero quote only needs the one billable total.
+  if (kitchen && kitchen.cost > 0) {
+    spreadIdx.push(lineItems.length);
+    lineItems.push({
+      Description: kitchen.description || 'Kitchen Cabinet Spraying',
+      Quantity: 1,
+      UnitAmount: fmt(kitchen.cost * mu),
+      AccountCode: '201'
+    });
+  }
+
+  // Fitted Units -- one line per named unit (v2.20.0, job.fittedUnits is
+  // a list now), mirroring exterior's per-item lines so two alcove units
+  // read apart on the quote. Falls back to the old single lump line if an
+  // older client sends only fittedUnit.cost with no itemised array. The
+  // shelf/bay/door split stays visible on the app's own Fitted Unit
+  // screen and Summary breakdown.
+  if (fittedUnit && fittedUnit.items && fittedUnit.items.length > 0) {
+    fittedUnit.items.forEach(item => {
+      if (item.total > 0) {
+        spreadIdx.push(lineItems.length);
+        lineItems.push({
+          Description: item.description || item.name || 'Fitted Unit / Shelving',
+          Quantity: 1,
+          UnitAmount: fmt(item.total * mu),
+          AccountCode: '201'
+        });
+      }
+    });
+  } else if (fittedUnit && fittedUnit.cost > 0) {
+    spreadIdx.push(lineItems.length);
+    lineItems.push({
+      Description: fittedUnit.description || 'Fitted Unit / Shelving',
+      Quantity: 1,
+      UnitAmount: fmt(fittedUnit.cost * mu),
+      AccountCode: '201'
+    });
+  }
+
+  // Custom line items -- itemised with their own description/qty/unit
+  // price, mirroring exterior's per-item lines. Marked lines get the
+  // same mu as every labour line above; markup-off lines go out at the
+  // entered price untouched (no commercial% either -- the client app
+  // adds them after applyMarkupAmount() entirely).
+  customItems.forEach(item => {
+    const qty = (+item.quantity > 0) ? +item.quantity : 1;
+    const unitPrice = +item.unitPrice || 0;
+    if (qty * unitPrice <= 0) return;
+    lineItems.push({
+      Description: item.description || 'Custom line',
+      Quantity: qty,
+      UnitAmount: fmt(item.applyMarkup === false ? unitPrice : unitPrice * mu),
+      AccountCode: '201'
+    });
+  });
+
+  // Staircase/HSL entries are now just rooms (see the room-alignment work
+  // in public/index.html) -- their woodwork cost is already baked into
+  // room.total via the rooms.forEach loop above, pushed as that room's own
+  // line item. No separate staircase line here; adding one would
+  // double-count exactly the woodwork the room's own line already covers.
+
+  // Materials break — real Xero items on account 202 (the sales account
+  // set on every item), placed after the labour lines. 311 is the
+  // purchase/COGS account used only to identify which items are paint
+  // materials in /auth/items — quotes are a sales document, so the line
+  // itself belongs on the sales account. Priced at the item's own sell
+  // price already stored in Xero, so no job markup is re-applied here
+  // (unlike the labour lines above, and unlike the sundries line below).
+  if (materials && materials.length > 0) {
+    // Text-only divider row, matching the manual convention: no ItemCode,
+    // Quantity or UnitAmount at all (not even zero) — Xero renders a line
+    // item with only a Description as plain narrative text, no columns.
+    // Reads as a plain heading since the API can't apply bold/shading to
+    // one row differently from the others -- every LineItem renders
+    // through the same repeated table row in the DOCX template, so any
+    // real visual distinction (bold, shaded background) has to happen
+    // there, not here.
+    lineItems.push({ Description: 'MATERIALS' });
+    materials.forEach(m => {
+      lineItems.push({
+        ItemCode: m.itemCode,
+        Description: m.description,
+        Quantity: m.quantity,
+        UnitAmount: fmt(m.unitAmount),
+        AccountCode: '202'
+      });
+    });
+  }
+
+  // Sundries & consumables — a % of raw labour (before markup), same as
+  // the app's own Summary card. Booked on account 202 alongside materials
+  // for bookkeeping purposes (it's consumables, not labour), but unlike
+  // every other 202 line it DOES get markup applied here, since the
+  // confirmed calc order is labour + sundries -> x markup -> + materials
+  // (materials alone stay unmarked-up, at their real Xero sell price).
+  // Placed last on the quote (after materials), per request.
+  // See MATERIALS_SPEC.md's Materials editing section.
+  //
+  // The AMOUNT is the client's own (computeDepositPlan()'s `sundries`): a %
+  // of raw labour PLUS the spray-masking % charged on the spray-toggled
+  // rooms' labour alone. That spray half is underivable here -- this route
+  // never learns which rooms are sprayed -- which is why the Xero total used
+  // to sit under the app's on any spray job. An older client that doesn't
+  // send it falls back to the labour-% half, as before.
+  const sundriesPct = (settings && settings.sundriesPct) || 0;
+  const sundriesRaw = (sundriesTotal != null && +sundriesTotal >= 0)
+    ? +sundriesTotal
+    : rawLabourSubtotal * (sundriesPct / 100);
+  if (sundriesRaw > 0) {
+    lineItems.push({
+      Description: 'Sundries & Consumables',
+      Quantity: 1,
+      UnitAmount: fmt(sundriesRaw * mu),
+      AccountCode: '202'
+    });
+  }
+
+  // ── The spread: land the document on the app's own total ────────────────
+  // Every line that is NOT eligible labour prints at its own exact figure (a
+  // stated % of labour, a typed-in price, a real Xero sell price), each
+  // rounded to the penny in its own right. So the labour lines are made to
+  // carry whatever is left of the clean grand total -- distributed
+  // proportionally to what each already holds (one line simply takes the
+  // lot, no special case), then rounded to the penny with the leftover
+  // dropped on the LARGEST line, where it is least visible and can never
+  // make a small line look wrong. Mirrors spreadOntoLabourLines() in
+  // public/index.html: same rule, same target, so the two produce identical
+  // amounts.
+  //
+  // The TARGET is the fix. It used to be labourSpreadTarget, derived from the
+  // labour figures alone -- which never saw the penny rounding of the
+  // sundries, custom and materials lines the same document carries, nor the
+  // spray-sundries and fixed-markup differences above. So the Xero total came
+  // out a penny (sometimes two) ABOVE the clean £5 figure the app had quoted,
+  // on a document whose whole point is a deliberate-looking price. The client
+  // now sends that clean total itself and the target is TOTAL MINUS
+  // EVERYTHING ELSE ALREADY ON THE DOCUMENT -- the identical subtraction
+  // buildClientQuoteModel() does for the app's own copy, which is what makes
+  // the two agree exactly rather than nearly. labourSpreadTarget stays on as
+  // the older-client fallback, for a page loaded before this deploy.
+  const dayFig = (n) => (n % 1 === 0 ? n.toFixed(0) : n.toFixed(1));
+  const standaloneDaysNote = (+standaloneCalcDays > 0 && +standaloneDiaryDays > 0)
+    ? ` (${(+standaloneCalcDays).toFixed(1)} days' work charged as ${dayFig(+standaloneDiaryDays)} full days on site)`
+    : '';
+  // Xero's own line maths: LineAmount = Quantity x UnitAmount, to the penny.
+  // A description-only divider row (the MATERIALS heading) carries no money.
+  const lineAmountOf = (l) => l.UnitAmount == null
+    ? 0
+    : fmt((l.Quantity == null ? 1 : +l.Quantity) * +l.UnitAmount);
+  const spreadSet = new Set(spreadIdx);
+  const nonLabourTotal = lineItems.reduce(
+    (sum, l, i) => spreadSet.has(i) ? sum : sum + lineAmountOf(l), 0);
+  const cleanTotal = +quoteTotal || 0;
+  const target = cleanTotal > 0 ? fmt(cleanTotal - nonLabourTotal) : spreadTarget;
+
+  if (spreadIdx.length > 0 && target > 0) {
+    const spreadLines = spreadIdx.map(i => lineItems[i]);
+    const base = spreadLines.reduce((sum, l) => sum + l.UnitAmount, 0);
+    const pool = target - base;
+    if (base > 0.005) {
+      spreadLines.forEach(l => { l.UnitAmount = fmt(l.UnitAmount + pool * (l.UnitAmount / base)); });
+    } else {
+      spreadLines.forEach((l, i) => { l.UnitAmount = fmt(i === 0 ? pool : l.UnitAmount); });
+    }
+    const rounded = spreadLines.reduce((sum, l) => sum + l.UnitAmount, 0);
+    const remainder = fmt(target - rounded);
+    if (remainder !== 0) {
+      let largest = spreadLines[0];
+      spreadLines.forEach(l => { if (l.UnitAmount > largest.UnitAmount) largest = l; });
+      largest.UnitAmount = fmt(largest.UnitAmount + remainder);
+    }
+  } else if (!(spreadTarget > 0) && standaloneAmount > 0.005) {
+    // Older client: no spread in the payload at all, so the top-up keeps its
+    // own line exactly as it always did rather than going missing.
+    lineItems.push({
+      Description: 'Standalone job — diary day rounding' + standaloneDaysNote,
+      Quantity: 1,
+      UnitAmount: fmt(standaloneAmount * mu),
+      AccountCode: '201'
+    });
+  } else if (spreadIdx.length === 0 && (cleanTotal > 0 ? target > 0.005 : spreadPool > 0.005)) {
+    // Guard, not a normal path: pool money with no labour line to hide it
+    // in. Better a labelled line than money that silently vanishes off the
+    // quote -- and it carries the whole remaining target, so even here the
+    // document still adds up to the quoted total. Same fallback
+    // buildClientQuoteModel() renders.
+    lineItems.push({
+      Description: standalone ? 'Standalone job — diary day rounding' + standaloneDaysNote : 'Price adjustment',
+      Quantity: 1,
+      UnitAmount: fmt(cleanTotal > 0 ? target : spreadPool),
+      AccountCode: '201'
+    });
+  }
+
+  return lineItems;
+}
+
 // Create quote in Xero
 router.post('/create-quote', async (req, res) => {
-  const { clientName, jobName, xeroRef, rooms, exterior, kitchen, fittedUnit, custom, materials, settings, markup, markupType, commercial, commercialPct, standalone, standaloneTopUp, standaloneCalcDays, standaloneDiaryDays, labourSpreadTarget, labourAdjustment, paymentTerms, paymentSummary, contactId, newContact, updateQuoteId } = req.body;
+  // Only what the ROUTE itself needs: the money and the line shapes are
+  // buildQuoteLineItems()'s business, and it reads req.body directly.
+  const { clientName, xeroRef, paymentTerms, paymentSummary, contactId, newContact, updateQuoteId } = req.body;
 
   try {
     const accessToken = await getAccessToken();
@@ -807,285 +1160,7 @@ router.post('/create-quote', async (req, res) => {
       contact = { Name: clientName || 'Client' };
     }
 
-    // Build line items from rooms
-    const lineItems = [];
-    // A flat £ markup/discount (markupType: 'fixed') is expressed as a ratio
-    // of the raw labour subtotal, same as markupRatio()/mk in the client's
-    // Summary breakdown -- so it distributes proportionally across the
-    // per-room/exterior/kitchen lines below and still nets out to exactly
-    // rawLabourSubtotal + markup once every line is summed.
-    let rawLabourSubtotal = 0;
-    if (rooms) rooms.forEach(r => { rawLabourSubtotal += r.total; });
-    if (exterior && exterior.cost > 0) rawLabourSubtotal += exterior.cost;
-    if (kitchen && kitchen.cost > 0) rawLabourSubtotal += kitchen.cost;
-    if (fittedUnit && fittedUnit.cost > 0) rawLabourSubtotal += fittedUnit.cost;
-    // Commercial job (estimating-app-edits.md): applies BEFORE markup/
-    // discount, same order as the client's applyMarkupAmount() -- a flat £
-    // markup's ratio is expressed against the commercial-adjusted base too,
-    // so "commercial first, then markup" holds for both markup modes here,
-    // matching the app's own Summary breakdown exactly.
-    const commercialMult = commercial ? 1 + ((commercialPct != null ? commercialPct : 10) / 100) : 1;
-    // Standalone diary-day rounding (client's standaloneInfo()): a raw
-    // pre-markup labour top-up that becomes its own 201 line below. It
-    // joins the markup-ratio base here (it's chargeable labour, same as
-    // the client's computeDepositPlan) but NOT the sundries base further
-    // down -- the quote's sundries % never applied to it client-side.
-    const standaloneAmount = standalone ? (+standaloneTopUp || 0) : 0;
-    // Custom line items (client's customItemsSplit()): the marked share
-    // takes commercial%+markup like labour, so it joins the fixed-£ ratio
-    // base here -- but NOT rawLabourSubtotal, whose other job is the
-    // sundries % base further down (typed-in prices carry no consumables).
-    // The flat share (markup toggled off client-side: margin already baked
-    // into the entered price) never sees mu at all -- its lines below go
-    // out exactly as entered.
-    const customItems = (custom && Array.isArray(custom.items)) ? custom.items : [];
-    const customMarkedTotal = custom ? (+custom.marked || 0) : 0;
-    const afterCommercialBase = (rawLabourSubtotal + standaloneAmount + customMarkedTotal) * commercialMult;
-    const markupRatioVal = markupType === 'fixed'
-      ? (afterCommercialBase > 0 ? markup / afterCommercialBase : 0)
-      : (markup / 100);
-    const mu = commercialMult * (1 + markupRatioVal);
-
-    // Helper to format currency
-    const fmt = (n) => Math.round(n * 100) / 100;
-
-    // ── The labour spread (client's computeDepositPlan adjustment pool) ───
-    // The standalone upcharge used to be its own line here and the quote
-    // total was whatever the lines happened to add up to. Both changed
-    // together: the upcharge and the client's clean-£5 price rounding are
-    // now ONE pool spread across the measured labour lines, so the client
-    // sees the work they asked about and no line they can't account for.
-    //
-    // The client computes the TARGET those lines must sum to
-    // (labourSpreadTarget) rather than just sending the pool, so the Xero
-    // document carries the same per-line amounts as the client's own quote
-    // page and PDF instead of a set derived from a second, slightly
-    // different markup basis. labourAdjustment (the pool itself) is only
-    // read by the no-labour-lines guard below.
-    //
-    // Eligible = the engine-priced work lines: rooms, exterior items, the
-    // kitchen and fitted units. Custom line items (typed-in prices),
-    // sundries (a stated % of labour) and materials (real Xero sell prices)
-    // are all figures the client can check, so nothing may move them.
-    // spreadIdx holds their positions in lineItems as they are pushed.
-    const spreadIdx = [];
-    const spreadTarget = +labourSpreadTarget;
-    const spreadPool = +labourAdjustment || 0;
-
-    // Add each room. Description falls back to the bare name for older
-    // clients: the client composes the full text (template block on the
-    // first labour line, "same as above" on the rest — TEXT_TEMPLATES_
-    // SPEC.md) because only it knows which line is first across
-    // rooms/exterior/kitchen. This route stays a passthrough.
-    if (rooms) {
-      rooms.forEach(room => {
-        spreadIdx.push(lineItems.length);
-        lineItems.push({
-          Description: room.description || room.name,
-          Quantity: 1,
-          UnitAmount: fmt(room.total * mu),
-          AccountCode: '201'
-        });
-      });
-    }
-
-    // Add exterior — one line per exterior item (its own label + cost),
-    // mirroring how each room above is its own line, instead of a single
-    // lump "Exterior Works" total. Falls back to the lump line if an older
-    // client sends only exterior.cost with no itemised array.
-    if (exterior && exterior.items && exterior.items.length > 0) {
-      exterior.items.forEach(item => {
-        if (item.total > 0) {
-          spreadIdx.push(lineItems.length);
-          lineItems.push({
-            Description: item.description || item.label || 'Exterior',
-            Quantity: 1,
-            UnitAmount: fmt(item.total * mu),
-            AccountCode: '201'
-          });
-        }
-      });
-    } else if (exterior && exterior.cost > 0) {
-      spreadIdx.push(lineItems.length);
-      lineItems.push({
-        Description: 'Exterior Works',
-        Quantity: 1,
-        UnitAmount: fmt(exterior.cost * mu),
-        AccountCode: '201'
-      });
-    }
-
-    // Kitchen Cabinet Spray Calculator -- one lump line, unlike rooms/
-    // exterior's per-item breakdown, since a kitchen is a single per-job
-    // config (job.kitchen) rather than a list of separately-labelled
-    // things. The door/drawer/end-panel/filler/cornice/plinth/carcass
-    // split is visible on the app's own Kitchen tab and Summary breakdown;
-    // the Xero quote only needs the one billable total.
-    if (kitchen && kitchen.cost > 0) {
-      spreadIdx.push(lineItems.length);
-      lineItems.push({
-        Description: kitchen.description || 'Kitchen Cabinet Spraying',
-        Quantity: 1,
-        UnitAmount: fmt(kitchen.cost * mu),
-        AccountCode: '201'
-      });
-    }
-
-    // Fitted Units -- one line per named unit (v2.20.0, job.fittedUnits is
-    // a list now), mirroring exterior's per-item lines so two alcove units
-    // read apart on the quote. Falls back to the old single lump line if an
-    // older client sends only fittedUnit.cost with no itemised array. The
-    // shelf/bay/door split stays visible on the app's own Fitted Unit
-    // screen and Summary breakdown.
-    if (fittedUnit && fittedUnit.items && fittedUnit.items.length > 0) {
-      fittedUnit.items.forEach(item => {
-        if (item.total > 0) {
-          spreadIdx.push(lineItems.length);
-          lineItems.push({
-            Description: item.description || item.name || 'Fitted Unit / Shelving',
-            Quantity: 1,
-            UnitAmount: fmt(item.total * mu),
-            AccountCode: '201'
-          });
-        }
-      });
-    } else if (fittedUnit && fittedUnit.cost > 0) {
-      spreadIdx.push(lineItems.length);
-      lineItems.push({
-        Description: fittedUnit.description || 'Fitted Unit / Shelving',
-        Quantity: 1,
-        UnitAmount: fmt(fittedUnit.cost * mu),
-        AccountCode: '201'
-      });
-    }
-
-    // Custom line items -- itemised with their own description/qty/unit
-    // price, mirroring exterior's per-item lines. Marked lines get the
-    // same mu as every labour line above; markup-off lines go out at the
-    // entered price untouched (no commercial% either -- the client app
-    // adds them after applyMarkupAmount() entirely).
-    customItems.forEach(item => {
-      const qty = (+item.quantity > 0) ? +item.quantity : 1;
-      const unitPrice = +item.unitPrice || 0;
-      if (qty * unitPrice <= 0) return;
-      lineItems.push({
-        Description: item.description || 'Custom line',
-        Quantity: qty,
-        UnitAmount: fmt(item.applyMarkup === false ? unitPrice : unitPrice * mu),
-        AccountCode: '201'
-      });
-    });
-
-    // Distribute the adjustment pool across the labour lines pushed above.
-    // Proportional to what each line already carries, so a single line
-    // simply takes the whole pool with no special case; then rounded to the
-    // penny with the leftover (a penny or two at most) dropped on the
-    // LARGEST line, where it is least visible and can never make a small
-    // line look wrong. Mirrors spreadOntoLabourLines() in public/index.html
-    // -- same rule, same target, so the two produce identical amounts.
-    //
-    // NB the quote's own document total still differs from the app's clean
-    // figure by the spray-sundries bump, which this route has never
-    // included (see the sundries line below, and the matching note in the
-    // app's buildFinalInvoiceModel). That predates this spread and is
-    // deliberately mirrored, not fixed here.
-    const dayFig = (n) => (n % 1 === 0 ? n.toFixed(0) : n.toFixed(1));
-    const standaloneDaysNote = (+standaloneCalcDays > 0 && +standaloneDiaryDays > 0)
-      ? ` (${(+standaloneCalcDays).toFixed(1)} days' work charged as ${dayFig(+standaloneDiaryDays)} full days on site)`
-      : '';
-    if (!(spreadTarget > 0)) {
-      // Older client: no spread in the payload, so the top-up keeps its own
-      // line exactly as it always did rather than going missing.
-      if (standaloneAmount > 0.005) {
-        lineItems.push({
-          Description: 'Standalone job — diary day rounding' + standaloneDaysNote,
-          Quantity: 1,
-          UnitAmount: fmt(standaloneAmount * mu),
-          AccountCode: '201'
-        });
-      }
-    } else if (spreadIdx.length > 0) {
-      const spreadLines = spreadIdx.map(i => lineItems[i]);
-      const base = spreadLines.reduce((sum, l) => sum + l.UnitAmount, 0);
-      const pool = spreadTarget - base;
-      if (base > 0.005) {
-        spreadLines.forEach(l => { l.UnitAmount = fmt(l.UnitAmount + pool * (l.UnitAmount / base)); });
-      } else {
-        spreadLines.forEach((l, i) => { l.UnitAmount = fmt(i === 0 ? pool : l.UnitAmount); });
-      }
-      const rounded = spreadLines.reduce((sum, l) => sum + l.UnitAmount, 0);
-      const remainder = fmt(spreadTarget - rounded);
-      if (remainder !== 0) {
-        let largest = spreadLines[0];
-        spreadLines.forEach(l => { if (l.UnitAmount > largest.UnitAmount) largest = l; });
-        largest.UnitAmount = fmt(largest.UnitAmount + remainder);
-      }
-    } else if (spreadPool > 0.005) {
-      // Guard, not a normal path: pool money with no labour line to hide it
-      // in. Better a labelled line than money that silently vanishes off
-      // the quote. Same fallback buildClientQuoteModel() renders.
-      lineItems.push({
-        Description: standalone ? 'Standalone job — diary day rounding' + standaloneDaysNote : 'Price adjustment',
-        Quantity: 1,
-        UnitAmount: fmt(spreadPool),
-        AccountCode: '201'
-      });
-    }
-
-    // Staircase/HSL entries are now just rooms (see the room-alignment work
-    // in public/index.html) -- their woodwork cost is already baked into
-    // room.total via the rooms.forEach loop above, pushed as that room's own
-    // line item. No separate staircase line here; adding one would
-    // double-count exactly the woodwork the room's own line already covers.
-
-    // Materials break — real Xero items on account 202 (the sales account
-    // set on every item), placed after the labour lines. 311 is the
-    // purchase/COGS account used only to identify which items are paint
-    // materials in /auth/items — quotes are a sales document, so the line
-    // itself belongs on the sales account. Priced at the item's own sell
-    // price already stored in Xero, so no job markup is re-applied here
-    // (unlike the labour lines above, and unlike the sundries line below).
-    if (materials && materials.length > 0) {
-      // Text-only divider row, matching the manual convention: no ItemCode,
-      // Quantity or UnitAmount at all (not even zero) — Xero renders a line
-      // item with only a Description as plain narrative text, no columns.
-      // Reads as a plain heading since the API can't apply bold/shading to
-      // one row differently from the others -- every LineItem renders
-      // through the same repeated table row in the DOCX template, so any
-      // real visual distinction (bold, shaded background) has to happen
-      // there, not here.
-      lineItems.push({ Description: 'MATERIALS' });
-      materials.forEach(m => {
-        lineItems.push({
-          ItemCode: m.itemCode,
-          Description: m.description,
-          Quantity: m.quantity,
-          UnitAmount: fmt(m.unitAmount),
-          AccountCode: '202'
-        });
-      });
-    }
-
-    // Sundries & consumables — a % of raw labour (before markup), same as
-    // the app's own Summary card. Booked on account 202 alongside materials
-    // for bookkeeping purposes (it's consumables, not labour), but unlike
-    // every other 202 line it DOES get markup applied here, since the
-    // confirmed calc order is labour + sundries -> x markup -> + materials
-    // (materials alone stay unmarked-up, at their real Xero sell price).
-    // Placed last on the quote (after materials), per request.
-    // See MATERIALS_SPEC.md's Materials editing section.
-    const sundriesPct = (settings && settings.sundriesPct) || 0;
-    if (sundriesPct > 0) {
-      const sundriesAmount = rawLabourSubtotal * (sundriesPct / 100);
-      if (sundriesAmount > 0) {
-        lineItems.push({
-          Description: 'Sundries & Consumables',
-          Quantity: 1,
-          UnitAmount: fmt(sundriesAmount * mu),
-          AccountCode: '202'
-        });
-      }
-    }
+    const lineItems = buildQuoteLineItems(req.body);
 
     // UPDATE path (2026-07-23, per Nicky): amend the EXISTING Xero quote in
     // place — same number, same document — instead of minting a new one.
@@ -1671,6 +1746,11 @@ router.get('/prepayment-status', async (req, res) => {
 module.exports = router;
 module.exports.getAccessToken = getAccessToken;
 module.exports.buildPrepaymentPayload = buildPrepaymentPayload;
+// Exported for scripts/test-quote-total.js, which asserts the quote's Xero
+// lines add up to exactly the total the app quoted, and that a contact
+// UPDATE is written with the verb Xero treats as an update.
+module.exports.buildQuoteLineItems = buildQuoteLineItems;
+module.exports.contactWriteRequest = contactWriteRequest;
 // Exported for the tin-fill checks in scripts/check_item_parse.py's Node
 // counterpart and for ad-hoc verification against a real Xero export.
 module.exports.parseItemName = parseItemName;
