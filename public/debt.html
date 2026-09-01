@@ -508,9 +508,14 @@ function simulate(dts,bdgt){
     const arrearsDebts=state.filter(d=>d.remainingArrears>0.005&&d.remaining>0.005);
     const inArrears=arrearsDebts.length>0;
     if(inArrears&&bl>0.005){
-      // Highest arrears first — pour the whole leftover budget into the worst one,
-      // then roll any remainder onto the next, and so on down the list.
-      const ordered=arrearsDebts.slice().sort((a,b)=>b.remainingArrears-a.remainingArrears);
+      // SMALLEST arrears first — snowball logic applied to arrears. The spare
+      // after minimums is small (a couple of hundred a month), so pouring it
+      // all into the biggest overdue balance leaves every other creditor
+      // untouched for a year and a half. Clearing the small ones first takes
+      // creditors off the list within a month or two, and costs nothing: the
+      // spare per month is what fixes the finish date, not the order, so
+      // everything still clears on the same month either way.
+      const ordered=arrearsDebts.slice().sort((a,b)=>a.remainingArrears-b.remainingArrears);
       let remaining=bl;
       for(let d of ordered){
         if(remaining<=0.005)break;
@@ -550,7 +555,7 @@ function getMilestones(months){const m={};for(const mo of months)for(const p of 
 
 // Build the "this cycle" payment list from month 1 of the sim
 function getCurrentTarget(){
-  // Mirrors the simulate() priority: clear arrears first (HIGHEST arrears first),
+  // Mirrors the simulate() priority: clear arrears first (SMALLEST arrears first),
   // otherwise snowball the smallest remaining balance. Excludes zero balances
   // and any debt with no minimum payment AND no due date — i.e. nothing in
   // the payment plan at all (HMRC pre-Time-to-Pay: min 0, due null; once an
@@ -559,8 +564,8 @@ function getCurrentTarget(){
   const active=debts.filter(d=>d.balance>0.005 && (d.min>0.005||d.due));
   const arrearsDebts=active.filter(d=>d.arrears>0.005);
   if(arrearsDebts.length){
-    // highest arrears first — matches simulate()'s payment order
-    return arrearsDebts.slice().sort((a,b)=>b.arrears-a.arrears)[0];
+    // smallest arrears first — matches simulate()'s payment order
+    return arrearsDebts.slice().sort((a,b)=>a.arrears-b.arrears)[0];
   }
   // snowball: smallest balance overall
   return active.slice().sort((a,b)=>a.balance-b.balance)[0]||null;
@@ -627,13 +632,13 @@ function floorOf(d){
   const n=Number(f);
   return isFinite(n)&&n>=0?n:null;
 }
-// Arrears first (highest arrears first, matching simulate()), then earliest
+// Arrears first (smallest arrears first, matching simulate()), then earliest
 // due date — the order floors get funded in when income can't cover them all.
 function floorPriority(a,b){
   const da=debts.find(x=>x.id===a.id),db_=debts.find(x=>x.id===b.id);
   const aa=da?.arrears||0,ba=db_?.arrears||0;
   if((aa>0.005)!==(ba>0.005))return aa>0.005?-1:1;
-  if(Math.abs(aa-ba)>0.005)return ba-aa;
+  if(Math.abs(aa-ba)>0.005)return aa-ba;
   return a.due-b.due;
 }
 // The cycle's standing on both numbers. Everything the Cash Flow view needs
@@ -1236,10 +1241,14 @@ function renderAll(){
       cm.payments.filter(p=>p.wasActive||p.total>0.005).forEach((p,i)=>{
         const debt=debts.find(d=>d.id===p.id);
         const isSB=p.extra>0.005,isArr=p.arrearsPaid>0.005,isClr=p.cleared&&p.wasActive;
+        // In arrears but nothing allocated this month — the budget hasn't
+        // reached it yet. Without this the row is a bare "—", which reads as
+        // "nothing to do" rather than "overdue and waiting its turn".
+        const isStarved=!isArr&&p.total<=0.005&&p.remainingArrears>0.005;
         const bg=isClr?'card-green':isSB||isArr?'card-blue':'';
         html+=`<div class="card ${bg}"><div class="row"><div style="display:flex;align-items:flex-start;gap:8px"><div class="dot" style="background:${COLORS[i%COLORS.length]}"></div><div>
-          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-weight:600;font-size:15px">${esc(p.name)}</span>${isSB?'<span class="badge badge-blue">SNOWBALL</span>':''}${isArr?'<span class="badge badge-red">CLEARING ARREARS</span>':''}${isClr?'<span class="badge badge-green">CLEARED ✓</span>':''}</div>
-          <div style="font-size:12px;color:#7c7f96;margin-top:3px">${isSB?`Min <strong style="color:#e8e8ec">${fmt(p.minPaid)}</strong> + snowball <strong style="color:#5b8def">${fmt(p.extra)}</strong>`:''}${isArr?`Min <strong style="color:#e8e8ec">${fmt(p.minPaid)}</strong> + arrears <strong style="color:#e05c5c">${fmt(p.arrearsPaid)}</strong>`:''}${!isSB&&!isArr&&p.total>0.005?'Minimum payment':''}</div>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span style="font-weight:600;font-size:15px">${esc(p.name)}</span>${isSB?'<span class="badge badge-blue">SNOWBALL</span>':''}${isArr?'<span class="badge badge-red">CLEARING ARREARS</span>':''}${isStarved?'<span class="badge badge-red">IN ARREARS</span>':''}${isClr?'<span class="badge badge-green">CLEARED ✓</span>':''}</div>
+          <div style="font-size:12px;color:#7c7f96;margin-top:3px">${isSB?`Min <strong style="color:#e8e8ec">${fmt(p.minPaid)}</strong> + snowball <strong style="color:#5b8def">${fmt(p.extra)}</strong>`:''}${isArr?`Min <strong style="color:#e8e8ec">${fmt(p.minPaid)}</strong> + arrears <strong style="color:#e05c5c">${fmt(p.arrearsPaid)}</strong>`:''}${isStarved?`<strong style="color:#e05c5c">${fmt(p.remainingArrears)}</strong> overdue · waiting for budget`:''}${!isSB&&!isArr&&p.total>0.005?'Minimum payment':''}</div>
           ${debt?.due?`<div style="font-size:11px;color:#555;margin-top:2px">Due ${ord(debt.due)}</div>`:''}
           </div></div><div style="text-align:right;flex-shrink:0;margin-left:8px"><div style="font-size:22px;font-weight:700;color:${isClr?'#7db87d':isSB?'#5b8def':isArr?'#e05c5c':'#e8e8ec'}">${p.total>0.005?fmt(p.total):'—'}</div>${p.remaining>0.005?`<div style="font-size:11px;color:#555;margin-top:1px">${fmt(p.remaining)} left</div>`:''}</div></div></div>`;
       });
@@ -1980,8 +1989,10 @@ function confirmSurplus(){
 function setSweep(v){sweepPct=parseInt(v);persist('settings');renderAll();}
 function setBufferTarget(v){bufferTarget=parseInt(v)||0;persist('settings');renderAll();}
 // Catch up is the ONLY route from "behind" back into the plan, and it says
-// exactly what it will do first. Adding the shortfall to arrears is what
-// puts the debt back at the front of the arrears-first order.
+// exactly what it will do first. Adding the shortfall to arrears is what puts
+// the debt into the arrears-first order — near the front of it, since that
+// order now funds the SMALLEST arrears first and a single caught-up shortfall
+// is usually a small number.
 function openCatchUpModal(id){
   const f=floorShortfalls.find(x=>x.id===id);
   if(!f)return;
