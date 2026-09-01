@@ -657,3 +657,26 @@ The 28-day nudge (banner and push) is reworded to match: it warns that the cycle
 ### Known trade-off
 
 If you pay a debt outside the app and never tick it, the close counts its minimum as unpaid and adds it to arrears. That is why the banner names every debt and amount it moved and points at Edit Debts — visible and reversible, not silent.
+
+
+---
+
+## Feature 10 — Arrears go to the smallest first — BUILT (v2.48.3)
+
+Reported as "only one arrears is being allocated", and the allocation was in fact correct: budget £1,500 less £1,241.29 of minimums leaves **£258.71** spare, and the whole of it went into NatWest Loan's £2,662.97 — the largest overdue balance. There was nothing left for a second debt. The cascade in `simulate()` was working; it just never got past the first name.
+
+The cost of that ordering was the real problem. Every strategy clears all arrears in **month 21** — the spare per month fixes the finish date, not the order — but:
+
+| ordering | still in arrears after 6 months | Amex (£65.64) |
+|---|---|---|
+| largest first (was) | 5 of 5 | first penny at m21 |
+| **smallest first (now)** | **2 of 5** | **cleared at m1** |
+| spread pro-rata | 5 of 5 | cleared at m21 |
+
+So the spare now funds the **smallest** arrears first: snowball logic, applied to arrears. Month 1 clears Amex (£65.64) and Bounce Back (£177.48) outright and puts the remaining £15.59 on Updraft — three creditors funded instead of one, two of them off the list immediately, and the same month-21 finish.
+
+Changed in three places that must agree or the plan contradicts itself: the cascade in `simulate()`, `getCurrentTarget()` (which decides where a logged surplus goes), and `floorPriority()` (which decides the order floors get funded when income is short).
+
+### The zero-minimum case
+
+Brewers has no minimum (trade account, whole balance overdue), so it receives nothing except through the arrears queue — four months of £0 on these figures. That is the ordering working as intended, but the row rendered as a bare "—", which reads as "nothing to do" rather than "overdue and waiting its turn". A debt with outstanding arrears and no allocation this month now carries an **IN ARREARS** badge and an "£X overdue · waiting for budget" line. The money is unchanged; only the honesty of the row is.
