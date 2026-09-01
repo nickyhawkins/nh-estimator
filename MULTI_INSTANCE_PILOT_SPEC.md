@@ -38,6 +38,25 @@ The app has zero access control; anyone with the URL has full use of it.
   helpers treat a 401 as "session gone" and redirect to `/login`.
 - Simple in-memory throttle on failed login attempts.
 
+**Bugfix 2026-08-31 (v2.48.5): the gate could never be switched on at all.**
+`app.set('trust proxy', 1)` was missing. Render terminates TLS at its edge and
+forwards over plain HTTP, so Express saw every request as insecure — and
+express-session, holding `cookie.secure = true` (which `NODE_ENV=production`
+sets), silently declined to send the session cookie. The password was accepted,
+the redirect to `/` was issued, no cookie ever reached the browser, and
+`requireAuth` bounced straight back to the login page. Forever, with nothing
+logged, because from the server's point of view nothing had gone wrong. WS1 was
+therefore never usable in production; it worked in local dev only because
+`secure` is false there. Two things fell out of the same missing line: `req.ip`
+was Render's proxy address for every visitor, so the failed-password lockout
+here (and the abuse throttle in `routes/publicQuote.js`) were counting the
+whole world as one client — one caller could lock out everybody. Trusting
+exactly one hop rather than `true` matters for the same reason: `true` would
+let any caller spoof `X-Forwarded-For` and evade or weaponise those throttles.
+And a session-store failure used to redirect to `?error=1` — "Wrong password" —
+which is the most misleading thing it could say when the password was right;
+it now has its own message and logs the real cause.
+
 ## WS2 — Strip the personal Debt app (~½ day)  **[BLOCKER]**
 
 The personal debt tracker is mounted at `/debt` on the same server, with

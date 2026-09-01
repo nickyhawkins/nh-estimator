@@ -81,7 +81,16 @@ router.post('/auth/login', (req, res) => {
   fails.delete(ip);
   // Fresh session id on login — standard fixation hygiene.
   req.session.regenerate((err) => {
-    if (err) return res.redirect('/login?error=1');
+    // A store failure here (the session table missing, the database refusing
+    // SSL, Postgres down) used to land on ?error=1 — "Wrong password, try
+    // again" — which is the most misleading thing it could possibly say: the
+    // password was right, and no amount of retyping it will help. It sends
+    // whoever is debugging it hunting for a typo instead of a broken store.
+    // Its own message now, and the real reason goes to the server log.
+    if (err) {
+      console.error('Login failed: the session store rejected the write', err);
+      return res.redirect('/login?error=store');
+    }
     req.session.appAuthed = true;
     res.redirect('/');
   });
