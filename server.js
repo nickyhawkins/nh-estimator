@@ -41,6 +41,25 @@ app.set('trust proxy', 1);
 // databases never run.
 const DEBT_APP_ENABLED = process.env.DEBT_APP_ENABLED === 'true';
 
+// NOTHING in this application belongs in a search result — not the app (one
+// business's private jobs, prices and clients), not the sign-in page, and
+// least of all the client approval pages under /q/, which are reached by an
+// unguessable link texted to one person. An indexed one would hand a client's
+// prices to anyone who searched the right words.
+//
+// Set here, before everything, so it covers every response this process can
+// make — the login page, the app shell, static files, API replies and any
+// route added later without anyone remembering to think about it.
+// public/robots.txt is the polite request that a well-behaved crawler reads
+// first; this header is what holds when one doesn't, and the <meta> tags on
+// login.html and index.html are the third layer for anything that parses HTML
+// but ignores headers. routes/publicQuote.js sets the same value again on its
+// own responses, which is harmless and keeps that file readable on its own.
+app.use((req, res, next) => {
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  next();
+});
+
 // Gzip responses — index.html is ~450KB of highly compressible text and is
 // served on every route, so this is the single biggest transfer saving.
 app.use(compression());

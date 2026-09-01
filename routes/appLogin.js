@@ -47,10 +47,13 @@ function recordFail(ip) {
 //   and 404s without a valid key.
 // - manifest/icons/sw.js keep an installed-but-logged-out PWA from breaking
 //   its install or service-worker update cycle; none of them expose data.
+// - /robots.txt has to be readable by a crawler, which by definition has no
+//   session. Behind the gate it would 401, and a crawler that cannot read the
+//   file telling it to stay out is a crawler that indexes the login page.
 const OPEN_PATHS = new Set([
   '/login', '/login.html', '/auth/login', '/auth/logout',
   '/api/schedule.ics', '/api/branding',
-  '/logo.png', '/manifest.json', '/sw.js',
+  '/logo.png', '/manifest.json', '/sw.js', '/robots.txt',
   '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png',
 ]);
 
