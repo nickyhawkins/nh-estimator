@@ -661,7 +661,7 @@ If you pay a debt outside the app and never tick it, the close counts its minimu
 
 ---
 
-## Feature 10 — Arrears go to the smallest first — BUILT (v2.48.3)
+## Feature 10 — Arrears go to the smallest first — BUILT (v2.48.4)
 
 Reported as "only one arrears is being allocated", and the allocation was in fact correct: budget £1,500 less £1,241.29 of minimums leaves **£258.71** spare, and the whole of it went into NatWest Loan's £2,662.97 — the largest overdue balance. There was nothing left for a second debt. The cascade in `simulate()` was working; it just never got past the first name.
 
