@@ -10,6 +10,29 @@ const db = require('./db');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Render terminates TLS at its edge and forwards to this process over plain
+// HTTP, with the original scheme in X-Forwarded-Proto. Without this line
+// Express believes every request is insecure — and express-session, seeing
+// cookie.secure = true (which NODE_ENV=production sets below) against an
+// apparently-insecure request, SILENTLY DECLINES TO SEND THE COOKIE.
+//
+// That is not a subtle degradation, it is a total lockout, and it is the bug
+// that kept APP_PASSWORD unusable: the password is accepted, the redirect to
+// / is issued, no session cookie ever reaches the browser, requireAuth bounces
+// straight back to /login, and round it goes forever. Nothing is logged,
+// because from the server's point of view nothing went wrong.
+//
+// '1' rather than `true`: trust exactly one hop, the platform's own proxy.
+// `true` would trust whatever any client puts in X-Forwarded-For, which is the
+// header BOTH throttles in this app key off — the failed-password lockout in
+// routes/appLogin.js and the abuse throttle in routes/publicQuote.js. Spoofing
+// it would let one caller lock out every other, or evade their own lockout.
+//
+// This also fixes req.ip generally, which until now was Render's proxy address
+// for every visitor alike — so those two throttles were counting the whole
+// world as a single client.
+app.set('trust proxy', 1);
+
 // The bundled personal Debt Management App is opt-in per instance
 // (MULTI_INSTANCE_PILOT_SPEC.md WS2): only the owner's own instance sets
 // DEBT_APP_ENABLED=true. Default OFF so a customer instance can never
