@@ -212,13 +212,24 @@ check('a real floor of 0 is kept as 0', app.floorOf({ floorPayment: 0 }) === 0);
   check('a light month cannot fund every floor', totalFloors > 300);
   check('floor money still balances', near(d.buffer + d.biz + d.per + d.savings + d.keep, 300));
 
-  // Highest arrears first: NatWest Loan (£2,662.97 arrears) outranks the rest.
+  // SMALLEST arrears first (v2.48.4, was largest-first): Amex's £65.64 outranks
+  // NatWest Loan's £2,662.97. The plan clears the small arrears first, so those
+  // are the floors worth funding when income is short — funding the floor of a
+  // debt whose arrears nothing will touch for ten months buys nothing.
+  // Derived from the seed rather than hardcoded, so it stays true if the
+  // starting board changes.
   reset();
-  const worst = seed().slice().sort((x, y) => y.arrears - x.arrears)[0];
-  check('the seeded worst-arrears debt is NatWest Loan', worst.name === 'NatWest Loan', worst.name);
-  const perOnly = app.allocateIncome(400);
-  check('the first floors funded are on the worst-arrears debt\'s account',
-    perOnly.floorPer > perOnly.floorBiz, { per: perOnly.floorPer, biz: perOnly.floorBiz });
+  const arrearsWithFloor = seed().filter(x => x.arrears > 0.005 && app.floorOf(x) !== null);
+  const smallest = arrearsWithFloor.slice().sort((x, y) => x.arrears - y.arrears)[0];
+  const largest = arrearsWithFloor.slice().sort((x, y) => y.arrears - x.arrears)[0];
+  check('the seeded smallest-arrears debt (with a floor) is Amex', smallest.name === 'Amex', smallest.name);
+  check('and it is on a different account from the largest, so the split is telling',
+    smallest.account !== largest.account, { smallest: smallest.account, largest: largest.account });
+  const short = app.allocateIncome(400);
+  const toSmallest = smallest.account === 'business' ? short.floorBiz : short.floorPer;
+  const toLargest = smallest.account === 'business' ? short.floorPer : short.floorBiz;
+  check('the first floors funded are on the smallest-arrears debt\'s account',
+    toSmallest > toLargest, { toSmallest, toLargest });
 }
 
 // ── 4. floors come out of the sweep, not on top of it ──────────────────────
