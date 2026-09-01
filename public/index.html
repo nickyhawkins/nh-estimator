@@ -2127,7 +2127,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.48.7</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.48.8</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -4763,8 +4763,24 @@ async function createXeroQuote(forceNew) {
         // carries the same labour amounts the client's own copy shows
         // (buildClientQuoteModel) rather than a separately-derived set.
         // labourAdjustment rides along for the no-labour-lines guard.
+        //
+        // quoteTotal is what actually pins the document down: the clean
+        // £5-rounded grand total THIS app quotes. The server subtracts the
+        // penny-rounded sundries/custom/materials lines from it to get the
+        // labour target — exactly what buildClientQuoteModel() does for the
+        // client's own copy — so the Xero total is the app's total rather
+        // than a penny over it, whatever those lines round to. lineMult and
+        // sundriesTotal go with it so the individual LINES match too: the
+        // server's own derivations of both are near-misses (its fixed-£
+        // markup ratio leaves the sundries out of the base, and it can't see
+        // the spray-masking half of the sundries at all). labourSpreadTarget
+        // stays for an older server; the server keeps its own derivations
+        // for an older client (either side left open across a deploy).
         labourSpreadTarget: Math.round((tcS * depositPlan.lineMult + depositPlan.adjustmentPool) * 100) / 100,
         labourAdjustment: Math.round(depositPlan.adjustmentPool * 100) / 100,
+        quoteTotal: Math.round(depositPlan.total * 100) / 100,
+        lineMult: depositPlan.lineMult,
+        sundriesTotal: depositPlan.sundries,
         paymentTerms: paymentTerms,
         paymentSummary: paymentSummary,
         contactId: linkedContactId,
