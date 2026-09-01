@@ -252,6 +252,12 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 .mat-val{font-family:'DM Mono',monospace;font-size:14px;font-weight:500;color:var(--accent2)}
 .mat-chargeable-tag{display:inline-block;margin-top:6px;padding:3px 8px;font-size:11px;font-weight:600;border-radius:10px;cursor:pointer;background:var(--surface2);color:var(--text2);border:1px solid var(--border)}
 .mat-chargeable-tag.on{background:var(--accent-soft-bg);color:var(--accent);border-color:transparent}
+/* One colour of a consolidated materials row, revealed by tapping the
+   breakdown line. Indented and on surface2 so it reads as belonging to the
+   row above rather than as another product. */
+.mat-sub-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 16px 8px 28px;background:var(--surface2);border-top:1px solid var(--border)}
+.mat-sub-label{font-size:13px;color:var(--text2);min-width:0}
+.mat-expand-toggle{cursor:pointer;user-select:none}
 
 /* Navbar */
 /* FIXED, not sticky (v2.31.1). Sticky-bottom pins the bar only while its
@@ -2116,7 +2122,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.48.4</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.48.5</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -11819,6 +11825,20 @@ var matReorderMode = false;
 // KEY through an onclick attribute rather than a serialised object, so it
 // looks the group back up here -- same pattern as colourDropdownMatches.
 var summaryMatGroups = [];
+
+// Which consolidated rows are showing their per-colour quantity boxes.
+// Keyed by GROUP KEY, not index, so the open row stays open across a
+// re-render that reorders or adds rows. (The onclick still passes an index --
+// see summaryMaterialGroup on why -- and looks the key back up here.)
+var summaryMatExpanded = {};
+function toggleMaterialGroupExpand(i) {
+  var g = summaryMaterialGroup(i);
+  if (!g) return;
+  if (summaryMatExpanded[g.key]) delete summaryMatExpanded[g.key];
+  else summaryMatExpanded[g.key] = true;
+  renderSummary();
+}
+
 function toggleMatReorder() {
   matReorderMode = !matReorderMode;
   renderSummary();
@@ -11991,16 +12011,98 @@ function setMaterialLineQuantity(id, value) {
 // SNAPSHOT LINES are still what the quote, the invoice and materials tracking
 // read -- so a figure typed on a group has to land back on them.
 //
-// It is spread in PROPORTION to what each line currently holds, with the
-// rounding remainder put on the largest, so the split between colours stays
-// what the calculation worked out while the total is exactly what was typed.
 // A group of one line -- most of them -- is just the old direct edit, byte
-// for byte.
+// for byte. For a group of several, see splitMaterialGroupQuantity for how a
+// typed total is divided, and the per-colour boxes under the row (Summary's
+// expandable breakdown) for setting each colour directly, which is the real
+// answer whenever the automatic split isn't the one you wanted.
 // Rows address their group by INDEX, not by key: a key is built out of the
 // product description, and an apostrophe in one ("Painter's tape") would end
 // the JS string inside the onclick attribute. An index can't.
 function summaryMaterialGroup(i) {
   return (summaryMatGroups || [])[+i] || null;
+}
+
+// Dividing a typed group total back across the colours in it.
+//
+// The rule, decided by Nicky 2026-09-01 after the old one bit him on a real
+// job: TAKE THE REDUCTION OFF THE LARGEST COLOUR FIRST, and never take a
+// colour that still holds paint down to nothing. The colour needing the least
+// is the one that gets forgotten otherwise -- and a wall with no paint on the
+// shopping list is a second trip to the merchant, which is worse than a tin
+// too many. Going UP is proportional to what each colour holds, so raising a
+// group can't quietly reshape a split the calculation worked out.
+//
+// What this replaced, and why (both were real, both were hit):
+//   • it spread proportionally and then dumped the ROUNDING REMAINDER on the
+//     LARGEST line. Reducing always makes that remainder negative, so the
+//     colour needing the most paint was reliably the one gutted: 2/1/1 tins
+//     typed down to 2 wrote 0/1/1 -- no paint at all for the biggest wall.
+//   • the same line was then clamped at 0, and the leftover simply vanished:
+//     four colours at 1 tin typed down to 2 wrote 3 tins, not 2.
+//
+// Below the point where every colour can keep something, this REFUSES to
+// guess: it writes the lowest total that still covers every colour and
+// returns that figure as `floor`, for the caller to say so and open the
+// per-colour boxes. Typing 0 is not a floor case -- "none of this product"
+// is unambiguous, and it zeroes the lot.
+//
+// Works in whole STEPS (tins, or 0.1 of a litre on a per-litre line) so the
+// arithmetic is integer and the total written is exactly the total typed.
+// Pure function of (quantities, target) -- no snapshot access -- so it can be
+// reasoned about and tested on its own.
+function splitMaterialGroupQuantity(cur, next, isPerLitre) {
+  var step = isPerLitre ? 0.1 : 1;
+  var toU = function(n) { return Math.max(0, Math.round((+n || 0) / step)); };
+  var toQ = function(n) { return Math.round(n * step * 100) / 100; };
+  var add = function(a, b) { return a + b; };
+  var u = (cur || []).map(toU);
+  var target = toU(next);
+  var totalU = u.reduce(add, 0);
+  var holding = u.filter(function(x) { return x > 0; }).length;
+
+  // Nothing wanted, or nothing to take it from. A group sitting at all-zeros
+  // has no proportions to go on, so a figure typed onto it is dealt out one
+  // step at a time from the top rather than guessed at.
+  if (target <= 0 || holding === 0) {
+    var flat = u.map(function() { return 0; });
+    if (target > 0) for (var k = 0; k < target; k++) flat[k % flat.length]++;
+    return { quantities: flat.map(toQ), floor: null };
+  }
+
+  // Going up: proportional, with the odd steps to the biggest fractions
+  // (largest remainder), so the sum is exactly the target.
+  if (target >= totalU) {
+    var exact = u.map(function(x) { return x * target / totalU; });
+    var base = exact.map(Math.floor);
+    var left = target - base.reduce(add, 0);
+    var order = exact.map(function(e, i) { return { i: i, frac: e - Math.floor(e), u: u[i] }; });
+    order.sort(function(a, b) { return (b.frac - a.frac) || (b.u - a.u) || (a.i - b.i); });
+    for (var j = 0; j < left; j++) base[order[j].i]++;
+    return { quantities: base.map(toQ), floor: null };
+  }
+
+  // Coming down: one step at a time off whichever colour currently holds the
+  // most, skipping any colour already down to its last step. Once the big
+  // ones have been levelled down to the others and the choice is a tie, the
+  // next step comes off the colour that NEEDED LEAST -- otherwise the odd
+  // step lands on the biggest wall and leaves it holding less paint than a
+  // smaller one, which is the same complaint from the other end. `stop` is the floor -- one step each for every
+  // colour holding paint -- and is always reachable, since every one of them
+  // can come down to exactly that.
+  var stop = Math.max(target, holding);
+  var out = u.slice();
+  var remove = totalU - stop;
+  while (remove > 0) {
+    var pick = -1;
+    for (var i = 0; i < out.length; i++) {
+      if (out[i] <= 1) continue;
+      if (pick === -1 || out[i] > out[pick] || (out[i] === out[pick] && u[i] < u[pick])) pick = i;
+    }
+    if (pick === -1) break;
+    out[pick]--; remove--;
+  }
+  return { quantities: out.map(toQ), floor: target < stop ? toQ(stop) : null, covering: holding };
 }
 
 function setMaterialGroupQuantity(i, value) {
@@ -12009,22 +12111,22 @@ function setMaterialGroupQuantity(i, value) {
   if (g.lines.length === 1) { setMaterialLineQuantity(g.lines[0].id, value); return; }
   var next = Math.max(0, +value || 0);
   if (Math.abs(next - g.quantity) < 0.0001) return;
-  var round = g.isPerLitre
-    ? function(n) { return Math.round(n * 10) / 10; }
-    : function(n) { return Math.round(n); };
+  var split = splitMaterialGroupQuantity(
+    g.lines.map(function(l) { return +l.quantity || 0; }), next, g.isPerLitre);
   pushUndo('Quantity — ' + g.description, 'materials', 'qty:' + g.key);
-  var assigned = 0, biggest = 0;
-  var shares = g.lines.map(function(l, i) {
-    var share = g.quantity > 0 ? (+l.quantity || 0) / g.quantity : 1 / g.lines.length;
-    var v = Math.max(0, round(next * share));
-    assigned += v;
-    if ((+l.quantity || 0) > (+g.lines[biggest].quantity || 0)) biggest = i;
-    return v;
-  });
-  shares[biggest] = Math.max(0, round(shares[biggest] + (next - assigned)));
-  g.lines.forEach(function(l, i) { writeMaterialLineQuantity(l, shares[i]); });
+  g.lines.forEach(function(l, i) { writeMaterialLineQuantity(l, split.quantities[i]); });
   saveMaterialsSnapshot();
+  // Whatever the split decided is shown immediately, per colour, editable --
+  // the complaint that started this was never the arithmetic on its own, it
+  // was that the app chose and didn't say which colours it had chosen.
+  summaryMatExpanded[g.key] = true;
   renderSummary();
+  if (split.floor != null) {
+    var unit = g.isPerLitre ? '' : (split.floor === 1 ? ' tin' : ' tins');
+    toast(next + ' can\'t cover ' + split.covering + ' colours — held at ' + split.floor + unit
+      + ', one each. Set a colour to 0 below to go lower.',
+      { action: 'Undo', onAction: undoLast });
+  }
 }
 
 // Puts every overridden line in the group back on the calculation's own
@@ -21092,6 +21194,48 @@ function renderSummary() {
     // which surfaces this paint is for.
     var label = materialGroupDescription(g);
     var detail = materialPartsDetail(g.parts);
+    // ── The per-colour boxes ────────────────────────────────────────────
+    // One row per product is what you shop and invoice from, but the SPLIT
+    // between colours is a decision only the person who saw the walls can
+    // make: "drop this from 4 tins to 2" has a different answer depending on
+    // which room was over-measured. The row's own box still takes a total
+    // (split by splitMaterialGroupQuantity, largest colour first), and
+    // tapping the colour line underneath opens a box per colour so the tin
+    // comes off the one you meant. Single-colour rows have nothing to
+    // expand -- their box already IS the colour's box.
+    var multi = g.lines.length > 1;
+    var expanded = multi && !!summaryMatExpanded[g.key];
+    // Lines snapshotted before colourNumber existed have no colour to name;
+    // they still get a box, labelled by role, rather than being unreachable.
+    var subRoles = {};
+    g.lines.forEach(function(l) { if (l.role) subRoles[l.role] = true; });
+    var subShowRoles = Object.keys(subRoles).length > 1;
+    var subRowsHtml = !expanded ? '' : g.lines.map(function(l, li) {
+      var name = l.colourNumber != null ? colourLabelFor(l.colourNumber)
+        : (ROLE_LABELS[l.role] || 'Line ' + (li + 1));
+      if (subShowRoles && ROLE_LABELS[l.role] && l.colourNumber != null) name = ROLE_LABELS[l.role] + ' — ' + name;
+      var lineReset = matLineOverridden(l) && l.calcQuantity != null
+        ? ' · <span onclick="resetMaterialLineQuantity(\''+l.id+'\')" style="color:var(--accent);cursor:pointer;white-space:nowrap">reset to '
+          + (Math.round(l.calcQuantity * 100) / 100) + '</span>'
+        : '';
+      return '<div class="mat-sub-row"><div class="mat-sub-label">'+escapeHtml(name)+lineReset+'</div>'+
+        '<div style="display:flex;align-items:center;gap:10px">'+
+          '<input type="number" class="field-input" style="width:60px;padding:5px 8px;text-align:center" value="'+(Math.round((+l.quantity||0)*100)/100)+'" min="0" step="'+(g.isPerLitre?'0.1':'1')+'" onchange="setMaterialLineQuantity(\''+l.id+'\',this.value)">'+
+          '<div class="mat-val" style="width:72px;text-align:right;font-size:13px">'+fmt((+l.quantity||0)*g.unitAmount)+'</div>'+
+          '<div style="width:18px"></div>'+
+        '</div></div>';
+    }).join('');
+    // The breakdown line doubles as the disclosure control when there is
+    // more than one colour in the row. A row whose lines carry no colour
+    // still says how many there are, so it can be opened too.
+    // Open, the inline breakdown is redundant -- the boxes underneath say the
+    // same thing and are the point -- so it shortens to a count and gives the
+    // room back, which on a phone is several lines of it.
+    var detailHtml = multi
+      ? '<div class="mat-detail mat-expand-toggle" onclick="toggleMaterialGroupExpand('+gi+')">'
+        + (expanded ? '▾ ' + g.lines.length + ' colours' : '▸ ' + escapeHtml(detail || (g.lines.length + ' lines')))
+        + '<span style="color:var(--accent);font-weight:600"> · ' + (expanded ? 'done' : 'set each') + '</span></div>'
+      : (detail ? '<div class="mat-detail">'+escapeHtml(detail)+'</div>' : '');
     if (matReorderMode) {
       var arrowStyle = 'width:38px;height:38px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:var(--rs);background:var(--surface2);color:var(--accent);font-size:16px;cursor:pointer';
       return '<div class="mat-row"><div><div class="mat-label">'+escapeHtml(label)+'</div>'+
@@ -21103,13 +21247,13 @@ function renderSummary() {
     }
     return swipeDeleteWrap('deleteMaterialGroup', gi,
       '<div class="mat-row"><div style="min-width:0"><div class="mat-label">'+escapeHtml(label)+'</div>'+
-      (detail ? '<div class="mat-detail">'+escapeHtml(detail)+'</div>' : '')+
+      detailHtml+
       '<div class="mat-detail">'+fmt(g.unitAmount)+(g.isPerLitre?'/ltr':' each')+sourceNote+'</div>'+chargeableTag+shopTag+'</div>'+
       '<div style="display:flex;align-items:center;gap:10px">'+
         '<input type="number" class="field-input" style="width:60px;padding:6px 8px;text-align:center" value="'+g.quantity+'" min="0" step="'+(g.isPerLitre?'0.1':'1')+'" onchange="setMaterialGroupQuantity('+gi+',this.value)">'+
         '<div class="mat-val" style="width:72px;text-align:right">'+fmt(g.lineTotal)+'</div>'+
         '<div onclick="deleteMaterialGroup('+gi+')" style="color:var(--text3);font-size:18px;cursor:pointer;padding:8px;margin-left:4px">×</div>'+
-      '</div></div>');
+      '</div></div>') + subRowsHtml;
   }).join('');
 
   var scheduleRows = rooms.map(function(r){
