@@ -47,10 +47,13 @@ function recordFail(ip) {
 //   and 404s without a valid key.
 // - manifest/icons/sw.js keep an installed-but-logged-out PWA from breaking
 //   its install or service-worker update cycle; none of them expose data.
+// - /robots.txt has to be readable by a crawler, which by definition has no
+//   session. Behind the gate it would 401, and a crawler that cannot read the
+//   file telling it to stay out is a crawler that indexes the login page.
 const OPEN_PATHS = new Set([
   '/login', '/login.html', '/auth/login', '/auth/logout',
   '/api/schedule.ics', '/api/branding',
-  '/logo.png', '/manifest.json', '/sw.js',
+  '/logo.png', '/manifest.json', '/sw.js', '/robots.txt',
   '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png',
 ]);
 
@@ -81,7 +84,16 @@ router.post('/auth/login', (req, res) => {
   fails.delete(ip);
   // Fresh session id on login — standard fixation hygiene.
   req.session.regenerate((err) => {
-    if (err) return res.redirect('/login?error=1');
+    // A store failure here (the session table missing, the database refusing
+    // SSL, Postgres down) used to land on ?error=1 — "Wrong password, try
+    // again" — which is the most misleading thing it could possibly say: the
+    // password was right, and no amount of retyping it will help. It sends
+    // whoever is debugging it hunting for a typo instead of a broken store.
+    // Its own message now, and the real reason goes to the server log.
+    if (err) {
+      console.error('Login failed: the session store rejected the write', err);
+      return res.redirect('/login?error=store');
+    }
     req.session.appAuthed = true;
     res.redirect('/');
   });

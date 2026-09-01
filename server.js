@@ -10,6 +10,29 @@ const db = require('./db');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Render terminates TLS at its edge and forwards to this process over plain
+// HTTP, with the original scheme in X-Forwarded-Proto. Without this line
+// Express believes every request is insecure — and express-session, seeing
+// cookie.secure = true (which NODE_ENV=production sets below) against an
+// apparently-insecure request, SILENTLY DECLINES TO SEND THE COOKIE.
+//
+// That is not a subtle degradation, it is a total lockout, and it is the bug
+// that kept APP_PASSWORD unusable: the password is accepted, the redirect to
+// / is issued, no session cookie ever reaches the browser, requireAuth bounces
+// straight back to /login, and round it goes forever. Nothing is logged,
+// because from the server's point of view nothing went wrong.
+//
+// '1' rather than `true`: trust exactly one hop, the platform's own proxy.
+// `true` would trust whatever any client puts in X-Forwarded-For, which is the
+// header BOTH throttles in this app key off — the failed-password lockout in
+// routes/appLogin.js and the abuse throttle in routes/publicQuote.js. Spoofing
+// it would let one caller lock out every other, or evade their own lockout.
+//
+// This also fixes req.ip generally, which until now was Render's proxy address
+// for every visitor alike — so those two throttles were counting the whole
+// world as a single client.
+app.set('trust proxy', 1);
+
 // The bundled personal Debt Management App is opt-in per instance
 // (MULTI_INSTANCE_PILOT_SPEC.md WS2): only the owner's own instance sets
 // DEBT_APP_ENABLED=true. Default OFF so a customer instance can never
@@ -17,6 +40,25 @@ const PORT = process.env.PORT || 3000;
 // this one flag, and its tables live in db/setup-debt.sql which customer
 // databases never run.
 const DEBT_APP_ENABLED = process.env.DEBT_APP_ENABLED === 'true';
+
+// NOTHING in this application belongs in a search result — not the app (one
+// business's private jobs, prices and clients), not the sign-in page, and
+// least of all the client approval pages under /q/, which are reached by an
+// unguessable link texted to one person. An indexed one would hand a client's
+// prices to anyone who searched the right words.
+//
+// Set here, before everything, so it covers every response this process can
+// make — the login page, the app shell, static files, API replies and any
+// route added later without anyone remembering to think about it.
+// public/robots.txt is the polite request that a well-behaved crawler reads
+// first; this header is what holds when one doesn't, and the <meta> tags on
+// login.html and index.html are the third layer for anything that parses HTML
+// but ignores headers. routes/publicQuote.js sets the same value again on its
+// own responses, which is harmless and keeps that file readable on its own.
+app.use((req, res, next) => {
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  next();
+});
 
 // Gzip responses — index.html is ~450KB of highly compressible text and is
 // served on every route, so this is the single biggest transfer saving.
