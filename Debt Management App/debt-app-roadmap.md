@@ -680,3 +680,107 @@ Changed in three places that must agree or the plan contradicts itself: the casc
 ### The zero-minimum case
 
 Brewers has no minimum (trade account, whole balance overdue), so it receives nothing except through the arrears queue — four months of £0 on these figures. That is the ordering working as intended, but the row rendered as a bare "—", which reads as "nothing to do" rather than "overdue and waiting its turn". A debt with outstanding arrears and no allocation this month now carries an **IN ARREARS** badge and an "£X overdue · waiting for budget" line. The money is unchanged; only the honesty of the row is.
+
+---
+
+## Feature 11 — Pay a different amount — BUILT (v2.49.0)
+
+Asked as a question: *"a lump sum comes in and I want to clear an account's
+arrears rather than spread it over multiple cycles — can I?"* The answer was
+no. A cycle payment could only be one of two computed figures — the plan's
+**target**, or the **floor** — and a lump sum is neither. The only routes to a
+different amount were editing the balance by hand in Edit Debts (which debits
+no pot, writes no ledger entry and never reaches History) or dragging the
+budget slider, which raises the whole month for every debt: the spreading the
+question was trying to avoid.
+
+A payment can now be any amount. The row's **own amount** link opens a modal
+that takes a figure, shows what it would do, and records it.
+
+### Where the money goes
+
+The same split `simulate()` makes, and the one `paid floor only` already used:
+the **contractual minimum first** (that keeps the account current and so
+clears no arrears), **everything above it onto the arrears**. Which is why
+**Clear arrears** is `minimum + arrears`, not the arrears alone.
+
+The modal offers the figures worth having as one-tap chips — **Plan target**,
+**Floor**, **Clear arrears**, **Clear balance** — deduplicated, because a debt
+whose plan payment already covers its arrears would otherwise show the same
+number three times. Under the box it says what the amount does before it is
+recorded: balance and arrears before → after, what leaves which pot, and a
+warning for each of the three ways an amount can surprise you — over the
+balance (capped, you can't pay more than is owed), over the pot (log the money
+in first, or the pot bottoms out at zero), under the floor (that floor will
+count as unmet and the shortfall goes on the catch-up ledger at close).
+
+### A fifth payment state
+
+`custom` joins unpaid / floor / paid / missed. It shares `paid_this_cycle`
+with **paid** rather than owning a fourth list — the amount that makes it
+custom is already in `applied_payments`, and there is no schema change here at
+all. What made that safe is the second half of the feature:
+
+**Every "is this covered?" test now asks the ledger what actually went out,
+rather than which tick-list an id sits in** (`paidAmountOf()`, and the
+matching helpers in `rollOnce()`). A tick is no longer a promise that the
+commitment was met:
+
+| paid | against | outcome |
+|---|---|---|
+| ≥ the floor | `floorDue` | floor met |
+| < the floor | `floorDue` | floor unmet — shortfall on the catch-up ledger at close |
+| ≥ the contractual minimum | `min` | nothing overdue added |
+| < the contractual minimum | `min` | the uncovered part becomes arrears at close |
+| ≥ the target | `target` | counts toward "target met" |
+
+Ledger entries therefore carry the three figures the payment was **judged
+against** — `target`, `floorDue`, `minAmt` — alongside what it did:
+
+```json
+{ "5": { "name": "Brewers", "nominal": 2200.89, "custom": true,
+         "target": 349.76, "floorDue": null, "minAmt": 0,
+         "amount": 2200.89, "arrearsAmt": 2200.89, "potAmt": 2200.89 } }
+```
+
+Without them, a £20 payment would redefine a £205 floor as £20 and call it
+met — the floor cap is `min(floor, target)`, and after a payment is applied
+the sim's target is gone (it is now working off the balance that payment
+reduced).
+
+**A tick with no ledger entry is still taken at its word.** A cycle that was
+already open before `applied_payments` existed carries ids in the tick-lists
+and nothing in the ledger; reading those as "paid nothing" would turn a
+settled cycle into a pile of arrears on deploy. Both the client and
+`rollOnce()` fall back to the old list semantics whenever the ledger is
+silent, and `rollOnce()` only diverges from its previous behaviour for an
+entry explicitly flagged `custom`.
+
+### Debts with nothing planned this cycle
+
+The case a lump sum most often lands on. Brewers has no contractual minimum,
+so it receives money only through the arrears queue and in a tight month takes
+no month-1 payment at all — no row, nothing to tap. **Pay another debt**, next
+to Start new cycle, lists every live debt that isn't already on the checklist
+(HMRC included) and pays it the same way. The payment then appears on the
+checklist on the strength of the ledger alone, the way a debt cleared outright
+mid-cycle already did.
+
+Such a debt has no target to be over or under, so its ledger entry takes the
+amount paid as its own target: it is not counted as an underpayment, and
+`getCycleTotals()` caps every row's contribution at its target so a £2,200
+lump sum doesn't leave the app insisting that account still needs £2,200.
+
+### Tests
+
+`npm run test:custom-payments` (`scripts/test-custom-payments.js`) — 42 checks,
+no database, no browser, no server. The vm-with-stub-DOM harness Feature 8
+introduced was factored out to `scripts/debt-app-sandbox.js` and is now shared
+by both suites, so these drive the real modal: open it, type an amount,
+confirm. Covered: the minimum/arrears split at four amounts, Clear arrears
+leaving nothing overdue, **undo restoring balance, arrears and pot exactly
+from any amount** (including re-entering an amount, and switching a custom
+payment to missed or up to the full target — the pot must not be charged
+twice), the five judgements in the table above, the balance cap, and the
+ledger-less fallback. `npm run test:floors` 47 green alongside.
+
