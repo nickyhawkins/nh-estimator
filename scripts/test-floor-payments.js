@@ -4,8 +4,8 @@
 // ── Regression test: floor & target payments (debt app) ─────────────────────
 //
 // Exercises the REAL client-side logic out of public/debt.html — the script
-// block is extracted and run in a vm with a stub DOM, so these are the same
-// functions the phone runs, not a copy of them.
+// block is extracted and run in a vm with a stub DOM (scripts/debt-app-sandbox.js),
+// so these are the same functions the phone runs, not a copy of them.
 //
 // What it pins down, in the order the feature's promises matter:
 //
@@ -27,92 +27,16 @@
 // USAGE (no database, no browser, no server):
 //   node scripts/test-floor-payments.js
 
-const fs = require('fs');
-const path = require('path');
-const vm = require('vm');
+const { loadDebtApp, makeReset } = require('./debt-app-sandbox');
 
 const pass = [], fail = [];
 const check = (name, ok, detail) => (ok ? pass : fail).push(name + (!ok && detail !== undefined ? ' — ' + JSON.stringify(detail) : ''));
 const near = (a, b, tol = 0.011) => Math.abs(a - b) <= tol;
 
-// ── Load the app's own script with a stub DOM ───────────────────────────────
-function loadApp() {
-  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'debt.html'), 'utf8');
-  const m = html.match(/<script>([\s\S]*)<\/script>/);
-  if (!m) throw new Error('no inline script found in public/debt.html');
-  // Drop the bootstrap: both calls hit the network, and this test drives the
-  // state directly instead.
-  let src = m[1].replace(/\nloadState\(\);\ninitPush\(\);/, '\n');
-  if (src === m[1]) throw new Error('bootstrap calls not found — has the end of debt.html changed?');
-  // Top-level `let`s live in the script's own lexical scope, so the test
-  // reaches them through an explicit bridge rather than off the sandbox.
-  src += `
-globalThis.__t = {
-  get state(){ return {debts,budget,bizPot,perPot,savingsPot,bufferPot,bufferTarget,savingsPct,sweepPct,paidThisCycle,missedThisCycle,floorPaidThisCycle,floorShortfalls,incomeLog}; },
-  set state(o){
-    if('debts' in o)debts=o.debts; if('budget' in o)budget=o.budget;
-    if('bizPot' in o)bizPot=o.bizPot; if('perPot' in o)perPot=o.perPot;
-    if('savingsPot' in o)savingsPot=o.savingsPot;
-    if('bufferPot' in o)bufferPot=o.bufferPot; if('bufferTarget' in o)bufferTarget=o.bufferTarget;
-    if('savingsPct' in o)savingsPct=o.savingsPct; if('sweepPct' in o)sweepPct=o.sweepPct;
-    if('paidThisCycle' in o)paidThisCycle=o.paidThisCycle;
-    if('missedThisCycle' in o)missedThisCycle=o.missedThisCycle;
-    if('floorPaidThisCycle' in o)floorPaidThisCycle=o.floorPaidThisCycle;
-    if('floorShortfalls' in o)floorShortfalls=o.floorShortfalls;
-    if('incomeLog' in o)incomeLog=o.incomeLog;
-  },
-  DEBTS_INITIAL, floorOf, getFloorStatus, allocateIncome, getCyclePayments,
-  getCycleArchivePayload, getCycleTotals, simulate, setPaymentState, paymentState
-};`;
-  const el = () => ({
-    value: '', textContent: '', style: {}, innerHTML: '',
-    addEventListener() {}, focus() {}
-  });
-  const sandbox = {
-    console,
-    setTimeout, clearTimeout, clearInterval,
-    // setInterval is stubbed, not passed through: debt.html registers a
-    // refresh poll at the top level (REFRESH_POLL_MS), and a real repeating
-    // timer in here would keep firing refreshIfStale() against the rejecting
-    // fetch below for as long as the process lives — and hold the process
-    // open after the checks have finished. Nothing under test is driven by
-    // it. setTimeout stays real; debounced saves rely on it.
-    setInterval: () => 0,
-    fetch: () => Promise.reject(new Error('no network in this test')),
-    localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
-    navigator: { userAgent: 'node', serviceWorker: undefined },
-    // addEventListener/visibilityState: debt.html binds visibilitychange on
-    // document and focus on window at the top level, so the script cannot be
-    // evaluated at all without them (this file failed to LOAD, not to pass,
-    // once those landed). 'hidden' is both the safe answer and the true one —
-    // there is no window here — so any handler that does run declines to
-    // refresh rather than reaching for the network.
-    document: { getElementById: el, body: { scrollHeight: 0 },
-                addEventListener() {}, removeEventListener() {},
-                visibilityState: 'hidden' },
-    addEventListener() {}, removeEventListener() {},
-    Notification: undefined,
-    atob: (b) => Buffer.from(b, 'base64').toString('binary')
-  };
-  sandbox.window = sandbox;
-  sandbox.globalThis = sandbox;
-  vm.createContext(sandbox);
-  vm.runInContext(src, sandbox, { filename: 'debt.html:<script>' });
-  return sandbox.__t;
-}
-
-const app = loadApp();
-// A fresh copy of the seeded plan for each scenario — the app replaces
-// `debts` by reference on every real change, so tests must too.
+// The app's own script, loaded into a stub DOM (see scripts/debt-app-sandbox.js).
+const { app } = loadDebtApp();
 const seed = () => app.DEBTS_INITIAL.map(d => ({ ...d }));
-function reset(over = {}) {
-  app.state = Object.assign({
-    debts: seed(), budget: 2000, bizPot: 0, perPot: 0, savingsPot: 0,
-    bufferPot: 0, bufferTarget: 0, savingsPct: 10, sweepPct: 50,
-    paidThisCycle: [], missedThisCycle: [], floorPaidThisCycle: [],
-    floorShortfalls: [], incomeLog: []
-  }, over);
-}
+const reset = makeReset(app);
 
 // ── 1. null floor is not a zero floor ──────────────────────────────────────
 reset();
