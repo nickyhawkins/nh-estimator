@@ -2233,7 +2233,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.51.0</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.51.1</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -24113,6 +24113,19 @@ function cancelBackupImport() {
   document.getElementById('backup-import-file').value = '';
 }
 
+// A response body as JSON where it is JSON, and something sayable where it
+// isn't. Used by the backup import, which is the one place the app posts a
+// payload big enough for an infrastructure error to answer instead of the app.
+async function readJsonResponse(resp) {
+  var text = '';
+  try { text = await resp.text(); } catch (e) { return {}; }
+  try { return JSON.parse(text); } catch (e) {}
+  // Not JSON: an HTML error page, or a proxy's plain-text refusal. Strip the
+  // markup and keep the first line, which is the part that says what happened.
+  var plain = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  return { error: plain ? plain.slice(0, 200) : ('HTTP ' + resp.status) };
+}
+
 async function confirmBackupImport() {
   if (!pendingBackupImport) return;
   if (!confirm('Import ' + pendingBackupImport.jobs.length + ' job(s) now? This adds to what is already saved and does not delete anything.')) return;
@@ -24122,8 +24135,14 @@ async function confirmBackupImport() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ backup: pendingBackupImport, restoreSettings: backupRestoreSettings })
     });
-    var result = await resp.json();
-    if (!resp.ok) throw new Error(result.error || 'Import failed');
+    // Read the body defensively rather than assuming JSON. A failure raised
+    // before the route ran (an oversized or malformed file) used to arrive as
+    // an HTML error page, and resp.json() then threw a syntax error about an
+    // unexpected '<' -- so the one message the user needed was replaced by one
+    // that meant nothing. The server answers /api in JSON now; this is the
+    // belt to that braces, and covers a proxy erroring ahead of it too.
+    var result = await readJsonResponse(resp);
+    if (!resp.ok) throw new Error(result.error || ('Import failed (HTTP ' + resp.status + ')'));
     var settingsRestored = result.settingsRestored;
     cancelBackupImport();
     // Jobs list needs a fresh fetch to show the newly-imported jobs; a full

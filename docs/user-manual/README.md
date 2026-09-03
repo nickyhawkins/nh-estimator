@@ -766,7 +766,7 @@ Those stay your judgement call.
 Settings → **Backup**:
 
 - **Export everything** downloads a single JSON file containing every job, room, setting and colour. Do this regularly — Home will nag you when the last backup is getting old.
-- **Import backup** restores from a file, adding to what's already there — imported jobs get fresh identities, so it can never overwrite existing data. Restoring settings is a separate opt-in on the import preview, since it's the one thing an import *can* overwrite.
+- **Import backup** restores from a file, adding to what's already there — imported jobs get fresh identities, so it can never overwrite existing data. Restoring settings is a separate opt-in on the import preview, since it's the one thing an import *can* overwrite. Backup files up to 64MB are accepted, which is far more than a full job history comes to; if anything is ever wrong with a file, the app now tells you what in plain English rather than showing a syntax error.
 
 ---
 
