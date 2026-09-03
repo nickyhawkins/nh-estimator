@@ -589,7 +589,60 @@ Once a job is accepted, the **🛠 On Site** tab is your day-to-day companion:
 - **Materials** — the quote's materials list becomes a shopping list. Tick items off as you buy them, and correct quantities/prices to what you actually paid — see [Materials & Undo](#materials--undo) for how edits and Recalculate interact, and Undo if something goes wrong.
 - **Add material the estimate missed** — extra sundries or a forgotten tin: search the product, set the price, done.
 - **Variations** — the client asks for "just one more room" mid-job? Add the room (or exterior item, fitted unit) on Measure and flick its **Variation** toggle. It's priced with the same engine but kept separate from the accepted quote, and appears in its own Variations card here. Each variation carries a status — tap **✓ Approved by client** to record their yes (with an optional note; the date is stamped automatically), or mark one Declined to drop it from the totals and the final invoice while keeping the record. Anything still Pending gets called out before the final invoice will let it through.
+- **Snags** — the punch list for the job, above everything else once there's something on it. See below.
 - **Invoice ›** (top right) shows the materials list formatted for invoicing, with a **Copy** button.
+
+### Snags — the punch list
+
+The last few days of a job are a list of small things: a scuff by the switch, a handle to refit, a staircase that wants one more coat. That list goes here, and On Site puts it above everything else while anything on it is still open.
+
+![The Snags section on On Site](images/10b-snags.png)
+
+- **The section only shows up when there's something to show.** No snags yet, and there's just a quiet **+ Start a snag list** at the bottom of the screen. Tick the last one off and it drops back down there too, collapsed to **All n cleared ✓** — tap it to reopen the record.
+- **Grouped by room**, with that room's colours next to its name, read straight from the Colours tab. So you don't have to leave the screen to find out what to open. Rooms the quote never priced — the airing cupboard, the garage step — can have snags too, and you can give those a colour by hand (see below).
+- **Ticking one off doesn't remove it.** The row goes struck through with the date you cleared it and stays on the list, which is the point: at the end of the job the list *is* the evidence of what got done. Untick it if you tick it by mistake.
+- **Phase** on each row (the little dropdown) is the pass it belongs to — Prep, Stain block, Woodwork, Walls, Ceiling, Details, Final access. Set it and the room re-sorts itself into working order, with anything that blocks the space once it's done (floor cleans, stair recoats) last. Snags with no phase yet sit at the top of their room so they're not forgotten.
+- **By room / By phase.** The toggle flattens the whole house into phase order instead — every stain-block job in the building together, so you get the stain block out once. Room order is what it opens on.
+
+#### Adding snags
+
+**+ Add snag** opens a sheet with two ways in.
+
+**One snag** — pick the room (or **Custom…** and type a name), type the snag, set the phase if you know it. The sheet stays open on the same room afterwards, because snags come in runs.
+
+**Paste a list** — for the list the client emails you, or the notes off your own phone. Paste it as it came: a line on its own is a room, and lines starting `-`, `*` or `1.` are the snags under it. `- [ ]` and `- [x]` checkboxes are fine — **both come in as still to do**, because on someone else's list a tick means "I've flagged this", not "you've fixed it".
+
+![Reviewing a pasted snag list before it's added](images/10c-snags-paste.png)
+
+Nothing is written until you've looked at it. The review sheet shows exactly what it made of the paste, and everything on it is editable: room names, the snags themselves, and the phase on each one (pasted snags start with none — the app never guesses a phase from the wording, because it would guess wrong). If a stray sentence got read as a room heading, **↑ item** folds it back into the room above; **✕** drops a line. Then **Add n snags**.
+
+#### Colours on rooms you never measured
+
+On a job that came in from Xero there are no measured rooms at all, so there's
+nothing for the snag headings to read a colour from. Any room heading with no
+measured room behind it gets a **+ colour** tap instead:
+
+![Snag rooms with and without a colour](images/10d-snag-room-colours.png)
+
+Tap it and pick a colour you've already named on this job, or **Name a new
+colour…** and type it — same as anywhere else in the app, so a Farrow & Ball
+or Little Greene name comes in with its brand and number attached:
+
+![Setting a snag room's colour](images/10e-snag-colour-sheet.png)
+
+Once a room has a colour it shows on the heading (**Landing — Dead Salmon**)
+and joins the **Colours** tab alongside everything else, marked *from the snag
+list* so you can tell it apart from a room you measured. Rooms still waiting
+on one are listed there too, under **Snag rooms — no colour yet**, so you can
+work through them from either screen.
+
+A room you *did* measure works the other way round, unchanged: its colour comes
+from the Colours tab and the snag heading just shows it. There's only ever one
+place a given room's colour is set.
+
+#### Snags and signal
+
+Snags sync exactly like the rest of On Site — tick things off in a house with no bars and every change queues on the phone and goes up when you're back in signal, same as your materials and your logged days. The sync dot in the corner counts them with everything else.
 
 ### Let the client approve extras themselves
 
