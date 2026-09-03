@@ -1185,14 +1185,19 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       </div>
       <div id="snag-colour-room" style="padding:0 16px 10px;font-size:15px;font-weight:600"></div>
       <div style="padding:0 16px 8px;font-size:12px;color:var(--text2);line-height:1.5">This room was never measured, so its colour lives with the snag list. It shows up on the Colours tab alongside the rest of the job.</div>
-      <div class="snag-field" style="border-bottom:none"><div class="field-label">Colour</div>
-        <select class="snag-input" id="snag-colour-pick" onchange="onSnagColourPickChange()"></select></div>
-      <div class="snag-field" id="snag-colour-new-row" style="border-bottom:none;padding-top:0;display:none">
-        <div class="field-label">Colour name<small>matches your colour library for the brand and code</small></div>
-        <input type="text" class="snag-input" id="snag-colour-new" placeholder="e.g. Dead Salmon" autocorrect="off"></div>
-      <div style="padding:12px 16px 0;display:flex;gap:10px">
-        <button class="btn btn-ghost" style="flex:1;padding:12px" onclick="closeSnagColourPanel()">Cancel</button>
-        <button class="btn" style="flex:2;padding:12px;background:var(--accent);color:#fff" onclick="saveSnagColour()">Save</button>
+      <!-- The app's ordinary colour field, not a bespoke one: start typing and
+           the colour library offers matches (with brand and code), the chips
+           underneath are one tap for a colour already on this job, and an
+           unknown name can be saved to the library from the dropdown. Same
+           widget as the room, exterior and Colours-tab fields -- see
+           colourSlotHtml. It commits as you go, like all of them, so there is
+           no Save button here either. -->
+      <div style="overflow-y:auto;flex:1;padding:0 16px">
+        <div class="colour-slot" id="snag-colour-slot"></div>
+      </div>
+      <div style="padding:10px 16px 0;display:flex;gap:10px;align-items:center">
+        <button class="btn btn-ghost" id="snag-colour-clear" style="flex:1;padding:12px;display:none" onclick="clearSnagRoomColour()">Clear colour</button>
+        <button class="btn" style="flex:2;padding:12px;background:var(--accent);color:#fff" onclick="closeSnagColourPanel()">Done</button>
       </div>
     </div>
   </div>
@@ -2233,7 +2238,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.51.1</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.51.2</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -13576,6 +13581,9 @@ function snagsQuietHtml() {
 // job's colour list, matches the colour library for brand/code, and forks
 // rather than renames when the colour it starts on is shared.
 var snagColourPanelLabel = null;
+// One slot id, not one per room: only ever one of these sheets is open, and
+// colourSlots is keyed by slot so a fresh registration replaces the last.
+var SNAG_COLOUR_SLOT = 'snagroom';
 
 function openSnagColourPanel(i) {
   var g = snagGroupsCache[i];
@@ -13584,82 +13592,101 @@ function openSnagColourPanel(i) {
 
 function openSnagColourPanelForLabel(label) {
   snagColourPanelLabel = label;
-  var current = snagRoomColourNumber(label);
   document.getElementById('snag-colour-room').textContent = label;
-  var pick = document.getElementById('snag-colour-pick');
-  // Only NAMED colours are offerable: an unnamed one has no name to pick by,
-  // and "not decided" is the first option rather than a colour of its own.
-  var named = colours.filter(function(c) { return colourIsNamed(c.number); });
-  pick.innerHTML = '<option value="">— Not decided —</option>'
-    + named.map(function(c) {
-        return '<option value="' + c.number + '"' + (c.number === current ? ' selected' : '') + '>'
-          + escapeHtml(colourLabelFor(c.number)) + '</option>';
-      }).join('')
-    + '<option value="__new">Name a new colour…</option>';
-  if (!current || !named.some(function(c) { return c.number === current; })) pick.value = '';
-  document.getElementById('snag-colour-new').value = '';
-  onSnagColourPickChange();
+  renderSnagColourSlot();
   document.getElementById('snag-colour-panel').style.display = 'block';
 }
 function closeSnagColourPanel() {
   document.getElementById('snag-colour-panel').style.display = 'none';
   snagColourPanelLabel = null;
 }
-function onSnagColourPickChange() {
-  var isNew = document.getElementById('snag-colour-pick').value === '__new';
-  document.getElementById('snag-colour-new-row').style.display = isNew ? 'block' : 'none';
-  if (isNew) document.getElementById('snag-colour-new').focus();
-}
 
-function saveSnagColour() {
+// The field itself, rebuilt on open and after every commit so the brand chip,
+// the quick-pick chips and the Clear button reflect what just happened.
+//
+// num is null while the room is undecided, which colourSlotHtml handles as it
+// does any unnamed area: an empty field ghosted with where it goes (the room
+// name), and every colour on the job offered as a chip.
+function renderSnagColourSlot() {
   var label = snagColourPanelLabel;
   if (!label) return;
-  var pick = document.getElementById('snag-colour-pick').value;
-  if (pick === '__new') {
-    var name = (document.getElementById('snag-colour-new').value || '').trim();
-    if (!name) { alert('Give the colour a name, or pick one from the list.'); return; }
-    // Same colour-library lookup addColour() does, so a name that is already
-    // a known Farrow & Ball / Little Greene colour arrives with its brand and
-    // code rather than as bare text.
-    var matches = colourLibrary.filter(function(l) { return l.name.toLowerCase() === name.toLowerCase(); });
-    var match = matches.length === 1 ? matches[0] : null;
-    var current = snagRoomColourNumber(label);
-    var next;
-    if (current) {
-      // The room already has a colour of its own: the shared rename-vs-fork
-      // rule applies, exactly as it would for a measured area.
-      next = applyAreaColourName(current, name, match ? match.brand : '', match ? match.code : '', null);
-    } else {
-      // Undecided. NEVER route this through applyAreaColourName with colour 1
-      // as the current: an undecided snag room isn't on colour 1 (see
-      // snagRoomColourNumber), and passing it would let this rename the job's
-      // default colour out from under every surface that really does use it.
-      // Reuse a colour already carrying this name, otherwise mint one.
-      var already = colours.find(function(c) {
-        return c.label && c.label.toLowerCase() === name.toLowerCase();
-      });
-      invalidateColourPlaceholders();
-      next = already ? already.number : addColourEntry(name, match ? match.brand : '', match ? match.code : '');
-    }
-    if (next !== current) {
-      setAreaColourNumber({ kind: 'snag', id: label }, next);
-      if (current) pruneOrphanColour(current, null);
-    }
-    saveColours();
-  } else if (pick === '') {
-    // Back to undecided. The carrier goes to NULL rather than being deleted,
-    // and the colour it left may now be an unnamed orphan.
-    var was = snagRoomColourNumber(label);
-    setSnagRoomColour(label, null);
-    if (was) pruneOrphanColour(was, null);
-    saveColours();
+  var host = document.getElementById('snag-colour-slot');
+  if (!host) return;
+  var num = snagRoomColourNumber(label);
+  host.innerHTML = colourSlotHtml(SNAG_COLOUR_SLOT, num, label, null);
+  var clear = document.getElementById('snag-colour-clear');
+  if (clear) clear.style.display = num ? 'flex' : 'none';
+  registerColourSlot(SNAG_COLOUR_SLOT, {
+    apply: function(text, brand, code) { applySnagRoomColourName(label, text, brand, code); },
+    pick: function(picked) { pickSnagRoomColour(label, picked); }
+  });
+}
+
+// A name typed or chosen from the library. Mirrors what the Colours tab does
+// for an area, with one carve-out: an UNDECIDED snag room must never route
+// through applyAreaColourName() with colour 1 as its current. It isn't on
+// colour 1 (see snagRoomColourNumber), and passing it there would let naming
+// one snag room rename the job's default colour out from under every surface
+// that really does use it.
+function applySnagRoomColourName(label, text, brand, code) {
+  text = String(text == null ? '' : text).trim();
+  var current = snagRoomColourNumber(label);
+  if (!text) { clearSnagRoomColourFor(label); return; }
+  var next;
+  if (current) {
+    next = applyAreaColourName(current, text, brand, code, null);
   } else {
-    setAreaColourNumber({ kind: 'snag', id: label }, +pick);
+    invalidateColourPlaceholders();
+    var already = colours.find(function(c) {
+      return c.label && c.label.toLowerCase() === text.toLowerCase();
+    });
+    if (already) {
+      next = already.number;
+      // Picked from the library and the job's own entry predates knowing the
+      // brand? Fill it in rather than leaving the chip blank.
+      if (brand && !already.brand) { already.brand = brand; already.code = code || ''; }
+    } else {
+      next = addColourEntry(text, brand || '', code || '');
+    }
   }
-  closeSnagColourPanel();
-  // The sheet is reachable from BOTH On Site and the Colours tab, so repaint
-  // both rather than guessing which one is behind it. Each is a pure re-render
-  // of data already in memory.
+  if (next !== current) {
+    setAreaColourNumber({ kind: 'snag', id: label }, next);
+    if (current) pruneOrphanColour(current, null);
+  }
+  saveColours();
+  afterSnagColourChange();
+}
+
+// A one-tap chip for a colour already on the job.
+function pickSnagRoomColour(label, picked) {
+  var current = snagRoomColourNumber(label);
+  if (picked === current) return;
+  setAreaColourNumber({ kind: 'snag', id: label }, picked);
+  if (current) pruneOrphanColour(current, null);
+  saveColours();
+  afterSnagColourChange();
+}
+
+function clearSnagRoomColour() {
+  if (snagColourPanelLabel) clearSnagRoomColourFor(snagColourPanelLabel);
+}
+// Back to undecided. The carrier goes to NULL rather than being deleted, and
+// the colour it left may now be an unnamed orphan with nothing on it.
+function clearSnagRoomColourFor(label) {
+  var was = snagRoomColourNumber(label);
+  if (was) {
+    setSnagRoomColour(label, null);
+    pruneOrphanColour(was, null);
+    saveColours();
+  }
+  afterSnagColourChange();
+}
+
+// The sheet is reachable from BOTH On Site and the Colours tab, so repaint
+// both rather than guessing which is behind it, plus the sheet's own field.
+// Each is a pure re-render of data already in memory.
+function afterSnagColourChange() {
+  renderSnagColourSlot();
   renderActuals();
   renderColours();
 }

@@ -624,11 +624,17 @@ measured room behind it gets a **+ colour** tap instead:
 
 ![Snag rooms with and without a colour](images/10d-snag-room-colours.png)
 
-Tap it and pick a colour you've already named on this job, or **Name a new
-colour…** and type it — same as anywhere else in the app, so a Farrow & Ball
-or Little Greene name comes in with its brand and number attached:
+Tap it and you get the same colour field as everywhere else in the app: start
+typing and your colour library offers matches with their brand and number, so
+"dead sal" finds Farrow & Ball No. 28 Dead Salmon and fills the rest in for you.
 
-![Setting a snag room's colour](images/10e-snag-colour-sheet.png)
+![Looking a colour up for a snag room](images/10e-snag-colour-sheet.png)
+
+Under the field, the colours already on this job are one tap each. A name the
+library has never heard of is fine too — type it and it's yours; the dropdown
+also offers to **save it to your colour library** with a brand and code, so
+it's there for the next job. **Clear colour** puts a room back to undecided
+without losing the colour itself.
 
 Once a room has a colour it shows on the heading (**Landing — Dead Salmon**)
 and joins the **Colours** tab alongside everything else, marked *from the snag
