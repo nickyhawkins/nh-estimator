@@ -387,3 +387,40 @@ CREATE TABLE IF NOT EXISTS snags (
   updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS snags_job ON snags (job_id);
+
+-- Snag rooms: the colour of a snag group that ISN'T a measured room.
+--
+-- Everywhere else in this app a colour hangs off a carrier record -- a room,
+-- an exterior item, the kitchen, a fitted unit -- and the Colours tab builds
+-- its area list by walking those four. That leaves a real hole on a job that
+-- has no measured rooms at all (a Xero import, priced outside the app): its
+-- snag list groups by typed labels, none of which is a carrier, so there was
+-- nothing to name a colour against and every snag heading read blank.
+--
+-- This table is the missing carrier, and nothing more. One row per snag room
+-- label per job, holding the colour NUMBER (see the colours table) rather
+-- than a name, so a snag room is coloured by exactly the same machinery as
+-- everything else: the same library autocomplete, the same
+-- rename-vs-fork rule, the same placeholder text for an undecided colour.
+-- There is deliberately no second colour vocabulary here.
+--
+-- A label that DOES match a measured room never gets a row: that room already
+-- has a carrier and the Colours tab already owns its colour, so a row here
+-- would be a second place the same fact lives. See snagGroupColour() in the
+-- client for the precedence.
+--
+-- NULL colour_number means "not decided", and the client resolves it to the
+-- job's default colour 1 exactly as an unset room does.
+CREATE TABLE IF NOT EXISTS snag_rooms (
+  id VARCHAR PRIMARY KEY,
+  job_id VARCHAR NOT NULL,
+  room_label VARCHAR NOT NULL,
+  colour_number INTEGER,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+-- One colour per label per job, matched case-insensitively for the same
+-- reason the snag grouping is: "master bedroom" and "Master Bedroom" are one
+-- room on site, and two rows here would be two colours for one heading.
+CREATE UNIQUE INDEX IF NOT EXISTS snag_rooms_job_label ON snag_rooms (job_id, lower(room_label));
+CREATE INDEX IF NOT EXISTS snag_rooms_job ON snag_rooms (job_id);

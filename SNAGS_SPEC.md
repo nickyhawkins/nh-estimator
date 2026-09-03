@@ -1,11 +1,12 @@
-# Snags — the job's punch list (v2.50.0)
+# Snags — the job's punch list (v2.50.0, colours v2.51.0)
 
 A per-job snag list on the On Site tab. Snags are grouped by room, entered
 one at a time or pasted in bulk, sequenced by phase, and synced offline like
 the rest of On Site.
 
-Shipped in v2.50.0. This document is the spec as built, including the calls
-made on the two questions the handoff brief left open.
+Shipped in v2.50.0, with snag-room colours following in v2.51.0. This document
+is the spec as built, including the calls made on the two questions the handoff
+brief left open.
 
 ---
 
@@ -126,7 +127,10 @@ full editor (description, room, phase); `✕` deletes with a confirm.
 **Colours.** Where a snag's `room_label` matches one of the job's real areas,
 that area's recorded colours show beside the room heading — read-only, pulled
 from the Colours data, which is still the only place they can be edited.
-Custom-labelled groups show nothing.
+
+Where it matches nothing — a custom label, or *every* group on a job with no
+measured rooms at all — the heading carries a tappable `+ colour` chip
+instead. See **Snag-room colours** below.
 
 The colour line is deliberately **not** `roomColourSchedule()` /
 `colourLabelFor()`. Those spell a colour out in full ("Farrow & Ball No. 28
@@ -181,6 +185,70 @@ across the people who write these lists ("scuff by the switch" could be
 walls, details or prep depending on the house), and a wrong auto-tag silently
 reorders someone's working day. Pasted items arrive with no phase and are
 assigned by hand in the preview.
+
+## Snag-room colours (v2.51.0)
+
+A job imported from Xero and priced outside the app has no rooms, no exterior
+items, no kitchen and no fitted units. Every colour in this app hangs off one
+of those four carriers — `setAreaColourNumber()` writes to a room record, and
+the Colours tab builds its area list by walking the same four — so such a job
+had nothing to hang a colour on, its Colours tab said "Measure a room…", and
+every snag heading on it read blank. The snag list was usable; the colour half
+of it was not.
+
+`snag_rooms` is the missing carrier and nothing more: one row per snag room
+label per job, holding a colour **number** (never a second copy of a name),
+unique on `(job_id, lower(room_label))` so the label is the identity and one
+room can't end up with two colours.
+
+```
+GET    /api/snag-rooms?job_id=X
+PUT    /api/snag-rooms/:id        upsert on (job_id, lower(room_label))
+DELETE /api/snag-rooms/:id
+```
+
+The PUT upserts on the **label**, not the row id: the client mints a fresh
+`uid()` the first time it colours a room, and must not create a second row for
+a label another device already coloured. It reports the id that actually holds
+the row, the same id-adoption contract `/actuals` and `/labour` use.
+
+**A snag room is coloured by exactly the same machinery as everything else.**
+A room that has been given a colour joins `colourAreas()` as an area with
+`ref: {kind:'snag'}`, so it appears in the Colours tab's "Colours by area" list
+beside real rooms (marked *from the snag list*, so it doesn't read as a room
+somebody forgot to price), `applyAreaColourName()`'s rename-vs-fork rule
+applies to it, and the colour library fills in brand and code. There is no
+second colour vocabulary.
+
+**Precedence.** A label that matches a measured area never gets a row here —
+that room already has a carrier and the Colours tab already owns its colour, so
+a row would be a second answer to one question. `snagGroupColour()` checks for
+a measured area first and only falls through to the carrier when there isn't
+one.
+
+**Undecided is genuinely colourless, not colour 1.** This is the one place a
+snag room deliberately departs from how a measured room behaves. Colour 1 is
+seeded `"White"` on purpose (see `ensureDefaultColour`) because a measured
+room's ceilings and woodwork usually are white — that is a decision, not a
+guess. A snag-list heading makes no such claim: it exists because somebody
+wrote a snag against a room name. So an uncoloured snag room resolves to
+`null`, reads as blank, and is **excluded from `colourAreas()`** — otherwise it
+would claim colour 1, be counted towards colour 1's usage in the
+rename-vs-fork rule, and print "White" beside a room nobody had said anything
+about. Uncoloured rooms are offered for naming by their own card on the Colours
+tab ("Snag rooms — no colour yet") instead, which renders only when there are
+some.
+
+For the same reason, naming a colour on an *undecided* room never routes
+through `applyAreaColourName(1, …)`: passing colour 1 as the current would let
+it rename the job's default colour out from under every surface that really
+does use it. It reuses a colour already carrying that name, or mints one.
+
+Both entry points — the `+ colour` chip on an On Site heading and the Colours
+tab card — open the same sheet, so there is one way to colour a snag room.
+Snag-room colours are in backup export/import, are deleted with the job and by
+Clear Everything, and are not copied by job duplicate (they travel with the
+snags).
 
 ## Ordering
 

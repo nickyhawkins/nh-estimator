@@ -123,6 +123,9 @@ router.delete('/jobs/:id', async (req, res) => {
       db.query('DELETE FROM snags WHERE job_id = $1', [id]).catch(err => {
         if (err.code !== '42P01') throw err;
       }),
+      db.query('DELETE FROM snag_rooms WHERE job_id = $1', [id]).catch(err => {
+        if (err.code !== '42P01') throw err;
+      }),
       // The one path a snapshot may leave by. There is no route that deletes
       // a snapshot on its own (see the Accepted-quote snapshots section) --
       // deleting the whole job is a deliberate, confirmed, destroy-everything
@@ -935,6 +938,21 @@ function ensureSnagSchema() {
           updated_at TIMESTAMP NOT NULL DEFAULT NOW()
         )`);
       await db.query('CREATE INDEX IF NOT EXISTS snags_job ON snags (job_id)');
+      // The colour carrier for a snag group that is not a measured room --
+      // see db/setup.sql. Created alongside the snags table rather than
+      // behind its own gate: the two are one feature, and a snag list that
+      // loads while its colours 500 would be worse than either alone.
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS snag_rooms (
+          id VARCHAR PRIMARY KEY,
+          job_id VARCHAR NOT NULL,
+          room_label VARCHAR NOT NULL,
+          colour_number INTEGER,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )`);
+      await db.query('CREATE UNIQUE INDEX IF NOT EXISTS snag_rooms_job_label ON snag_rooms (job_id, lower(room_label))');
+      await db.query('CREATE INDEX IF NOT EXISTS snag_rooms_job ON snag_rooms (job_id)');
     })().catch(err => { snagSchemaReady = null; throw err; });
   }
   return snagSchemaReady;
@@ -948,7 +966,7 @@ function ensureSnagSchema() {
 const SNAG_PHASES = new Set(['prep', 'stain_block', 'woodwork', 'walls', 'ceiling', 'details', 'final_access']);
 const SNAG_STATUSES = new Set(['open', 'done']);
 
-router.use('/snags', async (req, res, next) => {
+router.use(['/snags', '/snag-rooms'], async (req, res, next) => {
   try {
     await ensureSnagSchema();
     next();
@@ -1018,6 +1036,60 @@ router.put('/snags/:id', async (req, res) => {
 router.delete('/snags/:id', async (req, res) => {
   try {
     await db.query('DELETE FROM snags WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Snag rooms (the colour of a snag group that isn't a measured room) ────
+// See db/setup.sql. The PUT upserts on (job_id, lower(room_label)) rather
+// than on the primary key -- the LABEL is the identity here, not the row id,
+// because the client mints a fresh uid() the first time it colours a room
+// and must not create a second row for a label another device already
+// coloured. Same id-adoption contract as /actuals and /labour: the response
+// reports the id that actually holds the row.
+
+router.get('/snag-rooms', async (req, res) => {
+  const jobId = requireJobId(req, res); if (!jobId) return;
+  try {
+    const result = await db.query(
+      `SELECT id, room_label, colour_number FROM snag_rooms WHERE job_id = $1 ORDER BY created_at ASC`,
+      [jobId]
+    );
+    res.json(result.rows.map(r => ({
+      id: r.id,
+      roomLabel: r.room_label,
+      colourNumber: r.colour_number == null ? null : +r.colour_number,
+    })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/snag-rooms/:id', async (req, res) => {
+  const { id } = req.params;
+  const jobId = requireJobId(req, res); if (!jobId) return;
+  const { roomLabel, colourNumber } = req.body;
+  const label = String(roomLabel == null ? '' : roomLabel).trim();
+  if (!label) return res.status(400).json({ error: 'roomLabel is required' });
+  try {
+    const result = await db.query(`
+      INSERT INTO snag_rooms (id, job_id, room_label, colour_number, updated_at)
+      VALUES ($1, $2, $3, $4, NOW())
+      ON CONFLICT (job_id, lower(room_label))
+      DO UPDATE SET room_label = $3, colour_number = $4, updated_at = NOW()
+      RETURNING id
+    `, [id, jobId, label, colourNumber == null || colourNumber === '' ? null : +colourNumber]);
+    res.json({ ok: true, id: result.rows[0].id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/snag-rooms/:id', async (req, res) => {
+  try {
+    await db.query('DELETE FROM snag_rooms WHERE id = $1', [req.params.id]);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1572,6 +1644,9 @@ router.delete('/all', async (req, res) => {
       db.query('DELETE FROM snags WHERE job_id = $1', [jobId]).catch(err => {
         if (err.code !== '42P01') throw err;
       }),
+      db.query('DELETE FROM snag_rooms WHERE job_id = $1', [jobId]).catch(err => {
+        if (err.code !== '42P01') throw err;
+      }),
     ]);
     res.json({ ok: true });
   } catch (err) {
@@ -1626,6 +1701,15 @@ router.get('/backup/export', async (req, res) => {
       if (err.code === '42P01') return { rows: [] };
       throw err;
     });
+    // Snag-room colours (jobs[].snagRooms), additive on the same v1 shape.
+    // Restoring a snag list without them would bring back the punch list of a
+    // room-less job with every heading blank again.
+    const snagRoomsResult = await db.query(
+      `SELECT id, job_id, room_label, colour_number FROM snag_rooms ORDER BY job_id ASC, created_at ASC`
+    ).catch(err => {
+      if (err.code === '42P01') return { rows: [] };
+      throw err;
+    });
     // Accepted-quote snapshots (jobs[].quoteSnapshots), additive on the same
     // v1 shape as labourLog above. A backup that restored a job's rooms but
     // not the figures its client agreed to would restore the exact bug this
@@ -1667,6 +1751,7 @@ router.get('/backup/export', async (req, res) => {
     const actualsByJob = byJob(actualsResult.rows);
     const labourByJob = byJob(labourResult.rows);
     const snagsByJob = byJob(snagsResult.rows);
+    const snagRoomsByJob = byJob(snagRoomsResult.rows);
     const snapshotsByJob = byJob(snapshotsResult.rows);
     const clientVariationsByJob = byJob(clientVariationsResult.rows);
 
@@ -1701,6 +1786,11 @@ router.get('/backup/export', async (req, res) => {
         phase: r.phase || '',
         sortOrder: r.sort_order == null ? 0 : +r.sort_order,
         completedAt: r.completed_at,
+      })),
+      snagRooms: (snagRoomsByJob[j.id] || []).map(r => ({
+        id: r.id,
+        roomLabel: r.room_label,
+        colourNumber: r.colour_number == null ? null : +r.colour_number,
       })),
       quoteSnapshots: (snapshotsByJob[j.id] || []).map(r => ({
         id: r.id,
@@ -1801,6 +1891,21 @@ async function copyJobRows(entry, newJobId) {
       [crypto.randomUUID(), newJobId, sn.roomLabel || '', sn.description, status,
         SNAG_PHASES.has(sn.phase) ? sn.phase : '', +sn.sortOrder || 0,
         status === 'done' ? (sn.completedAt || new Date().toISOString()) : null]
+    );
+  }
+  // Snag-room colours travel with the snags, and only make sense alongside
+  // them: colour_number points into the job's own colours list, which
+  // copyJobRows has already re-inserted above under the new job id (numbers
+  // are preserved per job, so the pointer still resolves). Duplicate omits
+  // this key with the snags themselves.
+  const snagRoomRows = (entry.snagRooms || []).filter(sr => sr && sr.roomLabel && String(sr.roomLabel).trim());
+  if (snagRoomRows.length) await ensureSnagSchema();
+  for (const sr of snagRoomRows) {
+    await db.query(
+      `INSERT INTO snag_rooms (id, job_id, room_label, colour_number) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (job_id, lower(room_label)) DO NOTHING`,
+      [crypto.randomUUID(), newJobId, String(sr.roomLabel).trim(),
+        sr.colourNumber == null ? null : +sr.colourNumber]
     );
   }
   // Snapshots keep their ORIGINAL version numbers and accepted_at rather than
