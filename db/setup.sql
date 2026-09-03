@@ -343,3 +343,47 @@ CREATE INDEX IF NOT EXISTS job_variations_job ON job_variations (job_id);
 -- Debt Management App tables live in db/setup-debt.sql — run that file
 -- ONLY on an instance with DEBT_APP_ENABLED=true (it contains personal
 -- seed data). See MULTI_INSTANCE_PILOT_SPEC.md WS2.
+
+-- ── Snags ───────────────────────────────────────────────────────────────
+-- The punch list for a job: what's left to put right before it's signed off,
+-- captured room by room on the On Site tab. Same lifecycle and same
+-- durability rules as material_actuals and labour_log -- job-scoped history
+-- that regenerates from nothing, so one row per PUT, no bulk replace-all,
+-- and every write goes through the offline queue like the rest of On Site.
+--
+-- room_label is TEXT and deliberately has no foreign key to rooms. A snag can
+-- belong to a space that was never a priced room -- the airing cupboard, the
+-- garage step, the bit of hall the quote called part of the landing -- and a
+-- list that could only name rooms the estimate happened to contain would send
+-- those snags nowhere. The label is matched case-insensitively against the
+-- job's room/exterior/kitchen/unit names for GROUPING and for showing that
+-- room's colours beside its header; a label that matches nothing is simply a
+-- custom group with no colours to show. Renaming a room therefore does not
+-- move its snags -- correct, because the snag was written about a place on
+-- site, not about a row in the rooms table.
+--
+-- Columns, not a data JSONB blob, for the same reason as material_actuals:
+-- status/phase/room_label are all QUERIED (grouped, counted, ordered), and
+-- the count of open snags drives whether the section renders at all.
+CREATE TABLE IF NOT EXISTS snags (
+  id VARCHAR PRIMARY KEY,
+  job_id VARCHAR NOT NULL,
+  room_label VARCHAR NOT NULL DEFAULT '',
+  description VARCHAR NOT NULL,
+  status VARCHAR NOT NULL DEFAULT 'open',   -- open | done
+  -- Which pass of the room this belongs to: prep, stain_block, woodwork,
+  -- walls, ceiling, details, final_access (or '' for not yet assigned).
+  -- Chosen by hand, never guessed from the description -- see SNAGS_SPEC.md
+  -- on why auto-tagging from wording was rejected.
+  phase VARCHAR NOT NULL DEFAULT '',
+  -- ENTRY order within a room, not display order. Display order is derived
+  -- from `phase` (walls before details before final access), and this is the
+  -- stable tiebreaker underneath it: two snags in the same phase, or two with
+  -- no phase set yet, keep the order they were typed or pasted in rather than
+  -- shuffling on every render.
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  completed_at TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS snags_job ON snags (job_id);

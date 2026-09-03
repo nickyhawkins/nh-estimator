@@ -385,6 +385,13 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
 .sec-count{margin-left:auto;margin-right:10px;padding:2px 8px;border-radius:10px;background:var(--surface2);border:1px solid var(--border);font-family:'DM Mono',monospace;font-size:11px;font-weight:600;letter-spacing:0;color:var(--text2);flex-shrink:0}
 .card-body{display:none}
 .card-body.open{display:block}
+/* Snag add sheet: stacked label-above-field rows. A snag is prose, so its
+   field is full width and in the body font -- unlike .field-input, which is
+   a narrow right-aligned monospace box sized for a measurement. */
+.snag-field{padding:12px 16px;border-bottom:1px solid var(--border)}
+.snag-field .field-label{margin-bottom:8px}
+.snag-input{display:block;width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:15px;border-radius:var(--rs);padding:10px 12px;outline:none;-webkit-appearance:none;transition:border-color .15s}
+.snag-input:focus{border-color:var(--accent)}
 .subsection-label{padding:12px 16px 4px;font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--text2);border-top:1px solid var(--border)}
 .subsection-label:first-child{border-top:none}
 .subsection-label small{display:block;font-size:12px;font-weight:400;letter-spacing:normal;text-transform:none;color:var(--text2);margin-top:4px}
@@ -1116,6 +1123,74 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
   </div>
   <div class="content">
     <div id="actuals-body"></div>
+  </div>
+
+  <!-- ══ SNAGS ══ (SNAGS_SPEC.md)
+       Two stacked bottom sheets, the same overlay pattern as the bulk room
+       edit on Measure: the add sheet (one snag, or a pasted list), then the
+       parse preview you have to confirm. Nothing is written until the button
+       on the second sheet is tapped. Both live inside this screen so they
+       can only ever be open over On Site. -->
+  <div id="snag-panel" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.4)" onclick="closeSnagPanel()">
+    <div style="position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-radius:16px 16px 0 0;padding:14px 0 calc(var(--sb) + 10px);max-height:88%;display:flex;flex-direction:column;box-shadow:0 -4px 24px rgba(0,0,0,.2)" onclick="event.stopPropagation()">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:0 16px 8px">
+        <div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.6px">Add snag</div>
+        <div onclick="closeSnagPanel()" style="font-size:14px;font-weight:700;color:var(--accent);cursor:pointer;padding:4px 2px">Done</div>
+      </div>
+      <div class="seg" style="margin:0 16px 10px">
+        <button class="seg-btn active" id="snag-mode-single" onclick="setSnagPanelMode('single')">One snag</button>
+        <button class="seg-btn" id="snag-mode-paste" onclick="setSnagPanelMode('paste')">Paste a list</button>
+      </div>
+      <div style="overflow-y:auto;flex:1">
+        <!-- Label above field, not beside it: a snag is a sentence, and the
+             app's usual right-aligned 140px field-input is sized for a
+             number. -->
+        <div id="snag-single-body">
+          <div class="snag-field"><div class="field-label">Room / area</div>
+            <select class="snag-input" id="snag-add-room" onchange="onSnagAddRoomChange()"></select></div>
+          <div class="snag-field" id="snag-add-room-custom-row" style="display:none"><div class="field-label">Custom name<small>a space the quote never priced</small></div>
+            <input type="text" class="snag-input" id="snag-add-room-custom" placeholder="e.g. Airing cupboard" autocorrect="off"></div>
+          <div class="snag-field"><div class="field-label">Snag</div>
+            <input type="text" class="snag-input" id="snag-add-desc" placeholder="e.g. Touch in behind the radiator" autocorrect="off"></div>
+          <div class="snag-field" style="border-bottom:none"><div class="field-label">Phase<small>optional — sets where it sits in the room's order</small></div>
+            <select class="snag-input" id="snag-add-phase"></select></div>
+          <div style="padding:12px 16px 0">
+            <button class="btn" style="width:100%;padding:12px;background:var(--accent);color:#fff" onclick="addSingleSnag()">Add snag</button>
+            <div style="font-size:12px;color:var(--text2);padding:8px 2px 0;line-height:1.5">The sheet stays open on the same room — snags come in runs.</div>
+          </div>
+        </div>
+        <div id="snag-paste-body" style="display:none">
+          <div style="padding:0 16px 8px;font-size:12px;color:var(--text2);line-height:1.5">
+            Paste the list as it came. A line on its own is a <strong>room</strong>; lines starting <code>-</code>, <code>*</code>, <code>- [ ]</code> or <code>1.</code> are the snags under it. Ticked boxes come in as still to do — on someone else's list a tick means "flagged", not "fixed".
+          </div>
+          <div style="padding:0 16px">
+            <textarea id="snag-add-paste" rows="9" placeholder="Master Bedroom&#10;- [ ] Touch in behind the radiator&#10;- Scuff on the return wall&#10;&#10;Landing&#10;- Recoat the handrail" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:15px;line-height:1.5;border-radius:var(--rs);padding:10px 12px;outline:none;resize:vertical"></textarea>
+          </div>
+          <div style="padding:12px 16px 0">
+            <button class="btn" style="width:100%;padding:12px;background:var(--accent);color:#fff" onclick="openSnagImportPreview()">Preview import</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- The confirm step. Every room name and snag here is editable, because
+       the one thing a paste reliably gets wrong is a stray sentence landing
+       as a room heading — "↑ item" folds it back where it belongs. -->
+  <div id="snag-preview" style="display:none;position:fixed;inset:0;z-index:310;background:rgba(0,0,0,.4)" onclick="closeSnagImportPreview()">
+    <div style="position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-radius:16px 16px 0 0;padding:14px 0 calc(var(--sb) + 10px);max-height:88%;display:flex;flex-direction:column;box-shadow:0 -4px 24px rgba(0,0,0,.2)" onclick="event.stopPropagation()">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:0 16px 8px">
+        <div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.6px">Review snags</div>
+        <div onclick="closeSnagImportPreview()" style="font-size:14px;font-weight:700;color:var(--accent);cursor:pointer;padding:4px 2px">Back</div>
+      </div>
+      <div id="snag-preview-summary" style="padding:0 16px 10px;font-size:13px;color:var(--text2);line-height:1.5"></div>
+      <div class="card" id="snag-preview-body" style="margin:0 16px;overflow-y:auto;flex:1"></div>
+      <datalist id="snag-area-names"></datalist>
+      <div style="padding:12px 16px 0;display:flex;gap:10px">
+        <button class="btn btn-ghost" style="flex:1;padding:12px" onclick="closeSnagImportPreview()">Back</button>
+        <button class="btn" style="flex:2;padding:12px;background:var(--accent);color:#fff" id="snag-import-btn" onclick="commitSnagImport()">Add snags</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -2127,7 +2202,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.49.0</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.50.0</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -5460,6 +5535,9 @@ async function loadActiveJobData() {
     // Labour log for the same reason as actuals above: no localStorage
     // mirror, and the profitability card reads it on Summary.
     loadLabourLog().catch(function() { labourLog = []; }),
+    // Snags likewise -- no mirror, and leaving the OLD job's punch list in
+    // memory would put another house's snags on this job's On Site screen.
+    loadSnags().catch(function() { snags = []; }),
     // Accepted-quote snapshots, same job-scoped no-mirror treatment. This one
     // has to land before renderSummary() below or an accepted job would flash
     // its LIVE figures -- today's rates on a quote the client already signed
@@ -5471,6 +5549,7 @@ async function loadActiveJobData() {
   ]);
   applyClientVariationAnswers(jobId);
   ensureDefaultColour();
+  snagEditId = null;      // an open snag editor belongs to the job it opened in
   matReorderMode = false; // reorder mode is per-visit, not per-job state
   measureReorderMode = false; // ditto, for the Measure lists
   // Undo is scoped to one job's materials/actuals, and the lists it restores
@@ -12894,6 +12973,714 @@ function renderTimeOnSiteCard() {
     + '</div>';
 }
 
+// ── Snags (the job's punch list) ──────────────────────────────────────────
+// SNAGS_SPEC.md. What's left to put right before the job is signed off,
+// captured room by room on this screen. Same durability rules as the actuals
+// and the labour log -- no localStorage mirror, one row per PUT, and every
+// write through apiPutStrict/apiDeleteStrict so a dead spot queues rather
+// than silently losing a snag someone walked the house to find.
+//
+// The section is deliberately conditional. A job with no snags shows no snag
+// section at all -- most of the run there is nothing to clear, and a
+// permanently empty card on the busiest screen in the app is clutter. Once
+// every snag is done the same rule applies again: the list collapses to one
+// quiet "all cleared" line rather than staying front and centre. Both cases
+// keep a way in (snagsQuietHtml below), because "no snags yet" has to be a
+// state you can add the first one from.
+var snags = [];
+
+// The passes a room goes through, in the order they happen. This list IS the
+// display order within a room: a snag's phase is chosen by hand and the list
+// re-sorts itself, so the walls get touched in before the handles do and
+// nothing that blocks the floor gets done before the things above it.
+// `details` is the small hardware/edge work (handles, door edges);
+// `final_access` is anything that stops you moving through the space once
+// it's been done (floor cleans, staircase recoats), which is why it is last.
+//
+// Phase is never guessed from the description. Snag wording varies far too
+// much across the people who write these lists ("scuff by the switch" could
+// be walls, details or prep depending on the house) and a wrong auto-tag
+// silently reorders someone's working day.
+var SNAG_PHASES = [
+  { key: 'prep',         label: 'Prep' },
+  { key: 'stain_block',  label: 'Stain block' },
+  { key: 'woodwork',     label: 'Woodwork' },
+  { key: 'walls',        label: 'Walls' },
+  { key: 'ceiling',      label: 'Ceiling' },
+  { key: 'details',      label: 'Details' },
+  { key: 'final_access', label: 'Final access' }
+];
+// Un-phased snags rank -1, so they sort to the TOP of their room rather than
+// the bottom. They are the ones still needing a decision, and burying them
+// under a sequenced list is how they stay un-sequenced; putting them first
+// also keeps the spec's rule that `final_access` is genuinely last.
+function snagPhaseRank(key) {
+  for (var i = 0; i < SNAG_PHASES.length; i++) if (SNAG_PHASES[i].key === key) return i;
+  return -1;
+}
+// Display order within a room: phase first, then sort_order (which is ENTRY
+// order -- see db/setup.sql), then id so the sort is total and a render can
+// never shuffle two otherwise-identical rows against each other.
+function snagSorted(list) {
+  return list.slice().sort(function(a, b) {
+    var pa = snagPhaseRank(a.phase), pb = snagPhaseRank(b.phase);
+    if (pa !== pb) return pa - pb;
+    var sa = +a.sortOrder || 0, sb = +b.sortOrder || 0;
+    if (sa !== sb) return sa - sb;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+}
+
+function snagLabelKey(s) { return String(s == null ? '' : s).trim().toLowerCase(); }
+function snagIsOpen(s) { return s.status !== 'done'; }
+function openSnagCount() { return snags.filter(snagIsOpen).length; }
+
+// Every named place in the job a snag could sensibly belong to, with the
+// colour(s) recorded against it. Read-only here -- colour lives on the
+// Colours tab and this is just showing what's already decided, so the person
+// clearing a snag doesn't have to leave the screen to find out what to open.
+// An undecided colour reads as nothing rather than as "To be confirmed":
+// that phrase is useful on a colour schedule the client reads and is pure
+// noise on a working list.
+// Memoised for the duration of one render, the same way colourPlaceholderMap
+// is and for the same reason: a render of forty snags asks for the area list
+// once per group and once per row, and each call otherwise re-walks every
+// room, exterior item and fitted unit. Dropped on the next microtask, and
+// again by invalidateColourPlaceholders() -- which every mutation that could
+// move a room, an area or a colour already calls.
+var snagAreasCache = null;
+function snagAreas() {
+  if (snagAreasCache) return snagAreasCache;
+  var out = [], seen = {};
+  var push = function(name, parts) {
+    var key = snagLabelKey(name);
+    if (!key || seen[key]) return;
+    seen[key] = true;
+    out.push({ name: name, colour: snagColourLine(parts) });
+  };
+  rooms.forEach(function(r) {
+    var parts = [];
+    if (+r.wc > 0) parts.push({ role: 'Walls', num: r.colourNumber || 1 });
+    if (+r.cc > 0) parts.push({ role: 'Ceiling', num: r.ceilingColourNumber || 1 });
+    if (+r.xc > 0) parts.push({ role: 'Woodwork', num: r.woodworkColourNumber || 1 });
+    if (+r.featureWallArea > 0 && (r.featureWallMode || 'paint') === 'paint') parts.push({ role: 'Feature wall', num: r.featureWallColourNumber || 1 });
+    if ((r.panelItems || []).length) parts.push({ role: 'Panelling', num: r.panelColourNumber || 1 });
+    push(r.name || 'Room', parts);
+  });
+  extItems.forEach(function(it) {
+    var parts = [];
+    if (extMasonryLitres(it) > 0) parts.push({ role: 'Masonry', num: it.masonryColourNumber || 1 });
+    if (extWoodworkLitres(it) > 0) parts.push({ role: 'Woodwork', num: it.extWoodworkColourNumber || 1 });
+    push(it.label || 'Exterior', parts);
+  });
+  var job = activeJob();
+  if (job) {
+    var k = ensureKitchenShape(job);
+    if (calcKitchen(k).total > 0.005) push('Kitchen Cabinets', [{ role: 'Cabinets', num: +k.colourNumber || 1 }]);
+    fittedUnitList(job).forEach(function(fu) { push(fittedUnitName(fu), [{ role: 'Unit', num: +fu.colourNumber || 1 }]); });
+  }
+  snagAreasCache = out;
+  Promise.resolve().then(function() { snagAreasCache = null; });
+  return out;
+}
+
+// The colour line beside a snag group's room heading. Deliberately NOT
+// roomColourSchedule()/colourLabelFor(): those spell a colour out in full
+// ("Farrow & Ball No. 28 Dead Salmon") because they print on documents a
+// client reads, and three of those on one heading buries the snags under
+// them. On site the name alone is what gets said out loud, so that is all
+// this shows -- and an undecided colour shows nothing at all rather than
+// "To be confirmed", which on a working list is pure noise.
+function snagColourName(num) {
+  var c = colours.find(function(x) { return x.number === num; });
+  return c && c.label ? c.label : '';
+}
+function snagColourLine(parts) {
+  var live = (parts || []).filter(function(p) { return snagColourName(p.num); });
+  if (!live.length) return '';
+  var names = live.map(function(p) { return snagColourName(p.num); });
+  // One colour throughout the room is the common case and reads as just the
+  // name; a room whose surfaces differ has to say which is which.
+  if (names.every(function(n) { return n === names[0]; })) return names[0];
+  return live.map(function(p) { return p.role + ' ' + snagColourName(p.num); }).join(' · ');
+}
+
+// A snag's room_label is TEXT with no foreign key (see db/setup.sql): it may
+// name a space that was never a priced room. Matching is by name, case- and
+// whitespace-insensitively, and a label that matches nothing is simply a
+// custom group with no colours to show.
+function snagAreaFor(label) {
+  var key = snagLabelKey(label);
+  if (!key) return null;
+  var areas = snagAreas();
+  for (var i = 0; i < areas.length; i++) if (snagLabelKey(areas[i].name) === key) return areas[i];
+  return null;
+}
+// Typed "master bedroom" for a job that has a "Master Bedroom"? Store the
+// job's spelling, so the group heading, the colour lookup and the room
+// dropdown all agree from then on.
+function canonicalSnagRoom(label) {
+  var a = snagAreaFor(label);
+  return a ? a.name : String(label == null ? '' : label).trim();
+}
+
+// Grouped by room, in the job's own area order where the label matches a real
+// area -- so the list reads down the house the same way Measure does --
+// with custom labels after them in the order they were first entered.
+function snagRoomGroups(list) {
+  var byKey = {}, order = [];
+  list.forEach(function(s) {
+    var key = snagLabelKey(s.roomLabel);
+    if (!byKey[key]) { byKey[key] = { key: key, label: s.roomLabel || 'No room', items: [] }; order.push(key); }
+    byKey[key].items.push(s);
+  });
+  var areaOrder = {};
+  snagAreas().forEach(function(a, i) { areaOrder[snagLabelKey(a.name)] = i; });
+  return order.map(function(k) { return byKey[k]; }).sort(function(a, b) {
+    var ai = areaOrder[a.key], bi = areaOrder[b.key];
+    if ((ai === undefined) !== (bi === undefined)) return ai === undefined ? 1 : -1;
+    if (ai !== undefined) return ai - bi;
+    return order.indexOf(a.key) - order.indexOf(b.key);
+  }).map(function(g) { g.items = snagSorted(g.items); return g; });
+}
+
+// The optional flattened view: every snag in the house at the same phase,
+// together. Room-grouped is the default and the working view; this is for
+// batching -- "show me every stain block job in the house" before getting the
+// stain block out. Same rows, same ticks, just regrouped.
+function snagPhaseGroups(list) {
+  var areaOrder = {};
+  snagAreas().forEach(function(a, i) { areaOrder[snagLabelKey(a.name)] = i; });
+  var rank = function(s) {
+    var i = areaOrder[snagLabelKey(s.roomLabel)];
+    return i === undefined ? 9999 : i;
+  };
+  var groups = [];
+  var add = function(key, label, items) { if (items.length) groups.push({ key: key, label: label, items: items }); };
+  var inPhase = function(key) {
+    return list.filter(function(s) { return (s.phase || '') === key; }).sort(function(a, b) {
+      if (rank(a) !== rank(b)) return rank(a) - rank(b);
+      var sa = +a.sortOrder || 0, sb = +b.sortOrder || 0;
+      if (sa !== sb) return sa - sb;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
+  };
+  add('', 'No phase set', inPhase(''));
+  SNAG_PHASES.forEach(function(p) { add(p.key, p.label, inPhase(p.key)); });
+  return groups;
+}
+
+async function loadSnags() {
+  snags = await apiGet('/api/snags?job_id=' + encodeURIComponent(activeJobId));
+}
+
+// The write. Throws on a server rejection (apiPutStrict's contract), returns
+// quietly when the write was queued because there's no signal -- which on
+// this screen is the normal case, not the exception.
+function putSnag(s) {
+  return apiPutStrict('/api/snags/' + s.id, {
+    jobId: activeJobId,
+    roomLabel: s.roomLabel || '',
+    description: s.description,
+    status: s.status || 'open',
+    phase: s.phase || '',
+    sortOrder: +s.sortOrder || 0,
+    completedAt: s.completedAt || null
+  });
+}
+
+async function saveSnag(s) {
+  try {
+    await putSnag(s);
+  } catch (e) {
+    alert('Could not save that snag: ' + e.message + '\n\nCheck the connection and tap again.');
+    try { await loadSnags(); } catch (e2) {}
+  }
+  renderActuals();
+}
+
+// Entry order within a room. Display order comes from phase; this is the
+// tiebreaker under it, so a pasted list keeps the order it was pasted in
+// until phases are assigned.
+function nextSnagSortOrder(roomLabel) {
+  var key = snagLabelKey(roomLabel);
+  return snags.reduce(function(m, s) {
+    return snagLabelKey(s.roomLabel) === key ? Math.max(m, (+s.sortOrder || 0) + 1) : m;
+  }, 0);
+}
+
+// Ticking one off. It STAYS in the list, struck through: on site the value of
+// a cleared snag is the evidence that it was cleared, and a row that vanishes
+// takes that with it.
+function toggleSnagDone(id) {
+  var s = snags.find(function(x) { return x.id === id; });
+  if (!s) return;
+  if (s.status === 'done') { s.status = 'open'; s.completedAt = null; }
+  else { s.status = 'done'; s.completedAt = new Date().toISOString(); }
+  renderActuals(); // instant tick; saveSnag repaints again once the write lands
+  saveSnag(s);
+}
+
+function setSnagPhase(id, value) {
+  var s = snags.find(function(x) { return x.id === id; });
+  if (!s) return;
+  s.phase = SNAG_PHASES.some(function(p) { return p.key === value; }) ? value : '';
+  renderActuals();
+  saveSnag(s);
+}
+
+// "cleared Wed, 3 Sept". Falls back to a bare "cleared" for a row ticked
+// before completed_at existed, or one whose stamp didn't survive a restore --
+// better than printing "Invalid Date" beside it.
+function snagClearedLabel(s) {
+  if (!s.completedAt) return 'cleared';
+  var d = new Date(s.completedAt);
+  if (isNaN(d.getTime())) return 'cleared';
+  return 'cleared ' + d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+var snagEditId = null;
+function editSnag(id) { snagEditId = id; renderActuals(); }
+function cancelEditSnag() { snagEditId = null; renderActuals(); }
+function saveEditSnag(id) {
+  var s = snags.find(function(x) { return x.id === id; });
+  if (!s) return;
+  var desc = (document.getElementById('snag-edit-desc') || {}).value || '';
+  if (!desc.trim()) { alert('A snag needs a description.'); return; }
+  var roomSel = (document.getElementById('snag-edit-room') || {}).value || '';
+  var roomCustom = (document.getElementById('snag-edit-room-custom') || {}).value || '';
+  var room = roomSel === '__custom' ? roomCustom : roomSel;
+  if (!room.trim()) { alert('A snag needs a room or area.'); return; }
+  var nextRoom = canonicalSnagRoom(room);
+  // Moved to another room? It joins the end of that room's entry order --
+  // its old sort_order means nothing there.
+  if (snagLabelKey(nextRoom) !== snagLabelKey(s.roomLabel)) s.sortOrder = nextSnagSortOrder(nextRoom);
+  s.roomLabel = nextRoom;
+  s.description = desc.trim();
+  s.phase = (document.getElementById('snag-edit-phase') || {}).value || '';
+  snagEditId = null;
+  renderActuals();
+  saveSnag(s);
+}
+
+async function deleteSnag(id) {
+  var s = snags.find(function(x) { return x.id === id; });
+  if (!s) return;
+  if (!confirm('Remove "' + s.description + '" from the snag list?')) return;
+  snags = snags.filter(function(x) { return x.id !== id; });
+  if (snagEditId === id) snagEditId = null;
+  renderActuals();
+  try {
+    await apiDeleteStrict('/api/snags/' + id);
+  } catch (e) {
+    alert('Could not remove that snag: ' + e.message);
+    try { await loadSnags(); } catch (e2) {}
+  }
+  renderActuals();
+}
+
+// ── Snags: rendering ──────────────────────────────────────────────────────
+var snagView = 'rooms';       // 'rooms' | 'phases' -- per visit, not stored
+var snagsExpanded = false;    // only used once everything is cleared
+
+function setSnagView(v) { snagView = v; renderActuals(); }
+function toggleSnagsExpanded() { snagsExpanded = !snagsExpanded; renderActuals(); }
+
+function snagRoomOptionsHtml(selected, includeCustom) {
+  var areas = snagAreas();
+  var sel = snagLabelKey(selected);
+  var matched = areas.some(function(a) { return snagLabelKey(a.name) === sel; });
+  var html = areas.map(function(a) {
+    return '<option value="' + escapeHtml(a.name) + '"' + (snagLabelKey(a.name) === sel ? ' selected' : '') + '>'
+      + escapeHtml(a.name) + '</option>';
+  }).join('');
+  // A snag already sitting on a custom label keeps that label as an option of
+  // its own, so opening the editor can't silently re-home it to the first room
+  // in the list.
+  if (selected && !matched) {
+    html += '<option value="' + escapeHtml(selected) + '" selected>' + escapeHtml(selected) + '</option>';
+  }
+  if (includeCustom) html += '<option value="__custom">Custom…</option>';
+  return html;
+}
+
+function snagPhaseOptionsHtml(selected) {
+  return '<option value=""' + (selected ? '' : ' selected') + '>— No phase —</option>'
+    + SNAG_PHASES.map(function(p) {
+        return '<option value="' + p.key + '"' + (p.key === selected ? ' selected' : '') + '>' + p.label + '</option>';
+      }).join('');
+}
+
+function snagRowHtml(s, showRoom) {
+  if (snagEditId === s.id) {
+    var isCustom = !snagAreaFor(s.roomLabel);
+    return '<div style="padding:4px 0 12px;border-bottom:1px solid var(--border)">'
+      + '<div class="snag-field" style="border-bottom:none;padding-bottom:8px"><div class="field-label">Description</div>'
+        + '<input type="text" class="snag-input" id="snag-edit-desc" value="' + escapeHtml(s.description) + '" autocorrect="off"></div>'
+      + '<div class="snag-field" style="border-bottom:none;padding-top:0;padding-bottom:8px"><div class="field-label">Room / area</div>'
+        + '<select class="snag-input" id="snag-edit-room" onchange="onSnagEditRoomChange()">'
+        + snagRoomOptionsHtml(s.roomLabel, true) + '</select></div>'
+      + '<div class="snag-field" id="snag-edit-room-custom-row" style="border-bottom:none;padding-top:0;padding-bottom:8px;display:' + (isCustom ? 'block' : 'none') + '">'
+        + '<div class="field-label">Custom name</div>'
+        + '<input type="text" class="snag-input" id="snag-edit-room-custom" value="' + escapeHtml(isCustom ? s.roomLabel : '') + '" placeholder="e.g. Airing cupboard" autocorrect="off"></div>'
+      + '<div class="snag-field" style="border-bottom:none;padding-top:0;padding-bottom:8px"><div class="field-label">Phase</div>'
+        + '<select class="snag-input" id="snag-edit-phase">' + snagPhaseOptionsHtml(s.phase || '') + '</select></div>'
+      + '<div style="display:flex;gap:8px;margin:0 16px">'
+        + '<button onclick="saveEditSnag(\'' + escapeHtml(s.id) + '\')" style="background:var(--accent);color:#fff;border:none;border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;flex:1">Save</button>'
+        + '<button onclick="cancelEditSnag()" style="background:var(--surface2);color:var(--text);border:none;border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;flex:1">Cancel</button>'
+      + '</div></div>';
+  }
+  var done = !snagIsOpen(s);
+  // A cleared snag keeps its date: the whole reason a done row stays on the
+  // list is that it is the evidence it was dealt with, and "when" is half of
+  // that. The room name only appears in the flattened phase view, where the
+  // group heading is a phase rather than a room.
+  var meta = [showRoom ? (s.roomLabel || 'No room') : '', done ? snagClearedLabel(s) : '']
+    .filter(Boolean).join(' · ');
+  return '<div style="display:flex;align-items:flex-start;gap:10px;padding:11px 16px;border-bottom:1px solid var(--border)' + (done ? ';opacity:.55' : '') + '">'
+    + '<input type="checkbox" ' + (done ? 'checked' : '') + ' onchange="toggleSnagDone(\'' + escapeHtml(s.id) + '\')" style="margin-top:2px;width:20px;height:20px;flex:none;accent-color:var(--accent)">'
+    + '<div style="flex:1;min-width:0">'
+      + '<div style="font-size:14px;line-height:1.4' + (done ? ';text-decoration:line-through' : '') + '">' + escapeHtml(s.description) + '</div>'
+      + (meta ? '<div style="font-size:12px;color:var(--text2);margin-top:2px">' + escapeHtml(meta) + '</div>' : '')
+      + '<div style="display:flex;align-items:center;gap:6px;margin-top:6px">'
+        + '<select onchange="setSnagPhase(\'' + escapeHtml(s.id) + '\', this.value)" style="background:' + (s.phase ? 'var(--accent-soft-bg)' : 'var(--surface2)') + ';border:1px solid ' + (s.phase ? 'var(--accent-soft-border)' : 'var(--border)') + ';color:' + (s.phase ? 'var(--accent)' : 'var(--text3)') + ';border-radius:20px;padding:3px 8px;font-family:\'DM Sans\',sans-serif;font-size:11px;font-weight:600;outline:none">'
+          + snagPhaseOptionsHtml(s.phase || '') + '</select>'
+        + '<div style="margin-left:auto;display:flex;gap:2px">'
+          + '<button onclick="editSnag(\'' + escapeHtml(s.id) + '\')" style="background:none;border:none;color:var(--text3);font-size:14px;cursor:pointer;padding:0 4px;line-height:1">✎</button>'
+          + '<button onclick="deleteSnag(\'' + escapeHtml(s.id) + '\')" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0 4px;line-height:1">✕</button>'
+        + '</div>'
+      + '</div>'
+    + '</div></div>';
+}
+
+// The room heading, with that room's recorded colours beside it where the
+// label matches a real area. Same subsection-label style the Colours tab
+// groups its areas with, so the two screens read the same way.
+function snagGroupHeadHtml(g) {
+  var area = snagAreaFor(g.label);
+  var colour = area && area.colour
+    ? ' <span style="text-transform:none;letter-spacing:0;font-weight:600;color:var(--accent)">— ' + escapeHtml(area.colour) + '</span>' : '';
+  var openN = g.items.filter(snagIsOpen).length;
+  return '<div class="subsection-label" style="display:flex;align-items:baseline;gap:10px">'
+    + '<span style="flex:1;min-width:0">' + escapeHtml(g.label) + colour + '</span>'
+    + '<span style="flex:none;text-transform:none;letter-spacing:0;font-weight:600;color:var(--text3)">'
+      + (openN ? openN + ' open' : 'all done ✓') + '</span>'
+    + '</div>';
+}
+
+function snagListHtml() {
+  var groups = snagView === 'phases' ? snagPhaseGroups(snags) : snagRoomGroups(snags);
+  return '<div class="card" style="overflow:visible">' + groups.map(function(g) {
+    return (snagView === 'phases'
+        ? '<div class="subsection-label" style="display:flex;align-items:baseline;gap:10px">'
+            + '<span style="flex:1;min-width:0">' + escapeHtml(g.label) + '</span>'
+            + '<span style="flex:none;text-transform:none;letter-spacing:0;font-weight:600;color:var(--text3)">'
+            + g.items.filter(snagIsOpen).length + ' open</span></div>'
+        : snagGroupHeadHtml(g))
+      + g.items.map(function(s) { return snagRowHtml(s, snagView === 'phases'); }).join('');
+  }).join('') + '</div>';
+}
+
+// The prominent section: only ever rendered while something is still open.
+function snagsSectionHtml() {
+  var openN = openSnagCount();
+  if (!snags.length || !openN) return '';
+  return '<div class="section-title" style="margin:16px 0 8px;display:flex;align-items:center;justify-content:space-between;gap:10px">'
+      + '<span>Snags (' + openN + ')</span>'
+      + '<button onclick="openSnagPanel()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:20px;padding:5px 12px;font-size:12px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;text-transform:none;letter-spacing:0">+ Add snag</button>'
+    + '</div>'
+    + '<div class="seg" style="margin-bottom:8px">'
+      + '<button class="seg-btn' + (snagView === 'rooms' ? ' active' : '') + '" style="padding:6px 4px;font-size:13px" onclick="setSnagView(\'rooms\')">By room</button>'
+      + '<button class="seg-btn' + (snagView === 'phases' ? ' active' : '') + '" style="padding:6px 4px;font-size:13px" onclick="setSnagView(\'phases\')">By phase</button>'
+    + '</div>'
+    + snagListHtml();
+}
+
+// The quiet half, at the bottom of the screen: the way in when there are no
+// snags yet, and the cleared list once there are none left open. Neither is
+// front and centre -- that space belongs to the work still outstanding.
+function snagsQuietHtml() {
+  var openN = openSnagCount();
+  if (openN) return '';
+  if (!snags.length) {
+    return '<div style="display:flex;justify-content:center;padding:16px 0 4px">'
+      + '<button onclick="openSnagPanel()" style="background:none;border:none;color:var(--text2);font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;padding:6px 10px">+ Start a snag list</button>'
+      + '</div>';
+  }
+  return '<div class="section-title" style="margin:18px 0 8px">Snags</div>'
+    + '<div class="card">'
+      + '<div class="card-header sec-toggle" onclick="toggleSnagsExpanded()">'
+        + '<span>All ' + snags.length + ' cleared ✓</span>'
+        + '<span class="sec-chev' + (snagsExpanded ? ' open' : '') + '">›</span>'
+      + '</div>'
+    + '</div>'
+    + (snagsExpanded
+        ? snagListHtml()
+          + '<div style="display:flex;justify-content:center;padding:8px 0 0">'
+          + '<button onclick="openSnagPanel()" style="background:none;border:none;color:var(--text2);font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;padding:6px 10px">+ Add snag</button>'
+          + '</div>'
+        : '');
+}
+
+// ── Snags: the add sheet ──────────────────────────────────────────────────
+function openSnagPanel() {
+  var areas = snagAreas();
+  var roomSel = document.getElementById('snag-add-room');
+  // No measured rooms at all (a Xero-imported job, say) -- the dropdown would
+  // be empty, so the form opens straight on a free-typed label instead.
+  roomSel.innerHTML = snagRoomOptionsHtml('', true);
+  roomSel.value = areas.length ? areas[0].name : '__custom';
+  document.getElementById('snag-add-phase').innerHTML = snagPhaseOptionsHtml('');
+  document.getElementById('snag-add-desc').value = '';
+  document.getElementById('snag-add-room-custom').value = '';
+  document.getElementById('snag-add-paste').value = '';
+  onSnagAddRoomChange();
+  setSnagPanelMode('single');
+  document.getElementById('snag-panel').style.display = 'block';
+}
+function closeSnagPanel() { document.getElementById('snag-panel').style.display = 'none'; }
+
+function setSnagPanelMode(mode) {
+  document.getElementById('snag-mode-single').classList.toggle('active', mode === 'single');
+  document.getElementById('snag-mode-paste').classList.toggle('active', mode === 'paste');
+  document.getElementById('snag-single-body').style.display = mode === 'single' ? 'block' : 'none';
+  document.getElementById('snag-paste-body').style.display = mode === 'paste' ? 'block' : 'none';
+}
+
+function onSnagAddRoomChange() {
+  var custom = document.getElementById('snag-add-room').value === '__custom';
+  document.getElementById('snag-add-room-custom-row').style.display = custom ? 'block' : 'none';
+}
+function onSnagEditRoomChange() {
+  var row = document.getElementById('snag-edit-room-custom-row');
+  if (row) row.style.display = document.getElementById('snag-edit-room').value === '__custom' ? 'block' : 'none';
+}
+
+function addSingleSnag() {
+  var sel = document.getElementById('snag-add-room').value;
+  var room = sel === '__custom' ? document.getElementById('snag-add-room-custom').value : sel;
+  var desc = document.getElementById('snag-add-desc').value;
+  if (!room || !room.trim()) { alert('Which room or area is this snag in?'); return; }
+  if (!desc || !desc.trim()) { alert('What is the snag?'); return; }
+  var label = canonicalSnagRoom(room);
+  var s = {
+    id: uid(), roomLabel: label, description: desc.trim(), status: 'open',
+    phase: document.getElementById('snag-add-phase').value || '',
+    sortOrder: nextSnagSortOrder(label), completedAt: null
+  };
+  snags.push(s);
+  // The sheet stays open on the same room: snags come in runs, and closing
+  // after each one would mean reopening it four times for one wall.
+  document.getElementById('snag-add-desc').value = '';
+  document.getElementById('snag-add-desc').focus();
+  renderActuals();
+  saveSnag(s);
+}
+
+// ── Snags: bulk paste ─────────────────────────────────────────────────────
+// The shape these lists actually arrive in -- a client's email, a note on a
+// phone, a markdown checklist: a bare line is a room heading, a bulleted line
+// is an item under it.
+//
+// Checked items ([x]) import as OPEN, deliberately. In a list someone has
+// emailed over, a tick means "I've flagged this", not "this has been fixed on
+// your job" -- importing them as done would silently hide work.
+//
+// Nothing here is clever about wording: no phase is guessed, and the parse is
+// shown for correction before a single row is written, because the one thing
+// that reliably goes wrong is a stray sentence landing as a room heading.
+function parseSnagPaste(text) {
+  var groups = [], current = null;
+  String(text == null ? '' : text).split(/\r?\n/).forEach(function(raw) {
+    var line = raw.trim();
+    if (!line) return;
+    // Bullets: -, *, •, en/em dash (phone keyboards autocorrect - to –),
+    // with an optional [ ] / [x] checkbox. Numbered items count too: a
+    // "1. Touch in the skirting" list read as ten room headings would be a
+    // uselessly bad parse, and the preview can always demote one back.
+    var m = /^(?:[-*•–—]|\d+[.)])\s+(?:\[\s*[xX]?\s*\]\s*)?(.*)$/.exec(line);
+    if (m) {
+      var desc = m[1].trim();
+      if (!desc) return;
+      if (!current) { current = { room: '', items: [] }; groups.push(current); }
+      current.items.push({ description: desc, phase: '' });
+      return;
+    }
+    // Anything else starts a new room. Markdown heading marks, bold markers
+    // and a trailing colon are decoration around the name, not part of it.
+    var head = line.replace(/^#+\s*/, '').replace(/\*\*/g, '').replace(/[:：]\s*$/, '').trim();
+    if (!head) return;
+    current = { room: head, items: [] };
+    groups.push(current);
+  });
+  // Headings with nothing under them are KEPT, not quietly dropped. An empty
+  // group is precisely the stray-sentence mis-parse the preview exists to
+  // catch, and a line that vanished between the paste and the preview is a
+  // line nobody gets the chance to fix. The preview blocks the import until
+  // each one is either folded into the room above (↑ item) or dismissed (✕).
+  return groups;
+}
+
+var snagImportDraft = [];
+
+function openSnagImportPreview() {
+  var draft = parseSnagPaste(document.getElementById('snag-add-paste').value);
+  if (!draft.length) {
+    alert('Nothing to import. Paste a list with a room name on its own line and the snags under it as "- " bullets.');
+    return;
+  }
+  // Match against the job's own rooms here, not at commit time, so the
+  // preview shows the spelling that will actually be stored.
+  snagImportDraft = draft.map(function(g) {
+    return { room: canonicalSnagRoom(g.room), items: g.items.slice() };
+  });
+  renderSnagImportPreview();
+  document.getElementById('snag-preview').style.display = 'block';
+}
+function closeSnagImportPreview() { document.getElementById('snag-preview').style.display = 'none'; }
+
+function snagImportCount() {
+  return snagImportDraft.reduce(function(n, g) { return n + g.items.length; }, 0);
+}
+function snagImportReady() {
+  return snagImportDraft.length > 0 && snagImportDraft.every(function(g) {
+    return g.room && g.room.trim() && g.items.length;
+  });
+}
+function snagImportEmptyGroups() {
+  return snagImportDraft.filter(function(g) { return !g.items.length; }).length;
+}
+
+function renderSnagImportPreview() {
+  var body = document.getElementById('snag-preview-body');
+  var summary = document.getElementById('snag-preview-summary');
+  var n = snagImportCount();
+  var missing = snagImportDraft.filter(function(g) { return !(g.room && g.room.trim()); }).length;
+  var empty = snagImportEmptyGroups();
+  summary.innerHTML = n + ' snag' + (n === 1 ? '' : 's') + ' in ' + snagImportDraft.length + ' room'
+    + (snagImportDraft.length === 1 ? '' : 's') + '. Fix anything the paste got wrong before it is added — '
+    + 'a sentence read as a room heading becomes an item with <strong>↑ item</strong>.'
+    + (missing ? '<div style="color:var(--danger);margin-top:6px">' + missing + ' group' + (missing === 1 ? ' has' : 's have') + ' no room name yet.</div>' : '')
+    + (empty ? '<div style="color:var(--danger);margin-top:6px">' + empty + ' heading' + (empty === 1 ? ' has' : 's have')
+        + ' no snags under ' + (empty === 1 ? 'it' : 'them') + ' — fold ' + (empty === 1 ? 'it' : 'them')
+        + ' into the room above with ↑ item, or drop with ✕.</div>' : '');
+
+  body.innerHTML = snagImportDraft.map(function(g, i) {
+    var area = snagAreaFor(g.room);
+    var colour = area && area.colour
+      ? '<div style="font-size:12px;color:var(--accent);padding:0 16px 8px">' + escapeHtml(area.colour) + '</div>' : '';
+    var head = '<div class="subsection-label" style="display:flex;align-items:center;gap:8px">'
+      + '<span style="flex:1">Room</span>'
+      + (i > 0 ? '<button onclick="snagDraftMergeUp(' + i + ')" style="background:none;border:none;color:var(--accent);font-size:11px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;text-transform:none;letter-spacing:0;padding:0 2px">↑ item</button>' : '')
+      + '<button onclick="snagDraftRemoveGroup(' + i + ')" style="background:none;border:none;color:var(--text3);font-size:14px;cursor:pointer;padding:0 2px;line-height:1">✕</button>'
+      + '</div>'
+      + '<div style="padding:0 16px 8px"><input type="text" class="field-input wide" style="width:100%;text-align:left;box-sizing:border-box;font-family:\'DM Sans\',sans-serif;font-size:15px" value="' + escapeHtml(g.room) + '" placeholder="Room or area" autocorrect="off" list="snag-area-names" oninput="snagDraftSetRoom(' + i + ', this.value)" onchange="snagDraftSetRoom(' + i + ', this.value, true)"></div>'
+      + colour;
+    if (!g.items.length) {
+      return head + '<div style="padding:0 16px 10px;font-size:12px;color:var(--danger);line-height:1.5">'
+        + 'Nothing was listed under this line. If it was really a snag in the room above, tap ↑ item.</div>';
+    }
+    // Description on its own full-width line rather than sharing a row with
+    // the phase picker: a snag reads "Scuff on the return wall by the door",
+    // and a third of a phone's width shows four words of it.
+    var items = g.items.map(function(it, j) {
+      return '<div style="padding:0 16px 10px">'
+        + '<input type="text" class="field-input" style="width:100%;box-sizing:border-box;text-align:left;font-family:\'DM Sans\',sans-serif;font-size:15px" value="' + escapeHtml(it.description) + '" autocorrect="off" oninput="snagDraftSetItem(' + i + ',' + j + ', this.value)">'
+        + '<div style="display:flex;align-items:center;gap:8px;margin-top:6px">'
+          + '<select onchange="snagDraftSetPhase(' + i + ',' + j + ', this.value)" style="background:var(--surface2);border:1px solid var(--border);color:' + (it.phase ? 'var(--text)' : 'var(--text3)') + ';border-radius:20px;padding:5px 10px;font-family:\'DM Sans\',sans-serif;font-size:12px;font-weight:600;outline:none">'
+            + snagPhaseOptionsHtml(it.phase || '') + '</select>'
+          + '<button onclick="snagDraftRemoveItem(' + i + ',' + j + ')" style="margin-left:auto;background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0 4px;line-height:1">✕</button>'
+        + '</div></div>';
+    }).join('');
+    return head + items;
+  }).join('');
+
+  // Type-ahead for the room field: the job's own area names, so a group the
+  // paste named loosely can be snapped onto a real room without retyping it.
+  var dl = document.getElementById('snag-area-names');
+  if (dl) dl.innerHTML = snagAreas().map(function(a) { return '<option value="' + escapeHtml(a.name) + '"></option>'; }).join('');
+
+  var btn = document.getElementById('snag-import-btn');
+  btn.disabled = !snagImportReady();
+  btn.style.opacity = btn.disabled ? '.5' : '1';
+  btn.textContent = 'Add ' + n + ' snag' + (n === 1 ? '' : 's');
+}
+
+// oninput updates the model only -- re-rendering on every keystroke would
+// take the caret out of the field being typed in. onchange (i.e. blur) is
+// what repaints, which is when the room's colour line can usefully refresh.
+function snagDraftSetRoom(i, value, repaint) {
+  if (!snagImportDraft[i]) return;
+  snagImportDraft[i].room = repaint ? canonicalSnagRoom(value) : value;
+  if (repaint) renderSnagImportPreview();
+}
+function snagDraftSetItem(i, j, value) {
+  if (snagImportDraft[i] && snagImportDraft[i].items[j]) snagImportDraft[i].items[j].description = value;
+}
+function snagDraftSetPhase(i, j, value) {
+  if (snagImportDraft[i] && snagImportDraft[i].items[j]) snagImportDraft[i].items[j].phase = value;
+  renderSnagImportPreview();
+}
+function snagDraftRemoveItem(i, j) {
+  if (!snagImportDraft[i]) return;
+  snagImportDraft[i].items.splice(j, 1);
+  if (!snagImportDraft[i].items.length) snagImportDraft.splice(i, 1);
+  if (!snagImportDraft.length) { closeSnagImportPreview(); return; }
+  renderSnagImportPreview();
+}
+function snagDraftRemoveGroup(i) {
+  snagImportDraft.splice(i, 1);
+  if (!snagImportDraft.length) { closeSnagImportPreview(); return; }
+  renderSnagImportPreview();
+}
+// The mis-parse this exists for: a stray sentence read as a room heading.
+// Fold it back into the previous room as an item, with its own items after it.
+function snagDraftMergeUp(i) {
+  if (i < 1 || !snagImportDraft[i]) return;
+  var g = snagImportDraft.splice(i, 1)[0];
+  var prev = snagImportDraft[i - 1];
+  if (g.room && g.room.trim()) prev.items.push({ description: g.room.trim(), phase: '' });
+  prev.items = prev.items.concat(g.items);
+  renderSnagImportPreview();
+}
+
+async function commitSnagImport() {
+  if (!snagImportReady()) return;
+  var running = {};
+  var rows = [];
+  snagImportDraft.forEach(function(g) {
+    var label = canonicalSnagRoom(g.room);
+    var key = snagLabelKey(label);
+    if (running[key] === undefined) running[key] = nextSnagSortOrder(label);
+    g.items.forEach(function(it) {
+      var desc = (it.description || '').trim();
+      if (!desc) return;
+      rows.push({
+        id: uid(), roomLabel: label, description: desc, status: 'open',
+        phase: it.phase || '', sortOrder: running[key]++, completedAt: null
+      });
+    });
+  });
+  if (!rows.length) return;
+  snags = snags.concat(rows);
+  snagImportDraft = [];
+  closeSnagImportPreview();
+  closeSnagPanel();
+  renderActuals();
+  // One PUT per row, in order, like every other On Site write. Offline they
+  // queue and replay; a server that rejects one is counted and reported once
+  // at the end rather than forty times.
+  var failed = 0;
+  for (var i = 0; i < rows.length; i++) {
+    try { await putSnag(rows[i]); } catch (e) { failed++; }
+  }
+  if (failed) {
+    alert(failed + ' of ' + rows.length + ' snags could not be saved. The list has been reloaded from the server — re-paste the ones that are missing.');
+    try { await loadSnags(); } catch (e2) {}
+  }
+  renderActuals();
+}
+
 // The reconciliation: estimate (rolled up) LEFT JOIN actuals, plus any actual
 // with no estimate line -- the case that loses money if it's missed, since it's
 // something bought for the job that was never quoted.
@@ -12985,7 +13772,11 @@ async function openActuals() {
     // "no rows" should ever empty the log.
     await Promise.all([
       loadMaterialActuals(),
-      loadLabourLog().catch(function(e) { if (!(e instanceof TypeError)) labourLog = []; })
+      loadLabourLog().catch(function(e) { if (!(e instanceof TypeError)) labourLog = []; }),
+      // Snags are tolerant for the same reason as the labour log: a database
+      // that has material_actuals but not yet snags (the table is created
+      // lazily on first use) must still show the materials screen.
+      loadSnags().catch(function(e) { if (!(e instanceof TypeError)) snags = []; })
     ]);
   } catch (e) {
     // Offline (fetch itself failed, not the server refusing): the copies
@@ -13164,12 +13955,16 @@ function renderActuals() {
   }
   // Order per Nicky (2026-07-23): the daily rhythm is days → materials,
   // with variations the occasional visitor — so they sit below.
-  el.innerHTML = onSiteJobHeader() + head + renderTimeOnSiteCard()
+  // Snags go above everything materials, and only while something is still
+  // open (snagsSectionHtml returns '' otherwise). The cleared/empty list has
+  // its own quiet home at the bottom -- see snagsQuietHtml.
+  el.innerHTML = onSiteJobHeader() + snagsSectionHtml() + head + renderTimeOnSiteCard()
     + '<div class="section-title" style="margin:16px 0 8px;display:flex;align-items:center;justify-content:space-between;gap:14px">Materials'
       + undoChipHtml()
     + '</div>'
     + rowsHtml + add
-    + variationsSection;
+    + variationsSection
+    + snagsQuietHtml();
   restoreFields(pendingAdd);
   // Reuses the Summary picker wholesale -- same onMaterialProductInput
   // function, same materialItemIndex, just mounted with the 'act-add' prefix.
@@ -14381,7 +15176,7 @@ var colourPlaceholderCache = null;
 // say so; it is NOT enough on its own, because a handler that edits and then
 // re-renders synchronously (every one of them does) would render off the map
 // built before its own edit.
-function invalidateColourPlaceholders() { colourPlaceholderCache = null; }
+function invalidateColourPlaceholders() { colourPlaceholderCache = null; snagAreasCache = null; }
 function colourPlaceholderMap(live) {
   if (!live && colourPlaceholderCache) return colourPlaceholderCache;
   var byNum = {};
