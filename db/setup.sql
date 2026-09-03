@@ -419,8 +419,32 @@ CREATE TABLE IF NOT EXISTS snag_rooms (
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
--- One colour per label per job, matched case-insensitively for the same
--- reason the snag grouping is: "master bedroom" and "Master Bedroom" are one
--- room on site, and two rows here would be two colours for one heading.
-CREATE UNIQUE INDEX IF NOT EXISTS snag_rooms_job_label ON snag_rooms (job_id, lower(room_label));
+-- A room is not necessarily one colour. A measured room carries a colour per
+-- SURFACE -- walls, ceiling, woodwork, feature wall, panelling, each
+-- independently assignable -- and the snag heading shows all of them. An
+-- unmeasured room had one, which made it the only kind of room in the app that
+-- could not say "walls Dead Salmon, ceiling All White".
+--
+-- So a row is one (room, role) pair. Roles are the SAME keys a measured room
+-- uses ('wall', 'ceiling', 'woodwork', 'featurewall', 'panel'), which is what
+-- lets these rows join colourAreas() as ordinary areas and pick up
+-- AREA_ROLE_WORDS, the rename-vs-fork rule and the Colours tab's own row
+-- rendering without a special case.
+--
+-- 'all' is the sixth role and the default: one colour for the whole room, for
+-- the common case where nobody wants to fill in five fields. It is exclusive
+-- with the other five -- the client clears one set when it writes the other --
+-- because a room that is both "all Dead Salmon" and "ceiling All White" has no
+-- single true answer for the heading.
+--
+-- 'all' is also what every pre-existing row means, so the column defaults to
+-- it and the old one-colour-per-room data migrates by standing still.
+ALTER TABLE snag_rooms ADD COLUMN IF NOT EXISTS role VARCHAR NOT NULL DEFAULT 'all';
+-- One colour per (label, role) per job, matched case-insensitively for the
+-- same reason the snag grouping is: "master bedroom" and "Master Bedroom" are
+-- one room on site, and two rows would be two colours for one heading. The
+-- pre-role index is dropped rather than kept -- it forbids exactly what this
+-- table now exists to allow, a second surface in the same room.
+DROP INDEX IF EXISTS snag_rooms_job_label;
+CREATE UNIQUE INDEX IF NOT EXISTS snag_rooms_job_label_role ON snag_rooms (job_id, lower(room_label), role);
 CREATE INDEX IF NOT EXISTS snag_rooms_job ON snag_rooms (job_id);

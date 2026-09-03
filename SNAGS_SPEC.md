@@ -1,12 +1,12 @@
-# Snags — the job's punch list (v2.50.0, colours v2.51.0)
+# Snags — the job's punch list (v2.50.0, colours v2.51.0, per-surface v2.52.0)
 
 A per-job snag list on the On Site tab. Snags are grouped by room, entered
 one at a time or pasted in bulk, sequenced by phase, and synced offline like
 the rest of On Site.
 
-Shipped in v2.50.0, with snag-room colours following in v2.51.0. This document
-is the spec as built, including the calls made on the two questions the handoff
-brief left open.
+Shipped in v2.50.0, with snag-room colours following in v2.51.0 and per-surface
+colours in v2.52.0. This document is the spec as built, including the calls made
+on the two questions the handoff brief left open.
 
 ---
 
@@ -132,6 +132,15 @@ Where it matches nothing — a custom label, or *every* group on a job with no
 measured rooms at all — the heading carries a tappable `+ colour` chip
 instead. See **Snag-room colours** below.
 
+A room is rarely one colour, and the heading says so: walls, ceiling,
+woodwork, feature wall and panelling each appear with their surface named when
+they differ ("Walls Dead Salmon · Ceiling All White · Woodwork Wimborne
+White"), and collapse to the bare name only when the room genuinely is one
+colour throughout. **Collapsing requires every surface to be named**, not just
+the named ones to match — the earlier rule printed "Study — Card Room Green" on
+a room whose ceiling and woodwork nobody had chosen yet, which says the ceiling
+is Card Room Green.
+
 The colour line is deliberately **not** `roomColourSchedule()` /
 `colourLabelFor()`. Those spell a colour out in full ("Farrow & Ball No. 28
 Dead Salmon") because they print on documents the client reads; three of
@@ -243,6 +252,46 @@ For the same reason, naming a colour on an *undecided* room never routes
 through `applyAreaColourName(1, …)`: passing colour 1 as the current would let
 it rename the job's default colour out from under every surface that really
 does use it. It reuses a colour already carrying that name, or mints one.
+
+### One colour, or one per surface
+
+A measured room has always carried a colour per surface. An unmeasured one had
+exactly one, which made it the only kind of room in the app that could not say
+"walls Dead Salmon, ceiling All White". So a `snag_rooms` row is now one
+**(room, role)** pair:
+
+- `all` — one colour for the whole room. The default, the common case, and what
+  every row written before per-surface colours existed means, so old data
+  migrates by standing still.
+- `wall` · `ceiling` · `woodwork` · `featurewall` · `panel` — the **same role
+  keys a measured room uses**. That is what lets these rows drop into
+  `colourAreas()` as ordinary areas: `areaPlaceholder()`/`AREA_ROLE_WORDS` name
+  them ("Hallway Ceiling"), the Colours tab renders them with no special case,
+  and the rename-vs-fork rule counts them.
+
+The two are **exclusive**: writing a whole-room colour clears the surfaces and
+vice versa, because a room that is both "all Dead Salmon" and "ceiling All
+White" has no single true heading. The client enforces it on write
+(`setSnagRoomColour`); should both ever coexist anyway — a stale offline write,
+a hand-edited row — the display has a defined precedence rather than undefined
+behaviour: **surfaces win over `all`**.
+
+Per-surface entry always prints the surface names, even where they happen to
+match. Someone who filled the surfaces in separately is telling you they
+differ, and collapsing "Walls Dead Salmon · Ceiling Dead Salmon" to one name
+would throw away the only thing they took the trouble to say. One colour for
+the whole room is what the "Whole room" field is for.
+
+The sheet opens on whichever mode the room is already in, so a per-surface room
+never greets you with a single field that would wipe its surfaces. Switching
+mode only changes what is *shown* — nothing is cleared until a colour is
+actually written — so tapping across to look costs nothing. **Clear colour**
+wipes every role at once, pruning after all of them are cleared rather than as
+it goes (two surfaces can share a colour, and pruning on the first would still
+see the second holding it).
+
+The sheet is refused outright for a label that matches a measured room: that
+room has a carrier already and the heading would ignore anything written here.
 
 **The sheet uses the app's ordinary colour field**, not one of its own:
 `colourSlotHtml()` / `registerColourSlot()`, the same widget behind every area

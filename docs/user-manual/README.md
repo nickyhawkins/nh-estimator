@@ -599,7 +599,7 @@ The last few days of a job are a list of small things: a scuff by the switch, a 
 ![The Snags section on On Site](images/10b-snags.png)
 
 - **The section only shows up when there's something to show.** No snags yet, and there's just a quiet **+ Start a snag list** at the bottom of the screen. Tick the last one off and it drops back down there too, collapsed to **All n cleared ✓** — tap it to reopen the record.
-- **Grouped by room**, with that room's colours next to its name, read straight from the Colours tab. So you don't have to leave the screen to find out what to open. Rooms the quote never priced — the airing cupboard, the garage step — can have snags too, and you can give those a colour by hand (see below).
+- **Grouped by room**, with that room's colours next to its name, read straight from the Colours tab — each surface named where they differ (*Walls Dead Salmon · Ceiling All White*), or just the colour where the whole room is one. So you don't have to leave the screen to find out what to open. Rooms the quote never priced — the airing cupboard, the garage step — can have snags too, and you can give those a colour by hand (see below).
 - **Ticking one off doesn't remove it.** The row goes struck through with the date you cleared it and stays on the list, which is the point: at the end of the job the list *is* the evidence of what got done. Untick it if you tick it by mistake.
 - **Phase** on each row (the little dropdown) is the pass it belongs to — Prep, Stain block, Woodwork, Walls, Ceiling, Details, Final access. Set it and the room re-sorts itself into working order, with anything that blocks the space once it's done (floor cleans, stair recoats) last. Snags with no phase yet sit at the top of their room so they're not forgotten.
 - **By room / By phase.** The toggle flattens the whole house into phase order instead — every stain-block job in the building together, so you get the stain block out once. Room order is what it opens on.
@@ -635,6 +635,19 @@ library has never heard of is fine too — type it and it's yours; the dropdown
 also offers to **save it to your colour library** with a brand and code, so
 it's there for the next job. **Clear colour** puts a room back to undecided
 without losing the colour itself.
+
+**Rooms that aren't one colour.** Most rooms aren't — the walls one thing, the
+ceiling another, the woodwork a third. Switch the sheet to **By surface** and
+you get a field each for walls, ceiling, woodwork, feature wall and panelling:
+
+![Setting a colour per surface](images/10f-snag-colour-by-surface.png)
+
+The heading then names each one — *Master Bedroom — Walls Dead Salmon · Ceiling
+All White · Woodwork Wimborne White* — and each surface shows up on the Colours
+tab in its own right, exactly as a measured room's would. **Whole room** and
+**By surface** are either/or: setting one clears the other, so a room only ever
+has one answer. Measured rooms already worked this way; this just brings the
+ones you never measured into line.
 
 Once a room has a colour it shows on the heading (**Landing — Dead Salmon**)
 and joins the **Colours** tab alongside everything else, marked *from the snag
