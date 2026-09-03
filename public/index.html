@@ -1192,9 +1192,15 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
            widget as the room, exterior and Colours-tab fields -- see
            colourSlotHtml. It commits as you go, like all of them, so there is
            no Save button here either. -->
-      <div style="overflow-y:auto;flex:1;padding:0 16px">
-        <div class="colour-slot" id="snag-colour-slot"></div>
+      <!-- One colour, or one per surface. A measured room has always been able
+           to carry a different colour on its walls, ceiling, woodwork, feature
+           wall and panelling; this is the same thing for a room the quote
+           never measured. The two are exclusive -- see setSnagRoomColour. -->
+      <div class="seg" style="margin:0 16px 10px">
+        <button class="seg-btn" id="snag-colour-mode-all" onclick="setSnagColourMode('all')">Whole room</button>
+        <button class="seg-btn" id="snag-colour-mode-surfaces" onclick="setSnagColourMode('surfaces')">By surface</button>
       </div>
+      <div style="overflow-y:auto;flex:1;padding:0 16px" id="snag-colour-body"></div>
       <div style="padding:10px 16px 0;display:flex;gap:10px;align-items:center">
         <button class="btn btn-ghost" id="snag-colour-clear" style="flex:1;padding:12px;display:none" onclick="clearSnagRoomColour()">Clear colour</button>
         <button class="btn" style="flex:2;padding:12px;background:var(--accent);color:#fff" onclick="closeSnagColourPanel()">Done</button>
@@ -2238,7 +2244,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.51.2</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.52.0</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -13140,13 +13146,19 @@ function snagColourName(num) {
   var c = colours.find(function(x) { return x.number === num; });
   return c && c.label ? c.label : '';
 }
-function snagColourLine(parts) {
-  var live = (parts || []).filter(function(p) { return snagColourName(p.num); });
+function snagColourLine(parts, allowCollapse) {
+  var all = parts || [];
+  var live = all.filter(function(p) { return snagColourName(p.num); });
   if (!live.length) return '';
   var names = live.map(function(p) { return snagColourName(p.num); });
-  // One colour throughout the room is the common case and reads as just the
-  // name; a room whose surfaces differ has to say which is which.
-  if (names.every(function(n) { return n === names[0]; })) return names[0];
+  // The bare name is only the truth when the WHOLE room is that one colour --
+  // every surface named, and all of them the same. Collapsing whenever the
+  // *named* ones happen to match read "Study — Card Room Green" on a room
+  // whose ceiling and woodwork nobody had chosen yet, which says the ceiling
+  // is Card Room Green. A surface still undecided keeps the others honest by
+  // making them say which is which.
+  if (allowCollapse !== false && live.length === all.length
+      && names.every(function(n) { return n === names[0]; })) return names[0];
   return live.map(function(p) { return p.role + ' ' + snagColourName(p.num); }).join(' · ');
 }
 
@@ -13341,13 +13353,48 @@ async function loadSnagRooms() {
   snagRooms = await apiGet('/api/snag-rooms?job_id=' + encodeURIComponent(activeJobId));
 }
 
-function snagRoomEntry(label) {
+// The surfaces a snag room's colour can be recorded against. The five named
+// ones reuse the SAME role keys a measured room uses, which is what lets these
+// rows join colourAreas() as ordinary areas and pick up AREA_ROLE_WORDS, the
+// Colours tab's row rendering and the rename-vs-fork rule with no special
+// case. 'all' is one colour for the whole room and is exclusive with them.
+var SNAG_ROOM_SURFACES = [
+  { role: 'wall',        label: 'Walls' },
+  { role: 'ceiling',     label: 'Ceiling' },
+  { role: 'woodwork',    label: 'Woodwork' },
+  { role: 'featurewall', label: 'Feature wall' },
+  { role: 'panel',       label: 'Panelling' }
+];
+function snagSurfaceLabel(role) {
+  var s = SNAG_ROOM_SURFACES.find(function(x) { return x.role === role; });
+  return s ? s.label : '';
+}
+
+function snagRoomEntry(label, role) {
   var key = snagLabelKey(label);
   if (!key) return null;
+  role = role || 'all';
   for (var i = 0; i < snagRooms.length; i++) {
-    if (snagLabelKey(snagRooms[i].roomLabel) === key) return snagRooms[i];
+    if (snagLabelKey(snagRooms[i].roomLabel) === key && (snagRooms[i].role || 'all') === role) return snagRooms[i];
   }
   return null;
+}
+// Every surface this room has a colour recorded against, in the order they
+// read on site. Empty when the room is undecided or is on a single whole-room
+// colour.
+function snagRoomSurfaceParts(label) {
+  var out = [];
+  SNAG_ROOM_SURFACES.forEach(function(sf) {
+    var e = snagRoomEntry(label, sf.role);
+    if (e && e.colourNumber) out.push({ role: sf.label, roleKey: sf.role, num: e.colourNumber });
+  });
+  return out;
+}
+// 'all' while the room is on one colour or has none yet; 'surfaces' the moment
+// any individual surface carries one. Never both -- writing one set clears the
+// other, so there is always a single true answer for the heading.
+function snagRoomMode(label) {
+  return snagRoomSurfaceParts(label).length ? 'surfaces' : 'all';
 }
 // An undecided snag room has NO colour -- not colour 1. That distinction
 // matters here in a way it doesn't for a measured room: colour 1 is seeded
@@ -13356,28 +13403,50 @@ function snagRoomEntry(label) {
 // no such claim -- it exists because somebody wrote a snag against a room
 // name -- so falling back to colour 1 would put "White" beside every room
 // nobody has said anything about. Undecided reads as blank, everywhere.
-function snagRoomColourNumber(label) {
-  var e = snagRoomEntry(label);
+function snagRoomColourNumber(label, role) {
+  var e = snagRoomEntry(label, role || 'all');
   return e && e.colourNumber ? e.colourNumber : null;
+}
+// Does this room have a colour of any kind -- whole-room or per-surface?
+function snagRoomHasColour(label) {
+  return !!snagRoomColourNumber(label, 'all') || snagRoomSurfaceParts(label).length > 0;
 }
 
 // Writes the carrier. Called by setAreaColourNumber's 'snag' branch, so both
 // the Colours tab and the On Site sheet go through one path.
-function setSnagRoomColour(label, num) {
+function setSnagRoomColour(label, num, role) {
   label = String(label == null ? '' : label).trim();
   if (!label) return;
+  role = role || 'all';
   invalidateColourPlaceholders();
-  var e = snagRoomEntry(label);
-  if (!e) { e = { id: uid(), roomLabel: label, colourNumber: null }; snagRooms.push(e); }
+  var e = snagRoomEntry(label, role);
+  if (!e) { e = { id: uid(), roomLabel: label, role: role, colourNumber: null }; snagRooms.push(e); }
   e.roomLabel = label;
+  e.role = role;
   e.colourNumber = num == null ? null : +num;
   saveSnagRoom(e);
+  // The two ways of describing a room are exclusive. A room that is both "all
+  // Dead Salmon" and "ceiling All White" has no single true heading, so
+  // writing one set clears the other rather than leaving the display to pick.
+  if (num != null) clearSnagRoomRoles(label, role === 'all'
+    ? SNAG_ROOM_SURFACES.map(function(sf) { return sf.role; })
+    : ['all']);
+}
+
+function clearSnagRoomRoles(label, roles) {
+  roles.forEach(function(role) {
+    var e = snagRoomEntry(label, role);
+    if (!e || e.colourNumber == null) return;
+    e.colourNumber = null;
+    saveSnagRoom(e);
+  });
 }
 
 async function saveSnagRoom(entry) {
   try {
     var res = await apiPutStrict('/api/snag-rooms/' + entry.id, {
-      jobId: activeJobId, roomLabel: entry.roomLabel, colourNumber: entry.colourNumber
+      jobId: activeJobId, roomLabel: entry.roomLabel,
+      role: entry.role || 'all', colourNumber: entry.colourNumber
     });
     // The LABEL is the identity server-side, so a row another device already
     // created for this room wins and the client adopts its id -- same
@@ -13397,7 +13466,14 @@ async function saveSnagRoom(entry) {
 function snagGroupColour(label) {
   var a = snagAreaFor(label);
   if (a) return a.colour;
-  var num = snagRoomColourNumber(label);
+  var parts = snagRoomSurfaceParts(label);
+  // Per-surface entry ALWAYS prints the surface names, even where they happen
+  // to match: someone who filled the surfaces in separately is telling you
+  // they differ, and collapsing "Walls Dead Salmon · Ceiling Dead Salmon" to
+  // one name would throw away the only thing they took the trouble to say.
+  // One colour for the whole room is what the "Whole room" field is for.
+  if (parts.length) return snagColourLine(parts, false);
+  var num = snagRoomColourNumber(label, 'all');
   return num ? snagColourName(num) : '';
 }
 
@@ -13584,6 +13660,9 @@ var snagColourPanelLabel = null;
 // One slot id, not one per room: only ever one of these sheets is open, and
 // colourSlots is keyed by slot so a fresh registration replaces the last.
 var SNAG_COLOUR_SLOT = 'snagroom';
+// 'all' (one colour for the room) or 'surfaces' (one per wall/ceiling/etc).
+// Per visit, seeded from whatever the room already is.
+var snagColourPanelMode = 'all';
 
 function openSnagColourPanel(i) {
   var g = snagGroupsCache[i];
@@ -13591,7 +13670,14 @@ function openSnagColourPanel(i) {
 }
 
 function openSnagColourPanelForLabel(label) {
+  // A measured room already has a carrier and Colours owns its colour -- see
+  // snagGroupColour's precedence. Writing one here would be a second answer to
+  // one question, and the heading would ignore it anyway.
+  if (snagAreaFor(label)) return;
   snagColourPanelLabel = label;
+  // Opens on whichever mode the room is already in, so a per-surface room
+  // doesn't greet you with a single field that would wipe its surfaces.
+  snagColourPanelMode = snagRoomMode(label);
   document.getElementById('snag-colour-room').textContent = label;
   renderSnagColourSlot();
   document.getElementById('snag-colour-panel').style.display = 'block';
@@ -13599,6 +13685,13 @@ function openSnagColourPanelForLabel(label) {
 function closeSnagColourPanel() {
   document.getElementById('snag-colour-panel').style.display = 'none';
   snagColourPanelLabel = null;
+}
+// Switching mode only changes what the sheet SHOWS. Nothing is cleared until
+// a colour is actually written, which is what setSnagRoomColour does -- so
+// tapping "By surface" to look, then tapping back, costs nothing.
+function setSnagColourMode(mode) {
+  snagColourPanelMode = mode;
+  renderSnagColourSlot();
 }
 
 // The field itself, rebuilt on open and after every commit so the brand chip,
@@ -13610,16 +13703,45 @@ function closeSnagColourPanel() {
 function renderSnagColourSlot() {
   var label = snagColourPanelLabel;
   if (!label) return;
-  var host = document.getElementById('snag-colour-slot');
+  var host = document.getElementById('snag-colour-body');
   if (!host) return;
-  var num = snagRoomColourNumber(label);
-  host.innerHTML = colourSlotHtml(SNAG_COLOUR_SLOT, num, label, null);
-  var clear = document.getElementById('snag-colour-clear');
-  if (clear) clear.style.display = num ? 'flex' : 'none';
-  registerColourSlot(SNAG_COLOUR_SLOT, {
-    apply: function(text, brand, code) { applySnagRoomColourName(label, text, brand, code); },
-    pick: function(picked) { pickSnagRoomColour(label, picked); }
+  var mode = snagColourPanelMode;
+  document.getElementById('snag-colour-mode-all').classList.toggle('active', mode === 'all');
+  document.getElementById('snag-colour-mode-surfaces').classList.toggle('active', mode === 'surfaces');
+
+  // One slot per field on show. Each needs its own id: colourSlots is keyed by
+  // slot, and five surfaces sharing one would fight over a single input and a
+  // single dropdown -- the exact reason slots are keyed by slot and not by
+  // colour number.
+  var fields = mode === 'surfaces'
+    ? SNAG_ROOM_SURFACES.map(function(sf) { return { role: sf.role, label: sf.label }; })
+    : [{ role: 'all', label: '' }];
+
+  // ONE innerHTML assignment, slot markup included. Writing the containers
+  // first and filling them in a second pass threw "The node to be removed is
+  // no longer a child of this node" when a commit arrived from a field's own
+  // blur -- the second pass was reaching for nodes the first had just swapped
+  // out from under the browser mid-blur.
+  host.innerHTML = fields.map(function(f) {
+    var num = snagRoomColourNumber(label, f.role);
+    // Ghost text names the surface on a per-surface field and the room on the
+    // whole-room one, matching how an undecided measured area reads.
+    var ghost = f.role === 'all' ? label : areaPlaceholder(label, f.role);
+    return (f.label ? '<div class="subsection-label" style="border-top:none;padding-left:0">' + f.label + '</div>' : '')
+      + '<div class="colour-slot" style="margin-bottom:10px">'
+      + colourSlotHtml(SNAG_COLOUR_SLOT + '-' + f.role, num, ghost, null)
+      + '</div>';
+  }).join('');
+
+  fields.forEach(function(f) {
+    registerColourSlot(SNAG_COLOUR_SLOT + '-' + f.role, {
+      apply: function(text, brand, code) { applySnagRoomColourName(label, text, brand, code, f.role); },
+      pick: function(picked) { pickSnagRoomColour(label, picked, f.role); }
+    });
   });
+
+  var clear = document.getElementById('snag-colour-clear');
+  if (clear) clear.style.display = snagRoomHasColour(label) ? 'flex' : 'none';
 }
 
 // A name typed or chosen from the library. Mirrors what the Colours tab does
@@ -13628,10 +13750,13 @@ function renderSnagColourSlot() {
 // colour 1 (see snagRoomColourNumber), and passing it there would let naming
 // one snag room rename the job's default colour out from under every surface
 // that really does use it.
-function applySnagRoomColourName(label, text, brand, code) {
+function applySnagRoomColourName(label, text, brand, code, role) {
+  role = role || 'all';
   text = String(text == null ? '' : text).trim();
-  var current = snagRoomColourNumber(label);
-  if (!text) { clearSnagRoomColourFor(label); return; }
+  var current = snagRoomColourNumber(label, role);
+  // Emptying ONE field clears that surface only, not the whole room -- the
+  // Clear button below is what wipes the lot.
+  if (!text) { clearSnagRoomSurface(label, role); return; }
   var next;
   if (current) {
     next = applyAreaColourName(current, text, brand, code, null);
@@ -13650,7 +13775,7 @@ function applySnagRoomColourName(label, text, brand, code) {
     }
   }
   if (next !== current) {
-    setAreaColourNumber({ kind: 'snag', id: label }, next);
+    setAreaColourNumber({ kind: 'snag', id: label, role: role }, next);
     if (current) pruneOrphanColour(current, null);
   }
   saveColours();
@@ -13658,25 +13783,47 @@ function applySnagRoomColourName(label, text, brand, code) {
 }
 
 // A one-tap chip for a colour already on the job.
-function pickSnagRoomColour(label, picked) {
-  var current = snagRoomColourNumber(label);
+function pickSnagRoomColour(label, picked, role) {
+  role = role || 'all';
+  var current = snagRoomColourNumber(label, role);
   if (picked === current) return;
-  setAreaColourNumber({ kind: 'snag', id: label }, picked);
+  setAreaColourNumber({ kind: 'snag', id: label, role: role }, picked);
   if (current) pruneOrphanColour(current, null);
   saveColours();
+  afterSnagColourChange();
+}
+
+// One surface back to undecided.
+function clearSnagRoomSurface(label, role) {
+  var was = snagRoomColourNumber(label, role);
+  if (was) {
+    setSnagRoomColour(label, null, role);
+    pruneOrphanColour(was, null);
+    saveColours();
+  }
   afterSnagColourChange();
 }
 
 function clearSnagRoomColour() {
   if (snagColourPanelLabel) clearSnagRoomColourFor(snagColourPanelLabel);
 }
-// Back to undecided. The carrier goes to NULL rather than being deleted, and
-// the colour it left may now be an unnamed orphan with nothing on it.
+// The whole room back to undecided, whichever way it was described. Each
+// carrier goes to NULL rather than being deleted, and each colour left behind
+// may now be an unnamed orphan with nothing on it.
 function clearSnagRoomColourFor(label) {
-  var was = snagRoomColourNumber(label);
-  if (was) {
-    setSnagRoomColour(label, null);
-    pruneOrphanColour(was, null);
+  var roles = ['all'].concat(SNAG_ROOM_SURFACES.map(function(sf) { return sf.role; }));
+  var freed = [];
+  roles.forEach(function(role) {
+    var was = snagRoomColourNumber(label, role);
+    if (!was) return;
+    setSnagRoomColour(label, null, role);
+    freed.push(was);
+  });
+  if (freed.length) {
+    // Prune after every carrier is cleared, not as we go: two surfaces can
+    // share a colour, and pruning on the first would still see the second
+    // holding it.
+    freed.forEach(function(num) { pruneOrphanColour(num, null); });
     saveColours();
   }
   afterSnagColourChange();
@@ -13686,7 +13833,16 @@ function clearSnagRoomColourFor(label) {
 // both rather than guessing which is behind it, plus the sheet's own field.
 // Each is a pure re-render of data already in memory.
 function afterSnagColourChange() {
-  renderSnagColourSlot();
+  renderActiveJobColourViews();
+  // The sheet's own fields go last and on a timeout. A commit usually arrives
+  // from a field's blur, and replacing the node the browser is part-way
+  // through blurring throws; by the next tick it has finished.
+  setTimeout(renderSnagColourSlot, 0);
+}
+
+// Both screens the snag colours show on. Neither knows which is in front, and
+// each is a pure re-render of data already in memory.
+function renderActiveJobColourViews() {
   renderActuals();
   renderColours();
 }
@@ -13703,7 +13859,7 @@ function renderSnagRoomsCard() {
   var wrap = document.getElementById('colour-snagrooms-wrap');
   var card = document.getElementById('colour-snagrooms-card');
   if (!wrap || !card) return;
-  var pending = unmeasuredSnagRooms().filter(function(l) { return !snagRoomColourNumber(l); });
+  var pending = unmeasuredSnagRooms().filter(function(l) { return !snagRoomHasColour(l); });
   if (!pending.length) { wrap.style.display = 'none'; card.innerHTML = ''; return; }
   wrap.style.display = 'block';
   card.innerHTML = '<div style="padding:12px 16px;font-size:12px;color:var(--text2);line-height:1.5;border-bottom:1px solid var(--border)">'
@@ -13721,7 +13877,7 @@ function renderSnagRoomsCard() {
 // Index into the same filtered list the card just rendered, for the same
 // apostrophe-safety reason snagGroupsCache exists.
 function openSnagColourPanelFromColours(i) {
-  var pending = unmeasuredSnagRooms().filter(function(l) { return !snagRoomColourNumber(l); });
+  var pending = unmeasuredSnagRooms().filter(function(l) { return !snagRoomHasColour(l); });
   if (pending[i]) openSnagColourPanelForLabel(pending[i]);
 }
 
@@ -15471,10 +15627,22 @@ function colourAreas(live) {
   // "White" on the heading. They are offered for naming by their own card on
   // the Colours tab instead (see renderSnagRoomsCard).
   unmeasuredSnagRooms().forEach(function(label) {
-    var num = snagRoomColourNumber(label);
+    // Per-surface rooms contribute one area EACH, exactly as a measured room
+    // does -- same role keys, so areaPlaceholder/AREA_ROLE_WORDS name them
+    // ("Hallway Ceiling") and the Colours tab renders them with no special
+    // case. A whole-room colour is the single-area case it always was.
+    var parts = snagRoomSurfaceParts(label);
+    if (parts.length) {
+      parts.forEach(function(p) {
+        out.push({ owner: label, role: p.roleKey, label: areaPlaceholder(label, p.roleKey),
+                   num: p.num, ref: { kind: 'snag', id: label, role: p.roleKey } });
+      });
+      return;
+    }
+    var num = snagRoomColourNumber(label, 'all');
     if (!num) return;
     out.push({ owner: label, role: 'snag', label: label,
-               num: num, ref: { kind: 'snag', id: label } });
+               num: num, ref: { kind: 'snag', id: label, role: 'all' } });
   });
   return out;
 }
@@ -16013,7 +16181,7 @@ function renderColours() {
     // A snag-room area was never measured -- it exists because the snag list
     // names it. Saying so stops it reading as a room somebody forgot to
     // price, which on a Xero-imported job is a real question to have.
-    var snagNote = a.role === 'snag'
+    var snagNote = (a.ref && a.ref.kind === 'snag')
       ? '<span style="text-transform:none;letter-spacing:0;font-weight:600;color:var(--text3)"> · from the snag list</span>' : '';
     var head = a.owner !== lastOwner
       ? '<div class="subsection-label">' + escapeHtml(a.owner) + snagNote + '</div>' : '';
@@ -16122,7 +16290,7 @@ function setAreaColourNumber(ref, num) {
   // the snag_rooms table, where the label is the identity rather than a row
   // id, so the Colours tab and the On Site sheet address the same row.
   if (ref.kind === 'snag') {
-    setSnagRoomColour(ref.id, num);
+    setSnagRoomColour(ref.id, num, ref.role || 'all');
     return;
   }
   if (ref.kind === 'fittedunit') {

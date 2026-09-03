@@ -951,7 +951,13 @@ function ensureSnagSchema() {
           created_at TIMESTAMP NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMP NOT NULL DEFAULT NOW()
         )`);
-      await db.query('CREATE UNIQUE INDEX IF NOT EXISTS snag_rooms_job_label ON snag_rooms (job_id, lower(room_label))');
+      // Per-surface colours (see db/setup.sql): a row is one (room, role) pair,
+      // 'all' meaning the whole room in one colour and also what every
+      // pre-role row already means, so existing data migrates by standing
+      // still. The old index forbids exactly what this now allows.
+      await db.query("ALTER TABLE snag_rooms ADD COLUMN IF NOT EXISTS role VARCHAR NOT NULL DEFAULT 'all'");
+      await db.query('DROP INDEX IF EXISTS snag_rooms_job_label');
+      await db.query('CREATE UNIQUE INDEX IF NOT EXISTS snag_rooms_job_label_role ON snag_rooms (job_id, lower(room_label), role)');
       await db.query('CREATE INDEX IF NOT EXISTS snag_rooms_job ON snag_rooms (job_id)');
     })().catch(err => { snagSchemaReady = null; throw err; });
   }
@@ -965,6 +971,11 @@ function ensureSnagSchema() {
 // a bulk-pasted list arrives that way and gets phases assigned by hand.
 const SNAG_PHASES = new Set(['prep', 'stain_block', 'woodwork', 'walls', 'ceiling', 'details', 'final_access']);
 const SNAG_STATUSES = new Set(['open', 'done']);
+// The surfaces a snag room's colour can be recorded against. The five named
+// ones are the SAME keys a measured room uses, so these rows drop into
+// colourAreas() as ordinary areas; 'all' is one colour for the whole room and
+// is what every row written before per-surface colours existed means.
+const SNAG_ROOM_ROLES = new Set(['all', 'wall', 'ceiling', 'woodwork', 'featurewall', 'panel']);
 
 router.use(['/snags', '/snag-rooms'], async (req, res, next) => {
   try {
@@ -1054,12 +1065,13 @@ router.get('/snag-rooms', async (req, res) => {
   const jobId = requireJobId(req, res); if (!jobId) return;
   try {
     const result = await db.query(
-      `SELECT id, room_label, colour_number FROM snag_rooms WHERE job_id = $1 ORDER BY created_at ASC`,
+      `SELECT id, room_label, role, colour_number FROM snag_rooms WHERE job_id = $1 ORDER BY created_at ASC`,
       [jobId]
     );
     res.json(result.rows.map(r => ({
       id: r.id,
       roomLabel: r.room_label,
+      role: r.role || 'all',
       colourNumber: r.colour_number == null ? null : +r.colour_number,
     })));
   } catch (err) {
@@ -1070,17 +1082,20 @@ router.get('/snag-rooms', async (req, res) => {
 router.put('/snag-rooms/:id', async (req, res) => {
   const { id } = req.params;
   const jobId = requireJobId(req, res); if (!jobId) return;
-  const { roomLabel, colourNumber } = req.body;
+  const { roomLabel, role, colourNumber } = req.body;
   const label = String(roomLabel == null ? '' : roomLabel).trim();
   if (!label) return res.status(400).json({ error: 'roomLabel is required' });
+  // Validated rather than free text, for the same reason snag phases are: an
+  // unknown role would store a colour nothing ever reads back.
+  const surface = SNAG_ROOM_ROLES.has(role) ? role : 'all';
   try {
     const result = await db.query(`
-      INSERT INTO snag_rooms (id, job_id, room_label, colour_number, updated_at)
-      VALUES ($1, $2, $3, $4, NOW())
-      ON CONFLICT (job_id, lower(room_label))
-      DO UPDATE SET room_label = $3, colour_number = $4, updated_at = NOW()
+      INSERT INTO snag_rooms (id, job_id, room_label, role, colour_number, updated_at)
+      VALUES ($1, $2, $3, $4, $5, NOW())
+      ON CONFLICT (job_id, lower(room_label), role)
+      DO UPDATE SET room_label = $3, colour_number = $5, updated_at = NOW()
       RETURNING id
-    `, [id, jobId, label, colourNumber == null || colourNumber === '' ? null : +colourNumber]);
+    `, [id, jobId, label, surface, colourNumber == null || colourNumber === '' ? null : +colourNumber]);
     res.json({ ok: true, id: result.rows[0].id });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1705,7 +1720,7 @@ router.get('/backup/export', async (req, res) => {
     // Restoring a snag list without them would bring back the punch list of a
     // room-less job with every heading blank again.
     const snagRoomsResult = await db.query(
-      `SELECT id, job_id, room_label, colour_number FROM snag_rooms ORDER BY job_id ASC, created_at ASC`
+      `SELECT id, job_id, room_label, role, colour_number FROM snag_rooms ORDER BY job_id ASC, created_at ASC`
     ).catch(err => {
       if (err.code === '42P01') return { rows: [] };
       throw err;
@@ -1790,6 +1805,7 @@ router.get('/backup/export', async (req, res) => {
       snagRooms: (snagRoomsByJob[j.id] || []).map(r => ({
         id: r.id,
         roomLabel: r.room_label,
+        role: r.role || 'all',
         colourNumber: r.colour_number == null ? null : +r.colour_number,
       })),
       quoteSnapshots: (snapshotsByJob[j.id] || []).map(r => ({
@@ -1902,9 +1918,10 @@ async function copyJobRows(entry, newJobId) {
   if (snagRoomRows.length) await ensureSnagSchema();
   for (const sr of snagRoomRows) {
     await db.query(
-      `INSERT INTO snag_rooms (id, job_id, room_label, colour_number) VALUES ($1, $2, $3, $4)
-       ON CONFLICT (job_id, lower(room_label)) DO NOTHING`,
+      `INSERT INTO snag_rooms (id, job_id, room_label, role, colour_number) VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (job_id, lower(room_label), role) DO NOTHING`,
       [crypto.randomUUID(), newJobId, String(sr.roomLabel).trim(),
+        SNAG_ROOM_ROLES.has(sr.role) ? sr.role : 'all',
         sr.colourNumber == null ? null : +sr.colourNumber]
     );
   }
