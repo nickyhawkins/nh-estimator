@@ -244,6 +244,18 @@ through `applyAreaColourName(1, …)`: passing colour 1 as the current would let
 it rename the job's default colour out from under every surface that really
 does use it. It reuses a colour already carrying that name, or mints one.
 
+**The sheet uses the app's ordinary colour field**, not one of its own:
+`colourSlotHtml()` / `registerColourSlot()`, the same widget behind every area
+field on the room, exterior, kitchen and Colours screens. So a snag room gets
+the colour-library lookup as you type (matching on name *and* code, so RAL
+numbers stay findable), the brand and code filled in from the library entry
+rather than guessed, one-tap chips for colours already on the job, the
+save-an-unknown-name-to-the-library flow, and commit-on-blur with no Save
+button — all of it for free, and none of it able to drift from the rest of the
+app. The only additions are a **Clear colour** button (a measured area can't be
+undecided once it exists, so no other slot needs one) and the undecided
+carve-out above.
+
 Both entry points — the `+ colour` chip on an On Site heading and the Colours
 tab card — open the same sheet, so there is one way to colour a snag room.
 Snag-room colours are in backup export/import, are deleted with the job and by

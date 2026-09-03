@@ -624,11 +624,17 @@ measured room behind it gets a **+ colour** tap instead:
 
 ![Snag rooms with and without a colour](images/10d-snag-room-colours.png)
 
-Tap it and pick a colour you've already named on this job, or **Name a new
-colour…** and type it — same as anywhere else in the app, so a Farrow & Ball
-or Little Greene name comes in with its brand and number attached:
+Tap it and you get the same colour field as everywhere else in the app: start
+typing and your colour library offers matches with their brand and number, so
+"dead sal" finds Farrow & Ball No. 28 Dead Salmon and fills the rest in for you.
 
-![Setting a snag room's colour](images/10e-snag-colour-sheet.png)
+![Looking a colour up for a snag room](images/10e-snag-colour-sheet.png)
+
+Under the field, the colours already on this job are one tap each. A name the
+library has never heard of is fine too — type it and it's yours; the dropdown
+also offers to **save it to your colour library** with a brand and code, so
+it's there for the next job. **Clear colour** puts a room back to undecided
+without losing the colour itself.
 
 Once a room has a colour it shows on the heading (**Landing — Dead Salmon**)
 and joins the **Colours** tab alongside everything else, marked *from the snag
@@ -766,7 +772,7 @@ Those stay your judgement call.
 Settings → **Backup**:
 
 - **Export everything** downloads a single JSON file containing every job, room, setting and colour. Do this regularly — Home will nag you when the last backup is getting old.
-- **Import backup** restores from a file, adding to what's already there — imported jobs get fresh identities, so it can never overwrite existing data. Restoring settings is a separate opt-in on the import preview, since it's the one thing an import *can* overwrite.
+- **Import backup** restores from a file, adding to what's already there — imported jobs get fresh identities, so it can never overwrite existing data. Restoring settings is a separate opt-in on the import preview, since it's the one thing an import *can* overwrite. Backup files up to 64MB are accepted, which is far more than a full job history comes to; if anything is ever wrong with a file, the app now tells you what in plain English rather than showing a syntax error.
 
 ---
 

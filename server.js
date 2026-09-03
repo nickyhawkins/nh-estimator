@@ -69,9 +69,31 @@ app.use(compression());
 // process up", nothing else.
 app.get('/healthz', (req, res) => res.type('text').send('ok'));
 
-// Body parsing
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Body parsing.
+//
+// NOT the 100kb default, which was too small for two of this app's real
+// payloads and had silently broken one of them outright:
+//
+//   · POST /api/backup/import carries the WHOLE backup file as JSON. The
+//     colour library alone is ~80KB of a 100kb budget on EVERY instance (1,221
+//     seeded Farrow & Ball / Little Greene entries), before a single job, so
+//     import failed on any database with more than a couple of tiny jobs --
+//     i.e. all of them. Worse, the failure arrived as body-parser's HTML error
+//     page, which the client then tried to JSON.parse, so the user saw a
+//     syntax error rather than "too big". Backup is the disaster-recovery
+//     path: it has to be able to read back what export just wrote, and the
+//     ceiling here should never be the reason a restore fails.
+//   · POST /api/quote-snapshots and the bulk collection PUTs (rooms, colours,
+//     materials) scale with the SIZE OF THE JOB. A snapshot runs a few KB per
+//     room, so a large house lands within a whisker of 100kb -- and the thing
+//     that would fail is accepting a quote.
+//
+// So: a generous ceiling on the import route, mounted ahead of the general
+// parser (body-parser skips a request another parser has already read), and
+// enough headroom on everything else that the size of a job can't trip it.
+app.use('/api/backup/import', express.json({ limit: '64mb' }));
+app.use(express.json({ limit: '4mb' }));
+app.use(express.urlencoded({ extended: true, limit: '4mb' }));
 
 // Session with PostgreSQL store
 // rolling: the 30-day cookie is re-sent on every response, so its expiry
@@ -167,6 +189,36 @@ if (DEBT_APP_ENABLED) app.use('/debt', require('./routes/debt'));
 // Serve the app for all other routes
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Every /api failure answers in JSON, whatever raised it.
+//
+// Without this, an error thrown BEFORE a route ran -- body-parser rejecting an
+// oversized or malformed body is the one that actually bit -- fell through to
+// Express's default handler, which sends an HTML stack trace. The client's API
+// helpers all read the response as JSON, so the user got a parse error about
+// an unexpected '<' instead of the reason. The limits above mean a legitimate
+// backup no longer trips this; it is here so that if anything ever does, it
+// says so in words.
+app.use('/api', (err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  const tooLarge = err.type === 'entity.too.large' || err.status === 413;
+  const badJson = err.type === 'entity.parse.failed';
+  if (!tooLarge && !badJson) console.error('Unhandled /api error', err);
+  // Say the useful thing for the route that actually failed: naming the
+  // backup limit on a room save would send someone looking in the wrong place.
+  const isImport = req.path.indexOf('/backup/import') === 0;
+  res.status(tooLarge ? 413 : badJson ? 400 : 500).json({
+    error: tooLarge
+      ? (isImport
+          ? 'That backup file is too large to import — it is over the 64MB limit.'
+          : 'That request was too large for the server to accept.')
+      : badJson
+        ? (isImport
+            ? 'That file could not be read as a backup — it may be truncated, or not a backup file.'
+            : 'That request was not valid JSON.')
+        : (err.message || 'Something went wrong on the server.')
+  });
 });
 
 // Debt app: due-date push notifications + the 28-day cycle-reset nudge
