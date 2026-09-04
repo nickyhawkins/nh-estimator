@@ -579,10 +579,17 @@ day and the sheet opens with the day's own actions first:
 
 ![Tapping a day on the calendar](images/09b-schedule-day.png)
 
-- **Block day(s)…** takes a range: the day you tapped → an end date (the same
-  day, for a single day off), plus an optional label such as *Holiday*. Only
-  the would-be working days in between are stored — weekends and bank
-  holidays are already off.
+- **Block day(s)…** is offered on **every day from today onwards** — including
+  Saturdays, Sundays and bank holidays. Your usual week may have those off,
+  but a job set to *+ Saturdays* or *Every day* works them, and a block is the
+  one thing that override never beats. The picture above is exactly that: a
+  Saturday in the middle of a whole-house job.
+- It takes a range: the day you tapped → an end date (the same day, for a
+  single day off), plus an optional label such as *Holiday*. The day you
+  tapped is always blocked. Days merely swept up in between are blocked only
+  if you'd have been working them anyway — a weekend in the middle of a
+  fortnight off is already off, so it isn't cluttered with a chip, unless a
+  job was booked across it.
 - Blocked days draw as a dashed grey bar across the calendar, are never
   offered as a start date, and booked jobs stretch **around** them. Your phone
   calendar feed agrees, so a blocked fortnight is a gap there too.
