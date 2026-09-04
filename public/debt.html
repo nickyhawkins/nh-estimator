@@ -585,6 +585,26 @@ function getCurrentTarget(){
   // snowball: smallest balance overall
   return active.slice().sort((a,b)=>a.balance-b.balance)[0]||null;
 }
+// What a floor actually commits you to this cycle. Capped at the BALANCE —
+// you can never owe more than is left — and deliberately NOT at the month's
+// planned payment, which is what it used to be. Those are the same number in
+// the ordinary case, but they part company twice, both times badly:
+//
+//  - A debt the budget never reached has a planned payment of £0, so the cap
+//    rewrote a real commitment as a floor of nothing and called it met.
+//  - A floor set ABOVE the minimum (the whole point of being able to edit it)
+//    was quietly shrunk back to the minimum in any month with no spare.
+//
+// It is also the cap rollOnce() uses server-side, so the verdict the app
+// shows and the one the cycle close records can no longer disagree.
+// `paidOff` is what an already-applied payment took off the balance, so the
+// cap is measured against the balance as it stood when the cycle opened.
+function floorDueOf(debt,paidOff){
+  const floor=floorOf(debt);
+  if(floor===null)return null;
+  const balance=(debt?Number(debt.balance)||0:0)+(Number(paidOff)||0);
+  return round2(Math.min(floor,balance));
+}
 function getCyclePayments(){
   const months=getSim();
   const m1=months[0];
@@ -605,7 +625,15 @@ function getCyclePayments(){
     // balance that payment already reduced. ?? keeps ledger entries written
     // before custom amounts existed reading as "paid exactly the target".
     const target=a?(a.target??a.nominal):p.total;
-    return {id:p.id,name:p.name,amount:total,target,custom:!!(a&&a.custom),due:debt?.due??99,arrears:(a?a.arrearsAmt:p.arrearsPaid)>0.005,
+    // The arrears figures are the DEBT's, not the payment's. `arrearsAmt` is
+    // the catch-up inside this month's payment; `arrearsLeft` is what stays
+    // overdue once it has gone out — which is what the ARREARS badge means
+    // everywhere else in the app, and what was missing here. debts[] is live,
+    // so an applied payment has already come off d.arrears.
+    const arrearsAmt=a?a.arrearsAmt:p.arrearsPaid;
+    const arrearsLeft=round2(Math.max(0,(debt?debt.arrears:0)-(a?0:arrearsAmt)));
+    return {id:p.id,name:p.name,amount:total,target,custom:!!(a&&a.custom),due:debt?.due??99,
+      arrears:arrearsLeft>0.005,arrearsLeft,unfunded:false,
       snowball:a?!!a.snowball:p.extra>0.005,missed:missedThisCycle.includes(p.id),
       floorPaid:floorPaidThisCycle.includes(p.id),
       account:debt?.account||'personal',
@@ -613,13 +641,8 @@ function getCyclePayments(){
       // The split behind the payment, so applying a tick knows how much of it
       // is arrears catch-up (the discretionary part) rather than the
       // contractual minimum.
-      minAmt:a&&a.minAmt!=null?a.minAmt:p.minPaid,arrearsAmt:a?a.arrearsAmt:p.arrearsPaid,
-      // What must actually go out to keep the commitment. Capped at the
-      // planned payment: once a balance is nearly cleared you can't (and
-      // needn't) send more than is left. Capped at the TARGET, not at what
-      // was paid — otherwise a £20 custom payment would redefine a £205
-      // floor as £20 and call it met.
-      floorDue:floor===null?null:Math.min(floor,target)};
+      minAmt:a&&a.minAmt!=null?a.minAmt:p.minPaid,arrearsAmt,
+      floorDue:floorDueOf(debt,a?a.amount:0)};
   });
   // A debt this cycle's payment cleared outright drops out of month 1 — keep
   // its ticked row on the checklist rather than losing a payment you made.
@@ -631,10 +654,33 @@ function getCyclePayments(){
     const debt=debts.find(d=>d.id===id);
     const target=a.target??a.nominal;
     rows.push({id,name:debt?.name||a.name||('Debt '+id),amount:a.nominal,target,custom:!!a.custom,due:debt?.due??99,
-      arrears:a.arrearsAmt>0.005,snowball:!!a.snowball,missed:false,
+      arrears:round2(debt?debt.arrears:0)>0.005,arrearsLeft:round2(debt?debt.arrears:0),unfunded:false,
+      snowball:!!a.snowball,missed:false,
       floorPaid:floorPaidThisCycle.includes(id),account:debt?.account||'personal',
       floor:floorOf(debt),minAmt:a.minAmt??0,arrearsAmt:a.arrearsAmt,
-      floorDue:floorOf(debt)===null?null:Math.min(floorOf(debt),target)});
+      floorDue:floorDueOf(debt,a.amount)});
+  }
+  // Arrears the month's budget never reached. A debt with no contractual
+  // minimum — Brewers' trade account, whose whole balance is overdue — takes
+  // nothing from the sim except through the arrears queue, so in a tight
+  // month its planned payment is £0 and `p.total>0.005` dropped it off the
+  // checklist entirely: All Debts said £1,700.89 in arrears and the cycle it
+  // belongs to never mentioned it. £0 is the honest allocation; silence is
+  // not. The row goes in marked `unfunded` — visible, still payable with your
+  // own amount, and counted in the floors verdict if a floor has been agreed
+  // — but it asks for nothing, so it moves no pot money and no verdict.
+  for(const d of debts){
+    if(d.balance<=0.005||d.arrears<=0.005)continue;
+    if(!(d.min>0.005||d.due))continue; // not in the payment plan at all
+    if(rows.some(r=>r.id===d.id))continue;
+    // A ticked payment with no ledger entry behind it (a cycle opened before
+    // applied_payments existed) is settled, not waiting — leave it as it was.
+    if(paidThisCycle.includes(d.id)||floorPaidThisCycle.includes(d.id))continue;
+    rows.push({id:d.id,name:d.name,amount:0,target:0,custom:false,due:d.due??99,
+      arrears:true,arrearsLeft:round2(d.arrears),unfunded:true,
+      snowball:false,missed:missedThisCycle.includes(d.id),floorPaid:false,
+      account:d.account||'personal',floor:floorOf(d),minAmt:0,arrearsAmt:0,
+      floorDue:floorDueOf(d,0)});
   }
   return rows.sort((a,b)=>a.due-b.due);
 }
@@ -827,6 +873,11 @@ function renderAll(){
     // but drop out of every total — the pots don't reserve money for a
     // payment that deliberately isn't happening.
     const activeCycle=cyclePayments.filter(p=>!p.missed);
+    // Rows the plan actually asks money for. An `unfunded` row — a debt in
+    // arrears the budget never reached — is on the list to be seen, not to be
+    // ticked off, so it stays out of the "n of m done" count and out of
+    // "next to pay". It already contributes £0 to every money total.
+    const plannedCycle=activeCycle.filter(p=>!p.unfunded);
     const missedCount=cyclePayments.length-activeCycle.length;
     const bizPayments=activeCycle.filter(p=>{const d=debts.find(x=>x.id===p.id);return d&&d.account==='business';});
     const perPayments=activeCycle.filter(p=>{const d=debts.find(x=>x.id===p.id);return d&&d.account==='personal';});
@@ -842,7 +893,7 @@ function renderAll(){
     const paidPerTotal=perPayments.reduce((s,p)=>s+paidOut(p),0);
     const bizStillNeeded=Math.max(0,bizCycleTotal-paidBizTotal);
     const perStillNeeded=Math.max(0,perCycleTotal-paidPerTotal);
-    const nextDue=activeCycle.find(p=>paymentState(p.id)==='unpaid');
+    const nextDue=plannedCycle.find(p=>paymentState(p.id)==='unpaid');
     const totalIn=incomeLog.reduce((s,e)=>s+e.amount,0);
 
     html+=`<div class="total-card" style="background:linear-gradient(135deg,#1a2535,#141a2e)">
@@ -1001,7 +1052,7 @@ function renderAll(){
     html+=`<div class="card">
       <div class="row" style="margin-bottom:8px">
         <h2 style="margin:0">This cycle's payments</h2>
-        <span style="font-size:12px;color:#7c7f96">${activeCycle.filter(p=>paidThisCycle.includes(p.id)).length}/${activeCycle.length} done · ${fmt(paidTotal2)} paid${activeCycle.filter(p=>p.floorPaid).length?` · <span style="color:#7db87d">${activeCycle.filter(p=>p.floorPaid).length} at floor</span>`:''}${missedCount?` · <span style="color:#e0923b">${missedCount} missed</span>`:''}</span>
+        <span style="font-size:12px;color:#7c7f96">${plannedCycle.filter(p=>paidThisCycle.includes(p.id)).length}/${plannedCycle.length} done · ${fmt(paidTotal2)} paid${activeCycle.filter(p=>p.floorPaid).length?` · <span style="color:#7db87d">${activeCycle.filter(p=>p.floorPaid).length} at floor</span>`:''}${missedCount?` · <span style="color:#e0923b">${missedCount} missed</span>`:''}</span>
       </div>
       ${renderFloorIndicators(fs)}
       <div style="background:#0f1117;border-radius:6px;height:6px;overflow:hidden;margin-bottom:14px">
@@ -1022,6 +1073,10 @@ function renderAll(){
       const floorOnly=state==='floor';
       const missed=state==='missed';
       const custom=state==='custom';
+      // A debt in arrears the budget never reached this cycle. It is on the
+      // list so the overdue money is visible, not so it can be ticked: there
+      // is nothing to pay against, only an amount you could choose to send.
+      const unfunded=p.unfunded;
       // Struck through and settled either way — the difference is only
       // whether the amount was the plan's or the user's.
       const settled=done||custom;
@@ -1039,7 +1094,9 @@ function renderAll(){
         :`${fmt(p.target-p.amount)} under the ${fmt(p.target)} target`;
       const link=(fn,label,color)=>`<button onclick="${fn}(${p.id})" style="background:none;border:none;padding:2px 0 0;font-size:10px;font-weight:600;color:${color};text-decoration:underline">${label}</button>`;
       html+=`<div style="display:flex;align-items:center;gap:12px;padding:10px 0;${i<cyclePayments.length-1?'border-bottom:1px solid #2a2d3e':''}">
-        <button class="check ${done?'done':''}" onclick="${custom?'undoPayment':'togglePaid'}(${p.id})" style="${missed?'opacity:.35':''}${floorOnly?'border-color:#7db87d;color:#7db87d':''}${custom?'border-color:#5b8def;color:#5b8def':''}">${done?'✓':floorOnly?'◐':custom?'✓':''}</button>
+        ${unfunded
+          ?`<div class="check" style="border-color:#4a2020;color:#e05c5c;font-weight:700">!</div>`
+          :`<button class="check ${done?'done':''}" onclick="${custom?'undoPayment':'togglePaid'}(${p.id})" style="${missed?'opacity:.35':''}${floorOnly?'border-color:#7db87d;color:#7db87d':''}${custom?'border-color:#5b8def;color:#5b8def':''}">${done?'✓':floorOnly?'◐':custom?'✓':''}</button>`}
         <div style="flex:1">
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
             <span style="font-weight:600;${settled?'color:#555;text-decoration:line-through':missed?'color:#7c7f96':''}">${esc(p.name)}</span>
@@ -1047,15 +1104,15 @@ function renderAll(){
             ${missed?'<span class="badge" style="background:#3a2a0a;color:#e0923b">MISSED</span>':''}
             ${floorOnly?'<span class="badge badge-green">FLOOR PAID</span>':''}
             ${custom?'<span class="badge badge-blue">OWN AMOUNT</span>':''}
-            ${p.arrears&&!settled&&!missed&&!floorOnly?'<span class="badge badge-red">ARREARS</span>':''}
+            ${p.arrears?'<span class="badge badge-red">ARREARS</span>':''}
             ${p.snowball&&!settled&&!missed&&!floorOnly?'<span class="badge badge-blue">SNOWBALL</span>':''}
           </div>
-          <div style="font-size:11px;color:#555;margin-top:1px">${missed?'Skipped this cycle — no budget set aside':custom?customNote:floorOnly?`Floor met · ${fmt(Math.max(0,p.target-p.floorDue))} under target`:(p.due<99?'Due '+ord(p.due):'Flexible date')}${p.floorDue!==null&&!floorOnly?` · floor <span style="color:${floorSettled?'#555':settled||missed?'#e0923b':'#7c7f96'}">${fmt(p.floorDue)}</span>`:''}${p.floorDue===null?' · <span style="color:#e0923b">no floor set</span>':''}</div>
+          <div style="font-size:11px;color:#555;margin-top:1px">${unfunded?`${p.due<99?'Due '+ord(p.due):'Flexible date'} · <span style="color:#e0923b">waiting for budget</span>`:missed?'Skipped this cycle — no budget set aside':custom?customNote:floorOnly?`Floor met · ${fmt(Math.max(0,p.target-p.floorDue))} under target`:(p.due<99?'Due '+ord(p.due):'Flexible date')}${p.floorDue!==null&&!floorOnly?` · floor <span style="color:${floorSettled?'#555':settled||missed?'#e0923b':'#7c7f96'}">${fmt(p.floorDue)}</span>`:''}${p.floorDue===null&&!unfunded?' · <span style="color:#e0923b">no floor set</span>':''}${p.arrearsLeft>0.005?` · <span style="color:#e05c5c">${fmt(p.arrearsLeft)} still overdue</span>`:''}</div>
         </div>
         <div style="text-align:right;flex-shrink:0">
-          <div style="font-weight:700;color:${custom?'#5b8def':done||missed?'#555':floorOnly?'#7db87d':'#e8e8ec'};${settled||missed?'text-decoration:line-through':''}">${floorOnly?fmt(p.floorDue):fmt(p.amount)}</div>
+          <div style="font-weight:700;color:${unfunded?'#555':custom?'#5b8def':done||missed?'#555':floorOnly?'#7db87d':'#e8e8ec'};${settled||missed?'text-decoration:line-through':''}">${unfunded?'—':floorOnly?fmt(p.floorDue):fmt(p.amount)}</div>
           ${done?'':`<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;max-width:176px;margin-left:auto">
-            ${custom?link('openCustomPayModal','change amount','#5b8def')+link('undoPayment','undo','#555'):`
+            ${unfunded?link('openCustomPayModal','pay some of it','#5b8def'):custom?link('openCustomPayModal','change amount','#5b8def')+link('undoPayment','undo','#555'):`
             ${floorIsLess||floorOnly?link('togglePaidFloor',floorOnly?'undo floor':'paid floor only','#7db87d'):''}
             ${floorOnly?'':link('toggleMissed',missed?'undo missed':'missed this cycle?',missed?'#e0923b':'#555')}
             ${missed?'':link('openCustomPayModal','own amount','#5b8def')}`}
@@ -1112,7 +1169,13 @@ function renderAll(){
         const isTrade=debt?.account==='business'&&(debt?.min===0||!debt?.due);
         // Priority scoring
         let priority,color,bg,advice;
-        if(inArrears&&daysUntilDue<=7){
+        if(p.unfunded){
+          // Overdue with nothing allocated — the budget ran out before the
+          // arrears queue reached it. There is no planned payment to quote,
+          // so the figure that matters is what is overdue.
+          priority='MUST PAY';color='#e05c5c';bg='#3a0d0d';
+          advice=`${fmt(p.arrearsLeft)} overdue · nothing budgeted this cycle — pay what you can`;
+        } else if(inArrears&&daysUntilDue<=7){
           priority='MUST PAY';color='#e05c5c';bg='#3a0d0d';
           advice='Already in arrears — missing this risks default';
         } else if(inArrears||daysUntilDue<=5){
@@ -1147,7 +1210,7 @@ function renderAll(){
           <div style="flex:1">
             <div style="display:flex;justify-content:space-between;align-items:flex-start">
               <span style="font-weight:600;font-size:14px">${esc(p.name)}</span>
-              <span style="font-weight:700;color:${p.color};flex-shrink:0;margin-left:8px">${fmt(p.amount)}</span>
+              <span style="font-weight:700;color:${p.color};flex-shrink:0;margin-left:8px">${p.unfunded?fmt(p.arrearsLeft):fmt(p.amount)}</span>
             </div>
             <div style="font-size:12px;color:#555;margin-top:2px">${p.advice}</div>
           </div>
@@ -1825,6 +1888,10 @@ function setPaymentState(id,next){
     unapplyPayment(id);
     p=getCyclePayments().find(x=>x.id===id)||p;
   }
+  // An unfunded arrears row asks for £0. Ticking it "paid" would record a
+  // payment of nothing and strike the debt through while it is still overdue
+  // — the checklist doesn't offer the tick, and neither does this.
+  if(next==='paid'&&p.amount<=0.005)next='unpaid';
   paidThisCycle=paidThisCycle.filter(x=>x!==id);
   floorPaidThisCycle=floorPaidThisCycle.filter(x=>x!==id);
   missedThisCycle=missedThisCycle.filter(x=>x!==id);
@@ -1888,10 +1955,13 @@ function payContext(id){
   // null target = no planned payment this cycle at all (a trade account with
   // no minimum, HMRC before Time to Pay). Such a debt can still be paid; it
   // just has nothing to be over or under.
-  const target=a?(a.target??a.nominal):row?row.target:null;
-  const floor=floorOf(debt);
+  // An unfunded arrears row carries a target of £0, which is the same thing
+  // as having no planned payment — say so rather than quoting "plan says
+  // £0.00" at a debt the budget simply never reached.
+  const target=a?(a.target??a.nominal):row&&row.target>0.005?row.target:null;
   return {debt,isBiz,balance,arrears,pot,minAmt,target,
-    floorDue:floor===null?null:Math.min(floor,target==null?balance:target),
+    // Capped at the balance, never at the planned payment — see floorDueOf().
+    floorDue:floorDueOf(debt,a?a.amount:0),
     // What it takes to leave nothing overdue: this month's minimum, then
     // every penny of the arrears on top.
     clearArrears:Math.min(balance,round2(minAmt+arrears))};
