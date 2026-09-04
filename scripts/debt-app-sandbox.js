@@ -34,7 +34,7 @@ function loadDebtApp() {
   if (src === m[1]) throw new Error('bootstrap calls not found — has the end of debt.html changed?');
   src += `
 globalThis.__t = {
-  get state(){ return {debts,budget,bizPot,perPot,savingsPot,bufferBiz,bufferPer,bufferTargetBiz,bufferTargetPer,savingsPct,sweepPct,paidThisCycle,missedThisCycle,floorPaidThisCycle,appliedPayments,floorShortfalls,incomeLog}; },
+  get state(){ return {debts,budget,bizPot,perPot,savingsPot,bufferBiz,bufferPer,bufferTargetBiz,bufferTargetPer,savingsPct,sweepPct,paidThisCycle,missedThisCycle,minPaidThisCycle,appliedPayments,incomeLog}; },
   set state(o){
     if('debts' in o)debts=o.debts; if('budget' in o)budget=o.budget;
     if('bizPot' in o)bizPot=o.bizPot; if('perPot' in o)perPot=o.perPot;
@@ -45,14 +45,13 @@ globalThis.__t = {
     if('savingsPct' in o)savingsPct=o.savingsPct; if('sweepPct' in o)sweepPct=o.sweepPct;
     if('paidThisCycle' in o)paidThisCycle=o.paidThisCycle;
     if('missedThisCycle' in o)missedThisCycle=o.missedThisCycle;
-    if('floorPaidThisCycle' in o)floorPaidThisCycle=o.floorPaidThisCycle;
+    if('minPaidThisCycle' in o)minPaidThisCycle=o.minPaidThisCycle;
     if('appliedPayments' in o)appliedPayments=o.appliedPayments;
-    if('floorShortfalls' in o)floorShortfalls=o.floorShortfalls;
     if('incomeLog' in o)incomeLog=o.incomeLog;
   },
-  DEBTS_INITIAL, floorOf, getFloorStatus, allocateIncome, getCyclePayments,
+  DEBTS_INITIAL, minDueOf, getCycleStatus, allocateIncome, getCyclePayments,
   getCycleArchivePayload, getCycleTotals, simulate, setPaymentState, paymentState,
-  paidAmountOf, getUnpaidMinimums, payContext,
+  paidAmountOf, getUnpaidMinimums, applyUnpaidMinimums, payContext,
   openCustomPayModal, customPayPreview, confirmCustomPay, undoPayment,
   monthlyMinimums, bufferCover, confirmBufferCover, setBufferPreset, setBufferTargetFor,
   confirmLog, deleteIncome, currentAllocation, openLogModal, updateSweepPreview,
@@ -103,8 +102,8 @@ function makeReset(app) {
       bizPot: 0, perPot: 0, savingsPot: 0,
       bufferBiz: 0, bufferPer: 0, bufferTargetBiz: 0, bufferTargetPer: 0,
       savingsPct: 10, sweepPct: 50,
-      paidThisCycle: [], missedThisCycle: [], floorPaidThisCycle: [],
-      appliedPayments: {}, floorShortfalls: [], incomeLog: []
+      paidThisCycle: [], missedThisCycle: [], minPaidThisCycle: [],
+      appliedPayments: {}, incomeLog: []
     }, over);
   };
 }

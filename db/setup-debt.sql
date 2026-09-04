@@ -176,6 +176,21 @@ CREATE TABLE IF NOT EXISTS debt_push_subscriptions (
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+-- ── RETIRED (v2.57.0): Floor & Target payments ──────────────────────────
+-- floor_payment and floor_shortfalls are no longer read or written by the
+-- app. Across the whole live plan the floor was set equal to the contractual
+-- minimum on every debt but one, and never above it — it never said anything
+-- `min` did not already say, while costing a second verdict, a payment state,
+-- a priority order and a catch-up ledger. What it was invented for (a light
+-- month shouldn't read as a failed one) is now done by the month-ahead buffer,
+-- with money rather than relabelling.
+--
+-- The columns are LEFT IN PLACE, unwritten, so the change is reversible and no
+-- history is destroyed. floor_paid_this_cycle is still written: it holds the
+-- "paid the minimum only" tick-list, which survived the removal — renaming a
+-- column to rename a concept is not worth a migration.
+--
+-- Original note follows.
 -- ── Floor & Target payments ─────────────────────────────────────────────
 -- Each debt carries two numbers: the TARGET (the plan's payment, driven by
 -- `min` + the monthly budget, unchanged) and a FLOOR — the minimum committed

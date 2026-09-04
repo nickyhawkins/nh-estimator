@@ -1155,3 +1155,91 @@ the buffer, a pay-in bigger than the month funding the month first and the
 buffer with the remainder, and — with the pots already covering the cycle, the
 steady state — the buffer refilling ahead of savings and the sweep exactly as
 before. `test:arrears` 29 and `test:custom-payments` 46 green alongside.
+
+---
+
+## Feature 16 — Floors retired — BUILT (v2.57.0)
+
+Said plainly while working through the buffer: *"I'm not really seeing a
+benefit of the floor payment, it seems to be complicating things."* Correct,
+and the live data was blunt about it. Across the whole plan:
+
+| | count |
+|---|---|
+| floor identical to the contractual minimum | **7 of 8** |
+| floor below the minimum | 0 |
+| floor above the minimum | **0** |
+| no floor set | 1 (Brewers, which has no minimum either) |
+
+The one apparent exception — Currys at £50.73 against a £101.46 minimum — was
+my own bad inference from a screenshot. Its minimum IS £50.73. So the floor
+field, in the entire history of the plan, never once expressed anything `min`
+did not already say, and the only configuration where it could have (a floor
+ABOVE the minimum) was never used.
+
+For that it cost a second verdict, a fifth payment state, a priority order, a
+nullable column, a running catch-up ledger with its own panel and two actions,
+and 326 lines across four files.
+
+**The deeper reason it had stopped earning its place:** floors were a
+*bookkeeping* answer to irregular income — relabel a light month so it doesn't
+read as failure. The month-ahead buffer (Features 13–15) is a *cash* answer to
+the same problem. Once a light month is genuinely rescued with money, the
+relabelling is redundant.
+
+### What went
+
+- `floor_payment` and the Floor field in Edit Debts and Add Debt.
+- `floorOf()`, `floorDueOf()`, `getFloorStatus()`, `floorPriority()`,
+  `renderFloorIndicators()`.
+- The **Behind on floors** ledger entirely — panel, Catch up, Clear,
+  `floor_shortfalls`, and the shortfall merge in both close paths. It existed
+  only because a floor was a discretionary promise rather than a debt. An
+  uncovered *minimum* is a real debt and already goes where real debts go.
+
+### What stayed
+
+- **"Paid the minimum only"** (◐), re-anchored on `min`. Pay what the
+  agreement requires, skip the arrears catch-up. The state is `min` now;
+  it still shares `paid_this_cycle`'s sibling column `floor_paid_this_cycle`,
+  which is left named as it is — renaming a column to rename a concept is not
+  worth a migration.
+- **Two chips, both honest**: *Minimums met* — the verdict, meaning nothing
+  new went overdue — and *Target*, which is progress, not a pass/fail. An
+  unmet minimum with the pots short now reads **Arrears risk**, which is what
+  it is.
+- Everything the buffer does. `cycleCommitments()` and `commitmentQueue()`
+  simply lost their `max(floor, min)` and read `min` directly.
+
+### The nullable-column trick that turned out to be unnecessary
+
+`floor_payment` was deliberately NULLABLE so that "no commitment agreed"
+(Brewers, HMRC) could be told apart from "committed to £0", which would count
+as met every cycle by paying nothing. `min` encodes exactly the same thing as
+**0**, and always did. `minDueOf()` returns 0 there and `getCycleStatus()`
+leaves those debts out of the verdict — same behaviour, one fewer column and
+no null-handling anywhere.
+
+### Data
+
+Discarded on the user's instruction: no floor values are migrated to anything
+and no catch-up ledger entries are converted to arrears. `floor_payment` and
+`floor_shortfalls` are LEFT IN PLACE in the schema, unwritten, so the change is
+reversible and nothing is destroyed. History rows are permanent, so
+`renderArchivedVerdict()` reads `minsMet` **or** the older `floorsMet`, and a
+row carrying a floor-shortfall list still renders it — labelled as retired,
+with "nothing is owed on this".
+
+### Tests
+
+`npm run test:floors` becomes **`npm run test:minimums`**
+(`scripts/test-minimums.js`, 47 checks): the minimum as the only commitment
+and 0 meaning there isn't one, both caps (balance, and the balance before an
+applied payment took its bite), the two verdicts judged separately, pot
+arithmetic across all five payment states, allocation order and conservation,
+and an uncovered minimum becoming arrears — capped at the balance, applied
+once, with the archive asserted to carry no floor ledger at all.
+`test:arrears` 29, `test:custom-payments` 46 and `test:buffer` 51 green
+alongside; every one of them lost its floor scaffolding on the way.
+
+**Deploy:** no migration. The retired columns are simply no longer read.
