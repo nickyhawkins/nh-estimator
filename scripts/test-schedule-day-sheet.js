@@ -11,7 +11,7 @@
 // bottom. Blocking a day looked impossible exactly when the diary was
 // busiest, which is when time off most needs booking.
 //
-// What this holds still (v2.52.1):
+// What this holds still (v2.53.1):
 //   1. THE REACHABILITY PROPERTY. However many jobs are waiting, the day's own
 //      Block/Unblock buttons come BEFORE the waiting list in the sheet.
 //   2. The waiting list is capped, with the remainder behind one tap, and

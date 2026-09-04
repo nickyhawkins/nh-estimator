@@ -784,3 +784,100 @@ payment to missed or up to the full target — the pot must not be charged
 twice), the five judgements in the table above, the balance cap, and the
 ledger-less fallback. `npm run test:floors` 47 green alongside.
 
+
+---
+
+## Feature 12 — Every arrear accounted for — BUILT (v2.53.0)
+
+Reported as *"not all the arrears are being taken into account"*, against a
+plan carrying £7,639.12 of arrears across five creditors. The header total was
+right. Everything under it was not: **This cycle's payments** showed one
+ARREARS badge and never mentioned two of the five debts' overdue money at all.
+
+Three separate causes, all of them in the cycle view rather than in the
+allocation — the money each debt is offered has not changed by a penny.
+
+### 1. A debt the budget never reached vanished
+
+`getCyclePayments()` builds from month 1 of the sim and drops any row with
+`p.total <= 0.005`. A debt with **no contractual minimum** — Brewers, whose
+whole balance is overdue — takes nothing from the sim except through the
+arrears queue, and in a tight month that queue runs out before reaching it.
+Planned payment £0, so no row: All Debts said £1,700.89 in arrears and the
+cycle it belongs to never mentioned it.
+
+£0 is the honest allocation. The silence was the bug. Such a debt now gets an
+`unfunded` row on the checklist — the same honesty Feature 10 gave the
+Schedule view's **IN ARREARS · waiting for budget** line, applied to the screen
+the money is actually paid from:
+
+- **!** in place of the tick box, because there is nothing to tick off.
+- **ARREARS**, `waiting for budget`, and the amount overdue.
+- **pay some of it**, which opens the ordinary own-amount modal preset to
+  *Clear arrears*.
+- The amount column reads **—**, not £0.00: nothing is being asked for.
+
+It asks for nothing, so it moves nothing. The floors total, both pot needs,
+the target total and the `n/m done` count are penny-identical to what they
+were when the row was missing, and the tick is refused outright if it is ever
+reached (`setPaymentState` turns a `paid` on a £0 row back into `unpaid`
+rather than recording a payment of nothing and striking the debt through).
+
+Being on the checklist, it drops off **Pay another debt** — which is where it
+had to be paid from before, and still lists HMRC and anything else outside the
+plan.
+
+### 2. ARREARS meant the payment, not the debt
+
+`p.arrears` was `arrearsPaid > 0.005` — *this month's payment contains arrears
+catch-up*. So NatWest Loan, £3,751.74 overdue but affordable only to its
+£520.01 minimum, showed **no arrears at all** on the row, while All Debts two
+screens away badged it in red. The same flag drove the tight-week triage, so
+that read the payment too.
+
+The row now carries the **debt's** figures:
+
+| field | meaning |
+|---|---|
+| `arrearsAmt` | the catch-up inside this month's payment — unchanged |
+| `arrearsLeft` | what stays overdue once that payment has gone out |
+| `arrears` | `arrearsLeft > 0.005` — i.e. this debt is overdue |
+
+`ARREARS` therefore means on the checklist what it means everywhere else in
+the app, and every row that carries it says **£X still overdue** beside the
+floor. Updraft's £1,253.43 payment now reads "£528.51 still overdue" instead
+of looking like the end of it.
+
+### 3. A floor capped at the planned payment could be zeroed
+
+`floorDue` was `min(floor, target)` — capped at the month's planned payment.
+The comment said "you can't send more than is left", which is a cap at the
+**balance**; the planned payment was standing in for it. They part company
+twice, both times badly:
+
+- A debt the budget never reached has a planned payment of £0, so a real
+  commitment was rewritten as a floor of nothing and counted as met.
+- A floor set **above** the minimum — the whole reason the field is editable —
+  was quietly shrunk back to the minimum in any month with no spare. A £400
+  floor against a £40.03 minimum read as £40.03 and passed on £40.03.
+
+`floorDueOf(debt, paidOff)` caps at the balance instead, adding back what an
+already-applied payment took off so the cap is measured against the balance as
+the cycle opened. This is also the cap `rollOnce()` has always used
+server-side, so the verdict the app shows and the one the close records can no
+longer disagree — previously the app could say "floors met" and the cycle
+close still put the shortfall on the catch-up ledger.
+
+A floor agreed on an unfunded arrears debt is consequently a real commitment
+again: it counts as unmet until paid and the pots are asked to cover it. That
+is the one figure this feature does move, and it moves because a promise you
+made should be funded whether or not the arrears queue got that far.
+
+### Tests
+
+`npm run test:arrears` (`scripts/test-arrears-visibility.js`) — 26 checks on
+the reported plan itself, through the shared vm harness, no database, no
+browser, no server. It pins the missing row, the badge meaning both ways round,
+the "moves no money" guarantee measured against the same plan with the debt
+removed, both halves of the floor cap, and the refusal to tick £0.
+`npm run test:floors` 47 and `npm run test:custom-payments` 46 green alongside.

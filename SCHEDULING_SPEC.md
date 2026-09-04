@@ -100,7 +100,7 @@ inside the run, so a two-week holiday is one run. Covered by the parity
 harness (blocked spans, client vs ICS) and the 43-check smoke run (range
 blocks 4 working days across a weekend, bars merge, run-unblock clears).
 
-**Addendum 2026-09-04 (v2.52.1) — the day sheet's order of business.** Per
+**Addendum 2026-09-04 (v2.53.1) — the day sheet's order of business.** Per
 Nicky: *"Can't block days in schedule if jobs are waiting to be assigned."*
 The day sheet renders two unrelated affordances — put a job IN the diary
 ("Start a job here", every accepted job with no date) and take a day OUT of
