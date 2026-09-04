@@ -64,6 +64,39 @@ function ensureSchema() {
       await db.query(`ALTER TABLE debt_plan_cashflow ADD COLUMN IF NOT EXISTS floor_shortfalls JSONB NOT NULL DEFAULT '[]'`);
       await db.query(`ALTER TABLE debt_plan_cashflow ADD COLUMN IF NOT EXISTS floor_paid_this_cycle JSONB NOT NULL DEFAULT '[]'`);
       await db.query(`ALTER TABLE debt_plan_income_log ADD COLUMN IF NOT EXISTS buffer_amt NUMERIC NOT NULL DEFAULT 0`);
+      // The buffer, split by account. bizPot and perPot are two real bank
+      // accounts and neither can rescue the other, so a cushion that is meant
+      // to cover a month of minimums has to be held per account too. Every
+      // legacy penny migrates to the PERSONAL side, which is where it
+      // physically was — the Log-money-in transfer panel has always sent the
+      // buffer to the personal account. See db/setup-debt.sql.
+      await db.query(`DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'debt_plan_cashflow' AND column_name = 'buffer_per'
+          ) THEN
+            ALTER TABLE debt_plan_cashflow ADD COLUMN buffer_biz NUMERIC NOT NULL DEFAULT 0;
+            ALTER TABLE debt_plan_cashflow ADD COLUMN buffer_per NUMERIC NOT NULL DEFAULT 0;
+            UPDATE debt_plan_cashflow SET buffer_per = buffer_pot;
+          END IF;
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'debt_plan_settings' AND column_name = 'buffer_target_per'
+          ) THEN
+            ALTER TABLE debt_plan_settings ADD COLUMN buffer_target_biz NUMERIC NOT NULL DEFAULT 0;
+            ALTER TABLE debt_plan_settings ADD COLUMN buffer_target_per NUMERIC NOT NULL DEFAULT 0;
+            UPDATE debt_plan_settings SET buffer_target_per = buffer_target;
+          END IF;
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'debt_plan_income_log' AND column_name = 'buffer_per_amt'
+          ) THEN
+            ALTER TABLE debt_plan_income_log ADD COLUMN buffer_biz_amt NUMERIC NOT NULL DEFAULT 0;
+            ALTER TABLE debt_plan_income_log ADD COLUMN buffer_per_amt NUMERIC NOT NULL DEFAULT 0;
+            UPDATE debt_plan_income_log SET buffer_per_amt = buffer_amt;
+          END IF;
+        END $$`);
       // Ledger of what a live "paid"/"floor" tick actually took off each
       // balance, so un-ticking can put back exactly what it removed
       // (recomputing from the now-reduced balances would give a different,
@@ -110,20 +143,23 @@ router.get('/api/state', async (req, res) => {
         budget: s.budget, sweepPct: s.sweep_pct, savingsPct: s.savings_pct,
         tightThreshold: s.tight_threshold, lastMilestone: s.last_milestone,
         notifyDaysBefore: s.notify_days_before, notificationsEnabled: s.notifications_enabled,
-        bufferTarget: Number(s.buffer_target)
+        bufferTargetBiz: Number(s.buffer_target_biz), bufferTargetPer: Number(s.buffer_target_per)
       },
       cashflow: {
         bizPot: Number(c.biz_pot), perPot: Number(c.per_pot),
         savingsPot: Number(c.savings_pot), paidThisCycle: c.paid_this_cycle,
         missedThisCycle: c.missed_this_cycle,
         floorPaidThisCycle: c.floor_paid_this_cycle,
-        bufferPot: Number(c.buffer_pot), floorShortfalls: c.floor_shortfalls,
+        bufferBiz: Number(c.buffer_biz), bufferPer: Number(c.buffer_per),
+        floorShortfalls: c.floor_shortfalls,
         appliedPayments: c.applied_payments || {}
       },
       incomeLog: income.rows.map(e => ({
         id: e.id, amount: Number(e.amount), bizAmt: Number(e.biz_amt),
         perAmt: Number(e.per_amt), savedAmt: Number(e.saved_amt),
-        bufferAmt: Number(e.buffer_amt), date: e.date
+        bufferAmt: Number(e.buffer_amt),
+        bufferBizAmt: Number(e.buffer_biz_amt), bufferPerAmt: Number(e.buffer_per_amt),
+        date: e.date
       })),
       meta: {
         debtsUpdatedAt, settingsUpdatedAt: s.updated_at, cashflowUpdatedAt: c.updated_at
@@ -255,7 +291,8 @@ router.post('/api/debts/:id/archive', async (req, res) => {
 });
 
 router.post('/api/settings', async (req, res) => {
-  const { budget, sweepPct, savingsPct, tightThreshold, lastMilestone, notifyDaysBefore, notificationsEnabled, bufferTarget, clientUpdatedAt } = req.body;
+  const { budget, sweepPct, savingsPct, tightThreshold, lastMilestone, notifyDaysBefore,
+    notificationsEnabled, bufferTargetBiz, bufferTargetPer, clientUpdatedAt } = req.body;
   try {
     const current = await db.query('SELECT * FROM debt_plan_settings WHERE id = 1');
     const s = current.rows[0];
@@ -267,17 +304,17 @@ router.post('/api/settings', async (req, res) => {
           budget: s.budget, sweepPct: s.sweep_pct, savingsPct: s.savings_pct,
           tightThreshold: s.tight_threshold, lastMilestone: s.last_milestone,
           notifyDaysBefore: s.notify_days_before, notificationsEnabled: s.notifications_enabled,
-          bufferTarget: Number(s.buffer_target)
+          bufferTargetBiz: Number(s.buffer_target_biz), bufferTargetPer: Number(s.buffer_target_per)
         },
         updatedAt: s.updated_at
       });
     }
 
     const result = await db.query(
-      `UPDATE debt_plan_settings SET budget=$1, sweep_pct=$2, savings_pct=$3, tight_threshold=$4, last_milestone=$5, notify_days_before=$6, notifications_enabled=$7, buffer_target=$8 WHERE id=1 RETURNING updated_at`,
+      `UPDATE debt_plan_settings SET budget=$1, sweep_pct=$2, savings_pct=$3, tight_threshold=$4, last_milestone=$5, notify_days_before=$6, notifications_enabled=$7, buffer_target_biz=$8, buffer_target_per=$9 WHERE id=1 RETURNING updated_at`,
       [budget, sweepPct, savingsPct, tightThreshold, lastMilestone,
         notifyDaysBefore ?? s.notify_days_before, notificationsEnabled ?? s.notifications_enabled,
-        bufferTarget ?? s.buffer_target]
+        bufferTargetBiz ?? s.buffer_target_biz, bufferTargetPer ?? s.buffer_target_per]
     );
     res.json({ ok: true, updatedAt: result.rows[0].updated_at });
   } catch (err) {
@@ -286,7 +323,7 @@ router.post('/api/settings', async (req, res) => {
 });
 
 router.post('/api/cashflow', async (req, res) => {
-  const { bizPot, perPot, savingsPot, bufferPot, paidThisCycle, missedThisCycle,
+  const { bizPot, perPot, savingsPot, bufferBiz, bufferPer, paidThisCycle, missedThisCycle,
     floorPaidThisCycle, floorShortfalls, appliedPayments, clientUpdatedAt } = req.body;
   try {
     const current = await db.query('SELECT * FROM debt_plan_cashflow WHERE id = 1');
@@ -300,7 +337,8 @@ router.post('/api/cashflow', async (req, res) => {
           savingsPot: Number(c.savings_pot), paidThisCycle: c.paid_this_cycle,
           missedThisCycle: c.missed_this_cycle,
           floorPaidThisCycle: c.floor_paid_this_cycle,
-          bufferPot: Number(c.buffer_pot), floorShortfalls: c.floor_shortfalls,
+          bufferBiz: Number(c.buffer_biz), bufferPer: Number(c.buffer_per),
+          floorShortfalls: c.floor_shortfalls,
           appliedPayments: c.applied_payments || {}
         },
         updatedAt: c.updated_at
@@ -310,14 +348,16 @@ router.post('/api/cashflow', async (req, res) => {
     const result = await db.query(
       `UPDATE debt_plan_cashflow SET biz_pot=$1, per_pot=$2, savings_pot=$3, paid_this_cycle=$4,
               missed_this_cycle=COALESCE($5, missed_this_cycle),
-              buffer_pot=COALESCE($6, buffer_pot),
-              floor_shortfalls=COALESCE($7, floor_shortfalls),
-              floor_paid_this_cycle=COALESCE($8, floor_paid_this_cycle),
-              applied_payments=COALESCE($9, applied_payments)
+              buffer_biz=COALESCE($6, buffer_biz),
+              buffer_per=COALESCE($7, buffer_per),
+              floor_shortfalls=COALESCE($8, floor_shortfalls),
+              floor_paid_this_cycle=COALESCE($9, floor_paid_this_cycle),
+              applied_payments=COALESCE($10, applied_payments)
          WHERE id=1 RETURNING updated_at`,
       [bizPot, perPot, savingsPot, JSON.stringify(paidThisCycle || []),
         missedThisCycle === undefined ? null : JSON.stringify(missedThisCycle),
-        bufferPot === undefined ? null : bufferPot,
+        bufferBiz === undefined ? null : bufferBiz,
+        bufferPer === undefined ? null : bufferPer,
         floorShortfalls === undefined ? null : JSON.stringify(floorShortfalls),
         floorPaidThisCycle === undefined ? null : JSON.stringify(floorPaidThisCycle),
         appliedPayments === undefined ? null : JSON.stringify(appliedPayments)]
@@ -329,11 +369,15 @@ router.post('/api/cashflow', async (req, res) => {
 });
 
 router.post('/api/income', async (req, res) => {
-  const { amount, bizAmt, perAmt, savedAmt, bufferAmt, date } = req.body;
+  const { amount, bizAmt, perAmt, savedAmt, bufferBizAmt, bufferPerAmt, date } = req.body;
   try {
+    // buffer_amt stays the total of the two, so the legacy column keeps
+    // meaning what it always meant for anything still reading it.
+    const bufBiz = bufferBizAmt || 0, bufPer = bufferPerAmt || 0;
     const result = await db.query(
-      `INSERT INTO debt_plan_income_log (amount, biz_amt, per_amt, saved_amt, buffer_amt, date) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-      [amount, bizAmt || 0, perAmt || 0, savedAmt || 0, bufferAmt || 0, date]
+      `INSERT INTO debt_plan_income_log (amount, biz_amt, per_amt, saved_amt, buffer_amt, buffer_biz_amt, buffer_per_amt, date)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      [amount, bizAmt || 0, perAmt || 0, savedAmt || 0, bufBiz + bufPer, bufBiz, bufPer, date]
     );
     res.json({ id: result.rows[0].id });
   } catch (err) {

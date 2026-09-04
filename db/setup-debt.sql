@@ -203,8 +203,43 @@ END $$;
 -- Cash cushion filled BEFORE any debt allocation (see allocateIncome() in
 -- public/debt.html). buffer_target 0 = feature off, which is the default:
 -- turning it on diverts real money, so it's the user's choice, not a guess.
+-- LEGACY: one undifferentiated jar. Superseded by the per-account pair
+-- below, which is what the app now reads and writes; these two columns are
+-- kept, unwritten, so the split can be rolled back without losing the money.
 ALTER TABLE debt_plan_settings ADD COLUMN IF NOT EXISTS buffer_target NUMERIC NOT NULL DEFAULT 0;
 ALTER TABLE debt_plan_cashflow ADD COLUMN IF NOT EXISTS buffer_pot NUMERIC NOT NULL DEFAULT 0;
+
+-- ── A month ahead: the buffer, split by account ─────────────────────────
+-- The point of the buffer is to hold one month of CONTRACTUAL MINIMUMS, so a
+-- light month pays them out of stored cash instead of putting them into
+-- arrears. (Minimums, not floors: a missed floor writes an inert catch-up
+-- ledger entry, a missed minimum is money genuinely overdue.)
+--
+-- It has to be two jars, because bizPot and perPot are two real bank
+-- accounts and neither can rescue the other -- a £905 personal cushion does
+-- nothing for a £387 business minimum. The single-jar migration puts every
+-- legacy penny on the PERSONAL side, which is where it physically was: the
+-- Log-money-in modal's transfer panel has always routed the buffer to the
+-- personal account alongside savings and living money.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'debt_plan_cashflow' AND column_name = 'buffer_per'
+  ) THEN
+    ALTER TABLE debt_plan_cashflow ADD COLUMN buffer_biz NUMERIC NOT NULL DEFAULT 0;
+    ALTER TABLE debt_plan_cashflow ADD COLUMN buffer_per NUMERIC NOT NULL DEFAULT 0;
+    UPDATE debt_plan_cashflow SET buffer_per = buffer_pot;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'debt_plan_settings' AND column_name = 'buffer_target_per'
+  ) THEN
+    ALTER TABLE debt_plan_settings ADD COLUMN buffer_target_biz NUMERIC NOT NULL DEFAULT 0;
+    ALTER TABLE debt_plan_settings ADD COLUMN buffer_target_per NUMERIC NOT NULL DEFAULT 0;
+    UPDATE debt_plan_settings SET buffer_target_per = buffer_target;
+  END IF;
+END $$;
 
 -- Per-debt floor shortfalls carried across cycles: [{id,name,amount,since}].
 -- Written when a cycle closes with a floor unmet, and only ever cleared by an
@@ -220,8 +255,21 @@ ALTER TABLE debt_plan_cashflow ADD COLUMN IF NOT EXISTS floor_shortfalls JSONB N
 ALTER TABLE debt_plan_cashflow ADD COLUMN IF NOT EXISTS floor_paid_this_cycle JSONB NOT NULL DEFAULT '[]';
 
 -- Buffer allocations are logged alongside the pot splits so deleting an
--- income entry can reverse the buffer top-up too.
+-- income entry can reverse the buffer top-up too. buffer_amt is the legacy
+-- total, still written so an older client reading the row sees the whole
+-- top-up; the two per-account columns are what a delete actually reverses.
 ALTER TABLE debt_plan_income_log ADD COLUMN IF NOT EXISTS buffer_amt NUMERIC NOT NULL DEFAULT 0;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'debt_plan_income_log' AND column_name = 'buffer_per_amt'
+  ) THEN
+    ALTER TABLE debt_plan_income_log ADD COLUMN buffer_biz_amt NUMERIC NOT NULL DEFAULT 0;
+    ALTER TABLE debt_plan_income_log ADD COLUMN buffer_per_amt NUMERIC NOT NULL DEFAULT 0;
+    UPDATE debt_plan_income_log SET buffer_per_amt = buffer_amt;
+  END IF;
+END $$;
 
 -- Ledger of what each live "paid"/"floor" tick took off a balance this cycle,
 -- keyed by debt id -- ticking a payment now applies it to the debt straight
