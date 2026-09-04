@@ -1092,3 +1092,66 @@ funded not at all, the close warning appearing and the close spending nothing,
 and drift in both directions with the re-set clearing it. `test:arrears` 29
 (two new, holding the surplus-prompt gate), `test:floors` 47 and
 `test:custom-payments` 46 green alongside.
+
+---
+
+## Feature 15 — This month first, then the buffer — BUILT (v2.56.0)
+
+Asked plainly: *"should the buffer fill before the actual month where it's
+needed? Shouldn't it be the other way around?"* Yes, and it was a real fault,
+introduced by me in Feature 13 rather than inherited.
+
+`allocateIncome()` filled the buffer off the top, ahead of everything. That
+was right when the buffer was the £200 cushion it was designed as, and wrong
+the moment it became a month-ahead float. On a light month the whole pay-in
+vanished into next month's safety while this month's minimums went into
+arrears — the cushion built out of the very thing it exists to prevent.
+Measured on the reported plan, target £1,292.02 and nothing paid:
+
+| in | old: buffer | old: pots | old: still unfunded |
+|---|---|---|---|
+| £600 | £600.00 | £0.00 | £1,292.02 |
+| £1,200 | £1,200.00 | £0.00 | £1,292.02 |
+
+The order is now **this month → buffer → savings → sweep → living**. Same
+figures:
+
+| in | new: buffer | new: pots | new: still unfunded |
+|---|---|---|---|
+| £600 | £0.00 | £600.00 | £692.02 |
+| £1,200 | £0.00 | £1,200.00 | £92.02 |
+
+"This month" is `commitmentQueue()` — `cycleCommitments()` itemised and in the
+existing funding order (arrears first, then earliest due), so a pay-in that
+cannot cover everything covers what hurts most. Pot balances still count
+before any new money does.
+
+**It costs the buffer nothing in the steady state.** Once you are a month
+ahead and have funded the cycle from the buffer on day one, the pots already
+cover this month's commitments, the first step takes nothing, and income flows
+straight back into refilling the jars. The float rolls forward month on month
+— which is the whole mechanic, and it only works in this order.
+
+The buffer still sits AHEAD of savings and the target sweep: a month ahead is
+worth more than either, and behind them it would never fill while there were
+arrears to chase. Commitment money still comes OUT OF the sweep rather than on
+top of it, so a month whose commitments are already covered splits exactly as
+it did before any of this existed.
+
+`floorBiz`/`floorPer`/`floorFunded` are still returned under those names
+alongside the clearer `dueBiz`/`duePer`/`dueFunded` — it is the same money,
+and the floors-covered note and the floors suite both read it.
+
+The Log-money-in modal's "Where it goes" list was reordered to match, and the
+Buffer line now reads "after this month" rather than "taken first", because
+that is no longer true.
+
+### Tests
+
+`test:buffer` 51 and `test:floors` 48. Seven checks across the two suites
+asserted the old order outright ("buffer is filled before anything else") and
+now pin the new one from both sides: a light month funding the month and not
+the buffer, a pay-in bigger than the month funding the month first and the
+buffer with the remainder, and — with the pots already covering the cycle, the
+steady state — the buffer refilling ahead of savings and the sweep exactly as
+before. `test:arrears` 29 and `test:custom-payments` 46 green alongside.

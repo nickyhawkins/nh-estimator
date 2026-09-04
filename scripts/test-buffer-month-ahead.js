@@ -68,26 +68,43 @@ check('"half a month" halves both', near(app.state.bufferTargetBiz, mm.biz / 2) 
 app.setBufferPreset(0);
 check('"off" clears both', app.state.bufferTargetBiz === 0 && app.state.bufferTargetPer === 0);
 
-// ── 2. the two jars fill together, in proportion to what each needs ───────
+// ── 2. this month first, THEN the two jars, together ─────────────────────
+// The order was the other way round until v2.56.0, and on a light month that
+// poured the whole pay-in into next month's cushion while this month's
+// minimums went into arrears — the cushion built out of the very thing it
+// exists to prevent.
 reset({ bufferTargetBiz: 400, bufferTargetPer: 800 });
+const need0 = app.cycleCommitments();
+const a0 = app.allocateIncome(600);
+check('a light month funds this month, not the buffer',
+  near(a0.buffer, 0) && near(a0.biz + a0.per, 600), a0);
+check('and it goes to the pots that owe money', a0.dueFunded > 0 && near(a0.dueFunded, 600), a0);
+check('a pay-in bigger than the month funds the month first, then the buffer',
+  (() => { const a = app.allocateIncome(need0.total + 300); return near(a.dueFunded, need0.total) && near(a.buffer, 300); })(),
+  { need: need0.total, got: app.allocateIncome(need0.total + 300) });
+
+// The steady state: month already funded from the buffer on day one, so the
+// pots cover this cycle and income flows straight back into the jars.
+const COVERED = { bizPot: 5000, perPot: 5000 };
+reset({ bufferTargetBiz: 400, bufferTargetPer: 800, ...COVERED });
 const a1 = app.allocateIncome(300);
-check('the buffer is still taken before anything else',
-  near(a1.buffer, 300) && near(a1.biz, 0) && near(a1.per, 0) && near(a1.savings, 0), a1);
+check('with the month covered, the buffer refills before savings and the sweep',
+  near(a1.buffer, 300) && near(a1.savings, 0), a1);
 check('and splits in proportion to each jar\'s need', near(a1.bufferBiz, 100) && near(a1.bufferPer, 200), a1);
 check('the split loses nothing', near(a1.bufferBiz + a1.bufferPer, a1.buffer));
 
 // A jar already full stops drawing; the other keeps filling.
-reset({ bufferTargetBiz: 400, bufferTargetPer: 800, bufferBiz: 400 });
+reset({ bufferTargetBiz: 400, bufferTargetPer: 800, bufferBiz: 400, ...COVERED });
 const a2 = app.allocateIncome(300);
 check('a full jar takes nothing more', near(a2.bufferBiz, 0) && near(a2.bufferPer, 300), a2);
 
-reset({ bufferTargetBiz: 400, bufferTargetPer: 800, bufferBiz: 400, bufferPer: 800 });
+reset({ bufferTargetBiz: 400, bufferTargetPer: 800, bufferBiz: 400, bufferPer: 800, ...COVERED });
 const a3 = app.allocateIncome(1000);
 check('a buffer at a month ahead takes nothing at all', near(a3.buffer, 0), a3);
 check('and the pay-in splits exactly as it would with no buffer',
   near(a3.buffer + a3.biz + a3.per + a3.savings + a3.keep, 1000));
 
-reset({ bufferTargetBiz: 400, bufferTargetPer: 800 });
+reset({ bufferTargetBiz: 400, bufferTargetPer: 800, ...COVERED });
 const a4 = app.allocateIncome(2000);
 check('the buffer never takes more than it still needs', near(a4.buffer, 1200), a4);
 check('nothing is lost or invented across the whole allocation',
@@ -203,7 +220,7 @@ check('a covered cycle draws nothing', app.bufferCover().total <= 0.005);
 }
 
 // ── 4. the business share is transferred to the business account ─────────
-reset({ bufferTargetBiz: 400, bufferTargetPer: 800 });
+reset({ bufferTargetBiz: 400, bufferTargetPer: 800, bizPot: 5000, perPot: 5000 });
 const a5 = app.allocateIncome(600);
 const toBiz = a5.biz + a5.bufferBiz, toPer = a5.per + a5.savings + a5.bufferPer + a5.keep;
 check('the buffer\'s business share goes to the business account', near(a5.bufferBiz, 200) && near(toBiz, a5.biz + 200), { a5, toBiz });
@@ -213,6 +230,7 @@ check('the two transfers still account for every penny', near(toBiz + toPer, 600
 // bank totals: with the buffer as a real savings space, "£600 to the personal
 // account" is not an instruction you can act on.
 reset({ bufferTargetBiz: 400, bufferTargetPer: 800 });
+reset({ bufferTargetBiz: 400, bufferTargetPer: 800, bizPot: 5000, perPot: 5000 });
 app.openLogModal();
 // The stub DOM mints an element on first getElementById, and openLogModal
 // only writes an HTML string — so prime the fields with one preview pass
@@ -237,7 +255,7 @@ check('and the four destinations account for the whole pay-in',
   near(shown('transferBiz') + shown('transferPer'), 600));
 
 // ── 5. deleting an income entry reverses both jars exactly ───────────────
-reset({ bufferTargetBiz: 400, bufferTargetPer: 800 });
+reset({ bufferTargetBiz: 400, bufferTargetPer: 800, bizPot: 5000, perPot: 5000 });
 app.state = Object.assign(app.state, { incomeLog: [] });
 const before = { biz: app.state.bufferBiz, per: app.state.bufferPer };
 app.state = Object.assign(app.state, {

@@ -835,39 +835,81 @@ function bufferDrift(){
 // targets, then living money. Floors come OUT OF the sweep rather than on
 // top of it, so a month whose floors are already covered splits exactly as
 // it did before this feature existed.
+// What each payment still needs out of its pot this cycle, worst first: the
+// higher of its floor and its contractual minimum, less what has gone out.
+// Same figure cycleCommitments() totals, itemised and in funding order —
+// arrears first, then earliest due — so a pay-in that can't cover everything
+// covers the ones that hurt most.
+function commitmentQueue(){
+  const out=[];
+  for(const p of getFloorStatus().payments){
+    if(p.missed)continue;
+    const debt=debts.find(d=>d.id===p.id);
+    const minDue=Math.min(Number(debt?.min)||0,(debt?.balance||0)+(appliedPayments[p.id]?.amount||0));
+    const left=Math.max(0,Math.max(p.floorDue||0,minDue)-paidAmountOf(p));
+    if(left<=0.005)continue;
+    out.push({id:p.id,account:p.account,due:p.due,amount:round2(left)});
+  }
+  return out.sort(floorPriority);
+}
+// Where a pay-in goes. THIS MONTH FIRST, then the buffer, then savings, then
+// whatever the sweep has left for targets, then living money.
+//
+// The buffer used to come off the top, ahead of everything. That was right
+// when it was a £200 cushion and wrong the moment it became a month-ahead
+// float: on a light month the whole pay-in disappeared into next month's
+// safety while this month's minimums went into arrears — building the cushion
+// by creating the very thing it exists to prevent. £1,200 in against a
+// £1,292.02 target funded £0.00 of a £1,292.02 month.
+//
+// So the month is funded first and the buffer is built out of what is left
+// over, which is the only way a float is ever actually built. It costs the
+// buffer nothing in the steady state: once you are a month ahead and have
+// funded the cycle from the buffer on day one, the pots already cover this
+// month's commitments (pot balances count before new money does), the first
+// step takes nothing, and income flows straight back into refilling the jars.
+// The float rolls forward month on month.
+//
+// The buffer still sits AHEAD of savings and the target sweep, because a
+// month ahead is worth more than either and, behind them, it would never fill
+// while there were arrears to chase. Commitment money continues to come OUT
+// OF the sweep rather than on top of it, so a month whose commitments are
+// already covered splits exactly as it did before any of this existed.
 function allocateIncome(amt){
   const gross=Math.max(0,amt);
-  // The two buffer jars fill together, in proportion to what each still
-  // needs, so a light month can't top one account to the brim while the
-  // other — the one with a minimum falling due — stays empty.
+  let rem=gross;
+  // 1. This month. Pot balances count toward it before any new money does.
+  let creditBiz=bizPot,creditPer=perPot,dueBiz=0,duePer=0;
+  for(const p of commitmentQueue()){
+    const isBiz=p.account==='business';
+    const credit=isBiz?creditBiz:creditPer;
+    const used=Math.min(credit,p.amount);
+    if(isBiz)creditBiz-=used; else creditPer-=used;
+    const gap=p.amount-used;
+    if(gap<=0.005||rem<=0.005)continue;
+    const add=Math.min(rem,gap);
+    if(isBiz)dueBiz+=add; else duePer+=add;
+    rem-=add;
+  }
+  // 2. The buffer, out of what this month didn't need. The two jars fill
+  // together, in proportion to what each still needs, so a light month can't
+  // top one account to the brim while the other stays empty.
   const needBufBiz=Math.max(0,bufferTargetBiz-bufferBiz);
   const needBufPer=Math.max(0,bufferTargetPer-bufferPer);
   const bufferWanted=needBufBiz+needBufPer;
-  const buffer=Math.min(gross,bufferWanted);
+  const buffer=Math.min(rem,bufferWanted);
   const bufBiz=bufferWanted>0.005?round2(buffer*needBufBiz/bufferWanted):0;
   const bufPer=round2(buffer-bufBiz);
-  let rem=gross-buffer;
-  // Pot balances count toward the floors before any new money does.
-  let creditBiz=bizPot,creditPer=perPot,floorBiz=0,floorPer=0;
-  for(const p of getFloorStatus().unmet.filter(x=>!x.missed).sort(floorPriority)){
-    const isBiz=p.account==='business';
-    const credit=isBiz?creditBiz:creditPer;
-    const used=Math.min(credit,p.floorDue);
-    if(isBiz)creditBiz-=used; else creditPer-=used;
-    const gap=p.floorDue-used;
-    if(gap<=0.005||rem<=0.005)continue;
-    const add=Math.min(rem,gap);
-    if(isBiz)floorBiz+=add; else floorPer+=add;
-    rem-=add;
-  }
+  rem-=buffer;
+  // 3. Savings.
   const savings=Math.min(rem,gross*savingsPct/100);
   rem-=savings;
-  // Targets get the rest of the sweep — the floor money already spent counts
-  // against it, so this is a top-up to target, not a second helping.
-  const targetSweep=Math.max(0,Math.min(rem,gross*sweepPct/100-floorBiz-floorPer));
+  // 4. Targets get the rest of the sweep — this month's money already spent
+  // counts against it, so this is a top-up to target, not a second helping.
+  const targetSweep=Math.max(0,Math.min(rem,gross*sweepPct/100-dueBiz-duePer));
   const {businessTotal,personalTotal}=getCycleTotals();
-  const needBiz=Math.max(0,businessTotal-bizPot-floorBiz);
-  const needPer=Math.max(0,personalTotal-perPot-floorPer);
+  const needBiz=Math.max(0,businessTotal-bizPot-dueBiz);
+  const needPer=Math.max(0,personalTotal-perPot-duePer);
   let tBiz;
   if(needBiz+needPer>0.005)tBiz=targetSweep*needBiz/(needBiz+needPer);
   else if(businessTotal+personalTotal>0.005)tBiz=targetSweep*businessTotal/(businessTotal+personalTotal);
@@ -875,8 +917,11 @@ function allocateIncome(amt){
   const tPer=targetSweep-tBiz;
   rem-=targetSweep;
   return {buffer,bufferBiz:bufBiz,bufferPer:bufPer,
-    biz:floorBiz+tBiz,per:floorPer+tPer,savings,keep:Math.max(0,rem),
-    floorBiz,floorPer,floorFunded:floorBiz+floorPer,targetSweep};
+    biz:dueBiz+tBiz,per:duePer+tPer,savings,keep:Math.max(0,rem),
+    dueBiz,duePer,dueFunded:dueBiz+duePer,
+    // Kept under their old names too: this is the same money, and the
+    // floors-are-covered note and the floors suite both read it.
+    floorBiz:dueBiz,floorPer:duePer,floorFunded:dueBiz+duePer,targetSweep};
 }
 
 function renderAll(){
@@ -1841,13 +1886,6 @@ function openLogModal(){
         <input id="logAmount" class="field-input" type="number" inputmode="decimal" placeholder="e.g. 850" style="font-size:20px;padding:12px;margin-bottom:16px" oninput="updateSweepPreview()">
         <div style="background:#0f1117;border-radius:8px;padding:12px;margin-bottom:14px">
           <div style="font-size:10px;color:#555;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">Where it goes</div>
-          ${bufferTarget()>0.005?`<div class="row" style="margin-bottom:8px;align-items:center">
-            <div style="display:flex;align-items:center;gap:8px">
-              <div style="width:8px;height:8px;border-radius:50%;background:#7db87d;flex-shrink:0"></div>
-              <div><div style="font-size:13px;font-weight:600;color:#e8e8ec">Buffer pot</div><div style="font-size:11px;color:#555">${bufferNeed>0.005?`${fmt(bufferNeed)} to fill · taken first`:'a month ahead ✓'}</div><div id="bufferSplitNote" style="font-size:10px;color:#555"></div></div>
-            </div>
-            <strong id="bufferPreview" style="color:#7db87d">£0.00</strong>
-          </div>`:''}
           <div class="row" style="margin-bottom:8px;align-items:center">
             <div style="display:flex;align-items:center;gap:8px">
               <div style="width:8px;height:8px;border-radius:50%;background:#e0923b;flex-shrink:0"></div>
@@ -1862,6 +1900,13 @@ function openLogModal(){
             </div>
             <strong id="perPreview" style="color:#5b8def">£0.00</strong>
           </div>
+          ${bufferTarget()>0.005?`<div class="row" style="margin-bottom:8px;align-items:center">
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="width:8px;height:8px;border-radius:50%;background:#7db87d;flex-shrink:0"></div>
+              <div><div style="font-size:13px;font-weight:600;color:#e8e8ec">Buffer pot</div><div style="font-size:11px;color:#555">${bufferNeed>0.005?`${fmt(bufferNeed)} to fill · after this month`:'a month ahead ✓'}</div><div id="bufferSplitNote" style="font-size:10px;color:#555"></div></div>
+            </div>
+            <strong id="bufferPreview" style="color:#7db87d">£0.00</strong>
+          </div>`:''}
           <div class="row" style="margin-bottom:8px;align-items:center">
             <div style="display:flex;align-items:center;gap:8px">
               <div style="width:8px;height:8px;border-radius:50%;background:#7db87d;flex-shrink:0"></div>
