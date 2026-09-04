@@ -112,15 +112,24 @@ check('a real floor of 0 is kept as 0', app.floorOf({ floorPayment: 0 }) === 0);
 
 // ── 3. allocation order and conservation ───────────────────────────────────
 {
+  // THIS MONTH comes first, then the buffer (v2.56.0 — it used to be the other
+  // way round, which built next month's cushion by putting this month's
+  // minimums into arrears).
   reset({ bufferTargetPer: 200 });
   const a = app.allocateIncome(150);
-  check('buffer is filled before anything else', near(a.buffer, 150) && near(a.biz, 0) && near(a.per, 0) && near(a.savings, 0), a);
+  check('this month is funded before the buffer', near(a.buffer, 0) && near(a.biz + a.per, 150), a);
 
-  reset({ bufferTargetPer: 200, bufferPer: 200 });
+  // Pots already covering this month: now the buffer is next in line, ahead
+  // of savings and the sweep.
+  reset({ bufferTargetPer: 200, bizPot: 5000, perPot: 5000 });
   const b = app.allocateIncome(150);
-  check('a full buffer takes nothing', near(b.buffer, 0), b);
+  check('with the month covered, the buffer is next', near(b.buffer, 150) && near(b.savings, 0), b);
 
-  reset({ bufferTargetPer: 200, bufferPer: 50 });
+  reset({ bufferTargetPer: 200, bufferPer: 200, bizPot: 5000, perPot: 5000 });
+  const bf = app.allocateIncome(150);
+  check('a full buffer takes nothing', near(bf.buffer, 0), bf);
+
+  reset({ bufferTargetPer: 200, bufferPer: 50, bizPot: 5000, perPot: 5000 });
   const c = app.allocateIncome(1000);
   check('buffer takes only what it still needs', near(c.buffer, 150), c);
   check('nothing is lost or invented', near(c.buffer + c.biz + c.per + c.savings + c.keep, 1000),
