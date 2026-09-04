@@ -2244,7 +2244,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.57.1</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.58.0</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -13116,11 +13116,28 @@ function snagPhaseRank(key) {
   for (var i = 0; i < SNAG_PHASES.length; i++) if (SNAG_PHASES[i].key === key) return i;
   return -1;
 }
-// Display order within a room: phase first, then sort_order (which is ENTRY
-// order -- see db/setup.sql), then id so the sort is total and a render can
-// never shuffle two otherwise-identical rows against each other.
+// '' for an un-phased snag, which prints as nothing rather than as "No phase"
+// -- on a document going out to somebody, a blank column reads as "not
+// sequenced yet" and a label reads as a phase called "No phase".
+function snagPhaseLabel(key) {
+  var p = SNAG_PHASES.find(function(x) { return x.key === key; });
+  return p ? p.label : '';
+}
+// Display order within a room: CLEARED LAST, then phase, then sort_order
+// (which is ENTRY order -- see db/setup.sql), then id so the sort is total and
+// a render can never shuffle two otherwise-identical rows against each other.
+//
+// A done snag still stays in the list -- the evidence it was dealt with is the
+// whole reason the row is kept (see SNAGS_SPEC.md) -- but it stays at the
+// BOTTOM of its group rather than in place. A working list is read for what is
+// still outstanding, and on a job three weeks in, with thirty rows cleared, the
+// handful still open were scattered through them. Nothing else about the order
+// changes: within the open band and within the cleared band, phase and entry
+// order are exactly as they were.
 function snagSorted(list) {
   return list.slice().sort(function(a, b) {
+    var da = snagIsOpen(a) ? 0 : 1, db = snagIsOpen(b) ? 0 : 1;
+    if (da !== db) return da - db;
     var pa = snagPhaseRank(a.phase), pb = snagPhaseRank(b.phase);
     if (pa !== pb) return pa - pb;
     var sa = +a.sortOrder || 0, sb = +b.sortOrder || 0;
@@ -13241,6 +13258,12 @@ function snagRoomGroups(list) {
   var areaOrder = {};
   snagAreas().forEach(function(a, i) { areaOrder[snagLabelKey(a.name)] = i; });
   return order.map(function(k) { return byKey[k]; }).sort(function(a, b) {
+    // Same rule as the rows inside them: a room with nothing left open sinks
+    // below every room that still has work in it. House order is preserved
+    // within each band, so the outstanding half still reads down the house --
+    // it just isn't interleaved with rooms that are finished with.
+    var da = a.items.some(snagIsOpen) ? 0 : 1, db = b.items.some(snagIsOpen) ? 0 : 1;
+    if (da !== db) return da - db;
     var ai = areaOrder[a.key], bi = areaOrder[b.key];
     if ((ai === undefined) !== (bi === undefined)) return ai === undefined ? 1 : -1;
     if (ai !== undefined) return ai - bi;
@@ -13263,6 +13286,8 @@ function snagPhaseGroups(list) {
   var add = function(key, label, items) { if (items.length) groups.push({ key: key, label: label, items: items }); };
   var inPhase = function(key) {
     return list.filter(function(s) { return (s.phase || '') === key; }).sort(function(a, b) {
+      var da = snagIsOpen(a) ? 0 : 1, db = snagIsOpen(b) ? 0 : 1;
+      if (da !== db) return da - db;
       if (rank(a) !== rank(b)) return rank(a) - rank(b);
       var sa = +a.sortOrder || 0, sb = +b.sortOrder || 0;
       if (sa !== sb) return sa - sb;
@@ -13271,7 +13296,13 @@ function snagPhaseGroups(list) {
   };
   add('', 'No phase set', inPhase(''));
   SNAG_PHASES.forEach(function(p) { add(p.key, p.label, inPhase(p.key)); });
-  return groups;
+  // And a phase with nothing left open drops below the ones that still have
+  // something in them, phase sequence preserved within each band. The point of
+  // this view is "what is there still to batch" -- a finished phase sitting in
+  // the middle of that answers a question nobody asked.
+  var live = groups.filter(function(g) { return g.items.some(snagIsOpen); });
+  var cleared = groups.filter(function(g) { return !g.items.some(snagIsOpen); });
+  return live.concat(cleared);
 }
 
 async function loadSnags() {
@@ -13662,7 +13693,10 @@ function snagsSectionHtml() {
   if (!snags.length || !openN) return '';
   return '<div class="section-title" style="margin:16px 0 8px;display:flex;align-items:center;justify-content:space-between;gap:10px">'
       + '<span>Snags (' + openN + ')</span>'
+      + '<span style="display:flex;gap:6px;flex:none">'
+      + '<button id="snag-pdf-btn" onclick="saveSnagPdf()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);border-radius:20px;padding:5px 12px;font-size:12px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;text-transform:none;letter-spacing:0">PDF</button>'
       + '<button onclick="openSnagPanel()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:20px;padding:5px 12px;font-size:12px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;text-transform:none;letter-spacing:0">+ Add snag</button>'
+      + '</span>'
     + '</div>'
     + '<div class="seg" style="margin-bottom:8px">'
       + '<button class="seg-btn' + (snagView === 'rooms' ? ' active' : '') + '" style="padding:6px 4px;font-size:13px" onclick="setSnagView(\'rooms\')">By room</button>'
@@ -13691,8 +13725,9 @@ function snagsQuietHtml() {
     + '</div>'
     + (snagsExpanded
         ? snagListHtml()
-          + '<div style="display:flex;justify-content:center;padding:8px 0 0">'
+          + '<div style="display:flex;justify-content:center;gap:6px;padding:8px 0 0">'
           + '<button onclick="openSnagPanel()" style="background:none;border:none;color:var(--text2);font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;padding:6px 10px">+ Add snag</button>'
+          + '<button id="snag-pdf-btn" onclick="saveSnagPdf()" style="background:none;border:none;color:var(--text2);font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;padding:6px 10px">Export PDF</button>'
           + '</div>'
         : '');
 }
@@ -23894,6 +23929,15 @@ var PDF_UNI = { 0x2014:0x97, 0x2013:0x96, 0x2018:0x91, 0x2019:0x92, 0x201C:0x93,
 // is DROPPED rather than substituted: a wrong glyph on a document going to a
 // customer is worse than a missing decoration, and the emoji here are all
 // decorative prefixes whose label is carried separately.
+// It has to be IDEMPOTENT, because it isn't called once: every layout below
+// sanitises a string to measure and wrap it, then d.text() sanitises each
+// wrapped line again on the way out. The mapped codes PDF_UNI produces --
+// \x97 for an em dash, \x85 for an ellipsis, \x93/\x94 for smart quotes --
+// all sit below 0xA1, so without the PDF_EXTRA passthrough here the second
+// pass dropped every one of them: "Hallway — Card Room Green" printed as
+// "Hallway Card Room Green", on the quote as well as on the snag list.
+// Passing through exactly the PDF_EXTRA codes is safe by construction, since
+// those are precisely the codes the mapper emits and the widths table knows.
 function pdfSanitise(s) {
   s = String(s == null ? '' : s);
   var out = '';
@@ -23901,6 +23945,7 @@ function pdfSanitise(s) {
     var c = s.charCodeAt(i);
     if (c >= 32 && c <= 126) out += s.charAt(i);
     else if (PDF_UNI[c] != null) out += String.fromCharCode(PDF_UNI[c]);
+    else if (PDF_EXTRA[c]) out += s.charAt(i);
     else if (c >= 0xA1 && c <= 0xFF) out += s.charAt(i);
   }
   return out.replace(/\s+/g, ' ').trim();
@@ -24185,6 +24230,187 @@ async function buildClientQuotePdf(m) {
     L + W / 2, d.y - 9, { size: 8, rgb: PDF_MUT, align: 'center' });
 
   return pdfSerialise(d, logo);
+}
+
+// ── Snag list PDF ──────────────────────────────────────────────────────────
+// The punch list as a document, for the walk-round the client wants a copy of
+// and for the decorator who isn't holding the phone. Same hand-rolled writer
+// as the quote above, same header band, so the two obviously come from the
+// same business.
+//
+// It renders the IN-MEMORY list and deliberately does not re-fetch first.
+// `snags` is the freshest copy there is: it already carries every tick made on
+// this phone, including the ones still sitting in the offline queue waiting for
+// signal, and a GET at this moment would replace those with the server's older
+// answer. "Up to date" on a snag list means "including the one I ticked thirty
+// seconds ago in a cellar", which is exactly the tick a re-fetch would lose.
+function snagPdfModel() {
+  var job = activeJob();
+  var contact = (job && job.contact) || {};
+  // Room-grouped, in the order the screen is showing -- cleared rows at the
+  // bottom of their room, cleared rooms at the bottom of the list. The
+  // document and the screen are the same list or the document is no use for
+  // checking against.
+  var groups = snagRoomGroups(snags).map(function(g) {
+    return {
+      label: g.label,
+      colour: snagGroupColour(g.label) || '',
+      openN: g.items.filter(snagIsOpen).length,
+      items: g.items.map(function(x) {
+        var done = !snagIsOpen(x);
+        return {
+          description: x.description || '',
+          phase: snagPhaseLabel(x.phase || ''),
+          done: done,
+          cleared: done ? snagClearedLabel(x) : ''
+        };
+      })
+    };
+  });
+  var openN = openSnagCount();
+  return {
+    jobName: (job && job.name) || '',
+    clientName: (job && job.xeroClient) || '',
+    address: [contact.street, contact.town, contact.postcode].filter(Boolean).join(', '),
+    today: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+    openN: openN,
+    doneN: snags.length - openN,
+    total: snags.length,
+    groups: groups
+  };
+}
+
+function snagPdfFilename(m) {
+  var base = (m.jobName || 'Job').replace(/[^A-Za-z0-9 _-]+/g, '').trim().replace(/\s+/g, '-');
+  // Dated by the day it was exported, unlike the quote: a snag list is a
+  // snapshot of a moving list, so two exports a week apart SHOULD be two
+  // differently-named files -- that's the point of exporting it twice.
+  return 'NH-Snags-' + (base || 'Job') + '-' + new Date().toISOString().slice(0, 10) + '.pdf';
+}
+
+async function buildSnagPdf(m) {
+  var logo = await pdfLoadLogo();
+  var d = pdfDoc();
+  var L = PDF_MARGIN, R = PDF_PAGE_W - PDF_MARGIN, W = R - L;
+  var BOX = 9, TEXT_X = L + 16;
+
+  var snagRow = function(it) {
+    var phase = pdfSanitise(it.phase);
+    var phaseW = phase ? pdfTextWidth(phase, false, 8.5) + 14 : 0;
+    var colW = R - TEXT_X - phaseW;
+    var lines = pdfWrap(pdfSanitise(it.description), false, 10, colW);
+    var h = lines.length * 13 + (it.cleared ? 11 : 0) + 9;
+    d.need(h);
+    var top = d.y, yy = top - 10;
+    // Filled box for a cleared snag, outlined for one still open. Not a ✓ --
+    // the WinAnsi standard fonts have no tick glyph and pdfSanitise drops it,
+    // and this stays legible photocopied in black and white anyway.
+    if (it.done) d.rect(L, top - 2.5, BOX, BOX, PDF_STEEL);
+    else { d.rect(L, top - 2.5, BOX, BOX, PDF_MUT); d.rect(L + 1, top - 3.5, BOX - 2, BOX - 2, PDF_WHITE); }
+    lines.forEach(function(ln) {
+      d.text(ln, TEXT_X, yy, { size: 10, rgb: it.done ? PDF_MUT : PDF_INK });
+      // PDF has no strike-through, but it does have a horizontal rule, and a
+      // line drawn through the text at x-height is the same mark the screen
+      // puts on a cleared row.
+      if (it.done) d.rule(TEXT_X, yy + 3, TEXT_X + pdfTextWidth(pdfSanitise(ln), false, 10), PDF_MUT);
+      yy -= 13;
+    });
+    if (it.cleared) { d.text(it.cleared, TEXT_X, yy + 1, { size: 8.5, rgb: PDF_MUT }); yy -= 11; }
+    if (phase) d.text(phase, R, top - 10, { size: 8.5, rgb: PDF_MUT, align: 'right' });
+    d.y = top - h;
+    d.rule(L, d.y + 3, R, PDF_RULE);
+  };
+
+  // Header band
+  var headH = 74;
+  d.rect(L, d.y, W, headH, PDF_STEEL);
+  var titleX = L + 20;
+  if (logo) {
+    d.rect(L + 14, d.y - 13, 48, 48, PDF_WHITE);
+    var iw = 40, ih = iw * logo.h / logo.w;
+    d.image(L + 18, d.y - 13 - (48 - ih) / 2, iw, ih);
+    titleX = L + 76;
+  }
+  d.text(quoteBusinessName(), titleX, d.y - 33, { size: 19, bold: true, rgb: PDF_WHITE });
+  d.text('Snag list', titleX, d.y - 50, { size: 10, rgb: PDF_WHITE });
+  d.y -= headH + 18;
+
+  [['Job', m.jobName], ['For', m.clientName], ['At', m.address], ['Date', m.today]].forEach(function(pair) {
+    if (!pair[1]) return;
+    d.need(16);
+    d.text(pair[0] + ':', L, d.y - 10, { size: 10, bold: true });
+    d.text(pair[1], L + 36, d.y - 10, { size: 10, rgb: PDF_MUT });
+    d.y -= 15;
+  });
+  d.y -= 6;
+
+  // The count, spelled out rather than left to be worked out by counting boxes
+  // -- "eleven outstanding" is the whole reason somebody asked for this file.
+  d.need(24);
+  d.text(m.openN === 0
+      ? 'All ' + m.total + ' snag' + (m.total === 1 ? '' : 's') + ' cleared'
+      : m.openN + ' outstanding' + (m.doneN ? ' · ' + m.doneN + ' cleared' : ''),
+    L, d.y - 11, { size: 11, bold: true, rgb: PDF_STEEL });
+  d.y -= 22;
+
+  m.groups.forEach(function(g) {
+    // Keep a room heading with at least its first snag: a heading stranded at
+    // the foot of a page reads as a room with nothing in it.
+    d.need(60);
+    var right = g.openN ? g.openN + ' open' : 'all done';
+    var rightW = pdfTextWidth(pdfSanitise(right), false, 9) + 12;
+    var head = g.label + (g.colour ? '  —  ' + g.colour : '');
+    var headLines = pdfWrap(pdfSanitise(head), true, 10.5, W - rightW);
+    var top = d.y, yy = top - 11;
+    headLines.forEach(function(ln) { d.text(ln, L, yy, { size: 10.5, bold: true, rgb: PDF_STEEL }); yy -= 13; });
+    d.text(right, R, top - 11, { size: 9, rgb: PDF_MUT, align: 'right' });
+    d.y = yy - 3;
+    d.rule(L, d.y + 6, R, PDF_RULE);
+    g.items.forEach(snagRow);
+    d.y -= 14;
+  });
+
+  d.need(26);
+  d.y -= 6;
+  d.text('Prepared ' + m.today + ' · ' + quoteBusinessName(),
+    L + W / 2, d.y - 9, { size: 8, rgb: PDF_MUT, align: 'center' });
+
+  return pdfSerialise(d, logo);
+}
+
+// The button, from either end of the On Site screen. Same three visible
+// outcomes as saveQuotePdf(): the share sheet, a download, or a toast saying
+// what went wrong -- never a tap with no result.
+async function saveSnagPdf() {
+  var btn = document.getElementById('snag-pdf-btn');
+  var label = btn ? btn.textContent : '';
+  if (btn) { btn.textContent = 'Working…'; btn.disabled = true; }
+  try {
+    if (!snags.length) { toast('Nothing on the snag list to export yet.'); return; }
+    var m = snagPdfModel();
+    var bytes = await buildSnagPdf(m);
+    var blob = new Blob([bytes], { type: 'application/pdf' });
+    var filename = snagPdfFilename(m);
+    var file = null;
+    try { file = new File([blob], filename, { type: 'application/pdf' }); } catch (e) { file = null; }
+    var canShareFile = false;
+    try { canShareFile = !!(file && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })); } catch (e) { canShareFile = false; }
+    if (canShareFile) {
+      try {
+        await navigator.share({ files: [file], title: (m.jobName || 'Job') + ' — snag list' });
+        return;
+      } catch (e) {
+        if (e && (e.name === 'AbortError' || e.name === 'NotAllowedError')) return;
+        console.warn('Share sheet refused the snag PDF, falling back to download', e);
+      }
+    }
+    downloadBlob(blob, filename);
+    toast('Snag list saved as ' + filename);
+  } catch (err) {
+    reportFailure('Couldn\'t generate the snag list PDF', err);
+  } finally {
+    if (btn) { btn.textContent = label; btn.disabled = false; }
+  }
 }
 
 // ── Export CSV ─────────────────────────────────────────────────────────────
