@@ -22,10 +22,7 @@ function mapDebt(d) {
   return {
     id: d.id, name: d.name, balance: Number(d.balance), apr: Number(d.apr),
     min: Number(d.min), arrears: Number(d.arrears), due: d.due,
-    account: d.account, note: d.note,
-    // null (not 0) when no floor has been agreed yet — the floors check
-    // skips those debts rather than inventing a commitment for them.
-    floorPayment: d.floor_payment === null || d.floor_payment === undefined ? null : Number(d.floor_payment)
+    account: d.account, note: d.note
   };
 }
 
@@ -45,26 +42,44 @@ function ensureSchema() {
     schemaReady = (async () => {
       await db.query(`ALTER TABLE debt_plan_cashflow ADD COLUMN IF NOT EXISTS missed_this_cycle JSONB NOT NULL DEFAULT '[]'`);
       await db.query(`ALTER TABLE debt_plan_debts ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT FALSE`);
-      // Floor & target payments. The floor backfill from `min` sits inside
-      // the not-exists guard so it runs once on the deploy that adds the
-      // column and never again — otherwise clearing a floor back to "not
-      // set" in the app would be undone by the next restart.
+      await db.query(`ALTER TABLE debt_plan_settings ADD COLUMN IF NOT EXISTS buffer_target NUMERIC NOT NULL DEFAULT 0`);
+      await db.query(`ALTER TABLE debt_plan_cashflow ADD COLUMN IF NOT EXISTS buffer_pot NUMERIC NOT NULL DEFAULT 0`);
+      await db.query(`ALTER TABLE debt_plan_cashflow ADD COLUMN IF NOT EXISTS floor_paid_this_cycle JSONB NOT NULL DEFAULT '[]'`);
+      await db.query(`ALTER TABLE debt_plan_income_log ADD COLUMN IF NOT EXISTS buffer_amt NUMERIC NOT NULL DEFAULT 0`);
+      // The buffer, split by account. bizPot and perPot are two real bank
+      // accounts and neither can rescue the other, so a cushion that is meant
+      // to cover a month of minimums has to be held per account too. Every
+      // legacy penny migrates to the PERSONAL side, which is where it
+      // physically was — the Log-money-in transfer panel has always sent the
+      // buffer to the personal account. See db/setup-debt.sql.
       await db.query(`DO $$
         BEGIN
           IF NOT EXISTS (
             SELECT 1 FROM information_schema.columns
-             WHERE table_name = 'debt_plan_debts' AND column_name = 'floor_payment'
+             WHERE table_name = 'debt_plan_cashflow' AND column_name = 'buffer_per'
           ) THEN
-            ALTER TABLE debt_plan_debts ADD COLUMN floor_payment NUMERIC;
-            UPDATE debt_plan_debts SET floor_payment = min WHERE min > 0;
+            ALTER TABLE debt_plan_cashflow ADD COLUMN buffer_biz NUMERIC NOT NULL DEFAULT 0;
+            ALTER TABLE debt_plan_cashflow ADD COLUMN buffer_per NUMERIC NOT NULL DEFAULT 0;
+            UPDATE debt_plan_cashflow SET buffer_per = buffer_pot;
+          END IF;
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'debt_plan_settings' AND column_name = 'buffer_target_per'
+          ) THEN
+            ALTER TABLE debt_plan_settings ADD COLUMN buffer_target_biz NUMERIC NOT NULL DEFAULT 0;
+            ALTER TABLE debt_plan_settings ADD COLUMN buffer_target_per NUMERIC NOT NULL DEFAULT 0;
+            UPDATE debt_plan_settings SET buffer_target_per = buffer_target;
+          END IF;
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'debt_plan_income_log' AND column_name = 'buffer_per_amt'
+          ) THEN
+            ALTER TABLE debt_plan_income_log ADD COLUMN buffer_biz_amt NUMERIC NOT NULL DEFAULT 0;
+            ALTER TABLE debt_plan_income_log ADD COLUMN buffer_per_amt NUMERIC NOT NULL DEFAULT 0;
+            UPDATE debt_plan_income_log SET buffer_per_amt = buffer_amt;
           END IF;
         END $$`);
-      await db.query(`ALTER TABLE debt_plan_settings ADD COLUMN IF NOT EXISTS buffer_target NUMERIC NOT NULL DEFAULT 0`);
-      await db.query(`ALTER TABLE debt_plan_cashflow ADD COLUMN IF NOT EXISTS buffer_pot NUMERIC NOT NULL DEFAULT 0`);
-      await db.query(`ALTER TABLE debt_plan_cashflow ADD COLUMN IF NOT EXISTS floor_shortfalls JSONB NOT NULL DEFAULT '[]'`);
-      await db.query(`ALTER TABLE debt_plan_cashflow ADD COLUMN IF NOT EXISTS floor_paid_this_cycle JSONB NOT NULL DEFAULT '[]'`);
-      await db.query(`ALTER TABLE debt_plan_income_log ADD COLUMN IF NOT EXISTS buffer_amt NUMERIC NOT NULL DEFAULT 0`);
-      // Ledger of what a live "paid"/"floor" tick actually took off each
+      // Ledger of what a live "paid"/"min" tick actually took off each
       // balance, so un-ticking can put back exactly what it removed
       // (recomputing from the now-reduced balances would give a different,
       // wrong figure). See lib/debtCycle.js and db/setup-debt.sql.
@@ -110,20 +125,22 @@ router.get('/api/state', async (req, res) => {
         budget: s.budget, sweepPct: s.sweep_pct, savingsPct: s.savings_pct,
         tightThreshold: s.tight_threshold, lastMilestone: s.last_milestone,
         notifyDaysBefore: s.notify_days_before, notificationsEnabled: s.notifications_enabled,
-        bufferTarget: Number(s.buffer_target)
+        bufferTargetBiz: Number(s.buffer_target_biz), bufferTargetPer: Number(s.buffer_target_per)
       },
       cashflow: {
         bizPot: Number(c.biz_pot), perPot: Number(c.per_pot),
         savingsPot: Number(c.savings_pot), paidThisCycle: c.paid_this_cycle,
         missedThisCycle: c.missed_this_cycle,
-        floorPaidThisCycle: c.floor_paid_this_cycle,
-        bufferPot: Number(c.buffer_pot), floorShortfalls: c.floor_shortfalls,
+        minPaidThisCycle: c.floor_paid_this_cycle,
+        bufferBiz: Number(c.buffer_biz), bufferPer: Number(c.buffer_per),
         appliedPayments: c.applied_payments || {}
       },
       incomeLog: income.rows.map(e => ({
         id: e.id, amount: Number(e.amount), bizAmt: Number(e.biz_amt),
         perAmt: Number(e.per_amt), savedAmt: Number(e.saved_amt),
-        bufferAmt: Number(e.buffer_amt), date: e.date
+        bufferAmt: Number(e.buffer_amt),
+        bufferBizAmt: Number(e.buffer_biz_amt), bufferPerAmt: Number(e.buffer_per_amt),
+        date: e.date
       })),
       meta: {
         debtsUpdatedAt, settingsUpdatedAt: s.updated_at, cashflowUpdatedAt: c.updated_at
@@ -156,23 +173,16 @@ router.post('/api/debts', async (req, res) => {
     const result = await db.query(
       `UPDATE debt_plan_debts d
           SET name=j.name, balance=j.balance, apr=j.apr, min=j."min",
-              arrears=j.arrears, due=j.due, account=j.account, note=j.note,
-              floor_payment=j.floor_payment
+              arrears=j.arrears, due=j.due, account=j.account, note=j.note
          FROM jsonb_to_recordset($1::jsonb)
               AS j(id int, name text, balance numeric, apr numeric, "min" numeric,
-                   arrears numeric, due int, account text, note text,
-                   floor_payment numeric)
+                   arrears numeric, due int, account text, note text)
         WHERE d.id = j.id
-          AND (d.name, d.balance, d.apr, d.min, d.arrears, d.due, d.account, d.note, d.floor_payment)
+          AND (d.name, d.balance, d.apr, d.min, d.arrears, d.due, d.account, d.note)
               IS DISTINCT FROM
-              (j.name, j.balance, j.apr, j."min", j.arrears, j.due, j.account, j.note, j.floor_payment)
+              (j.name, j.balance, j.apr, j."min", j.arrears, j.due, j.account, j.note)
     RETURNING d.updated_at`,
-      // floorPayment -> floor_payment, keeping null (no floor agreed) intact:
-      // Number(null) would be 0, which reads as "committed to nothing".
-      [JSON.stringify(debts.map(d => ({
-        ...d, note: d.note || '',
-        floor_payment: d.floorPayment == null || d.floorPayment === '' ? null : Number(d.floorPayment)
-      })))]
+      [JSON.stringify(debts.map(d => ({ ...d, note: d.note || '' })))]
     );
     // If nothing actually changed, the client's timestamp should stay at the
     // table's current max rather than null.
@@ -208,13 +218,12 @@ router.post('/api/debts/add', async (req, res) => {
     }
     const due = debt.due == null || debt.due === '' ? null : parseInt(debt.due, 10) || null;
     const result = await db.query(
-      `INSERT INTO debt_plan_debts (id, name, balance, apr, min, arrears, due, account, note, floor_payment)
-       SELECT COALESCE(MAX(id), 0) + 1, $1, $2, $3, $4, $5, $6, $7, $8, $9 FROM debt_plan_debts
+      `INSERT INTO debt_plan_debts (id, name, balance, apr, min, arrears, due, account, note)
+       SELECT COALESCE(MAX(id), 0) + 1, $1, $2, $3, $4, $5, $6, $7, $8 FROM debt_plan_debts
        RETURNING *`,
       [String(debt.name).trim(), Number(debt.balance) || 0, Number(debt.apr) || 0,
         Number(debt.min) || 0, Number(debt.arrears) || 0, due,
-        debt.account === 'business' ? 'business' : 'personal', debt.note || '',
-        debt.floorPayment == null || debt.floorPayment === '' ? null : Number(debt.floorPayment)]
+        debt.account === 'business' ? 'business' : 'personal', debt.note || '']
     );
     const row = result.rows[0];
     // The inserted row's updated_at (DEFAULT NOW()) is the table's new max.
@@ -255,7 +264,8 @@ router.post('/api/debts/:id/archive', async (req, res) => {
 });
 
 router.post('/api/settings', async (req, res) => {
-  const { budget, sweepPct, savingsPct, tightThreshold, lastMilestone, notifyDaysBefore, notificationsEnabled, bufferTarget, clientUpdatedAt } = req.body;
+  const { budget, sweepPct, savingsPct, tightThreshold, lastMilestone, notifyDaysBefore,
+    notificationsEnabled, bufferTargetBiz, bufferTargetPer, clientUpdatedAt } = req.body;
   try {
     const current = await db.query('SELECT * FROM debt_plan_settings WHERE id = 1');
     const s = current.rows[0];
@@ -267,17 +277,17 @@ router.post('/api/settings', async (req, res) => {
           budget: s.budget, sweepPct: s.sweep_pct, savingsPct: s.savings_pct,
           tightThreshold: s.tight_threshold, lastMilestone: s.last_milestone,
           notifyDaysBefore: s.notify_days_before, notificationsEnabled: s.notifications_enabled,
-          bufferTarget: Number(s.buffer_target)
+          bufferTargetBiz: Number(s.buffer_target_biz), bufferTargetPer: Number(s.buffer_target_per)
         },
         updatedAt: s.updated_at
       });
     }
 
     const result = await db.query(
-      `UPDATE debt_plan_settings SET budget=$1, sweep_pct=$2, savings_pct=$3, tight_threshold=$4, last_milestone=$5, notify_days_before=$6, notifications_enabled=$7, buffer_target=$8 WHERE id=1 RETURNING updated_at`,
+      `UPDATE debt_plan_settings SET budget=$1, sweep_pct=$2, savings_pct=$3, tight_threshold=$4, last_milestone=$5, notify_days_before=$6, notifications_enabled=$7, buffer_target_biz=$8, buffer_target_per=$9 WHERE id=1 RETURNING updated_at`,
       [budget, sweepPct, savingsPct, tightThreshold, lastMilestone,
         notifyDaysBefore ?? s.notify_days_before, notificationsEnabled ?? s.notifications_enabled,
-        bufferTarget ?? s.buffer_target]
+        bufferTargetBiz ?? s.buffer_target_biz, bufferTargetPer ?? s.buffer_target_per]
     );
     res.json({ ok: true, updatedAt: result.rows[0].updated_at });
   } catch (err) {
@@ -286,8 +296,8 @@ router.post('/api/settings', async (req, res) => {
 });
 
 router.post('/api/cashflow', async (req, res) => {
-  const { bizPot, perPot, savingsPot, bufferPot, paidThisCycle, missedThisCycle,
-    floorPaidThisCycle, floorShortfalls, appliedPayments, clientUpdatedAt } = req.body;
+  const { bizPot, perPot, savingsPot, bufferBiz, bufferPer, paidThisCycle, missedThisCycle,
+    minPaidThisCycle, appliedPayments, clientUpdatedAt } = req.body;
   try {
     const current = await db.query('SELECT * FROM debt_plan_cashflow WHERE id = 1');
     const c = current.rows[0];
@@ -299,8 +309,8 @@ router.post('/api/cashflow', async (req, res) => {
           bizPot: Number(c.biz_pot), perPot: Number(c.per_pot),
           savingsPot: Number(c.savings_pot), paidThisCycle: c.paid_this_cycle,
           missedThisCycle: c.missed_this_cycle,
-          floorPaidThisCycle: c.floor_paid_this_cycle,
-          bufferPot: Number(c.buffer_pot), floorShortfalls: c.floor_shortfalls,
+          minPaidThisCycle: c.floor_paid_this_cycle,
+          bufferBiz: Number(c.buffer_biz), bufferPer: Number(c.buffer_per),
           appliedPayments: c.applied_payments || {}
         },
         updatedAt: c.updated_at
@@ -310,16 +320,16 @@ router.post('/api/cashflow', async (req, res) => {
     const result = await db.query(
       `UPDATE debt_plan_cashflow SET biz_pot=$1, per_pot=$2, savings_pot=$3, paid_this_cycle=$4,
               missed_this_cycle=COALESCE($5, missed_this_cycle),
-              buffer_pot=COALESCE($6, buffer_pot),
-              floor_shortfalls=COALESCE($7, floor_shortfalls),
+              buffer_biz=COALESCE($6, buffer_biz),
+              buffer_per=COALESCE($7, buffer_per),
               floor_paid_this_cycle=COALESCE($8, floor_paid_this_cycle),
               applied_payments=COALESCE($9, applied_payments)
          WHERE id=1 RETURNING updated_at`,
       [bizPot, perPot, savingsPot, JSON.stringify(paidThisCycle || []),
         missedThisCycle === undefined ? null : JSON.stringify(missedThisCycle),
-        bufferPot === undefined ? null : bufferPot,
-        floorShortfalls === undefined ? null : JSON.stringify(floorShortfalls),
-        floorPaidThisCycle === undefined ? null : JSON.stringify(floorPaidThisCycle),
+        bufferBiz === undefined ? null : bufferBiz,
+        bufferPer === undefined ? null : bufferPer,
+        minPaidThisCycle === undefined ? null : JSON.stringify(minPaidThisCycle),
         appliedPayments === undefined ? null : JSON.stringify(appliedPayments)]
     );
     res.json({ ok: true, updatedAt: result.rows[0].updated_at });
@@ -329,11 +339,15 @@ router.post('/api/cashflow', async (req, res) => {
 });
 
 router.post('/api/income', async (req, res) => {
-  const { amount, bizAmt, perAmt, savedAmt, bufferAmt, date } = req.body;
+  const { amount, bizAmt, perAmt, savedAmt, bufferBizAmt, bufferPerAmt, date } = req.body;
   try {
+    // buffer_amt stays the total of the two, so the legacy column keeps
+    // meaning what it always meant for anything still reading it.
+    const bufBiz = bufferBizAmt || 0, bufPer = bufferPerAmt || 0;
     const result = await db.query(
-      `INSERT INTO debt_plan_income_log (amount, biz_amt, per_amt, saved_amt, buffer_amt, date) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-      [amount, bizAmt || 0, perAmt || 0, savedAmt || 0, bufferAmt || 0, date]
+      `INSERT INTO debt_plan_income_log (amount, biz_amt, per_amt, saved_amt, buffer_amt, buffer_biz_amt, buffer_per_amt, date)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      [amount, bizAmt || 0, perAmt || 0, savedAmt || 0, bufBiz + bufPer, bufBiz, bufPer, date]
     );
     res.json({ id: result.rows[0].id });
   } catch (err) {
@@ -360,7 +374,7 @@ router.delete('/api/income/:id', async (req, res) => {
 // adopt them instead of its next save tripping the stale-write guard.
 router.post('/api/new-cycle', async (req, res) => {
   const { debts, debtsPaid, debtsMissed, bizPotClose, perPotClose,
-    floorShortfalls, cycleFloorShortfalls, floorsMet, targetMet, arrearsAdded } = req.body;
+    minsMet, targetMet, arrearsAdded } = req.body;
   const client = await db.pool.connect();
   try {
     await client.query('BEGIN');
@@ -371,20 +385,13 @@ router.post('/api/new-cycle', async (req, res) => {
     // render "N missed" later without a schema change.
     const missedList = (Array.isArray(debtsMissed) ? debtsMissed : []).map(Number).filter(Number.isFinite);
     // The closing cycle's verdict on BOTH numbers, archived alongside the
-    // missed ids so the History tab can show "floors met, target missed"
-    // rather than one all-or-nothing pass/fail. Older rows have neither key
-    // and render without the badges.
+    // missed ids so the History tab can show "minimums met, target missed"
+    // rather than one all-or-nothing pass/fail. Older rows carry `floorsMet`
+    // from before floors were retired; the client reads either.
     const noteData = {};
     if (missedList.length) noteData.missed = missedList;
-    if (typeof floorsMet === 'boolean') noteData.floorsMet = floorsMet;
+    if (typeof minsMet === 'boolean') noteData.minsMet = minsMet;
     if (typeof targetMet === 'boolean') noteData.targetMet = targetMet;
-    // Shortfalls RECORDED BY THIS CYCLE (not the running carried total) —
-    // what actually fell short between these two dates.
-    if (Array.isArray(cycleFloorShortfalls) && cycleFloorShortfalls.length) {
-      noteData.floorShortfalls = cycleFloorShortfalls.map(f => ({
-        id: Number(f.id), name: String(f.name || ''), amount: Number(f.amount) || 0
-      }));
-    }
     // Contractual minimums this cycle left uncovered, which the client has
     // already folded into the arrears it sends up in `debts`. Archived so
     // History can say what moved -- the same key the auto-roller writes.
@@ -434,17 +441,13 @@ router.post('/api/new-cycle', async (req, res) => {
     );
 
     await client.query('DELETE FROM debt_plan_income_log');
-    // paid/missed reset with the cycle; floor_shortfalls does NOT — it's the
-    // running "behind" ledger the client sends back with this cycle's misses
-    // folded in, and only an explicit catch-up/clear empties it. buffer_pot
-    // is untouched for the same reason: a cash cushion spans cycles.
+    // paid/missed reset with the cycle; the buffer jars are untouched, because
+    // a cash cushion spans cycles — that is the whole point of it.
     const cashflowResult = await client.query(
       `UPDATE debt_plan_cashflow
           SET paid_this_cycle = '[]', missed_this_cycle = '[]', floor_paid_this_cycle = '[]',
-              applied_payments = '{}',
-              floor_shortfalls = COALESCE($1, floor_shortfalls)
-        WHERE id = 1 RETURNING updated_at`,
-      [floorShortfalls === undefined ? null : JSON.stringify(floorShortfalls)]);
+              applied_payments = '{}'
+        WHERE id = 1 RETURNING updated_at`);
     const newSettings = await client.query('UPDATE debt_plan_settings SET cycle_started_at = NOW() WHERE id = 1 RETURNING updated_at');
     const debtsMax = await client.query('SELECT MAX(updated_at) AS max FROM debt_plan_debts');
     await client.query('COMMIT');

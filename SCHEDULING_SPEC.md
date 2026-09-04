@@ -100,7 +100,7 @@ inside the run, so a two-week holiday is one run. Covered by the parity
 harness (blocked spans, client vs ICS) and the 43-check smoke run (range
 blocks 4 working days across a weekend, bars merge, run-unblock clears).
 
-**Addendum 2026-09-04 (v2.53.2) — blocking is offered on every day.** The
+**Addendum 2026-09-04 (v2.57.1) — blocking is offered on every day.** The
 v1.17.0 rule ("Block is only offered on would-be working days, today onward")
 was wrong in the one case that matters most. It tested the GLOBAL rule, so on
 a diary with `workSaturdays` off it withheld the button from a Saturday a

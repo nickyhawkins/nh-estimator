@@ -16,7 +16,7 @@
 //      Block/Unblock buttons come BEFORE the waiting list in the sheet.
 //   2. The waiting list is capped, with the remainder behind one tap, and
 //      "show all" really does list the lot.
-//   3. THE OFFERED-EVERYWHERE PROPERTY (v2.53.2). Blocking used to be gated on
+//   3. THE OFFERED-EVERYWHERE PROPERTY (v2.57.1). Blocking used to be gated on
 //      the day being a working one under the GLOBAL rule, so a Saturday a job
 //      actually works — via its own "+ Saturdays"/"Every day" override — was
 //      offered no button at all, and the reporter read the missing button as

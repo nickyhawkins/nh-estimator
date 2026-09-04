@@ -881,3 +881,365 @@ browser, no server. It pins the missing row, the badge meaning both ways round,
 the "moves no money" guarantee measured against the same plan with the debt
 removed, both halves of the floor cap, and the refusal to tick £0.
 `npm run test:floors` 47 and `npm run test:custom-payments` 46 green alongside.
+
+---
+
+## Feature 13 — A month ahead: the buffer that can actually be spent — BUILT (v2.54.0)
+
+Asked after Feature 12: *"what's the best way of building up a month ahead to
+cover all payments and avoid arrears again?"* The mechanism already existed —
+`bufferPot`, filled first out of every pay-in, ahead of floors, savings, sweep
+and living money. It could not do the job:
+
+- **The target slider stopped at £500.** A month of this plan's contractual
+  minimums is £1,292.02. The number could not be entered.
+- **Nothing ever spent it.** `bufferPot` was only ever added to; the sole way
+  out was retyping it in Adjust pots. In the short month it exists for, it sat
+  there and the minimum went into arrears anyway.
+- **One jar, two bank accounts.** A full personal cushion cannot pay a
+  business minimum, and the Log-money-in transfer panel sent the whole buffer
+  to the personal account regardless.
+
+### The target is a month of MINIMUMS
+
+`monthlyMinimums()` — the same "in the payment plan" rule as
+`getCurrentTarget()` (a live balance and either a minimum or a due date), each
+minimum capped at its balance, split by account. On the reported plan:
+**£387.08 business + £904.94 personal = £1,292.02**.
+
+Deliberately the minimums and not the floors (£1,241.29). Missing a floor
+writes an inert entry on the catch-up ledger; missing a **minimum** is money
+genuinely overdue, and that is the thing this feature exists to stop. The
+Settings card says so, in those words, above the figure.
+
+The slider is gone. In its place: **One month ahead** / **Half a month** /
+**Off** as one-tap presets computed from the plan, and a typed field per
+account for anything else. `setBufferTargetFor()` deliberately does NOT
+re-render on each keystroke — that would rewrite the input mid-type and throw
+the caret to the end, the same reason the debt edit fields don't.
+
+### Two jars
+
+`buffer_biz` / `buffer_per` and `buffer_target_biz` / `buffer_target_per`,
+because `bizPot` and `perPot` are two real bank accounts and neither can
+rescue the other. They fill **together, in proportion to what each still
+needs**, so a light month cannot brim one while the other — the one with a
+minimum falling due — stays empty.
+
+The legacy single jar migrates entirely to the **personal** side, which is
+where the money physically was: the transfer panel has always routed the
+buffer to the personal account alongside savings and living money. That panel
+is now correct too — the business share of a pay-in's buffer is transferred to
+the **business** account, because that is the jar a business minimum is paid
+from. `buffer_pot` and `buffer_target` are kept, unwritten, so the split can be
+rolled back without losing the money; `buffer_amt` on the income log stays the
+total of the two new columns.
+
+### It can be spent
+
+`bufferCover()` is the tap that was missing: per account, the smaller of what
+that pot is short of this cycle's uncovered floors and what that jar holds.
+The buffer strip grows a **Cover £X from the buffer** button whenever there is
+something to move, and the modal names the two transfers before they happen —
+`buffer £850 → £206 · pot £415 → £854` — plus what is still short when a jar
+can't reach, which is never made up from the other account.
+
+It is a **transfer, not a payment**: the money lands in the pot and the payment
+is then ticked normally, so every ledger, undo and archive path is untouched.
+
+### Cost, for the record
+
+Diverting money to build the cushion pushes the arrears-clear date back by
+**exactly one month, however it is spread** — £1,300 once, £650 × 2, £325 × 4
+and £220 × 6 all land on the same month, because the spare per month fixes the
+finish date and not the order. So the cheapest way to build it is slowly, and
+cheaper still out of the `savingsPct` that already diverts 10% of every pay-in
+away from the debt sweep.
+
+### The transfer instruction (v2.54.1)
+
+Asked as soon as the pots became real: *"does the app show me how much to
+transfer to each buffer pot, like it already did for business and personal?"*
+Half. The split was in the **Where it goes** breakdown, under the Buffer line;
+the **Transfers to make** panel — the part you actually work from, standing in
+your banking app — still showed two figures, one per bank account, with the
+buffer folded silently inside them. With the buffer as a number in the app
+that was fine. With it as a real savings space, "£490.59 to the personal
+account" is not an instruction anyone can act on.
+
+The panel now names every destination: the two bank totals stay as the
+headline (they are what leaves for each bank, which still matters when the two
+are different banks), and under each sits the pot-by-pot split —
+
+```
+Business account            £409.41
+   Business pot               £0.00
+   Business buffer          £409.41
+Personal account            £490.59
+   Personal pot               £0.00
+   Personal buffer          £490.59
+   Savings                    £0.00
+   Keep for living            £0.00
+```
+
+Four destinations, four figures, and each headline is exactly its own rows
+added up — which the tests assert rather than trust.
+
+### Tests
+
+`npm run test:buffer` (`scripts/test-buffer-month-ahead.js`) — 33 checks
+through the shared vm harness, no database, no browser, no server. Covers the
+minimums split (including a minimum capped at its balance and a debt outside
+the plan contributing nothing), the presets, proportional filling with a full
+jar and an over-target pay-in, "nothing lost or invented" across the whole
+allocation, the cover capped per account and never crossing between them, the
+corrected transfer panel, and an income delete reversing both jars — including
+a pre-split entry, whose buffer was personal money; and the transfers panel
+driven through the real modal — every destination named, each headline the sum
+of its own rows, and the four accounting for the whole pay-in. `test:arrears` 26,
+`test:floors` 47 and `test:custom-payments` 46 green alongside.
+
+**Deploy:** new columns are applied lazily by `routes/debt.js`'s
+`ensureSchema()` on the first API request, as with every debt-app migration —
+no manual step.
+
+---
+
+## Feature 14 — Spending the month ahead — BUILT (v2.55.0)
+
+Feature 13 built the cushion and could move money out of it, but only as a
+rescue: the button appeared when the pots were already short. Three questions
+about what happens after the buffer fills turned out to have three different
+answers, one of them a bug.
+
+### The bug: funded on floors, sized on minimums
+
+`bufferCover()` measured what to move against `getFloorStatus()`'s outstanding
+**floors**. The buffer is sized on contractual **minimums**, and deliberately
+so — a missed floor writes an inert catch-up entry, a missed minimum becomes
+arrears. Where a floor sits BELOW its minimum the two disagree, and the buffer
+would sit full while arrears grew on the difference. On the reported plan that
+is Currys: floor £50.73 against a £101.46 minimum, so funding the floors moved
+£854.21 to the personal pot when £904.94 was owed and let £50.73 go overdue.
+
+`cycleCommitments()` replaces it: per debt still owing, the **higher** of its
+floor and its contractual minimum, less what has already gone out; missed
+debts excluded, exactly as the pots exclude them. On that plan it comes to
+£387.08 business + £904.94 personal — the buffer target to the penny, which is
+the point. The seeded plan hides this entirely (every seeded floor equals its
+minimum), so the suite now carries a floor-below-minimum case of its own.
+
+### Fund the month up front, don't wait to be rescued
+
+Asked as *"a button to transfer the buffer to the main pot… then as the month
+goes on the buffer is refilled while all the minimums are already funded, the
+whole point of being a month ahead."* That is what the action always computed
+at the start of a cycle — with nothing paid and the pots empty, the gap IS the
+whole month — but it was labelled and framed as a shortfall rescue. It now
+reads **Fund this month — move £X across**, and says what it buys: every floor
+and minimum still owing in the pots up front, income then refilling the buffer
+instead of paying the bills.
+
+Nothing else had to change for that to work. `allocateIncome()` already fills
+the buffer first and already counts pot balances toward the floors before new
+money does, so a pot funded from the buffer takes no second helping: income
+goes buffer → savings → sweep, and the float rolls forward month on month.
+
+### The close warns, and never spends it
+
+A cycle can close with minimums going into arrears while the cushion held to
+prevent exactly that sits untouched — the close cannot move money between real
+bank accounts, so it must not pretend to. `renderBufferRescue()` says so
+instead, on the renewal banner and inside the Start-a-new-cycle modal: what is
+unfunded, how much of it the buffer holds, and the transfer button. The test
+asserts both that the warning appears and that closing moves nothing by itself.
+
+### The target is a snapshot, and now admits it
+
+`setBufferPreset()` stores numbers; `monthlyMinimums()` is computed live. Clear
+two debts and the stored target is over-held; let a minimum rise and "a month
+ahead ✓" is quietly false. `bufferDrift()` compares the two and the strip says
+which way it has gone, with a one-tap re-set, whenever they differ by more
+than a pound.
+
+### Regression fixed on the way
+
+The surplus prompt ("All bills are paid and you've got £X left over") gated on
+`activeCycle.every(paid)`. Feature 12's `unfunded` arrears rows are in
+`activeCycle`, ask for £0 and refuse the tick by design — so on any plan
+carrying a debt the budget can't reach (Brewers), that prompt would never have
+appeared again. It gates on `plannedCycle` now, like the n/m done counter.
+
+### Where money goes once the buffer is full — no change needed
+
+The third question was whether a full buffer should start pushing extra money
+at the pots. It already does, and there was nothing to build: with the buffer
+full it takes nothing off the top, and the pots fill toward this cycle's
+targets up to `sweepPct`. Measured on the reported plan at a full buffer, a
+£3,000 pay-in splits £471.04 business + £1,028.96 personal (£1,500 — exactly
+the 50% sweep), £300 savings, £1,200 living. The plan's targets already carry
+the arrears catch-up, so pot money above the minimums IS the overpayment, and
+the existing surplus prompt spends what is left at the end of a cycle. The
+lever for wanting more of it is `sweepPct`, one slider away — inventing a
+second mechanism beside it would have been two controls fighting over one
+number.
+
+### Tests
+
+`npm run test:buffer` grows to 48: the floor-below-minimum funding case, a
+payment already made dropping out of what must still be funded, a missed debt
+funded not at all, the close warning appearing and the close spending nothing,
+and drift in both directions with the re-set clearing it. `test:arrears` 29
+(two new, holding the surplus-prompt gate), `test:floors` 47 and
+`test:custom-payments` 46 green alongside.
+
+---
+
+## Feature 15 — This month first, then the buffer — BUILT (v2.56.0)
+
+Asked plainly: *"should the buffer fill before the actual month where it's
+needed? Shouldn't it be the other way around?"* Yes, and it was a real fault,
+introduced by me in Feature 13 rather than inherited.
+
+`allocateIncome()` filled the buffer off the top, ahead of everything. That
+was right when the buffer was the £200 cushion it was designed as, and wrong
+the moment it became a month-ahead float. On a light month the whole pay-in
+vanished into next month's safety while this month's minimums went into
+arrears — the cushion built out of the very thing it exists to prevent.
+Measured on the reported plan, target £1,292.02 and nothing paid:
+
+| in | old: buffer | old: pots | old: still unfunded |
+|---|---|---|---|
+| £600 | £600.00 | £0.00 | £1,292.02 |
+| £1,200 | £1,200.00 | £0.00 | £1,292.02 |
+
+The order is now **this month → buffer → savings → sweep → living**. Same
+figures:
+
+| in | new: buffer | new: pots | new: still unfunded |
+|---|---|---|---|
+| £600 | £0.00 | £600.00 | £692.02 |
+| £1,200 | £0.00 | £1,200.00 | £92.02 |
+
+"This month" is `commitmentQueue()` — `cycleCommitments()` itemised and in the
+existing funding order (arrears first, then earliest due), so a pay-in that
+cannot cover everything covers what hurts most. Pot balances still count
+before any new money does.
+
+**It costs the buffer nothing in the steady state.** Once you are a month
+ahead and have funded the cycle from the buffer on day one, the pots already
+cover this month's commitments, the first step takes nothing, and income flows
+straight back into refilling the jars. The float rolls forward month on month
+— which is the whole mechanic, and it only works in this order.
+
+The buffer still sits AHEAD of savings and the target sweep: a month ahead is
+worth more than either, and behind them it would never fill while there were
+arrears to chase. Commitment money still comes OUT OF the sweep rather than on
+top of it, so a month whose commitments are already covered splits exactly as
+it did before any of this existed.
+
+`floorBiz`/`floorPer`/`floorFunded` are still returned under those names
+alongside the clearer `dueBiz`/`duePer`/`dueFunded` — it is the same money,
+and the floors-covered note and the floors suite both read it.
+
+The Log-money-in modal's "Where it goes" list was reordered to match, and the
+Buffer line now reads "after this month" rather than "taken first", because
+that is no longer true.
+
+### Tests
+
+`test:buffer` 51 and `test:floors` 48. Seven checks across the two suites
+asserted the old order outright ("buffer is filled before anything else") and
+now pin the new one from both sides: a light month funding the month and not
+the buffer, a pay-in bigger than the month funding the month first and the
+buffer with the remainder, and — with the pots already covering the cycle, the
+steady state — the buffer refilling ahead of savings and the sweep exactly as
+before. `test:arrears` 29 and `test:custom-payments` 46 green alongside.
+
+---
+
+## Feature 16 — Floors retired — BUILT (v2.57.0)
+
+Said plainly while working through the buffer: *"I'm not really seeing a
+benefit of the floor payment, it seems to be complicating things."* Correct,
+and the live data was blunt about it. Across the whole plan:
+
+| | count |
+|---|---|
+| floor identical to the contractual minimum | **7 of 8** |
+| floor below the minimum | 0 |
+| floor above the minimum | **0** |
+| no floor set | 1 (Brewers, which has no minimum either) |
+
+The one apparent exception — Currys at £50.73 against a £101.46 minimum — was
+my own bad inference from a screenshot. Its minimum IS £50.73. So the floor
+field, in the entire history of the plan, never once expressed anything `min`
+did not already say, and the only configuration where it could have (a floor
+ABOVE the minimum) was never used.
+
+For that it cost a second verdict, a fifth payment state, a priority order, a
+nullable column, a running catch-up ledger with its own panel and two actions,
+and 326 lines across four files.
+
+**The deeper reason it had stopped earning its place:** floors were a
+*bookkeeping* answer to irregular income — relabel a light month so it doesn't
+read as failure. The month-ahead buffer (Features 13–15) is a *cash* answer to
+the same problem. Once a light month is genuinely rescued with money, the
+relabelling is redundant.
+
+### What went
+
+- `floor_payment` and the Floor field in Edit Debts and Add Debt.
+- `floorOf()`, `floorDueOf()`, `getFloorStatus()`, `floorPriority()`,
+  `renderFloorIndicators()`.
+- The **Behind on floors** ledger entirely — panel, Catch up, Clear,
+  `floor_shortfalls`, and the shortfall merge in both close paths. It existed
+  only because a floor was a discretionary promise rather than a debt. An
+  uncovered *minimum* is a real debt and already goes where real debts go.
+
+### What stayed
+
+- **"Paid the minimum only"** (◐), re-anchored on `min`. Pay what the
+  agreement requires, skip the arrears catch-up. The state is `min` now;
+  it still shares `paid_this_cycle`'s sibling column `floor_paid_this_cycle`,
+  which is left named as it is — renaming a column to rename a concept is not
+  worth a migration.
+- **Two chips, both honest**: *Minimums met* — the verdict, meaning nothing
+  new went overdue — and *Target*, which is progress, not a pass/fail. An
+  unmet minimum with the pots short now reads **Arrears risk**, which is what
+  it is.
+- Everything the buffer does. `cycleCommitments()` and `commitmentQueue()`
+  simply lost their `max(floor, min)` and read `min` directly.
+
+### The nullable-column trick that turned out to be unnecessary
+
+`floor_payment` was deliberately NULLABLE so that "no commitment agreed"
+(Brewers, HMRC) could be told apart from "committed to £0", which would count
+as met every cycle by paying nothing. `min` encodes exactly the same thing as
+**0**, and always did. `minDueOf()` returns 0 there and `getCycleStatus()`
+leaves those debts out of the verdict — same behaviour, one fewer column and
+no null-handling anywhere.
+
+### Data
+
+Discarded on the user's instruction: no floor values are migrated to anything
+and no catch-up ledger entries are converted to arrears. `floor_payment` and
+`floor_shortfalls` are LEFT IN PLACE in the schema, unwritten, so the change is
+reversible and nothing is destroyed. History rows are permanent, so
+`renderArchivedVerdict()` reads `minsMet` **or** the older `floorsMet`, and a
+row carrying a floor-shortfall list still renders it — labelled as retired,
+with "nothing is owed on this".
+
+### Tests
+
+`npm run test:floors` becomes **`npm run test:minimums`**
+(`scripts/test-minimums.js`, 47 checks): the minimum as the only commitment
+and 0 meaning there isn't one, both caps (balance, and the balance before an
+applied payment took its bite), the two verdicts judged separately, pot
+arithmetic across all five payment states, allocation order and conservation,
+and an uncovered minimum becoming arrears — capped at the balance, applied
+once, with the archive asserted to carry no floor ledger at all.
+`test:arrears` 29, `test:custom-payments` 46 and `test:buffer` 51 green
+alongside; every one of them lost its floor scaffolding on the way.
+
+**Deploy:** no migration. The retired columns are simply no longer read.
