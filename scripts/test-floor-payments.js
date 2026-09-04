@@ -112,15 +112,15 @@ check('a real floor of 0 is kept as 0', app.floorOf({ floorPayment: 0 }) === 0);
 
 // ── 3. allocation order and conservation ───────────────────────────────────
 {
-  reset({ bufferTarget: 200 });
+  reset({ bufferTargetPer: 200 });
   const a = app.allocateIncome(150);
   check('buffer is filled before anything else', near(a.buffer, 150) && near(a.biz, 0) && near(a.per, 0) && near(a.savings, 0), a);
 
-  reset({ bufferTarget: 200, bufferPot: 200 });
+  reset({ bufferTargetPer: 200, bufferPer: 200 });
   const b = app.allocateIncome(150);
   check('a full buffer takes nothing', near(b.buffer, 0), b);
 
-  reset({ bufferTarget: 200, bufferPot: 50 });
+  reset({ bufferTargetPer: 200, bufferPer: 50 });
   const c = app.allocateIncome(1000);
   check('buffer takes only what it still needs', near(c.buffer, 150), c);
   check('nothing is lost or invented', near(c.buffer + c.biz + c.per + c.savings + c.keep, 1000),

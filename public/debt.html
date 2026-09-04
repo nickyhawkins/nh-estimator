@@ -117,11 +117,21 @@ let bizPot=0;
 let perPot=0;
 let savingsPot=0;
 let savingsPct=10;
-// Floor & target payments. bufferPot is a cash cushion filled BEFORE any
-// debt allocation; bufferTarget 0 means the buffer is switched off, which is
-// the default — it moves real money, so it's opted into, not assumed.
-let bufferPot=0;
-let bufferTarget=0;
+// Floor & target payments. The buffer is a cash cushion filled BEFORE any
+// debt allocation; a target of 0 means it is switched off, which is the
+// default — it moves real money, so it's opted into, not assumed.
+//
+// TWO jars, not one, because bizPot and perPot are two real bank accounts and
+// neither can rescue the other: a £905 personal cushion does nothing for a
+// £387 business minimum falling due. What the buffer is FOR is holding one
+// month of contractual minimums (see monthlyMinimums()) so a light month pays
+// them out of stored cash instead of putting them into arrears.
+let bufferBiz=0;
+let bufferPer=0;
+let bufferTargetBiz=0;
+let bufferTargetPer=0;
+const bufferPot=()=>round2(bufferBiz+bufferPer);
+const bufferTarget=()=>round2(bufferTargetBiz+bufferTargetPer);
 // Running "behind on floors" ledger: [{id,name,amount,since}], one entry per
 // debt, written when a cycle closes with a floor unmet. Deliberately inert —
 // nothing reads it back into the plan until the user taps Catch up.
@@ -199,8 +209,8 @@ function persist(...kinds){
 }
 const PERSIST_BODIES={
   debts:()=>({debts,clientUpdatedAt:debtsUpdatedAt}),
-  settings:()=>({budget,sweepPct,savingsPct,tightThreshold,lastMilestone,notifyDaysBefore,notificationsEnabled,bufferTarget,clientUpdatedAt:settingsUpdatedAt}),
-  cashflow:()=>({bizPot,perPot,savingsPot,bufferPot,paidThisCycle,missedThisCycle,floorPaidThisCycle,floorShortfalls,appliedPayments,clientUpdatedAt:cashflowUpdatedAt})
+  settings:()=>({budget,sweepPct,savingsPct,tightThreshold,lastMilestone,notifyDaysBefore,notificationsEnabled,bufferTargetBiz,bufferTargetPer,clientUpdatedAt:settingsUpdatedAt}),
+  cashflow:()=>({bizPot,perPot,savingsPot,bufferBiz,bufferPer,paidThisCycle,missedThisCycle,floorPaidThisCycle,floorShortfalls,appliedPayments,clientUpdatedAt:cashflowUpdatedAt})
 };
 async function persistNow(){
   if(!loadedFromServer)return; // never push the fallback seed over real data
@@ -238,11 +248,11 @@ async function handleWriteResponse(res,kind){
       budget=body.current.budget;sweepPct=body.current.sweepPct;savingsPct=body.current.savingsPct;
       tightThreshold=body.current.tightThreshold;lastMilestone=body.current.lastMilestone;
       notifyDaysBefore=body.current.notifyDaysBefore;notificationsEnabled=body.current.notificationsEnabled;
-      bufferTarget=body.current.bufferTarget??0;
+      bufferTargetBiz=body.current.bufferTargetBiz??0;bufferTargetPer=body.current.bufferTargetPer??0;
       settingsUpdatedAt=body.updatedAt;
     }else if(kind==='cashflow'){
       bizPot=body.current.bizPot;perPot=body.current.perPot;savingsPot=body.current.savingsPot;
-      bufferPot=body.current.bufferPot??0;
+      bufferBiz=body.current.bufferBiz??0;bufferPer=body.current.bufferPer??0;
       paidThisCycle=body.current.paidThisCycle;missedThisCycle=body.current.missedThisCycle||[];
       floorPaidThisCycle=body.current.floorPaidThisCycle||[];
       floorShortfalls=body.current.floorShortfalls||[];
@@ -270,11 +280,15 @@ function applyStatePayload(s){
   lastMilestone=s.settings.lastMilestone;
   notifyDaysBefore=s.settings.notifyDaysBefore??3;
   notificationsEnabled=s.settings.notificationsEnabled??true;
-  bufferTarget=s.settings.bufferTarget??0; // ??0 — pre-feature offline snapshots lack it
+  // ??/|| throughout — an offline snapshot taken before the buffer was split
+  // by account carries the single legacy figure, which was personal money.
+  bufferTargetBiz=s.settings.bufferTargetBiz??0;
+  bufferTargetPer=s.settings.bufferTargetPer??s.settings.bufferTarget??0;
   bizPot=s.cashflow.bizPot;
   perPot=s.cashflow.perPot;
   savingsPot=s.cashflow.savingsPot;
-  bufferPot=s.cashflow.bufferPot??0;
+  bufferBiz=s.cashflow.bufferBiz??0;
+  bufferPer=s.cashflow.bufferPer??s.cashflow.bufferPot??0;
   paidThisCycle=s.cashflow.paidThisCycle;
   missedThisCycle=s.cashflow.missedThisCycle||[]; // ||[] — pre-feature offline snapshots lack it
   floorPaidThisCycle=s.cashflow.floorPaidThisCycle||[];
@@ -751,6 +765,35 @@ function getFloorStatus(){
     targetMet:payments.length>0&&payments.every(p=>paidAmountOf(p)>=p.target-0.005)
   };
 }
+// One month of CONTRACTUAL MINIMUMS, split the way the pots are. This is the
+// number a month-ahead buffer has to reach, and it is deliberately the
+// minimums rather than the floors: missing a floor writes an inert entry on
+// the catch-up ledger, missing a minimum is money genuinely overdue. Same
+// "in the payment plan" rule as getCurrentTarget() — a live balance and
+// either a minimum or a due date — and each minimum capped at its balance.
+function monthlyMinimums(){
+  let biz=0,per=0;
+  for(const d of debts){
+    if(d.balance<=0.005)continue;
+    if(!(d.min>0.005||d.due))continue;
+    const m=Math.min(Number(d.min)||0,d.balance);
+    if(m<=0.005)continue;
+    if(d.account==='business')biz+=m; else per+=m;
+  }
+  return {biz:round2(biz),per:round2(per),total:round2(biz+per)};
+}
+// What the buffer could put into the pots right now against this cycle's
+// uncovered floors — the whole reason for holding it. Per account, because
+// neither jar can rescue the other.
+function bufferCover(){
+  const fs=getFloorStatus();
+  const gapBiz=round2(Math.max(0,fs.outstandingBiz-bizPot));
+  const gapPer=round2(Math.max(0,fs.outstandingPer-perPot));
+  const biz=round2(Math.min(gapBiz,bufferBiz)),per=round2(Math.min(gapPer,bufferPer));
+  return {biz,per,total:round2(biz+per),gapBiz,gapPer,
+    // What the buffer cannot reach: the pot is short and its own jar is empty.
+    stillShort:round2(Math.max(0,gapBiz-biz)+Math.max(0,gapPer-per))};
+}
 // Where a pay-in goes, in the spec's order: buffer, then floors (arrears
 // first), then savings, then whatever the ordinary sweep has left for
 // targets, then living money. Floors come OUT OF the sweep rather than on
@@ -758,7 +801,15 @@ function getFloorStatus(){
 // it did before this feature existed.
 function allocateIncome(amt){
   const gross=Math.max(0,amt);
-  const buffer=Math.min(gross,Math.max(0,bufferTarget-bufferPot));
+  // The two buffer jars fill together, in proportion to what each still
+  // needs, so a light month can't top one account to the brim while the
+  // other — the one with a minimum falling due — stays empty.
+  const needBufBiz=Math.max(0,bufferTargetBiz-bufferBiz);
+  const needBufPer=Math.max(0,bufferTargetPer-bufferPer);
+  const bufferWanted=needBufBiz+needBufPer;
+  const buffer=Math.min(gross,bufferWanted);
+  const bufBiz=bufferWanted>0.005?round2(buffer*needBufBiz/bufferWanted):0;
+  const bufPer=round2(buffer-bufBiz);
   let rem=gross-buffer;
   // Pot balances count toward the floors before any new money does.
   let creditBiz=bizPot,creditPer=perPot,floorBiz=0,floorPer=0;
@@ -787,7 +838,8 @@ function allocateIncome(amt){
   else tBiz=targetSweep/2;
   const tPer=targetSweep-tBiz;
   rem-=targetSweep;
-  return {buffer,biz:floorBiz+tBiz,per:floorPer+tPer,savings,keep:Math.max(0,rem),
+  return {buffer,bufferBiz:bufBiz,bufferPer:bufPer,
+    biz:floorBiz+tBiz,per:floorPer+tPer,savings,keep:Math.max(0,rem),
     floorBiz,floorPer,floorFunded:floorBiz+floorPer,targetSweep};
 }
 
@@ -1237,13 +1289,26 @@ function renderAll(){
     </div>`;
 
     // Buffer target. £0 = off, and off is the default — money only starts
-    // being held back once a target is deliberately set.
-    html+=`<div class="card"><div class="row" style="align-items:center">
-      <div><div style="font-size:13px;font-weight:600">Buffer pot target</div><div style="font-size:12px;color:#7c7f96;margin-top:2px">Cash cushion filled before anything reaches the debts</div></div>
-      <div style="font-weight:700;font-size:18px;color:${bufferTarget>0?'#7db87d':'#555'}">${bufferTarget>0?fmtS(bufferTarget):'Off'}</div>
-    </div>
-    <input type="range" min="0" max="500" step="25" value="${bufferTarget}" oninput="setBufferTarget(this.value)" style="width:100%;margin-top:10px;accent-color:#7db87d">
-    <div class="slider-ends"><span>Off</span><span>£500</span></div>
+    // being held back once a target is deliberately set. A slider was the
+    // wrong control: it topped out at £500, and a month of minimums is
+    // whatever this plan's minimums happen to add up to, so the figure is
+    // typed (or taken from the plan in one tap) rather than dragged to.
+    const mm=monthlyMinimums();
+    html+=`<div class="card">
+      <div class="row" style="align-items:center;margin-bottom:4px">
+        <div><div style="font-size:13px;font-weight:600">Buffer pot target</div><div style="font-size:12px;color:#7c7f96;margin-top:2px">Cash held back before anything reaches the debts</div></div>
+        <div style="font-weight:700;font-size:18px;color:${bufferTarget()>0?'#7db87d':'#555'}">${bufferTarget()>0?fmtS(bufferTarget()):'Off'}</div>
+      </div>
+      <div style="font-size:11px;color:#555;line-height:1.5;margin:8px 0 12px">A month ahead means holding one month of <strong style="color:#7c7f96">contractual minimums</strong> — ${fmt(mm.total)} on today's plan (${fmt(mm.biz)} business, ${fmt(mm.per)} personal). Miss a floor and you get a catch-up entry; miss a minimum and it becomes arrears.</div>
+      <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+        ${[['One month ahead',1],['Half a month',0.5]].map(([label,f])=>`<button onclick="setBufferPreset(${f})" style="flex:1;min-width:120px;padding:8px;border-radius:6px;border:1px solid ${Math.abs(bufferTargetBiz-mm.biz*f)<0.02&&Math.abs(bufferTargetPer-mm.per*f)<0.02&&mm.total>0.005?'#7db87d':'#2a2d3e'};background:${Math.abs(bufferTargetBiz-mm.biz*f)<0.02&&Math.abs(bufferTargetPer-mm.per*f)<0.02&&mm.total>0.005?'#0d1a12':'#0f1117'};color:#7db87d;font-size:12px;font-weight:600">${label}<br><span style="font-size:10px;color:#555">${fmt(round2(mm.total*f))}</span></button>`).join('')}
+        <button onclick="setBufferPreset(0)" style="flex:1;min-width:80px;padding:8px;border-radius:6px;border:1px solid ${bufferTarget()<=0.005?'#5a3a1a':'#2a2d3e'};background:#0f1117;color:#7c7f96;font-size:12px;font-weight:600">Off</button>
+      </div>
+      <div class="edit-grid">
+        <div><div class="field-label" style="color:#e0923b">Business (£)</div><input class="field-input" type="number" inputmode="decimal" min="0" step="0.01" value="${bufferTargetBiz||''}" placeholder="0" oninput="setBufferTargetFor('business',this.value)"></div>
+        <div><div class="field-label" style="color:#5b8def">Personal (£)</div><input class="field-input" type="number" inputmode="decimal" min="0" step="0.01" value="${bufferTargetPer||''}" placeholder="0" oninput="setBufferTargetFor('personal',this.value)"></div>
+      </div>
+      <div style="font-size:11px;color:#555;line-height:1.5;margin-top:10px">Two jars, because the pots are two real bank accounts — a full personal cushion can't pay a business minimum.</div>
     </div>`;
 
     // Notification settings
@@ -1552,29 +1617,82 @@ function renderAll(){
 // across is unreadable on a phone, and the buffer is a different kind of
 // number — a cushion, not money earmarked for a payment.
 function renderBufferStrip(){
-  if(bufferTarget<=0.005){
+  const held=bufferPot(),target=bufferTarget();
+  if(target<=0.005){
+    const mm=monthlyMinimums();
     return `<div style="display:flex;justify-content:space-between;align-items:center;background:#0d1512;border:1px solid #1e3a2e;border-radius:10px;padding:9px 12px;margin-bottom:14px">
       <div>
         <div style="font-size:10px;color:#7db87d;text-transform:uppercase;letter-spacing:.08em">Buffer pot</div>
-        <div style="font-size:11px;color:#7c7f96;margin-top:2px">${bufferPot>0.005?`${fmt(bufferPot)} held · no target set`:'Not set up — a small cushion absorbs a bad month'}</div>
+        <div style="font-size:11px;color:#7c7f96;margin-top:2px">${held>0.005?`${fmt(held)} held · no target set`:mm.total>0.005?`Not set up — ${fmt(mm.total)} would put you a month ahead`:'Not set up — a cushion absorbs a bad month'}</div>
       </div>
       <button onclick="scrollToBufferSetting()" style="padding:5px 10px;border-radius:6px;border:1px solid #2a4a3a;background:transparent;color:#7db87d;font-size:11px;font-weight:600;flex-shrink:0">Set a target</button>
     </div>`;
   }
-  const pct=Math.min(100,Math.round((bufferPot/bufferTarget)*100));
-  const full=bufferPot>=bufferTarget-0.005;
+  const pct=Math.min(100,Math.round((held/target)*100));
+  const full=held>=target-0.005;
+  const cover=bufferCover();
+  // One line per account, because that is the level the money is actually
+  // held and spent at — a full personal jar next to an empty business one is
+  // not "83% of a month ahead", it is a business minimum about to be missed.
+  const line=(label,col,pot,tgt)=>tgt<=0.005&&pot<=0.005?'':`<div class="row" style="align-items:center;margin-top:5px">
+      <span style="font-size:11px;color:${col}">${label}</span>
+      <span style="font-size:11px;color:${pot>=tgt-0.005?'#7db87d':'#7c7f96'}">${fmt(pot)}<span style="color:#555"> / ${fmt(tgt)}</span></span>
+    </div>`;
   return `<div style="background:#0d1512;border:1px solid #1e3a2e;border-radius:10px;padding:9px 12px;margin-bottom:14px">
     <div class="row" style="align-items:center;margin-bottom:6px">
       <div style="display:flex;align-items:baseline;gap:8px">
         <span style="font-size:10px;color:#7db87d;text-transform:uppercase;letter-spacing:.08em">Buffer pot</span>
-        <span style="font-size:11px;color:#7c7f96">${full?'full ✓':`${fmt(bufferTarget-bufferPot)} to go`}</span>
+        <span style="font-size:11px;color:#7c7f96">${full?'a month ahead ✓':`${fmt(target-held)} to go`}</span>
       </div>
-      <strong style="font-size:15px;color:${full?'#7db87d':'#e8e8ec'}">${fmt(bufferPot)} <span style="font-size:11px;color:#555;font-weight:600">/ ${fmt(bufferTarget)}</span></strong>
+      <strong style="font-size:15px;color:${full?'#7db87d':'#e8e8ec'}">${fmt(held)} <span style="font-size:11px;color:#555;font-weight:600">/ ${fmt(target)}</span></strong>
     </div>
     <div style="background:#0f1117;border-radius:6px;height:4px;overflow:hidden">
       <div style="width:${pct}%;height:100%;background:#7db87d;border-radius:6px;transition:width .3s"></div>
     </div>
+    ${line('Business','#e0923b',bufferBiz,bufferTargetBiz)}
+    ${line('Personal','#5b8def',bufferPer,bufferTargetPer)}
+    ${cover.total>0.005?`<button onclick="openBufferCoverModal()" style="width:100%;margin-top:9px;padding:7px;border-radius:7px;border:1px solid #2a4a3a;background:#0f1a15;color:#7db87d;font-size:12px;font-weight:700">Cover ${fmt(cover.total)} from the buffer</button>
+      <div style="font-size:10px;color:#555;margin-top:5px;line-height:1.4">This cycle's pots are short — this is the month the buffer is for.</div>`:''}
   </div>`;
+}
+// Moving buffer money into the pots is a real bank transfer, so it says
+// exactly which account sends what before it happens. It is a TRANSFER, not
+// a payment: the money lands in the pot and the payment is then ticked
+// normally, which keeps every ledger and undo path untouched.
+function openBufferCoverModal(){
+  const c=bufferCover();
+  if(c.total<=0.005)return;
+  const row=(label,col,amt,from,to)=>amt<=0.005?'':`<div class="row" style="align-items:center;margin-bottom:8px">
+      <div><div style="font-size:13px;font-weight:600;color:${col}">${label}</div>
+      <div style="font-size:11px;color:#555">buffer ${fmt(from)} → ${fmt(round2(from-amt))} · pot ${fmt(to)} → ${fmt(round2(to+amt))}</div></div>
+      <strong style="color:${col}">${fmt(amt)}</strong>
+    </div>`;
+  document.getElementById('modalRoot').innerHTML=`
+    <div class="modal-bg" onclick="if(event.target===this)closeModal()">
+      <div class="modal">
+        <h2 style="font-size:18px;margin-bottom:6px">Cover this cycle from the buffer</h2>
+        <div style="font-size:12px;color:#7c7f96;margin-bottom:16px;line-height:1.5">Moves buffer money into the pots so this cycle's floors can be paid. Each account draws on its own jar — neither can rescue the other.</div>
+        <div style="background:#0f1117;border-radius:8px;padding:12px;margin-bottom:14px">
+          ${row('Business','#e0923b',c.biz,bufferBiz,bizPot)}
+          ${row('Personal','#5b8def',c.per,bufferPer,perPot)}
+          <div style="border-top:1px solid #2a2d3e;margin-top:8px;padding-top:8px" class="row">
+            <span style="font-size:13px;color:#7c7f96">Total moved</span><strong style="color:#7db87d">${fmt(c.total)}</strong>
+          </div>
+        </div>
+        ${c.stillShort>0.005?`<div style="font-size:12px;color:#e0923b;margin-bottom:14px;line-height:1.5">⚠ Still ${fmt(c.stillShort)} short after this — that account's buffer doesn't hold enough.</div>`:''}
+        <div style="font-size:11px;color:#555;margin-bottom:16px;line-height:1.5">Move the same money in your bank now. Next month's first income refills the buffer before anything else.</div>
+        <div style="display:flex;gap:10px">
+          <button class="btn-primary" style="flex:1" onclick="confirmBufferCover()">Move it</button>
+          <button class="btn-ghost" onclick="closeModal()">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+}
+function confirmBufferCover(){
+  const c=bufferCover();
+  bufferBiz=round2(bufferBiz-c.biz);bizPot=round2(bizPot+c.biz);
+  bufferPer=round2(bufferPer-c.per);perPot=round2(perPot+c.per);
+  persist('cashflow');closeModal();renderAll();
 }
 // Two verdicts instead of one pass/fail. Floors is the one that matters —
 // every floor met is an on-track cycle even when the targets slip.
@@ -1644,7 +1762,7 @@ function getCycleTotals(){
 function openLogModal(){
   const {businessTotal:bizCycTotal,personalTotal:perCycTotal}=getCycleTotals();
   const fs=getFloorStatus();
-  const bufferNeed=Math.max(0,bufferTarget-bufferPot);
+  const bufferNeed=Math.max(0,bufferTarget()-bufferPot());
   document.getElementById('modalRoot').innerHTML=`
     <div class="modal-bg" onclick="if(event.target===this)closeModal()">
       <div class="modal">
@@ -1657,10 +1775,10 @@ function openLogModal(){
         <input id="logAmount" class="field-input" type="number" inputmode="decimal" placeholder="e.g. 850" style="font-size:20px;padding:12px;margin-bottom:16px" oninput="updateSweepPreview()">
         <div style="background:#0f1117;border-radius:8px;padding:12px;margin-bottom:14px">
           <div style="font-size:10px;color:#555;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">Where it goes</div>
-          ${bufferTarget>0.005?`<div class="row" style="margin-bottom:8px;align-items:center">
+          ${bufferTarget()>0.005?`<div class="row" style="margin-bottom:8px;align-items:center">
             <div style="display:flex;align-items:center;gap:8px">
               <div style="width:8px;height:8px;border-radius:50%;background:#7db87d;flex-shrink:0"></div>
-              <div><div style="font-size:13px;font-weight:600;color:#e8e8ec">Buffer pot</div><div style="font-size:11px;color:#555">${bufferNeed>0.005?`${fmt(bufferNeed)} to fill · taken first`:'full ✓'}</div></div>
+              <div><div style="font-size:13px;font-weight:600;color:#e8e8ec">Buffer pot</div><div style="font-size:11px;color:#555">${bufferNeed>0.005?`${fmt(bufferNeed)} to fill · taken first`:'a month ahead ✓'}</div><div id="bufferSplitNote" style="font-size:10px;color:#555"></div></div>
             </div>
             <strong id="bufferPreview" style="color:#7db87d">£0.00</strong>
           </div>`:''}
@@ -1703,7 +1821,7 @@ function openLogModal(){
           <div class="row" style="align-items:center">
             <div style="display:flex;align-items:center;gap:8px">
               <div style="width:8px;height:8px;border-radius:50%;background:#5b8def;flex-shrink:0"></div>
-              <span style="font-size:13px;color:#e8e8ec">Personal account <span style="font-size:11px;color:#555">(pot${bufferTarget>0.005?' + buffer':''} + savings + living)</span></span>
+              <span style="font-size:13px;color:#e8e8ec">Personal account <span style="font-size:11px;color:#555">(pot${bufferTargetPer>0.005?' + buffer':''} + savings + living)</span></span>
             </div>
             <strong id="transferPer" style="color:#5b8def;font-size:17px">£0.00</strong>
           </div>
@@ -1713,7 +1831,7 @@ function openLogModal(){
           <div><div class="field-label" style="color:#e0923b">Business pot (£)</div><input id="logBiz" class="field-input" type="number" inputmode="decimal" placeholder="auto" oninput="updateSweepPreview()"></div>
           <div><div class="field-label" style="color:#5b8def">Personal pot (£)</div><input id="logPer" class="field-input" type="number" inputmode="decimal" placeholder="auto" oninput="updateSweepPreview()"></div>
           <div><div class="field-label" style="color:#7db87d">Savings (£)</div><input id="logSaved" class="field-input" type="number" inputmode="decimal" placeholder="auto" oninput="updateSweepPreview()"></div>
-          ${bufferTarget>0.005?`<div><div class="field-label" style="color:#7db87d">Buffer (£)</div><input id="logBuffer" class="field-input" type="number" inputmode="decimal" placeholder="auto" oninput="updateSweepPreview()"></div>`:''}
+          ${bufferTarget()>0.005?`<div><div class="field-label" style="color:#7db87d">Buffer (£)</div><input id="logBuffer" class="field-input" type="number" inputmode="decimal" placeholder="auto" oninput="updateSweepPreview()"></div>`:''}
         </div>
         <div style="display:flex;gap:10px">
           <button class="btn-primary" style="flex:1" onclick="confirmLog()">Allocate</button>
@@ -1739,7 +1857,19 @@ function currentAllocation(){
   const biz=oBiz!==null?oBiz:auto.biz;
   const per=oPer!==null?oPer:auto.per;
   const savings=oSav!==null?oSav:auto.savings;
-  return {amt,auto,buffer,biz,per,savings,keep:Math.max(0,amt-buffer-biz-per-savings)};
+  // An overridden buffer total is split between the two jars the way the
+  // automatic one would have been — in proportion to what each still needs,
+  // falling back to the targets, then evenly. The user types one figure
+  // because they moved one lump of cash; it still has to land in two places.
+  let bufBiz=auto.bufferBiz,bufPer=auto.bufferPer;
+  if(oBuf!==null){
+    const nBiz=Math.max(0,bufferTargetBiz-bufferBiz),nPer=Math.max(0,bufferTargetPer-bufferPer);
+    const w=nBiz+nPer>0.005?nBiz/(nBiz+nPer)
+      :bufferTargetBiz+bufferTargetPer>0.005?bufferTargetBiz/(bufferTargetBiz+bufferTargetPer):0.5;
+    bufBiz=round2(buffer*w);bufPer=round2(buffer-bufBiz);
+  }
+  return {amt,auto,buffer,bufferBiz:bufBiz,bufferPer:bufPer,biz,per,savings,
+    keep:Math.max(0,amt-buffer-biz-per-savings)};
 }
 function updateSweepPreview(){
   const a=currentAllocation();
@@ -1750,8 +1880,13 @@ function updateSweepPreview(){
   set('perPreview',a.per);
   set('savingsPreview',a.savings);
   set('keepPreview',a.keep);
-  set('transferBiz',a.biz);
-  set('transferPer',a.per+a.savings+a.buffer+a.keep);
+  // The buffer is no longer one lump landing in the personal account: its
+  // business share has to be transferred to the business account, because
+  // that is the jar a business minimum will be paid out of.
+  set('transferBiz',a.biz+a.bufferBiz);
+  set('transferPer',a.per+a.savings+a.bufferPer+a.keep);
+  const splitNote=document.getElementById('bufferSplitNote');
+  if(splitNote)splitNote.textContent=a.buffer>0.005?`${fmt(a.bufferBiz)} biz · ${fmt(a.bufferPer)} per`:'';
   // Show the tight-week banner if below threshold
   const tightBanner=document.getElementById('tightWeekBanner');
   if(tightBanner)tightBanner.style.display=a.amt>0&&a.amt<tightThreshold?'block':'none';
@@ -1774,13 +1909,16 @@ function updateSweepPreview(){
 async function confirmLog(){
   const a=currentAllocation();
   if(a.amt<=0){closeModal();return;}
-  const bizAmt=a.biz,perAmt=a.per,savedAmt=a.savings,bufferAmt=a.buffer;
+  const bizAmt=a.biz,perAmt=a.per,savedAmt=a.savings;
+  const bufferBizAmt=a.bufferBiz,bufferPerAmt=a.bufferPer;
   bizPot+=bizAmt;
   perPot+=perAmt;
   savingsPot+=savedAmt;
-  bufferPot+=bufferAmt;
+  bufferBiz+=bufferBizAmt;
+  bufferPer+=bufferPerAmt;
   const date=new Date().toLocaleDateString('en-GB',{day:'numeric',month:'short'});
-  const entry={amount:a.amt,bizAmt,perAmt,savedAmt,bufferAmt,date};
+  const entry={amount:a.amt,bizAmt,perAmt,savedAmt,
+    bufferAmt:round2(bufferBizAmt+bufferPerAmt),bufferBizAmt,bufferPerAmt,date};
   closeModal();renderAll();
   try{
     const res=await fetch('/debt/api/income',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify(entry)});
@@ -1801,7 +1939,10 @@ function openPotsModal(){
           <div style="flex:1"><div class="field-label" style="color:#e0923b">Business pot (£)</div><input id="bizPotVal" class="field-input" type="number" inputmode="decimal" value="${bizPot.toFixed(2)}" style="font-size:16px;padding:10px"></div>
           <div style="flex:1"><div class="field-label" style="color:#5b8def">Personal pot (£)</div><input id="perPotVal" class="field-input" type="number" inputmode="decimal" value="${perPot.toFixed(2)}" style="font-size:16px;padding:10px"></div>
         </div>
-        <div style="margin-bottom:18px"><div class="field-label" style="color:#7db87d">Buffer pot (£)</div><input id="bufferPotVal" class="field-input" type="number" inputmode="decimal" value="${bufferPot.toFixed(2)}" style="font-size:16px;padding:10px"></div>
+        <div style="display:flex;gap:10px;margin-bottom:18px">
+          <div style="flex:1"><div class="field-label" style="color:#7db87d">Buffer — business (£)</div><input id="bufferBizVal" class="field-input" type="number" inputmode="decimal" value="${bufferBiz.toFixed(2)}" style="font-size:16px;padding:10px"></div>
+          <div style="flex:1"><div class="field-label" style="color:#7db87d">Buffer — personal (£)</div><input id="bufferPerVal" class="field-input" type="number" inputmode="decimal" value="${bufferPer.toFixed(2)}" style="font-size:16px;padding:10px"></div>
+        </div>
         <div style="display:flex;gap:10px"><button class="btn-primary" style="flex:1" onclick="confirmPots()">Save</button><button class="btn-ghost" onclick="closeModal()">Cancel</button></div>
       </div>
     </div>`;
@@ -1809,7 +1950,8 @@ function openPotsModal(){
 function confirmPots(){
   bizPot=parseNum(document.getElementById('bizPotVal').value);
   perPot=parseNum(document.getElementById('perPotVal').value);
-  bufferPot=parseNum(document.getElementById('bufferPotVal').value);
+  bufferBiz=parseNum(document.getElementById('bufferBizVal').value);
+  bufferPer=parseNum(document.getElementById('bufferPerVal').value);
   persist('cashflow');closeModal();renderAll();
 }
 function closeModal(){document.getElementById('modalRoot').innerHTML='';}
@@ -2080,7 +2222,9 @@ async function deleteIncome(idx){
   bizPot=Math.max(0,bizPot-(e.bizAmt||0));
   perPot=Math.max(0,perPot-(e.perAmt||0));
   savingsPot=Math.max(0,savingsPot-(e.savedAmt||0));
-  bufferPot=Math.max(0,bufferPot-(e.bufferAmt||0));
+  // Pre-split entries carry only the legacy total, which was personal money.
+  bufferBiz=Math.max(0,bufferBiz-(e.bufferBizAmt||0));
+  bufferPer=Math.max(0,bufferPer-(e.bufferPerAmt??e.bufferAmt??0));
   incomeLog.splice(idx,1);
   persist('cashflow');renderAll();
   if(e.id!=null){
@@ -2283,7 +2427,22 @@ function confirmSurplus(){
   persist('debts','cashflow');closeModal();renderAll();
 }
 function setSweep(v){sweepPct=parseInt(v);persist('settings');renderAll();}
-function setBufferTarget(v){bufferTarget=parseInt(v)||0;persist('settings');renderAll();}
+// One tap for the figure that matters: a whole month of minimums, or half of
+// one while it is being built up. 0 switches the buffer off entirely.
+function setBufferPreset(fraction){
+  const mm=monthlyMinimums();
+  bufferTargetBiz=round2(mm.biz*fraction);
+  bufferTargetPer=round2(mm.per*fraction);
+  persist('settings');renderAll();
+}
+// Typed directly. NOT re-rendered on every keystroke — that would rewrite the
+// input mid-type and bounce the caret to the end; the strip catches up on the
+// next render, exactly as the debt edit fields do.
+function setBufferTargetFor(account,v){
+  const n=Math.max(0,parseNum(v));
+  if(account==='business')bufferTargetBiz=n; else bufferTargetPer=n;
+  persist('settings');
+}
 // Catch up is the ONLY route from "behind" back into the plan, and it says
 // exactly what it will do first. Adding the shortfall to arrears is what puts
 // the debt into the arrears-first order — near the front of it, since that

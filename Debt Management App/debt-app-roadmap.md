@@ -881,3 +881,93 @@ browser, no server. It pins the missing row, the badge meaning both ways round,
 the "moves no money" guarantee measured against the same plan with the debt
 removed, both halves of the floor cap, and the refusal to tick £0.
 `npm run test:floors` 47 and `npm run test:custom-payments` 46 green alongside.
+
+---
+
+## Feature 13 — A month ahead: the buffer that can actually be spent — BUILT (v2.54.0)
+
+Asked after Feature 12: *"what's the best way of building up a month ahead to
+cover all payments and avoid arrears again?"* The mechanism already existed —
+`bufferPot`, filled first out of every pay-in, ahead of floors, savings, sweep
+and living money. It could not do the job:
+
+- **The target slider stopped at £500.** A month of this plan's contractual
+  minimums is £1,292.02. The number could not be entered.
+- **Nothing ever spent it.** `bufferPot` was only ever added to; the sole way
+  out was retyping it in Adjust pots. In the short month it exists for, it sat
+  there and the minimum went into arrears anyway.
+- **One jar, two bank accounts.** A full personal cushion cannot pay a
+  business minimum, and the Log-money-in transfer panel sent the whole buffer
+  to the personal account regardless.
+
+### The target is a month of MINIMUMS
+
+`monthlyMinimums()` — the same "in the payment plan" rule as
+`getCurrentTarget()` (a live balance and either a minimum or a due date), each
+minimum capped at its balance, split by account. On the reported plan:
+**£387.08 business + £904.94 personal = £1,292.02**.
+
+Deliberately the minimums and not the floors (£1,241.29). Missing a floor
+writes an inert entry on the catch-up ledger; missing a **minimum** is money
+genuinely overdue, and that is the thing this feature exists to stop. The
+Settings card says so, in those words, above the figure.
+
+The slider is gone. In its place: **One month ahead** / **Half a month** /
+**Off** as one-tap presets computed from the plan, and a typed field per
+account for anything else. `setBufferTargetFor()` deliberately does NOT
+re-render on each keystroke — that would rewrite the input mid-type and throw
+the caret to the end, the same reason the debt edit fields don't.
+
+### Two jars
+
+`buffer_biz` / `buffer_per` and `buffer_target_biz` / `buffer_target_per`,
+because `bizPot` and `perPot` are two real bank accounts and neither can
+rescue the other. They fill **together, in proportion to what each still
+needs**, so a light month cannot brim one while the other — the one with a
+minimum falling due — stays empty.
+
+The legacy single jar migrates entirely to the **personal** side, which is
+where the money physically was: the transfer panel has always routed the
+buffer to the personal account alongside savings and living money. That panel
+is now correct too — the business share of a pay-in's buffer is transferred to
+the **business** account, because that is the jar a business minimum is paid
+from. `buffer_pot` and `buffer_target` are kept, unwritten, so the split can be
+rolled back without losing the money; `buffer_amt` on the income log stays the
+total of the two new columns.
+
+### It can be spent
+
+`bufferCover()` is the tap that was missing: per account, the smaller of what
+that pot is short of this cycle's uncovered floors and what that jar holds.
+The buffer strip grows a **Cover £X from the buffer** button whenever there is
+something to move, and the modal names the two transfers before they happen —
+`buffer £850 → £206 · pot £415 → £854` — plus what is still short when a jar
+can't reach, which is never made up from the other account.
+
+It is a **transfer, not a payment**: the money lands in the pot and the payment
+is then ticked normally, so every ledger, undo and archive path is untouched.
+
+### Cost, for the record
+
+Diverting money to build the cushion pushes the arrears-clear date back by
+**exactly one month, however it is spread** — £1,300 once, £650 × 2, £325 × 4
+and £220 × 6 all land on the same month, because the spare per month fixes the
+finish date and not the order. So the cheapest way to build it is slowly, and
+cheaper still out of the `savingsPct` that already diverts 10% of every pay-in
+away from the debt sweep.
+
+### Tests
+
+`npm run test:buffer` (`scripts/test-buffer-month-ahead.js`) — 29 checks
+through the shared vm harness, no database, no browser, no server. Covers the
+minimums split (including a minimum capped at its balance and a debt outside
+the plan contributing nothing), the presets, proportional filling with a full
+jar and an over-target pay-in, "nothing lost or invented" across the whole
+allocation, the cover capped per account and never crossing between them, the
+corrected transfer panel, and an income delete reversing both jars — including
+a pre-split entry, whose buffer was personal money. `test:arrears` 26,
+`test:floors` 47 and `test:custom-payments` 46 green alongside.
+
+**Deploy:** new columns are applied lazily by `routes/debt.js`'s
+`ensureSchema()` on the first API request, as with every debt-app migration —
+no manual step.
