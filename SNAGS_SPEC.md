@@ -1,4 +1,4 @@
-# Snags — the job's punch list (v2.50.0, colours v2.51.0, per-surface v2.52.0)
+# Snags — the job's punch list (v2.50.0, colours v2.51.0, per-surface v2.52.0, cleared-last + PDF v2.58.0)
 
 A per-job snag list on the On Site tab. Snags are grouped by room, entered
 one at a time or pasted in bulk, sequenced by phase, and synced offline like
@@ -116,9 +116,10 @@ useless.
 
 **Rows.** Each snag is a checkbox row. Ticking sets `status = done`, stamps
 `completed_at`, strikes the row through and dims it — but **leaves it in the
-list**. On site the value of a cleared snag is the evidence it was cleared,
-and a row that vanishes takes that with it. The date it was cleared shows
-under the description. Un-ticking reverses both.
+list**, at the bottom of its group (see **Ordering**). On site the value of a
+cleared snag is the evidence it was cleared, and a row that vanishes takes that
+with it. The date it was cleared shows under the description. Un-ticking
+reverses both, and puts the row straight back where it was.
 
 Each row carries its phase as an inline dropdown, so re-sequencing after a
 paste import is one tap per snag rather than opening an editor. `✎` opens a
@@ -330,6 +331,77 @@ last thing in a room.
 recomputed from phase on every change: it is what makes a pasted list keep
 the order it was pasted in until phases are assigned, and what keeps two
 same-phase snags from shuffling against each other on every render.
+
+### Cleared last (v2.58.0)
+
+Above phase, and above everything else, sits one more key: **a cleared snag
+sorts below every open one**. It still stays in the list — the evidence it was
+dealt with is the whole reason a done row is kept — it just stops sitting in
+the middle of the outstanding work. Three weeks into a job with thirty rows
+ticked off, the handful still open were scattered through them and the screen
+had to be read rather than glanced at.
+
+The rule is applied at both levels, in **both views**, and nothing else about
+the order changes — within the open band and within the cleared band, phase and
+entry order are exactly what they were before:
+
+- **Rows.** `snagSorted()` (room view) and the per-phase sort (phase view)
+  compare `done` first, then phase, then `sort_order`, then id.
+- **Groups.** A room with nothing left open sinks below every room that still
+  has work in it, house order preserved within each band. A phase with nothing
+  left open does the same, phase sequence preserved within each band — the
+  point of the batching view is what there is still to batch.
+
+Un-ticking is the exact inverse: the row is open again, so it sorts back to
+where it was, and a room re-joins the live band. No state is stored for any of
+this — it is one comparison key, derived from `status`.
+
+## Export to PDF (v2.58.0)
+
+`PDF` beside `+ Add snag` (and `Export PDF` under the reopened list once
+everything is cleared) builds the punch list as a real PDF and hands it to the
+OS share sheet, falling back to a download on desktop — the same three-visible-
+outcomes flow as `saveQuotePdf()`, and the same hand-rolled writer
+(`pdfDoc()` / `pdfSerialise()`), so it needs no library and works with no
+signal. Filename: `NH-Snags-<Job>-<yyyy-mm-dd>.pdf`.
+
+Unlike the quote's, the file is **dated by the day it was exported**. A quote
+PDF is dated by the agreement so re-saving one accepted quote twice can't
+produce two differently-named files of identical content; a snag list is a
+snapshot of a moving list, so two exports a week apart *should* be two files.
+
+**It renders the in-memory list and deliberately does not re-fetch first.**
+`snags` is the freshest copy there is: it carries every tick made on this
+phone including the ones still sitting in the offline queue, and a GET at that
+moment would replace those with the server's older answer. "Up to date" on a
+snag list means "including the one I ticked thirty seconds ago in a cellar",
+which is exactly the tick a re-fetch would lose.
+
+Layout: the quote's header band (business name, logo), then job / client /
+address / date, then the counts spelled out ("3 outstanding · 5 cleared"),
+then the **room-grouped view in the order the screen is showing it** —
+cleared rows at the bottom of their room, cleared rooms at the bottom of the
+list. Each room heading carries its colour line, exactly as
+`snagGroupColour()` gives it to the screen; each snag carries its phase in a
+right-hand column, an outlined box if it's open and a filled one if it's
+cleared, with a rule drawn through the text and the cleared date underneath.
+Boxes rather than a `✓`: the standard-14 WinAnsi fonts have no tick glyph
+(`pdfSanitise()` drops it), and filled-vs-outlined survives a photocopy.
+
+The phase view is not offered as a second document. One export, matching the
+working view, is what makes the file checkable against the screen.
+
+### A shared bug this shook out
+
+`pdfSanitise()` was not idempotent, and every layout in the file calls it
+twice — once to measure and wrap a string, then again on each wrapped line
+inside `d.text()`. The codes `PDF_UNI` maps to (`\x97` em dash, `\x85`
+ellipsis, `\x93`/`\x94` smart quotes) all sit below `0xA1`, so the second
+pass dropped them: "Hallway — Card Room Green" printed as "Hallway Card Room
+Green". It now passes through exactly the `PDF_EXTRA` codes, which are by
+construction the ones the mapper emits and the widths table knows. **This
+fixes the client quote PDF too**, where em dashes had been quietly vanishing
+since it was written.
 
 ### Open question, resolved: the flatten toggle
 

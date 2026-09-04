@@ -627,9 +627,31 @@ The last few days of a job are a list of small things: a scuff by the switch, a 
 
 - **The section only shows up when there's something to show.** No snags yet, and there's just a quiet **+ Start a snag list** at the bottom of the screen. Tick the last one off and it drops back down there too, collapsed to **All n cleared ✓** — tap it to reopen the record.
 - **Grouped by room**, with that room's colours next to its name, read straight from the Colours tab — each surface named where they differ (*Walls Dead Salmon · Ceiling All White*), or just the colour where the whole room is one. So you don't have to leave the screen to find out what to open. Rooms the quote never priced — the airing cupboard, the garage step — can have snags too, and you can give those a colour by hand (see below).
-- **Ticking one off doesn't remove it.** The row goes struck through with the date you cleared it and stays on the list, which is the point: at the end of the job the list *is* the evidence of what got done. Untick it if you tick it by mistake.
+- **Ticking one off doesn't remove it — it drops to the bottom.** The row goes struck through with the date you cleared it and stays on the list, which is the point: at the end of the job the list *is* the evidence of what got done. But it moves below everything still open in that room, so three weeks in, with thirty things ticked off, the handful you've still got to do are the ones at the top rather than scattered through them. A room where everything's cleared drops below the rooms that still have work in them, and the same rule applies in the **By phase** view. Untick anything you tick by mistake and it goes straight back up where it was.
 - **Phase** on each row (the little dropdown) is the pass it belongs to — Prep, Stain block, Woodwork, Walls, Ceiling, Details, Final access. Set it and the room re-sorts itself into working order, with anything that blocks the space once it's done (floor cleans, stair recoats) last. Snags with no phase yet sit at the top of their room so they're not forgotten.
 - **By room / By phase.** The toggle flattens the whole house into phase order instead — every stain-block job in the building together, so you get the stain block out once. Room order is what it opens on.
+- **PDF** (next to **+ Add snag**) saves the list as it stands right now — see below.
+
+#### The snag list as a PDF
+
+**PDF** at the top of the Snags section builds a one-file copy of the list and
+hands it to your phone's share sheet, so it can go straight to the client, to
+whoever's working with you, or into an email as a record. On a computer it
+downloads instead. It's named for the job and the day you exported it
+(*NH-Snags-12-Ermine-Street-2026-09-04.pdf*), because a snag list moves —
+two exports a week apart *should* be two different files.
+
+What's in it: your business name and logo at the top, the job, the client and
+the address, then **how many are outstanding and how many are cleared**, then
+the list room by room in the same order the screen is showing it — colours
+beside each room name, the phase against each snag, an empty box for anything
+still to do and a filled one, struck through and dated, for anything cleared.
+
+It builds from what's on your phone, not from what's reached the server, so a
+snag you ticked in a cellar with no bars is already ticked in the file. It
+works with no signal at all. Once everything's cleared, **Export PDF** sits
+under the reopened list at the bottom of the screen — that copy is the
+completed punch list, which is the one worth sending on.
 
 #### Adding snags
 
