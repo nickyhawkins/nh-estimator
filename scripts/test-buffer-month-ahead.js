@@ -38,7 +38,7 @@ const pass = [], fail = [];
 const check = (name, ok, detail) => (ok ? pass : fail).push(name + (!ok && detail !== undefined ? ' — ' + JSON.stringify(detail) : ''));
 const near = (a, b, tol = 0.011) => Math.abs(a - b) <= tol;
 
-const { app } = loadDebtApp();
+const { app, els } = loadDebtApp(); // els: the stub DOM the modals write into
 const reset = makeReset(app);
 
 // ── 1. the target is a month of minimums, split by account ────────────────
@@ -136,6 +136,33 @@ const a5 = app.allocateIncome(600);
 const toBiz = a5.biz + a5.bufferBiz, toPer = a5.per + a5.savings + a5.bufferPer + a5.keep;
 check('the buffer\'s business share goes to the business account', near(a5.bufferBiz, 200) && near(toBiz, a5.biz + 200), { a5, toBiz });
 check('the two transfers still account for every penny', near(toBiz + toPer, 600), { toBiz, toPer });
+
+// The Log-money-in modal must name all four destinations, not just the two
+// bank totals: with the buffer as a real savings space, "£600 to the personal
+// account" is not an instruction you can act on.
+reset({ bufferTargetBiz: 400, bufferTargetPer: 800 });
+app.openLogModal();
+// The stub DOM mints an element on first getElementById, and openLogModal
+// only writes an HTML string — so prime the fields with one preview pass
+// before typing into them, then run it again for real.
+app.updateSweepPreview();
+els.logAmount.value = '600';
+app.updateSweepPreview();
+const shown = id => Number(String(els[id].textContent).replace(/[^0-9.]/g, ''));
+const a6 = app.currentAllocation();
+check('the panel names the business pot and its buffer separately',
+  near(shown('transferBizPot'), a6.biz) && near(shown('transferBizBuffer'), a6.bufferBiz),
+  { pot: shown('transferBizPot'), buffer: shown('transferBizBuffer'), a6 });
+check('and the personal pot, its buffer, savings and living money',
+  near(shown('transferPerPot'), a6.per) && near(shown('transferPerBuffer'), a6.bufferPer)
+  && near(shown('transferSavings'), a6.savings) && near(shown('transferKeep'), a6.keep),
+  { pot: shown('transferPerPot'), buffer: shown('transferPerBuffer'), sav: shown('transferSavings'), keep: shown('transferKeep') });
+check('each headline total is exactly its own destinations added up',
+  near(shown('transferBiz'), shown('transferBizPot') + shown('transferBizBuffer'))
+  && near(shown('transferPer'), shown('transferPerPot') + shown('transferPerBuffer') + shown('transferSavings') + shown('transferKeep')),
+  { biz: shown('transferBiz'), per: shown('transferPer') });
+check('and the four destinations account for the whole pay-in',
+  near(shown('transferBiz') + shown('transferPer'), 600));
 
 // ── 5. deleting an income entry reverses both jars exactly ───────────────
 reset({ bufferTargetBiz: 400, bufferTargetPer: 800 });

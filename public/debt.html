@@ -1759,6 +1759,16 @@ function getCycleTotals(){
   const personalTotal=cp.filter(p=>{const d=debts.find(x=>x.id===p.id);return d&&d.account==='personal';}).reduce((s,p)=>s+need(p),0);
   return {businessTotal,personalTotal};
 }
+// One indented destination inside the transfers panel. The two headline
+// figures are what leaves for each BANK; these say which pot inside it each
+// part belongs to, which is the whole instruction once the buffer is a real
+// savings space rather than a number in the app.
+function subTransfer(label,id,colour){
+  return `<div class="row" style="align-items:center;padding-left:16px;margin-top:3px">
+    <span style="font-size:11px;color:#7c7f96">${label}</span>
+    <span id="${id}" style="font-size:12px;color:${colour};font-weight:600">£0.00</span>
+  </div>`;
+}
 function openLogModal(){
   const {businessTotal:bizCycTotal,personalTotal:perCycTotal}=getCycleTotals();
   const fs=getFloorStatus();
@@ -1811,20 +1821,26 @@ function openLogModal(){
         <div id="floorCoverNote" style="display:none;font-size:12px;line-height:1.5;margin:-4px 0 14px"></div>
         <div style="background:#1a2535;border:1px solid #2a3d52;border-radius:8px;padding:12px;margin-bottom:14px">
           <div style="font-size:10px;color:#7c9fb5;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Transfers to make</div>
-          <div class="row" style="margin-bottom:6px;align-items:center">
+          <div class="row" style="margin-bottom:2px;align-items:center">
             <div style="display:flex;align-items:center;gap:8px">
               <div style="width:8px;height:8px;border-radius:50%;background:#e0923b;flex-shrink:0"></div>
               <span style="font-size:13px;color:#e8e8ec">Business account</span>
             </div>
             <strong id="transferBiz" style="color:#e0923b;font-size:17px">£0.00</strong>
           </div>
-          <div class="row" style="align-items:center">
+          ${subTransfer('Business pot','transferBizPot','#e0923b')}
+          ${bufferTargetBiz>0.005?subTransfer('Business buffer','transferBizBuffer','#7db87d'):''}
+          <div class="row" style="margin:10px 0 2px;align-items:center">
             <div style="display:flex;align-items:center;gap:8px">
               <div style="width:8px;height:8px;border-radius:50%;background:#5b8def;flex-shrink:0"></div>
-              <span style="font-size:13px;color:#e8e8ec">Personal account <span style="font-size:11px;color:#555">(pot${bufferTargetPer>0.005?' + buffer':''} + savings + living)</span></span>
+              <span style="font-size:13px;color:#e8e8ec">Personal account</span>
             </div>
             <strong id="transferPer" style="color:#5b8def;font-size:17px">£0.00</strong>
           </div>
+          ${subTransfer('Personal pot','transferPerPot','#5b8def')}
+          ${bufferTargetPer>0.005?subTransfer('Personal buffer','transferPerBuffer','#7db87d'):''}
+          ${subTransfer('Savings','transferSavings','#7db87d')}
+          ${subTransfer('Keep for living','transferKeep','#7c7f96')}
         </div>
         <div style="font-size:12px;color:#555;margin-bottom:14px">Override any amount below if this week needs adjusting.</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:18px">
@@ -1885,6 +1901,14 @@ function updateSweepPreview(){
   // that is the jar a business minimum will be paid out of.
   set('transferBiz',a.biz+a.bufferBiz);
   set('transferPer',a.per+a.savings+a.bufferPer+a.keep);
+  // ...and where each part of those two goes once it lands. Four pots means
+  // four figures; the headline totals alone can't tell you how to split them.
+  set('transferBizPot',a.biz);
+  set('transferBizBuffer',a.bufferBiz);
+  set('transferPerPot',a.per);
+  set('transferPerBuffer',a.bufferPer);
+  set('transferSavings',a.savings);
+  set('transferKeep',a.keep);
   const splitNote=document.getElementById('bufferSplitNote');
   if(splitNote)splitNote.textContent=a.buffer>0.005?`${fmt(a.bufferBiz)} biz · ${fmt(a.bufferPer)} per`:'';
   // Show the tight-week banner if below threshold

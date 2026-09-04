@@ -956,16 +956,47 @@ finish date and not the order. So the cheapest way to build it is slowly, and
 cheaper still out of the `savingsPct` that already diverts 10% of every pay-in
 away from the debt sweep.
 
+### The transfer instruction (v2.54.1)
+
+Asked as soon as the pots became real: *"does the app show me how much to
+transfer to each buffer pot, like it already did for business and personal?"*
+Half. The split was in the **Where it goes** breakdown, under the Buffer line;
+the **Transfers to make** panel — the part you actually work from, standing in
+your banking app — still showed two figures, one per bank account, with the
+buffer folded silently inside them. With the buffer as a number in the app
+that was fine. With it as a real savings space, "£490.59 to the personal
+account" is not an instruction anyone can act on.
+
+The panel now names every destination: the two bank totals stay as the
+headline (they are what leaves for each bank, which still matters when the two
+are different banks), and under each sits the pot-by-pot split —
+
+```
+Business account            £409.41
+   Business pot               £0.00
+   Business buffer          £409.41
+Personal account            £490.59
+   Personal pot               £0.00
+   Personal buffer          £490.59
+   Savings                    £0.00
+   Keep for living            £0.00
+```
+
+Four destinations, four figures, and each headline is exactly its own rows
+added up — which the tests assert rather than trust.
+
 ### Tests
 
-`npm run test:buffer` (`scripts/test-buffer-month-ahead.js`) — 29 checks
+`npm run test:buffer` (`scripts/test-buffer-month-ahead.js`) — 33 checks
 through the shared vm harness, no database, no browser, no server. Covers the
 minimums split (including a minimum capped at its balance and a debt outside
 the plan contributing nothing), the presets, proportional filling with a full
 jar and an over-target pay-in, "nothing lost or invented" across the whole
 allocation, the cover capped per account and never crossing between them, the
 corrected transfer panel, and an income delete reversing both jars — including
-a pre-split entry, whose buffer was personal money. `test:arrears` 26,
+a pre-split entry, whose buffer was personal money; and the transfers panel
+driven through the real modal — every destination named, each headline the sum
+of its own rows, and the four accounting for the whole pay-in. `test:arrears` 26,
 `test:floors` 47 and `test:custom-payments` 46 green alongside.
 
 **Deploy:** new columns are applied lazily by `routes/debt.js`'s
