@@ -129,6 +129,21 @@ load(plan([{ id: 2, balance: 30, floorPayment: 50.73 }]));
 const small = row('Currys');
 check('a floor is still capped at the balance', !small || near(small.floorDue, 30), small && small.floorDue);
 
+// An unfunded row must not hold shut anything gated on "everything paid".
+// It asks for £0 and refuses the tick, so counting it as outstanding would
+// mean the surplus prompt never appeared again on a plan carrying one.
+load(plan());
+const fundedIds = app.getCyclePayments().filter(p => !p.unfunded && !p.missed).map(p => p.id);
+for (const id of fundedIds) app.setPaymentState(id, 'paid');
+const stuck = fundedIds.filter(id => app.paymentState(id) !== 'paid');
+check('every fundable row can reach paid with an unfunded row present', stuck.length === 0, stuck);
+check('and the unfunded row is not among them — it was never ticked',
+  !fundedIds.includes(5) && app.paymentState(5) === 'unpaid', app.paymentState(5));
+// Paying the others frees budget, and Brewers stops being unfunded — which is
+// the plan working, not the row leaking: it is now a real payment to make.
+check('clearing the others moves the budget onto the starved arrears',
+  row('Brewers') && row('Brewers').unfunded === false, row('Brewers'));
+
 // ── 5. an unfunded row cannot be ticked into a payment of nothing ─────────
 load(plan());
 app.setPaymentState(5, 'paid');

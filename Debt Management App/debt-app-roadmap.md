@@ -1002,3 +1002,93 @@ of its own rows, and the four accounting for the whole pay-in. `test:arrears` 26
 **Deploy:** new columns are applied lazily by `routes/debt.js`'s
 `ensureSchema()` on the first API request, as with every debt-app migration —
 no manual step.
+
+---
+
+## Feature 14 — Spending the month ahead — BUILT (v2.55.0)
+
+Feature 13 built the cushion and could move money out of it, but only as a
+rescue: the button appeared when the pots were already short. Three questions
+about what happens after the buffer fills turned out to have three different
+answers, one of them a bug.
+
+### The bug: funded on floors, sized on minimums
+
+`bufferCover()` measured what to move against `getFloorStatus()`'s outstanding
+**floors**. The buffer is sized on contractual **minimums**, and deliberately
+so — a missed floor writes an inert catch-up entry, a missed minimum becomes
+arrears. Where a floor sits BELOW its minimum the two disagree, and the buffer
+would sit full while arrears grew on the difference. On the reported plan that
+is Currys: floor £50.73 against a £101.46 minimum, so funding the floors moved
+£854.21 to the personal pot when £904.94 was owed and let £50.73 go overdue.
+
+`cycleCommitments()` replaces it: per debt still owing, the **higher** of its
+floor and its contractual minimum, less what has already gone out; missed
+debts excluded, exactly as the pots exclude them. On that plan it comes to
+£387.08 business + £904.94 personal — the buffer target to the penny, which is
+the point. The seeded plan hides this entirely (every seeded floor equals its
+minimum), so the suite now carries a floor-below-minimum case of its own.
+
+### Fund the month up front, don't wait to be rescued
+
+Asked as *"a button to transfer the buffer to the main pot… then as the month
+goes on the buffer is refilled while all the minimums are already funded, the
+whole point of being a month ahead."* That is what the action always computed
+at the start of a cycle — with nothing paid and the pots empty, the gap IS the
+whole month — but it was labelled and framed as a shortfall rescue. It now
+reads **Fund this month — move £X across**, and says what it buys: every floor
+and minimum still owing in the pots up front, income then refilling the buffer
+instead of paying the bills.
+
+Nothing else had to change for that to work. `allocateIncome()` already fills
+the buffer first and already counts pot balances toward the floors before new
+money does, so a pot funded from the buffer takes no second helping: income
+goes buffer → savings → sweep, and the float rolls forward month on month.
+
+### The close warns, and never spends it
+
+A cycle can close with minimums going into arrears while the cushion held to
+prevent exactly that sits untouched — the close cannot move money between real
+bank accounts, so it must not pretend to. `renderBufferRescue()` says so
+instead, on the renewal banner and inside the Start-a-new-cycle modal: what is
+unfunded, how much of it the buffer holds, and the transfer button. The test
+asserts both that the warning appears and that closing moves nothing by itself.
+
+### The target is a snapshot, and now admits it
+
+`setBufferPreset()` stores numbers; `monthlyMinimums()` is computed live. Clear
+two debts and the stored target is over-held; let a minimum rise and "a month
+ahead ✓" is quietly false. `bufferDrift()` compares the two and the strip says
+which way it has gone, with a one-tap re-set, whenever they differ by more
+than a pound.
+
+### Regression fixed on the way
+
+The surplus prompt ("All bills are paid and you've got £X left over") gated on
+`activeCycle.every(paid)`. Feature 12's `unfunded` arrears rows are in
+`activeCycle`, ask for £0 and refuse the tick by design — so on any plan
+carrying a debt the budget can't reach (Brewers), that prompt would never have
+appeared again. It gates on `plannedCycle` now, like the n/m done counter.
+
+### Where money goes once the buffer is full — no change needed
+
+The third question was whether a full buffer should start pushing extra money
+at the pots. It already does, and there was nothing to build: with the buffer
+full it takes nothing off the top, and the pots fill toward this cycle's
+targets up to `sweepPct`. Measured on the reported plan at a full buffer, a
+£3,000 pay-in splits £471.04 business + £1,028.96 personal (£1,500 — exactly
+the 50% sweep), £300 savings, £1,200 living. The plan's targets already carry
+the arrears catch-up, so pot money above the minimums IS the overpayment, and
+the existing surplus prompt spends what is left at the end of a cycle. The
+lever for wanting more of it is `sweepPct`, one slider away — inventing a
+second mechanism beside it would have been two controls fighting over one
+number.
+
+### Tests
+
+`npm run test:buffer` grows to 48: the floor-below-minimum funding case, a
+payment already made dropping out of what must still be funded, a missed debt
+funded not at all, the close warning appearing and the close spending nothing,
+and drift in both directions with the re-set clearing it. `test:arrears` 29
+(two new, holding the surplus-prompt gate), `test:floors` 47 and
+`test:custom-payments` 46 green alongside.

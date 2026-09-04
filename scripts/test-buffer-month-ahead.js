@@ -130,6 +130,78 @@ check('the personal jar was not raided for a business floor',
 reset({ bufferTargetBiz: 400, bufferTargetPer: 800, bufferBiz: 400, bufferPer: 800, bizPot: 5000, perPot: 5000 });
 check('a covered cycle draws nothing', app.bufferCover().total <= 0.005);
 
+// ── 3b. funding is measured against floors AND minimums ─────────────────
+// The buffer is SIZED on contractual minimums, because those are what become
+// arrears. Funding it against floors alone would leave a full buffer sitting
+// there while arrears grew on any debt whose floor is set BELOW its minimum —
+// the seeded plan hides this, because every seeded floor equals its minimum.
+{
+  // Currys: minimum £101.46, floor £50.73. The floor is met by half the money
+  // the agreement actually requires.
+  const split = app.DEBTS_INITIAL.map(d => d.id === 2 ? { ...d, min: 101.46, floorPayment: 50.73 } : { ...d });
+  reset({ debts: split, bufferTargetBiz: 2000, bufferTargetPer: 2000, bufferBiz: 2000, bufferPer: 2000 });
+  const need = app.cycleCommitments();
+  const floorsOnly = app.getFloorStatus().outstandingPer;
+  check('a floor below its minimum is funded to the MINIMUM',
+    near(need.per, floorsOnly + (101.46 - 50.73)), { need: need.per, floorsOnly });
+  app.confirmBufferCover();
+  // Funding puts the money in the pot; the payments still have to be made and
+  // ticked. What must be true is that the pot can now cover every one of them.
+  check('and the pot then holds every minimum, not just every floor',
+    app.state.perPot >= need.per - 0.005 && app.state.bizPot >= need.biz - 0.005,
+    { pots: { biz: app.state.bizPot, per: app.state.perPot }, need });
+  check('with nothing left for the buffer to fund', app.bufferCover().total <= 0.005);
+  check('and every floor covered too', app.getFloorStatus().shortBy <= 0.005);
+}
+// Money already paid is not funded twice.
+{
+  const split = app.DEBTS_INITIAL.map(d => ({ ...d }));
+  reset({ debts: split, bufferTargetBiz: 2000, bufferTargetPer: 2000, bufferBiz: 2000, bufferPer: 2000 });
+  const before = app.cycleCommitments().biz;
+  app.setPaymentState(6, 'paid'); // Amex, a business debt
+  check('a payment already made drops out of what must still be funded',
+    app.cycleCommitments().biz < before - 0.005, { before, after: app.cycleCommitments().biz });
+  // A deliberately missed debt sets no money aside, exactly as the pots don't.
+  reset({ debts: app.DEBTS_INITIAL.map(d => ({ ...d })), bufferTargetBiz: 2000, bufferTargetPer: 2000, bufferBiz: 2000, bufferPer: 2000 });
+  const b2 = app.cycleCommitments().biz;
+  app.setPaymentState(6, 'missed');
+  check('a missed debt is not funded', app.cycleCommitments().biz < b2 - 0.005);
+}
+
+// ── 3c. the close warns rather than spending the buffer itself ──────────
+{
+  reset({ bufferTargetBiz: 2000, bufferTargetPer: 2000, bufferBiz: 2000, bufferPer: 2000 });
+  const warn = app.renderBufferRescue();
+  check('an unfunded cycle with a full buffer is warned about', warn.includes('still unfunded'), warn.slice(0, 80));
+  check('and the warning offers the transfer', warn.includes('openBufferCoverModal'));
+  // The close itself must never move the money — it is a real bank transfer.
+  const held = { biz: app.state.bufferBiz, per: app.state.bufferPer };
+  app.getCycleArchivePayload();
+  check('closing does not spend the buffer by itself',
+    near(app.state.bufferBiz, held.biz) && near(app.state.bufferPer, held.per), app.state);
+  // Funded up front, there is nothing to warn about.
+  app.confirmBufferCover();
+  check('a funded cycle raises no warning', app.renderBufferRescue() === '');
+}
+
+// ── 3d. the target is a snapshot, and says so when it drifts ────────────
+{
+  reset();
+  app.setBufferPreset(1);
+  check('a freshly set target has not drifted', !app.bufferDrift().matters, app.bufferDrift());
+  // Clearing debts makes a month cost less than the stored target.
+  app.state = Object.assign(app.state, { debts: app.state.debts.map(d => [2, 3].includes(d.id) ? { ...d, balance: 0 } : d) });
+  const d1 = app.bufferDrift();
+  check('clearing debts shows the target as over-held', d1.matters && d1.drift > 0, d1);
+  check('and names what a month costs now', near(d1.mm.total, app.monthlyMinimums().total));
+  app.setBufferPreset(1);
+  check('re-tapping the preset clears the drift', !app.bufferDrift().matters, app.bufferDrift());
+  // A minimum going UP leaves the target short, which is the dangerous way.
+  app.state = Object.assign(app.state, { debts: app.state.debts.map(d => d.id === 9 ? { ...d, min: d.min + 200 } : d) });
+  const d2 = app.bufferDrift();
+  check('a risen minimum shows the target as short', d2.matters && d2.drift < 0, d2);
+}
+
 // ── 4. the business share is transferred to the business account ─────────
 reset({ bufferTargetBiz: 400, bufferTargetPer: 800 });
 const a5 = app.allocateIncome(600);
