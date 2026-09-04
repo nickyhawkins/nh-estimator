@@ -100,6 +100,26 @@ inside the run, so a two-week holiday is one run. Covered by the parity
 harness (blocked spans, client vs ICS) and the 43-check smoke run (range
 blocks 4 working days across a weekend, bars merge, run-unblock clears).
 
+**Addendum 2026-09-04 (v2.53.2) — blocking is offered on every day.** The
+v1.17.0 rule ("Block is only offered on would-be working days, today onward")
+was wrong in the one case that matters most. It tested the GLOBAL rule, so on
+a diary with `workSaturdays` off it withheld the button from a Saturday a
+booked job was working through its own `workAllDays` override — and a block
+is precisely the thing `isWorkingDay()` lets beat `workAll`, so that Saturday
+was the day most in need of it. Reported (with a screenshot) as *"still can't
+scroll to block days"*, a withheld button being indistinguishable from an
+unreachable one. `confirmScheduleBlock()` carried the same test, where it was
+worse: the fill stored only would-be working days, so a single-Saturday block
+wrote no key at all — a silent no-op even where the button appeared. Now:
+offered on ANY day `>= today` (unblock unchanged — any blocked day), and the
+fill stores the tapped day always, plus any day in the range a booked job
+works (`bookedDaySet()`, read once up front — blocking pushes the spans that
+cross it, so re-reading mid-walk chases its own tail), plus would-be working
+days as before, which keeps a fortnight's range from chipping the weekends it
+merely swept past. The form names the case when the tapped day is off in the
+usual week. `npm run test:day-sheet` 36 checks, covering the sheet and the
+write.
+
 **Addendum 2026-09-04 (v2.53.1) — the day sheet's order of business.** Per
 Nicky: *"Can't block days in schedule if jobs are waiting to be assigned."*
 The day sheet renders two unrelated affordances — put a job IN the diary

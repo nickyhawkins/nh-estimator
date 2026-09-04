@@ -2244,7 +2244,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.53.1</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.53.2</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -7658,10 +7658,14 @@ function openScheduleDaySheet(iso, showAllWaiting) {
     html += '<div style="font-size:13px;color:var(--text2);padding:4px 0 8px">Nothing booked.</div>';
   }
   html += '</div>';
-  // Block/unblock (v1.17.0, ranges v1.17.1): only offered where it means
-  // something — a day that is (or would be) a working day, today or later.
-  // Unblocking is offered on any blocked day so a stale block can always
-  // be cleared; a multi-day run gets a clear-the-lot button too.
+  // Block/unblock (v1.17.0, ranges v1.17.1): offered on ANY day from today
+  // forward (v2.53.2). It used to be gated on the day being a working one
+  // under the GLOBAL rule, which silently withheld it from the Saturdays and
+  // bank holidays a job's own "+ Saturdays"/"Every day" override actually
+  // works — a booked Saturday offered no way to take the day back, and the
+  // missing button read as a sheet that wouldn't scroll. Unblocking is
+  // offered on any blocked day so a stale block can always be cleared; a
+  // multi-day run gets a clear-the-lot button too.
   //
   // These come BEFORE the jobs-waiting list on purpose (v2.53.1): with a
   // handful of accepted jobs waiting for a date, that list filled the sheet
@@ -7673,7 +7677,7 @@ function openScheduleDaySheet(iso, showAllWaiting) {
     if (run.length > 1) {
       html += '<button class="sched-sheet-btn warn" onclick="unblockRun(\'' + iso + '\')">Unblock all ' + run.length + ' days (' + escapeHtml(blockedLabel) + ')</button>';
     }
-  } else if (iso >= todayIso && isWorkingDay(parseIsoDate(iso), !!settings.workSaturdays)) {
+  } else if (iso >= todayIso) {
     html += '<button class="sched-sheet-btn alt" onclick="openScheduleBlockForm(\'' + iso + '\')">Block day(s)…</button>';
   }
   // Tap-to-schedule: only offered from today forward, and only when there
@@ -7721,9 +7725,26 @@ function openScheduleBlockForm(iso) {
     '</div>' +
     '<input type="text" class="field-input wide" id="block-label" placeholder="Label (optional) — e.g. Holiday" autocorrect="off" style="margin-bottom:4px">' +
     '<div style="font-size:12px;color:var(--text2);margin-bottom:6px">Blocked days don’t get offered as start dates, and booked jobs stretch around them.</div>' +
+    // A day your usual week already has off can still be worth blocking: a
+    // job set to "+ Saturdays" or "Every day" works it, and a block is the
+    // one thing that override never beats. Say so, so it doesn't look like
+    // a button that does nothing.
+    (isWorkingDay(parseIsoDate(iso), !!settings.workSaturdays) ? '' :
+      '<div style="font-size:12px;color:var(--text2);margin-bottom:6px">' + fmtShortDate(iso) +
+      ' isn’t one of your usual working days — blocking it takes it off jobs set to work Saturdays or every day too.</div>') +
     '<button class="sched-sheet-btn" onclick="confirmScheduleBlock(\'' + iso + '\')">Block</button>' +
     '<button class="sched-sheet-btn alt" onclick="closeScheduleSheet()">Cancel</button>';
   openScheduleSheet(html);
+}
+// Every day a booked job occupies. Read ONCE before any block is written:
+// blocking a day pushes the spans that cross it, so re-reading this as the
+// range walks would chase its own tail and store days no job ever worked.
+function bookedDaySet() {
+  var set = {};
+  scheduledJobs().forEach(function(j) {
+    jobBookedDays(j).forEach(function(iso) { set[iso] = true; });
+  });
+  return set;
 }
 function confirmScheduleBlock(fromIso) {
   var toEl = document.getElementById('block-to');
@@ -7732,12 +7753,21 @@ function confirmScheduleBlock(fromIso) {
   var labelEl = document.getElementById('block-label');
   var label = (labelEl && labelEl.value.trim()) || 'Blocked';
   if (!settings.blockedDays) settings.blockedDays = {};
-  // Only store would-be working days — weekends and bank holidays inside
-  // the range are already off, and storing them would just add noise chips.
+  // What gets stored, in three parts (v2.53.2 widened the first two):
+  //   • the tapped day, ALWAYS — tapping it is the whole intent, and the
+  //     old rule stored nothing at all for a Saturday, so blocking one was
+  //     a silent no-op even where the button was offered;
+  //   • any day a booked job actually works, which on an override job means
+  //     Saturdays, Sundays and bank holidays the global rule calls off;
+  //   • otherwise only would-be working days — weekends and bank holidays
+  //     swept up INSIDE a range are already off, and storing those would
+  //     just add noise chips, which is what that rule was always for.
+  var worked = bookedDaySet();
   var d = parseIsoDate(fromIso);
   var guard = 0;
   while (isoDate(d) <= toIso && guard++ < 400) {
-    if (isWorkingDay(d, !!settings.workSaturdays)) settings.blockedDays[isoDate(d)] = label;
+    var x = isoDate(d);
+    if (x === fromIso || worked[x] || isWorkingDay(d, !!settings.workSaturdays)) settings.blockedDays[x] = label;
     d.setDate(d.getDate() + 1);
   }
   persistBlockedDays();
