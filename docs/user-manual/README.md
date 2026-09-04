@@ -572,6 +572,26 @@ Menu (☰) → **Schedule** — or tap **Schedule ›** on an accepted job's Sum
 - The header tells you your **next free day** at all times.
 - **What a job is called on the calendar:** entries read **client — job name — calendar title**, skipping anything the others already say. So a Kitchen job for Lauren Lowe reads "Lauren Lowe — Kitchen" whether or not you typed a calendar title, and an older job still named "Lauren Lowe - Kitchen" doesn't say her name twice. The client comes from the job's **Client** details (Xero panel on Summary) — if a job has no client saved, the entry is just the job name.
 
+### Blocking days off
+
+Holidays, a day at the dentist, a week's decorating on your own house — tap the
+day and the sheet opens with the day's own actions first:
+
+![Tapping a day on the calendar](images/09b-schedule-day.png)
+
+- **Block day(s)…** takes a range: the day you tapped → an end date (the same
+  day, for a single day off), plus an optional label such as *Holiday*. Only
+  the would-be working days in between are stored — weekends and bank
+  holidays are already off.
+- Blocked days draw as a dashed grey bar across the calendar, are never
+  offered as a start date, and booked jobs stretch **around** them. Your phone
+  calendar feed agrees, so a blocked fortnight is a gap there too.
+- Tap a blocked day for **Unblock this day**, or **Unblock all N days** to
+  clear the whole run in one go.
+- **Start a job here** lists the accepted jobs still waiting for a date, four
+  at a time — tap **N more waiting…** for the rest. Blocking stays at the top
+  of the sheet however many are waiting.
+
 **A one-off day out of the ordinary**, without changing anything globally: tap the day itself → **start a job here** (or move a job there), and the confirm tells you what switches on — a Saturday turns on "Saturdays for this job only", a Sunday or bank holiday turns on "Every day for this job only". From an accepted job's own **Schedule ›** form, the same idea is the **Days worked** picker (Usual / + Saturdays / Every day), which switches itself if you pick such a start date. Automatic slot suggestions still only ever offer your usual working days, and your own blocked days always win.
 
 **See jobs in your phone calendar:** Rates → Scheduling → turn on **Calendar feed**, then tap the link to copy it and subscribe in your calendar app. Booked jobs then appear alongside everything else in your life.

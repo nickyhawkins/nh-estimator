@@ -100,6 +100,27 @@ inside the run, so a two-week holiday is one run. Covered by the parity
 harness (blocked spans, client vs ICS) and the 43-check smoke run (range
 blocks 4 working days across a weekend, bars merge, run-unblock clears).
 
+**Addendum 2026-09-04 (v2.52.1) — the day sheet's order of business.** Per
+Nicky: *"Can't block days in schedule if jobs are waiting to be assigned."*
+The day sheet renders two unrelated affordances — put a job IN the diary
+("Start a job here", every accepted job with no date) and take a day OUT of
+it (Block/Unblock) — and blocking was rendered last, under a list with no
+upper bound. The sheet is `max-height:70%` and scrolls, so nothing was
+unreachable in the strict sense; on a 390×664 viewport with 20 jobs waiting
+the block button simply rendered ~380px below the visible bottom of a sheet
+whose scrollable overflow is 434px, which is the same thing to the person
+holding the phone. Unblocking sat in the same hole, since a blocked day
+lists the waiting jobs too. Fixed by ORDER plus a CAP: block/unblock now
+render before the waiting list (what precedes them is bounded — the day's
+heading and what is booked on it), and the list stops at
+`SCHEDULE_DAY_SHEET_JOBS` (4) with the remainder behind an "N more waiting…"
+row that reopens the same sheet expanded. No behaviour changed: same jobs,
+same order, same tap. `npm run test:day-sheet` holds the ordering (block and
+both unblock buttons ahead of the list, capped and expanded), the cap and
+its expander, and the pre-existing rules — no blocking a past day, a Sunday
+or a bank holiday; unblock on any blocked day; run-unblock; a day with work
+on it still blockable.
+
 **Addendum 2026-07-22 (v1.9.1, revised v1.10.2):** the Schedule form gained an optional
 **calendar title** (`job.scheduleTitle`) — job names are usually the client's name, so
 the ICS feed's `name — client` events read as "Smith — Smith". Per Nicky the title

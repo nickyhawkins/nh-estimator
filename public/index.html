@@ -2244,7 +2244,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.52.0</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.52.1</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -7631,7 +7631,13 @@ function openScheduleJobSheet(jobId) {
   openScheduleSheet(html);
 }
 
-function openScheduleDaySheet(iso) {
+// How many jobs waiting for a date the day sheet lists before it stops and
+// offers the rest behind a tap. The sheet is capped at 70% of the screen and
+// scrolls, but a long list still buried the day's own Block/Unblock buttons
+// below the fold — so the list is capped AND the buttons come first (v2.52.1).
+var SCHEDULE_DAY_SHEET_JOBS = 4;
+
+function openScheduleDaySheet(iso, showAllWaiting) {
   var todayIso = isoDate(new Date());
   var title = parseIsoDate(iso).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   var html = '<div style="font-size:16px;font-weight:700;margin-bottom:2px">' + title + (iso === todayIso ? ' · today' : '') + '</div>';
@@ -7652,25 +7658,15 @@ function openScheduleDaySheet(iso) {
     html += '<div style="font-size:13px;color:var(--text2);padding:4px 0 8px">Nothing booked.</div>';
   }
   html += '</div>';
-  // Tap-to-schedule: only offered from today forward, and only when there
-  // are accepted jobs waiting for a date.
-  if (iso >= todayIso) {
-    var unsched = jobs.filter(function(j) { return j.status === 'accepted' && !(j.startDate && +j.scheduledDays > 0); });
-    if (unsched.length) {
-      html += '<div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 2px">Start a job here</div>' +
-        unsched.map(function(j) {
-          return '<div class="sched-row" style="border-top:none;padding:8px 0" onclick="scheduleJobFromDay(\'' + j.id + '\',\'' + iso + '\')">' +
-            '<span style="font-size:16px;color:var(--accent);flex:none">＋</span>' +
-            '<div style="flex:1;min-width:0;font-weight:600">' + escapeHtml(j.name) + '</div>' +
-            '<span style="font-size:12px;color:var(--text2);flex:none">~' + defaultScheduleDays(j) + 'd</span>' +
-          '</div>';
-        }).join('');
-    }
-  }
   // Block/unblock (v1.17.0, ranges v1.17.1): only offered where it means
   // something — a day that is (or would be) a working day, today or later.
   // Unblocking is offered on any blocked day so a stale block can always
   // be cleared; a multi-day run gets a clear-the-lot button too.
+  //
+  // These come BEFORE the jobs-waiting list on purpose (v2.52.1): with a
+  // handful of accepted jobs waiting for a date, that list filled the sheet
+  // and pushed these off the bottom, so blocking a day looked impossible
+  // exactly when the diary was busiest.
   if (blockedLabel) {
     var run = blockedRun(iso);
     html += '<button class="sched-sheet-btn warn" onclick="unblockDay(\'' + iso + '\')">Unblock this day</button>';
@@ -7679,6 +7675,27 @@ function openScheduleDaySheet(iso) {
     }
   } else if (iso >= todayIso && isWorkingDay(parseIsoDate(iso), !!settings.workSaturdays)) {
     html += '<button class="sched-sheet-btn alt" onclick="openScheduleBlockForm(\'' + iso + '\')">Block day(s)…</button>';
+  }
+  // Tap-to-schedule: only offered from today forward, and only when there
+  // are accepted jobs waiting for a date. Long lists are cut short so the
+  // sheet stays a peek rather than a scroll — "N more waiting" opens the lot.
+  if (iso >= todayIso) {
+    var unsched = jobs.filter(function(j) { return j.status === 'accepted' && !(j.startDate && +j.scheduledDays > 0); });
+    if (unsched.length) {
+      var shown = showAllWaiting ? unsched : unsched.slice(0, SCHEDULE_DAY_SHEET_JOBS);
+      html += '<div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 2px">Start a job here</div>' +
+        shown.map(function(j) {
+          return '<div class="sched-row" style="border-top:none;padding:8px 0" onclick="scheduleJobFromDay(\'' + j.id + '\',\'' + iso + '\')">' +
+            '<span style="font-size:16px;color:var(--accent);flex:none">＋</span>' +
+            '<div style="flex:1;min-width:0;font-weight:600">' + escapeHtml(j.name) + '</div>' +
+            '<span style="font-size:12px;color:var(--text2);flex:none">~' + defaultScheduleDays(j) + 'd</span>' +
+          '</div>';
+        }).join('');
+      if (shown.length < unsched.length) {
+        html += '<div class="sched-row" style="border-top:none;padding:8px 0;color:var(--accent);font-weight:600;font-size:13px" ' +
+          'onclick="openScheduleDaySheet(\'' + iso + '\',true)">' + (unsched.length - shown.length) + ' more waiting…</div>';
+      }
+    }
   }
   openScheduleSheet(html);
 }
