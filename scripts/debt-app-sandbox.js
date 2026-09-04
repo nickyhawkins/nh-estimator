@@ -55,7 +55,8 @@ globalThis.__t = {
   paidAmountOf, getUnpaidMinimums, payContext,
   openCustomPayModal, customPayPreview, confirmCustomPay, undoPayment,
   monthlyMinimums, bufferCover, confirmBufferCover, setBufferPreset, setBufferTargetFor,
-  confirmLog, deleteIncome, currentAllocation, openLogModal, updateSweepPreview
+  confirmLog, deleteIncome, currentAllocation, openLogModal, updateSweepPreview,
+  cycleCommitments, bufferDrift, renderBufferRescue, startNewCycle
 };`;
   const els = {};
   const sandbox = {

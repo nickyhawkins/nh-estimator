@@ -782,17 +782,53 @@ function monthlyMinimums(){
   }
   return {biz:round2(biz),per:round2(per),total:round2(biz+per)};
 }
-// What the buffer could put into the pots right now against this cycle's
-// uncovered floors — the whole reason for holding it. Per account, because
-// neither jar can rescue the other.
+// What must actually leave each pot this cycle for nothing to go wrong: for
+// every payment still owing, the HIGHER of its floor and its contractual
+// minimum, less whatever has already gone out.
+//
+// Both numbers, because they fail differently and the buffer exists to stop
+// both. The floor is the commitment — miss it and the shortfall goes on the
+// catch-up ledger. The minimum is contractual — miss it and it becomes
+// arrears. A floor set BELOW the minimum (Currys: floor £50.73, minimum
+// £101.46) meets its commitment and still leaves £50.73 to go overdue, so
+// funding floors alone would let a full buffer sit there while arrears grew.
+// That is what getFloorStatus()'s outstanding figures alone would have done.
+function cycleCommitments(){
+  let biz=0,per=0;
+  for(const p of getFloorStatus().payments){
+    if(p.missed)continue;
+    const debt=debts.find(d=>d.id===p.id);
+    const minDue=Math.min(Number(debt?.min)||0,(debt?.balance||0)+(appliedPayments[p.id]?.amount||0));
+    const owed=Math.max(p.floorDue||0,minDue);
+    const left=Math.max(0,owed-paidAmountOf(p));
+    if(left<=0.005)continue;
+    if(p.account==='business')biz+=left; else per+=left;
+  }
+  return {biz:round2(biz),per:round2(per),total:round2(biz+per)};
+}
+// What the buffer could put into the pots right now against those
+// commitments — the whole reason for holding it. Per account, because
+// neither jar can rescue the other. At the start of a cycle, with nothing
+// paid and the pots empty, this is the whole month: exactly the "move the
+// float across on the 1st" that being a month ahead means.
 function bufferCover(){
-  const fs=getFloorStatus();
-  const gapBiz=round2(Math.max(0,fs.outstandingBiz-bizPot));
-  const gapPer=round2(Math.max(0,fs.outstandingPer-perPot));
+  const need=cycleCommitments();
+  const gapBiz=round2(Math.max(0,need.biz-bizPot));
+  const gapPer=round2(Math.max(0,need.per-perPot));
   const biz=round2(Math.min(gapBiz,bufferBiz)),per=round2(Math.min(gapPer,bufferPer));
-  return {biz,per,total:round2(biz+per),gapBiz,gapPer,
+  return {biz,per,total:round2(biz+per),gapBiz,gapPer,need,
     // What the buffer cannot reach: the pot is short and its own jar is empty.
     stillShort:round2(Math.max(0,gapBiz-biz)+Math.max(0,gapPer-per))};
+}
+// How far the stored target has drifted from a month of TODAY's minimums.
+// The target is a snapshot taken when a preset was tapped; the plan moves
+// under it as debts clear, minimums change and new debts arrive. Positive =
+// holding more than a month costs (safe, but money sitting idle); negative =
+// "a month ahead" is not true any more.
+function bufferDrift(){
+  const mm=monthlyMinimums();
+  const drift=round2(bufferTarget()-mm.total);
+  return {mm,drift,matters:bufferTarget()>0.005&&Math.abs(drift)>1};
 }
 // Where a pay-in goes, in the spec's order: buffer, then floors (arrears
 // first), then savings, then whatever the ordinary sweep has left for
@@ -1022,8 +1058,11 @@ function renderAll(){
       </div>`;
     }
 
-    // Surplus prompt — all (non-missed) payments done AND money left in pot
-    const allDone = activeCycle.length>0 && activeCycle.every(p=>paidThisCycle.includes(p.id));
+    // Surplus prompt — all (non-missed) payments done AND money left in pot.
+    // plannedCycle, not activeCycle: an `unfunded` arrears row asks for £0 and
+    // refuses the tick by design, so counting it here would hold the prompt
+    // shut for good on any plan carrying a debt the budget can't reach.
+    const allDone = plannedCycle.length>0 && plannedCycle.every(p=>paidThisCycle.includes(p.id));
     const targetForSurplus=getCurrentTarget();
     const surplus = targetForSurplus?.account==='business'?bizPot:perPot;
     if(allDone && surplus>0.005){
@@ -1088,7 +1127,7 @@ function renderAll(){
       const when=dtr==null?'soon':dtr<=0?'today':dtr===1?'tomorrow':`in ${dtr} days`;
       html+=`<div class="card" style="border:1px solid #6a5a1a;background:#1a1608;border-radius:10px;margin-bottom:8px">
         <div class="row" style="align-items:flex-start">
-          <div style="font-size:13px;color:#e0c060">📅 This cycle renews ${when}. Any minimum still unpaid then goes into arrears, and any unmet floor onto the catch-up ledger — tick off what you've paid, or close it now and sync your balances.</div>
+          <div style="font-size:13px;color:#e0c060">📅 This cycle renews ${when}. Any minimum still unpaid then goes into arrears, and any unmet floor onto the catch-up ledger — tick off what you've paid, or close it now and sync your balances.${renderBufferRescue()}</div>
           <button onclick="cycleResetDismissed=true;renderAll()" style="background:none;border:none;color:#7c7f96;font-size:16px;padding:0 0 0 8px;flex-shrink:0">×</button>
         </div>
         <button class="btn-ghost" style="width:100%;margin-top:10px" onclick="startNewCycle()">Close it now</button>
@@ -1631,6 +1670,7 @@ function renderBufferStrip(){
   const pct=Math.min(100,Math.round((held/target)*100));
   const full=held>=target-0.005;
   const cover=bufferCover();
+  const drift=bufferDrift();
   // One line per account, because that is the level the money is actually
   // held and spent at — a full personal jar next to an empty business one is
   // not "83% of a month ahead", it is a business minimum about to be missed.
@@ -1651,8 +1691,9 @@ function renderBufferStrip(){
     </div>
     ${line('Business','#e0923b',bufferBiz,bufferTargetBiz)}
     ${line('Personal','#5b8def',bufferPer,bufferTargetPer)}
-    ${cover.total>0.005?`<button onclick="openBufferCoverModal()" style="width:100%;margin-top:9px;padding:7px;border-radius:7px;border:1px solid #2a4a3a;background:#0f1a15;color:#7db87d;font-size:12px;font-weight:700">Cover ${fmt(cover.total)} from the buffer</button>
-      <div style="font-size:10px;color:#555;margin-top:5px;line-height:1.4">This cycle's pots are short — this is the month the buffer is for.</div>`:''}
+    ${cover.total>0.005?`<button onclick="openBufferCoverModal()" style="width:100%;margin-top:9px;padding:7px;border-radius:7px;border:1px solid #2a4a3a;background:#0f1a15;color:#7db87d;font-size:12px;font-weight:700">Fund this month — move ${fmt(cover.total)} across</button>
+      <div style="font-size:10px;color:#555;margin-top:5px;line-height:1.4">Puts every floor and minimum still owing into the pots up front. Income then refills the buffer instead of paying the bills — which is what being a month ahead buys you.</div>`:''}
+    ${drift.matters?`<div style="margin-top:9px;padding-top:8px;border-top:1px solid #16281f;font-size:10px;color:#e0c060;line-height:1.4">A month of minimums is now <strong>${fmt(drift.mm.total)}</strong> — ${drift.drift>0?`${fmt(drift.drift)} less than you're holding for`:`${fmt(-drift.drift)} more than your target`}. <button onclick="setBufferPreset(1)" style="background:none;border:none;padding:0;color:#e0c060;font-size:10px;font-weight:700;text-decoration:underline">Update the target</button></div>`:''}
   </div>`;
 }
 // Moving buffer money into the pots is a real bank transfer, so it says
@@ -1670,8 +1711,8 @@ function openBufferCoverModal(){
   document.getElementById('modalRoot').innerHTML=`
     <div class="modal-bg" onclick="if(event.target===this)closeModal()">
       <div class="modal">
-        <h2 style="font-size:18px;margin-bottom:6px">Cover this cycle from the buffer</h2>
-        <div style="font-size:12px;color:#7c7f96;margin-bottom:16px;line-height:1.5">Moves buffer money into the pots so this cycle's floors can be paid. Each account draws on its own jar — neither can rescue the other.</div>
+        <h2 style="font-size:18px;margin-bottom:6px">Fund this month from the buffer</h2>
+        <div style="font-size:12px;color:#7c7f96;margin-bottom:16px;line-height:1.5">Moves buffer money into the pots so every floor and contractual minimum still owing this cycle is funded up front — ${fmt(c.need.total)} in total. Each account draws on its own jar; neither can rescue the other.</div>
         <div style="background:#0f1117;border-radius:8px;padding:12px;margin-bottom:14px">
           ${row('Business','#e0923b',c.biz,bufferBiz,bizPot)}
           ${row('Personal','#5b8def',c.per,bufferPer,perPot)}
@@ -1715,6 +1756,21 @@ function renderFloorIndicators(fs){
     ? `<div style="font-size:11px;color:#e0923b;margin-bottom:10px">${fs.noFloorSet} debt${fs.noFloorSet===1?' has':'s have'} no floor set — add one under <button onclick="setView('edit')" style="background:none;border:none;padding:0;color:#e0923b;font-size:11px;font-weight:600;text-decoration:underline">Edit Debts</button> so it counts.</div>`
     : '';
   return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">${chip(floorChip)}${chip(targetChip)}</div>${nudge}`;
+}
+// The one thing a full buffer cannot do for itself. The close does NOT reach
+// into the buffer — it moves real money between real bank accounts, so only
+// the user can — which means a cycle can close with minimums going into
+// arrears while the cushion held to prevent exactly that sits untouched.
+// Nothing here spends anything; it says what is unfunded and what the buffer
+// could do about it, wherever the close is about to happen.
+function renderBufferRescue(){
+  const c=bufferCover();
+  if(c.total<=0.005)return '';
+  const gap=round2(c.gapBiz+c.gapPer);
+  return `<div style="margin-top:10px;padding-top:9px;border-top:1px solid #4a4020;color:#e8e8ec;font-size:12px;line-height:1.5">
+    <strong style="color:#e0923b">${fmt(gap)} still unfunded</strong> in the pots, and your buffer holds ${fmt(c.total)} of it. Move it across before this closes, or that money goes to arrears with the cushion still full.
+    <button onclick="openBufferCoverModal()" style="display:block;margin-top:8px;padding:6px 12px;border-radius:6px;border:1px solid #2a4a3a;background:#0f1a15;color:#7db87d;font-size:11px;font-weight:700">Fund ${fmt(c.total)} from the buffer</button>
+  </div>`;
 }
 // The "behind" ledger. Shortfalls are shown, never applied: nothing here
 // changes what the plan asks for until Catch up is tapped.
@@ -2273,6 +2329,10 @@ function startNewCycle(){
       <div class="modal">
         <h2 style="font-size:18px;margin-bottom:12px">Start a new cycle</h2>
         <div style="font-size:13px;color:#7c7f96;margin-bottom:18px;line-height:1.5">First, let's update your balances so the plan stays accurate. Grab your latest statements if you have them — or just skip and keep the current figures.</div>
+        ${(()=>{const c=bufferCover();return c.total<=0.005?'':`<div style="background:#1a1608;border:1px solid #4a4020;border-radius:8px;padding:11px 12px;margin-bottom:16px;font-size:12px;color:#e8e8ec;line-height:1.5">
+          <strong style="color:#e0923b">${fmt(round2(c.gapBiz+c.gapPer))} is still unfunded</strong> in the pots, and the buffer holds ${fmt(c.total)} of it. Close now and that goes into arrears with the cushion still full.
+          <button onclick="openBufferCoverModal()" style="display:block;margin-top:8px;padding:6px 12px;border-radius:6px;border:1px solid #2a4a3a;background:#0f1a15;color:#7db87d;font-size:11px;font-weight:700">Fund ${fmt(c.total)} from the buffer first</button>
+        </div>`;})()}
         <div style="display:flex;flex-direction:column;gap:10px">
           <button class="btn-primary" onclick="openSyncBalances()">Update my balances</button>
           <button class="btn-ghost" style="border-color:#3a3d52" onclick="confirmNewCycle()">Skip — just clear the cycle</button>
