@@ -114,7 +114,7 @@ check('nothing is lost or invented across the whole allocation',
 // ── 3. the buffer can be spent, and only into its own account ────────────
 // Nothing paid, so every floor is outstanding and both pots are empty.
 reset({ bufferTargetBiz: 400, bufferTargetPer: 800, bufferBiz: 400, bufferPer: 800 });
-const fs = app.getFloorStatus();
+const fs = app.getCycleStatus();
 const shortBefore = fs.shortBy;
 const c = app.bufferCover();
 check('the cover is capped at what each pot is short by',
@@ -125,13 +125,13 @@ const after = app.state;
 check('the money leaves the buffer', near(after.bufferBiz, 400 - c.biz) && near(after.bufferPer, 800 - c.per), after);
 check('and lands in the matching pot', near(after.bizPot, c.biz) && near(after.perPot, c.per), after);
 check('the shortfall drops by exactly what was moved',
-  near(app.getFloorStatus().shortBy, shortBefore - c.total),
-  { before: shortBefore, after: app.getFloorStatus().shortBy, moved: c.total });
+  near(app.getCycleStatus().shortBy, shortBefore - c.total),
+  { before: shortBefore, after: app.getCycleStatus().shortBy, moved: c.total });
 
 // A buffer that holds a whole month closes the gap outright.
 reset({ bufferTargetBiz: 2000, bufferTargetPer: 2000, bufferBiz: 2000, bufferPer: 2000 });
 app.confirmBufferCover();
-check('a full month in the buffer covers every floor', app.getFloorStatus().shortBy <= 0.005, app.getFloorStatus().shortBy);
+check('a full month in the buffer covers every floor', app.getCycleStatus().shortBy <= 0.005, app.getCycleStatus().shortBy);
 check('and there is nothing left to cover', app.bufferCover().total <= 0.005);
 
 // A jar that can't reach says so, and never borrows from the other side.
@@ -147,28 +147,27 @@ check('the personal jar was not raided for a business floor',
 reset({ bufferTargetBiz: 400, bufferTargetPer: 800, bufferBiz: 400, bufferPer: 800, bizPot: 5000, perPot: 5000 });
 check('a covered cycle draws nothing', app.bufferCover().total <= 0.005);
 
-// ── 3b. funding is measured against floors AND minimums ─────────────────
+// ── 3b. funding is measured against the contractual minimum ─────────────
 // The buffer is SIZED on contractual minimums, because those are what become
-// arrears. Funding it against floors alone would leave a full buffer sitting
-// there while arrears grew on any debt whose floor is set BELOW its minimum —
-// the seeded plan hides this, because every seeded floor equals its minimum.
+// arrears, and it is now FUNDED against the same number. (There used to be a
+// separate discretionary floor that could sit below the minimum, so this had
+// to take the higher of the two; floors were retired in v2.57.0 and `min` is
+// the only commitment there is.)
 {
-  // Currys: minimum £101.46, floor £50.73. The floor is met by half the money
-  // the agreement actually requires.
-  const split = app.DEBTS_INITIAL.map(d => d.id === 2 ? { ...d, min: 101.46, floorPayment: 50.73 } : { ...d });
-  reset({ debts: split, bufferTargetBiz: 2000, bufferTargetPer: 2000, bufferBiz: 2000, bufferPer: 2000 });
+  reset({ bufferTargetBiz: 2000, bufferTargetPer: 2000, bufferBiz: 2000, bufferPer: 2000 });
   const need = app.cycleCommitments();
-  const floorsOnly = app.getFloorStatus().outstandingPer;
-  check('a floor below its minimum is funded to the MINIMUM',
-    near(need.per, floorsOnly + (101.46 - 50.73)), { need: need.per, floorsOnly });
+  const status = app.getCycleStatus();
+  check('what must be funded is exactly this cycle\'s uncovered minimums',
+    near(need.biz, status.outstandingBiz) && near(need.per, status.outstandingPer),
+    { need, out: { biz: status.outstandingBiz, per: status.outstandingPer } });
+  // A debt with no minimum (Brewers' trade account) commits you to nothing.
+  const brewers = app.getCyclePayments().find(p => p.name === 'Brewers');
+  check('a debt with no minimum asks the buffer for nothing', !brewers || brewers.minDue <= 0.005, brewers && brewers.minDue);
   app.confirmBufferCover();
-  // Funding puts the money in the pot; the payments still have to be made and
-  // ticked. What must be true is that the pot can now cover every one of them.
-  check('and the pot then holds every minimum, not just every floor',
+  check('and the pots then hold every minimum',
     app.state.perPot >= need.per - 0.005 && app.state.bizPot >= need.biz - 0.005,
     { pots: { biz: app.state.bizPot, per: app.state.perPot }, need });
   check('with nothing left for the buffer to fund', app.bufferCover().total <= 0.005);
-  check('and every floor covered too', app.getFloorStatus().shortBy <= 0.005);
 }
 // Money already paid is not funded twice.
 {

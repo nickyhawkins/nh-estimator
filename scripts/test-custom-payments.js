@@ -155,14 +155,14 @@ const CURRYS = 2;
 // ── 4. An amount is judged on what it actually was ─────────────────────────
 {
   reset({ bizPot: 2000 });
-  payCustom(AMEX, 50); // floor is 205
-  const fsUnder = app.getFloorStatus();
-  check('a payment under the floor leaves that floor unmet',
-    fsUnder.floorsMet === false && fsUnder.unmet.some(p => p.id === AMEX),
+  payCustom(AMEX, 50); // minimum is 205
+  const fsUnder = app.getCycleStatus();
+  check('a payment under the minimum leaves that minimum uncovered',
+    fsUnder.minsMet === false && fsUnder.unmet.some(p => p.id === AMEX),
     fsUnder.unmet.map(p => p.id));
   check('the row still knows what the target was', near(row(AMEX).target, 270.64), row(AMEX).target);
-  check('the floor it is judged against is the plan\'s, not the amount paid',
-    near(row(AMEX).floorDue, 205), row(AMEX).floorDue);
+  check('the minimum it is judged against is the agreement\'s, not the amount paid',
+    near(row(AMEX).minDue, 205), row(AMEX).minDue);
   check('the target is not met by an underpayment', fsUnder.targetMet === false);
 
   const unpaidMin = app.getUnpaidMinimums().find(a => a.id === AMEX);
@@ -170,25 +170,29 @@ const CURRYS = 2;
     !!unpaidMin && near(unpaidMin.amount, 155), unpaidMin);
 
   const payload = app.getCycleArchivePayload();
-  const shortfall = payload.cycleFloorShortfalls.find(f => f.id === AMEX);
-  check('closing the cycle puts the whole floor on the catch-up ledger',
-    !!shortfall && near(shortfall.amount, 205), shortfall);
+  // Floors are gone (v2.57.0): an underpayment no longer writes a
+  // discretionary catch-up entry, it leaves the uncovered part of the
+  // contractual minimum to become arrears, which is what the check above
+  // already asserts.
+  const overdue = payload.arrearsAdded.find(a => a.id === AMEX);
+  check('closing the cycle sends the uncovered minimum to arrears',
+    !!overdue && near(overdue.amount, 205 - 50), overdue);
   check('and the payment is archived at what went out, not at the target',
     near(payload.debtsPaid.find(p => p.id === AMEX).amount, 50));
 
   // Reaching the floor settles it, whatever route the money took.
   reset({ bizPot: 2000 });
   payCustom(AMEX, 205);
-  check('a payment that reaches the floor meets it',
-    !app.getFloorStatus().unmet.some(p => p.id === AMEX));
+  check('a payment that reaches the minimum covers it',
+    !app.getCycleStatus().unmet.some(p => p.id === AMEX));
   check('and covers the contractual minimum with it',
     !app.getUnpaidMinimums().some(a => a.id === AMEX));
 
   // Overpaying is not a shortfall on anything.
   reset({ bizPot: 2000 });
   payCustom(AMEX, 1000);
-  check('a lump sum meets both the floor and the target for that debt',
-    !app.getFloorStatus().unmet.some(p => p.id === AMEX) &&
+  check('a lump sum meets both the minimum and the target for that debt',
+    !app.getCycleStatus().unmet.some(p => p.id === AMEX) &&
     near(app.paidAmountOf(row(AMEX)), 1000));
 }
 
@@ -198,12 +202,12 @@ const CURRYS = 2;
   // of, which the row could only ever report as "£0.00 under target" while
   // the only figure kept was the one that went out.
   reset({ bizPot: 2000 });
-  app.setPaymentState(AMEX, 'floor');
+  app.setPaymentState(AMEX, 'min');
   const entry = app.state.appliedPayments[AMEX];
-  check('a floor payment records the target it fell short of',
+  check('a minimum payment records the target it fell short of',
     !!entry && near(entry.target, 270.64) && near(entry.nominal, 205), entry);
   check('and the row can say how far under it landed',
-    near(row(AMEX).target - row(AMEX).floorDue, 65.64));
+    near(row(AMEX).target - row(AMEX).minDue, 65.64));
 
   // ...so changing one to an amount of your own is still judged against the
   // plan's target rather than against the floor it is replacing.
@@ -230,15 +234,15 @@ const CURRYS = 2;
   // tick-lists with nothing in the ledger. Reading those as "paid nothing"
   // would turn a settled cycle into a pile of arrears at close.
   reset({ paidThisCycle: [AMEX], appliedPayments: {} });
-  check('a ledger-less "paid" tick still covers its floor',
-    !app.getFloorStatus().unmet.some(p => p.id === AMEX));
+  check('a ledger-less "paid" tick still covers its minimum',
+    !app.getCycleStatus().unmet.some(p => p.id === AMEX));
   check('a ledger-less "paid" tick still covers its minimum',
     !app.getUnpaidMinimums().some(a => a.id === AMEX));
   check('and it is not mistaken for a custom amount', app.paymentState(AMEX) === 'paid');
 
-  reset({ floorPaidThisCycle: [AMEX], appliedPayments: {} });
-  check('a ledger-less "floor paid" tick still covers its floor',
-    !app.getFloorStatus().unmet.some(p => p.id === AMEX));
+  reset({ minPaidThisCycle: [AMEX], appliedPayments: {} });
+  check('a ledger-less "minimum paid" tick still covers its minimum',
+    !app.getCycleStatus().unmet.some(p => p.id === AMEX));
 }
 
 // ── Report ─────────────────────────────────────────────────────────────────

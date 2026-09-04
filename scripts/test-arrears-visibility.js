@@ -24,7 +24,7 @@
 //   3. An unfunded row moves no money and changes no verdict — the floors
 //      total, the pot needs and the target total are penny-identical to what
 //      they were when the row was missing.
-//   4. floorDue is capped at the BALANCE, not at the month's planned
+//   4. minDue is capped at the BALANCE, not at the month's planned
 //      payment. The old cap zeroed the floor of any debt the budget didn't
 //      reach, and quietly shrank a floor set ABOVE the minimum back down to
 //      it — both of which made the app's "floors met" disagree with the
@@ -47,16 +47,16 @@ const reset = makeReset(app);
 // reach. Budget 2950 — the arrears queue empties on Updraft and never gets
 // as far as either.
 const PLAN = [
-  { id: 2,  name: 'Currys',       balance: 645.22,   apr: 39.9, min: 101.46, arrears: 0,       due: 15,   account: 'personal', floorPayment: 50.73 },
-  { id: 3,  name: 'Natwest CC',   balance: 1039.13,  apr: 26.9, min: 40.03,  arrears: 0,       due: 10,   account: 'personal', floorPayment: 40.03 },
-  { id: 4,  name: 'PayPal',       balance: 1896.23,  apr: 0,    min: 93.44,  arrears: 0,       due: 11,   account: 'personal', floorPayment: 93.44 },
-  { id: 5,  name: 'Brewers',      balance: 1700.89,  apr: 0,    min: 0,      arrears: 1700.89, due: 1,    account: 'business', floorPayment: null },
-  { id: 6,  name: 'Amex',         balance: 3966.56,  apr: 30.4, min: 205,    arrears: 205,     due: 28,   account: 'business', floorPayment: 205 },
-  { id: 7,  name: 'Updraft',      balance: 3874.99,  apr: 0,    min: 150,    arrears: 1631.94, due: 7,    account: 'personal', floorPayment: 150 },
-  { id: 8,  name: 'Bounce Back',  balance: 7608.25,  apr: 2.5,  min: 182.08, arrears: 349.55,  due: 14,   account: 'business', floorPayment: 182.08 },
-  { id: 9,  name: 'NatWest Loan', balance: 17483.41, apr: 19,   min: 520.01, arrears: 3751.74, due: 15,   account: 'personal', floorPayment: 520.01 },
-  { id: 10, name: 'Van',          balance: 20600,    apr: 0,    min: 0,      arrears: 0,       due: null, account: 'business', floorPayment: null },
-  { id: 11, name: 'HMRC',         balance: 31510.32, apr: 0,    min: 0,      arrears: 0,       due: null, account: 'business', floorPayment: null },
+  { id: 2,  name: 'Currys',       balance: 645.22,   apr: 39.9, min: 101.46, arrears: 0,       due: 15,   account: 'personal', min: 50.73 },
+  { id: 3,  name: 'Natwest CC',   balance: 1039.13,  apr: 26.9, min: 40.03,  arrears: 0,       due: 10,   account: 'personal', min: 40.03 },
+  { id: 4,  name: 'PayPal',       balance: 1896.23,  apr: 0,    min: 93.44,  arrears: 0,       due: 11,   account: 'personal', min: 93.44 },
+  { id: 5,  name: 'Brewers',      balance: 1700.89,  apr: 0,    min: 0,      arrears: 1700.89, due: 1,    account: 'business', min: null },
+  { id: 6,  name: 'Amex',         balance: 3966.56,  apr: 30.4, min: 205,    arrears: 205,     due: 28,   account: 'business', min: 205 },
+  { id: 7,  name: 'Updraft',      balance: 3874.99,  apr: 0,    min: 150,    arrears: 1631.94, due: 7,    account: 'personal', min: 150 },
+  { id: 8,  name: 'Bounce Back',  balance: 7608.25,  apr: 2.5,  min: 182.08, arrears: 349.55,  due: 14,   account: 'business', min: 182.08 },
+  { id: 9,  name: 'NatWest Loan', balance: 17483.41, apr: 19,   min: 520.01, arrears: 3751.74, due: 15,   account: 'personal', min: 520.01 },
+  { id: 10, name: 'Van',          balance: 20600,    apr: 0,    min: 0,      arrears: 0,       due: null, account: 'business', min: null },
+  { id: 11, name: 'HMRC',         balance: 31510.32, apr: 0,    min: 0,      arrears: 0,       due: null, account: 'business', min: null },
 ];
 const plan = (over = []) => PLAN.map(d => ({ ...d, ...(over.find(o => o.id === d.id) || {}) }));
 const load = (debts, budget = 2950) => reset({ debts, budget });
@@ -88,46 +88,46 @@ const paypal = row('PayPal');
 check('a debt with no arrears carries no arrears flag', !!paypal && paypal.arrears === false && near(paypal.arrearsLeft, 0));
 
 // ── 3. the new row moves no money and changes no verdict ──────────────────
-const withRow = app.getFloorStatus();
+const withRow = app.getCycleStatus();
 const totalsWith = app.getCycleTotals();
 // The same plan with Brewers cleared to nothing — i.e. the world before the
 // row existed. Every money figure has to match.
 load(plan([{ id: 5, balance: 0, arrears: 0 }]));
-const without = app.getFloorStatus();
+const without = app.getCycleStatus();
 const totalsWithout = app.getCycleTotals();
-check('the unfunded row leaves the floors total untouched', near(withRow.floorTotal, without.floorTotal), { with: withRow.floorTotal, without: without.floorTotal });
+check('the unfunded row leaves the minimums total untouched', near(withRow.minTotal, without.minTotal), { with: withRow.minTotal, without: without.minTotal });
 check('and the target total untouched', near(withRow.targetTotal, without.targetTotal), { with: withRow.targetTotal, without: without.targetTotal });
 check('and the business pot need untouched', near(totalsWith.businessTotal, totalsWithout.businessTotal));
 check('and the personal pot need untouched', near(totalsWith.personalTotal, totalsWithout.personalTotal));
-check('and it is not counted as an unmet floor (no floor is agreed on it)',
+check('and it is not counted as uncovered (it has no minimum)',
   !withRow.unmet.some(p => p.name === 'Brewers'));
 
-// ── 4. floorDue is capped at the balance, not at the planned payment ──────
+// ── 4. minDue is capped at the balance, not at the planned payment ──────
 // A floor agreed ABOVE the contractual minimum, in a month with no spare to
 // lift the payment above that minimum. The commitment is £400, and it stays
 // £400: the old cap read it back as the £40.03 minimum and called it met.
-load(plan([{ id: 3, floorPayment: 400 }]), 1300);
+load(plan([{ id: 3, min: 400 }]), 1300);
 const cc = row('Natwest CC');
 check('a floor above the minimum survives a month with no spare',
-  !!cc && near(cc.floorDue, 400), cc && { floorDue: cc.floorDue, target: cc.target });
+  !!cc && near(cc.minDue, 400), cc && { minDue: cc.minDue, target: cc.target });
 check('and paying only the minimum leaves that floor unmet',
-  app.getFloorStatus().unmet.some(p => p.name === 'Natwest CC'));
+  app.getCycleStatus().unmet.some(p => p.name === 'Natwest CC'));
 
 // An unfunded row with a floor agreed on it is a real commitment and is
 // funded like any other — the money the arrears queue couldn't reach is not
 // the same thing as a promise you didn't make.
-load(plan([{ id: 5, floorPayment: 250 }]));
+load(plan([{ id: 5, min: 250 }]));
 const brewersFloor = row('Brewers');
-check('a floor agreed on an unfunded arrear is not zeroed', !!brewersFloor && near(brewersFloor.floorDue, 250), brewersFloor && brewersFloor.floorDue);
-const fsFloor = app.getFloorStatus();
+check('a floor agreed on an unfunded arrear is not zeroed', !!brewersFloor && near(brewersFloor.minDue, 250), brewersFloor && brewersFloor.minDue);
+const fsFloor = app.getCycleStatus();
 check('and it counts as an unmet floor until it is paid', fsFloor.unmet.some(p => p.name === 'Brewers'));
 check('and the business pot is asked to cover it',
   near(fsFloor.outstandingBiz, without.outstandingBiz + 250), { got: fsFloor.outstandingBiz, want: without.outstandingBiz + 250 });
 
 // The floor can never exceed what is actually left owing.
-load(plan([{ id: 2, balance: 30, floorPayment: 50.73 }]));
+load(plan([{ id: 2, balance: 30, min: 50.73 }]));
 const small = row('Currys');
-check('a floor is still capped at the balance', !small || near(small.floorDue, 30), small && small.floorDue);
+check('a floor is still capped at the balance', !small || near(small.minDue, 30), small && small.minDue);
 
 // An unfunded row must not hold shut anything gated on "everything paid".
 // It asks for £0 and refuses the tick, so counting it as outstanding would
