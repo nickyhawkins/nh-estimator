@@ -236,12 +236,15 @@ Any room (including a staircase) can have wallpaper on the walls, the ceiling, o
 
 - **Pattern / product note** — free text at the top of the card, for whatever you'll want to know later: the pattern name, the supplier, "paste-the-wall", "heavy vinyl, needs a seam roller". Write it while you're stood in the room looking at the paper, and it's there when you come to order or come back to the job. It's **your note, not the client's** — it never appears on the client quote, the Xero quote or the Colours screen, and it doesn't affect a single figure. Optional; leave it blank if the paper is unremarkable.
 - **Lining / Finish** — tap either or both. Both on means "line out, then hang finish paper", and each is priced separately per roll (rates in Rates → Wallpaper Rates). The labour appears immediately.
+- **Finish paper means that surface isn't painted.** Turn Finish on for the walls and the walls stop buying emulsion and stop costing painting time — you don't have to remember to go back and set the Walls coats to 0, and the quote stops promising paint on a wall that's about to disappear under paper. Same for the ceiling. **Lining on its own leaves everything alone**, because lining is hung to be painted over; setting the coats to 0 is still how you say "don't paint this" by hand. The wallpaper card says so on screen whenever it applies.
 - **Roll length / Roll width** — pre-filled with the standard 10.05 m × 0.53 m; check the label of the actual paper and adjust.
 - **Pattern match** — *No match* (lining papers, plains), *Straight* or *Offset*. A pattern match wastes paper, and the calculation accounts for it.
 - **Pattern repeat** — in cm, straight off the roll label.
 - **Spare roll** — adds one extra to the order, just in case.
 
 Below the inputs the app shows its working, batch-book style: the **drop length** (wall height plus trim allowance, lengthened to allow for the pattern repeat when there's a match), **drops per roll / drops needed**, and the bottom line — **Rolls to order**. Read that to the client off your phone.
+
+Drops are also lengths, which is why **the wallpapering quote wording now fills in its own "X lengths"** — see [The quote description](#the-quote-description).
 
 ![Rolls to order, and the cards that follow it](images/13b-wallpaper-rolls.png)
 
@@ -449,7 +452,24 @@ you gave it one:
 > coats. Newly plastered walls will be mist coated prior to finishing.*
 
 A papered feature wall isn't listed as painted — it moves to the wallpapering
-line instead, which names what's being papered.
+line instead, which names what's being papered. **Walls or a ceiling under
+finish paper aren't listed as painted either**, for the same reason: the app
+isn't pricing paint for them, so it doesn't promise any.
+
+**The wallpapering line counts its own lengths.** It used to read *"[X] lengths
+of [paper name/supplier] to be hung to…"* and wait for you to fill the number
+in. The app already counts drops for the rolls-to-order figure, and a drop is a
+length, so it writes the number itself — every papered surface in the job added
+up, each counted once (lining under finish paper is one set of lengths, not
+two):
+
+> *27 lengths of [paper name/supplier] to be hung to the walls, with seams
+> carefully matched and trimmed for a consistent pattern throughout.*
+
+The paper itself still needs naming by hand — that's your `[paper
+name/supplier]` marker. Where there's nothing to count (nothing papered yet, or
+a mural, which is one printed piece rather than lengths) it goes back to showing
+`[X]` for you to type over.
 
 **It never states a paint the job doesn't use.** It's a whole-job sentence, so
 woodwork measured in one room puts woodwork in the wording for the job — and
@@ -519,9 +539,11 @@ sentence.
 
 > **If you've edited your templates in Settings**, your saved copies keep whatever
 > wording you gave them. To pick this up, put **`{surfaces}`** where the scope
-> sentence should go (and **`{papered}`** where a wallpapering line names what's
-> being papered) — or use **Reset to defaults** to take the supplied templates
-> back.
+> sentence should go, **`{papered}`** where a wallpapering line names what's
+> being papered and **`{lengths}`** where it counts the lengths of paper) — or
+> use **Reset to defaults** to take the supplied templates back. The seeded
+> *"[X] lengths"* wording is swapped to `{lengths}` for you automatically, as
+> long as you hadn't already rewritten that phrase yourself.
 
 ### Sending to Xero
 

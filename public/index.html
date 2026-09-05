@@ -896,6 +896,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
           </div>
         </div>
         <div class="breakdown-row" id="wp-r-wall-labour-row" style="display:none"><span class="breakdown-label">Wall wallpaper labour</span><span class="breakdown-value" id="wp-r-wall-labour">—</span></div>
+        <div class="settings-note" id="wp-wall-nopaint-note" style="display:none;padding:2px 16px 10px">Finish paper covers the walls, so they aren't painted — no wall emulsion and no wall painting time, whatever the Walls coats say. Lining on its own still paints.</div>
         <div class="field-row" id="wp-rolls-header-row" style="display:none;border-top:1px solid var(--border)"><div class="field-label" style="color:var(--text2);font-weight:600">Rolls to order<small>does not feed the quote total — client buys the paper</small></div></div>
         <div class="field-row" id="wp-roll-len-row" style="display:none">
           <div class="field-label">Roll length<small>metres — check the label</small></div>
@@ -932,6 +933,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
           </div>
         </div>
         <div class="breakdown-row" id="wp-r-ceil-labour-row" style="display:none"><span class="breakdown-label">Ceiling wallpaper labour</span><span class="breakdown-value" id="wp-r-ceil-labour">—</span></div>
+        <div class="settings-note" id="wp-ceil-nopaint-note" style="display:none;padding:2px 16px 10px">Finish paper covers the ceiling, so it isn't painted — no ceiling emulsion and no ceiling painting time, whatever the Ceiling coats say.</div>
         <div class="breakdown-row" id="wp-r-ceil-droplen-row" style="display:none"><span class="breakdown-label">Ceiling drop length</span><span class="breakdown-value" id="wp-r-ceil-droplen">—</span></div>
         <div class="breakdown-row" id="wp-r-ceil-drops-row" style="display:none"><span class="breakdown-label">Ceiling drops per roll / needed</span><span class="breakdown-value" id="wp-r-ceil-drops">—</span></div>
         <div class="breakdown-row" id="wp-r-ceil-rolls-row" style="display:none;background:var(--accent-faint)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Ceiling rolls to order</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="wp-r-ceil-rolls">—</span></div>
@@ -1469,7 +1471,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     </div>
     <div class="card">
       <div class="card-header">Quote &amp; Invoice Text</div>
-      <div class="settings-note">One template per job type — nine seeded, including <strong>Interior &amp; Exterior</strong> for a job with rooms and exterior items in it. The quote version describes the FIRST line of the Xero quote — that room — with each other line stating its own scope underneath, or reading "same as above" where it matches the first (until you edit the text by hand, which turns those off); the invoice version prefills the final-invoice builder when the job's done. Syntax: <strong>{quote wording|invoice wording}</strong> where the two differ, lines starting <strong>Q:&nbsp;</strong> are quote-only, <strong>I:&nbsp;</strong> invoice-only, and {rooms}, {wallProduct}, {ceilingProduct}, {woodProduct}, {wallCoats}, {completedDate} fill in from the job automatically. <strong>{surfaces}</strong> writes the scope sentence from what you actually measured — only the surfaces with coats on them, plus a feature wall, panelling, radiators, sills or a mist coat where they were measured, each naming its own paint where it differs — and <strong>{papered}</strong> names what is being papered, <strong>{extSurfaces}</strong> and <strong>{unitSurfaces}</strong> do the same job as {surfaces} for the exterior items and the fitted units, and <strong>{kitchenCoats}</strong> is the kitchen&rsquo;s coat count.</div>
+      <div class="settings-note">One template per job type — nine seeded, including <strong>Interior &amp; Exterior</strong> for a job with rooms and exterior items in it. The quote version describes the FIRST line of the Xero quote — that room — with each other line stating its own scope underneath, or reading "same as above" where it matches the first (until you edit the text by hand, which turns those off); the invoice version prefills the final-invoice builder when the job's done. Syntax: <strong>{quote wording|invoice wording}</strong> where the two differ, lines starting <strong>Q:&nbsp;</strong> are quote-only, <strong>I:&nbsp;</strong> invoice-only, and {rooms}, {wallProduct}, {ceilingProduct}, {woodProduct}, {wallCoats}, {completedDate} fill in from the job automatically. <strong>{surfaces}</strong> writes the scope sentence from what you actually measured — only the surfaces with coats on them, plus a feature wall, panelling, radiators, sills or a mist coat where they were measured, each naming its own paint where it differs — and <strong>{papered}</strong> names what is being papered with <strong>{lengths}</strong> counting the lengths of paper it takes, <strong>{extSurfaces}</strong> and <strong>{unitSurfaces}</strong> do the same job as {surfaces} for the exterior items and the fitted units, and <strong>{kitchenCoats}</strong> is the kitchen&rsquo;s coat count.</div>
       <div id="text-templates-list"></div>
       <div style="padding:12px 16px;display:flex;gap:8px;border-top:1px solid var(--border)">
         <button onclick="addTextTemplate()" style="flex:1;background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">+ Add template</button>
@@ -2244,7 +2246,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.60.0</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.61.0</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -2951,12 +2953,12 @@ var DEFAULT_TEXT_TEMPLATES = [
     'Q: All furniture and flooring will be fully protected prior to any work commencing. Walls will be thoroughly prepared including filling, sanding and caulking all joints and edges as required. All surfaces will be sized/lined prior to hanging to ensure correct adhesion and a quality finish throughout.',
     'Q:',
     'Q: WALLPAPERING',
-    'Q: [X] lengths of [paper name/supplier] to be hung to {papered}, with seams carefully matched and trimmed for a consistent pattern throughout. All work carried out to a high standard using professional techniques and quality trade materials.',
+    'Q: {lengths} lengths of [paper name/supplier] to be hung to {papered}, with seams carefully matched and trimmed for a consistent pattern throughout. All work carried out to a high standard using professional techniques and quality trade materials.',
     'Q:',
     'Q: COMPLETION',
     'Q: On completion all protection will be removed, all trimmings cleared away and the areas left clean and tidy. A final inspection will be carried out to ensure you are completely happy with the finished result.',
     'I: Walls prepared including filling, sanding and caulking, sized/lined prior to hanging.',
-    'I: [X] lengths of [paper name/supplier] hung to {papered}, seams matched and trimmed for a consistent pattern throughout.',
+    'I: {lengths} lengths of [paper name/supplier] hung to {papered}, seams matched and trimmed for a consistent pattern throughout.',
     'I: Work completed on {completedDate}. Protection removed, trimmings cleared and area left clean on completion.'
   ].join('\n') },
   { id: 'paint-paper', name: 'Painting & Papering', body: [
@@ -2969,13 +2971,13 @@ var DEFAULT_TEXT_TEMPLATES = [
     'Q: {surfaces}',
     'Q:',
     'Q: WALLPAPERING',
-    'Q: [X] lengths of [paper name/supplier] to be hung to {papered}, with seams carefully matched and trimmed for a consistent pattern throughout. All work carried out to a high standard using professional techniques and quality trade materials.',
+    'Q: {lengths} lengths of [paper name/supplier] to be hung to {papered}, with seams carefully matched and trimmed for a consistent pattern throughout. All work carried out to a high standard using professional techniques and quality trade materials.',
     'Q:',
     'Q: COMPLETION',
     'Q: On completion all protection will be removed, all trimmings cleared away and the areas left clean and tidy. A final inspection will be carried out to ensure you are completely happy with the finished result.',
     'I: Surfaces prepared including filling, sanding and caulking, walls sized prior to hanging.',
     'I: {surfaces}',
-    'I: [X] lengths of [paper name/supplier] hung to {papered}, seams matched and trimmed for a consistent pattern throughout.',
+    'I: {lengths} lengths of [paper name/supplier] hung to {papered}, seams matched and trimmed for a consistent pattern throughout.',
     'I: Work completed on {completedDate}. Protection removed, trimmings cleared and area left clean on completion.'
   ].join('\n') },
   { id: 'fitted-units', name: 'Fitted Units & Shelving', body: [
@@ -3181,11 +3183,19 @@ function scopeFacts(liveRooms) {
     // (calcRoom's fwWallpaper branch zeroes its labour AND its litres), so
     // it can never count as painted wall here either.
     var fwPapered = fwArea > 0 && (r.featureWallMode || 'paint') === 'wallpaper';
-    if (cc > 0) { f.ceiling = true; f.coats[cc] = true; }
+    // Finish paper on the walls or ceiling does the same to those surfaces
+    // as wallpaper mode does to a feature wall -- calcRoom zeroes both the
+    // labour and the litres -- so neither may be claimed as painted here.
+    // Lining alone is hung to be painted over, so it changes nothing.
+    var wallsPapered = !!r.wpWallFinish, ceilPapered = !!r.wpCeilFinish;
+    if (cc > 0 && !ceilPapered) { f.ceiling = true; f.coats[cc] = true; }
     if (wc > 0) {
-      f.walls = true; f.coats[wc] = true;
+      if (!wallsPapered) { f.walls = true; f.coats[wc] = true; }
+      // A painted feature wall standing in a papered room is still painted
+      // (calcRoom keeps its litres and gives it its own labour line), so it
+      // keeps its clause and its coat count even where the walls lost both.
       if (fwArea > 0 && !fwPapered) {
-        f.fwPaint = true;
+        f.fwPaint = true; f.coats[wc] = true;
         noteProduct(f.fwProducts, effectiveRoleRange(r, 'featurewall'));
       }
     }
@@ -3320,6 +3330,36 @@ function buildPaperedPhrase(liveRooms) {
   if (f.wpWalls)   parts.push('the walls');
   if (f.wpCeiling) parts.push('the ceiling');
   return parts.length ? englishJoin(parts) : '[feature wall/walls]';
+}
+
+// How many lengths of paper the job hangs, for the wallpapering templates'
+// "[X] lengths of [paper name/supplier]" line. That was the last figure in
+// those templates still left as a hand-filled marker even though the app
+// has always counted it -- the rolls-to-order calculator works in drops,
+// and a drop is a length.
+// Summed the same job-level way {papered} names its surfaces, over every
+// papered surface in the live rooms: walls, ceiling and a papered feature
+// wall, each counted once (see roomWallpaperDrops() on why lining + finish
+// on one surface is not two sets of lengths).
+// Falls back to the seeded [X] marker rather than to 0 or a stray token, so
+// a template that reaches this with nothing papered -- or with a mural,
+// which is a single printed piece and has no lengths at all -- still shows
+// the same edit-me marker it always did.
+function buildLengthsPhrase(liveRooms) {
+  var total = 0;
+  (liveRooms || []).forEach(function(r) {
+    if (r.wpWallLining || r.wpWallFinish) total += roomWallpaperDrops(r, false);
+    if (r.wpCeilLining || r.wpCeilFinish) total += roomWallpaperDrops(r, true);
+    if ((r.featureWallMode || 'paint') === 'wallpaper' && Math.max(+r.featureWallArea || 0, 0) > 0) {
+      // Wide vinyl comes off a wide continuous roll rather than a domestic
+      // one, but it is still hung in drops, so it counts; a mural is one
+      // print with no drops at all, so it does not.
+      var commercial = r.fwWpCommercialType || 'none';
+      if (commercial === 'wideVinyl') total += featureWallVinylDrops(r);
+      else if (commercial === 'none' && (r.fwWpLining || r.fwWpFinish)) total += featureWallWallpaperDrops(r);
+    }
+  });
+  return total > 0 ? total : '[X]';
 }
 
 // ── The same, for exterior items ───────────────────────────────────────────
@@ -3648,6 +3688,7 @@ function buildTemplateValues(mode) {
   vals.kitchenCoats = (job.kitchen && !job.kitchen.isVariation)
     ? Math.max(1, Math.min(4, +job.kitchen.coats || 2)) : null;
   vals.papered = buildPaperedPhrase(liveRooms);
+  vals.lengths = buildLengthsPhrase(liveRooms);
   if (mode === 'invoice') {
     // Last day actually on site beats the day the Completed button was
     // tapped; labour_log is already loaded per active job.
@@ -3812,6 +3853,7 @@ var TEMPLATE_SAMPLE_VALUES = {
   // measured extra actually looks like in the sentence.
   surfaces: 'Ceilings finished in Tikkurila Anti Reflex 2, walls in Tikkurila Optiva 5, the feature wall, and all woodwork including skirtings, doors and radiators in Tikkurila Helmi 30, each applied in 2 coats.',
   papered: 'the feature wall',
+  lengths: 14,
   extSurfaces: 'Rendered surfaces in Dulux Weathershield, exterior woodwork including fascias and soffits and window frames in Dulux Weathershield Gloss, each applied in 2 coats.',
   unitSurfaces: 'Fitted units including 3 bays, 9 shelves and 4 doors in Tikkurila Helmi 30, applied in 2 coats. Bare surfaces will be primed first.',
   kitchenCoats: 2
@@ -3840,7 +3882,7 @@ function renderTextTemplatesSettings() {
           ? '<div style="background:var(--surface2);border-radius:var(--rs);padding:10px;font-size:13px;line-height:1.5;white-space:pre-wrap">' + escapeHtml(renderTemplateText(t.body, templatePreviewMode, TEMPLATE_SAMPLE_VALUES)) + '</div>'
           : '<textarea class="field-input" rows="14" style="width:100%;box-sizing:border-box;font-size:13px;line-height:1.5;resize:vertical;text-align:left;font-family:\'DM Sans\',sans-serif" onchange="onTemplateBodyChange(\'' + escapeHtml(t.id) + '\', this.value)">' + escapeHtml(t.body) + '</textarea>') +
         '<div style="display:flex;justify-content:space-between;align-items:center">' +
-          '<div style="font-size:12px;color:var(--text2)">{quote wording|invoice wording} · lines starting \u201CQ: \u201D quote-only, \u201CI: \u201D invoice-only · {rooms} {wallProduct} {ceilingProduct} {woodProduct} {wallCoats} {completedDate} fill from the job · {surfaces} lists only what was measured (feature wall, panelling, radiators, sills…) · {papered} names what is being papered</div>' +
+          '<div style="font-size:12px;color:var(--text2)">{quote wording|invoice wording} · lines starting \u201CQ: \u201D quote-only, \u201CI: \u201D invoice-only · {rooms} {wallProduct} {ceilingProduct} {woodProduct} {wallCoats} {completedDate} fill from the job · {surfaces} lists only what was measured (feature wall, panelling, radiators, sills…) · {papered} names what is being papered, {lengths} counts the lengths of paper</div>' +
           '<div onclick="deleteTextTemplate(\'' + escapeHtml(t.id) + '\')" style="font-size:12px;color:var(--danger);font-weight:600;cursor:pointer;white-space:nowrap;padding-left:10px">Delete</div>' +
         '</div>' +
       '</div>';
@@ -5399,6 +5441,17 @@ function mergeSettings(raw) {
   // (see textTemplates()), so the defaults can improve in later versions
   // until the first edit pins a copy.
   out.textTemplates = raw.textTemplates || null;
+  // The seeded wallpapering line's "[X] lengths" marker became the live
+  // {lengths} placeholder in v2.61.0. A template left alone tracks the
+  // defaults (null above) and picks that up for free, but a PINNED copy
+  // would go on asking by hand for a figure the app now counts -- so the
+  // exact seeded phrase, and only that, is migrated in place. An edited
+  // line doesn't match and is never touched.
+  if (out.textTemplates) out.textTemplates = out.textTemplates.map(function(t) {
+    var body = String(t.body == null ? '' : t.body);
+    return Object.assign({}, t, { body: body.split('[X] lengths of [paper name/supplier]')
+                                           .join('{lengths} lengths of [paper name/supplier]') });
+  });
   // Per-product coverage rates (PRODUCT_COVERAGE_SPEC.md) — an additive
   // list of { id, range, surface, rate, coats, selfPriming } entries keyed
   // by material group (v2.19.0 entries also carry itemCode/itemName —
@@ -10747,8 +10800,27 @@ function calcRoom(r) {
   // both zeroed) -- not just a relabelling. wL (main colour litres) already
   // used mainWallPaintArea unconditionally so it needs no change here.
   var fwWallpaper = featureWallMode === 'wallpaper' && featureWallArea > 0;
-  var wallCost = wc>0 ? (fwWallpaper ? mainWallPaintArea : wallArea)*wallMins(wc)*r2 : 0;
-  var ceilCost = cc>0 ? ceilArea*ceilMins(cc)*r2 : 0;
+  // FINISH paper covers the surface it is hung on, so there is nothing left
+  // to paint there: no emulsion bought and no painting labour charged --
+  // exactly the carve-out a papered FEATURE wall has always had (fwWallpaper
+  // above), extended to the room's own walls and ceiling. Before this, a
+  // room measured the ordinary way (coats default to 2) and then papered
+  // quoted the client for painting walls nobody was going to paint, and
+  // bought the tins to do it with.
+  // Deliberately finish paper ONLY. Lining is hung to BE painted over --
+  // "line out, then hang finish paper" is both toggles on, and lining on its
+  // own means paint next -- so a lined wall keeps its coats, its litres and
+  // its labour. Setting the coats to 0 is still how you say "don't paint
+  // this" for anything the finish-paper rule doesn't cover.
+  var wallsPapered = !!r.wpWallFinish;
+  var ceilPapered  = !!r.wpCeilFinish;
+  // The area the room's own wall colour actually goes on -- nothing, once
+  // the walls are papered. A PAINTED feature wall in a papered room is not
+  // caught by this: it is its own measured wall with its own paint, and
+  // picks up the labour wallCost no longer carries via featureWallOwnCost.
+  var wallPaintArea = wallsPapered ? 0 : mainWallPaintArea;
+  var wallCost = (wc>0 && !wallsPapered) ? (fwWallpaper ? mainWallPaintArea : wallArea)*wallMins(wc)*r2 : 0;
+  var ceilCost = (cc>0 && !ceilPapered) ? ceilArea*ceilMins(cc)*r2 : 0;
   // Windows are woodwork -- painting them is gated on woodwork coats like
   // doors/skirting/sills. With 0 woodwork coats the window m² still comes
   // off the wall area above (a hole in the wall either way), it just isn't
@@ -10809,22 +10881,26 @@ function calcRoom(r) {
   // product's rate -- a different product knows nothing of the wall paint's
   // spread.
   var fwCov = coverageRateFor(effectiveRoleRange(r, 'featurewall'), 'wall') || settings.cw;
-  var wL  = wc>0 ? Math.ceil(mainWallPaintArea*wc/wallCov*sprayMult*2)/2 : 0;
+  var wL  = wc>0 ? Math.ceil(wallPaintArea*wc/wallCov*sprayMult*2)/2 : 0;
   var fwL = (!fwWallpaper && featureWallArea>0 && wc>0) ? Math.ceil(featureWallArea*wc/fwCov*sprayMult*2)/2 : 0;
   // Litres for main walls + painted feature wall as ONE bucket of paint --
   // used by computeMaterials() instead of wL/fwL when the feature wall is
   // the same colour AND product as the main walls (see
   // featureWallSharesWallPaint), so the half-litre round-up happens once
   // over the combined area rather than once per part.
-  var wLCombined = (!fwWallpaper && wc>0) ? Math.ceil((mainWallPaintArea+featureWallArea)*wc/wallCov*sprayMult*2)/2 : wL;
+  var wLCombined = (!fwWallpaper && wc>0) ? Math.ceil((wallPaintArea+featureWallArea)*wc/wallCov*sprayMult*2)/2 : wL;
   // Normally painting the feature wall is already covered by wallCost
   // above, since that's costed on the FULL wallArea regardless of the
   // colour carve-out -- no extra labour needed for a real room. But a
   // feature-wall-only job (room dimensions left at 0x0x0, just this
   // wall) has no general wallArea to absorb that labour, so it needs its
-  // own line -- otherwise a feature-wall-only room prices at £0. Not
-  // applicable when wallpapered -- see featureWallWpCost below instead.
-  var featureWallOwnCost = (!fwWallpaper && wallArea<=0 && featureWallArea>0 && wc>0) ? featureWallArea*wallMins(wc)*r2 : 0;
+  // own line -- otherwise a feature-wall-only room prices at £0. A room
+  // whose walls are PAPERED is the same story for the same reason: wallCost
+  // is zero there too, so a painted feature wall standing in a papered room
+  // would otherwise be hung, described and never charged for. Not
+  // applicable when the feature wall itself is wallpapered -- see
+  // featureWallWpCost below instead.
+  var featureWallOwnCost = (!fwWallpaper && (wallArea<=0 || wallsPapered) && featureWallArea>0 && wc>0) ? featureWallArea*wallMins(wc)*r2 : 0;
   // Wallpaper labour = rolls x per-roll rate x (1 + multiplier), summed
   // across whichever of {lining, finish} are active for this surface --
   // see wpSurfaceResult()/roomWallpaperRolls(). isHSL rooms pick up the
@@ -10917,7 +10993,7 @@ function calcRoom(r) {
   // Ceiling/woodwork/mist litres: same product-coverage-then-flat resolution
   // as wallCov above, per role.
   var ceilCov = coverageRateFor(effectiveRoleRange(r, 'ceiling'), 'ceiling') || settings.cc;
-  var cL  = cc>0 ? Math.ceil(ceilArea*cc/ceilCov*ceilSprayMult*2)/2 : 0;
+  var cL  = (cc>0 && !ceilPapered) ? Math.ceil(ceilArea*cc/ceilCov*ceilSprayMult*2)/2 : 0;
   // woodAreaOverride: same pattern as wallAreaOverride/ceilAreaOverride above
   // -- staircase/HSL rooms set this to the REAL skirting+spindle+newel
   // surface area (computeHSLOverrides()), since the generic perim*0.15
@@ -20125,6 +20201,50 @@ function roomWallpaperRolls(r, isCeil, type) {
   return calc ? calc.rolls : 0;
 }
 
+// How many LENGTHS (drops) of paper a room's wall or ceiling takes -- the
+// same geometry roomWallpaperRolls() above hangs its roll count off,
+// reported as the drop COUNT instead, for the job description's "[X]
+// lengths" line (see buildLengthsPhrase()).
+// Deliberately independent of lining vs finish: a pattern match changes how
+// LONG each drop is (and so how many rolls it takes), never how many drops
+// go round the wall, so a surface that is lined AND then papered is one set
+// of lengths, not two. Staircase rooms read the stored override the same
+// way roomWallpaperRolls() does, for the same reason -- their own l/w/h are
+// the dummy 1x1x1 placeholders.
+function roomWallpaperDrops(r, isCeil) {
+  var overrideField = isCeil ? 'ceilDropsOverride' : 'wallDropsOverride';
+  if (r[overrideField] != null) return +r[overrideField];
+  // A staircase room's own l/w/h are the dummy 1x1x1 placeholders, so with
+  // no stored override there is genuinely nothing to count here -- 0 rather
+  // than a figure invented from the dummies. Rooms saved before the
+  // override existed land here; re-opening and saving one fills it in.
+  if (r.isHSL) return 0;
+  var rollWidth = +r.wpRollWidth || 0.53;
+  if (rollWidth <= 0) return 0;
+  function across(width) { return width > 0 ? Math.ceil(width/rollWidth) : 0; }
+  var L = +r.l, W = +r.w;
+  var shapeMode = r.shapeMode || 'box';
+  if (isCeil) {
+    // Segments-mode ceiling: each zone is papered as its own run, so drops
+    // are counted per zone and summed -- the same split roomWallpaperRolls()
+    // makes, and against the same shorter-dimension width to cover.
+    if (shapeMode === 'segments' && !r.slopedCeiling) {
+      return (r.segments || []).reduce(function(sum, z) {
+        var zl = Math.max(+z.l||0, 0), zw = Math.max(+z.w||0, 0);
+        return sum + (zl > 0 && zw > 0 ? across(Math.min(zl, zw)) : 0);
+      }, 0);
+    }
+    // Typed area / sloped ceiling: the same square-of-the-same-area
+    // approximation, since there is no l/w to hang drops against.
+    if (shapeMode === 'perimeter' || r.slopedCeiling) return across(Math.sqrt(roomShapeCeilArea(r)));
+    return (L > 0 && W > 0) ? across(Math.min(L, W)) : 0;
+  }
+  // Walls: drops run round the shape-aware perimeter, and there are none
+  // without a height to drop through -- calcWallpaperRolls() returns null
+  // (no rolls, no drops) in that case too.
+  return (+r.h > 0) ? across(roomShapePerimeter(r)) : 0;
+}
+
 // Rolls needed for the FEATURE WALL's wallpaper of one explicit type --
 // same shape as roomWallpaperRolls() above and reuses the same
 // calcWallpaperRolls(), just fed the feature wall's own directly-measured
@@ -20141,6 +20261,16 @@ function featureWallWallpaperRolls(r, type) {
   return calc ? calc.rolls : 0;
 }
 
+// Lengths of paper across the FEATURE WALL -- roomWallpaperDrops()'s
+// counterpart, fed the feature wall's own measured width the way
+// featureWallWallpaperRolls() is.
+function featureWallWallpaperDrops(r) {
+  var w = +r.featureWallWidth || 0, h = +r.featureWallHeight || 0;
+  var rollWidth = +r.wpRollWidth || 0.53;
+  if (w <= 0 || h <= 0 || rollWidth <= 0) return 0;
+  return Math.ceil(w / rollWidth);
+}
+
 // Wide Vinyl and Mural -- commercial coverings for the feature wall only
 // (estimating-app-edits.md #13, see wallpaper-vinyl-mural-spec.md). Neither
 // fits the domestic roll-count model above: vinyl is priced by the linear
@@ -20149,12 +20279,18 @@ function featureWallWallpaperRolls(r, type) {
 // match math at all. Both are mutually exclusive with the normal
 // fwWpLining/fwWpFinish roll path -- selected via r.fwWpCommercialType,
 // branched in calcRoom() where featureWallWpResult is built.
-function featureWallVinylMetres(r) {
+// Drops of wide vinyl across the feature wall. Hoisted out of
+// featureWallVinylMetres() below (which is still drops x drop height, to
+// the metre) so the job description can count vinyl lengths without
+// re-deriving the roll width.
+function featureWallVinylDrops(r) {
   var w = +r.featureWallWidth || 0, h = +r.featureWallHeight || 0;
   if (w<=0 || h<=0) return 0;
   var rollWidthM = (+r.fwVinylRollWidthCm || 137) / 100;
-  var drops = Math.ceil(w / rollWidthM);
-  return drops * h;
+  return rollWidthM>0 ? Math.ceil(w / rollWidthM) : 0;
+}
+function featureWallVinylMetres(r) {
+  return featureWallVinylDrops(r) * (+r.featureWallHeight || 0);
 }
 function vinylCost(r) {
   var metres = featureWallVinylMetres(r);
@@ -20211,6 +20347,17 @@ function updateWPRollSpecVisibility() {
   document.getElementById('wp-repeat-row').style.display = (isTopPaper && wpMatch!=='none') ? 'flex' : 'none';
 }
 
+// Finish paper takes the surface out of the paint (see calcRoom()'s
+// wallsPapered/ceilPapered), which is invisible on the form otherwise: the
+// Coats seg still reads 2 and the paint quantities card simply drops a row.
+// Said out loud here instead, on whichever surface it applies to.
+function updateWPNoPaintNotes() {
+  var wall = document.getElementById('wp-wall-nopaint-note');
+  var ceil = document.getElementById('wp-ceil-nopaint-note');
+  if (wall) wall.style.display = (wpWallFinish && coats.wc > 0) ? 'block' : 'none';
+  if (ceil) ceil.style.display = (wpCeilFinish && coats.cc > 0) ? 'block' : 'none';
+}
+
 // Lining and finish are independent toggles per surface now (checkbox
 // semantics via button styling, not radio) -- clicking one only flips its
 // own boolean, the sibling button's state is untouched, so both can be on
@@ -20224,6 +20371,7 @@ function toggleWP(key, type) {
     b.classList.toggle('active', i===0 ? liningOn : finishOn);
   });
   updateWPRollSpecVisibility();
+  updateWPNoPaintNotes();
   previewRoom();
 }
 
@@ -20432,6 +20580,10 @@ function computeHSLWallpaperRolls(isCeil, wpType, rollLen, rollWidth, repeatMm, 
   if (!dropLengths.length) return null;
   return {
     rolls: packWallpaperRolls(dropLengths, rollLen, spareRoll),
+    // One entry per drop, so the array's length IS the number of lengths
+    // hung across the whole run -- stored as an override for
+    // roomWallpaperDrops() the same way the roll count is.
+    drops: dropLengths.length,
     minDrop: Math.min.apply(null, dropLengths),
     maxDrop: Math.max.apply(null, dropLengths)
   };
@@ -20974,6 +21126,7 @@ function previewRoomNow() {
   if (wpwOn) document.getElementById('wp-r-wall-labour').textContent = fmt(c.wpwCost);
   document.getElementById('wp-r-ceil-labour-row').style.display = wpcOn ? 'flex' : 'none';
   if (wpcOn) document.getElementById('wp-r-ceil-labour').textContent = fmt(c.wpcCost);
+  updateWPNoPaintNotes();
 
   // Rolls-to-order live preview -- walls only. Wall width here means the
   // linear metres of wall to paper (room perimeter). Doors aren't
@@ -21756,9 +21909,12 @@ function calcHSLNow() {
   var winCostDisp  = winDisp>0 && xc>0 ? winDisp*winMins()*r2  : 0;
   var radCostDisp  = radsDisp>0 ? radsDisp*radMins()*r2 : 0;
 
-  // Total cost and time for display
-  var wallCostDisp = wc>0 ? totalWall*wallMins(wc)*r2 : 0;
-  var ceilCostDisp = cc>0 ? totalCeil*ceilMins(cc)*r2 : 0;
+  // Total cost and time for display. Finish paper takes the surface out of
+  // the paint here exactly as it does in calcRoom() -- a papered staircase
+  // is the commonest papering job there is, and this preview has to agree
+  // with the price computeHSLOverrides() is about to save.
+  var wallCostDisp = (wc>0 && !wpWallFinish) ? totalWall*wallMins(wc)*r2 : 0;
+  var ceilCostDisp = (cc>0 && !wpCeilFinish) ? totalCeil*ceilMins(cc)*r2 : 0;
   var prepUpDisp = prepPct >= 0 ? prepPct : (+document.getElementById('r-prep-custom').value||0);
   var makingGoodDisp = +document.getElementById('r-making-good').value||0;
   // doorCostDisp already carries its own independent prep multiplier (see
@@ -21804,6 +21960,9 @@ function calcHSLNow() {
   // will buy from the moment it IS saved.
   var hslRoom = buildRoomFromForm();
   renderRoomPaintLitres(hslRoom, calcRoom(hslRoom));
+  // Same note a normal room gets -- the wallpaper card is shared, and a
+  // papered staircase is where this bites hardest.
+  updateWPNoPaintNotes();
 
   // Rolls to order -- reuses the SAME shared result elements a normal
   // room's Wallpaper card populates (wp-r-*); drop length shows as a
@@ -21915,8 +22074,12 @@ function computeHSLOverrides() {
   var wMins   =(spindles>0||newels>0)?(spindles*settings.wpStairSpindleMins+newels*settings.wpStairNewelMins+strLm*settings.wpStairStringMinsPerM+hrLm*settings.wpStairHandrailMinsPerM)*swc:0;
   var stairWoodStore = wMins*r2;
 
-  var wallCost = wc>0 ? totalWall*wallMins(wc)*r2 : 0;
-  var ceilCost = cc>0 ? totalCeil*ceilMins(cc)*r2 : 0;
+  // Finish paper carves the surface out of the paint -- same rule and same
+  // reasoning as calcRoom()'s wallsPapered/ceilPapered, applied here too
+  // because an HSL room's wall/ceiling labour is computed in this function
+  // and reaches calcRoom() only as a baked totalOverride.
+  var wallCost = (wc>0 && !wpWallFinish) ? totalWall*wallMins(wc)*r2 : 0;
+  var ceilCost = (cc>0 && !wpCeilFinish) ? totalCeil*ceilMins(cc)*r2 : 0;
 
   // Skirting from hall + landing perimeters -- same real geometry feeds
   // BOTH the cost (skirtCost below) AND, via woodAreaOverride,
@@ -21977,6 +22140,14 @@ function computeHSLOverrides() {
     var p = result.parts.filter(function(x){ return x.type===type; })[0];
     return p ? p.rolls : 0;
   }
+  // Lengths (drops) are the same figure for lining and finish -- a pattern
+  // match changes each drop's LENGTH, not how many there are -- so one per
+  // surface, off whichever type is active. Stored for the same reason the
+  // roll counts are: roomWallpaperDrops() can't re-derive them from a
+  // staircase room's dummy dimensions.
+  function hslDropsFor(result) { return result.parts.length ? result.parts[0].drops : undefined; }
+  var wallDropsOverride = (wpWallLining || wpWallFinish) ? hslDropsFor(wallRollsHSLResult) : undefined;
+  var ceilDropsOverride = (wpCeilLining || wpCeilFinish) ? hslDropsFor(ceilRollsHSLResult) : undefined;
   var wallRollsOverrideLining = wpWallLining ? hslRollsFor(wallRollsHSLResult, 'lining') : undefined;
   var wallRollsOverrideFinish = wpWallFinish ? hslRollsFor(wallRollsHSLResult, 'finish') : undefined;
   var ceilRollsOverrideLining = wpCeilLining ? hslRollsFor(ceilRollsHSLResult, 'lining') : undefined;
@@ -22019,6 +22190,7 @@ function computeHSLOverrides() {
     stairWoodStore: stairWoodStore, totalOverride: totalOverride, prepAmountOverride: prepAmountOverride,
     wallRollsOverrideLining: wallRollsOverrideLining, wallRollsOverrideFinish: wallRollsOverrideFinish,
     ceilRollsOverrideLining: ceilRollsOverrideLining, ceilRollsOverrideFinish: ceilRollsOverrideFinish,
+    wallDropsOverride: wallDropsOverride, ceilDropsOverride: ceilDropsOverride,
     hslInputs: {
       floors: hslFloors,
       h1l: document.getElementById('hsl-h1-l').value, h1w: document.getElementById('hsl-h1-w').value, h1h: document.getElementById('hsl-h1-h').value,

@@ -15,7 +15,10 @@ placeholders now build it from the live rooms:
 - **`{surfaces}`** — the painted scope. Gates **mirror `calcRoom()`'s**: a
   surface appears only where it is actually priced (windows and sills need
   woodwork coats; a painted feature wall needs wall coats; a papered one is
-  carved out of the paint entirely; panelling, doors and frames each need
+  carved out of the paint entirely, as are walls or a ceiling under FINISH
+  paper — v2.61.0, `calcRoom()`'s `wallsPapered`/`ceilPapered`, which zero
+  those surfaces' litres AND their labour; lining alone is hung to be
+  painted over and changes nothing; panelling, doors and frames each need
   their own count *and* coats). Read-only against the calc engine. The
   woodwork clause names only the pieces counted; a product shared with the
   walls or woodwork isn't named twice; a papered feature wall makes the
@@ -41,6 +44,24 @@ placeholders now build it from the live rooms:
   cannot happen.
 - **`{papered}`** — what is being papered, for the "hung to …" line. Falls
   back to the seeded `[feature wall/walls]` marker.
+- **`{lengths}`** — how many lengths of paper that line hangs (v2.61.0),
+  replacing the seeded `[X]` marker the rest of the sentence still leans on
+  for `[paper name/supplier]`. A length is a drop, which the rolls-to-order
+  calculator has always counted, so this is `roomWallpaperDrops()` over the
+  same geometry the roll count uses — summed job-wide the way `{papered}`
+  names surfaces, each surface counted ONCE: a pattern match changes each
+  drop's *length*, never how many drops go round the wall, so lining under
+  finish paper is one set of lengths and not two. Wide vinyl counts (it is
+  still hung in drops); a mural does not (one printed piece). Falls back to
+  the seeded `[X]` marker rather than a 0 or a stray token. Staircase rooms
+  read `wallDropsOverride`/`ceilDropsOverride`, stored by
+  `computeHSLOverrides()` for the same reason the roll counts are — their
+  own l/w/h are dummy placeholders — and one saved before those existed
+  counts 0 rather than inventing a figure from the dummies. **Pinned
+  template copies** (`settings.textTemplates`, which stop tracking the
+  defaults on first edit) get the exact seeded phrase rewritten in
+  `mergeSettings()`; a phrase the user rewrote themselves never matches and
+  is never touched.
 - **Every later ROOM line carries its own scope** instead of a bare
   "{name} - same as above" (`roomScopeSentence()` — the same builder over a
   one-room list, so a per-room sentence and the job-wide one can never

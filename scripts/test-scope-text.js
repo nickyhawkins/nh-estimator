@@ -118,6 +118,12 @@ new Function('exports', sandbox + [
   extractFn('scopeFacts'),
   extractFn('buildScopeSentence'),
   extractFn('buildPaperedPhrase'),
+  extractFn('buildLengthsPhrase'),
+  extractFn('roomWallpaperDrops'),
+  extractFn('featureWallWallpaperDrops'),
+  extractFn('featureWallVinylDrops'),
+  extractFn('roomShapePerimeter'),
+  extractFn('roomShapeCeilArea'),
   extractFn('scopeProductValues'),
   extractFn('roomScopeSentence'),
   extractFn('roomScopeShort'),
@@ -134,6 +140,8 @@ new Function('exports', sandbox + [
   extractVar('DEFAULT_TEXT_TEMPLATES'),
   'exports.buildScopeSentence = buildScopeSentence;',
   'exports.buildPaperedPhrase = buildPaperedPhrase;',
+  'exports.buildLengthsPhrase = buildLengthsPhrase;',
+  'exports.roomWallpaperDrops = roomWallpaperDrops;',
   'exports.renderTemplateText = renderTemplateText;',
   'exports.scopeFacts = scopeFacts;',
   'exports.DEFAULT_TEXT_TEMPLATES = DEFAULT_TEXT_TEMPLATES;',
@@ -392,12 +400,52 @@ eq('feature wall and walls across two rooms',
 eq('nothing papered — falls back to the seeded edit-me marker',
   api.buildPaperedPhrase([{ wc: 2 }]), '[feature wall/walls]');
 
+// ── 8b. {lengths} ──────────────────────────────────────────────────────────
+// The drop count the rolls-to-order calculator already works in, surfaced
+// as the number the wallpapering templates used to leave as "[X]". A
+// 4x3x2.4 room is a 14 m perimeter, which at the standard 0.53 m roll is 27
+// drops.
+const ROOM_4x3 = { l: 4, w: 3, h: 2.4 };
+const lengths = r => api.buildLengthsPhrase([Object.assign({}, ROOM_4x3, r)]);
+eq('papered walls — one length per drop round the perimeter', lengths({ wpWallFinish: true }), 27);
+eq('lining and finish on the same walls is ONE set of lengths, not two',
+  lengths({ wpWallLining: true, wpWallFinish: true }), 27);
+eq('a pattern match changes drop LENGTH, never the count',
+  lengths({ wpWallFinish: true, wpMatch: 'straight', wpRepeatMm: 640 }), 27);
+eq('a wider roll needs fewer lengths', lengths({ wpWallFinish: true, wpRollWidth: 0.68 }), 21);
+eq('papered ceiling — drops across the shorter dimension', lengths({ wpCeilFinish: true }), 6);
+eq('walls and ceiling papered — both counted', lengths({ wpWallFinish: true, wpCeilFinish: true }), 33);
+eq('papered feature wall — its own measured width',
+  lengths({ featureWallMode: 'wallpaper', featureWallArea: 8.4, featureWallWidth: 3.5,
+            featureWallHeight: 2.4, fwWpFinish: true }), 7);
+eq('a mural is one printed piece, so it has no lengths — the marker stays',
+  lengths({ featureWallMode: 'wallpaper', featureWallArea: 8.4, featureWallWidth: 3.5,
+            featureWallHeight: 2.4, fwWpCommercialType: 'mural' }), '[X]');
+eq('wide vinyl is still hung in drops off its own wide roll',
+  lengths({ featureWallMode: 'wallpaper', featureWallArea: 8.4, featureWallWidth: 3.5,
+            featureWallHeight: 2.4, fwWpCommercialType: 'wideVinyl' }), 3);
+eq('summed across rooms the way {papered} names across rooms',
+  api.buildLengthsPhrase([Object.assign({ wpWallFinish: true }, ROOM_4x3),
+                          Object.assign({ wpWallFinish: true }, ROOM_4x3)]), 54);
+eq('nothing papered — falls back to the same seeded marker it always showed',
+  api.buildLengthsPhrase([Object.assign({ wc: 2 }, ROOM_4x3)]), '[X]');
+eq('papered but unmeasured — the marker rather than a fabricated 0',
+  api.buildLengthsPhrase([{ wpWallFinish: true }]), '[X]');
+// A staircase room's own l/w/h are dummy placeholders, so its drops come
+// from the override computeHSLOverrides() stores; without one there is
+// nothing honest to count.
+eq('staircase room reads its stored drop count',
+  api.buildLengthsPhrase([{ isHSL: true, wpWallFinish: true, wallDropsOverride: 41 }]), 41);
+eq('staircase room saved before the override existed counts nothing, not dummies',
+  api.buildLengthsPhrase([{ isHSL: true, l: 1, w: 1, h: 1, wpWallFinish: true }]), '[X]');
+
 // ── 9. End to end through the real templates ───────────────────────────────
 const tpl = id => api.DEFAULT_TEXT_TEMPLATES.find(t => t.id === id);
 const values = rooms => Object.assign({
   rooms: 'Living Room',
   masonryProduct: 'Dulux Weathershield', extWoodProduct: 'Dulux Weathershield Gloss'
 }, PRODUCTS, { surfaces: scope('quote', rooms), papered: api.buildPaperedPhrase(rooms),
+   lengths: api.buildLengthsPhrase(rooms),
    extSurfaces: api.buildExtScopeSentence('quote', [EXT_FULL], EXT_PRODUCTS),
    unitSurfaces: api.buildFuScopeSentence('quote', [FU_FULL], PRODUCTS), kitchenCoats: 2 });
 const wallsOnly = api.renderTemplateText(tpl('painting').body, 'quote', values([{ name: 'Living Room', wc: 2 }]));
