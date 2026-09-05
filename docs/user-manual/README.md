@@ -32,9 +32,16 @@ This manual follows the life of a job in order: **set up → measure → quote �
 
 ## 1. Getting started
 
+> **Your first half hour**, in order: [install it on your phone](#install-it-on-your-phone)
+> → [put your own name on it](#make-it-yours) → [connect Xero](#connect-xero-one-off)
+> → [check your rates](#check-your-rates) → [start your first job](#your-first-job).
+> That's the whole setup. Everything after section 1 you can read as you need it.
+
 ### Install it on your phone
 
-The app lives at your own web address (the one on your Render account). It's designed to be **installed to your home screen** so it opens full-screen like a normal app:
+The app lives at its own web address — if someone set this copy up for you, that
+link is the one they sent you. It's designed to be **installed to your home
+screen** so it opens full-screen like a normal app:
 
 - **iPhone:** open the app in Safari → tap the Share button → **Add to Home Screen**.
 - **Android:** open it in Chrome → menu (⋮) → **Add to Home screen** / **Install app**.
@@ -44,6 +51,24 @@ If your copy of the app has a password set, you'll be asked for it the first tim
 Setting a password is worth doing now that you can send clients an approval link: the link points at the same web address the app runs on, so a client who trimmed it back to the domain would otherwise land on your jobs. With a password set they get a sign-in screen and nothing else. If there's no password on your instance, guard the web address like you would any private page.
 
 ![Sign-in screen](images/16-login.png)
+
+### Make it yours
+
+**Do this before you send anything to a client.** Until you enter your own
+details the app falls back to the name and logo it was built with, so a quote, a
+snag-list PDF or even your sign-in screen could go to a client with somebody
+else's business on it.
+
+Menu (☰) → **Settings** → **Business**:
+
+- **Business name** — replaces that fallback everywhere it appears.
+- **Logo** — optional, and shown *instead of* the name in the header when you
+  set one. Leave it empty and your business name is used on its own.
+
+Between them they carry through to the app header, the sign-in screen, the top
+of every quote you send and its PDF, the snag-list PDF and your calendar feed.
+To check it landed, open any job and tap **Quote ⤴** — what you see there is
+what the client sees.
 
 ### Connect Xero (one-off)
 
@@ -57,6 +82,21 @@ Almost everything works without Xero, but quoting and invoicing shine with it co
 ### Check your rates
 
 The app ships with sensible defaults (day rate £300, 20% markup, 25% deposit, standard coverage rates), split across two screens off the menu: **Rates** holds the calculation tables, **Settings** holds everything else. Skim through both once and adjust anything that doesn't match how you price — every figure in a quote comes from these numbers.
+
+### Your first job
+
+There's nothing to create before you can start measuring: the app opens on a
+starter job called **My Job**, and Measure, On Site and Summary are already
+pointed at it. Give it the real name before you go any further, though — a job's
+name is what you'll be searching for months later.
+
+Menu (☰) → **Jobs** → tap the **✎** on *My Job* and type the client's address or
+job name over it. From then on **`+`** on that same screen starts each new job.
+The one you're working on is marked **CURRENT**; Rates and Settings are global
+and apply to every job. There's more on all of it in [Jobs](#10-jobs).
+
+Then open **📐 Measure** and put a room in it — [Measuring up](#3-measuring-up)
+picks up from there.
 
 ---
 
@@ -555,7 +595,7 @@ Menu (☰) → **Jobs**. The app holds any number of jobs; the one you're workin
 ![Searching the jobs list](images/08b-jobs-search.png)
 
 - Jobs group by status: **Draft → Quoted → Accepted / Declined → Completed → Invoiced**.
-- **`+`** starts a new job. **⧉** duplicates a job as a quick template (notes aren't copied). Each job is fully separate — its own rooms, kitchen, colours and materials.
+- **`+`** starts a new job. **✎** renames one. **⧉** duplicates a job as a quick template (notes aren't copied). Each job is fully separate — its own rooms, kitchen, colours and materials.
 - **Import an accepted quote from Xero** — took the job on before the app existed? Import the Xero quote and it becomes a job here, with the agreed price as the record (adjustable via the **Agreed figures** card, or the **Imported from Xero** toggle on Summary — see [The quote](#9-the-quote-summary)). If a listed quote actually belongs to a job already in the app, use **"Already a job in the app? Link it ›"** instead of importing a duplicate.
 
 ---
@@ -858,6 +898,6 @@ Settings → **Backup**:
 
 ---
 
-*Manual for NH Estimator v2.45.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.60.1. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
