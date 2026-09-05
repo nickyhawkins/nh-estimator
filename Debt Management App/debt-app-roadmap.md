@@ -1243,3 +1243,190 @@ once, with the archive asserted to carry no floor ledger at all.
 alongside; every one of them lost its floor scaffolding on the way.
 
 **Deploy:** no migration. The retired columns are simply no longer read.
+
+---
+
+## Feature 17 — A payment after the checklist is done — BUILT (v2.59.0)
+
+Asked plainly: *"what happens if I add a payment after all the payments have
+been made that month?"* Reading the code to answer it turned up one route
+that lost the money from the record entirely, and one that made you do
+arithmetic the app should have done.
+
+### 1. The surplus button was not recording a payment
+
+"All bills are paid and you've got £X left over — send it to your current
+target" wrote the new balance and zeroed the pot by hand:
+
+```js
+debts=debts.map(d=>d.id===target.id?{...d,balance:newBal,arrears:newArrears}:d);
+if(isBiz)bizPot=0; else perPot=0;
+```
+
+It touched neither `applied_payments` nor the tick-lists. So the money left
+the pot, came off the debt, and then the cycle closed with **no trace of it**:
+nothing in History's debts-paid, nothing in the total paid for the cycle, and
+— because the close reads the ledger to decide what was covered — nothing
+crediting a contractual minimum it had just paid several times over. A surplus
+that cleared a debt outright could still be followed by a rollover recording
+that debt's minimum as newly overdue.
+
+Zeroing the pot unconditionally was a second, quieter fault: a £1,500 surplus
+against a £965.72 balance stopped the balance at zero and **destroyed the
+£534.28**. The pot is now charged only what the debt took, and the card and
+confirm dialog say so when the surplus is bigger than the target.
+
+A third: it moved the money without splitting it the way every other payment
+is split (contractual minimum first, everything above it onto the arrears).
+`newArrears=Math.min(target.arrears,newBal)` only ever clamped the arrears to
+the new balance, so a surplus that covered a debt's overdue amount several
+times over left every penny of it still recorded as overdue — still badged
+ARREARS, still ahead of everything else in the arrears queue next month.
+
+One consequence worth expecting: with those arrears genuinely cleared, the
+budget's arrears queue moves on, and a debt it never used to reach — Brewers,
+whose whole balance is overdue — gets a funded row for the first time. It is
+unticked, so the **target-met** verdict now reads false where it used to read
+true. That is the plan re-planning freed budget, exactly as it does after any
+other payment, and it is what the server has always computed at the close:
+`rollOnce()` counts Brewers as in-plan (it has a due date) and unpaid. Client
+and server agreed on the minimums verdict before and disagreed on this one;
+now they agree on both.
+
+### 2. A second payment meant undoing the first
+
+A row ticked `paid` hid every action link, so paying a debt again in the same
+cycle meant unticking it — refunding the balance, the arrears and the pot —
+and re-entering the two payments added together, computed by hand against a
+balance the first payment had already moved. The one thing the app knows and
+you don't.
+
+Settled rows now carry **pay more** and **change amount**, and the pay modal
+has two readings of its box, with a toggle when a payment already exists:
+
+| reading | the box means | when |
+|---|---|---|
+| `add` | what you have **just paid**, on top of the cycle | "pay more" on a settled or minimum-paid row |
+| `total` | everything the cycle has paid against this debt | "own amount", "change amount" — the box's original meaning |
+
+Only the total is ever stored, so nothing downstream has to know which way it
+was typed. The quick-fill chips restate themselves as *what it would take on
+top* (a target already reached drops out), the preview counts from what is
+owed **now** rather than from the pristine balance, and switching reading
+carries the typed figure across rather than clearing it.
+
+### What holds it together
+
+`recordPayment(id,total,ctx,snowball)` — every route that moves money at an
+amount of the user's choosing now goes through it: the modal, and the surplus
+button. It refunds whatever the cycle had recorded before charging the new
+total, so re-recording is safe and undo still puts back exactly what was
+taken, pot included. The surplus passes `already + surplus`, because the debt
+it lands on has usually been ticked already.
+
+No server change and no migration: `applied_payments` already carried
+everything `rollOnce()` needs, and the surplus simply starts writing to it.
+
+### Tests
+
+**`npm run test:extra-payments`** (`scripts/test-extra-payments.js`, 50
+checks): the surplus recorded as a real payment (ledger entry, checklist row,
+History, minimum covered, nothing sent to arrears), added on top of an
+existing tick rather than replacing it, capped at the balance with the change
+left in the pot, top-ups from every prior state including minimum-only, "change
+the total" still replacing, the cap, and both readings of the modal with the
+figure carried across the switch. The last check is the strongest statement of
+the fix: the surplus button and the same amount typed into the modal leave the
+plan in byte-identical states. `test:custom-payments` 46, `test:minimums` 47,
+`test:arrears` 29 and `test:buffer` 51 green alongside.
+
+---
+
+## Feature 18 — Borrowing from a pot — BUILT (v2.60.0)
+
+Asked for directly: *"I want the ability to borrow from a pot if needed. This
+goes in the borrowing tab, automatically subtracts from the desired pot but
+then makes sure the shortfall is replaced the very next time a payment is
+recorded."*
+
+The Borrowed tab was built as notes and nothing else — "zero interaction with
+the debt snowball, pot balances, cashflow calculations, or any other part of
+the app" (`debt-app-borrowed-money.md`). That is still true of every row
+naming a person or an outside pot. A row can now name one of the app's **own**
+pots instead, and those rows move real money.
+
+### Borrowing
+
+The Log-a-loan modal offers all five pots — business, personal, savings, and
+the two buffer jars — under the existing Person / Savings-pot pair, and
+picking one clears that pair: only one of them can be where the money came
+from. The amount is **capped at what the pot holds**, because you cannot take
+out money that was never in there, and the loan is recorded at what actually
+came out so that what goes back matches what left. If the row fails to save,
+the debit is rolled back: money out of a pot with no loan to repay it would
+simply disappear, and this tab has no offline queue to catch it later.
+
+### Repayment — off the top of the next pay-in
+
+`allocateIncome()` gains a step 0, ahead of the month itself:
+
+```
+0. pot loans   ← new: what is owed back, oldest borrowing first
+1. this month
+2. the buffer
+3. savings
+4. the sweep
+5. living money
+```
+
+Step 0 is deliberately ahead of the rule Feature 15 established (this month
+first, then the buffer), and for the opposite reason to the one that put the
+buffer second. **A pot loan is a hole in money the plan has already counted.**
+Every figure downstream — what this month still needs, what the buffer is
+short by, what the savings percentage has already set aside — is computed
+against a pot balance that the loan has quietly reduced. Leaving it open for
+even one pay-in means spending the same pound twice. It is also the one line
+here that is not a choice about where new money *should* go: it is owed.
+
+So the repayment is not overridable, and it is credited to every step that
+follows it — the commitments' pot credit, the buffer's gap, the savings
+percentage — so a pound going back into a pot is never allocated to that same
+pot a second time. A pay-in too small to clear the loan repays what it can,
+oldest borrowing first, and the rest waits for the next one. It appears in the
+"Where it goes" list and gets its own line in the transfer instructions under
+the account the pot lives in, because it is a real transfer like any other.
+
+Where it is deliberately *not* equivalent to never having borrowed: living
+money. Borrow £400 and the pay-in that repays it has £400 less to live on —
+that money was spent when it was borrowed, and the cost lands where the loan
+actually put it.
+
+### Undo, in both directions
+
+`POST /debt/api/borrowed/repay` applies **deltas** in one transaction, so the
+same endpoint runs in reverse. Each pay-in stores what it repaid on its income
+row (`pot_repay` JSONB), and deleting that pay-in takes the money back out of
+the pot and re-opens the loans — a mistyped pay-in cannot quietly write off
+borrowing that was never actually put back. Marking a pot loan repaid by hand
+does the same thing the next pay-in would have, just now: the outstanding
+money goes straight back into the pot.
+
+### Schema
+
+`debt_plan_borrowed` gains `pot TEXT` (NULL = a note, unchanged) and
+`repaid_amount NUMERIC` (part repayments — `repaid` is derived from it, so a
+reversal re-opens a closed loan). `debt_plan_income_log` gains `pot_repay
+JSONB`. All three are applied lazily by `routes/debt.js`'s `ensureSchema()`
+and documented in `db/setup-debt.sql`: **no migration step on deploy.**
+
+### Tests
+
+**`npm run test:borrowing`** (`scripts/test-pot-borrowing.js`, 41 checks):
+what a pot loan owes and what a note owes (nothing), the pot floor at zero,
+repayment off the top with the pay-in still conserving, a part repayment
+finished by the next pay-in, oldest-first across two pots, the three
+double-count guards stated as equivalences (a borrowed-then-repaid pot ends
+exactly where an untouched one does, and living money pays for it once),
+deleting the pay-in reversing both halves, and repaying by hand.
+`test:extra-payments` 50, `test:custom-payments` 46, `test:minimums` 47,
+`test:arrears` 29 and `test:buffer` 51 green alongside.
