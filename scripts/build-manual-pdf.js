@@ -39,6 +39,24 @@ function findChrome() {
   throw new Error('No Chrome/Chromium found. Install one, or point CHROME_PATH at the executable.');
 }
 
+// The markdown's closing line names the version it documents. It is the one
+// version stamp in the manual that isn't generated (the PDF cover reads
+// package.json directly), so it drifts — it sat at v2.45.0 while the app was
+// on v2.60.1. Rewrite it from package.json on every build instead, so the
+// build:manual step that always follows a manual edit keeps it honest.
+function syncVersionStamp() {
+  const version = require(path.join(ROOT, 'package.json')).version;
+  const md = fs.readFileSync(SRC, 'utf8');
+  const synced = md.replace(
+    /^(\*Manual for NH Estimator v)[0-9]+\.[0-9]+\.[0-9]+(\.)/m,
+    `$1${version}$2`
+  );
+  if (synced !== md) {
+    fs.writeFileSync(SRC, synced);
+    console.log('Version stamp in README.md updated to v' + version);
+  }
+}
+
 function buildHtml() {
   let md = fs.readFileSync(SRC, 'utf8');
 
@@ -149,6 +167,7 @@ function buildHtml() {
 }
 
 (async () => {
+  syncVersionStamp();
   // Written next to the markdown so the relative images/ paths resolve.
   fs.writeFileSync(TMP_HTML, buildHtml());
   const browser = await chromium.launch({ executablePath: findChrome() });
