@@ -122,7 +122,26 @@ eq('a line switched to tracking-only stays out of the total',
 check('the Xero quote drops exactly the same lines Summary does',
   /materialsSnapshot\.filter\(function\s*\(l\)\s*\{ return l\.chargeable !== false; \}\)/.test(SRC.replace(/\s+/g, ' ')));
 
-// ── 3. The form plumbing around the default ────────────────────────────────
+// ── 3. A quote that is SENT but not accepted still re-prices ──────────────
+// Where the bug was actually met: the quote had gone out, the client changed
+// her mind, and the materials were re-entered to re-send. Nothing about that
+// state pins the total -- `quoted` is deliberately NOT one of the statuses
+// the accepted-quote freeze covers, so Summary and the Xero payload are both
+// built from the live snapshot every time, and an edit to the materials of a
+// sent quote reaches the update-in-place exactly as it reaches a new one.
+// The money not moving there was the chargeable flag and nothing else.
+const frozenStatuses = JSON.parse(
+  (SRC.match(/var FROZEN_QUOTE_STATUSES = (\[[^\]]*\])/) || [])[1].replace(/'/g, '"'));
+eq('the freeze covers accepted work only', frozenStatuses, ['accepted', 'completed', 'invoiced']);
+check('so a sent-but-unanswered quote re-prices live, materials included',
+  frozenStatuses.indexOf('quoted') === -1 && frozenStatuses.indexOf('draft') === -1,
+  JSON.stringify(frozenStatuses));
+// And the update-in-place path is the same function as a new quote, so there
+// is no second materials rule for a re-send to drift from.
+check('and "Update quote" is the same builder as "Send to Xero"',
+  /var updateQuoteId = !forceNew && quoteIsUpdatable\(activeJob\(\)\) \? activeJob\(\)\.xeroQuoteId : undefined;/.test(SRC));
+
+// ── 4. The form plumbing around the default ────────────────────────────────
 // A re-render mid-entry (ticking another row's quantity) rebuilds the form's
 // HTML, which now comes back ON. So a deliberate switch-off has to be written
 // back as off, not merely "not re-added" -- otherwise the default would
