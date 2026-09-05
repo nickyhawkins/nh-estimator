@@ -34,7 +34,7 @@ function loadDebtApp() {
   if (src === m[1]) throw new Error('bootstrap calls not found — has the end of debt.html changed?');
   src += `
 globalThis.__t = {
-  get state(){ return {debts,budget,bizPot,perPot,savingsPot,bufferBiz,bufferPer,bufferTargetBiz,bufferTargetPer,savingsPct,sweepPct,paidThisCycle,missedThisCycle,minPaidThisCycle,appliedPayments,incomeLog}; },
+  get state(){ return {debts,budget,bizPot,perPot,savingsPot,bufferBiz,bufferPer,bufferTargetBiz,bufferTargetPer,savingsPct,sweepPct,paidThisCycle,missedThisCycle,minPaidThisCycle,appliedPayments,incomeLog,borrowedActive,borrowedRepaid}; },
   set state(o){
     if('debts' in o)debts=o.debts; if('budget' in o)budget=o.budget;
     if('bizPot' in o)bizPot=o.bizPot; if('perPot' in o)perPot=o.perPot;
@@ -48,6 +48,8 @@ globalThis.__t = {
     if('minPaidThisCycle' in o)minPaidThisCycle=o.minPaidThisCycle;
     if('appliedPayments' in o)appliedPayments=o.appliedPayments;
     if('incomeLog' in o)incomeLog=o.incomeLog;
+    if('borrowedActive' in o)borrowedActive=o.borrowedActive;
+    if('borrowedRepaid' in o)borrowedRepaid=o.borrowedRepaid;
   },
   DEBTS_INITIAL, minDueOf, getCycleStatus, allocateIncome, getCyclePayments,
   getCycleArchivePayload, getCycleTotals, simulate, setPaymentState, paymentState,
@@ -55,6 +57,10 @@ globalThis.__t = {
   openCustomPayModal, customPayPreview, confirmCustomPay, undoPayment,
   setCustomPayMode, customPayTotal, recordPayment, getCurrentTarget,
   applySurplus, confirmSurplus,
+  POTS, potMove, potLoans, loanOutstanding, potLoansOwed, potRepayPlan,
+  applyPotRepay, setLoanPot, loanPotPreview, confirmAddLoan, confirmRepay,
+  openAddLoanModal, openRepayModal, get loanPot(){ return loanPot; },
+  renderAll, setView,
   monthlyMinimums, bufferCover, confirmBufferCover, setBufferPreset, setBufferTargetFor,
   confirmLog, deleteIncome, currentAllocation, openLogModal, updateSweepPreview,
   cycleCommitments, bufferDrift, renderBufferRescue, startNewCycle
@@ -105,7 +111,8 @@ function makeReset(app) {
       bufferBiz: 0, bufferPer: 0, bufferTargetBiz: 0, bufferTargetPer: 0,
       savingsPct: 10, sweepPct: 50,
       paidThisCycle: [], missedThisCycle: [], minPaidThisCycle: [],
-      appliedPayments: {}, incomeLog: []
+      appliedPayments: {}, incomeLog: [],
+      borrowedActive: [], borrowedRepaid: []
     }, over);
   };
 }

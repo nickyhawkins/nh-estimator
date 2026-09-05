@@ -1339,3 +1339,94 @@ figure carried across the switch. The last check is the strongest statement of
 the fix: the surplus button and the same amount typed into the modal leave the
 plan in byte-identical states. `test:custom-payments` 46, `test:minimums` 47,
 `test:arrears` 29 and `test:buffer` 51 green alongside.
+
+---
+
+## Feature 18 — Borrowing from a pot — BUILT (v2.60.0)
+
+Asked for directly: *"I want the ability to borrow from a pot if needed. This
+goes in the borrowing tab, automatically subtracts from the desired pot but
+then makes sure the shortfall is replaced the very next time a payment is
+recorded."*
+
+The Borrowed tab was built as notes and nothing else — "zero interaction with
+the debt snowball, pot balances, cashflow calculations, or any other part of
+the app" (`debt-app-borrowed-money.md`). That is still true of every row
+naming a person or an outside pot. A row can now name one of the app's **own**
+pots instead, and those rows move real money.
+
+### Borrowing
+
+The Log-a-loan modal offers all five pots — business, personal, savings, and
+the two buffer jars — under the existing Person / Savings-pot pair, and
+picking one clears that pair: only one of them can be where the money came
+from. The amount is **capped at what the pot holds**, because you cannot take
+out money that was never in there, and the loan is recorded at what actually
+came out so that what goes back matches what left. If the row fails to save,
+the debit is rolled back: money out of a pot with no loan to repay it would
+simply disappear, and this tab has no offline queue to catch it later.
+
+### Repayment — off the top of the next pay-in
+
+`allocateIncome()` gains a step 0, ahead of the month itself:
+
+```
+0. pot loans   ← new: what is owed back, oldest borrowing first
+1. this month
+2. the buffer
+3. savings
+4. the sweep
+5. living money
+```
+
+Step 0 is deliberately ahead of the rule Feature 15 established (this month
+first, then the buffer), and for the opposite reason to the one that put the
+buffer second. **A pot loan is a hole in money the plan has already counted.**
+Every figure downstream — what this month still needs, what the buffer is
+short by, what the savings percentage has already set aside — is computed
+against a pot balance that the loan has quietly reduced. Leaving it open for
+even one pay-in means spending the same pound twice. It is also the one line
+here that is not a choice about where new money *should* go: it is owed.
+
+So the repayment is not overridable, and it is credited to every step that
+follows it — the commitments' pot credit, the buffer's gap, the savings
+percentage — so a pound going back into a pot is never allocated to that same
+pot a second time. A pay-in too small to clear the loan repays what it can,
+oldest borrowing first, and the rest waits for the next one. It appears in the
+"Where it goes" list and gets its own line in the transfer instructions under
+the account the pot lives in, because it is a real transfer like any other.
+
+Where it is deliberately *not* equivalent to never having borrowed: living
+money. Borrow £400 and the pay-in that repays it has £400 less to live on —
+that money was spent when it was borrowed, and the cost lands where the loan
+actually put it.
+
+### Undo, in both directions
+
+`POST /debt/api/borrowed/repay` applies **deltas** in one transaction, so the
+same endpoint runs in reverse. Each pay-in stores what it repaid on its income
+row (`pot_repay` JSONB), and deleting that pay-in takes the money back out of
+the pot and re-opens the loans — a mistyped pay-in cannot quietly write off
+borrowing that was never actually put back. Marking a pot loan repaid by hand
+does the same thing the next pay-in would have, just now: the outstanding
+money goes straight back into the pot.
+
+### Schema
+
+`debt_plan_borrowed` gains `pot TEXT` (NULL = a note, unchanged) and
+`repaid_amount NUMERIC` (part repayments — `repaid` is derived from it, so a
+reversal re-opens a closed loan). `debt_plan_income_log` gains `pot_repay
+JSONB`. All three are applied lazily by `routes/debt.js`'s `ensureSchema()`
+and documented in `db/setup-debt.sql`: **no migration step on deploy.**
+
+### Tests
+
+**`npm run test:borrowing`** (`scripts/test-pot-borrowing.js`, 41 checks):
+what a pot loan owes and what a note owes (nothing), the pot floor at zero,
+repayment off the top with the pay-in still conserving, a part repayment
+finished by the next pay-in, oldest-first across two pots, the three
+double-count guards stated as equivalences (a borrowed-then-repaid pot ends
+exactly where an untouched one does, and living money pays for it once),
+deleting the pay-in reversing both halves, and repaying by hand.
+`test:extra-payments` 50, `test:custom-payments` 46, `test:minimums` 47,
+`test:arrears` 29 and `test:buffer` 51 green alongside.

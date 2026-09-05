@@ -84,6 +84,16 @@ function ensureSchema() {
       // (recomputing from the now-reduced balances would give a different,
       // wrong figure). See lib/debtCycle.js and db/setup-debt.sql.
       await db.query(`ALTER TABLE debt_plan_cashflow ADD COLUMN IF NOT EXISTS applied_payments JSONB NOT NULL DEFAULT '{}'`);
+      // Borrowing from one of the app's own pots (v2.60.0). `pot` names which
+      // one the money came out of -- NULL keeps the original meaning of a row
+      // on this tab, a note about money owed to a person, which moves nothing.
+      // `repaid_amount` is what has gone back so far, because a pay-in too
+      // small to clear the loan repays what it can and leaves the rest.
+      await db.query(`ALTER TABLE debt_plan_borrowed ADD COLUMN IF NOT EXISTS pot TEXT`);
+      await db.query(`ALTER TABLE debt_plan_borrowed ADD COLUMN IF NOT EXISTS repaid_amount NUMERIC NOT NULL DEFAULT 0`);
+      // What a pay-in put back into which pot, kept on the income row so that
+      // deleting the row can undo the repayment as well as the allocation.
+      await db.query(`ALTER TABLE debt_plan_income_log ADD COLUMN IF NOT EXISTS pot_repay JSONB`);
     })().catch(err => { schemaReady = null; throw err; });
   }
   return schemaReady;
@@ -140,6 +150,7 @@ router.get('/api/state', async (req, res) => {
         perAmt: Number(e.per_amt), savedAmt: Number(e.saved_amt),
         bufferAmt: Number(e.buffer_amt),
         bufferBizAmt: Number(e.buffer_biz_amt), bufferPerAmt: Number(e.buffer_per_amt),
+        potRepay: e.pot_repay || null,
         date: e.date
       })),
       meta: {
@@ -339,15 +350,16 @@ router.post('/api/cashflow', async (req, res) => {
 });
 
 router.post('/api/income', async (req, res) => {
-  const { amount, bizAmt, perAmt, savedAmt, bufferBizAmt, bufferPerAmt, date } = req.body;
+  const { amount, bizAmt, perAmt, savedAmt, bufferBizAmt, bufferPerAmt, potRepay, date } = req.body;
   try {
     // buffer_amt stays the total of the two, so the legacy column keeps
     // meaning what it always meant for anything still reading it.
     const bufBiz = bufferBizAmt || 0, bufPer = bufferPerAmt || 0;
     const result = await db.query(
-      `INSERT INTO debt_plan_income_log (amount, biz_amt, per_amt, saved_amt, buffer_amt, buffer_biz_amt, buffer_per_amt, date)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-      [amount, bizAmt || 0, perAmt || 0, savedAmt || 0, bufBiz + bufPer, bufBiz, bufPer, date]
+      `INSERT INTO debt_plan_income_log (amount, biz_amt, per_amt, saved_amt, buffer_amt, buffer_biz_amt, buffer_per_amt, pot_repay, date)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+      [amount, bizAmt || 0, perAmt || 0, savedAmt || 0, bufBiz + bufPer, bufBiz, bufPer,
+        potRepay && potRepay.total > 0.005 ? JSON.stringify(potRepay) : null, date]
     );
     res.json({ id: result.rows[0].id });
   } catch (err) {
@@ -573,19 +585,22 @@ function titleCase(str) {
   return str.trim().replace(/\s+/g, ' ').replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
 }
 
+// The pots a loan can be taken out of. NULL/absent is the tab's original
+// meaning -- money owed to a person, which moves nothing anywhere.
+const LOAN_POTS = ['biz', 'per', 'savings', 'bufferBiz', 'bufferPer'];
+const mapLoan = r => ({
+  id: r.id, source_name: r.source_name, is_savings: r.is_savings,
+  amount: Number(r.amount), note: r.note, borrowed_at: r.borrowed_at,
+  pot: r.pot || null, repaid_amount: Number(r.repaid_amount || 0),
+  repaid_at: r.repaid_at
+});
+
 router.get('/api/borrowed', async (req, res) => {
   try {
     const result = await db.query('SELECT * FROM debt_plan_borrowed ORDER BY borrowed_at DESC, id DESC');
     const active = [];
     const repaid = [];
-    for (const r of result.rows) {
-      const row = {
-        id: r.id, source_name: r.source_name, is_savings: r.is_savings,
-        amount: Number(r.amount), note: r.note, borrowed_at: r.borrowed_at,
-        repaid_at: r.repaid_at
-      };
-      (r.repaid ? repaid : active).push(row);
-    }
+    for (const r of result.rows) (r.repaid ? repaid : active).push(mapLoan(r));
     res.json({ active, repaid });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -593,21 +608,18 @@ router.get('/api/borrowed', async (req, res) => {
 });
 
 router.post('/api/borrowed', async (req, res) => {
-  const { source_name, is_savings, amount, note, borrowed_at } = req.body;
+  const { source_name, is_savings, amount, note, borrowed_at, pot } = req.body;
   if (!source_name || !source_name.trim()) return res.status(400).json({ error: 'source_name is required' });
   const amt = Number(amount);
   if (!amt || amt <= 0) return res.status(400).json({ error: 'amount must be greater than 0' });
+  if (pot && !LOAN_POTS.includes(pot)) return res.status(400).json({ error: 'unknown pot: ' + pot });
   try {
     const result = await db.query(
-      `INSERT INTO debt_plan_borrowed (source_name, is_savings, amount, note, borrowed_at)
-       VALUES ($1,$2,$3,$4,COALESCE($5, CURRENT_DATE)) RETURNING *`,
-      [titleCase(source_name), !!is_savings, amt, note || null, borrowed_at || null]
+      `INSERT INTO debt_plan_borrowed (source_name, is_savings, amount, note, borrowed_at, pot)
+       VALUES ($1,$2,$3,$4,COALESCE($5, CURRENT_DATE),$6) RETURNING *`,
+      [titleCase(source_name), !!is_savings, amt, note || null, borrowed_at || null, pot || null]
     );
-    const r = result.rows[0];
-    res.json({
-      id: r.id, source_name: r.source_name, is_savings: r.is_savings,
-      amount: Number(r.amount), note: r.note, borrowed_at: r.borrowed_at
-    });
+    res.json(mapLoan(result.rows[0]));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -615,18 +627,54 @@ router.post('/api/borrowed', async (req, res) => {
 
 router.post('/api/borrowed/:id/repay', async (req, res) => {
   try {
+    // Repaid by hand is repaid in full: repaid_amount catches up to the
+    // amount so the two can never disagree about what is still owed.
     const result = await db.query(
-      `UPDATE debt_plan_borrowed SET repaid = true, repaid_at = NOW() WHERE id = $1 RETURNING *`,
+      `UPDATE debt_plan_borrowed
+          SET repaid = true, repaid_at = NOW(), repaid_amount = amount
+        WHERE id = $1 RETURNING *`,
       [req.params.id]
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'not found' });
-    const r = result.rows[0];
-    res.json({
-      id: r.id, source_name: r.source_name, is_savings: r.is_savings,
-      amount: Number(r.amount), note: r.note, borrowed_at: r.borrowed_at, repaid_at: r.repaid_at
-    });
+    res.json(mapLoan(result.rows[0]));
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Part-repayments from a pay-in, applied as DELTAS in one transaction: a
+// pay-in too small to clear a pot loan repays what it can, and the same
+// endpoint runs in reverse (negative amounts) when the income entry that made
+// the repayment is deleted. `repaid` is derived from the running total rather
+// than set independently, so a reversal re-opens a loan that had been closed.
+router.post('/api/borrowed/repay', async (req, res) => {
+  const list = Array.isArray(req.body && req.body.repayments) ? req.body.repayments : [];
+  if (!list.length) return res.json({ updated: [] });
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
+    const updated = [];
+    for (const item of list) {
+      const delta = Number(item && item.amount);
+      if (!delta || !isFinite(delta)) continue;
+      const r = await client.query(
+        `UPDATE debt_plan_borrowed
+            SET repaid_amount = LEAST(amount, GREATEST(0, repaid_amount + $2)),
+                repaid = LEAST(amount, GREATEST(0, repaid_amount + $2)) >= amount - 0.005,
+                repaid_at = CASE WHEN LEAST(amount, GREATEST(0, repaid_amount + $2)) >= amount - 0.005
+                                 THEN COALESCE(repaid_at, NOW()) ELSE NULL END
+          WHERE id = $1 RETURNING *`,
+        [item.id, delta]
+      );
+      if (r.rows[0]) updated.push(mapLoan(r.rows[0]));
+    }
+    await client.query('COMMIT');
+    res.json({ updated });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 

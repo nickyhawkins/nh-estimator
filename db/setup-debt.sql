@@ -145,6 +145,14 @@ CREATE TABLE IF NOT EXISTS debt_plan_borrowed (
   borrowed_at DATE NOT NULL DEFAULT CURRENT_DATE,
   repaid BOOLEAN NOT NULL DEFAULT FALSE,
   repaid_at TIMESTAMP,
+  -- Borrowing from one of the app's OWN pots (v2.60.0): 'biz', 'per',
+  -- 'savings', 'bufferBiz' or 'bufferPer'. NULL is the tab's original
+  -- meaning -- a note about money owed to a person, which moves nothing.
+  -- A pot loan takes the money out of that pot when it is logged and is put
+  -- back off the top of the next pay-in, so repaid_amount tracks part
+  -- repayments: a pay-in too small to clear it repays what it can.
+  pot TEXT,
+  repaid_amount NUMERIC NOT NULL DEFAULT 0,
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
@@ -304,3 +312,15 @@ ALTER TABLE debt_plan_cashflow ADD COLUMN IF NOT EXISTS applied_payments JSONB N
 -- lazily, by lib/debtCycle.js itself rather than routes/debt.js -- the 8am
 -- cron can roll before any API request has been served.
 ALTER TABLE debt_plan_settings ADD COLUMN IF NOT EXISTS auto_roll_started_at TIMESTAMP;
+
+-- Borrowing from one of the app's own pots (v2.60.0). See the pot/repaid_amount
+-- columns on debt_plan_borrowed above; these are the lazy migrations for a
+-- database that already has the table, ALSO applied by routes/debt.js.
+ALTER TABLE debt_plan_borrowed ADD COLUMN IF NOT EXISTS pot TEXT;
+ALTER TABLE debt_plan_borrowed ADD COLUMN IF NOT EXISTS repaid_amount NUMERIC NOT NULL DEFAULT 0;
+
+-- What a pay-in put back into which pot, kept on the income row so deleting
+-- that row undoes the repayment as well as the allocation:
+--   { "total": 200, "byPot": { "savings": 200 }, "loans": [ { "id": 4, "amount": 200 } ] }
+-- NULL on every pay-in that repaid nothing, which is most of them.
+ALTER TABLE debt_plan_income_log ADD COLUMN IF NOT EXISTS pot_repay JSONB;

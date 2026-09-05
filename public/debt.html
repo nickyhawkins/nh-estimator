@@ -346,8 +346,77 @@ async function refreshCycleStatus(){
     cycleStatus=await res.json();
   }catch(err){console.error('Failed to load cycle status',err);}
 }
-// Borrowed money tab — fully standalone from the rest of the app's state.
-// See Debt Management App/debt-app-borrowed-money.md.
+// ---------- Borrowing from a pot ----------
+// The Borrowed tab began as notes: a record of money owed to a person, with
+// no interaction with pot balances at all (debt-app-borrowed-money.md).
+// A loan can now name one of the app's OWN pots instead, and then it is not a
+// note — the money comes out of that pot when you log it, and goes back off
+// the top of the next pay-in, before the month, the buffer, savings and the
+// sweep. A loan with no `pot` is exactly what it always was and moves nothing.
+//
+// The read/write pair per pot is what lets one piece of code borrow from and
+// repay any of them: the balances are top-level `let`s, so a plain object of
+// them would be a copy, not a handle.
+const POTS={
+  biz:{label:'Business pot',account:'business',colour:'#e0923b',get:()=>bizPot,set:v=>{bizPot=v;}},
+  per:{label:'Personal pot',account:'personal',colour:'#5b8def',get:()=>perPot,set:v=>{perPot=v;}},
+  savings:{label:'Savings pot',account:'personal',colour:'#7db87d',get:()=>savingsPot,set:v=>{savingsPot=v;}},
+  bufferBiz:{label:'Buffer — business',account:'business',colour:'#7db87d',get:()=>bufferBiz,set:v=>{bufferBiz=v;}},
+  bufferPer:{label:'Buffer — personal',account:'personal',colour:'#7db87d',get:()=>bufferPer,set:v=>{bufferPer=v;}}
+};
+// Repayment order when a pay-in cannot clear everything: oldest borrowing
+// first. Not by pot — what you took out first is what you put back first, and
+// on the same date the id decides so the order can never wobble.
+const POT_LOAN_ORDER=(a,b)=>String(a.borrowed_at||'').localeCompare(String(b.borrowed_at||''))||a.id-b.id;
+function potMove(key,delta){
+  const pot=POTS[key];
+  if(!pot)return 0;
+  const before=round2(pot.get());
+  const after=round2(Math.max(0,before+delta));
+  pot.set(after);
+  return round2(after-before); // what actually moved: a pot can't go negative
+}
+// Active loans taken out of a pot, oldest first. An unknown pot name (a row
+// written by a newer version, or hand-edited) is treated as a note rather
+// than silently moving money somewhere it wasn't meant to.
+function potLoans(){
+  return borrowedActive.filter(b=>b.pot&&POTS[b.pot]).slice().sort(POT_LOAN_ORDER);
+}
+function loanOutstanding(b){
+  return round2(Math.max(0,Number(b.amount||0)-Number(b.repaid_amount||0)));
+}
+// What is still owed back to each pot, and to all of them together.
+function potLoansOwed(){
+  const owed={};
+  let total=0;
+  for(const b of potLoans()){
+    const left=loanOutstanding(b);
+    if(left<=0.005)continue;
+    owed[b.pot]=round2((owed[b.pot]||0)+left);
+    total=round2(total+left);
+  }
+  return {byPot:owed,total};
+}
+// How `amt` of a pay-in would be shared out among the outstanding pot loans,
+// oldest first. Returns the per-loan repayments (what the server is told) and
+// the per-pot totals (what actually moves), so the preview, the transfer
+// instructions and the commit all read the same split.
+function potRepayPlan(amt){
+  let rem=round2(Math.max(0,amt));
+  const loans=[],byPot={};
+  let total=0;
+  for(const b of potLoans()){
+    if(rem<=0.005)break;
+    const take=Math.min(rem,loanOutstanding(b));
+    if(take<=0.005)continue;
+    loans.push({id:b.id,amount:round2(take)});
+    byPot[b.pot]=round2((byPot[b.pot]||0)+take);
+    total=round2(total+take);
+    rem=round2(rem-take);
+  }
+  return {total,byPot,loans};
+}
+// Borrowed money tab — see Debt Management App/debt-app-borrowed-money.md.
 async function refreshBorrowed(){
   try{
     const res=await fetch('/debt/api/borrowed');
@@ -833,8 +902,19 @@ function commitmentQueue(){
 function allocateIncome(amt){
   const gross=Math.max(0,amt);
   let rem=gross;
-  // 1. This month. Pot balances count toward it before any new money does.
-  let creditBiz=bizPot,creditPer=perPot,dueBiz=0,duePer=0;
+  // 0. Money borrowed out of a pot goes back FIRST, ahead of the month
+  // itself. A pot loan is a hole in money the plan has already counted —
+  // every figure downstream, this month's funding included, is computed as if
+  // the pot were whole — so leaving it open would quietly spend the same
+  // pound twice. It is also the one thing here that is not a choice about
+  // where new money should go: it is owed. A pay-in too small to clear it
+  // repays what it can, oldest borrowing first, and the rest waits for the
+  // next one.
+  const potRepay=potRepayPlan(rem);
+  rem=round2(rem-potRepay.total);
+  // 1. This month. Pot balances count toward it before any new money does —
+  // including whatever step 0 has just put back into them.
+  let creditBiz=bizPot+(potRepay.byPot.biz||0),creditPer=perPot+(potRepay.byPot.per||0),dueBiz=0,duePer=0;
   for(const p of commitmentQueue()){
     const isBiz=p.account==='business';
     const credit=isBiz?creditBiz:creditPer;
@@ -849,22 +929,27 @@ function allocateIncome(amt){
   // 2. The buffer, out of what this month didn't need. The two jars fill
   // together, in proportion to what each still needs, so a light month can't
   // top one account to the brim while the other stays empty.
-  const needBufBiz=Math.max(0,bufferTargetBiz-bufferBiz);
-  const needBufPer=Math.max(0,bufferTargetPer-bufferPer);
+  // Less whatever step 0 is putting back into each jar, or the pay-in would
+  // fund a gap the repayment has already closed.
+  const needBufBiz=Math.max(0,bufferTargetBiz-bufferBiz-(potRepay.byPot.bufferBiz||0));
+  const needBufPer=Math.max(0,bufferTargetPer-bufferPer-(potRepay.byPot.bufferPer||0));
   const bufferWanted=needBufBiz+needBufPer;
   const buffer=Math.min(rem,bufferWanted);
   const bufBiz=bufferWanted>0.005?round2(buffer*needBufBiz/bufferWanted):0;
   const bufPer=round2(buffer-bufBiz);
   rem-=buffer;
-  // 3. Savings.
-  const savings=Math.min(rem,gross*savingsPct/100);
+  // 3. Savings. What step 0 has already put back into the savings pot counts
+  // toward this week's percentage — the pot is what the percentage is FOR, and
+  // paying a savings loan back only to set the same slice aside again would
+  // take the same money out of living twice over.
+  const savings=Math.max(0,Math.min(rem,gross*savingsPct/100-(potRepay.byPot.savings||0)));
   rem-=savings;
   // 4. Targets get the rest of the sweep — this month's money already spent
   // counts against it, so this is a top-up to target, not a second helping.
   const targetSweep=Math.max(0,Math.min(rem,gross*sweepPct/100-dueBiz-duePer));
   const {businessTotal,personalTotal}=getCycleTotals();
-  const needBiz=Math.max(0,businessTotal-bizPot-dueBiz);
-  const needPer=Math.max(0,personalTotal-perPot-duePer);
+  const needBiz=Math.max(0,businessTotal-bizPot-(potRepay.byPot.biz||0)-dueBiz);
+  const needPer=Math.max(0,personalTotal-perPot-(potRepay.byPot.per||0)-duePer);
   let tBiz;
   if(needBiz+needPer>0.005)tBiz=targetSweep*needBiz/(needBiz+needPer);
   else if(businessTotal+personalTotal>0.005)tBiz=targetSweep*businessTotal/(businessTotal+personalTotal);
@@ -874,6 +959,10 @@ function allocateIncome(amt){
   return {buffer,bufferBiz:bufBiz,bufferPer:bufPer,
     biz:dueBiz+tBiz,per:duePer+tPer,savings,keep:Math.max(0,rem),
     dueBiz,duePer,dueFunded:dueBiz+duePer,
+    // Reported separately from `biz`/`per` even where it lands in the same
+    // pot: it is money going back, not money being allocated, and the
+    // transfer instructions have to be able to name it.
+    potRepay,
     targetSweep};
 }
 
@@ -1002,10 +1091,22 @@ function renderAll(){
       </div>
     </div>`;
 
+    // Money owed back to one of the app's own pots. Unlike the nudge below it
+    // this is not informational: the pot cards above are short by exactly this
+    // much, and the next pay-in will put it back before anything else.
+    const owedToPots=potLoansOwed();
+    if(owedToPots.total>0.005){
+      const parts=Object.entries(owedToPots.byPot).map(([k,v])=>`${fmt(v)} from your ${esc(POTS[k].label.toLowerCase())}`);
+      html+=`<div style="background:#1a1020;border:1px solid #4a2a5a;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#c07de0;line-height:1.5">
+        <strong>${fmt(owedToPots.total)} borrowed from your pots</strong> — ${parts.join(', ')}. It comes off the top of your next pay-in.
+        <button onclick="setView('borrowed')" style="display:block;margin-top:8px;background:none;border:none;padding:0;color:#c07de0;font-size:12px;font-weight:600;text-decoration:underline">See the Borrowed tab</button>
+      </div>`;
+    }
+
     // Borrowed-money nudge — informational only, no interaction with pots/cashflow.
-    const savingsLoans=borrowedActive.filter(b=>b.is_savings);
+    const savingsLoans=borrowedActive.filter(b=>b.is_savings&&!(b.pot&&POTS[b.pot]));
     if(savingsLoans.length>0){
-      const savingsTotal=savingsLoans.reduce((s,b)=>s+b.amount,0);
+      const savingsTotal=savingsLoans.reduce((s,b)=>s+loanOutstanding(b),0);
       const savingsSources=[...new Set(savingsLoans.map(b=>b.source_name))];
       const nudgeText=savingsSources.length===1
         ? `⚠ ${fmt(savingsTotal)} borrowed from ${esc(savingsSources[0])} — repay when you can`
@@ -1578,10 +1679,22 @@ function renderAll(){
   }
 
   // ---------- BORROWED ----------
-  // Standalone notes tab: no read/write of any other app state or calculation.
+  // Notes about money owed to people, plus (v2.60.0) real borrowing from the
+  // app's own pots — the rows that name a `pot` move money and are repaid off
+  // the top of the next pay-in. Everything else here still moves nothing.
   else if(view==='borrowed'){
-    html+=`<p class="desc">Track informal short-term borrowing — from people or from your own savings pots. Purely for notes; nothing here affects the debt plan.</p>`;
-    const grandTotal=borrowedActive.reduce((s,b)=>s+b.amount,0);
+    html+=`<p class="desc">Track informal short-term borrowing — from people, or from one of your own pots. A loan from a pot takes the money out now and puts it back off the top of your next pay-in.</p>`;
+    const owedToPots=potLoansOwed();
+    if(owedToPots.total>0.005){
+      const parts=Object.entries(owedToPots.byPot).map(([k,v])=>`${esc(POTS[k].label)} ${fmt(v)}`);
+      html+=`<div class="card" style="border:1px solid #4a2a5a;background:#1a1020;border-radius:12px;margin-bottom:12px">
+        <div style="font-size:11px;color:#c07de0;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Owed back to your pots</div>
+        <div style="font-size:26px;font-weight:800;color:#e8e8ec">${fmt(owedToPots.total)}</div>
+        <div style="font-size:12px;color:#7c7f96;margin-top:4px;line-height:1.5">${parts.join(' · ')}</div>
+        <div style="font-size:12px;color:#c07de0;margin-top:8px;line-height:1.5">This comes off the top of your next pay-in — before this month's payments, the buffer and savings — until it is back where it came from.</div>
+      </div>`;
+    }
+    const grandTotal=borrowedActive.reduce((s,b)=>s+loanOutstanding(b),0);
     const sourceCount=new Set(borrowedActive.map(b=>b.source_name)).size;
     if(grandTotal<=0.005){
       html+=`<div class="card card-green" style="text-align:center;padding:20px;border-radius:12px;margin-bottom:16px">
@@ -1599,12 +1712,16 @@ function renderAll(){
     // Group active loans by source: savings-flagged first, then alphabetical.
     const groups={};
     borrowedActive.forEach(b=>{
-      const key=b.source_name+'|'+b.is_savings;
-      if(!groups[key])groups[key]={source_name:b.source_name,is_savings:b.is_savings,items:[],total:0};
+      const pot=b.pot&&POTS[b.pot]?b.pot:'';
+      const key=b.source_name+'|'+b.is_savings+'|'+pot;
+      if(!groups[key])groups[key]={source_name:b.source_name,is_savings:b.is_savings,pot,items:[],total:0};
       groups[key].items.push(b);
-      groups[key].total+=b.amount;
+      groups[key].total+=loanOutstanding(b);
     });
+    // Money owed back to a pot first — it is the only kind here that is
+    // actually costing the plan something — then savings, then people.
     const groupList=Object.values(groups).sort((a,b)=>{
+      if(!!a.pot!==!!b.pot)return a.pot?-1:1;
       if(a.is_savings!==b.is_savings)return a.is_savings?-1:1;
       return a.source_name.localeCompare(b.source_name);
     });
@@ -1613,20 +1730,20 @@ function renderAll(){
       html+=`<div class="card" style="border-radius:12px;margin-bottom:12px">
         <div class="row" style="margin-bottom:8px;align-items:center">
           <div style="display:flex;align-items:center;gap:8px">
-            <div class="dot" style="background:${g.is_savings?'#7db87d':'#5b8def'};margin-top:0"></div>
+            <div class="dot" style="background:${g.pot?'#c07de0':g.is_savings?'#7db87d':'#5b8def'};margin-top:0"></div>
             <span style="font-weight:700;font-size:15px">${esc(g.source_name)}</span>
-            <span class="badge" style="background:${g.is_savings?'#0d1a0d':'#0a1228'};color:${g.is_savings?'#7db87d':'#5b8def'}">${g.is_savings?'SAVINGS':'PERSON'}</span>
+            <span class="badge" style="background:${g.pot?'#1e1426':g.is_savings?'#0d1a0d':'#0a1228'};color:${g.pot?'#c07de0':g.is_savings?'#7db87d':'#5b8def'}">${g.pot?'MY '+POTS[g.pot].label.toUpperCase():g.is_savings?'SAVINGS':'PERSON'}</span>
           </div>
-          <strong style="color:#e8e8ec">${fmt(g.total)} total</strong>
+          <strong style="color:#e8e8ec">${fmt(g.total)} ${g.pot?'still owed':'total'}</strong>
         </div>`;
       g.items.forEach((b,i)=>{
         html+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;${i<g.items.length-1?'border-bottom:1px solid #2a2d3e':''}">
           <div>
             <div style="font-size:13px;color:${b.note?'#e8e8ec':'#555'}">${esc(b.note)||'No note'}</div>
-            <div style="font-size:11px;color:#555;margin-top:1px">${formatBorrowedDate(b.borrowed_at)}</div>
+            <div style="font-size:11px;color:#555;margin-top:1px">${formatBorrowedDate(b.borrowed_at)}${b.pot&&Number(b.repaid_amount)>0.005?` · <span style="color:#7db87d">${fmt(Number(b.repaid_amount))} of ${fmt(b.amount)} back so far</span>`:''}</div>
           </div>
           <div style="display:flex;align-items:center;gap:10px">
-            <strong>${fmt(b.amount)}</strong>
+            <strong>${fmt(loanOutstanding(b))}</strong>
             <button onclick="openRepayModal(${b.id})" style="padding:5px 10px;border-radius:6px;border:1px solid #2a4a2a;background:transparent;color:#7db87d;font-size:11px;font-weight:600">Repaid ✓</button>
           </div>
         </div>`;
@@ -1811,6 +1928,7 @@ function openLogModal(){
   const {businessTotal:bizCycTotal,personalTotal:perCycTotal}=getCycleTotals();
   const fs=getCycleStatus();
   const bufferNeed=Math.max(0,bufferTarget()-bufferPot());
+  const owedBack=potLoansOwed().total;
   document.getElementById('modalRoot').innerHTML=`
     <div class="modal-bg" onclick="if(event.target===this)closeModal()">
       <div class="modal">
@@ -1823,6 +1941,13 @@ function openLogModal(){
         <input id="logAmount" class="field-input" type="number" inputmode="decimal" placeholder="e.g. 850" style="font-size:20px;padding:12px;margin-bottom:16px" oninput="updateSweepPreview()">
         <div style="background:#0f1117;border-radius:8px;padding:12px;margin-bottom:14px">
           <div style="font-size:10px;color:#555;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">Where it goes</div>
+          ${owedBack>0.005?`<div class="row" style="margin-bottom:8px;align-items:center">
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="width:8px;height:8px;border-radius:50%;background:#c07de0;flex-shrink:0"></div>
+              <div><div style="font-size:13px;font-weight:600;color:#e8e8ec">Back to your pots</div><div style="font-size:11px;color:#555">${fmt(owedBack)} borrowed · repaid before anything else</div><div id="repaySplitNote" style="font-size:10px;color:#555"></div></div>
+            </div>
+            <strong id="repayPreview" style="color:#c07de0">£0.00</strong>
+          </div>`:''}
           <div class="row" style="margin-bottom:8px;align-items:center">
             <div style="display:flex;align-items:center;gap:8px">
               <div style="width:8px;height:8px;border-radius:50%;background:#e0923b;flex-shrink:0"></div>
@@ -1868,6 +1993,7 @@ function openLogModal(){
           </div>
           ${subTransfer('Business pot','transferBizPot','#e0923b')}
           ${bufferTargetBiz>0.005?subTransfer('Business buffer','transferBizBuffer','#7db87d'):''}
+          ${owedBack>0.005?subTransfer('Back to borrowed-from pots','transferBizRepay','#c07de0'):''}
           <div class="row" style="margin:10px 0 2px;align-items:center">
             <div style="display:flex;align-items:center;gap:8px">
               <div style="width:8px;height:8px;border-radius:50%;background:#5b8def;flex-shrink:0"></div>
@@ -1878,6 +2004,7 @@ function openLogModal(){
           ${subTransfer('Personal pot','transferPerPot','#5b8def')}
           ${bufferTargetPer>0.005?subTransfer('Personal buffer','transferPerBuffer','#7db87d'):''}
           ${subTransfer('Savings','transferSavings','#7db87d')}
+          ${owedBack>0.005?subTransfer('Back to borrowed-from pots','transferPerRepay','#c07de0'):''}
           ${subTransfer('Keep for living','transferKeep','#7c7f96')}
         </div>
         <div style="font-size:12px;color:#555;margin-bottom:14px">Override any amount below if this week needs adjusting.</div>
@@ -1922,8 +2049,12 @@ function currentAllocation(){
       :bufferTargetBiz+bufferTargetPer>0.005?bufferTargetBiz/(bufferTargetBiz+bufferTargetPer):0.5;
     bufBiz=round2(buffer*w);bufPer=round2(buffer-bufBiz);
   }
-  return {amt,auto,buffer,bufferBiz:bufBiz,bufferPer:bufPer,biz,per,savings,
-    keep:Math.max(0,amt-buffer-biz-per-savings)};
+  // The repayment is not overridable: it is owed to a pot the plan has
+  // already counted as whole. Overriding the four lines below can only move
+  // what is left after it.
+  const potRepay=auto.potRepay;
+  return {amt,auto,buffer,bufferBiz:bufBiz,bufferPer:bufPer,biz,per,savings,potRepay,
+    keep:Math.max(0,amt-potRepay.total-buffer-biz-per-savings)};
 }
 function updateSweepPreview(){
   const a=currentAllocation();
@@ -1934,11 +2065,28 @@ function updateSweepPreview(){
   set('perPreview',a.per);
   set('savingsPreview',a.savings);
   set('keepPreview',a.keep);
+  set('repayPreview',a.potRepay.total);
+  // Which pots it is going back into, and what is still owed after it.
+  const repaySplit=document.getElementById('repaySplitNote');
+  if(repaySplit){
+    const parts=Object.entries(a.potRepay.byPot).map(([k,v])=>`${fmt(v)} to ${POTS[k].label.toLowerCase()}`);
+    const stillOwed=round2(potLoansOwed().total-a.potRepay.total);
+    repaySplit.textContent=parts.length
+      ?parts.join(' · ')+(stillOwed>0.005?` · ${fmt(stillOwed)} still owed after this`:'')
+      :'';
+  }
   // The buffer is no longer one lump landing in the personal account: its
   // business share has to be transferred to the business account, because
   // that is the jar a business minimum will be paid out of.
-  set('transferBiz',a.biz+a.bufferBiz);
-  set('transferPer',a.per+a.savings+a.bufferPer+a.keep);
+  // A repayment is a real transfer like any other: the money has to land back
+  // in the account the pot lives in, so it joins that account's total and
+  // gets its own line underneath.
+  const repayBiz=Object.entries(a.potRepay.byPot).reduce((s,[k,v])=>s+(POTS[k].account==='business'?v:0),0);
+  const repayPer=round2(a.potRepay.total-repayBiz);
+  set('transferBiz',a.biz+a.bufferBiz+repayBiz);
+  set('transferPer',a.per+a.savings+a.bufferPer+a.keep+repayPer);
+  set('transferBizRepay',repayBiz);
+  set('transferPerRepay',repayPer);
   // ...and where each part of those two goes once it lands. Four pots means
   // four figures; the headline totals alone can't tell you how to split them.
   set('transferBizPot',a.biz);
@@ -1973,6 +2121,10 @@ async function confirmLog(){
   if(a.amt<=0){closeModal();return;}
   const bizAmt=a.biz,perAmt=a.per,savedAmt=a.savings;
   const bufferBizAmt=a.bufferBiz,bufferPerAmt=a.bufferPer;
+  // What is owed back to a pot goes back into it first, and the loans it
+  // repays are marked before the allocation lands on top.
+  const potRepay=a.potRepay;
+  applyPotRepay(potRepay,1);
   bizPot+=bizAmt;
   perPot+=perAmt;
   savingsPot+=savedAmt;
@@ -1980,7 +2132,9 @@ async function confirmLog(){
   bufferPer+=bufferPerAmt;
   const date=new Date().toLocaleDateString('en-GB',{day:'numeric',month:'short'});
   const entry={amount:a.amt,bizAmt,perAmt,savedAmt,
-    bufferAmt:round2(bufferBizAmt+bufferPerAmt),bufferBizAmt,bufferPerAmt,date};
+    bufferAmt:round2(bufferBizAmt+bufferPerAmt),bufferBizAmt,bufferPerAmt,date,
+    // Kept on the entry so deleting the pay-in can put the loans back too.
+    potRepay:potRepay.total>0.005?potRepay:null};
   closeModal();renderAll();
   try{
     const res=await fetch('/debt/api/income',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify(entry)});
@@ -1990,6 +2144,32 @@ async function confirmLog(){
   }catch(err){saveError=true;console.error('Failed to save income entry',err);}
   incomeLog.push(entry);
   persist('cashflow');renderAll();
+  await saveRepayments(potRepay,1);
+}
+// Moves a repayment plan in one direction or the other: sign 1 puts the money
+// back into the pots (a pay-in), sign -1 takes it out again (that pay-in
+// deleted). The pot side is applied locally and at once, so the app is right
+// even offline; the loan side follows over the network.
+function applyPotRepay(plan,sign){
+  if(!plan||plan.total<=0.005)return;
+  for(const [key,amount] of Object.entries(plan.byPot))potMove(key,sign*amount);
+  // Keep the loaded loans in step with what the server is about to be told,
+  // rather than waiting on a refresh to stop the app double-repaying.
+  for(const item of plan.loans){
+    const loan=borrowedActive.find(b=>b.id===item.id);
+    if(loan)loan.repaid_amount=round2(Math.max(0,Number(loan.repaid_amount||0)+sign*item.amount));
+  }
+}
+async function saveRepayments(plan,sign){
+  if(!plan||plan.total<=0.005)return;
+  try{
+    const res=await fetch('/debt/api/borrowed/repay',{method:'POST',headers:JSON_HEADERS,
+      body:JSON.stringify({repayments:plan.loans.map(l=>({id:l.id,amount:round2(sign*l.amount)}))})});
+    if(!res.ok)throw new Error('repayment save failed: '+res.status);
+  }catch(err){saveError=true;console.error('Failed to record pot repayment',err);}
+  // A fully repaid loan moves to the repaid log, and a reversed one comes
+  // back out of it — either way the tab is only right after a reload.
+  await refreshBorrowed();renderAll();
 }
 function openPotsModal(){
   document.getElementById('modalRoot').innerHTML=`
@@ -2359,6 +2539,11 @@ function openPayOtherModal(){
 async function deleteIncome(idx){
   const e=incomeLog[idx];
   if(!e)return;
+  // A pay-in that repaid a pot loan is undone in both directions: the money
+  // comes back out of the pot and the loan re-opens, so a mistyped pay-in
+  // cannot quietly write off borrowing that was never actually put back.
+  const undoRepay=e.potRepay&&e.potRepay.total>0.005?e.potRepay:null;
+  if(undoRepay)applyPotRepay(undoRepay,-1);
   bizPot=Math.max(0,bizPot-(e.bizAmt||0));
   perPot=Math.max(0,perPot-(e.perAmt||0));
   savingsPot=Math.max(0,savingsPot-(e.savedAmt||0));
@@ -2367,6 +2552,7 @@ async function deleteIncome(idx){
   bufferPer=Math.max(0,bufferPer-(e.bufferPerAmt??e.bufferAmt??0));
   incomeLog.splice(idx,1);
   persist('cashflow');renderAll();
+  if(undoRepay)await saveRepayments(undoRepay,-1);
   if(e.id!=null){
     try{ await fetch('/debt/api/income/'+e.id,{method:'DELETE'}); }
     catch(err){ console.error('Failed to delete income entry',err); }
@@ -2913,6 +3099,8 @@ function confirmReset(){debts=DEBTS_INITIAL.map(d=>({...d}));editDraft={};select
 function openRepayModal(id){
   const b=borrowedActive.find(x=>x.id===id);
   if(!b)return;
+  const pot=b.pot&&POTS[b.pot]?POTS[b.pot]:null;
+  const left=loanOutstanding(b);
   document.getElementById('modalRoot').innerHTML=`
     <div class="modal-bg" onclick="if(event.target===this)closeModal()">
       <div class="modal">
@@ -2920,6 +3108,7 @@ function openRepayModal(id){
         <div style="font-size:13px;color:#7c7f96;margin-bottom:18px;line-height:1.5">
           <strong style="color:#e8e8ec">${fmt(b.amount)}</strong> borrowed from ${esc(b.source_name)}<br>
           ${esc(b.note)||'No note'} · ${formatBorrowedDate(b.borrowed_at)}
+          ${pot?`<div style="margin-top:10px;color:#c07de0">This puts the ${fmt(left)} still owed straight back into your ${esc(pot.label.toLowerCase())} — ${fmt(round2(pot.get()))} → ${fmt(round2(pot.get()+left))} — instead of waiting for your next pay-in.</div>`:''}
         </div>
         <div style="display:flex;gap:10px">
           <button class="btn-primary" style="flex:1;background:#7db87d" onclick="confirmRepay(${id})">Yes, mark repaid</button>
@@ -2930,27 +3119,46 @@ function openRepayModal(id){
 }
 async function confirmRepay(id){
   closeModal();
+  // Repaying a pot loan by hand is the same act the next pay-in would have
+  // done, just now: the outstanding money goes back into the pot it came out
+  // of. A note-only loan still moves nothing.
+  const b=borrowedActive.find(x=>x.id===id);
+  const pot=b&&b.pot&&POTS[b.pot]?b.pot:null;
+  const left=b?loanOutstanding(b):0;
+  if(pot&&left>0.005){potMove(pot,left);persist('cashflow');renderAll();}
   try{
     const res=await fetch('/debt/api/borrowed/'+id+'/repay',{method:'POST'});
     if(!res.ok)throw new Error('repay failed: '+res.status);
   }catch(err){ saveError=true;console.error('Failed to mark loan repaid',err); }
   await refreshBorrowed();renderAll();
 }
+// Which of the app's own pots a new loan is coming out of, or '' for the two
+// original kinds of row (a person, or an outside savings pot the app doesn't
+// hold) which move no money anywhere.
+let loanPot='';
 function openAddLoanModal(){
-  loanIsSavings=false;
+  loanIsSavings=false;loanPot='';
+  const potOption=(key,pot)=>`<button id="loanPot_${key}" onclick="setLoanPot('${key}')" style="flex:1;min-width:104px;padding:8px 6px;border-radius:6px;border:1px solid #2a2d3e;background:#1a1d2e;color:#7c7f96;font-size:12px;font-weight:600">
+      <div>${pot.label}</div><div style="font-size:11px;font-weight:400;margin-top:2px">${fmt(pot.get())}</div>
+    </button>`;
   document.getElementById('modalRoot').innerHTML=`
     <div class="modal-bg" onclick="if(event.target===this)closeModal()">
-      <div class="modal">
+      <div class="modal" style="max-height:88vh;overflow-y:auto">
         <h2 style="font-size:18px;margin-bottom:16px">Log a loan</h2>
         <div class="field-label">Source name</div>
         <input id="loanSource" class="field-input" type="text" placeholder="e.g. Dave, Tax, Emergency fund" style="margin-bottom:14px">
         <div class="field-label">Type</div>
-        <div style="display:flex;gap:8px;margin-bottom:14px">
+        <div style="display:flex;gap:8px;margin-bottom:${''}10px">
           <button id="loanTypePerson" onclick="setLoanType(false)" style="flex:1;padding:10px;border-radius:6px;border:1px solid #5b8def;background:#141a2e;color:#5b8def;font-size:13px;font-weight:600">Person</button>
           <button id="loanTypeSavings" onclick="setLoanType(true)" style="flex:1;padding:10px;border-radius:6px;border:1px solid #2a2d3e;background:#1a1d2e;color:#7c7f96;font-size:13px;font-weight:600">Savings pot</button>
         </div>
+        <div style="font-size:11px;color:#555;margin-bottom:6px">Or take it out of one of your own pots — the money comes out now and goes back off the top of your next pay-in.</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
+          ${Object.entries(POTS).map(([k,pot])=>potOption(k,pot)).join('')}
+        </div>
         <div class="field-label">Amount (£)</div>
-        <input id="loanAmount" class="field-input" type="number" inputmode="decimal" step="0.01" min="0" style="font-size:18px;padding:12px;margin-bottom:14px">
+        <input id="loanAmount" class="field-input" type="number" inputmode="decimal" step="0.01" min="0" style="font-size:18px;padding:12px;margin-bottom:8px" oninput="loanPotPreview()">
+        <div id="loanPotPreview" style="display:none;background:#0f1117;border-radius:8px;padding:10px 12px;font-size:12px;line-height:1.6;margin-bottom:14px"></div>
         <div class="field-label">What was it for? (optional)</div>
         <input id="loanNote" class="field-input" type="text" style="margin-bottom:14px">
         <div class="field-label">Date borrowed</div>
@@ -2964,17 +3172,55 @@ function openAddLoanModal(){
     </div>`;
   setTimeout(()=>document.getElementById('loanSource')?.focus(),100); // ?. — modal may already be closed
 }
+// Person / savings-pot / one-of-my-pots are one choice, not two: picking a
+// pot clears the person-or-savings pair, and picking either of those clears
+// the pot. Only one of them can be where the money came from.
 function setLoanType(isSavings){
-  loanIsSavings=isSavings;
-  const p=document.getElementById('loanTypePerson');
-  const s=document.getElementById('loanTypeSavings');
-  if(isSavings){
-    s.style.borderColor='#7db87d';s.style.background='#0d1a0d';s.style.color='#7db87d';
-    p.style.borderColor='#2a2d3e';p.style.background='#1a1d2e';p.style.color='#7c7f96';
-  }else{
-    p.style.borderColor='#5b8def';p.style.background='#141a2e';p.style.color='#5b8def';
-    s.style.borderColor='#2a2d3e';s.style.background='#1a1d2e';s.style.color='#7c7f96';
+  loanIsSavings=isSavings;loanPot='';
+  paintLoanType();
+}
+function setLoanPot(key){
+  loanPot=loanPot===key?'':key; // tapping the pot you're on unpicks it
+  if(loanPot){
+    loanIsSavings=false;
+    // A pot loan names its own source unless you have typed one, so the row
+    // reads "Savings pot" rather than an empty label.
+    const src=document.getElementById('loanSource');
+    if(src&&!src.value.trim())src.value=POTS[loanPot].label;
   }
+  paintLoanType();
+  loanPotPreview();
+}
+function paintLoanType(){
+  const on=(el,colour,bg)=>{if(el){el.style.borderColor=colour;el.style.background=bg;el.style.color=colour;}};
+  const off=el=>{if(el){el.style.borderColor='#2a2d3e';el.style.background='#1a1d2e';el.style.color='#7c7f96';}};
+  const p=document.getElementById('loanTypePerson');
+  const sv=document.getElementById('loanTypeSavings');
+  if(loanPot){off(p);off(sv);}
+  else if(loanIsSavings){off(p);on(sv,'#7db87d','#0d1a0d');}
+  else{on(p,'#5b8def','#141a2e');off(sv);}
+  for(const key of Object.keys(POTS)){
+    const el=document.getElementById('loanPot_'+key);
+    if(key===loanPot)on(el,'#c07de0','#1e1426'); else off(el);
+  }
+}
+// What taking it out would leave in the pot. A pot cannot go negative — every
+// other pot movement in the app floors at zero — so an amount above the
+// balance is capped, and says so rather than inventing money that was never
+// in there to borrow.
+function loanPotPreview(){
+  const el=document.getElementById('loanPotPreview');
+  const input=document.getElementById('loanAmount');
+  if(!el||!input)return;
+  if(!loanPot){el.style.display='none';return;}
+  const pot=POTS[loanPot];
+  const held=round2(pot.get());
+  const typed=round2(parseNum(input.value));
+  const taking=Math.min(typed,held);
+  el.style.display='block';
+  el.innerHTML=`<div class="row"><span style="color:#7c7f96">${pot.label}</span><span style="font-weight:600">${fmt(held)} → <span style="color:${held-taking<=0.005?'#e0923b':'#e8e8ec'}">${fmt(held-taking)}</span></span></div>`
+    +(typed>held+0.005?`<div style="color:#e0923b;margin-top:6px">Capped at the ${fmt(held)} the pot holds. If it really had more in it, put the balance right under Adjust pot balances first.</div>`:'')
+    +(taking>0.005?`<div style="color:#7c7f96;margin-top:6px">${fmt(taking)} goes back into this pot off the top of your next pay-in, before the month, the buffer and savings.</div>`:'');
 }
 async function confirmAddLoan(){
   const source=document.getElementById('loanSource').value.trim();
@@ -2984,11 +3230,30 @@ async function confirmAddLoan(){
   const errEl=document.getElementById('loanError');
   if(!source){errEl.textContent='Source name is required';errEl.style.display='block';return;}
   if(!amount||amount<=0){errEl.textContent='Amount must be greater than 0';errEl.style.display='block';return;}
-  try{
-    const res=await fetch('/debt/api/borrowed',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify({source_name:source,is_savings:loanIsSavings,amount,note:note||null,borrowed_at:date||null})});
-    if(!res.ok)throw new Error('loan save failed: '+res.status);
-  }catch(err){saveError=true;console.error('Failed to save loan',err);}
+  // Borrowing from a pot is capped at what the pot holds — you cannot take
+  // out money that was never in there — and the loan is recorded at what
+  // actually came out, so what goes back matches what left.
+  const pot=loanPot&&POTS[loanPot]?loanPot:null;
+  const taken=pot?Math.min(amount,round2(POTS[pot].get())):amount;
+  if(pot&&taken<=0.005){errEl.textContent=POTS[pot].label+' is empty — there is nothing to borrow from it';errEl.style.display='block';return;}
+  if(pot)potMove(pot,-taken);
   closeModal();
+  if(pot){persist('cashflow');renderAll();}
+  try{
+    const res=await fetch('/debt/api/borrowed',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify({source_name:source,is_savings:loanIsSavings,amount:taken,note:note||null,borrowed_at:date||null,pot})});
+    if(!res.ok)throw new Error('loan save failed: '+res.status);
+    // Shown from what came back rather than waiting on the refresh below, so
+    // the row is there the moment the modal closes.
+    const saved=await res.json();
+    borrowedActive=[saved,...borrowedActive];
+  }catch(err){
+    saveError=true;
+    // The loan never got recorded, so the money must not leave the pot: a
+    // debit with no row to repay it would simply disappear, and there is no
+    // offline queue for this tab to catch it later.
+    if(pot){potMove(pot,taken);persist('cashflow');}
+    console.error('Failed to save loan',err);
+  }
   await refreshBorrowed();renderAll();
 }
 
