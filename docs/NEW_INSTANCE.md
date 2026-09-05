@@ -4,7 +4,27 @@ How to stand up (and later retire) one customer's instance of NH
 Estimator. Isolation model per `MULTI_INSTANCE_PILOT_SPEC.md`: every
 customer gets their **own web service + own Postgres database**, their own
 Xero connection, and their own `APP_PASSWORD`. Nothing is shared between
-instances. Budget ~30 minutes, most of it waiting for the first deploy.
+instances. Budget ~30 minutes of your own time, most of it waiting for the
+first deploy, plus ~15 minutes with the customer.
+
+## 0. Settle before they get a URL
+
+Neither of these is code, and both are far easier to agree before someone
+is using the app than after.
+
+- **The one-page agreement.** You host it, they own their data, and on
+  leaving they get their JSON export — plus a full database dump on
+  request. Section 6 is that promise carried out; the agreement is what
+  states it. Terms are in `MULTI_INSTANCE_PILOT_SPEC.md` → *Commercials &
+  small print*.
+- **What you're charging, if anything.** Hosting costs roughly **£12–15
+  per customer per month** on the tiers the blueprint pins — a `starter`
+  web service plus a `basic-256mb` Postgres, both paid, because the free
+  Postgres tier expires after 90 days and is not something to put a
+  business on. That figure is the floor to price above, not the price.
+  Decide whether this tester is free, at cost, or paying before you offer
+  it: "we'll sort it out later" is hard to walk back once they've put a
+  month of real jobs in.
 
 ## 1. Create the services on Render
 
@@ -91,7 +111,33 @@ re-points the branch while a fix is prepared.
    calendar.
 8. Point them at the user manual: `docs/user-manual/` (or send the PDF).
 
-## 5. Offboarding a customer
+## 5. Feedback, while they're using it
+
+A pilot only pays for itself if what they hit gets back to you, and a
+decorator halfway through a job is not going to write a considered bug
+report. Agree the channel while you're sat with them, not after the first
+problem.
+
+- **One channel, whatever you'll actually read** — a WhatsApp thread, a
+  text, an email address. One, so reports don't end up split across three
+  places.
+- **Ask for three things each time:** what they were doing, what the app
+  did instead, and **the build number** from the bottom of the ☰ menu.
+  That last one is why it's on screen — it says which deploy they were on,
+  which is often the whole answer.
+- **Ask for their export, not a screenshot,** when something is priced or
+  calculated wrong and you can't reproduce it. Settings → **Export
+  everything** gives you a JSON file of their jobs, rooms and settings that
+  you can import into your own instance and look at directly.
+- **Check in again after their first real quote**, not just after setup.
+  Setup problems surface in the first ten minutes; pricing, scheduling and
+  on-site problems only appear on a job they've actually taken on.
+- **Tell them when a fix lands.** Their instance follows `stable`, so your
+  fix reaches them when you promote it, not when you merge it to main —
+  see *Releases* above. A fix they aren't told about is one they'll keep
+  working around.
+
+## 6. Offboarding a customer
 
 1. Have them (or you) run Settings → **Export everything** and send them
    the JSON — their data is theirs.
