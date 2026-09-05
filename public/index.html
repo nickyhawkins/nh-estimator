@@ -12171,6 +12171,14 @@ function materialsSnapshotTotal() {
   return materialsSnapshot.reduce(function(sum, l) { return l.chargeable === false ? sum : sum + (+l.quantity||0) * (+l.unitAmount||0); }, 0);
 }
 
+// The other half of that sum: what the list holds that is NOT being billed.
+// Summary prints it under the subtotal whenever it isn't zero, so money left
+// out of the quote is stated rather than merely absent -- the per-row
+// "Tracking only" tag says which line, this says how much it costs you.
+function materialsTrackingOnlyTotal() {
+  return materialsSnapshot.reduce(function(sum, l) { return l.chargeable === false ? sum + (+l.quantity||0) * (+l.unitAmount||0) : sum; }, 0);
+}
+
 // The quantity write itself, without the undo/save/render around it. Shared
 // with the consolidated-group edit below, which sets several lines at once
 // and must stamp calcQuantity on each of them the same way.
@@ -12661,7 +12669,10 @@ function restoreFields(vals) {
     var el = document.getElementById(id);
     if (!el) return;
     if (vals[id].value != null && vals[id].value !== '') el.value = vals[id].value;
-    if (vals[id].on) el.classList.add('on');
+    // Written both ways, not just on: a toggle that DEFAULTS ON (Chargeable)
+    // is re-rendered on by its own markup, so only re-adding the class would
+    // leave a deliberate switch-off silently undone by the next re-render.
+    el.classList.toggle('on', !!vals[id].on);
   });
 }
 var ADD_MAT_FIELD_IDS = ['add-mat-product','add-mat-desc','add-mat-colour','add-mat-price','add-mat-qty','add-mat-itemcode','add-mat-chargeable'];
@@ -12672,6 +12683,11 @@ var ACT_ADD_FIELD_IDS = ['act-add-product','act-add-desc','act-add-colour','act-
 // (fix a typo, correct a colour), not a persistent per-row UI state worth
 // tracking for every card.
 var actualsEditKey = null;
+// Toggles whose empty form state is ON, cleared back to their default rather
+// than to off -- the re-render after an add restores whatever the clear
+// leaves behind (see restoreFields), so clearing Chargeable to off would
+// mean the SECOND line added in a sitting was never billed.
+var DEFAULT_ON_TOGGLE_IDS = { 'add-mat-chargeable': true };
 // Called by the add functions after a SUCCESSFUL add, so the re-render's
 // restore doesn't hand the just-added values back to the form (the rebuild
 // alone used to be what cleared it).
@@ -12680,7 +12696,7 @@ function clearFormFields(ids) {
     var el = document.getElementById(id);
     if (!el) return;
     if (el.value != null) el.value = '';
-    el.classList.remove('on');
+    el.classList.toggle('on', !!DEFAULT_ON_TOGGLE_IDS[id]);
   });
 }
 
@@ -22541,6 +22557,7 @@ function renderSummary() {
     recalculateMaterialsSnapshot(mats);
   }
   var materialsTotal = materialsSnapshotTotal();
+  var trackingOnlyTotal = materialsTrackingOnlyTotal();
   var allMatRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows, mats.featureWallRows, mats.panelRows, mats.masonryRows, mats.extTopcoatRows, mats.extPrimerRows, mats.fuTopcoatRows, mats.fuPrimerRows);
   // Unmapped roles (no Xero product picked) have no real quantity/price to
   // make editable -- they stay exactly as before, a read-only litres/tin-
@@ -23297,6 +23314,13 @@ function renderSummary() {
       (materialsTotal>0?'<div class="breakdown-row" style="border-top:1px solid var(--border);padding:12px 16px">'+
         '<span class="breakdown-label" style="font-weight:600;color:var(--text)">Materials subtotal</span>'+
         '<span class="breakdown-value" style="color:var(--accent)">'+fmt(materialsTotal)+'</span></div>':'')+
+      // Shown whether or not there is a subtotal above it: a list that is
+      // ENTIRELY tracking-only has a subtotal of nothing and no row at all,
+      // which is the case where the omission is least visible and costs the
+      // most. Tap a row's "Tracking only" tag to put it on the quote.
+      (trackingOnlyTotal>0.005?'<div class="breakdown-row" style="border-top:1px solid var(--border);padding:10px 16px">'+
+        '<span class="breakdown-label" style="font-size:12px;color:var(--text2)">Tracking only — not on the quote</span>'+
+        '<span class="breakdown-value" style="font-size:12px;color:var(--text2)">'+fmt(trackingOnlyTotal)+'</span></div>':'')+
     '</div>'+
     '<button onclick="recalculateMaterialsFromButton()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%;margin-top:8px">Recalculate from rooms &amp; exterior</button>'+
     // Says up front what the button will and won't touch -- the old one gave
@@ -23324,8 +23348,16 @@ function renderSummary() {
       '<div class="field-row"><div class="field-label">Unit price</div><input type="number" class="field-input" id="add-mat-price" value="0" min="0" step="0.01" inputmode="decimal"></div>'+
       '<div class="field-row"><div class="field-label">Quantity</div><input type="number" class="field-input" id="add-mat-qty" value="1" min="0" step="1" inputmode="numeric"></div>'+
       '<div class="toggle-row" style="border-top:1px solid var(--border)">'+
-        '<div class="toggle-label">Chargeable<small>off = shows on the list for tracking only, doesn\'t affect the total</small></div>'+
-        '<div class="toggle" id="add-mat-chargeable" onclick="toggleAddMatChargeable()"></div>'+
+        // Defaults ON, the same default-on convention as a custom line's
+        // markup toggle -- a material added here is one the calculation
+        // missed (an exterior plastic door, a kitchen), so it is paint you
+        // are buying for the job and billing for. Defaulting it OFF meant
+        // every hand-added line was silently saved chargeable:false and left
+        // out of the quote total, the Xero quote and the deposit, which is
+        // exactly how a job went out priced with no materials on it at all.
+        // Tracking-only is the deliberate choice, so it takes the tap.
+        '<div class="toggle-label">Chargeable<small>on = billed on the quote · off = shows on the list for tracking only, doesn\'t affect the total</small></div>'+
+        '<div class="toggle on" id="add-mat-chargeable" onclick="toggleAddMatChargeable()"></div>'+
       '</div>'+
       '<input type="hidden" id="add-mat-itemcode">'+
     '</div>'+
