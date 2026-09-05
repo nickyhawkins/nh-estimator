@@ -53,6 +53,8 @@ globalThis.__t = {
   getCycleArchivePayload, getCycleTotals, simulate, setPaymentState, paymentState,
   paidAmountOf, getUnpaidMinimums, applyUnpaidMinimums, payContext,
   openCustomPayModal, customPayPreview, confirmCustomPay, undoPayment,
+  setCustomPayMode, customPayTotal, recordPayment, getCurrentTarget,
+  applySurplus, confirmSurplus,
   monthlyMinimums, bufferCover, confirmBufferCover, setBufferPreset, setBufferTargetFor,
   confirmLog, deleteIncome, currentAllocation, openLogModal, updateSweepPreview,
   cycleCommitments, bufferDrift, renderBufferRescue, startNewCycle
