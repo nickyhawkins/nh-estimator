@@ -64,7 +64,19 @@ function extractFn(name) {
 }
 
 const FNS = ['netFetch', 'isNetworkFailure', 'queueOfflineWrite', 'hasQueuedWrite',
-             'persistOfflineQueue', 'apiPut', 'createJob', 'deleteJob'];
+             'persistOfflineQueue', 'apiPut', 'createJob', 'deleteJob',
+             // createJob/deleteJob seed and drop the per-job offline copy --
+             // taken as the real thing rather than stubbed, so a change to
+             // either side shows up here. Their own suite is
+             // scripts/test-offline-job-switch.js.
+             'jobMirrorKey', 'readJobMirrorOrder', 'dropJobMirror', 'touchJobMirror',
+             'readJobMirror', 'hasJobMirror', 'writeJobMirror', 'writeJobMirrorAll'];
+const VARS = ['JOB_MIRROR_COLLS', 'JOB_MIRROR_LIMIT', 'JOB_MIRROR_ORDER_KEY'];
+function extractVarLine(name) {
+  const m = new RegExp('^var ' + name + ' = .*$', 'm').exec(SRC);
+  if (!m) throw new Error('var ' + name + ' not found in public/index.html');
+  return m[0];
+}
 
 // ── Harness ────────────────────────────────────────────────────────────────
 // `route` stands in for the network: return a response, throw (a dropped
@@ -86,6 +98,7 @@ function load(route) {
     localStorage: {
       getItem: (k) => (k in store ? store[k] : null),
       setItem: (k, v) => { store[k] = String(v); },
+      removeItem: (k) => { delete store[k]; },
     },
     updateSyncStatus: () => {},
     beginWrite: () => { sandbox.pendingWrites++; calls.begin++; },
@@ -114,7 +127,7 @@ function load(route) {
   };
   sandbox.window = sandbox;
   vm.createContext(sandbox);
-  vm.runInContext(FNS.map(extractFn).join('\n'), sandbox);
+  vm.runInContext(VARS.map(extractVarLine).join('\n') + '\n' + FNS.map(extractFn).join('\n'), sandbox);
   // Deadlines short enough to test in real time; the shipped values are
   // asserted separately below.
   vm.runInContext('var NET_READ_TIMEOUT_MS = 60, NET_WRITE_TIMEOUT_MS = 60;', sandbox);
@@ -180,6 +193,11 @@ const ok = () => ({ ok: true, status: 200, json: async () => ({}) });
       h.sandbox.offlineQueue[0].body.id, h.sandbox.jobs[0].id);
     check('and the jobs list is mirrored to localStorage',
       JSON.parse(h.sandbox.localStorage.getItem('pe-jobs')).length === 1);
+    // Without this the switch that follows would find nothing on the server
+    // and nothing on the phone, and bounce straight back off the job just
+    // made -- see scripts/test-offline-job-switch.js.
+    check('the phone knows the new job exists and is empty',
+      h.run("hasJobMirror('" + h.sandbox.jobs[0].id + "')"));
   }
   {
     // Same for a hung request, not just a cleanly dropped one.
@@ -231,6 +249,7 @@ const ok = () => ({ ok: true, status: 200, json: async () => ({}) });
     const id = h.sandbox.jobs[0].id;
     await h.run("deleteJob('" + id + "')");
     eq('the job is gone from the phone', h.sandbox.jobs.length, 0);
+    eq('and its offline copy went with it', h.run("hasJobMirror('" + id + "')"), false);
     eq('and both writes are queued, in the order they were made',
       h.sandbox.offlineQueue.map((q) => q.method).join(','), 'POST,DELETE');
     eq('the DELETE naming the job', h.sandbox.offlineQueue[1].path, '/api/jobs/' + id);
