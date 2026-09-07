@@ -32,32 +32,49 @@ This manual follows the life of a job in order: **set up → measure → quote �
 
 ## 1. Getting started
 
-> **Your first half hour**, in order: [install it on your phone](#install-it-on-your-phone)
-> → [put your own name on it](#make-it-yours) → [connect Xero](#connect-xero-one-off)
+> **Your first half hour**, in order: [set it up and install it](#set-it-up-and-install-it)
+> → [add your logo](#make-it-yours) → [connect Xero](#connect-xero-one-off)
 > → [check your rates](#check-your-rates) → [start your first job](#your-first-job).
 > That's the whole setup. Everything after section 1 you can read as you need it.
 
-### Install it on your phone
+### Set it up and install it
 
-The app lives at its own web address — if someone set this copy up for you, that
-link is the one they sent you. It's designed to be **installed to your home
-screen** so it opens full-screen like a normal app:
+**Start with your setup link.** The app lives at its own web address, and
+the first thing you'll be sent is a link into it — good for a fortnight,
+usable once. Open it and it asks for two things: your business name, and a
+password of your choosing. That's the whole setup. Until you've used it
+the app is shut, so nobody can reach it while it waits for you.
+
+Your password is yours — nobody else sets it or can read it, and you can
+change it any time under **Settings → Password**. If you ever forget it,
+ask for a fresh setup link: your jobs, settings and Xero connection are
+untouched, and your old password keeps working right up until you open the
+new link.
+
+**Then install it to your home screen**, so it opens full-screen like a
+normal app rather than a browser tab:
 
 - **iPhone:** open the app in Safari → tap the Share button → **Add to Home Screen**.
 - **Android:** open it in Chrome → menu (⋮) → **Add to Home screen** / **Install app**.
 
-If your copy of the app has a password set, you'll be asked for it the first time you open the app on a device — **once per phone, and then not again**. The sign-in refreshes itself every time you use the app, so it only ever comes back if you go a full month without opening it, get a new phone, or clear the browser's data. Let your phone save the password to iCloud Keychain (or your password manager) on that first login and even those rare times are a Face ID tap rather than typing.
+Doing it in that order means the installed icon picks up your business
+name rather than a stranger's.
 
-Setting a password is worth doing now that you can send clients an approval link: the link points at the same web address the app runs on, so a client who trimmed it back to the domain would otherwise land on your jobs. With a password set they get a sign-in screen and nothing else. If there's no password on your instance, guard the web address like you would any private page.
+You'll be asked for your password the first time you open the app on a device — **once per phone, and then not again**. The sign-in refreshes itself every time you use the app, so it only ever comes back if you go a full month without opening it, get a new phone, or clear the browser's data. Let your phone save the password to iCloud Keychain (or your password manager) on that first login and even those rare times are a Face ID tap rather than typing.
+
+The password matters because you can send clients an approval link: the link points at the same web address the app runs on, so a client who trimmed it back to the domain would otherwise land on your jobs. With a password set they get a sign-in screen and nothing else.
 
 ![Sign-in screen](images/16-login.png)
 
 ### Make it yours
 
-**Do this before you send anything to a client.** Until you enter your own
-details the app falls back to the name and logo it was built with, so a quote, a
-snag-list PDF or even your sign-in screen could go to a client with somebody
-else's business on it.
+Your **business name** was the first thing the setup link asked for, so it
+is already set — this is where you change it, and where you add a logo.
+
+**Check it before you send anything to a client.** With no name of your
+own the app falls back to the one it was built with, so a quote, a
+snag-list PDF or your sign-in screen could go out with somebody else's
+business on it.
 
 Menu (☰) → **Settings** → **Business**:
 
@@ -829,6 +846,7 @@ Menu (☰) → **Settings**. Everything that isn't a calculation rate lives here
 | **Materials (Xero Items)** | Refresh your product list from Xero and set the default product for each role |
 | **Quote & Invoice Text** | The per-job-type wording templates for quotes and final invoices |
 | **Calibration** | What your finished jobs say about two of your settings — see below |
+| **Password** | Change the password you sign in with. Needs your current one; changing it doesn't sign your other devices out |
 | **Appearance** | Light / Dark / Auto theme (this device only) |
 | **Backup** | Export and import everything — see below |
 

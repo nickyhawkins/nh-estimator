@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1a5276">
+<!-- Same reasoning as login.html: this page is reachable without a session,
+     so it must never be indexed. The token in the URL makes that doubly true. -->
+<meta name="robots" content="noindex, nofollow, noarchive">
+<title>Set up your app</title>
+<style>
+  :root {
+    --accent: #1a5276; --bg: #eef1f4; --surface: #ffffff;
+    --text: #1e2833; --text2: #5b6b78; --border: #d8dee4;
+    --danger: #c0392b; --ok: #1e8449;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #10141a; --surface: #1a212b; --text: #e8edf2; --text2: #97a4b0; --border: #2a3441; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    padding: 20px;
+  }
+  .card {
+    width: 100%; max-width: 400px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 16px;
+    padding: 28px 24px; box-shadow: 0 4px 24px rgba(0,0,0,.08);
+  }
+  h1 { font-size: 20px; margin: 0 0 6px; text-align: center; }
+  .sub { font-size: 14px; color: var(--text2); margin: 0 0 22px; text-align: center; line-height: 1.45; }
+  label { display: block; font-size: 13px; font-weight: 600; margin: 0 0 6px; }
+  .hint { font-weight: 400; color: var(--text2); display: block; margin-top: 2px; font-size: 12px; }
+  input {
+    width: 100%; font-size: 16px; padding: 12px 14px; margin-bottom: 16px;
+    border: 1px solid var(--border); border-radius: 10px;
+    background: var(--bg); color: var(--text); outline: none;
+  }
+  input:focus { border-color: var(--accent); }
+  button {
+    width: 100%; margin-top: 4px; padding: 13px; font-size: 16px; font-weight: 600;
+    background: var(--accent); color: #fff; border: 0; border-radius: 10px; cursor: pointer;
+  }
+  button:disabled { opacity: .55; cursor: default; }
+  .msg { font-size: 13.5px; margin: 14px 0 0; line-height: 1.5; text-align: center; }
+  .msg.error { color: var(--danger); }
+  .msg.ok { color: var(--ok); }
+  .dead { text-align: center; }
+  .dead h1 { margin-bottom: 10px; }
+  #form-wrap[hidden], #dead-wrap[hidden] { display: none; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div id="form-wrap" hidden>
+      <h1>Set up your app</h1>
+      <p class="sub">Two things and you're in. You can change either of them later in Settings.</p>
+      <form id="setup">
+        <label for="biz">Your business name
+          <span class="hint">Goes on your quotes, your invoices and this app's sign-in screen.</span>
+        </label>
+        <input id="biz" name="businessName" type="text" autocomplete="organization"
+               placeholder="e.g. Smith Decorating" required>
+
+        <label for="pw">Choose a password
+          <span class="hint">At least 8 characters. You'll enter it once per phone.</span>
+        </label>
+        <input id="pw" name="password" type="password" autocomplete="new-password"
+               placeholder="Password" minlength="8" required>
+
+        <label for="pw2">Type it again</label>
+        <input id="pw2" type="password" autocomplete="new-password" placeholder="Password again" required>
+
+        <button type="submit" id="go">Set up my app</button>
+        <p class="msg error" id="err" style="display:none"></p>
+        <p class="msg ok" id="ok" style="display:none"></p>
+      </form>
+    </div>
+
+    <div id="dead-wrap" class="dead" hidden>
+      <h1>This link has expired</h1>
+      <p class="sub">Setup links are single-use and last a fortnight. Ask for a fresh one and it'll work straight away.</p>
+    </div>
+  </div>
+
+<script>
+(function () {
+  // The token is the last path segment. Keeping it in the path (not a query
+  // string) keeps it out of Referer headers on any link the page might load.
+  var token = decodeURIComponent(location.pathname.replace(/^.*\/claim\//, '').replace(/\/$/, ''));
+  var formWrap = document.getElementById('form-wrap');
+  var deadWrap = document.getElementById('dead-wrap');
+  var err = document.getElementById('err');
+  var ok = document.getElementById('ok');
+  var go = document.getElementById('go');
+
+  function show(el, text) { el.textContent = text; el.style.display = 'block'; }
+  function hide(el) { el.style.display = 'none'; }
+
+  // Check the link before showing a form we already know will be refused.
+  fetch('/auth/claim-status/' + encodeURIComponent(token))
+    .then(function (r) { return r.json(); })
+    .then(function (s) { (s && s.valid ? formWrap : deadWrap).hidden = false; })
+    .catch(function () { formWrap.hidden = false; });
+
+  document.getElementById('setup').addEventListener('submit', function (e) {
+    e.preventDefault();
+    hide(err); hide(ok);
+    var pw = document.getElementById('pw').value;
+    var pw2 = document.getElementById('pw2').value;
+    if (pw !== pw2) return show(err, "Those two passwords don't match.");
+
+    go.disabled = true;
+    go.textContent = 'Setting up…';
+    fetch('/auth/claim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token: token,
+        password: pw,
+        businessName: document.getElementById('biz').value
+      })
+    }).then(function (r) {
+      return r.json().then(function (body) { return { status: r.status, body: body }; });
+    }).then(function (res) {
+      if (res.status === 200 && res.body.ok) {
+        show(ok, 'All set — opening your app…');
+        // Signed in already on the happy path; the login page is the honest
+        // fallback if the session write failed but the password did save.
+        location.href = res.body.signedIn ? '/' : '/login';
+        return;
+      }
+      go.disabled = false;
+      go.textContent = 'Set up my app';
+      if (res.body && res.body.error === 'invalid-link') {
+        formWrap.hidden = true;
+        deadWrap.hidden = false;
+        return;
+      }
+      show(err, (res.body && res.body.error) || 'Something went wrong. Try again.');
+    }).catch(function () {
+      go.disabled = false;
+      go.textContent = 'Set up my app';
+      show(err, 'Could not reach the app. Check your signal and try again.');
+    });
+  });
+})();
+</script>
+</body>
+</html>

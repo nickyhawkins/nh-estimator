@@ -65,11 +65,31 @@
     <p class="error" id="err-locked">Too many attempts — wait 15 minutes and try again.</p>
     <p class="error" id="err-store">The password was right, but the app couldn't start your session. That's a server problem, not yours — check the app's logs.</p>
   </form>
+  <!-- Shown instead of the form on an instance that has been created but not
+       yet set up: there is no password to type, only a setup link to open.
+       Without this the first thing a new customer sees if they open the bare
+       address is a password prompt nothing satisfies. No logo on it either —
+       before setup there is no business name to fall back from, so the stock
+       logo would be the app author's, which is the one thing a customer's
+       screens must never show. -->
+  <div class="card" id="await-claim" style="display:none">
+    <h1>Not set up yet</h1>
+    <p class="sub" style="margin-bottom:0">This app is ready but nobody has set it up. Open the setup link you were sent to choose your business name and password.</p>
+  </div>
   <script>
     var err = new URLSearchParams(location.search).get('error');
     if (err === 'locked') document.getElementById('err-locked').style.display = 'block';
     else if (err === 'store') document.getElementById('err-store').style.display = 'block';
     else if (err) document.getElementById('err-wrong').style.display = 'block';
+
+    // An unclaimed instance has no password, so the form is a dead end. Swap
+    // it for the "open your setup link" card before the user types anything.
+    fetch('/auth/state').then(function (r) { return r.json(); }).then(function (s) {
+      if (s && s.awaitingClaim) {
+        document.querySelector('form.card').style.display = 'none';
+        document.getElementById('await-claim').style.display = 'block';
+      }
+    }).catch(function () {});
 
     // White-label branding: uploaded logo → business name only (stock logo
     // hidden) → stock logo + "NH Estimator" when nothing is configured.

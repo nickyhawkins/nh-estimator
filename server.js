@@ -144,7 +144,10 @@ app.use(require('./routes/publicQuote'));
 // App login gate (MULTI_INSTANCE_PILOT_SPEC.md WS1). Mounted after the
 // session (it needs req.session) and before EVERYTHING else that serves
 // data — including express.static, which would otherwise hand out
-// index.html itself. No APP_PASSWORD env var = no gate.
+// index.html itself. Whether there is a gate at all, and what opens it, is
+// lib/appAuth.js: a password the customer set, an outstanding setup link, or
+// the older APP_PASSWORD env var — and none of the three means no gate.
+const appAuth = require('./lib/appAuth');
 const { router: loginRouter, requireAuth } = require('./routes/appLogin');
 app.use(loginRouter);
 app.use(requireAuth);
@@ -250,7 +253,15 @@ if (DEBT_APP_ENABLED) {
   }
 }
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`NH Estimator running on port ${PORT}`);
+// Start server.
+//
+// The login gate's state (does this instance have a password? is a setup link
+// outstanding?) lives in the database, and requireAuth reads it from memory on
+// every request. Load it BEFORE accepting traffic: appAuth fails closed while
+// unloaded, so starting to listen first would answer the first few requests
+// with a login page on an instance that has no gate at all.
+appAuth.init().then(() => {
+  app.listen(PORT, () => {
+    console.log(`NH Estimator running on port ${PORT}`);
+  });
 });

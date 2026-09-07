@@ -20,6 +20,24 @@ CREATE TABLE IF NOT EXISTS session (
 );
 CREATE INDEX IF NOT EXISTS IDX_session_expire ON session(expire);
 
+-- App password + setup link (lib/appAuth.js). One row, always id = 1: an
+-- instance is one business, not a directory of users. password_hash is
+-- scrypt over password_salt; claim_token_hash is the sha256 of the setup
+-- link's token, so neither the password nor a usable link survives in a
+-- database dump. All nullable — an instance with every column null has no
+-- gate, which is the app's behaviour before any of this existed.
+CREATE TABLE IF NOT EXISTS app_auth (
+  id INTEGER PRIMARY KEY,
+  password_hash TEXT,
+  password_salt TEXT,
+  claim_token_hash TEXT,
+  claim_expires_at TIMESTAMP,
+  claimed_at TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT NOW(),
+  CONSTRAINT app_auth_single_row CHECK (id = 1)
+);
+INSERT INTO app_auth (id) VALUES (1) ON CONFLICT DO NOTHING;
+
 -- Settings table
 CREATE TABLE IF NOT EXISTS settings (
   id SERIAL PRIMARY KEY,

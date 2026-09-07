@@ -32,13 +32,24 @@ services:
       - key: NODE_ENV
         value: production
       - key: APP_PASSWORD
-        sync: false           # the customer's app password (WS1 login gate)
+        sync: false           # OPTIONAL, and normally left blank. The customer
+                              # sets their own password through their setup
+                              # link (scripts/issue-claim-link.js), which is
+                              # stored in their own database — see
+                              # lib/appAuth.js. This var is the older WS1 way
+                              # of doing it and still works: an instance that
+                              # has one, and has never been claimed, keeps
+                              # signing in with it. A password the customer
+                              # has set always wins over this.
       - key: APP_URL
         sync: false           # https://<service-name>.onrender.com
-      - key: XERO_CLIENT_ID
-        sync: false
-      - key: XERO_CLIENT_SECRET
-        sync: false
+      # Shared across every instance — the same Xero developer app serves all
+      # of them — so they live in one environment group rather than being
+      # retyped per customer. Create it once in the Render dashboard
+      # (Env Groups → New → name it exactly this) holding XERO_CLIENT_ID and
+      # XERO_CLIENT_SECRET, and every instance picks them up. See
+      # docs/NEW_INSTANCE.md §0.
+      - fromGroup: nh-estimator-xero
       - key: XERO_REDIRECT_URI
         sync: false           # https://<service-name>.onrender.com/auth/xero/callback
       # DEBT_APP_ENABLED deliberately absent: customer instances must never

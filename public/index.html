@@ -1357,6 +1357,19 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
         <input type="file" id="s-logo-file" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="onLogoFileChange(this)">
       </div>
     </div>
+    <!-- Only rendered on an instance that actually asks for a password;
+         showing it on an ungated one would offer to change nothing. -->
+    <div class="card" id="s-security-card" style="display:none">
+      <div class="card-header">Password</div>
+      <div class="field-row"><div class="field-label">Current password</div><input type="password" class="field-input" id="s-pw-current" autocomplete="current-password"></div>
+      <div class="field-row"><div class="field-label">New password<small>at least 8 characters</small></div><input type="password" class="field-input" id="s-pw-new" autocomplete="new-password"></div>
+      <div class="field-row"><div class="field-label">Type it again</div><input type="password" class="field-input" id="s-pw-again" autocomplete="new-password"></div>
+      <div style="padding:0 14px 14px">
+        <button class="btn btn-ghost" id="s-pw-save" onclick="changeAppPassword()">Change password</button>
+        <div id="s-pw-msg" style="font-size:13px;margin-top:8px;display:none"></div>
+        <div style="font-size:12px;color:var(--text2);margin-top:8px">Changing it here doesn't sign your other devices out.</div>
+      </div>
+    </div>
     <div class="card">
       <!-- Was "Your Rates" until v2.29.0 -- with a Rates screen in the menu
            that name pointed at the wrong place. These are the pricing
@@ -10346,6 +10359,55 @@ function removeLogo() {
   applyBranding();
 }
 
+// ── Changing the app password from Settings ────────────────────────────────
+//
+// The password lives in this instance's own database (lib/appAuth.js), not in
+// an env var, so the person using the app can change it themselves rather than
+// asking whoever set the instance up. The current password is required: an
+// unlocked phone on a worktop should not be enough to lock its owner out.
+function showSecurityCardIfGated() {
+  var card = document.getElementById('s-security-card');
+  if (!card) return;
+  fetch('/auth/state').then(function(r) { return r.json(); }).then(function(st) {
+    card.style.display = (st && st.gated) ? '' : 'none';
+  }).catch(function() { /* leave it hidden — a card that might do nothing is worse than none */ });
+}
+
+function changeAppPassword() {
+  var cur = document.getElementById('s-pw-current');
+  var neu = document.getElementById('s-pw-new');
+  var again = document.getElementById('s-pw-again');
+  var msg = document.getElementById('s-pw-msg');
+  var btn = document.getElementById('s-pw-save');
+  function say(text, ok) {
+    msg.textContent = text;
+    msg.style.color = ok ? 'var(--success, #1e8449)' : 'var(--danger)';
+    msg.style.display = 'block';
+  }
+  if (neu.value !== again.value) return say("Those two new passwords don't match.", false);
+  if ((neu.value || '').length < 8) return say('The new password needs to be at least 8 characters.', false);
+
+  btn.disabled = true;
+  fetch('/auth/change-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentPassword: cur.value, newPassword: neu.value })
+  }).then(function(r) {
+    return r.json().then(function(body) { return { status: r.status, body: body }; });
+  }).then(function(res) {
+    btn.disabled = false;
+    if (res.status === 200 && res.body.ok) {
+      cur.value = neu.value = again.value = '';
+      say('Password changed. Use the new one next time you sign in.', true);
+    } else {
+      say((res.body && res.body.error) || 'Could not change the password.', false);
+    }
+  }).catch(function() {
+    btn.disabled = false;
+    say('Could not reach the app. Check your signal and try again.', false);
+  });
+}
+
 function loadSettings() {
   // settings is always a complete mergeSettings() product, so no per-field
   // fallbacks needed here — every schema key is present.
@@ -10364,6 +10426,7 @@ function loadSettings() {
   var sdSel = document.getElementById('s-standalone-rounding');
   if (sdSel) sdSel.value = settings.standaloneRounding === 'half' ? 'half' : 'full';
   renderIcsUrlRow();
+  showSecurityCardIfGated();
   renderTextTemplatesSettings();
   populateKitchenRatesTable();
   document.getElementById('s-kr-cornice-base').value = (settings.kitchenRates && settings.kitchenRates.cornice) ? settings.kitchenRates.cornice.base : 25;
