@@ -77,7 +77,21 @@ try {
   document.addEventListener('visibilitychange', function(){ if (!document.hidden) _setVh(); });
 } catch (e) {}
 </script>
-<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!-- Fonts load NON-BLOCKING (media="print" until onload flips it), the same
+     trick the client-quote HTML already used. As a plain stylesheet link
+     this was the single worst thing in the file for a launch with no signal:
+     a render-blocking request to a THIRD-PARTY origin, which the service
+     worker deliberately leaves alone. In a dead spot -- a bar of signal and
+     no throughput -- it neither loads nor fails, it hangs for as long as the
+     OS allows, and first paint waits the whole time. All the app's data was
+     sitting in localStorage behind a white screen. Every font-family in this
+     file names sans-serif/monospace after the DM face, so the app renders
+     immediately and the real type swaps in whenever it arrives (public/sw.js
+     caches it, so on site that is usually straight away). -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"></noscript>
 <style>
 :root {
   --bg:#f4f6f9; --surface:#fff; --surface2:#eef1f5; --border:#dde2ea;
@@ -2244,7 +2258,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.60.0</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.61.0</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -2312,8 +2326,63 @@ function apiAuthExpired(r) {
   return false;
 }
 
+// ── Network deadlines (v2.61.0 offline continuity) ─────────────────────────
+// Every helper below used to call fetch() bare, and every offline path in
+// this app -- the queue, the sync dot, the "running from local cache"
+// fallbacks -- is built on fetch REJECTING. That assumption holds in
+// airplane mode and nowhere else.
+//
+// A phone in a dead spot on site is not cleanly offline. It has a bar of
+// signal and no throughput: navigator.onLine is true, the TCP connection
+// opens, and fetch() then neither resolves nor rejects for as long as the
+// OS allows -- often a minute or more, sometimes until the app is killed.
+// Everything downstream of that await simply never happened:
+//
+//   · initApp's sync block hung on the first request, so updateSyncStatus(),
+//     flushOfflineQueue() and flushPendingSnapshots() at its foot never ran.
+//     The dot sat on a green "All changes synced ✓" while nothing was
+//     syncing, and writes queued in the LAST dead spot weren't retried on
+//     this launch.
+//   · a write hung with pendingWrites still raised (dot stuck amber) and
+//     was never handed to queueOfflineWrite -- so an On Site material or
+//     labour entry logged in that state reached neither the server nor the
+//     queue. That is the one thing the offline queue exists to prevent.
+//
+// So requests now have a deadline. A timeout aborts the fetch, which rejects
+// exactly like a dropped connection, and every existing offline path -- the
+// queue, serverAvailable, the local-cache fallbacks -- runs as designed.
+//
+// Two lengths: reads are re-issued cheaply on the next launch, so they give
+// up quickly; writes get much longer because a big job's bulk PUT is a real
+// payload on a slow-but-working link, and cutting one short means a needless
+// queue-and-retry. Deliberately NOT applied to the user-initiated Xero,
+// backup and PDF calls further down -- those run behind a spinner the user
+// is watching, and blockIfOffline() already turns them away without signal.
+var NET_READ_TIMEOUT_MS = 12000;
+var NET_WRITE_TIMEOUT_MS = 25000;
+
+function netFetch(path, opts, timeoutMs) {
+  // No AbortController (very old WebKit): behave exactly as before rather
+  // than lose the request.
+  if (typeof AbortController === 'undefined') return fetch(path, opts);
+  var ctrl = new AbortController();
+  var timer = setTimeout(function() { ctrl.abort(); }, timeoutMs || NET_READ_TIMEOUT_MS);
+  var o = {};
+  for (var k in (opts || {})) o[k] = opts[k];
+  o.signal = ctrl.signal;
+  return fetch(path, o).finally(function() { clearTimeout(timer); });
+}
+
+// "The request died on the way out" -- as opposed to a server that answered
+// and said no. fetch rejects with a TypeError for a dropped connection and
+// with an AbortError once a deadline above fires; both mean the same thing
+// to every caller that distinguishes offline from a real failure.
+function isNetworkFailure(e) {
+  return e instanceof TypeError || !!(e && (e.name === 'AbortError' || e.name === 'TimeoutError'));
+}
+
 async function apiGet(path) {
-  const r = await fetch(path);
+  const r = await netFetch(path, undefined, NET_READ_TIMEOUT_MS);
   if (apiAuthExpired(r)) throw new Error('login required');
   if (!r.ok) throw new Error('API error: ' + path);
   return r.json();
@@ -2417,9 +2486,18 @@ var offlineQueue = [];
 try { offlineQueue = JSON.parse(localStorage.getItem('pe-offline-queue') || '[]'); } catch (e) {}
 var offlineFlushing = false;
 function persistOfflineQueue() { localStorage.setItem('pe-offline-queue', JSON.stringify(offlineQueue)); }
-function queueOfflineWrite(method, path, body) {
-  offlineQueue = offlineQueue.filter(function(q) { return !(q.method === method && q.path === path); });
-  offlineQueue.push({ method: method, path: path, body: body || null, at: new Date().toISOString() });
+// dedupeKey defaults to method+path, which is what last-write-wins means for
+// the four collection PUTs this queue was built for -- one row per collection,
+// the newest body replacing the older. It is an explicit parameter because
+// POST /api/jobs breaks that assumption: two jobs started in the same dead
+// spot share a method and a path, and collapsing them would silently throw
+// the first one away. Those pass their own per-job key.
+function queueOfflineWrite(method, path, body, dedupeKey) {
+  var key = dedupeKey || (method + ' ' + path);
+  // q.key is absent on entries written by an older build that are still
+  // sitting in localStorage from a dead spot -- derive theirs the old way.
+  offlineQueue = offlineQueue.filter(function(q) { return (q.key || (q.method + ' ' + q.path)) !== key; });
+  offlineQueue.push({ method: method, path: path, body: body || null, key: key, at: new Date().toISOString() });
   persistOfflineQueue();
   updateSyncStatus();
 }
@@ -2517,7 +2595,7 @@ async function flushOfflineQueue() {
           opts.headers = { 'Content-Type': 'application/json' };
           opts.body = JSON.stringify(item.body);
         }
-        try { await fetch(item.path, opts); }
+        try { await netFetch(item.path, opts, NET_WRITE_TIMEOUT_MS); }
         catch (e) { serverAvailable = false; return; } // still offline — keep the rest queued
         // Sent (2xx or a server rejection — either way replaying the same
         // bytes again can't do better): off the queue.
@@ -2554,11 +2632,11 @@ async function apiPut(path, data) {
   }
   beginWrite();
   try {
-    const r = await fetch(path, {
+    const r = await netFetch(path, {
       method: 'PUT',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify(data)
-    });
+    }, NET_WRITE_TIMEOUT_MS);
     apiAuthExpired(r);
     serverAvailable = true;
     if (offlineQueue.length) flushOfflineQueue();
@@ -2577,7 +2655,7 @@ async function apiDelete(path) {
   }
   beginWrite();
   try {
-    const r = await fetch(path, { method: 'DELETE' });
+    const r = await netFetch(path, { method: 'DELETE' }, NET_WRITE_TIMEOUT_MS);
     apiAuthExpired(r);
     serverAvailable = true;
     if (offlineQueue.length) flushOfflineQueue();
@@ -2616,11 +2694,11 @@ async function apiPutStrict(path, data) {
   try {
     let r;
     try {
-      r = await fetch(path, {
+      r = await netFetch(path, {
         method: 'PUT',
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify(data)
-      });
+      }, NET_WRITE_TIMEOUT_MS);
     } catch (netErr) {
       serverAvailable = false;
       queueOfflineWrite('PUT', path, data);
@@ -2650,7 +2728,7 @@ async function apiDeleteStrict(path) {
   try {
     let r;
     try {
-      r = await fetch(path, { method: 'DELETE' });
+      r = await netFetch(path, { method: 'DELETE' }, NET_WRITE_TIMEOUT_MS);
     } catch (netErr) {
       serverAvailable = false;
       queueOfflineWrite('DELETE', path, null);
@@ -5040,7 +5118,7 @@ async function initApp() {
         // Truly empty jobs table — create a first job so rooms/colours/etc
         // below always have somewhere valid to belong to.
         var firstJob = { id: uid(), name: 'My Job' };
-        await fetch('/api/jobs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(firstJob) });
+        await netFetch('/api/jobs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(firstJob) }, NET_WRITE_TIMEOUT_MS);
         jobs = [firstJob];
         activeJobId = firstJob.id;
         localStorage.setItem('pe-jobs', JSON.stringify(jobs));
@@ -5663,11 +5741,33 @@ async function switchJob(id) {
   goTab('dash');
 }
 
+// Both of these used to be a BARE `await fetch(...)`, which meant that with no
+// signal the fetch rejected and every line below it -- the local jobs list,
+// its localStorage mirror, the switch -- never ran. So a job could not be
+// STARTED off-signal at all: you arrive at a new house in a dead spot, type
+// the name, and nothing happens. Pulling up outside a house is exactly when a
+// job gets created, and it's the one thing the whole offline story rests on,
+// since every room measured afterwards has to belong to a job.
+//
+// The id is client-generated (uid()) and the local copy is authoritative from
+// the moment it's named, so queueing the write costs nothing: the row the
+// server creates on reconnect is the same row this phone has been filling in
+// all along. A server that ANSWERS and refuses still throws, as before --
+// that's a real error, not a dead spot.
 async function createJob(name) {
   name = (name || '').trim();
   if (!name) return;
   var job = { id: uid(), name: name };
-  await fetch('/api/jobs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(job) });
+  try {
+    await netFetch('/api/jobs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(job) }, NET_WRITE_TIMEOUT_MS);
+    serverAvailable = true;
+  } catch (e) {
+    if (!isNetworkFailure(e)) throw e;
+    serverAvailable = false;
+    // Keyed by job id: see queueOfflineWrite. Two jobs created in one dead
+    // spot must both reach the server.
+    queueOfflineWrite('POST', '/api/jobs', job, 'POST /api/jobs#' + job.id);
+  }
   jobs.unshift(job);
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   await switchJob(job.id);
@@ -5675,7 +5775,16 @@ async function createJob(name) {
 
 async function deleteJob(id) {
   if (!confirm('Delete this job and everything in it? This cannot be undone.')) return;
-  await fetch('/api/jobs/'+id, { method:'DELETE' });
+  try {
+    await netFetch('/api/jobs/'+id, { method:'DELETE' }, NET_WRITE_TIMEOUT_MS);
+    serverAvailable = true;
+  } catch (e) {
+    if (!isNetworkFailure(e)) throw e;
+    serverAvailable = false;
+    // The path carries the id, so the default key is already per-job. A
+    // create-then-delete in the same dead spot replays in order and nets out.
+    queueOfflineWrite('DELETE', '/api/jobs/'+id, null);
+  }
   jobs = jobs.filter(function(j){ return j.id !== id; });
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   if (id === activeJobId) {
@@ -6446,12 +6555,12 @@ function flushPendingSnapshots() {
       var item = pendingQuoteSnapshots[0];
       beginWrite();
       try {
-        var resp = await fetch('/api/quote-snapshots', {
+        var resp = await netFetch('/api/quote-snapshots', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ jobId: item.jobId, data: item.data, acceptedAt: item.acceptedAt,
                                  reconciliationLevel: item.reconciliationLevel, note: item.note })
-        });
+        }, NET_WRITE_TIMEOUT_MS);
         if (resp.status === 409) {
           // Another device claimed this version number. The server derives
           // versions itself, so a straight retry gets the next free one --
@@ -6459,12 +6568,12 @@ function flushPendingSnapshots() {
           // can't spin.
           serverAvailable = true;
           await loadQuoteSnapshots(item.jobId).catch(function() {});
-          resp = await fetch('/api/quote-snapshots', {
+          resp = await netFetch('/api/quote-snapshots', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ jobId: item.jobId, data: item.data, acceptedAt: item.acceptedAt,
                                    reconciliationLevel: item.reconciliationLevel, note: item.note })
-          });
+          }, NET_WRITE_TIMEOUT_MS);
         }
         serverAvailable = true;
         if (!resp.ok) {
@@ -14329,19 +14438,19 @@ async function openActuals() {
     // "no rows" should ever empty the log.
     await Promise.all([
       loadMaterialActuals(),
-      loadLabourLog().catch(function(e) { if (!(e instanceof TypeError)) labourLog = []; }),
+      loadLabourLog().catch(function(e) { if (!isNetworkFailure(e)) labourLog = []; }),
       // Snags are tolerant for the same reason as the labour log: a database
       // that has material_actuals but not yet snags (the table is created
       // lazily on first use) must still show the materials screen.
-      loadSnags().catch(function(e) { if (!(e instanceof TypeError)) snags = []; }),
-      loadSnagRooms().catch(function(e) { if (!(e instanceof TypeError)) snagRooms = []; })
+      loadSnags().catch(function(e) { if (!isNetworkFailure(e)) snags = []; }),
+      loadSnagRooms().catch(function(e) { if (!isNetworkFailure(e)) snagRooms = []; })
     ]);
   } catch (e) {
     // Offline (fetch itself failed, not the server refusing): the copies
     // loaded at startup/last visit are still in memory, and every edit
     // queues + flushes on reconnect — being on site with no signal is
     // exactly when this screen is needed most, so render, don't refuse.
-    if (!navigator.onLine || e instanceof TypeError || !serverAvailable) {
+    if (!navigator.onLine || isNetworkFailure(e) || !serverAvailable) {
       renderActuals();
       return;
     }
@@ -24689,13 +24798,26 @@ if (window.ResizeObserver) {
 initApp();
 
 // Service worker: offline app shell + installability (see public/sw.js).
-// Registered after load so it never competes with the startup fetches.
+//
+// Kept off the critical path, but NO LONGER GATED ON window 'load'. 'load'
+// waits for every subresource on the page, including the third-party font
+// stylesheet -- so on precisely the connection this worker exists to survive
+// (a dead spot: signal, no throughput, requests that hang rather than fail)
+// 'load' could be a minute away or never arrive at all, and the phone that
+// most needed an offline copy of the app was the one least likely to have
+// registered the worker that makes one. Whichever comes first now, the event
+// or a short timer; the guard makes the loser a no-op.
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', function() {
+  var registerSW = function() {
+    if (registerSW.done) return;
+    registerSW.done = true;
     navigator.serviceWorker.register('/sw.js').catch(function(e) {
       console.log('Service worker registration failed:', e.message);
     });
-  });
+  };
+  if (document.readyState === 'complete') registerSW();
+  else window.addEventListener('load', registerSW);
+  setTimeout(registerSW, 2500);
 }
 </script>
 </body>
