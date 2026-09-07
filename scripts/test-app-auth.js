@@ -164,6 +164,24 @@ async function resetAuthRow(db, patch = {}) {
 
       const inApp = await req('GET', '/', { jar, html: true });
       check('...which then opens the app', inApp.status === 200, 'status ' + inApp.status);
+
+      // The setup link has to be reachable without a session, and the first
+      // cut of that was `req.path.startsWith('/claim/')`. req.path is not
+      // normalised, so `/claim/../api/jobs` satisfied the prefix, skipped the
+      // gate and fell through to the SPA shell — on an instance whose whole
+      // job was to answer a stranger with a sign-in screen and nothing else.
+      // The open paths are matched by regex now; these keep it that way.
+      for (const attempt of [
+        '/claim/../api/jobs',
+        '/claim/%2e%2e/api/jobs',
+        '/claim/./../api/jobs',
+        '/auth/claim-status/../../api/jobs',
+        '/claim/../../etc/passwd',
+      ]) {
+        const res = await fetch(BASE + attempt, { redirect: 'manual' });
+        check('walking out of the setup path stays gated: ' + attempt,
+          res.status !== 200, 'status ' + res.status);
+      }
     }
     await stopServer(server);
 

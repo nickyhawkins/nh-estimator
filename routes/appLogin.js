@@ -56,12 +56,22 @@ const OPEN_PATHS = new Set([
 // who has no password yet. The token in the path is the credential, checked
 // against the database on both the GET and the POST; an absent or expired one
 // renders a dead-end page and sets nothing.
+//
+// MATCHED BY REGEX, NOT startsWith. A prefix test opens every path that
+// merely BEGINS with /claim/, and req.path is not normalised — so
+// `/claim/../api/jobs` passed the gate and fell through to the SPA shell on
+// an instance that was supposed to answer with a sign-in screen and nothing
+// else. These patterns allow exactly one more segment, in the base64url
+// alphabet the tokens are generated from, which has no `.`, `/` or `%` in it.
+const CLAIM_PAGE = /^\/claim\/[A-Za-z0-9_-]+$/;
+const CLAIM_STATUS = /^\/auth\/claim-status\/[A-Za-z0-9_-]+$/;
+
 function isOpenPath(p) {
   return OPEN_PATHS.has(p)
     || p === '/auth/state'
     || p === '/auth/claim'
-    || p.startsWith('/auth/claim-status/')
-    || p.startsWith('/claim/');
+    || CLAIM_STATUS.test(p)
+    || CLAIM_PAGE.test(p);
 }
 
 function requireAuth(req, res, next) {
