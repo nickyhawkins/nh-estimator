@@ -882,6 +882,16 @@ Settings → **Backup**:
 
 **The dot** in the top bar is your sync status: green = everything saved to the server, amber = saving now, red = offline. If you lose signal mid-measure, keep working — changes are kept on your phone ("Offline — N changes queued on this phone") and pushed up when the connection returns; the menu's sync line confirms with "All changes synced ✓".
 
+**Opening the app with no signal.** The app keeps a copy of itself on the phone, so it opens in a dead spot exactly as it does anywhere else — everything you've measured is on the phone, not fetched from the server. It has to have been opened *once* somewhere with signal first, to save that copy; if it hasn't, you'll get a short page saying so rather than the browser's "no internet" screen.
+
+If you've had launches that hung on a blank screen in a dead spot, that's fixed as of v2.61.0. The cause was a phone showing a bar of signal with nothing actually getting through — not the same as being cleanly offline, and the app used to sit waiting on it. It now gives the network a few seconds and then opens from the phone's own copy. The same deadline applies to saving: a change made where the signal is dead is queued on the phone within seconds instead of hanging, so the dot goes red and tells you what's waiting rather than sitting on amber.
+
+**Starting a job with no signal.** You can now do this too — pull up outside a house with no bars, add the job, and measure straight into it. The job is created on the phone and appears on the server when you're next in signal, along with everything you put in it. (Before v2.61.0 nothing happened when you tapped it.)
+
+**Switching jobs with no signal.** A job is kept on the phone once you've opened it in signal, so you can switch between the jobs you've been working on with no bars at all and each one comes back with its own rooms, colours and materials. The last dozen jobs you've opened are kept; older ones drop off and reload the next time you open them in signal.
+
+If you try to switch to a job this phone hasn't got a copy of, it now tells you so and stays where it is — rather than opening the job looking empty. That matters: before v2.62.0 it opened with every room gone, and anything you then measured would have replaced that job's real rooms on the server when the signal came back. If you see that message, the job is fine — the phone just hasn't downloaded it yet.
+
 **A price looks wrong?** Work backwards: room Preview → Summary breakdown → Rates. The calculation is always *areas × time rates × day rate*, plus *areas ÷ coverage = litres → tins*, plus sundries and markup. One of those numbers will be the culprit — usually a coverage or time rate that doesn't match how you actually work. If the job is already **Accepted**, remember its figures are frozen — a rate change won't move it; you'd need **Amend → revision N+1** on Summary.
 
 **Xero button not working?** Tokens occasionally expire for good if the app hasn't talked to Xero in a long while. Settings → Disconnect Xero → Connect Xero puts it right in under a minute.
@@ -898,6 +908,6 @@ Settings → **Backup**:
 
 ---
 
-*Manual for NH Estimator v2.60.1. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.62.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

@@ -77,7 +77,21 @@ try {
   document.addEventListener('visibilitychange', function(){ if (!document.hidden) _setVh(); });
 } catch (e) {}
 </script>
-<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!-- Fonts load NON-BLOCKING (media="print" until onload flips it), the same
+     trick the client-quote HTML already used. As a plain stylesheet link
+     this was the single worst thing in the file for a launch with no signal:
+     a render-blocking request to a THIRD-PARTY origin, which the service
+     worker deliberately leaves alone. In a dead spot -- a bar of signal and
+     no throughput -- it neither loads nor fails, it hangs for as long as the
+     OS allows, and first paint waits the whole time. All the app's data was
+     sitting in localStorage behind a white screen. Every font-family in this
+     file names sans-serif/monospace after the DM face, so the app renders
+     immediately and the real type swaps in whenever it arrives (public/sw.js
+     caches it, so on site that is usually straight away). -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"></noscript>
 <style>
 :root {
   --bg:#f4f6f9; --surface:#fff; --surface2:#eef1f5; --border:#dde2ea;
@@ -2244,7 +2258,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.60.0</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.62.0</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -2312,8 +2326,63 @@ function apiAuthExpired(r) {
   return false;
 }
 
+// ── Network deadlines (v2.61.0 offline continuity) ─────────────────────────
+// Every helper below used to call fetch() bare, and every offline path in
+// this app -- the queue, the sync dot, the "running from local cache"
+// fallbacks -- is built on fetch REJECTING. That assumption holds in
+// airplane mode and nowhere else.
+//
+// A phone in a dead spot on site is not cleanly offline. It has a bar of
+// signal and no throughput: navigator.onLine is true, the TCP connection
+// opens, and fetch() then neither resolves nor rejects for as long as the
+// OS allows -- often a minute or more, sometimes until the app is killed.
+// Everything downstream of that await simply never happened:
+//
+//   · initApp's sync block hung on the first request, so updateSyncStatus(),
+//     flushOfflineQueue() and flushPendingSnapshots() at its foot never ran.
+//     The dot sat on a green "All changes synced ✓" while nothing was
+//     syncing, and writes queued in the LAST dead spot weren't retried on
+//     this launch.
+//   · a write hung with pendingWrites still raised (dot stuck amber) and
+//     was never handed to queueOfflineWrite -- so an On Site material or
+//     labour entry logged in that state reached neither the server nor the
+//     queue. That is the one thing the offline queue exists to prevent.
+//
+// So requests now have a deadline. A timeout aborts the fetch, which rejects
+// exactly like a dropped connection, and every existing offline path -- the
+// queue, serverAvailable, the local-cache fallbacks -- runs as designed.
+//
+// Two lengths: reads are re-issued cheaply on the next launch, so they give
+// up quickly; writes get much longer because a big job's bulk PUT is a real
+// payload on a slow-but-working link, and cutting one short means a needless
+// queue-and-retry. Deliberately NOT applied to the user-initiated Xero,
+// backup and PDF calls further down -- those run behind a spinner the user
+// is watching, and blockIfOffline() already turns them away without signal.
+var NET_READ_TIMEOUT_MS = 12000;
+var NET_WRITE_TIMEOUT_MS = 25000;
+
+function netFetch(path, opts, timeoutMs) {
+  // No AbortController (very old WebKit): behave exactly as before rather
+  // than lose the request.
+  if (typeof AbortController === 'undefined') return fetch(path, opts);
+  var ctrl = new AbortController();
+  var timer = setTimeout(function() { ctrl.abort(); }, timeoutMs || NET_READ_TIMEOUT_MS);
+  var o = {};
+  for (var k in (opts || {})) o[k] = opts[k];
+  o.signal = ctrl.signal;
+  return fetch(path, o).finally(function() { clearTimeout(timer); });
+}
+
+// "The request died on the way out" -- as opposed to a server that answered
+// and said no. fetch rejects with a TypeError for a dropped connection and
+// with an AbortError once a deadline above fires; both mean the same thing
+// to every caller that distinguishes offline from a real failure.
+function isNetworkFailure(e) {
+  return e instanceof TypeError || !!(e && (e.name === 'AbortError' || e.name === 'TimeoutError'));
+}
+
 async function apiGet(path) {
-  const r = await fetch(path);
+  const r = await netFetch(path, undefined, NET_READ_TIMEOUT_MS);
   if (apiAuthExpired(r)) throw new Error('login required');
   if (!r.ok) throw new Error('API error: ' + path);
   return r.json();
@@ -2417,9 +2486,18 @@ var offlineQueue = [];
 try { offlineQueue = JSON.parse(localStorage.getItem('pe-offline-queue') || '[]'); } catch (e) {}
 var offlineFlushing = false;
 function persistOfflineQueue() { localStorage.setItem('pe-offline-queue', JSON.stringify(offlineQueue)); }
-function queueOfflineWrite(method, path, body) {
-  offlineQueue = offlineQueue.filter(function(q) { return !(q.method === method && q.path === path); });
-  offlineQueue.push({ method: method, path: path, body: body || null, at: new Date().toISOString() });
+// dedupeKey defaults to method+path, which is what last-write-wins means for
+// the four collection PUTs this queue was built for -- one row per collection,
+// the newest body replacing the older. It is an explicit parameter because
+// POST /api/jobs breaks that assumption: two jobs started in the same dead
+// spot share a method and a path, and collapsing them would silently throw
+// the first one away. Those pass their own per-job key.
+function queueOfflineWrite(method, path, body, dedupeKey) {
+  var key = dedupeKey || (method + ' ' + path);
+  // q.key is absent on entries written by an older build that are still
+  // sitting in localStorage from a dead spot -- derive theirs the old way.
+  offlineQueue = offlineQueue.filter(function(q) { return (q.key || (q.method + ' ' + q.path)) !== key; });
+  offlineQueue.push({ method: method, path: path, body: body || null, key: key, at: new Date().toISOString() });
   persistOfflineQueue();
   updateSyncStatus();
 }
@@ -2454,6 +2532,144 @@ function noteServerCopy(coll, jobId, data) {
   try { localStorage.setItem('pe-server-shadow', JSON.stringify(serverShadow)); } catch (e) {}
 }
 
+// ── Per-job offline mirrors (v2.62.0) ──────────────────────────────────────
+// pe-rooms / pe-extitems / pe-colours / pe-materials-snapshot hold exactly
+// ONE job's worth of data -- whichever job is active. That was enough while
+// a job switch could only happen with a server to fetch the next job from.
+// Offline it is not, and the failure was the worst kind: silent and
+// destructive.
+//
+// loadActiveJobData() sets each collection to [] when its fetch fails. So
+// switching jobs in a dead spot showed the new job EMPTY -- every room gone
+// -- and the four pe-* mirrors still held the OLD job's rows, now filed
+// under the new job's id in pe-active-job-id. Two ways that ended badly:
+//
+//   · Measure into the empty job and saveRooms() PUTs [thatOneRoom] to
+//     /api/rooms?job_id=<new job>. The write queues, the queue flushes on
+//     reconnect, and the server's real rooms for that job are replaced by
+//     the one room. A whole house's measurements, gone, with no error
+//     anywhere -- the queue did exactly what it was told.
+//   · Close the app in that state and reopen it. initApp reads pe-rooms
+//     (the OLD job's rooms) against pe-active-job-id (the NEW job) and shows
+//     one job's measurements under another job's name. The first edit then
+//     writes them there for real.
+//
+// So each job that has been opened on this phone keeps its own copy, and a
+// fetch that fails falls back to THAT rather than to []. The pe-* keys stay
+// exactly as they were -- still the active job's mirror, still what initApp
+// reads first -- so nothing that reads them had to change; these sit behind
+// them and are consulted only when the network can't answer.
+//
+// Bounded: a phone is not a database. The least recently opened job's copies
+// are dropped past JOB_MIRROR_LIMIT, and a quota error drops more and retries
+// once rather than failing the save.
+var JOB_MIRROR_COLLS = ['rooms', 'extitems', 'colours', 'materials'];
+var JOB_MIRROR_LIMIT = 12;
+var JOB_MIRROR_ORDER_KEY = 'pe-job-mirror-order';
+
+function jobMirrorKey(coll, jobId) { return 'pe-job-' + jobId + '-' + coll; }
+
+function readJobMirrorOrder() {
+  try {
+    var v = JSON.parse(localStorage.getItem(JOB_MIRROR_ORDER_KEY) || '[]');
+    return Array.isArray(v) ? v : [];
+  } catch (e) { return []; }
+}
+
+function dropJobMirror(jobId) {
+  JOB_MIRROR_COLLS.forEach(function(c) {
+    try { localStorage.removeItem(jobMirrorKey(c, jobId)); } catch (e) {}
+  });
+  var order = readJobMirrorOrder().filter(function(j) { return j !== jobId; });
+  try { localStorage.setItem(JOB_MIRROR_ORDER_KEY, JSON.stringify(order)); } catch (e) {}
+}
+
+// Most recently opened last. Anything past the limit is dropped here, so the
+// list and the stored copies can't drift apart.
+function touchJobMirror(jobId) {
+  var order = readJobMirrorOrder().filter(function(j) { return j !== jobId; });
+  order.push(jobId);
+  while (order.length > JOB_MIRROR_LIMIT) {
+    var evicted = order.shift();
+    JOB_MIRROR_COLLS.forEach(function(c) {
+      try { localStorage.removeItem(jobMirrorKey(c, evicted)); } catch (e) {}
+    });
+  }
+  try { localStorage.setItem(JOB_MIRROR_ORDER_KEY, JSON.stringify(order)); } catch (e) {}
+}
+
+// null means "this phone has no copy of that", which is a different answer
+// from [] ("this job has no rooms") and the whole point of the exercise.
+function readJobMirror(coll, jobId) {
+  if (!jobId) return null;
+  try {
+    var raw = localStorage.getItem(jobMirrorKey(coll, jobId));
+    if (raw === null) return null;
+    var v = JSON.parse(raw);
+    return Array.isArray(v) ? v : null;
+  } catch (e) { return null; }
+}
+
+function hasJobMirror(jobId) {
+  return JOB_MIRROR_COLLS.some(function(c) { return readJobMirror(c, jobId) !== null; });
+}
+
+function writeJobMirror(coll, jobId, data) {
+  if (!jobId) return;
+  var json = JSON.stringify(data || []);
+  try {
+    localStorage.setItem(jobMirrorKey(coll, jobId), json);
+    touchJobMirror(jobId);
+    return;
+  } catch (e) { /* out of room -- fall through */ }
+  // Quota. Drop every mirror except the job being written and the one most
+  // recently opened before it, then try once more. Losing an old job's
+  // offline copy is recoverable (it reloads in signal); losing the write is
+  // the thing that isn't.
+  var order = readJobMirrorOrder();
+  order.filter(function(j) { return j !== jobId; })
+       .slice(0, Math.max(0, order.length - 2))
+       .forEach(dropJobMirror);
+  try {
+    localStorage.setItem(jobMirrorKey(coll, jobId), json);
+    touchJobMirror(jobId);
+  } catch (e2) {
+    console.log('No room to keep an offline copy of ' + coll + ' for this job');
+  }
+}
+
+// Write all four at once -- what a job switch and a fresh job both want.
+function writeJobMirrorAll(jobId, data) {
+  JOB_MIRROR_COLLS.forEach(function(c) { writeJobMirror(c, jobId, data ? data[c] : []); });
+}
+
+// Existing phones have their active job's data in the pe-* keys and nothing
+// per-job. Seed from them once so the very first launch after this build
+// already has an offline copy of the job in hand, rather than one that only
+// appears after the next successful load.
+function seedJobMirrorFromLegacy(jobId) {
+  if (!jobId || hasJobMirror(jobId)) return false;
+  var legacy = { rooms: 'pe-rooms', extitems: 'pe-extitems', colours: 'pe-colours', materials: 'pe-materials-snapshot' };
+  var found = {};
+  JOB_MIRROR_COLLS.forEach(function(c) {
+    var raw = localStorage.getItem(legacy[c]);
+    if (raw === null) return;
+    try {
+      var v = JSON.parse(raw);
+      if (Array.isArray(v)) found[c] = v;
+    } catch (e) {}
+  });
+  if (!Object.keys(found).length) return false;
+  // All four or none. A collection with no pe-* key of its own is one this
+  // job has none of -- the keys are written on every successful load, empty
+  // response included -- and seeding it as [] rather than leaving it absent
+  // is what makes the job count as KNOWN to this phone. Half-seeded, the job
+  // would still open (hasJobMirror only needs one) but would report itself
+  // as partly unknown, which is a distinction nothing downstream can act on.
+  JOB_MIRROR_COLLS.forEach(function(c) { writeJobMirror(c, jobId, found[c] || []); });
+  return true;
+}
+
 function queuedPathCollection(path) {
   var p = path.split('?')[0];
   if (p.indexOf('/api/rooms') === 0) return 'rooms';
@@ -2468,10 +2684,10 @@ function queuedItemJobId(q) {
   return (q.body && q.body.jobId) || null;
 }
 var OFFLINE_COLLECTIONS = {
-  rooms:    { path: '/api/rooms',    label: 'Rooms',          apply: function(d) { rooms = d || [];             localStorage.setItem('pe-rooms', JSON.stringify(rooms)); } },
-  extitems: { path: '/api/extitems', label: 'Exterior items', apply: function(d) { extItems = d || [];          localStorage.setItem('pe-extitems', JSON.stringify(extItems)); } },
-  colours:  { path: '/api/colours',  label: 'Colours',        apply: function(d) { colours = d || [];           localStorage.setItem('pe-colours', JSON.stringify(colours)); } },
-  materials:{ path: '/api/materials',label: 'Materials',      apply: function(d) { materialsSnapshot = d || []; localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot)); } }
+  rooms:    { path: '/api/rooms',    label: 'Rooms',          apply: function(d) { rooms = d || [];             localStorage.setItem('pe-rooms', JSON.stringify(rooms)); writeJobMirror('rooms', activeJobId, rooms); } },
+  extitems: { path: '/api/extitems', label: 'Exterior items', apply: function(d) { extItems = d || [];          localStorage.setItem('pe-extitems', JSON.stringify(extItems)); writeJobMirror('extitems', activeJobId, extItems); } },
+  colours:  { path: '/api/colours',  label: 'Colours',        apply: function(d) { colours = d || [];           localStorage.setItem('pe-colours', JSON.stringify(colours)); writeJobMirror('colours', activeJobId, colours); } },
+  materials:{ path: '/api/materials',label: 'Materials',      apply: function(d) { materialsSnapshot = d || []; localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot)); writeJobMirror('materials', activeJobId, materialsSnapshot); } }
 };
 
 // Replay the queue on reconnect. Before replaying, each queued collection
@@ -2517,7 +2733,7 @@ async function flushOfflineQueue() {
           opts.headers = { 'Content-Type': 'application/json' };
           opts.body = JSON.stringify(item.body);
         }
-        try { await fetch(item.path, opts); }
+        try { await netFetch(item.path, opts, NET_WRITE_TIMEOUT_MS); }
         catch (e) { serverAvailable = false; return; } // still offline — keep the rest queued
         // Sent (2xx or a server rejection — either way replaying the same
         // bytes again can't do better): off the queue.
@@ -2554,11 +2770,11 @@ async function apiPut(path, data) {
   }
   beginWrite();
   try {
-    const r = await fetch(path, {
+    const r = await netFetch(path, {
       method: 'PUT',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify(data)
-    });
+    }, NET_WRITE_TIMEOUT_MS);
     apiAuthExpired(r);
     serverAvailable = true;
     if (offlineQueue.length) flushOfflineQueue();
@@ -2577,7 +2793,7 @@ async function apiDelete(path) {
   }
   beginWrite();
   try {
-    const r = await fetch(path, { method: 'DELETE' });
+    const r = await netFetch(path, { method: 'DELETE' }, NET_WRITE_TIMEOUT_MS);
     apiAuthExpired(r);
     serverAvailable = true;
     if (offlineQueue.length) flushOfflineQueue();
@@ -2616,11 +2832,11 @@ async function apiPutStrict(path, data) {
   try {
     let r;
     try {
-      r = await fetch(path, {
+      r = await netFetch(path, {
         method: 'PUT',
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify(data)
-      });
+      }, NET_WRITE_TIMEOUT_MS);
     } catch (netErr) {
       serverAvailable = false;
       queueOfflineWrite('PUT', path, data);
@@ -2650,7 +2866,7 @@ async function apiDeleteStrict(path) {
   try {
     let r;
     try {
-      r = await fetch(path, { method: 'DELETE' });
+      r = await netFetch(path, { method: 'DELETE' }, NET_WRITE_TIMEOUT_MS);
     } catch (netErr) {
       serverAvailable = false;
       queueOfflineWrite('DELETE', path, null);
@@ -2682,6 +2898,9 @@ var pendingSaves = { rooms: null, colours: null, extItems: null, materials: null
 function saveRooms() {
   invalidateColourPlaceholders();
   localStorage.setItem('pe-rooms', JSON.stringify(rooms));
+  // ...and the per-job copy alongside it, so switching away and back in a
+  // dead spot finds this edit rather than the last successful fetch.
+  writeJobMirror('rooms', activeJobId, rooms);
   // One transactional replace-all request (see PUT /rooms in routes/api.js)
   // -- previously a DELETE followed by one PUT per room, which was O(rooms)
   // round trips per edit and could leave the server's copy empty if a PUT
@@ -2832,6 +3051,9 @@ function clearEverything() {
   localStorage.setItem('pe-extitems','[]');
   localStorage.setItem('pe-colours','[]');
   localStorage.setItem('pe-materials-snapshot','[]');
+  // Same for the per-job copy: this path writes the four keys directly
+  // instead of going through save*(), so nothing else would clear it.
+  writeJobMirrorAll(activeJobId, null);
   apiDelete('/api/all?job_id='+encodeURIComponent(activeJobId));
   var clearedJob = activeJob();
   if (clearedJob) clearedJob.kitchen = null;
@@ -4462,11 +4684,11 @@ function fillClientHistoryColours(jobId, cols) {
 // target per the spec), or its notes when opened from an access-notes row.
 function openPrevJob(id) {
   if (id === activeJobId) { goTab('summary'); return; }
-  switchJob(id).then(function() { goTab('summary'); });
+  switchJob(id).then(function(ok) { if (ok) goTab('summary'); });
 }
 function openPrevJobNotes(id) {
   if (id === activeJobId) { openNotesPanel(); return; }
-  switchJob(id).then(function() { openNotesPanel(); });
+  switchJob(id).then(function(ok) { if (ok) openNotesPanel(); });
 }
 
 function clientHistoryStatusLabel(j) {
@@ -4992,6 +5214,15 @@ async function initApp() {
   // it from the same pe-settings blob via mergeSettings(). Just paint it.
   loadSettings();
 
+  // The pe-* mirrors belong, by definition, to the job that was active when
+  // the app last closed. Remember which that is: the jobs fetch below can
+  // move activeJobId, and past that point these values are another job's.
+  var bootJobId = activeJobId;
+  // One-time migration for a phone upgrading to this build: it has the pe-*
+  // keys and no per-job copies, so give the job in hand one straight away
+  // rather than making it wait for the next successful load.
+  seedJobMirrorFromLegacy(bootJobId);
+
   rooms = JSON.parse(localStorage.getItem('pe-rooms') || '[]');
 
   var extLocal = JSON.parse(localStorage.getItem('pe-extitems')||'null');
@@ -5040,7 +5271,7 @@ async function initApp() {
         // Truly empty jobs table — create a first job so rooms/colours/etc
         // below always have somewhere valid to belong to.
         var firstJob = { id: uid(), name: 'My Job' };
-        await fetch('/api/jobs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(firstJob) });
+        await netFetch('/api/jobs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(firstJob) }, NET_WRITE_TIMEOUT_MS);
         jobs = [firstJob];
         activeJobId = firstJob.id;
         localStorage.setItem('pe-jobs', JSON.stringify(jobs));
@@ -5080,6 +5311,19 @@ async function initApp() {
     // so a missing table on a not-yet-migrated DB (or one flaky request)
     // only loses that one fetch, never the rest.
     var syncJobId = activeJobId;
+    // A startup fetch that fails keeps whatever Step 1 loaded -- correct, and
+    // the long-standing behaviour, while the active job hasn't moved. But the
+    // jobs fetch above CAN move it (the stored job was deleted elsewhere), and
+    // past that point Step 1's values are a different job's rows sitting under
+    // this job's id: shown as its measurements, and written there by the first
+    // edit. So when the job has changed, take this job's own offline copy, or
+    // nothing at all -- never the other job's.
+    var bootFallback = function(coll, legacyKey, assign) {
+      if (syncJobId === bootJobId) return;
+      var mine = readJobMirror(coll, syncJobId) || [];
+      assign(mine);
+      localStorage.setItem(legacyKey, JSON.stringify(mine));
+    };
     // Bank holidays for the Schedule calendar — fire-and-forget like the
     // Xero sync above: it re-renders the schedule itself if that's the
     // open screen, and everything below is independent of it.
@@ -5102,20 +5346,27 @@ async function initApp() {
       apiGet('/api/rooms?job_id='+encodeURIComponent(syncJobId)).then(function(serverRooms) {
         rooms = serverRooms || [];
         localStorage.setItem('pe-rooms', JSON.stringify(rooms));
+        writeJobMirror('rooms', syncJobId, rooms);
         noteServerCopy('rooms', syncJobId, rooms);
         renderHome();
       }).catch(function(e) {
         console.log('Rooms fetch failed — running from local cache:', e.message);
+        bootFallback('rooms', 'pe-rooms', function(v) { rooms = v; });
+        renderHome();
       }),
       // Exterior items
       apiGet('/api/extitems?job_id='+encodeURIComponent(syncJobId)).then(function(extData) {
         extItems = extData || [];
         localStorage.setItem('pe-extitems', JSON.stringify(extItems));
+        writeJobMirror('extitems', syncJobId, extItems);
         noteServerCopy('extitems', syncJobId, extItems);
         renderExterior();
         renderSummary();
       }).catch(function(e) {
         console.log('Exterior items fetch failed — running from local cache:', e.message);
+        bootFallback('extitems', 'pe-extitems', function(v) { extItems = v; });
+        renderExterior();
+        renderSummary();
       }),
       // Colours + colour library -- ensureDefaultColour()/renderColours()
       // must run after BOTH (and run either way, so colour 1 is ready
@@ -5125,9 +5376,11 @@ async function initApp() {
         apiGet('/api/colours?job_id='+encodeURIComponent(syncJobId)).then(function(colourData) {
           colours = colourData || [];
           localStorage.setItem('pe-colours', JSON.stringify(colours));
+          writeJobMirror('colours', syncJobId, colours);
           noteServerCopy('colours', syncJobId, colours);
         }).catch(function(e) {
           console.log('Colours fetch failed — running from local cache:', e.message);
+          bootFallback('colours', 'pe-colours', function(v) { colours = v; });
         }),
         // colour_library is global/permanent (not job-scoped), so unlike
         // rooms/colours there's no "clear if empty" case to worry about,
@@ -5148,9 +5401,11 @@ async function initApp() {
       apiGet('/api/materials?job_id='+encodeURIComponent(syncJobId)).then(function(materialsData) {
         materialsSnapshot = materialsData || [];
         localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot));
+        writeJobMirror('materials', syncJobId, materialsSnapshot);
         noteServerCopy('materials', syncJobId, materialsSnapshot);
       }).catch(function(e) {
         console.log('Materials snapshot fetch failed — running from local cache:', e.message);
+        bootFallback('materials', 'pe-materials-snapshot', function(v) { materialsSnapshot = v; });
       }),
       // Material actuals -- loaded eagerly (not just when Materials is
       // opened) so the hamburger badge is correct from the very first paint.
@@ -5544,11 +5799,31 @@ function activeJob() {
 // Loads the active job's rooms/exterior items/colours/materials into
 // memory from the server and re-renders. Same shape as the corresponding
 // isolated try/catch blocks in initApp(), reused on every job switch.
+// Returns TRUE if this phone ended up holding real data for the job -- from
+// the server, or from the per-job mirror when the server couldn't be reached.
+// FALSE means neither: no signal, and a job that has never been opened here,
+// so every collection is [] not because the job is empty but because nothing
+// answered. switchJob() treats that as a refusal rather than showing an empty
+// job the next edit would then PUT over the server's real one.
 async function loadActiveJobData() {
   // The five fetches are independent of one another -- run them
   // concurrently (one round trip of latency per switch instead of five).
   // Each keeps its own isolated failure handling, same as before.
   var jobId = activeJobId;
+  // Set by whichever branches got real data, from either source.
+  var known = {};
+  // A failed fetch used to drop straight to [] and leave the pe-* mirror
+  // holding the PREVIOUS job's rows. Take this job's own copy instead, and
+  // write the pe-* mirror either way so it always describes the job named in
+  // pe-active-job-id -- a cold relaunch reads it before anything else.
+  var offlineCopy = function(coll, legacyKey, assign) {
+    return function() {
+      var mine = readJobMirror(coll, jobId);
+      known[coll] = mine !== null;
+      assign(mine || []);
+      localStorage.setItem(legacyKey, JSON.stringify(mine || []));
+    };
+  };
   // Cleared before the fetches, not after: quoteSnapshotsJobId is what every
   // frozen-quote accessor checks, and leaving the OLD job's id on it for the
   // duration of the round trip would let the new job render the old one's
@@ -5558,23 +5833,31 @@ async function loadActiveJobData() {
     apiGet('/api/rooms?job_id='+encodeURIComponent(jobId)).then(function(d) {
       rooms = d || [];
       localStorage.setItem('pe-rooms', JSON.stringify(rooms));
+      writeJobMirror('rooms', jobId, rooms);
       noteServerCopy('rooms', jobId, rooms);
-    }).catch(function() { rooms = []; }),
+      known.rooms = true;
+    }).catch(offlineCopy('rooms', 'pe-rooms', function(v) { rooms = v; })),
     apiGet('/api/extitems?job_id='+encodeURIComponent(jobId)).then(function(d) {
       extItems = d || [];
       localStorage.setItem('pe-extitems', JSON.stringify(extItems));
+      writeJobMirror('extitems', jobId, extItems);
       noteServerCopy('extitems', jobId, extItems);
-    }).catch(function() { extItems = []; }),
+      known.extitems = true;
+    }).catch(offlineCopy('extitems', 'pe-extitems', function(v) { extItems = v; })),
     apiGet('/api/colours?job_id='+encodeURIComponent(jobId)).then(function(d) {
       colours = d || [];
       localStorage.setItem('pe-colours', JSON.stringify(colours));
+      writeJobMirror('colours', jobId, colours);
       noteServerCopy('colours', jobId, colours);
-    }).catch(function() { colours = []; }),
+      known.colours = true;
+    }).catch(offlineCopy('colours', 'pe-colours', function(v) { colours = v; })),
     apiGet('/api/materials?job_id='+encodeURIComponent(jobId)).then(function(d) {
       materialsSnapshot = d || [];
       localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot));
+      writeJobMirror('materials', jobId, materialsSnapshot);
       noteServerCopy('materials', jobId, materialsSnapshot);
-    }).catch(function() { materialsSnapshot = []; }),
+      known.materials = true;
+    }).catch(offlineCopy('materials', 'pe-materials-snapshot', function(v) { materialsSnapshot = v; })),
     // Actuals are job-scoped too, and don't live in localStorage (see the "no
     // localStorage mirror" note in MATERIAL_TRACKING_SPEC.md) -- load them here
     // as well, so switching jobs updates the hamburger badge to the NEW job's
@@ -5610,6 +5893,7 @@ async function loadActiveJobData() {
   restoreJobIdentityFields();
   renderHome(); renderExterior(); renderColours(); renderSummary(); renderDash();
   updateNavBadge();
+  return JOB_MIRROR_COLLS.some(function(c) { return known[c]; });
 }
 
 // Switches the active job: flushes the OLD job's in-flight saves first
@@ -5642,7 +5926,10 @@ function restoreJobIdentityFields() {
 }
 
 async function switchJob(id) {
-  if (id === activeJobId) return;
+  // Already there: TRUE, not undefined. Callers gate their follow-on
+  // navigation on the return value now, and tapping the job you are already
+  // on still has to take you to it.
+  if (id === activeJobId) return true;
   if (serverAvailable) {
     // Every edit path already flushed via its save*() as the edit happened,
     // so the server is current -- awaiting the recorded in-flight promises
@@ -5656,31 +5943,92 @@ async function switchJob(id) {
     // new job's data below.
     await Promise.all([saveRooms(), saveColours(), saveExtItems(), saveMaterialsSnapshot()]);
   }
+  var leaving = activeJobId;
   activeJobId = id;
+  localStorage.setItem('pe-active-job-id', activeJobId);
+  if (await loadActiveJobData()) {
+    renderJobs();
+    goTab('dash');
+    return true;
+  }
+  // Nothing came back from the server AND this phone has never held this
+  // job, so every collection is [] for want of an answer rather than because
+  // the job is empty. Landing here would be the dangerous outcome: measure
+  // into it and the queued PUT replaces the job's real rooms on the server
+  // the moment signal returns. Go back to the job we were on -- which does
+  // have a copy, or we would not have been on it -- and say so plainly.
+  activeJobId = leaving;
   localStorage.setItem('pe-active-job-id', activeJobId);
   await loadActiveJobData();
   renderJobs();
-  goTab('dash');
+  var name = (jobs.filter(function(j) { return j.id === id; })[0] || {}).name;
+  alert('Can\u2019t open ' + (name ? '\u201c' + name + '\u201d' : 'that job') + ' \u2014 there\u2019s no signal and this phone hasn\u2019t got a copy of it.\n\nA job is saved for offline use once you\u2019ve opened it in signal at least once. You\u2019re still on \u201c' + ((activeJob() || {}).name || 'your last job') + '\u201d and nothing has changed.');
+  return false;
 }
 
+// Both of these used to be a BARE `await fetch(...)`, which meant that with no
+// signal the fetch rejected and every line below it -- the local jobs list,
+// its localStorage mirror, the switch -- never ran. So a job could not be
+// STARTED off-signal at all: you arrive at a new house in a dead spot, type
+// the name, and nothing happens. Pulling up outside a house is exactly when a
+// job gets created, and it's the one thing the whole offline story rests on,
+// since every room measured afterwards has to belong to a job.
+//
+// The id is client-generated (uid()) and the local copy is authoritative from
+// the moment it's named, so queueing the write costs nothing: the row the
+// server creates on reconnect is the same row this phone has been filling in
+// all along. A server that ANSWERS and refuses still throws, as before --
+// that's a real error, not a dead spot.
 async function createJob(name) {
   name = (name || '').trim();
   if (!name) return;
   var job = { id: uid(), name: name };
-  await fetch('/api/jobs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(job) });
+  try {
+    await netFetch('/api/jobs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(job) }, NET_WRITE_TIMEOUT_MS);
+    serverAvailable = true;
+  } catch (e) {
+    if (!isNetworkFailure(e)) throw e;
+    serverAvailable = false;
+    // Keyed by job id: see queueOfflineWrite. Two jobs created in one dead
+    // spot must both reach the server.
+    queueOfflineWrite('POST', '/api/jobs', job, 'POST /api/jobs#' + job.id);
+  }
   jobs.unshift(job);
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  // Seed the mirror before switching. A brand-new job genuinely IS empty, and
+  // this phone is the only place that knows it exists yet -- without this,
+  // switchJob() would find nothing on the server, nothing on the phone, and
+  // bounce straight back off the job it just made.
+  writeJobMirrorAll(job.id, null);
   await switchJob(job.id);
 }
 
 async function deleteJob(id) {
   if (!confirm('Delete this job and everything in it? This cannot be undone.')) return;
-  await fetch('/api/jobs/'+id, { method:'DELETE' });
+  try {
+    await netFetch('/api/jobs/'+id, { method:'DELETE' }, NET_WRITE_TIMEOUT_MS);
+    serverAvailable = true;
+  } catch (e) {
+    if (!isNetworkFailure(e)) throw e;
+    serverAvailable = false;
+    // The path carries the id, so the default key is already per-job. A
+    // create-then-delete in the same dead spot replays in order and nets out.
+    queueOfflineWrite('DELETE', '/api/jobs/'+id, null);
+  }
   jobs = jobs.filter(function(j){ return j.id !== id; });
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  dropJobMirror(id);
   if (id === activeJobId) {
     if (jobs.length > 0) {
-      activeJobId = jobs[0].id;
+      // Deleting the job you were on has to land you somewhere, and unlike a
+      // switch there is nothing to go back to. Offline that makes the CHOICE
+      // of landing job matter: jobs[0] (most recently updated) may be one this
+      // phone has never held, which would open empty and set up the same
+      // destructive PUT switchJob() refuses. Prefer the most recent job there
+      // IS a copy of; with no signal and no copy of any of them, jobs[0] is
+      // still the honest answer and the sync dot is already red.
+      var landable = jobs.filter(function(j) { return hasJobMirror(j.id); })[0];
+      activeJobId = (landable || jobs[0]).id;
       localStorage.setItem('pe-active-job-id', activeJobId);
       await loadActiveJobData();
     } else {
@@ -6446,12 +6794,12 @@ function flushPendingSnapshots() {
       var item = pendingQuoteSnapshots[0];
       beginWrite();
       try {
-        var resp = await fetch('/api/quote-snapshots', {
+        var resp = await netFetch('/api/quote-snapshots', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ jobId: item.jobId, data: item.data, acceptedAt: item.acceptedAt,
                                  reconciliationLevel: item.reconciliationLevel, note: item.note })
-        });
+        }, NET_WRITE_TIMEOUT_MS);
         if (resp.status === 409) {
           // Another device claimed this version number. The server derives
           // versions itself, so a straight retry gets the next free one --
@@ -6459,12 +6807,12 @@ function flushPendingSnapshots() {
           // can't spin.
           serverAvailable = true;
           await loadQuoteSnapshots(item.jobId).catch(function() {});
-          resp = await fetch('/api/quote-snapshots', {
+          resp = await netFetch('/api/quote-snapshots', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ jobId: item.jobId, data: item.data, acceptedAt: item.acceptedAt,
                                    reconciliationLevel: item.reconciliationLevel, note: item.note })
-          });
+          }, NET_WRITE_TIMEOUT_MS);
         }
         serverAvailable = true;
         if (!resp.ok) {
@@ -12003,6 +12351,7 @@ var materialsSnapshot = [];
 
 function saveMaterialsSnapshot() {
   localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot));
+  writeJobMirror('materials', activeJobId, materialsSnapshot);
   var jobId = activeJobId, payload = materialsSnapshot;
   pendingSaves.materials = apiPut('/api/materials?job_id='+encodeURIComponent(jobId), { lines: materialsSnapshot })
     .then(function() { if (serverAvailable) noteServerCopy('materials', jobId, payload); });
@@ -14329,19 +14678,19 @@ async function openActuals() {
     // "no rows" should ever empty the log.
     await Promise.all([
       loadMaterialActuals(),
-      loadLabourLog().catch(function(e) { if (!(e instanceof TypeError)) labourLog = []; }),
+      loadLabourLog().catch(function(e) { if (!isNetworkFailure(e)) labourLog = []; }),
       // Snags are tolerant for the same reason as the labour log: a database
       // that has material_actuals but not yet snags (the table is created
       // lazily on first use) must still show the materials screen.
-      loadSnags().catch(function(e) { if (!(e instanceof TypeError)) snags = []; }),
-      loadSnagRooms().catch(function(e) { if (!(e instanceof TypeError)) snagRooms = []; })
+      loadSnags().catch(function(e) { if (!isNetworkFailure(e)) snags = []; }),
+      loadSnagRooms().catch(function(e) { if (!isNetworkFailure(e)) snagRooms = []; })
     ]);
   } catch (e) {
     // Offline (fetch itself failed, not the server refusing): the copies
     // loaded at startup/last visit are still in memory, and every edit
     // queues + flushes on reconnect — being on site with no signal is
     // exactly when this screen is needed most, so render, don't refuse.
-    if (!navigator.onLine || e instanceof TypeError || !serverAvailable) {
+    if (!navigator.onLine || isNetworkFailure(e) || !serverAvailable) {
       renderActuals();
       return;
     }
@@ -15576,6 +15925,7 @@ var colourLibrary = [];
 function saveColours() {
   invalidateColourPlaceholders();
   localStorage.setItem('pe-colours', JSON.stringify(colours));
+  writeJobMirror('colours', activeJobId, colours);
   var jobId = activeJobId;
   var payload = colours.map(function(c) { return { number: c.number, label: c.label, brand: c.brand||'', code: c.code||'' }; });
   pendingSaves.colours = apiPut('/api/colours?job_id='+encodeURIComponent(jobId), { colours: payload })
@@ -18622,6 +18972,7 @@ function clearExteriorItems() {
   if(!confirm('Clear all exterior items?')) return;
   extItems=[];
   localStorage.setItem('pe-extitems','[]');
+  writeJobMirror('extitems', activeJobId, []);
   apiDelete('/api/extitems?job_id='+encodeURIComponent(activeJobId));
   renderExterior();
 }
@@ -18629,6 +18980,7 @@ function clearExteriorItems() {
 function saveExtItems() {
   invalidateColourPlaceholders();
   localStorage.setItem('pe-extitems', JSON.stringify(extItems));
+  writeJobMirror('extitems', activeJobId, extItems);
   var jobId = activeJobId, payload = extItems;
   pendingSaves.extItems = apiPut('/api/extitems?job_id='+encodeURIComponent(jobId), { items: extItems })
     .then(function() { if (serverAvailable) noteServerCopy('extitems', jobId, payload); });
@@ -19197,7 +19549,7 @@ function renderAttentionStrip() {
 // status card holds the action the line is nagging about (chase → the
 // quoted card, invoice → Mark Invoiced).
 function attentionOpenJob(jobId) {
-  if (jobId !== activeJobId) { switchJob(jobId).then(function() { goTab('summary'); }); }
+  if (jobId !== activeJobId) { switchJob(jobId).then(function(ok) { if (ok) goTab('summary'); }); }
   else goTab('summary');
 }
 
@@ -24689,13 +25041,26 @@ if (window.ResizeObserver) {
 initApp();
 
 // Service worker: offline app shell + installability (see public/sw.js).
-// Registered after load so it never competes with the startup fetches.
+//
+// Kept off the critical path, but NO LONGER GATED ON window 'load'. 'load'
+// waits for every subresource on the page, including the third-party font
+// stylesheet -- so on precisely the connection this worker exists to survive
+// (a dead spot: signal, no throughput, requests that hang rather than fail)
+// 'load' could be a minute away or never arrive at all, and the phone that
+// most needed an offline copy of the app was the one least likely to have
+// registered the worker that makes one. Whichever comes first now, the event
+// or a short timer; the guard makes the loser a no-op.
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', function() {
+  var registerSW = function() {
+    if (registerSW.done) return;
+    registerSW.done = true;
     navigator.serviceWorker.register('/sw.js').catch(function(e) {
       console.log('Service worker registration failed:', e.message);
     });
-  });
+  };
+  if (document.readyState === 'complete') registerSW();
+  else window.addEventListener('load', registerSW);
+  setTimeout(registerSW, 2500);
 }
 </script>
 </body>
