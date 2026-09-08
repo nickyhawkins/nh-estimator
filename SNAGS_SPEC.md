@@ -1,4 +1,4 @@
-# Snags — the job's punch list (v2.50.0, colours v2.51.0, per-surface v2.52.0, cleared-last + PDF v2.58.0)
+# Snags — the job's punch list (v2.50.0, colours v2.51.0, per-surface v2.52.0, cleared-last + PDF v2.58.0, folding groups v2.63.0)
 
 A per-job snag list on the On Site tab. Snags are grouped by room, entered
 one at a time or pasted in bulk, sequenced by phase, and synced offline like
@@ -150,6 +150,36 @@ what gets said out loud, so that is all this shows — "Master Bedroom — Dead
 Salmon", or "Walls Dead Salmon · Ceiling All White · Woodwork Wimborne White"
 where the surfaces differ. An undecided colour shows nothing at all rather
 than "To be confirmed", which on a working list is noise.
+
+**Folding (v2.63.0).** Every group heading — a room in the default view, a
+phase in the flattened one — is a tap target that folds its rows away, with a
+chevron on the right. A folded group still carries its label, its colours and
+its count (`2 open`, or `all done ✓`), so nothing the heading was telling you
+is lost by folding it; the `+ colour` chip inside the heading stops the click
+reaching the fold, since tapping a colour is not tapping the room.
+
+The default follows the same rule the section itself follows: a group with
+nothing left open is folded, a group with work in it is open. That way a
+forty-snag house opens as the rooms still needing something rather than as
+everything ever written down. The exception is a job with **nothing** open
+anywhere — the cleared record is only on screen because someone deliberately
+expanded it, so there every group opens.
+
+A tap is remembered and beats the default in both directions, which is what
+makes the fold safe to leave on: ticking a room's last snag off cannot fold it
+out from under the person who opened it. So can a group holding the open row
+editor, which always renders open — folding a room out from under a half-typed
+edit reads as a lost edit. `Fold all` beside the view toggle does the lot in
+one tap and becomes `Open all` once everything is folded.
+
+State lives in `snagCollapsed`, keyed by **view and group key** so a room and a
+phase of the same name cannot share a fold, and holding only groups the user
+has actually tapped — everything else falls through to the default above. It is
+per visit and never stored: where a room was folded is worth about as much
+tomorrow as where the screen was scrolled to. It is cleared on a job switch,
+alongside `snagEditId`, because room labels repeat across jobs and a tap made
+on one job's Landing must not fold another's. Held by
+`npm run test:snags`.
 
 ## Adding snags
 

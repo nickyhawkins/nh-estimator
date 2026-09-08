@@ -670,7 +670,10 @@ The last few days of a job are a list of small things: a scuff by the switch, a 
 - **Ticking one off doesn't remove it — it drops to the bottom.** The row goes struck through with the date you cleared it and stays on the list, which is the point: at the end of the job the list *is* the evidence of what got done. But it moves below everything still open in that room, so three weeks in, with thirty things ticked off, the handful you've still got to do are the ones at the top rather than scattered through them. A room where everything's cleared drops below the rooms that still have work in them, and the same rule applies in the **By phase** view. Untick anything you tick by mistake and it goes straight back up where it was.
 - **Phase** on each row (the little dropdown) is the pass it belongs to — Prep, Stain block, Woodwork, Walls, Ceiling, Details, Final access. Set it and the room re-sorts itself into working order, with anything that blocks the space once it's done (floor cleans, stair recoats) last. Snags with no phase yet sit at the top of their room so they're not forgotten.
 - **By room / By phase.** The toggle flattens the whole house into phase order instead — every stain-block job in the building together, so you get the stain block out once. Room order is what it opens on.
+- **Every group folds.** Tap a room heading (or a phase heading in the other view) and its snags fold away, leaving the heading, its colours and its count — *2 open*, or *all done ✓*. Tap it again to open it back up. A room you've finished with is folded to start with, so a forty-snag house opens as the rooms that still have work in them. Once you've tapped a heading yourself your choice sticks for the rest of the visit — the app won't fold a room back up under you when you tick its last snag off. **Fold all** (beside the toggle) folds the lot in one go and turns into **Open all**. Folding rooms doesn't touch the **By phase** view, or the other way round, and none of it is remembered between visits.
 - **PDF** (next to **+ Add snag**) saves the list as it stands right now — see below.
+
+![Three rooms folded down to their headings, the room in hand left open](images/10b2-snags-folded.png)
 
 #### The snag list as a PDF
 
@@ -908,6 +911,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.62.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.63.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

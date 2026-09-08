@@ -5884,6 +5884,10 @@ async function loadActiveJobData() {
   applyClientVariationAnswers(jobId);
   ensureDefaultColour();
   snagEditId = null;      // an open snag editor belongs to the job it opened in
+  // Folded snag groups are keyed by room label, and two jobs can easily both
+  // have a Landing -- carrying the map over would fold the new job's rooms on
+  // the strength of a tap made in the old one.
+  snagCollapsed = {};
   matReorderMode = false; // reorder mode is per-visit, not per-job state
   measureReorderMode = false; // ditto, for the Measure lists
   // Undo is scoped to one job's materials/actuals, and the lists it restores
@@ -13940,8 +13944,41 @@ function unmeasuredSnagRooms() {
 var snagView = 'rooms';       // 'rooms' | 'phases' -- per visit, not stored
 var snagsExpanded = false;    // only used once everything is cleared
 
+// Which groups the user has folded shut, by view and group key. Per visit and
+// not stored: the answer to "is this room folded" is worth about as much
+// tomorrow as where you last scrolled to. Only groups the user has actually
+// tapped appear here -- everything else falls through to the default in
+// snagGroupCollapsed, so the map stays a record of choices, not of state.
+var snagCollapsed = {};
+
 function setSnagView(v) { snagView = v; renderActuals(); }
 function toggleSnagsExpanded() { snagsExpanded = !snagsExpanded; renderActuals(); }
+
+function snagGroupStateKey(g) { return snagView + ':' + g.key; }
+
+// Untapped, a group is open while it still has work in it and folded once it
+// hasn't -- the same rule the section itself follows when the last snag is
+// ticked off. The exception is a job with nothing open anywhere: that list is
+// only ever on screen because someone opened the cleared record deliberately,
+// and handing them a column of shut headings would be answering a question
+// they already asked.
+function snagGroupCollapsed(g) {
+  var k = snagGroupStateKey(g);
+  if (Object.prototype.hasOwnProperty.call(snagCollapsed, k)) return !!snagCollapsed[k];
+  return openSnagCount() > 0 && !g.items.some(snagIsOpen);
+}
+
+function toggleSnagGroup(i) {
+  var g = snagGroupsCache[i];
+  if (!g) return;
+  snagCollapsed[snagGroupStateKey(g)] = !snagGroupCollapsed(g);
+  renderActuals();
+}
+
+function setAllSnagGroups(collapsed) {
+  snagGroupsForView().forEach(function(g) { snagCollapsed[snagGroupStateKey(g)] = collapsed; });
+  renderActuals();
+}
 
 function snagRoomOptionsHtml(selected, includeCustom) {
   var areas = snagAreas();
@@ -14010,26 +14047,34 @@ function snagRowHtml(s, showRoom) {
     + '</div></div>';
 }
 
-// The room heading, with that room's recorded colours beside it where the
-// label matches a real area. Same subsection-label style the Colours tab
-// groups its areas with, so the two screens read the same way.
-function snagGroupHeadHtml(g, i) {
-  var measured = !!snagAreaFor(g.label);
-  var colour = snagGroupColour(g.label);
-  // A measured room's colour is read-only here -- it belongs to the Colours
-  // tab and this is just showing it. A group with no measured room behind it
-  // has nowhere else to be coloured, so it gets a tappable chip that writes
-  // its own carrier (see snag_rooms).
-  var colourHtml = measured
-    ? (colour ? ' <span style="text-transform:none;letter-spacing:0;font-weight:600;color:var(--accent)">— ' + escapeHtml(colour) + '</span>' : '')
-    : ' <button onclick="openSnagColourPanel(' + i + ')" style="background:none;border:none;padding:0 2px;cursor:pointer;font-family:\'DM Sans\',sans-serif;text-transform:none;letter-spacing:0;font-weight:600;font-size:11px;color:'
-        + (colour ? 'var(--accent)' : 'var(--text3)') + '">'
-        + (colour ? '— ' + escapeHtml(colour) : '+ colour') + '</button>';
+// The group heading -- a room, or a phase in the flattened view -- and the tap
+// target that folds its snags away. In the room view it also carries that
+// room's recorded colours, where the label matches a real area. Same
+// subsection-label style the Colours tab groups its areas with, so the two
+// screens read the same way.
+function snagGroupHeadHtml(g, i, collapsed) {
+  var colourHtml = '';
+  if (snagView !== 'phases') {
+    var measured = !!snagAreaFor(g.label);
+    var colour = snagGroupColour(g.label);
+    // A measured room's colour is read-only here -- it belongs to the Colours
+    // tab and this is just showing it. A group with no measured room behind it
+    // has nowhere else to be coloured, so it gets a tappable chip that writes
+    // its own carrier (see snag_rooms). That chip sits inside the heading's own
+    // tap target, so it has to stop the click reaching the fold.
+    colourHtml = measured
+      ? (colour ? ' <span style="text-transform:none;letter-spacing:0;font-weight:600;color:var(--accent)">— ' + escapeHtml(colour) + '</span>' : '')
+      : ' <button onclick="event.stopPropagation();openSnagColourPanel(' + i + ')" style="background:none;border:none;padding:0 2px;cursor:pointer;font-family:\'DM Sans\',sans-serif;text-transform:none;letter-spacing:0;font-weight:600;font-size:11px;color:'
+          + (colour ? 'var(--accent)' : 'var(--text3)') + '">'
+          + (colour ? '— ' + escapeHtml(colour) : '+ colour') + '</button>';
+  }
   var openN = g.items.filter(snagIsOpen).length;
-  return '<div class="subsection-label" style="display:flex;align-items:baseline;gap:10px">'
+  return '<div class="subsection-label" style="display:flex;align-items:center;gap:10px;padding-bottom:10px;cursor:pointer;user-select:none"'
+      + ' onclick="toggleSnagGroup(' + i + ')">'
     + '<span style="flex:1;min-width:0">' + escapeHtml(g.label) + colourHtml + '</span>'
     + '<span style="flex:none;text-transform:none;letter-spacing:0;font-weight:600;color:var(--text3)">'
       + (openN ? openN + ' open' : 'all done ✓') + '</span>'
+    + '<span class="sec-chev' + (collapsed ? '' : ' open') + '" style="font-size:16px">›</span>'
     + '</div>';
 }
 
@@ -14038,17 +14083,21 @@ function snagGroupHeadHtml(g, i) {
 // onclick. Same trick as actualsRowsCache.
 var snagGroupsCache = [];
 
+function snagGroupsForView() {
+  return snagView === 'phases' ? snagPhaseGroups(snags) : snagRoomGroups(snags);
+}
+
 function snagListHtml() {
-  var groups = snagView === 'phases' ? snagPhaseGroups(snags) : snagRoomGroups(snags);
+  var groups = snagGroupsForView();
   snagGroupsCache = groups;
   return '<div class="card" style="overflow:visible">' + groups.map(function(g, i) {
-    return (snagView === 'phases'
-        ? '<div class="subsection-label" style="display:flex;align-items:baseline;gap:10px">'
-            + '<span style="flex:1;min-width:0">' + escapeHtml(g.label) + '</span>'
-            + '<span style="flex:none;text-transform:none;letter-spacing:0;font-weight:600;color:var(--text3)">'
-            + g.items.filter(snagIsOpen).length + ' open</span></div>'
-        : snagGroupHeadHtml(g, i))
-      + g.items.map(function(s) { return snagRowHtml(s, snagView === 'phases'); }).join('');
+    // A group holding the open editor stays open whatever the fold says --
+    // folding a room from underneath a half-typed snag would look like the
+    // edit had been thrown away.
+    var editing = snagEditId && g.items.some(function(s) { return s.id === snagEditId; });
+    var collapsed = !editing && snagGroupCollapsed(g);
+    return snagGroupHeadHtml(g, i, collapsed)
+      + (collapsed ? '' : g.items.map(function(s) { return snagRowHtml(s, snagView === 'phases'); }).join(''));
   }).join('') + '</div>';
 }
 
@@ -14056,6 +14105,12 @@ function snagListHtml() {
 function snagsSectionHtml() {
   var openN = openSnagCount();
   if (!snags.length || !openN) return '';
+  // Fold all / Open all: one tap for the lot, beside the view switch, because
+  // on a forty-snag house the point of folding is to get down to the room
+  // you're standing in and folding nine rooms by hand to do that isn't it.
+  // Anything still open folds everything; only once the screen is all
+  // headings does the button offer to open them again.
+  var anyExpanded = snagGroupsForView().some(function(g) { return !snagGroupCollapsed(g); });
   return '<div class="section-title" style="margin:16px 0 8px;display:flex;align-items:center;justify-content:space-between;gap:10px">'
       + '<span>Snags (' + openN + ')</span>'
       + '<span style="display:flex;gap:6px;flex:none">'
@@ -14063,9 +14118,13 @@ function snagsSectionHtml() {
       + '<button onclick="openSnagPanel()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:20px;padding:5px 12px;font-size:12px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;text-transform:none;letter-spacing:0">+ Add snag</button>'
       + '</span>'
     + '</div>'
-    + '<div class="seg" style="margin-bottom:8px">'
-      + '<button class="seg-btn' + (snagView === 'rooms' ? ' active' : '') + '" style="padding:6px 4px;font-size:13px" onclick="setSnagView(\'rooms\')">By room</button>'
-      + '<button class="seg-btn' + (snagView === 'phases' ? ' active' : '') + '" style="padding:6px 4px;font-size:13px" onclick="setSnagView(\'phases\')">By phase</button>'
+    + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
+      + '<div class="seg" style="flex:1;min-width:0">'
+        + '<button class="seg-btn' + (snagView === 'rooms' ? ' active' : '') + '" style="padding:6px 4px;font-size:13px" onclick="setSnagView(\'rooms\')">By room</button>'
+        + '<button class="seg-btn' + (snagView === 'phases' ? ' active' : '') + '" style="padding:6px 4px;font-size:13px" onclick="setSnagView(\'phases\')">By phase</button>'
+      + '</div>'
+      + '<button onclick="setAllSnagGroups(' + (anyExpanded ? 'true' : 'false') + ')" style="flex:none;background:var(--surface2);border:1px solid var(--border);color:var(--text2);border-radius:20px;padding:6px 12px;font-size:12px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer">'
+        + (anyExpanded ? 'Fold all' : 'Open all') + '</button>'
     + '</div>'
     + snagListHtml();
 }
