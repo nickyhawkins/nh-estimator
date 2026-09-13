@@ -1520,3 +1520,94 @@ allocation actually being made, a typed buffer splitting across both jars, and
 — line by line — an allocation with nothing typed being untouched.
 `test:borrowing` 41, `test:extra-payments` 50, `test:custom-payments` 46,
 `test:minimums` 47, `test:arrears` 29 and `test:buffer` 51 green alongside.
+
+---
+
+## Feature 20 — The pot the money is actually needed in — BUILT (v2.65.0)
+
+Two things asked for together.
+
+### 1. Fill the pot whose bill lands first
+
+*"The pots need to fill up to cover the bills due soonest. No point adding
+more to the personal pot if the business pot has a bill due."*
+
+Minimums were already funded that way: `commitmentQueue()` walks this cycle's
+payments in `paymentPriority` order — arrears first, then earliest due — and
+funds each one from whichever account it belongs to. The **top-up toward
+targets** was not. It took the sweep and divided it between the two pots **in
+proportion to what each was short of its cycle total**, which ignores the
+calendar completely: a business bill due on the 3rd and a personal one due on
+the 28th filled at the same rate, and a week's money went into the personal pot
+while the business pot was still short for a bill that lands three weeks
+earlier.
+
+The sweep now walks a queue of its own, `targetQueue()` — what each payment
+still wants **on top of** its contractual minimum (the minimum having been
+funded by step 1 already), in exactly the same order — and fills the pot each
+one is paid from, stopping at what that payment actually wants. So the pots
+fill in the order the bills arrive, and a pot is never topped up past the bill
+it is being kept for while another bill goes short.
+
+In the snowball phase this changes nothing by construction: the plan aims its
+whole discretionary spend at one debt, so only that debt's account ever wants
+money above its minimums and there is nothing for an ordering rule to choose
+between. It bites during **arrears catch-up**, where several debts across both
+accounts want money at once — which is the whole of the current plan.
+
+**A sweep bigger than every bill this cycle is still swept into a pot**, not
+kept back. That is not an oversight: a pot with money left once the checklist
+is done is exactly what the surplus button sends at the current target, and
+clearing a debt early is the point of the plan. But that button can only spend
+the pot the target debt is paid from (`applySurplus()` reads `bizPot` or
+`perPot` by the target's account), so a surplus in the *other* pot is money the
+plan cannot reach. It now goes to the account of the debt the plan is currently
+clearing, and only failing that (no target left at all) is it divided by the
+size of each account's cycle.
+
+### 2. Correcting a pot by hand settles what was borrowed from it
+
+*"Should manually adjusting the pot totals adjust any money owed to the pot?"*
+— yes, when the pot is being **raised** and something is owed to it.
+
+Putting money back into a pot by hand is the same act a pay-in performs when it
+repays a pot loan (Feature 18): the money is in the pot again. Nothing
+connected the two, so raising a pot you had borrowed from left the loan open
+and **the next pay-in took the same money off the top a second time** — the pot
+ended up holding twice what was borrowed, living money paid for it twice, and
+nothing on screen said so.
+
+It is **asked, not assumed**, because a correction and a repayment look
+identical in the balance and mean opposite things: the figure might be going up
+because you moved the money back, or because the app's number was wrong all
+along and the borrowing is still owed. Both hand-edit modals — **Adjust pot
+balances** (business, personal, both buffer jars) and **Adjust savings
+balance** — now show what is owed to any pot being edited, offer *I moved it
+back* / *Just a correction*, and say in a line underneath exactly what saving
+will do. The default counts it, because that is the reading where getting it
+wrong is silent.
+
+What it settles is the **rise only**, capped at what is owed, oldest borrowing
+first, and only against the pot that was raised (`potRepayPlan(amt, pot)`).
+The loans are marked without moving any money — `applyPotRepay(plan, 1, false)`
+— because the money is already in the balance the user typed; moving it again
+would put it in twice, which is the bug in the other direction. **Lowering** a
+pot settles nothing and records no new borrowing: money leaving a pot by hand
+is not a loan the app has any record of, and inventing one would be worse than
+leaving the correction as what it says it is.
+
+### Tests
+
+**`npm run test:pot-priority`** (`scripts/test-pot-priority.js`, 30 checks):
+the queue ordered by due date and flipping when the dates swap, minimums still
+funded first across both accounts, a pot not topped up past its own payment,
+the surplus landing in the pot the current target is paid from, arrears still
+ahead of a nearer due date, and — for the hand edits — a raise settling the
+borrowing so the next pay-in has nothing left to put back, the money not landing
+twice, "just a correction" leaving it owed, a partial raise settling part, a
+raise past what is owed settling only what is owed, lowering settling nothing,
+one pot's correction not touching another's loans, the savings modal behaving
+the same, and a plain balance correction with nothing borrowed being untouched.
+`test:manual-allocation` 48, `test:borrowing` 41, `test:extra-payments` 50,
+`test:custom-payments` 46, `test:minimums` 47, `test:arrears` 29 and
+`test:buffer` 51 green alongside.
