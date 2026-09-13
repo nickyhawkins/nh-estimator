@@ -1430,3 +1430,93 @@ exactly where an untouched one does, and living money pays for it once),
 deleting the pay-in reversing both halves, and repaying by hand.
 `test:extra-payments` 50, `test:custom-payments` 46, `test:minimums` 47,
 `test:arrears` 29 and `test:buffer` 51 green alongside.
+
+---
+
+## Feature 19 — A typed figure that actually adds up — BUILT (v2.64.0)
+
+Reported with a screenshot: *"Allocating payments doesn't calculate properly
+when adding a manual amount."* £325.64 came in, £302.29 of it was owed back to
+the pots, and £182.08 was typed into **Business pot**. The modal printed
+transfer instructions for **£219.16 to the business account and £265.21 to the
+personal** — £484.37 out of a £325.64 pay-in, £158.73 of it money that was
+never in the bank. Pressing Allocate would have added that £158.73 to real pot
+balances, and the phone would have gone on planning against it.
+
+### What was wrong
+
+The four override boxes were **substituted into a plan already worked out
+without them**. `allocateIncome()` ran on the pay-in, and `currentAllocation()`
+then swapped the typed figure in for whichever line it belonged to. Nothing
+afterwards checked the result against the money that came in: the only clamp
+was on living money, `Math.max(0, amt − …)`, which floors the last line at zero
+and silently swallows the fact that the lines above it have already overspent
+the week. Everything downstream — the "Where it goes" list, the transfer
+instructions, the pot credits on Allocate, the history entry — took the
+overspend at face value.
+
+The same substitution got the other direction wrong too, quietly. A typed
+figure *smaller* than the automatic one left the money it freed stranded: the
+lines below had been computed as though the bigger figure was still being paid,
+so the difference fell through to living money instead of reaching the buffer,
+savings or the other pot.
+
+### What it does now
+
+The overrides go **into** the waterfall rather than on top of it —
+`allocateIncome(amt, pins)`:
+
+```
+0.  pot loans     ← owed back, never overridable
+0b. the pins      ← what was typed, in waterfall order, out of what is left
+1.  this month    ← skipped for a pinned pot; its pin counts as that pot's credit
+2.  the buffer    ← skipped if pinned
+3.  savings       ← skipped if pinned
+4.  the sweep     ← a pinned pot is not swept into
+5.  living money  ← whatever is genuinely left
+```
+
+Three things follow from that, and each is a check in the suite:
+
+- **A pay-in can only ever hand out what came in.** A pin is clamped to what
+  the week has left, so the screenshot's £182.08 becomes the £23.35 that
+  actually exists, and repaid + allocated + kept is exactly £325.64.
+- **What can't be funded is said out loud**, not conjured: the modal shows
+  "£158.73 more than this pay-in has — trimmed to fit. £302.29 goes back to
+  your pots first, so there is £23.35 to share out." Two pins over budget are
+  trimmed from the bottom of the waterfall up, so this month's pots keep what
+  was asked of them before savings does.
+- **A pin is that line's whole share**, so the steps it displaces get their
+  turn: hold the buffer back and savings still takes its percentage and the
+  rest reaches living money; hold one pot back and the other pot's commitments
+  get funded further. A pinned pot also counts toward this month's credit, so
+  the account is not funded twice, and the sweep leaves it alone rather than
+  topping it up behind the user's back.
+
+The repayment is still not overridable — it is owed to a pot the plan has
+already counted as whole (Feature 18) — so the four boxes share out only what
+is left after it.
+
+### The minimums note
+
+`⚠ Still £633.74 short of this cycle's minimums after this` was reading off
+`auto.dueBiz`/`auto.duePer`: the automatic step alone, ignoring both the
+override and the £302.29 going back into the spending pots. It answered for an
+allocation that wasn't being made. It now counts **everything that lands in
+each pot** — the repayment into it, the sweep, and whatever figure was typed
+over the app's own — which is what makes it move when the week is adjusted,
+which is the entire point of adjusting it.
+
+### Tests
+
+**`npm run test:manual-allocation`** (`scripts/test-manual-allocation.js`, 48
+checks): the screenshot's week conserving under every combination of the four
+boxes, trimming with the shortfall reported and the modal warning it, the
+waterfall order when two pins are over budget, a smaller pin flowing on down
+the steps below it, a pinned pot neither double-funded nor swept into, the
+repayment surviving four pins asking for everything, Allocate committing the
+trimmed figures into real pot balances, the minimums note answering for the
+allocation actually being made, a typed buffer splitting across both jars, and
+— line by line — an allocation with nothing typed being untouched.
+`test:borrowing` 41, `test:extra-payments` 50, `test:custom-payments` 46,
+`test:minimums` 47, `test:arrears` 29 and `test:buffer` 51 green alongside.
