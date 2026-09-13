@@ -401,12 +401,15 @@ function potLoansOwed(){
 // oldest first. Returns the per-loan repayments (what the server is told) and
 // the per-pot totals (what actually moves), so the preview, the transfer
 // instructions and the commit all read the same split.
-function potRepayPlan(amt){
+function potRepayPlan(amt,onlyPot){
   let rem=round2(Math.max(0,amt));
   const loans=[],byPot={};
   let total=0;
   for(const b of potLoans()){
     if(rem<=0.005)break;
+    // A repayment aimed at ONE pot — a balance corrected by hand — settles
+    // only that pot's borrowing, oldest first, and leaves the others alone.
+    if(onlyPot&&b.pot!==onlyPot)continue;
     const take=Math.min(rem,loanOutstanding(b));
     if(take<=0.005)continue;
     loans.push({id:b.id,amount:round2(take)});
@@ -876,6 +879,43 @@ function commitmentQueue(){
   }
   return out.sort(paymentPriority);
 }
+// The same queue for what each payment wants ON TOP of its contractual
+// minimum, in the same order. A pot exists to have the money ready when the
+// bill lands, so the top-up follows the calendar too: there is no point
+// filling the personal pot while a business bill is due first. The minimum is
+// excluded because the queue above has already funded it — what is left here
+// is the discretionary part of the payment.
+function targetQueue(){
+  const out=[];
+  for(const p of getCycleStatus().payments){
+    if(p.missed)continue;
+    const above=Math.max(0,p.target-Math.max(p.minDue,paidAmountOf(p)));
+    if(above<=0.005)continue;
+    out.push({id:p.id,account:p.account,due:p.due,amount:round2(above)});
+  }
+  return out.sort(paymentPriority);
+}
+// What each buffer jar still has to find, once the repayment has been counted
+// as already back in it. Both the sweep and the split below read it, so a jar
+// can never be told it needs money that step 0 is on its way to returning.
+function bufferNeededAfter(potRepay){
+  const byPot=(potRepay&&potRepay.byPot)||{};
+  const biz=Math.max(0,bufferTargetBiz-bufferBiz-(byPot.bufferBiz||0));
+  const per=Math.max(0,bufferTargetPer-bufferPer-(byPot.bufferPer||0));
+  return {biz,per,total:biz+per};
+}
+// How one lump of buffer money divides between the two jars: in proportion to
+// what each still needs, falling back to the targets, then evenly. The
+// automatic figure and a typed one split the same way — the user types one
+// number because they moved one lump of cash; it still has to land in two
+// places.
+function bufferSplit(total,potRepay){
+  const need=bufferNeededAfter(potRepay);
+  const w=need.total>0.005?need.biz/need.total
+    :bufferTargetBiz+bufferTargetPer>0.005?bufferTargetBiz/(bufferTargetBiz+bufferTargetPer):0.5;
+  const biz=round2(total*w);
+  return {bufferBiz:biz,bufferPer:round2(total-biz)};
+}
 // Where a pay-in goes. THIS MONTH FIRST, then the buffer, then savings, then
 // whatever the sweep has left for targets, then living money.
 //
@@ -899,7 +939,15 @@ function commitmentQueue(){
 // while there were arrears to chase. Commitment money continues to come OUT
 // OF the sweep rather than on top of it, so a month whose commitments are
 // already covered splits exactly as it did before any of this existed.
-function allocateIncome(amt){
+// `pins` is the overrides panel: a figure typed against any of the four
+// lines is a decision already made, so it is taken out of the pay-in at the
+// top and the automatic steps below share out only what is left. Pinning a
+// line is not the same as adding to it — the typed figure IS that line's
+// total, so the steps that would have fed it are skipped and the money they
+// would have used flows on down the waterfall instead of piling up in living
+// money. Anything a pin asks for beyond the pay-in is trimmed and reported
+// as `unfunded`: this allocation can only ever hand out money that came in.
+function allocateIncome(amt,pins){
   const gross=Math.max(0,amt);
   let rem=gross;
   // 0. Money borrowed out of a pot goes back FIRST, ahead of the month
@@ -912,9 +960,26 @@ function allocateIncome(amt){
   // next one.
   const potRepay=potRepayPlan(rem);
   rem=round2(rem-potRepay.total);
+  // 0b. The overrides, off what the repayment left. They come first because a
+  // typed figure outranks a computed one, and in the sweep's own order so that
+  // two pins asking for more than the week holds are trimmed from the bottom
+  // up rather than arbitrarily. Nothing here can take what isn't there: a pin
+  // is clamped to what remains, and the difference is `unfunded`.
+  const pin=k=>pins&&pins[k]!==null&&pins[k]!==undefined?Math.max(0,pins[k]):null;
+  const pinBiz=pin('biz'),pinPer=pin('per'),pinBuf=pin('buffer'),pinSav=pin('savings');
+  const asked=(pinBiz||0)+(pinPer||0)+(pinBuf||0)+(pinSav||0);
+  const take=want=>{const got=round2(Math.min(want,Math.max(0,rem)));rem=round2(rem-got);return got;};
+  const gotBiz=pinBiz!==null?take(pinBiz):0;
+  const gotPer=pinPer!==null?take(pinPer):0;
+  const gotBuf=pinBuf!==null?take(pinBuf):0;
+  const gotSav=pinSav!==null?take(pinSav):0;
+  const unfunded=round2(asked-(gotBiz+gotPer+gotBuf+gotSav));
   // 1. This month. Pot balances count toward it before any new money does —
-  // including whatever step 0 has just put back into them.
-  let creditBiz=bizPot+(potRepay.byPot.biz||0),creditPer=perPot+(potRepay.byPot.per||0),dueBiz=0,duePer=0;
+  // including whatever step 0 has just put back into them, and whatever a pin
+  // is already sending to that pot: money is money once it lands, so a typed
+  // figure covers the same commitments an automatic one would have, and the
+  // account is not funded twice for the same payment.
+  let creditBiz=bizPot+(potRepay.byPot.biz||0)+gotBiz,creditPer=perPot+(potRepay.byPot.per||0)+gotPer,dueBiz=0,duePer=0;
   for(const p of commitmentQueue()){
     const isBiz=p.account==='business';
     const credit=isBiz?creditBiz:creditPer;
@@ -922,6 +987,9 @@ function allocateIncome(amt){
     if(isBiz)creditBiz-=used; else creditPer-=used;
     const gap=p.amount-used;
     if(gap<=0.005||rem<=0.005)continue;
+    // A pinned pot gets exactly what was typed, so this month stops asking it
+    // for more — the money goes on to the next account that isn't pinned.
+    if(isBiz?pinBiz!==null:pinPer!==null)continue;
     const add=Math.min(rem,gap);
     if(isBiz)dueBiz+=add; else duePer+=add;
     rem-=add;
@@ -931,33 +999,73 @@ function allocateIncome(amt){
   // top one account to the brim while the other stays empty.
   // Less whatever step 0 is putting back into each jar, or the pay-in would
   // fund a gap the repayment has already closed.
-  const needBufBiz=Math.max(0,bufferTargetBiz-bufferBiz-(potRepay.byPot.bufferBiz||0));
-  const needBufPer=Math.max(0,bufferTargetPer-bufferPer-(potRepay.byPot.bufferPer||0));
-  const bufferWanted=needBufBiz+needBufPer;
-  const buffer=Math.min(rem,bufferWanted);
-  const bufBiz=bufferWanted>0.005?round2(buffer*needBufBiz/bufferWanted):0;
-  const bufPer=round2(buffer-bufBiz);
-  rem-=buffer;
+  const bufferWanted=bufferNeededAfter(potRepay).total;
+  const buffer=pinBuf!==null?gotBuf:Math.min(rem,bufferWanted);
+  const {bufferBiz:bufBiz,bufferPer:bufPer}=bufferSplit(buffer,potRepay);
+  if(pinBuf===null)rem-=buffer;
   // 3. Savings. What step 0 has already put back into the savings pot counts
   // toward this week's percentage — the pot is what the percentage is FOR, and
   // paying a savings loan back only to set the same slice aside again would
   // take the same money out of living twice over.
-  const savings=Math.max(0,Math.min(rem,gross*savingsPct/100-(potRepay.byPot.savings||0)));
-  rem-=savings;
+  const savings=pinSav!==null?gotSav:Math.max(0,Math.min(rem,gross*savingsPct/100-(potRepay.byPot.savings||0)));
+  if(pinSav===null)rem-=savings;
   // 4. Targets get the rest of the sweep — this month's money already spent
   // counts against it, so this is a top-up to target, not a second helping.
-  const targetSweep=Math.max(0,Math.min(rem,gross*sweepPct/100-dueBiz-duePer));
-  const {businessTotal,personalTotal}=getCycleTotals();
-  const needBiz=Math.max(0,businessTotal-bizPot-(potRepay.byPot.biz||0)-dueBiz);
-  const needPer=Math.max(0,personalTotal-perPot-(potRepay.byPot.per||0)-duePer);
-  let tBiz;
-  if(needBiz+needPer>0.005)tBiz=targetSweep*needBiz/(needBiz+needPer);
-  else if(businessTotal+personalTotal>0.005)tBiz=targetSweep*businessTotal/(businessTotal+personalTotal);
-  else tBiz=targetSweep/2;
-  const tPer=targetSweep-tBiz;
+  // A pinned pot is not swept into either: the typed figure is its whole
+  // share, so the sweep goes to the other one, and with both pinned there is
+  // nowhere for it to go and living money keeps it.
+  //
+  // It used to be divided between the two pots in PROPORTION to what each was
+  // short of its cycle target, which ignored the calendar entirely: a business
+  // bill due on the 3rd and a personal one due on the 28th were funded
+  // together, at the same rate, and a week's money could go into the personal
+  // pot while the business pot was still short for a bill that lands first.
+  // Now it fills them in the order the bills actually arrive — the same order
+  // step 1 funds minimums in — and stops at what each payment still wants, so
+  // a pot is never topped up past the bill it is being kept for.
+  const targetSweep=pinBiz!==null&&pinPer!==null?0
+    :Math.max(0,Math.min(rem,gross*sweepPct/100-dueBiz-duePer));
+  let sweepLeft=targetSweep,tBiz=0,tPer=0;
+  for(const p of targetQueue()){
+    const isBiz=p.account==='business';
+    const credit=isBiz?creditBiz:creditPer;
+    const used=Math.min(credit,p.amount);
+    if(isBiz)creditBiz-=used; else creditPer-=used;
+    const gap=p.amount-used;
+    if(gap<=0.005||sweepLeft<=0.005)continue;
+    if(isBiz?pinBiz!==null:pinPer!==null)continue;
+    const add=Math.min(sweepLeft,gap);
+    if(isBiz)tBiz+=add; else tPer+=add;
+    sweepLeft=round2(sweepLeft-add);
+  }
+  // A sweep bigger than every bill this cycle is waiting for is not a mistake
+  // — a pot with money left once the checklist is done is what the surplus
+  // button sends at the current target, and clearing debt early is the whole
+  // point of the plan. But that button can only spend the pot the target debt
+  // is paid from, so a surplus in the other one is money the plan cannot
+  // reach. It goes where it can be used: the account of the debt the plan is
+  // currently clearing, and only failing that is it divided by the size of
+  // each account's cycle.
+  if(sweepLeft>0.005){
+    const target=getCurrentTarget();
+    let w;
+    if(pinBiz!==null)w=0;
+    else if(pinPer!==null)w=1;
+    else if(target)w=target.account==='business'?1:0;
+    else{
+      const {businessTotal,personalTotal}=getCycleTotals();
+      w=businessTotal+personalTotal>0.005?businessTotal/(businessTotal+personalTotal):0.5;
+    }
+    tBiz+=sweepLeft*w;tPer+=sweepLeft*(1-w);
+  }
   rem-=targetSweep;
   return {buffer,bufferBiz:bufBiz,bufferPer:bufPer,
-    biz:dueBiz+tBiz,per:duePer+tPer,savings,keep:Math.max(0,rem),
+    biz:pinBiz!==null?gotBiz:round2(dueBiz+tBiz),
+    per:pinPer!==null?gotPer:round2(duePer+tPer),
+    savings,keep:Math.max(0,round2(rem)),
+    // What the overrides asked for and the pay-in could not cover. Zero on
+    // every automatic allocation — only a typed figure can outrun the money.
+    unfunded,
     dueBiz,duePer,dueFunded:dueBiz+duePer,
     // Reported separately from `biz`/`per` even where it lands in the same
     // pot: it is money going back, not money being allocated, and the
@@ -2014,6 +2122,7 @@ function openLogModal(){
           <div><div class="field-label" style="color:#7db87d">Savings (£)</div><input id="logSaved" class="field-input" type="number" inputmode="decimal" placeholder="auto" oninput="updateSweepPreview()"></div>
           ${bufferTarget()>0.005?`<div><div class="field-label" style="color:#7db87d">Buffer (£)</div><input id="logBuffer" class="field-input" type="number" inputmode="decimal" placeholder="auto" oninput="updateSweepPreview()"></div>`:''}
         </div>
+        <div id="overrideTrimNote" style="display:none;background:#3a1a0a;border:1px solid #6a3a1a;border-radius:8px;padding:10px 12px;margin:-8px 0 16px;font-size:12px;color:#e0923b;line-height:1.5"></div>
         <div style="display:flex;gap:10px">
           <button class="btn-primary" style="flex:1" onclick="confirmLog()">Allocate</button>
           <button class="btn-ghost" onclick="closeModal()">Cancel</button>
@@ -2032,29 +2141,26 @@ function readOverride(id){
 }
 function currentAllocation(){
   const amt=parseNum(document.getElementById('logAmount')?.value||0);
-  const auto=allocateIncome(amt);
-  const oBuf=readOverride('logBuffer'),oBiz=readOverride('logBiz'),oPer=readOverride('logPer'),oSav=readOverride('logSaved');
-  const buffer=oBuf!==null?oBuf:auto.buffer;
-  const biz=oBiz!==null?oBiz:auto.biz;
-  const per=oPer!==null?oPer:auto.per;
-  const savings=oSav!==null?oSav:auto.savings;
-  // An overridden buffer total is split between the two jars the way the
-  // automatic one would have been — in proportion to what each still needs,
-  // falling back to the targets, then evenly. The user types one figure
-  // because they moved one lump of cash; it still has to land in two places.
-  let bufBiz=auto.bufferBiz,bufPer=auto.bufferPer;
-  if(oBuf!==null){
-    const nBiz=Math.max(0,bufferTargetBiz-bufferBiz),nPer=Math.max(0,bufferTargetPer-bufferPer);
-    const w=nBiz+nPer>0.005?nBiz/(nBiz+nPer)
-      :bufferTargetBiz+bufferTargetPer>0.005?bufferTargetBiz/(bufferTargetBiz+bufferTargetPer):0.5;
-    bufBiz=round2(buffer*w);bufPer=round2(buffer-bufBiz);
-  }
-  // The repayment is not overridable: it is owed to a pot the plan has
-  // already counted as whole. Overriding the four lines below can only move
-  // what is left after it.
-  const potRepay=auto.potRepay;
-  return {amt,auto,buffer,bufferBiz:bufBiz,bufferPer:bufPer,biz,per,savings,potRepay,
-    keep:Math.max(0,amt-potRepay.total-buffer-biz-per-savings)};
+  // The typed figures go INTO the allocation rather than on top of it, so the
+  // whole waterfall is worked out around them: a pinned line takes its share
+  // off the pay-in, the steps below share out only what is left, and the
+  // total still cannot exceed the money that came in.
+  //
+  // Substituting them afterwards, as this used to, quietly invented money.
+  // £325.64 in with £302.29 owed back to the pots leaves £23.35 to allocate —
+  // but typing £182.08 into Business pot simply replaced the £23.35 with it,
+  // and the modal printed transfer instructions for £484.37: £158.73 that was
+  // never in the account, landing in real pot balances on Allocate.
+  //
+  // The repayment itself is not overridable: it is owed to a pot the plan has
+  // already counted as whole. The four lines can only move what is left
+  // after it.
+  const a=allocateIncome(amt,{
+    biz:readOverride('logBiz'),per:readOverride('logPer'),
+    buffer:readOverride('logBuffer'),savings:readOverride('logSaved')});
+  return {amt,plan:a,buffer:a.buffer,bufferBiz:a.bufferBiz,bufferPer:a.bufferPer,
+    biz:a.biz,per:a.per,savings:a.savings,potRepay:a.potRepay,
+    unfunded:a.unfunded,keep:a.keep};
 }
 function updateSweepPreview(){
   const a=currentAllocation();
@@ -2100,12 +2206,30 @@ function updateSweepPreview(){
   // Show the tight-week banner if below threshold
   const tightBanner=document.getElementById('tightWeekBanner');
   if(tightBanner)tightBanner.style.display=a.amt>0&&a.amt<tightThreshold?'block':'none';
+  // An override the pay-in cannot cover is trimmed rather than conjured, and
+  // the modal says so — the alternative is transfer instructions for money
+  // that isn't in the account.
+  const trimNote=document.getElementById('overrideTrimNote');
+  if(trimNote){
+    trimNote.style.display=a.unfunded>0.005?'block':'none';
+    if(a.unfunded>0.005){
+      const left=round2(Math.max(0,a.amt-a.potRepay.total));
+      trimNote.innerHTML=`⚠ <strong>${fmt(a.unfunded)} more than this pay-in has</strong> — trimmed to fit.`
+        +(a.potRepay.total>0.005
+          ?` ${fmt(a.potRepay.total)} goes back to your pots first, so there is ${fmt(left)} to share out.`
+          :` There is ${fmt(left)} to share out.`);
+    }
+  }
   // Minimums are the line that matters on a light week — say plainly whether
-  // this pay-in leaves them covered.
+  // this pay-in leaves them covered. What counts is what actually lands in
+  // each pot — the money going back into it included, and whatever figure was
+  // typed over the app's own — not just the automatic step that funds this
+  // month, or the note would read the same however the week is adjusted.
   const minNote=document.getElementById('minCoverNote');
   if(minNote){
     const fs=getCycleStatus();
-    const shortAfter=Math.max(0,fs.outstandingBiz-bizPot-a.auto.dueBiz)+Math.max(0,fs.outstandingPer-perPot-a.auto.duePer);
+    const intoBiz=a.biz+(a.potRepay.byPot.biz||0),intoPer=a.per+(a.potRepay.byPot.per||0);
+    const shortAfter=Math.max(0,fs.outstandingBiz-bizPot-intoBiz)+Math.max(0,fs.outstandingPer-perPot-intoPer);
     if(fs.outstandingBiz+fs.outstandingPer<=0.005){minNote.style.display='none';}
     else{
       minNote.style.display='block';
@@ -2150,9 +2274,12 @@ async function confirmLog(){
 // back into the pots (a pay-in), sign -1 takes it out again (that pay-in
 // deleted). The pot side is applied locally and at once, so the app is right
 // even offline; the loan side follows over the network.
-function applyPotRepay(plan,sign){
+// `moveMoney` is false when the money is already in the pot — a balance the
+// user has corrected by hand carries it in the figure they typed, so only the
+// loans are marked and moving it again would put it in twice.
+function applyPotRepay(plan,sign,moveMoney){
   if(!plan||plan.total<=0.005)return;
-  for(const [key,amount] of Object.entries(plan.byPot))potMove(key,sign*amount);
+  if(moveMoney!==false)for(const [key,amount] of Object.entries(plan.byPot))potMove(key,sign*amount);
   // Keep the loaded loans in step with what the server is about to be told,
   // rather than waiting on a refresh to stop the app double-repaying.
   for(const item of plan.loans){
@@ -2171,6 +2298,92 @@ async function saveRepayments(plan,sign){
   // back out of it — either way the tab is only right after a reload.
   await refreshBorrowed();renderAll();
 }
+// ---------- Correcting a pot by hand ----------
+// Putting money back into a pot BY HAND is the same act a pay-in performs when
+// it repays a pot loan: the money is in the pot again, and the borrowing it
+// came out of is settled. Nothing connected the two, so raising a pot you had
+// borrowed from left the loan open and the NEXT PAY-IN took the same money off
+// the top a second time — the pot ended up holding twice what was borrowed and
+// living money paid for it twice, silently.
+//
+// It is not automatic, because a correction and a repayment look identical in
+// the balance and mean opposite things: the figure might be going up because
+// you moved the money back, or because the app's number was wrong all along
+// and the loan is still owed. So the modal asks, and says exactly what its
+// answer will do. It defaults to counting it, because that is the reading
+// where getting it wrong is silent.
+const POT_EDIT_FIELDS={biz:'bizPotVal',per:'perPotVal',bufferBiz:'bufferBizVal',bufferPer:'bufferPerVal',savings:'savingsVal'};
+let potEditRepays=true,potEditKeys=[];
+function setPotEditRepays(v){potEditRepays=v;renderPotOwedPanel();}
+// What each edited field is asking the pot's balance to become.
+function potEditsFrom(keys){
+  const out={};
+  for(const k of keys){
+    const el=document.getElementById(POT_EDIT_FIELDS[k]);
+    if(el)out[k]=Math.max(0,parseNum(el.value));
+  }
+  return out;
+}
+// The loans a set of hand-typed balances would settle: for each pot, whatever
+// it is being RAISED by, capped at what is still owed to it, oldest borrowing
+// first. Lowering a pot settles nothing — money leaving a pot by hand is not a
+// loan the app has any record of, and inventing one would be worse than
+// leaving the correction as exactly what it says it is.
+function potEditRepayPlan(edits){
+  const owed=potLoansOwed().byPot;
+  const merged={total:0,byPot:{},loans:[]};
+  for(const [key,value] of Object.entries(edits)){
+    const pot=POTS[key];
+    if(!pot)continue;
+    const back=Math.min(round2(value-round2(pot.get())),round2(owed[key]||0));
+    if(back<=0.005)continue;
+    const plan=potRepayPlan(back,key);
+    merged.total=round2(merged.total+plan.total);
+    merged.loans.push(...plan.loans);
+    for(const [k,v] of Object.entries(plan.byPot))merged.byPot[k]=round2((merged.byPot[k]||0)+v);
+  }
+  return merged;
+}
+function potOwedPanelInner(){
+  const owed=potLoansOwed().byPot;
+  const rows=potEditKeys.filter(k=>round2(owed[k]||0)>0.005);
+  if(!rows.length)return '';
+  const btn=(on,label)=>`<button onclick="setPotEditRepays(${on})" style="flex:1;padding:8px 10px;border-radius:6px;font-size:12px;font-weight:600;border:1px solid ${potEditRepays===on?'#5a3a7a':'#2a2d3e'};background:${potEditRepays===on?'#2a1a3e':'#14161f'};color:${potEditRepays===on?'#c07de0':'#7c7f96'}">${label}</button>`;
+  return `<div style="font-size:12px;color:#c07de0;font-weight:600;margin-bottom:6px">${rows.map(k=>`${fmt(owed[k])} owed back to the ${POTS[k].label.toLowerCase()}`).join(' · ')}</div>
+    <div style="font-size:12px;color:#7c7f96;line-height:1.5;margin-bottom:10px">If you've just moved that money back yourself, say so — otherwise the next pay-in takes it off the top and puts it in a second time.</div>
+    <div style="display:flex;gap:8px">${btn(true,'I moved it back')}${btn(false,'Just a correction')}</div>
+    <div id="potOwedPreview" style="font-size:11px;color:#7c7f96;margin-top:8px;line-height:1.5"></div>`;
+}
+function renderPotOwedPanel(){
+  const panel=document.getElementById('potOwedPanel');
+  if(!panel)return;
+  panel.innerHTML=potOwedPanelInner();
+  panel.style.display=panel.innerHTML?'block':'none';
+  updatePotOwedPreview();
+}
+function updatePotOwedPreview(){
+  const note=document.getElementById('potOwedPreview');
+  if(!note)return;
+  const plan=potEditRepayPlan(potEditsFrom(potEditKeys));
+  if(plan.total<=0.005){note.textContent='';return;}
+  const parts=Object.entries(plan.byPot).map(([k,v])=>`${fmt(v)} to the ${POTS[k].label.toLowerCase()}`);
+  note.textContent=potEditRepays
+    ?`This marks ${parts.join(' · ')} as paid back — the money is already in the balance you've typed, so nothing else moves.`
+    :`${parts.join(' · ')} stays owed, and the next pay-in will put it back on top of what you've typed.`;
+}
+// Both hand-edit modals commit through here: set the balances to what was
+// typed, settle whatever borrowing that repays, and tell the server — in that
+// order, so a failed save leaves the loans open rather than silently lost.
+async function applyPotEdits(edits){
+  const plan=potEditRepays?potEditRepayPlan(edits):null;
+  for(const [key,value] of Object.entries(edits)){
+    const pot=POTS[key];
+    if(pot)pot.set(round2(Math.max(0,value)));
+  }
+  if(plan&&plan.total>0.005)applyPotRepay(plan,1,false);
+  persist('cashflow');closeModal();renderAll();
+  if(plan&&plan.total>0.005)await saveRepayments(plan,1);
+}
 function openPotsModal(){
   document.getElementById('modalRoot').innerHTML=`
     <div class="modal-bg" onclick="if(event.target===this)closeModal()">
@@ -2178,23 +2391,22 @@ function openPotsModal(){
         <h2 style="font-size:18px;margin-bottom:16px">Adjust pot balances</h2>
         <div style="font-size:13px;color:#7c7f96;margin-bottom:16px">Manually correct either pot if something didn't quite go to plan.</div>
         <div style="display:flex;gap:10px;margin-bottom:18px">
-          <div style="flex:1"><div class="field-label" style="color:#e0923b">Business pot (£)</div><input id="bizPotVal" class="field-input" type="number" inputmode="decimal" value="${bizPot.toFixed(2)}" style="font-size:16px;padding:10px"></div>
-          <div style="flex:1"><div class="field-label" style="color:#5b8def">Personal pot (£)</div><input id="perPotVal" class="field-input" type="number" inputmode="decimal" value="${perPot.toFixed(2)}" style="font-size:16px;padding:10px"></div>
+          <div style="flex:1"><div class="field-label" style="color:#e0923b">Business pot (£)</div><input id="bizPotVal" class="field-input" type="number" inputmode="decimal" value="${bizPot.toFixed(2)}" style="font-size:16px;padding:10px" oninput="updatePotOwedPreview()"></div>
+          <div style="flex:1"><div class="field-label" style="color:#5b8def">Personal pot (£)</div><input id="perPotVal" class="field-input" type="number" inputmode="decimal" value="${perPot.toFixed(2)}" style="font-size:16px;padding:10px" oninput="updatePotOwedPreview()"></div>
         </div>
         <div style="display:flex;gap:10px;margin-bottom:18px">
-          <div style="flex:1"><div class="field-label" style="color:#7db87d">Buffer — business (£)</div><input id="bufferBizVal" class="field-input" type="number" inputmode="decimal" value="${bufferBiz.toFixed(2)}" style="font-size:16px;padding:10px"></div>
-          <div style="flex:1"><div class="field-label" style="color:#7db87d">Buffer — personal (£)</div><input id="bufferPerVal" class="field-input" type="number" inputmode="decimal" value="${bufferPer.toFixed(2)}" style="font-size:16px;padding:10px"></div>
+          <div style="flex:1"><div class="field-label" style="color:#7db87d">Buffer — business (£)</div><input id="bufferBizVal" class="field-input" type="number" inputmode="decimal" value="${bufferBiz.toFixed(2)}" style="font-size:16px;padding:10px" oninput="updatePotOwedPreview()"></div>
+          <div style="flex:1"><div class="field-label" style="color:#7db87d">Buffer — personal (£)</div><input id="bufferPerVal" class="field-input" type="number" inputmode="decimal" value="${bufferPer.toFixed(2)}" style="font-size:16px;padding:10px" oninput="updatePotOwedPreview()"></div>
         </div>
+        <div id="potOwedPanel" style="display:none;background:#1a1428;border:1px solid #3a2a52;border-radius:8px;padding:12px;margin-bottom:18px"></div>
         <div style="display:flex;gap:10px"><button class="btn-primary" style="flex:1" onclick="confirmPots()">Save</button><button class="btn-ghost" onclick="closeModal()">Cancel</button></div>
       </div>
     </div>`;
+  potEditRepays=true;potEditKeys=['biz','per','bufferBiz','bufferPer'];
+  renderPotOwedPanel();
 }
-function confirmPots(){
-  bizPot=parseNum(document.getElementById('bizPotVal').value);
-  perPot=parseNum(document.getElementById('perPotVal').value);
-  bufferBiz=parseNum(document.getElementById('bufferBizVal').value);
-  bufferPer=parseNum(document.getElementById('bufferPerVal').value);
-  persist('cashflow');closeModal();renderAll();
+async function confirmPots(){
+  await applyPotEdits(potEditsFrom(['biz','per','bufferBiz','bufferPer']));
 }
 function closeModal(){document.getElementById('modalRoot').innerHTML='';}
 
@@ -2945,12 +3157,17 @@ function openSavingsAdjust(){
         <h2 style="font-size:18px;margin-bottom:16px">Adjust savings balance</h2>
         <div style="font-size:13px;color:#7c7f96;margin-bottom:14px">Manually set your savings balance if needed.</div>
         <div class="field-label">Savings balance (£)</div>
-        <input id="savingsVal" class="field-input" type="number" inputmode="decimal" value="${savingsPot.toFixed(2)}" style="font-size:18px;padding:12px;margin-bottom:18px">
+        <input id="savingsVal" class="field-input" type="number" inputmode="decimal" value="${savingsPot.toFixed(2)}" style="font-size:18px;padding:12px;margin-bottom:18px" oninput="updatePotOwedPreview()">
+        <div id="potOwedPanel" style="display:none;background:#1a1428;border:1px solid #3a2a52;border-radius:8px;padding:12px;margin-bottom:18px"></div>
         <div style="display:flex;gap:10px"><button class="btn-primary" style="flex:1" onclick="confirmSavings()">Save</button><button class="btn-ghost" onclick="closeModal()">Cancel</button></div>
       </div>
     </div>`;
+  potEditRepays=true;potEditKeys=['savings'];
+  renderPotOwedPanel();
 }
-function confirmSavings(){savingsPot=parseNum(document.getElementById('savingsVal').value);persist('cashflow');closeModal();renderAll();}
+async function confirmSavings(){
+  await applyPotEdits(potEditsFrom(['savings']));
+}
 
 // ---------- Edit actions ----------
 function updateDraft(id,field,val){if(!editDraft[id]){const d=debts.find(x=>x.id===id);editDraft[id]={balance:d.balance,apr:d.apr,min:d.min,arrears:d.arrears,due:d.due??'',note:d.note};}editDraft[id][field]=val;}

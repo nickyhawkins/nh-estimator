@@ -63,6 +63,10 @@ globalThis.__t = {
   renderAll, setView,
   monthlyMinimums, bufferCover, confirmBufferCover, setBufferPreset, setBufferTargetFor,
   confirmLog, deleteIncome, currentAllocation, openLogModal, updateSweepPreview,
+  targetQueue, commitmentQueue,
+  openPotsModal, confirmPots, openSavingsAdjust, confirmSavings,
+  potEditRepayPlan, potEditsFrom, applyPotEdits, setPotEditRepays,
+  updatePotOwedPreview, renderPotOwedPanel, get potEditRepays(){ return potEditRepays; },
   cycleCommitments, bufferDrift, renderBufferRescue, startNewCycle
 };`;
   const els = {};

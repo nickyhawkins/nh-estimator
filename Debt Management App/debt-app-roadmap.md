@@ -1430,3 +1430,184 @@ exactly where an untouched one does, and living money pays for it once),
 deleting the pay-in reversing both halves, and repaying by hand.
 `test:extra-payments` 50, `test:custom-payments` 46, `test:minimums` 47,
 `test:arrears` 29 and `test:buffer` 51 green alongside.
+
+---
+
+## Feature 19 — A typed figure that actually adds up — BUILT (v2.64.0)
+
+Reported with a screenshot: *"Allocating payments doesn't calculate properly
+when adding a manual amount."* £325.64 came in, £302.29 of it was owed back to
+the pots, and £182.08 was typed into **Business pot**. The modal printed
+transfer instructions for **£219.16 to the business account and £265.21 to the
+personal** — £484.37 out of a £325.64 pay-in, £158.73 of it money that was
+never in the bank. Pressing Allocate would have added that £158.73 to real pot
+balances, and the phone would have gone on planning against it.
+
+### What was wrong
+
+The four override boxes were **substituted into a plan already worked out
+without them**. `allocateIncome()` ran on the pay-in, and `currentAllocation()`
+then swapped the typed figure in for whichever line it belonged to. Nothing
+afterwards checked the result against the money that came in: the only clamp
+was on living money, `Math.max(0, amt − …)`, which floors the last line at zero
+and silently swallows the fact that the lines above it have already overspent
+the week. Everything downstream — the "Where it goes" list, the transfer
+instructions, the pot credits on Allocate, the history entry — took the
+overspend at face value.
+
+The same substitution got the other direction wrong too, quietly. A typed
+figure *smaller* than the automatic one left the money it freed stranded: the
+lines below had been computed as though the bigger figure was still being paid,
+so the difference fell through to living money instead of reaching the buffer,
+savings or the other pot.
+
+### What it does now
+
+The overrides go **into** the waterfall rather than on top of it —
+`allocateIncome(amt, pins)`:
+
+```
+0.  pot loans     ← owed back, never overridable
+0b. the pins      ← what was typed, in waterfall order, out of what is left
+1.  this month    ← skipped for a pinned pot; its pin counts as that pot's credit
+2.  the buffer    ← skipped if pinned
+3.  savings       ← skipped if pinned
+4.  the sweep     ← a pinned pot is not swept into
+5.  living money  ← whatever is genuinely left
+```
+
+Three things follow from that, and each is a check in the suite:
+
+- **A pay-in can only ever hand out what came in.** A pin is clamped to what
+  the week has left, so the screenshot's £182.08 becomes the £23.35 that
+  actually exists, and repaid + allocated + kept is exactly £325.64.
+- **What can't be funded is said out loud**, not conjured: the modal shows
+  "£158.73 more than this pay-in has — trimmed to fit. £302.29 goes back to
+  your pots first, so there is £23.35 to share out." Two pins over budget are
+  trimmed from the bottom of the waterfall up, so this month's pots keep what
+  was asked of them before savings does.
+- **A pin is that line's whole share**, so the steps it displaces get their
+  turn: hold the buffer back and savings still takes its percentage and the
+  rest reaches living money; hold one pot back and the other pot's commitments
+  get funded further. A pinned pot also counts toward this month's credit, so
+  the account is not funded twice, and the sweep leaves it alone rather than
+  topping it up behind the user's back.
+
+The repayment is still not overridable — it is owed to a pot the plan has
+already counted as whole (Feature 18) — so the four boxes share out only what
+is left after it.
+
+### The minimums note
+
+`⚠ Still £633.74 short of this cycle's minimums after this` was reading off
+`auto.dueBiz`/`auto.duePer`: the automatic step alone, ignoring both the
+override and the £302.29 going back into the spending pots. It answered for an
+allocation that wasn't being made. It now counts **everything that lands in
+each pot** — the repayment into it, the sweep, and whatever figure was typed
+over the app's own — which is what makes it move when the week is adjusted,
+which is the entire point of adjusting it.
+
+### Tests
+
+**`npm run test:manual-allocation`** (`scripts/test-manual-allocation.js`, 48
+checks): the screenshot's week conserving under every combination of the four
+boxes, trimming with the shortfall reported and the modal warning it, the
+waterfall order when two pins are over budget, a smaller pin flowing on down
+the steps below it, a pinned pot neither double-funded nor swept into, the
+repayment surviving four pins asking for everything, Allocate committing the
+trimmed figures into real pot balances, the minimums note answering for the
+allocation actually being made, a typed buffer splitting across both jars, and
+— line by line — an allocation with nothing typed being untouched.
+`test:borrowing` 41, `test:extra-payments` 50, `test:custom-payments` 46,
+`test:minimums` 47, `test:arrears` 29 and `test:buffer` 51 green alongside.
+
+---
+
+## Feature 20 — The pot the money is actually needed in — BUILT (v2.65.0)
+
+Two things asked for together.
+
+### 1. Fill the pot whose bill lands first
+
+*"The pots need to fill up to cover the bills due soonest. No point adding
+more to the personal pot if the business pot has a bill due."*
+
+Minimums were already funded that way: `commitmentQueue()` walks this cycle's
+payments in `paymentPriority` order — arrears first, then earliest due — and
+funds each one from whichever account it belongs to. The **top-up toward
+targets** was not. It took the sweep and divided it between the two pots **in
+proportion to what each was short of its cycle total**, which ignores the
+calendar completely: a business bill due on the 3rd and a personal one due on
+the 28th filled at the same rate, and a week's money went into the personal pot
+while the business pot was still short for a bill that lands three weeks
+earlier.
+
+The sweep now walks a queue of its own, `targetQueue()` — what each payment
+still wants **on top of** its contractual minimum (the minimum having been
+funded by step 1 already), in exactly the same order — and fills the pot each
+one is paid from, stopping at what that payment actually wants. So the pots
+fill in the order the bills arrive, and a pot is never topped up past the bill
+it is being kept for while another bill goes short.
+
+In the snowball phase this changes nothing by construction: the plan aims its
+whole discretionary spend at one debt, so only that debt's account ever wants
+money above its minimums and there is nothing for an ordering rule to choose
+between. It bites during **arrears catch-up**, where several debts across both
+accounts want money at once — which is the whole of the current plan.
+
+**A sweep bigger than every bill this cycle is still swept into a pot**, not
+kept back. That is not an oversight: a pot with money left once the checklist
+is done is exactly what the surplus button sends at the current target, and
+clearing a debt early is the point of the plan. But that button can only spend
+the pot the target debt is paid from (`applySurplus()` reads `bizPot` or
+`perPot` by the target's account), so a surplus in the *other* pot is money the
+plan cannot reach. It now goes to the account of the debt the plan is currently
+clearing, and only failing that (no target left at all) is it divided by the
+size of each account's cycle.
+
+### 2. Correcting a pot by hand settles what was borrowed from it
+
+*"Should manually adjusting the pot totals adjust any money owed to the pot?"*
+— yes, when the pot is being **raised** and something is owed to it.
+
+Putting money back into a pot by hand is the same act a pay-in performs when it
+repays a pot loan (Feature 18): the money is in the pot again. Nothing
+connected the two, so raising a pot you had borrowed from left the loan open
+and **the next pay-in took the same money off the top a second time** — the pot
+ended up holding twice what was borrowed, living money paid for it twice, and
+nothing on screen said so.
+
+It is **asked, not assumed**, because a correction and a repayment look
+identical in the balance and mean opposite things: the figure might be going up
+because you moved the money back, or because the app's number was wrong all
+along and the borrowing is still owed. Both hand-edit modals — **Adjust pot
+balances** (business, personal, both buffer jars) and **Adjust savings
+balance** — now show what is owed to any pot being edited, offer *I moved it
+back* / *Just a correction*, and say in a line underneath exactly what saving
+will do. The default counts it, because that is the reading where getting it
+wrong is silent.
+
+What it settles is the **rise only**, capped at what is owed, oldest borrowing
+first, and only against the pot that was raised (`potRepayPlan(amt, pot)`).
+The loans are marked without moving any money — `applyPotRepay(plan, 1, false)`
+— because the money is already in the balance the user typed; moving it again
+would put it in twice, which is the bug in the other direction. **Lowering** a
+pot settles nothing and records no new borrowing: money leaving a pot by hand
+is not a loan the app has any record of, and inventing one would be worse than
+leaving the correction as what it says it is.
+
+### Tests
+
+**`npm run test:pot-priority`** (`scripts/test-pot-priority.js`, 30 checks):
+the queue ordered by due date and flipping when the dates swap, minimums still
+funded first across both accounts, a pot not topped up past its own payment,
+the surplus landing in the pot the current target is paid from, arrears still
+ahead of a nearer due date, and — for the hand edits — a raise settling the
+borrowing so the next pay-in has nothing left to put back, the money not landing
+twice, "just a correction" leaving it owed, a partial raise settling part, a
+raise past what is owed settling only what is owed, lowering settling nothing,
+one pot's correction not touching another's loans, the savings modal behaving
+the same, and a plain balance correction with nothing borrowed being untouched.
+`test:manual-allocation` 48, `test:borrowing` 41, `test:extra-payments` 50,
+`test:custom-payments` 46, `test:minimums` 47, `test:arrears` 29 and
+`test:buffer` 51 green alongside.
