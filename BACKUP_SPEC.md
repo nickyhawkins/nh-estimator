@@ -69,6 +69,35 @@ Lives in **Settings**, a new "Backup" card (this is account-wide, not per-job, s
 - **`db/setup.sql` is already written to be idempotent/re-runnable** (`IF NOT EXISTS`, backfill-then-`NOT NULL`) — the import route should respect that same spirit: never assume a fresh/empty database, always work against whatever's already there.
 - **This is a genuinely new API surface with real write paths** — per the project's local-verification limits (no Postgres on this Mac), it can be built and unit-tested against a stubbed db the way `MATERIAL_TRACKING_SPEC.md`'s Phase 1 was, but **the real first test is a real export followed by a real import against the live Render database**, ideally into a job list you don't mind seeing duplicated if something's off.
 
+## Request size (fixed 2026-09-03, v2.51.1)
+
+Import posts the whole backup file as one JSON body, and the app mounted
+`express.json()` on its 100kb default — so **import was broken on every real
+instance from the day the colour library was seeded**, and had been since.
+The library alone is ~80KB of that budget (1,221 Farrow & Ball / Little Greene
+entries) before a single job, so any database with more than a couple of tiny
+jobs produced an export its own import route would refuse.
+
+It failed twice over. body-parser's rejection is an **HTML** error page, and
+the client did `resp.json()` on it, so the user saw a JSON syntax error about
+an unexpected `<` rather than "too big" — the message that would have explained
+it was replaced by one that meant nothing.
+
+Now:
+
+- `POST /api/backup/import` gets its own parser at a **64MB** limit, mounted
+  ahead of the general one (body-parser skips a request another parser has
+  already read). Backup is the disaster-recovery path; the ceiling must never
+  be the reason a restore fails.
+- Everything else gets **4MB** rather than 100kb. Not cosmetic: `POST
+  /api/quote-snapshots` and the bulk collection PUTs scale with the size of the
+  job — a snapshot runs a few KB per room, so a large house was within a
+  whisker of the old cap, and the thing that would have failed is *accepting a
+  quote*.
+- `/api` answers every error in JSON, including ones raised before a route runs.
+  A legitimate backup no longer trips the limit; this is so that if anything
+  ever does, it says so in words.
+
 ## Explicitly out of scope for v1
 
 - Automatic/scheduled backups — this is a manual export/import feature, not a cron job.

@@ -77,7 +77,21 @@ try {
   document.addEventListener('visibilitychange', function(){ if (!document.hidden) _setVh(); });
 } catch (e) {}
 </script>
-<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!-- Fonts load NON-BLOCKING (media="print" until onload flips it), the same
+     trick the client-quote HTML already used. As a plain stylesheet link
+     this was the single worst thing in the file for a launch with no signal:
+     a render-blocking request to a THIRD-PARTY origin, which the service
+     worker deliberately leaves alone. In a dead spot -- a bar of signal and
+     no throughput -- it neither loads nor fails, it hangs for as long as the
+     OS allows, and first paint waits the whole time. All the app's data was
+     sitting in localStorage behind a white screen. Every font-family in this
+     file names sans-serif/monospace after the DM face, so the app renders
+     immediately and the real type swaps in whenever it arrives (public/sw.js
+     caches it, so on site that is usually straight away). -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"></noscript>
 <style>
 :root {
   --bg:#f4f6f9; --surface:#fff; --surface2:#eef1f5; --border:#dde2ea;
@@ -274,8 +288,17 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
    bottom edge mid-scroll. Fixed depends on neither: it's pinned to the
    viewport and composited, so nothing about document height or scroll
    momentum can move it. The cost is that it leaves the flow, which is what
-   --navh above reserves for. */
+   --navh above reserves for.
+   Not the whole story, though (v2.65.1): fixed pins the bar to the LAYOUT
+   viewport, and on iOS that is its own moving target -- the keyboard resizes
+   it and WebKit doesn't reliably resize it back. pinNav() at the foot of the
+   script corrects the bar against visualViewport for that; read it before
+   changing anything about where this bar lives. */
 .navbar{position:fixed;left:0;right:0;bottom:0;z-index:100;background:var(--glass2);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:1px solid var(--border);display:flex;padding:8px 0 max(var(--sb), 8px)}
+/* Hidden while the on-screen keyboard owns the bottom of the screen -- see
+   pinNav() at the foot of the script for why the bar gets out of the way
+   rather than riding above the keyboard. */
+.navbar.nav-kb-hidden{display:none}
 .nav-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 4px 2px;cursor:pointer;border:none;background:transparent;color:var(--text3);transition:color .15s}
 .nav-item.active{color:var(--accent)}
 .nav-icon{font-size:19px;position:relative}
@@ -385,6 +408,13 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
 .sec-count{margin-left:auto;margin-right:10px;padding:2px 8px;border-radius:10px;background:var(--surface2);border:1px solid var(--border);font-family:'DM Mono',monospace;font-size:11px;font-weight:600;letter-spacing:0;color:var(--text2);flex-shrink:0}
 .card-body{display:none}
 .card-body.open{display:block}
+/* Snag add sheet: stacked label-above-field rows. A snag is prose, so its
+   field is full width and in the body font -- unlike .field-input, which is
+   a narrow right-aligned monospace box sized for a measurement. */
+.snag-field{padding:12px 16px;border-bottom:1px solid var(--border)}
+.snag-field .field-label{margin-bottom:8px}
+.snag-input{display:block;width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:15px;border-radius:var(--rs);padding:10px 12px;outline:none;-webkit-appearance:none;transition:border-color .15s}
+.snag-input:focus{border-color:var(--accent)}
 .subsection-label{padding:12px 16px 4px;font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--text2);border-top:1px solid var(--border)}
 .subsection-label:first-child{border-top:none}
 .subsection-label small{display:block;font-size:12px;font-weight:400;letter-spacing:normal;text-transform:none;color:var(--text2);margin-top:4px}
@@ -1117,6 +1147,108 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
   <div class="content">
     <div id="actuals-body"></div>
   </div>
+
+  <!-- ══ SNAGS ══ (SNAGS_SPEC.md)
+       Two stacked bottom sheets, the same overlay pattern as the bulk room
+       edit on Measure: the add sheet (one snag, or a pasted list), then the
+       parse preview you have to confirm. Nothing is written until the button
+       on the second sheet is tapped. Both live inside this screen so they
+       can only ever be open over On Site. -->
+  <div id="snag-panel" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.4)" onclick="closeSnagPanel()">
+    <div style="position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-radius:16px 16px 0 0;padding:14px 0 calc(var(--sb) + 10px);max-height:88%;display:flex;flex-direction:column;box-shadow:0 -4px 24px rgba(0,0,0,.2)" onclick="event.stopPropagation()">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:0 16px 8px">
+        <div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.6px">Add snag</div>
+        <div onclick="closeSnagPanel()" style="font-size:14px;font-weight:700;color:var(--accent);cursor:pointer;padding:4px 2px">Done</div>
+      </div>
+      <div class="seg" style="margin:0 16px 10px">
+        <button class="seg-btn active" id="snag-mode-single" onclick="setSnagPanelMode('single')">One snag</button>
+        <button class="seg-btn" id="snag-mode-paste" onclick="setSnagPanelMode('paste')">Paste a list</button>
+      </div>
+      <div style="overflow-y:auto;flex:1">
+        <!-- Label above field, not beside it: a snag is a sentence, and the
+             app's usual right-aligned 140px field-input is sized for a
+             number. -->
+        <div id="snag-single-body">
+          <div class="snag-field"><div class="field-label">Room / area</div>
+            <select class="snag-input" id="snag-add-room" onchange="onSnagAddRoomChange()"></select></div>
+          <div class="snag-field" id="snag-add-room-custom-row" style="display:none"><div class="field-label">Custom name<small>a space the quote never priced</small></div>
+            <input type="text" class="snag-input" id="snag-add-room-custom" placeholder="e.g. Airing cupboard" autocorrect="off"></div>
+          <div class="snag-field"><div class="field-label">Snag</div>
+            <input type="text" class="snag-input" id="snag-add-desc" placeholder="e.g. Touch in behind the radiator" autocorrect="off"></div>
+          <div class="snag-field" style="border-bottom:none"><div class="field-label">Phase<small>optional — sets where it sits in the room's order</small></div>
+            <select class="snag-input" id="snag-add-phase"></select></div>
+          <div style="padding:12px 16px 0">
+            <button class="btn" style="width:100%;padding:12px;background:var(--accent);color:#fff" onclick="addSingleSnag()">Add snag</button>
+            <div style="font-size:12px;color:var(--text2);padding:8px 2px 0;line-height:1.5">The sheet stays open on the same room — snags come in runs.</div>
+          </div>
+        </div>
+        <div id="snag-paste-body" style="display:none">
+          <div style="padding:0 16px 8px;font-size:12px;color:var(--text2);line-height:1.5">
+            Paste the list as it came. A line on its own is a <strong>room</strong>; lines starting <code>-</code>, <code>*</code>, <code>- [ ]</code> or <code>1.</code> are the snags under it. Ticked boxes come in as still to do — on someone else's list a tick means "flagged", not "fixed".
+          </div>
+          <div style="padding:0 16px">
+            <textarea id="snag-add-paste" rows="9" placeholder="Master Bedroom&#10;- [ ] Touch in behind the radiator&#10;- Scuff on the return wall&#10;&#10;Landing&#10;- Recoat the handrail" style="width:100%;box-sizing:border-box;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'DM Sans',sans-serif;font-size:15px;line-height:1.5;border-radius:var(--rs);padding:10px 12px;outline:none;resize:vertical"></textarea>
+          </div>
+          <div style="padding:12px 16px 0">
+            <button class="btn" style="width:100%;padding:12px;background:var(--accent);color:#fff" onclick="openSnagImportPreview()">Preview import</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Room colour for a snag group the quote never measured. Only reachable
+       from such a group's heading — a measured room's colour stays read-only
+       here and is edited on Colours, which owns it. -->
+  <div id="snag-colour-panel" style="display:none;position:fixed;inset:0;z-index:305;background:rgba(0,0,0,.4)" onclick="closeSnagColourPanel()">
+    <div style="position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-radius:16px 16px 0 0;padding:14px 0 calc(var(--sb) + 10px);max-height:80%;display:flex;flex-direction:column;box-shadow:0 -4px 24px rgba(0,0,0,.2)" onclick="event.stopPropagation()">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:0 16px 8px">
+        <div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.6px">Room colour</div>
+        <div onclick="closeSnagColourPanel()" style="font-size:14px;font-weight:700;color:var(--accent);cursor:pointer;padding:4px 2px">Cancel</div>
+      </div>
+      <div id="snag-colour-room" style="padding:0 16px 10px;font-size:15px;font-weight:600"></div>
+      <div style="padding:0 16px 8px;font-size:12px;color:var(--text2);line-height:1.5">This room was never measured, so its colour lives with the snag list. It shows up on the Colours tab alongside the rest of the job.</div>
+      <!-- The app's ordinary colour field, not a bespoke one: start typing and
+           the colour library offers matches (with brand and code), the chips
+           underneath are one tap for a colour already on this job, and an
+           unknown name can be saved to the library from the dropdown. Same
+           widget as the room, exterior and Colours-tab fields -- see
+           colourSlotHtml. It commits as you go, like all of them, so there is
+           no Save button here either. -->
+      <!-- One colour, or one per surface. A measured room has always been able
+           to carry a different colour on its walls, ceiling, woodwork, feature
+           wall and panelling; this is the same thing for a room the quote
+           never measured. The two are exclusive -- see setSnagRoomColour. -->
+      <div class="seg" style="margin:0 16px 10px">
+        <button class="seg-btn" id="snag-colour-mode-all" onclick="setSnagColourMode('all')">Whole room</button>
+        <button class="seg-btn" id="snag-colour-mode-surfaces" onclick="setSnagColourMode('surfaces')">By surface</button>
+      </div>
+      <div style="overflow-y:auto;flex:1;padding:0 16px" id="snag-colour-body"></div>
+      <div style="padding:10px 16px 0;display:flex;gap:10px;align-items:center">
+        <button class="btn btn-ghost" id="snag-colour-clear" style="flex:1;padding:12px;display:none" onclick="clearSnagRoomColour()">Clear colour</button>
+        <button class="btn" style="flex:2;padding:12px;background:var(--accent);color:#fff" onclick="closeSnagColourPanel()">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- The confirm step. Every room name and snag here is editable, because
+       the one thing a paste reliably gets wrong is a stray sentence landing
+       as a room heading — "↑ item" folds it back where it belongs. -->
+  <div id="snag-preview" style="display:none;position:fixed;inset:0;z-index:310;background:rgba(0,0,0,.4)" onclick="closeSnagImportPreview()">
+    <div style="position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-radius:16px 16px 0 0;padding:14px 0 calc(var(--sb) + 10px);max-height:88%;display:flex;flex-direction:column;box-shadow:0 -4px 24px rgba(0,0,0,.2)" onclick="event.stopPropagation()">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:0 16px 8px">
+        <div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.6px">Review snags</div>
+        <div onclick="closeSnagImportPreview()" style="font-size:14px;font-weight:700;color:var(--accent);cursor:pointer;padding:4px 2px">Back</div>
+      </div>
+      <div id="snag-preview-summary" style="padding:0 16px 10px;font-size:13px;color:var(--text2);line-height:1.5"></div>
+      <div class="card" id="snag-preview-body" style="margin:0 16px;overflow-y:auto;flex:1"></div>
+      <datalist id="snag-area-names"></datalist>
+      <div style="padding:12px 16px 0;display:flex;gap:10px">
+        <button class="btn btn-ghost" style="flex:1;padding:12px" onclick="closeSnagImportPreview()">Back</button>
+        <button class="btn" style="flex:2;padding:12px;background:var(--accent);color:#fff" id="snag-import-btn" onclick="commitSnagImport()">Add snags</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ══ INVOICE MATERIALS LIST (Phase 2a) ══
@@ -1770,6 +1902,14 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
            (see renderColours) -- not a queue of things to finish, just where
            you can see what's decided and change any of it from one place. -->
       <div class="card" id="colour-areas-card"></div>
+      <!-- Snag rooms with no colour yet. They can't sit in the areas card
+           above: an area carries a colour number and every unset one resolves
+           to colour 1 ("White"), which would have them claim a colour nobody
+           chose. See renderSnagRoomsCard. -->
+      <div id="colour-snagrooms-wrap" style="display:none">
+        <div class="section-title" style="margin:16px 0 8px">Snag rooms — no colour yet</div>
+        <div class="card" id="colour-snagrooms-card"></div>
+      </div>
       <div class="section-title" style="margin:16px 0 8px">What to buy</div>
       <div class="card" id="colours-cards"></div>
     </div>
@@ -1782,8 +1922,10 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
      or code and see the inc-VAT price (what's actually paid at the till)
      with ex-VAT alongside. Deliberately NOT the range/band/size materials
      parsing used for quoting -- raw Xero Name/Code straight through, so the
-     unmodellable items appear here too. Xero's SalesUnitPrice already
-     includes VAT, so inc = the Xero figure untouched and ex = inc ÷ 1.2.
+     unmodellable items appear here too. The till price is the item's Xero
+     BUY price (PurchasesUnitPrice = list price × 1.20 VAT), so inc = that
+     figure untouched and ex = inc ÷ 1.2, which lands on the supplier's PDF.
+     Never the sell price: that carries the markup (see /sales-items).
      Not tied to any job or quote; nothing here writes anywhere. -->
 <div id="screen-pricelookup" class="screen">
   <div class="topbar">
@@ -2127,7 +2269,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.48.8</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.66.2</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -2195,8 +2337,63 @@ function apiAuthExpired(r) {
   return false;
 }
 
+// ── Network deadlines (v2.61.0 offline continuity) ─────────────────────────
+// Every helper below used to call fetch() bare, and every offline path in
+// this app -- the queue, the sync dot, the "running from local cache"
+// fallbacks -- is built on fetch REJECTING. That assumption holds in
+// airplane mode and nowhere else.
+//
+// A phone in a dead spot on site is not cleanly offline. It has a bar of
+// signal and no throughput: navigator.onLine is true, the TCP connection
+// opens, and fetch() then neither resolves nor rejects for as long as the
+// OS allows -- often a minute or more, sometimes until the app is killed.
+// Everything downstream of that await simply never happened:
+//
+//   · initApp's sync block hung on the first request, so updateSyncStatus(),
+//     flushOfflineQueue() and flushPendingSnapshots() at its foot never ran.
+//     The dot sat on a green "All changes synced ✓" while nothing was
+//     syncing, and writes queued in the LAST dead spot weren't retried on
+//     this launch.
+//   · a write hung with pendingWrites still raised (dot stuck amber) and
+//     was never handed to queueOfflineWrite -- so an On Site material or
+//     labour entry logged in that state reached neither the server nor the
+//     queue. That is the one thing the offline queue exists to prevent.
+//
+// So requests now have a deadline. A timeout aborts the fetch, which rejects
+// exactly like a dropped connection, and every existing offline path -- the
+// queue, serverAvailable, the local-cache fallbacks -- runs as designed.
+//
+// Two lengths: reads are re-issued cheaply on the next launch, so they give
+// up quickly; writes get much longer because a big job's bulk PUT is a real
+// payload on a slow-but-working link, and cutting one short means a needless
+// queue-and-retry. Deliberately NOT applied to the user-initiated Xero,
+// backup and PDF calls further down -- those run behind a spinner the user
+// is watching, and blockIfOffline() already turns them away without signal.
+var NET_READ_TIMEOUT_MS = 12000;
+var NET_WRITE_TIMEOUT_MS = 25000;
+
+function netFetch(path, opts, timeoutMs) {
+  // No AbortController (very old WebKit): behave exactly as before rather
+  // than lose the request.
+  if (typeof AbortController === 'undefined') return fetch(path, opts);
+  var ctrl = new AbortController();
+  var timer = setTimeout(function() { ctrl.abort(); }, timeoutMs || NET_READ_TIMEOUT_MS);
+  var o = {};
+  for (var k in (opts || {})) o[k] = opts[k];
+  o.signal = ctrl.signal;
+  return fetch(path, o).finally(function() { clearTimeout(timer); });
+}
+
+// "The request died on the way out" -- as opposed to a server that answered
+// and said no. fetch rejects with a TypeError for a dropped connection and
+// with an AbortError once a deadline above fires; both mean the same thing
+// to every caller that distinguishes offline from a real failure.
+function isNetworkFailure(e) {
+  return e instanceof TypeError || !!(e && (e.name === 'AbortError' || e.name === 'TimeoutError'));
+}
+
 async function apiGet(path) {
-  const r = await fetch(path);
+  const r = await netFetch(path, undefined, NET_READ_TIMEOUT_MS);
   if (apiAuthExpired(r)) throw new Error('login required');
   if (!r.ok) throw new Error('API error: ' + path);
   return r.json();
@@ -2300,9 +2497,18 @@ var offlineQueue = [];
 try { offlineQueue = JSON.parse(localStorage.getItem('pe-offline-queue') || '[]'); } catch (e) {}
 var offlineFlushing = false;
 function persistOfflineQueue() { localStorage.setItem('pe-offline-queue', JSON.stringify(offlineQueue)); }
-function queueOfflineWrite(method, path, body) {
-  offlineQueue = offlineQueue.filter(function(q) { return !(q.method === method && q.path === path); });
-  offlineQueue.push({ method: method, path: path, body: body || null, at: new Date().toISOString() });
+// dedupeKey defaults to method+path, which is what last-write-wins means for
+// the four collection PUTs this queue was built for -- one row per collection,
+// the newest body replacing the older. It is an explicit parameter because
+// POST /api/jobs breaks that assumption: two jobs started in the same dead
+// spot share a method and a path, and collapsing them would silently throw
+// the first one away. Those pass their own per-job key.
+function queueOfflineWrite(method, path, body, dedupeKey) {
+  var key = dedupeKey || (method + ' ' + path);
+  // q.key is absent on entries written by an older build that are still
+  // sitting in localStorage from a dead spot -- derive theirs the old way.
+  offlineQueue = offlineQueue.filter(function(q) { return (q.key || (q.method + ' ' + q.path)) !== key; });
+  offlineQueue.push({ method: method, path: path, body: body || null, key: key, at: new Date().toISOString() });
   persistOfflineQueue();
   updateSyncStatus();
 }
@@ -2337,6 +2543,144 @@ function noteServerCopy(coll, jobId, data) {
   try { localStorage.setItem('pe-server-shadow', JSON.stringify(serverShadow)); } catch (e) {}
 }
 
+// ── Per-job offline mirrors (v2.62.0) ──────────────────────────────────────
+// pe-rooms / pe-extitems / pe-colours / pe-materials-snapshot hold exactly
+// ONE job's worth of data -- whichever job is active. That was enough while
+// a job switch could only happen with a server to fetch the next job from.
+// Offline it is not, and the failure was the worst kind: silent and
+// destructive.
+//
+// loadActiveJobData() sets each collection to [] when its fetch fails. So
+// switching jobs in a dead spot showed the new job EMPTY -- every room gone
+// -- and the four pe-* mirrors still held the OLD job's rows, now filed
+// under the new job's id in pe-active-job-id. Two ways that ended badly:
+//
+//   · Measure into the empty job and saveRooms() PUTs [thatOneRoom] to
+//     /api/rooms?job_id=<new job>. The write queues, the queue flushes on
+//     reconnect, and the server's real rooms for that job are replaced by
+//     the one room. A whole house's measurements, gone, with no error
+//     anywhere -- the queue did exactly what it was told.
+//   · Close the app in that state and reopen it. initApp reads pe-rooms
+//     (the OLD job's rooms) against pe-active-job-id (the NEW job) and shows
+//     one job's measurements under another job's name. The first edit then
+//     writes them there for real.
+//
+// So each job that has been opened on this phone keeps its own copy, and a
+// fetch that fails falls back to THAT rather than to []. The pe-* keys stay
+// exactly as they were -- still the active job's mirror, still what initApp
+// reads first -- so nothing that reads them had to change; these sit behind
+// them and are consulted only when the network can't answer.
+//
+// Bounded: a phone is not a database. The least recently opened job's copies
+// are dropped past JOB_MIRROR_LIMIT, and a quota error drops more and retries
+// once rather than failing the save.
+var JOB_MIRROR_COLLS = ['rooms', 'extitems', 'colours', 'materials'];
+var JOB_MIRROR_LIMIT = 12;
+var JOB_MIRROR_ORDER_KEY = 'pe-job-mirror-order';
+
+function jobMirrorKey(coll, jobId) { return 'pe-job-' + jobId + '-' + coll; }
+
+function readJobMirrorOrder() {
+  try {
+    var v = JSON.parse(localStorage.getItem(JOB_MIRROR_ORDER_KEY) || '[]');
+    return Array.isArray(v) ? v : [];
+  } catch (e) { return []; }
+}
+
+function dropJobMirror(jobId) {
+  JOB_MIRROR_COLLS.forEach(function(c) {
+    try { localStorage.removeItem(jobMirrorKey(c, jobId)); } catch (e) {}
+  });
+  var order = readJobMirrorOrder().filter(function(j) { return j !== jobId; });
+  try { localStorage.setItem(JOB_MIRROR_ORDER_KEY, JSON.stringify(order)); } catch (e) {}
+}
+
+// Most recently opened last. Anything past the limit is dropped here, so the
+// list and the stored copies can't drift apart.
+function touchJobMirror(jobId) {
+  var order = readJobMirrorOrder().filter(function(j) { return j !== jobId; });
+  order.push(jobId);
+  while (order.length > JOB_MIRROR_LIMIT) {
+    var evicted = order.shift();
+    JOB_MIRROR_COLLS.forEach(function(c) {
+      try { localStorage.removeItem(jobMirrorKey(c, evicted)); } catch (e) {}
+    });
+  }
+  try { localStorage.setItem(JOB_MIRROR_ORDER_KEY, JSON.stringify(order)); } catch (e) {}
+}
+
+// null means "this phone has no copy of that", which is a different answer
+// from [] ("this job has no rooms") and the whole point of the exercise.
+function readJobMirror(coll, jobId) {
+  if (!jobId) return null;
+  try {
+    var raw = localStorage.getItem(jobMirrorKey(coll, jobId));
+    if (raw === null) return null;
+    var v = JSON.parse(raw);
+    return Array.isArray(v) ? v : null;
+  } catch (e) { return null; }
+}
+
+function hasJobMirror(jobId) {
+  return JOB_MIRROR_COLLS.some(function(c) { return readJobMirror(c, jobId) !== null; });
+}
+
+function writeJobMirror(coll, jobId, data) {
+  if (!jobId) return;
+  var json = JSON.stringify(data || []);
+  try {
+    localStorage.setItem(jobMirrorKey(coll, jobId), json);
+    touchJobMirror(jobId);
+    return;
+  } catch (e) { /* out of room -- fall through */ }
+  // Quota. Drop every mirror except the job being written and the one most
+  // recently opened before it, then try once more. Losing an old job's
+  // offline copy is recoverable (it reloads in signal); losing the write is
+  // the thing that isn't.
+  var order = readJobMirrorOrder();
+  order.filter(function(j) { return j !== jobId; })
+       .slice(0, Math.max(0, order.length - 2))
+       .forEach(dropJobMirror);
+  try {
+    localStorage.setItem(jobMirrorKey(coll, jobId), json);
+    touchJobMirror(jobId);
+  } catch (e2) {
+    console.log('No room to keep an offline copy of ' + coll + ' for this job');
+  }
+}
+
+// Write all four at once -- what a job switch and a fresh job both want.
+function writeJobMirrorAll(jobId, data) {
+  JOB_MIRROR_COLLS.forEach(function(c) { writeJobMirror(c, jobId, data ? data[c] : []); });
+}
+
+// Existing phones have their active job's data in the pe-* keys and nothing
+// per-job. Seed from them once so the very first launch after this build
+// already has an offline copy of the job in hand, rather than one that only
+// appears after the next successful load.
+function seedJobMirrorFromLegacy(jobId) {
+  if (!jobId || hasJobMirror(jobId)) return false;
+  var legacy = { rooms: 'pe-rooms', extitems: 'pe-extitems', colours: 'pe-colours', materials: 'pe-materials-snapshot' };
+  var found = {};
+  JOB_MIRROR_COLLS.forEach(function(c) {
+    var raw = localStorage.getItem(legacy[c]);
+    if (raw === null) return;
+    try {
+      var v = JSON.parse(raw);
+      if (Array.isArray(v)) found[c] = v;
+    } catch (e) {}
+  });
+  if (!Object.keys(found).length) return false;
+  // All four or none. A collection with no pe-* key of its own is one this
+  // job has none of -- the keys are written on every successful load, empty
+  // response included -- and seeding it as [] rather than leaving it absent
+  // is what makes the job count as KNOWN to this phone. Half-seeded, the job
+  // would still open (hasJobMirror only needs one) but would report itself
+  // as partly unknown, which is a distinction nothing downstream can act on.
+  JOB_MIRROR_COLLS.forEach(function(c) { writeJobMirror(c, jobId, found[c] || []); });
+  return true;
+}
+
 function queuedPathCollection(path) {
   var p = path.split('?')[0];
   if (p.indexOf('/api/rooms') === 0) return 'rooms';
@@ -2351,10 +2695,10 @@ function queuedItemJobId(q) {
   return (q.body && q.body.jobId) || null;
 }
 var OFFLINE_COLLECTIONS = {
-  rooms:    { path: '/api/rooms',    label: 'Rooms',          apply: function(d) { rooms = d || [];             localStorage.setItem('pe-rooms', JSON.stringify(rooms)); } },
-  extitems: { path: '/api/extitems', label: 'Exterior items', apply: function(d) { extItems = d || [];          localStorage.setItem('pe-extitems', JSON.stringify(extItems)); } },
-  colours:  { path: '/api/colours',  label: 'Colours',        apply: function(d) { colours = d || [];           localStorage.setItem('pe-colours', JSON.stringify(colours)); } },
-  materials:{ path: '/api/materials',label: 'Materials',      apply: function(d) { materialsSnapshot = d || []; localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot)); } }
+  rooms:    { path: '/api/rooms',    label: 'Rooms',          apply: function(d) { rooms = d || [];             localStorage.setItem('pe-rooms', JSON.stringify(rooms)); writeJobMirror('rooms', activeJobId, rooms); } },
+  extitems: { path: '/api/extitems', label: 'Exterior items', apply: function(d) { extItems = d || [];          localStorage.setItem('pe-extitems', JSON.stringify(extItems)); writeJobMirror('extitems', activeJobId, extItems); } },
+  colours:  { path: '/api/colours',  label: 'Colours',        apply: function(d) { colours = d || [];           localStorage.setItem('pe-colours', JSON.stringify(colours)); writeJobMirror('colours', activeJobId, colours); } },
+  materials:{ path: '/api/materials',label: 'Materials',      apply: function(d) { materialsSnapshot = d || []; localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot)); writeJobMirror('materials', activeJobId, materialsSnapshot); } }
 };
 
 // Replay the queue on reconnect. Before replaying, each queued collection
@@ -2400,7 +2744,7 @@ async function flushOfflineQueue() {
           opts.headers = { 'Content-Type': 'application/json' };
           opts.body = JSON.stringify(item.body);
         }
-        try { await fetch(item.path, opts); }
+        try { await netFetch(item.path, opts, NET_WRITE_TIMEOUT_MS); }
         catch (e) { serverAvailable = false; return; } // still offline — keep the rest queued
         // Sent (2xx or a server rejection — either way replaying the same
         // bytes again can't do better): off the queue.
@@ -2437,11 +2781,11 @@ async function apiPut(path, data) {
   }
   beginWrite();
   try {
-    const r = await fetch(path, {
+    const r = await netFetch(path, {
       method: 'PUT',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify(data)
-    });
+    }, NET_WRITE_TIMEOUT_MS);
     apiAuthExpired(r);
     serverAvailable = true;
     if (offlineQueue.length) flushOfflineQueue();
@@ -2460,7 +2804,7 @@ async function apiDelete(path) {
   }
   beginWrite();
   try {
-    const r = await fetch(path, { method: 'DELETE' });
+    const r = await netFetch(path, { method: 'DELETE' }, NET_WRITE_TIMEOUT_MS);
     apiAuthExpired(r);
     serverAvailable = true;
     if (offlineQueue.length) flushOfflineQueue();
@@ -2499,11 +2843,11 @@ async function apiPutStrict(path, data) {
   try {
     let r;
     try {
-      r = await fetch(path, {
+      r = await netFetch(path, {
         method: 'PUT',
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify(data)
-      });
+      }, NET_WRITE_TIMEOUT_MS);
     } catch (netErr) {
       serverAvailable = false;
       queueOfflineWrite('PUT', path, data);
@@ -2533,7 +2877,7 @@ async function apiDeleteStrict(path) {
   try {
     let r;
     try {
-      r = await fetch(path, { method: 'DELETE' });
+      r = await netFetch(path, { method: 'DELETE' }, NET_WRITE_TIMEOUT_MS);
     } catch (netErr) {
       serverAvailable = false;
       queueOfflineWrite('DELETE', path, null);
@@ -2565,6 +2909,9 @@ var pendingSaves = { rooms: null, colours: null, extItems: null, materials: null
 function saveRooms() {
   invalidateColourPlaceholders();
   localStorage.setItem('pe-rooms', JSON.stringify(rooms));
+  // ...and the per-job copy alongside it, so switching away and back in a
+  // dead spot finds this edit rather than the last successful fetch.
+  writeJobMirror('rooms', activeJobId, rooms);
   // One transactional replace-all request (see PUT /rooms in routes/api.js)
   // -- previously a DELETE followed by one PUT per room, which was O(rooms)
   // round trips per edit and could leave the server's copy empty if a PUT
@@ -2715,6 +3062,9 @@ function clearEverything() {
   localStorage.setItem('pe-extitems','[]');
   localStorage.setItem('pe-colours','[]');
   localStorage.setItem('pe-materials-snapshot','[]');
+  // Same for the per-job copy: this path writes the four keys directly
+  // instead of going through save*(), so nothing else would clear it.
+  writeJobMirrorAll(activeJobId, null);
   apiDelete('/api/all?job_id='+encodeURIComponent(activeJobId));
   var clearedJob = activeJob();
   if (clearedJob) clearedJob.kitchen = null;
@@ -4345,11 +4695,11 @@ function fillClientHistoryColours(jobId, cols) {
 // target per the spec), or its notes when opened from an access-notes row.
 function openPrevJob(id) {
   if (id === activeJobId) { goTab('summary'); return; }
-  switchJob(id).then(function() { goTab('summary'); });
+  switchJob(id).then(function(ok) { if (ok) goTab('summary'); });
 }
 function openPrevJobNotes(id) {
   if (id === activeJobId) { openNotesPanel(); return; }
-  switchJob(id).then(function() { openNotesPanel(); });
+  switchJob(id).then(function(ok) { if (ok) openNotesPanel(); });
 }
 
 function clientHistoryStatusLabel(j) {
@@ -4763,8 +5113,24 @@ async function createXeroQuote(forceNew) {
         // carries the same labour amounts the client's own copy shows
         // (buildClientQuoteModel) rather than a separately-derived set.
         // labourAdjustment rides along for the no-labour-lines guard.
+        //
+        // quoteTotal is what actually pins the document down: the clean
+        // £5-rounded grand total THIS app quotes. The server subtracts the
+        // penny-rounded sundries/custom/materials lines from it to get the
+        // labour target — exactly what buildClientQuoteModel() does for the
+        // client's own copy — so the Xero total is the app's total rather
+        // than a penny over it, whatever those lines round to. lineMult and
+        // sundriesTotal go with it so the individual LINES match too: the
+        // server's own derivations of both are near-misses (its fixed-£
+        // markup ratio leaves the sundries out of the base, and it can't see
+        // the spray-masking half of the sundries at all). labourSpreadTarget
+        // stays for an older server; the server keeps its own derivations
+        // for an older client (either side left open across a deploy).
         labourSpreadTarget: Math.round((tcS * depositPlan.lineMult + depositPlan.adjustmentPool) * 100) / 100,
         labourAdjustment: Math.round(depositPlan.adjustmentPool * 100) / 100,
+        quoteTotal: Math.round(depositPlan.total * 100) / 100,
+        lineMult: depositPlan.lineMult,
+        sundriesTotal: depositPlan.sundries,
         paymentTerms: paymentTerms,
         paymentSummary: paymentSummary,
         contactId: linkedContactId,
@@ -4859,6 +5225,15 @@ async function initApp() {
   // it from the same pe-settings blob via mergeSettings(). Just paint it.
   loadSettings();
 
+  // The pe-* mirrors belong, by definition, to the job that was active when
+  // the app last closed. Remember which that is: the jobs fetch below can
+  // move activeJobId, and past that point these values are another job's.
+  var bootJobId = activeJobId;
+  // One-time migration for a phone upgrading to this build: it has the pe-*
+  // keys and no per-job copies, so give the job in hand one straight away
+  // rather than making it wait for the next successful load.
+  seedJobMirrorFromLegacy(bootJobId);
+
   rooms = JSON.parse(localStorage.getItem('pe-rooms') || '[]');
 
   var extLocal = JSON.parse(localStorage.getItem('pe-extitems')||'null');
@@ -4907,7 +5282,7 @@ async function initApp() {
         // Truly empty jobs table — create a first job so rooms/colours/etc
         // below always have somewhere valid to belong to.
         var firstJob = { id: uid(), name: 'My Job' };
-        await fetch('/api/jobs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(firstJob) });
+        await netFetch('/api/jobs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(firstJob) }, NET_WRITE_TIMEOUT_MS);
         jobs = [firstJob];
         activeJobId = firstJob.id;
         localStorage.setItem('pe-jobs', JSON.stringify(jobs));
@@ -4947,6 +5322,19 @@ async function initApp() {
     // so a missing table on a not-yet-migrated DB (or one flaky request)
     // only loses that one fetch, never the rest.
     var syncJobId = activeJobId;
+    // A startup fetch that fails keeps whatever Step 1 loaded -- correct, and
+    // the long-standing behaviour, while the active job hasn't moved. But the
+    // jobs fetch above CAN move it (the stored job was deleted elsewhere), and
+    // past that point Step 1's values are a different job's rows sitting under
+    // this job's id: shown as its measurements, and written there by the first
+    // edit. So when the job has changed, take this job's own offline copy, or
+    // nothing at all -- never the other job's.
+    var bootFallback = function(coll, legacyKey, assign) {
+      if (syncJobId === bootJobId) return;
+      var mine = readJobMirror(coll, syncJobId) || [];
+      assign(mine);
+      localStorage.setItem(legacyKey, JSON.stringify(mine));
+    };
     // Bank holidays for the Schedule calendar — fire-and-forget like the
     // Xero sync above: it re-renders the schedule itself if that's the
     // open screen, and everything below is independent of it.
@@ -4969,20 +5357,27 @@ async function initApp() {
       apiGet('/api/rooms?job_id='+encodeURIComponent(syncJobId)).then(function(serverRooms) {
         rooms = serverRooms || [];
         localStorage.setItem('pe-rooms', JSON.stringify(rooms));
+        writeJobMirror('rooms', syncJobId, rooms);
         noteServerCopy('rooms', syncJobId, rooms);
         renderHome();
       }).catch(function(e) {
         console.log('Rooms fetch failed — running from local cache:', e.message);
+        bootFallback('rooms', 'pe-rooms', function(v) { rooms = v; });
+        renderHome();
       }),
       // Exterior items
       apiGet('/api/extitems?job_id='+encodeURIComponent(syncJobId)).then(function(extData) {
         extItems = extData || [];
         localStorage.setItem('pe-extitems', JSON.stringify(extItems));
+        writeJobMirror('extitems', syncJobId, extItems);
         noteServerCopy('extitems', syncJobId, extItems);
         renderExterior();
         renderSummary();
       }).catch(function(e) {
         console.log('Exterior items fetch failed — running from local cache:', e.message);
+        bootFallback('extitems', 'pe-extitems', function(v) { extItems = v; });
+        renderExterior();
+        renderSummary();
       }),
       // Colours + colour library -- ensureDefaultColour()/renderColours()
       // must run after BOTH (and run either way, so colour 1 is ready
@@ -4992,9 +5387,11 @@ async function initApp() {
         apiGet('/api/colours?job_id='+encodeURIComponent(syncJobId)).then(function(colourData) {
           colours = colourData || [];
           localStorage.setItem('pe-colours', JSON.stringify(colours));
+          writeJobMirror('colours', syncJobId, colours);
           noteServerCopy('colours', syncJobId, colours);
         }).catch(function(e) {
           console.log('Colours fetch failed — running from local cache:', e.message);
+          bootFallback('colours', 'pe-colours', function(v) { colours = v; });
         }),
         // colour_library is global/permanent (not job-scoped), so unlike
         // rooms/colours there's no "clear if empty" case to worry about,
@@ -5015,9 +5412,11 @@ async function initApp() {
       apiGet('/api/materials?job_id='+encodeURIComponent(syncJobId)).then(function(materialsData) {
         materialsSnapshot = materialsData || [];
         localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot));
+        writeJobMirror('materials', syncJobId, materialsSnapshot);
         noteServerCopy('materials', syncJobId, materialsSnapshot);
       }).catch(function(e) {
         console.log('Materials snapshot fetch failed — running from local cache:', e.message);
+        bootFallback('materials', 'pe-materials-snapshot', function(v) { materialsSnapshot = v; });
       }),
       // Material actuals -- loaded eagerly (not just when Materials is
       // opened) so the hamburger badge is correct from the very first paint.
@@ -5029,6 +5428,14 @@ async function initApp() {
       // not read another job's log or an empty one on first paint.
       loadLabourLog().catch(function(e) {
         console.log('Labour log fetch failed — profitability shows no logged days until On Site is opened:', e.message);
+      }),
+      // Snags and their room colours eagerly as well, and for a sharper
+      // reason than the badge: an unmeasured snag room is an AREA on the
+      // Colours tab now (see colourAreas), so a Colours visit before On Site
+      // has been opened would otherwise be missing rooms it is supposed to
+      // let you name.
+      Promise.all([loadSnags(), loadSnagRooms()]).catch(function(e) {
+        console.log('Snags fetch failed — the snag list and its colours load when On Site is opened:', e.message);
       }),
       // Accepted-quote snapshots, eagerly for the same reason and a sharper
       // one: on an accepted job every money figure Summary paints comes from
@@ -5403,11 +5810,31 @@ function activeJob() {
 // Loads the active job's rooms/exterior items/colours/materials into
 // memory from the server and re-renders. Same shape as the corresponding
 // isolated try/catch blocks in initApp(), reused on every job switch.
+// Returns TRUE if this phone ended up holding real data for the job -- from
+// the server, or from the per-job mirror when the server couldn't be reached.
+// FALSE means neither: no signal, and a job that has never been opened here,
+// so every collection is [] not because the job is empty but because nothing
+// answered. switchJob() treats that as a refusal rather than showing an empty
+// job the next edit would then PUT over the server's real one.
 async function loadActiveJobData() {
   // The five fetches are independent of one another -- run them
   // concurrently (one round trip of latency per switch instead of five).
   // Each keeps its own isolated failure handling, same as before.
   var jobId = activeJobId;
+  // Set by whichever branches got real data, from either source.
+  var known = {};
+  // A failed fetch used to drop straight to [] and leave the pe-* mirror
+  // holding the PREVIOUS job's rows. Take this job's own copy instead, and
+  // write the pe-* mirror either way so it always describes the job named in
+  // pe-active-job-id -- a cold relaunch reads it before anything else.
+  var offlineCopy = function(coll, legacyKey, assign) {
+    return function() {
+      var mine = readJobMirror(coll, jobId);
+      known[coll] = mine !== null;
+      assign(mine || []);
+      localStorage.setItem(legacyKey, JSON.stringify(mine || []));
+    };
+  };
   // Cleared before the fetches, not after: quoteSnapshotsJobId is what every
   // frozen-quote accessor checks, and leaving the OLD job's id on it for the
   // duration of the round trip would let the new job render the old one's
@@ -5417,23 +5844,31 @@ async function loadActiveJobData() {
     apiGet('/api/rooms?job_id='+encodeURIComponent(jobId)).then(function(d) {
       rooms = d || [];
       localStorage.setItem('pe-rooms', JSON.stringify(rooms));
+      writeJobMirror('rooms', jobId, rooms);
       noteServerCopy('rooms', jobId, rooms);
-    }).catch(function() { rooms = []; }),
+      known.rooms = true;
+    }).catch(offlineCopy('rooms', 'pe-rooms', function(v) { rooms = v; })),
     apiGet('/api/extitems?job_id='+encodeURIComponent(jobId)).then(function(d) {
       extItems = d || [];
       localStorage.setItem('pe-extitems', JSON.stringify(extItems));
+      writeJobMirror('extitems', jobId, extItems);
       noteServerCopy('extitems', jobId, extItems);
-    }).catch(function() { extItems = []; }),
+      known.extitems = true;
+    }).catch(offlineCopy('extitems', 'pe-extitems', function(v) { extItems = v; })),
     apiGet('/api/colours?job_id='+encodeURIComponent(jobId)).then(function(d) {
       colours = d || [];
       localStorage.setItem('pe-colours', JSON.stringify(colours));
+      writeJobMirror('colours', jobId, colours);
       noteServerCopy('colours', jobId, colours);
-    }).catch(function() { colours = []; }),
+      known.colours = true;
+    }).catch(offlineCopy('colours', 'pe-colours', function(v) { colours = v; })),
     apiGet('/api/materials?job_id='+encodeURIComponent(jobId)).then(function(d) {
       materialsSnapshot = d || [];
       localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot));
+      writeJobMirror('materials', jobId, materialsSnapshot);
       noteServerCopy('materials', jobId, materialsSnapshot);
-    }).catch(function() { materialsSnapshot = []; }),
+      known.materials = true;
+    }).catch(offlineCopy('materials', 'pe-materials-snapshot', function(v) { materialsSnapshot = v; })),
     // Actuals are job-scoped too, and don't live in localStorage (see the "no
     // localStorage mirror" note in MATERIAL_TRACKING_SPEC.md) -- load them here
     // as well, so switching jobs updates the hamburger badge to the NEW job's
@@ -5444,6 +5879,10 @@ async function loadActiveJobData() {
     // Labour log for the same reason as actuals above: no localStorage
     // mirror, and the profitability card reads it on Summary.
     loadLabourLog().catch(function() { labourLog = []; }),
+    // Snags likewise -- no mirror, and leaving the OLD job's punch list in
+    // memory would put another house's snags on this job's On Site screen.
+    loadSnags().catch(function() { snags = []; }),
+    loadSnagRooms().catch(function() { snagRooms = []; }),
     // Accepted-quote snapshots, same job-scoped no-mirror treatment. This one
     // has to land before renderSummary() below or an accepted job would flash
     // its LIVE figures -- today's rates on a quote the client already signed
@@ -5455,6 +5894,11 @@ async function loadActiveJobData() {
   ]);
   applyClientVariationAnswers(jobId);
   ensureDefaultColour();
+  snagEditId = null;      // an open snag editor belongs to the job it opened in
+  // Folded snag groups are keyed by room label, and two jobs can easily both
+  // have a Landing -- carrying the map over would fold the new job's rooms on
+  // the strength of a tap made in the old one.
+  snagCollapsed = {};
   matReorderMode = false; // reorder mode is per-visit, not per-job state
   measureReorderMode = false; // ditto, for the Measure lists
   // Undo is scoped to one job's materials/actuals, and the lists it restores
@@ -5464,6 +5908,7 @@ async function loadActiveJobData() {
   restoreJobIdentityFields();
   renderHome(); renderExterior(); renderColours(); renderSummary(); renderDash();
   updateNavBadge();
+  return JOB_MIRROR_COLLS.some(function(c) { return known[c]; });
 }
 
 // Switches the active job: flushes the OLD job's in-flight saves first
@@ -5496,7 +5941,10 @@ function restoreJobIdentityFields() {
 }
 
 async function switchJob(id) {
-  if (id === activeJobId) return;
+  // Already there: TRUE, not undefined. Callers gate their follow-on
+  // navigation on the return value now, and tapping the job you are already
+  // on still has to take you to it.
+  if (id === activeJobId) return true;
   if (serverAvailable) {
     // Every edit path already flushed via its save*() as the edit happened,
     // so the server is current -- awaiting the recorded in-flight promises
@@ -5510,31 +5958,92 @@ async function switchJob(id) {
     // new job's data below.
     await Promise.all([saveRooms(), saveColours(), saveExtItems(), saveMaterialsSnapshot()]);
   }
+  var leaving = activeJobId;
   activeJobId = id;
+  localStorage.setItem('pe-active-job-id', activeJobId);
+  if (await loadActiveJobData()) {
+    renderJobs();
+    goTab('dash');
+    return true;
+  }
+  // Nothing came back from the server AND this phone has never held this
+  // job, so every collection is [] for want of an answer rather than because
+  // the job is empty. Landing here would be the dangerous outcome: measure
+  // into it and the queued PUT replaces the job's real rooms on the server
+  // the moment signal returns. Go back to the job we were on -- which does
+  // have a copy, or we would not have been on it -- and say so plainly.
+  activeJobId = leaving;
   localStorage.setItem('pe-active-job-id', activeJobId);
   await loadActiveJobData();
   renderJobs();
-  goTab('dash');
+  var name = (jobs.filter(function(j) { return j.id === id; })[0] || {}).name;
+  alert('Can\u2019t open ' + (name ? '\u201c' + name + '\u201d' : 'that job') + ' \u2014 there\u2019s no signal and this phone hasn\u2019t got a copy of it.\n\nA job is saved for offline use once you\u2019ve opened it in signal at least once. You\u2019re still on \u201c' + ((activeJob() || {}).name || 'your last job') + '\u201d and nothing has changed.');
+  return false;
 }
 
+// Both of these used to be a BARE `await fetch(...)`, which meant that with no
+// signal the fetch rejected and every line below it -- the local jobs list,
+// its localStorage mirror, the switch -- never ran. So a job could not be
+// STARTED off-signal at all: you arrive at a new house in a dead spot, type
+// the name, and nothing happens. Pulling up outside a house is exactly when a
+// job gets created, and it's the one thing the whole offline story rests on,
+// since every room measured afterwards has to belong to a job.
+//
+// The id is client-generated (uid()) and the local copy is authoritative from
+// the moment it's named, so queueing the write costs nothing: the row the
+// server creates on reconnect is the same row this phone has been filling in
+// all along. A server that ANSWERS and refuses still throws, as before --
+// that's a real error, not a dead spot.
 async function createJob(name) {
   name = (name || '').trim();
   if (!name) return;
   var job = { id: uid(), name: name };
-  await fetch('/api/jobs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(job) });
+  try {
+    await netFetch('/api/jobs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(job) }, NET_WRITE_TIMEOUT_MS);
+    serverAvailable = true;
+  } catch (e) {
+    if (!isNetworkFailure(e)) throw e;
+    serverAvailable = false;
+    // Keyed by job id: see queueOfflineWrite. Two jobs created in one dead
+    // spot must both reach the server.
+    queueOfflineWrite('POST', '/api/jobs', job, 'POST /api/jobs#' + job.id);
+  }
   jobs.unshift(job);
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  // Seed the mirror before switching. A brand-new job genuinely IS empty, and
+  // this phone is the only place that knows it exists yet -- without this,
+  // switchJob() would find nothing on the server, nothing on the phone, and
+  // bounce straight back off the job it just made.
+  writeJobMirrorAll(job.id, null);
   await switchJob(job.id);
 }
 
 async function deleteJob(id) {
   if (!confirm('Delete this job and everything in it? This cannot be undone.')) return;
-  await fetch('/api/jobs/'+id, { method:'DELETE' });
+  try {
+    await netFetch('/api/jobs/'+id, { method:'DELETE' }, NET_WRITE_TIMEOUT_MS);
+    serverAvailable = true;
+  } catch (e) {
+    if (!isNetworkFailure(e)) throw e;
+    serverAvailable = false;
+    // The path carries the id, so the default key is already per-job. A
+    // create-then-delete in the same dead spot replays in order and nets out.
+    queueOfflineWrite('DELETE', '/api/jobs/'+id, null);
+  }
   jobs = jobs.filter(function(j){ return j.id !== id; });
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  dropJobMirror(id);
   if (id === activeJobId) {
     if (jobs.length > 0) {
-      activeJobId = jobs[0].id;
+      // Deleting the job you were on has to land you somewhere, and unlike a
+      // switch there is nothing to go back to. Offline that makes the CHOICE
+      // of landing job matter: jobs[0] (most recently updated) may be one this
+      // phone has never held, which would open empty and set up the same
+      // destructive PUT switchJob() refuses. Prefer the most recent job there
+      // IS a copy of; with no signal and no copy of any of them, jobs[0] is
+      // still the honest answer and the sync dot is already red.
+      var landable = jobs.filter(function(j) { return hasJobMirror(j.id); })[0];
+      activeJobId = (landable || jobs[0]).id;
       localStorage.setItem('pe-active-job-id', activeJobId);
       await loadActiveJobData();
     } else {
@@ -6300,12 +6809,12 @@ function flushPendingSnapshots() {
       var item = pendingQuoteSnapshots[0];
       beginWrite();
       try {
-        var resp = await fetch('/api/quote-snapshots', {
+        var resp = await netFetch('/api/quote-snapshots', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ jobId: item.jobId, data: item.data, acceptedAt: item.acceptedAt,
                                  reconciliationLevel: item.reconciliationLevel, note: item.note })
-        });
+        }, NET_WRITE_TIMEOUT_MS);
         if (resp.status === 409) {
           // Another device claimed this version number. The server derives
           // versions itself, so a straight retry gets the next free one --
@@ -6313,12 +6822,12 @@ function flushPendingSnapshots() {
           // can't spin.
           serverAvailable = true;
           await loadQuoteSnapshots(item.jobId).catch(function() {});
-          resp = await fetch('/api/quote-snapshots', {
+          resp = await netFetch('/api/quote-snapshots', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ jobId: item.jobId, data: item.data, acceptedAt: item.acceptedAt,
                                    reconciliationLevel: item.reconciliationLevel, note: item.note })
-          });
+          }, NET_WRITE_TIMEOUT_MS);
         }
         serverAvailable = true;
         if (!resp.ok) {
@@ -7485,7 +7994,13 @@ function openScheduleJobSheet(jobId) {
   openScheduleSheet(html);
 }
 
-function openScheduleDaySheet(iso) {
+// How many jobs waiting for a date the day sheet lists before it stops and
+// offers the rest behind a tap. The sheet is capped at 70% of the screen and
+// scrolls, but a long list still buried the day's own Block/Unblock buttons
+// below the fold — so the list is capped AND the buttons come first (v2.53.1).
+var SCHEDULE_DAY_SHEET_JOBS = 4;
+
+function openScheduleDaySheet(iso, showAllWaiting) {
   var todayIso = isoDate(new Date());
   var title = parseIsoDate(iso).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   var html = '<div style="font-size:16px;font-weight:700;margin-bottom:2px">' + title + (iso === todayIso ? ' · today' : '') + '</div>';
@@ -7506,33 +8021,48 @@ function openScheduleDaySheet(iso) {
     html += '<div style="font-size:13px;color:var(--text2);padding:4px 0 8px">Nothing booked.</div>';
   }
   html += '</div>';
-  // Tap-to-schedule: only offered from today forward, and only when there
-  // are accepted jobs waiting for a date.
-  if (iso >= todayIso) {
-    var unsched = jobs.filter(function(j) { return j.status === 'accepted' && !(j.startDate && +j.scheduledDays > 0); });
-    if (unsched.length) {
-      html += '<div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 2px">Start a job here</div>' +
-        unsched.map(function(j) {
-          return '<div class="sched-row" style="border-top:none;padding:8px 0" onclick="scheduleJobFromDay(\'' + j.id + '\',\'' + iso + '\')">' +
-            '<span style="font-size:16px;color:var(--accent);flex:none">＋</span>' +
-            '<div style="flex:1;min-width:0;font-weight:600">' + escapeHtml(j.name) + '</div>' +
-            '<span style="font-size:12px;color:var(--text2);flex:none">~' + defaultScheduleDays(j) + 'd</span>' +
-          '</div>';
-        }).join('');
-    }
-  }
-  // Block/unblock (v1.17.0, ranges v1.17.1): only offered where it means
-  // something — a day that is (or would be) a working day, today or later.
-  // Unblocking is offered on any blocked day so a stale block can always
-  // be cleared; a multi-day run gets a clear-the-lot button too.
+  // Block/unblock (v1.17.0, ranges v1.17.1): offered on ANY day from today
+  // forward (v2.57.1). It used to be gated on the day being a working one
+  // under the GLOBAL rule, which silently withheld it from the Saturdays and
+  // bank holidays a job's own "+ Saturdays"/"Every day" override actually
+  // works — a booked Saturday offered no way to take the day back, and the
+  // missing button read as a sheet that wouldn't scroll. Unblocking is
+  // offered on any blocked day so a stale block can always be cleared; a
+  // multi-day run gets a clear-the-lot button too.
+  //
+  // These come BEFORE the jobs-waiting list on purpose (v2.53.1): with a
+  // handful of accepted jobs waiting for a date, that list filled the sheet
+  // and pushed these off the bottom, so blocking a day looked impossible
+  // exactly when the diary was busiest.
   if (blockedLabel) {
     var run = blockedRun(iso);
     html += '<button class="sched-sheet-btn warn" onclick="unblockDay(\'' + iso + '\')">Unblock this day</button>';
     if (run.length > 1) {
       html += '<button class="sched-sheet-btn warn" onclick="unblockRun(\'' + iso + '\')">Unblock all ' + run.length + ' days (' + escapeHtml(blockedLabel) + ')</button>';
     }
-  } else if (iso >= todayIso && isWorkingDay(parseIsoDate(iso), !!settings.workSaturdays)) {
+  } else if (iso >= todayIso) {
     html += '<button class="sched-sheet-btn alt" onclick="openScheduleBlockForm(\'' + iso + '\')">Block day(s)…</button>';
+  }
+  // Tap-to-schedule: only offered from today forward, and only when there
+  // are accepted jobs waiting for a date. Long lists are cut short so the
+  // sheet stays a peek rather than a scroll — "N more waiting" opens the lot.
+  if (iso >= todayIso) {
+    var unsched = jobs.filter(function(j) { return j.status === 'accepted' && !(j.startDate && +j.scheduledDays > 0); });
+    if (unsched.length) {
+      var shown = showAllWaiting ? unsched : unsched.slice(0, SCHEDULE_DAY_SHEET_JOBS);
+      html += '<div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 2px">Start a job here</div>' +
+        shown.map(function(j) {
+          return '<div class="sched-row" style="border-top:none;padding:8px 0" onclick="scheduleJobFromDay(\'' + j.id + '\',\'' + iso + '\')">' +
+            '<span style="font-size:16px;color:var(--accent);flex:none">＋</span>' +
+            '<div style="flex:1;min-width:0;font-weight:600">' + escapeHtml(j.name) + '</div>' +
+            '<span style="font-size:12px;color:var(--text2);flex:none">~' + defaultScheduleDays(j) + 'd</span>' +
+          '</div>';
+        }).join('');
+      if (shown.length < unsched.length) {
+        html += '<div class="sched-row" style="border-top:none;padding:8px 0;color:var(--accent);font-weight:600;font-size:13px" ' +
+          'onclick="openScheduleDaySheet(\'' + iso + '\',true)">' + (unsched.length - shown.length) + ' more waiting…</div>';
+      }
+    }
   }
   openScheduleSheet(html);
 }
@@ -7558,9 +8088,26 @@ function openScheduleBlockForm(iso) {
     '</div>' +
     '<input type="text" class="field-input wide" id="block-label" placeholder="Label (optional) — e.g. Holiday" autocorrect="off" style="margin-bottom:4px">' +
     '<div style="font-size:12px;color:var(--text2);margin-bottom:6px">Blocked days don’t get offered as start dates, and booked jobs stretch around them.</div>' +
+    // A day your usual week already has off can still be worth blocking: a
+    // job set to "+ Saturdays" or "Every day" works it, and a block is the
+    // one thing that override never beats. Say so, so it doesn't look like
+    // a button that does nothing.
+    (isWorkingDay(parseIsoDate(iso), !!settings.workSaturdays) ? '' :
+      '<div style="font-size:12px;color:var(--text2);margin-bottom:6px">' + fmtShortDate(iso) +
+      ' isn’t one of your usual working days — blocking it takes it off jobs set to work Saturdays or every day too.</div>') +
     '<button class="sched-sheet-btn" onclick="confirmScheduleBlock(\'' + iso + '\')">Block</button>' +
     '<button class="sched-sheet-btn alt" onclick="closeScheduleSheet()">Cancel</button>';
   openScheduleSheet(html);
+}
+// Every day a booked job occupies. Read ONCE before any block is written:
+// blocking a day pushes the spans that cross it, so re-reading this as the
+// range walks would chase its own tail and store days no job ever worked.
+function bookedDaySet() {
+  var set = {};
+  scheduledJobs().forEach(function(j) {
+    jobBookedDays(j).forEach(function(iso) { set[iso] = true; });
+  });
+  return set;
 }
 function confirmScheduleBlock(fromIso) {
   var toEl = document.getElementById('block-to');
@@ -7569,12 +8116,21 @@ function confirmScheduleBlock(fromIso) {
   var labelEl = document.getElementById('block-label');
   var label = (labelEl && labelEl.value.trim()) || 'Blocked';
   if (!settings.blockedDays) settings.blockedDays = {};
-  // Only store would-be working days — weekends and bank holidays inside
-  // the range are already off, and storing them would just add noise chips.
+  // What gets stored, in three parts (v2.57.1 widened the first two):
+  //   • the tapped day, ALWAYS — tapping it is the whole intent, and the
+  //     old rule stored nothing at all for a Saturday, so blocking one was
+  //     a silent no-op even where the button was offered;
+  //   • any day a booked job actually works, which on an override job means
+  //     Saturdays, Sundays and bank holidays the global rule calls off;
+  //   • otherwise only would-be working days — weekends and bank holidays
+  //     swept up INSIDE a range are already off, and storing those would
+  //     just add noise chips, which is what that rule was always for.
+  var worked = bookedDaySet();
   var d = parseIsoDate(fromIso);
   var guard = 0;
   while (isoDate(d) <= toIso && guard++ < 400) {
-    if (isWorkingDay(d, !!settings.workSaturdays)) settings.blockedDays[isoDate(d)] = label;
+    var x = isoDate(d);
+    if (x === fromIso || worked[x] || isWorkingDay(d, !!settings.workSaturdays)) settings.blockedDays[x] = label;
     d.setDate(d.getDate() + 1);
   }
   persistBlockedDays();
@@ -11810,6 +12366,7 @@ var materialsSnapshot = [];
 
 function saveMaterialsSnapshot() {
   localStorage.setItem('pe-materials-snapshot', JSON.stringify(materialsSnapshot));
+  writeJobMirror('materials', activeJobId, materialsSnapshot);
   var jobId = activeJobId, payload = materialsSnapshot;
   pendingSaves.materials = apiPut('/api/materials?job_id='+encodeURIComponent(jobId), { lines: materialsSnapshot })
     .then(function() { if (serverAvailable) noteServerCopy('materials', jobId, payload); });
@@ -11976,6 +12533,14 @@ function recalculateMaterialsFromButton() {
 // treated as chargeable so old jobs' totals don't silently drop.
 function materialsSnapshotTotal() {
   return materialsSnapshot.reduce(function(sum, l) { return l.chargeable === false ? sum : sum + (+l.quantity||0) * (+l.unitAmount||0); }, 0);
+}
+
+// The other half of that sum: what the list holds that is NOT being billed.
+// Summary prints it under the subtotal whenever it isn't zero, so money left
+// out of the quote is stated rather than merely absent -- the per-row
+// "Tracking only" tag says which line, this says how much it costs you.
+function materialsTrackingOnlyTotal() {
+  return materialsSnapshot.reduce(function(sum, l) { return l.chargeable === false ? sum + (+l.quantity||0) * (+l.unitAmount||0) : sum; }, 0);
 }
 
 // The quantity write itself, without the undo/save/render around it. Shared
@@ -12468,7 +13033,10 @@ function restoreFields(vals) {
     var el = document.getElementById(id);
     if (!el) return;
     if (vals[id].value != null && vals[id].value !== '') el.value = vals[id].value;
-    if (vals[id].on) el.classList.add('on');
+    // Written both ways, not just on: a toggle that DEFAULTS ON (Chargeable)
+    // is re-rendered on by its own markup, so only re-adding the class would
+    // leave a deliberate switch-off silently undone by the next re-render.
+    el.classList.toggle('on', !!vals[id].on);
   });
 }
 var ADD_MAT_FIELD_IDS = ['add-mat-product','add-mat-desc','add-mat-colour','add-mat-price','add-mat-qty','add-mat-itemcode','add-mat-chargeable'];
@@ -12479,6 +13047,11 @@ var ACT_ADD_FIELD_IDS = ['act-add-product','act-add-desc','act-add-colour','act-
 // (fix a typo, correct a colour), not a persistent per-row UI state worth
 // tracking for every card.
 var actualsEditKey = null;
+// Toggles whose empty form state is ON, cleared back to their default rather
+// than to off -- the re-render after an add restores whatever the clear
+// leaves behind (see restoreFields), so clearing Chargeable to off would
+// mean the SECOND line added in a sitting was never billed.
+var DEFAULT_ON_TOGGLE_IDS = { 'add-mat-chargeable': true };
 // Called by the add functions after a SUCCESSFUL add, so the re-render's
 // restore doesn't hand the just-added values back to the form (the rebuild
 // alone used to be what cleared it).
@@ -12487,7 +13060,7 @@ function clearFormFields(ids) {
     var el = document.getElementById(id);
     if (!el) return;
     if (el.value != null) el.value = '';
-    el.classList.remove('on');
+    el.classList.toggle('on', !!DEFAULT_ON_TOGGLE_IDS[id]);
   });
 }
 
@@ -12878,6 +13451,1212 @@ function renderTimeOnSiteCard() {
     + '</div>';
 }
 
+// ── Snags (the job's punch list) ──────────────────────────────────────────
+// SNAGS_SPEC.md. What's left to put right before the job is signed off,
+// captured room by room on this screen. Same durability rules as the actuals
+// and the labour log -- no localStorage mirror, one row per PUT, and every
+// write through apiPutStrict/apiDeleteStrict so a dead spot queues rather
+// than silently losing a snag someone walked the house to find.
+//
+// The section is deliberately conditional. A job with no snags shows no snag
+// section at all -- most of the run there is nothing to clear, and a
+// permanently empty card on the busiest screen in the app is clutter. Once
+// every snag is done the same rule applies again: the list collapses to one
+// quiet "all cleared" line rather than staying front and centre. Both cases
+// keep a way in (snagsQuietHtml below), because "no snags yet" has to be a
+// state you can add the first one from.
+var snags = [];
+
+// The passes a room goes through, in the order they happen. This list IS the
+// display order within a room: a snag's phase is chosen by hand and the list
+// re-sorts itself, so the walls get touched in before the handles do and
+// nothing that blocks the floor gets done before the things above it.
+// `details` is the small hardware/edge work (handles, door edges);
+// `final_access` is anything that stops you moving through the space once
+// it's been done (floor cleans, staircase recoats), which is why it is last.
+//
+// Phase is never guessed from the description. Snag wording varies far too
+// much across the people who write these lists ("scuff by the switch" could
+// be walls, details or prep depending on the house) and a wrong auto-tag
+// silently reorders someone's working day.
+var SNAG_PHASES = [
+  { key: 'prep',         label: 'Prep' },
+  { key: 'stain_block',  label: 'Stain block' },
+  { key: 'woodwork',     label: 'Woodwork' },
+  { key: 'walls',        label: 'Walls' },
+  { key: 'ceiling',      label: 'Ceiling' },
+  { key: 'details',      label: 'Details' },
+  { key: 'final_access', label: 'Final access' }
+];
+// Un-phased snags rank -1, so they sort to the TOP of their room rather than
+// the bottom. They are the ones still needing a decision, and burying them
+// under a sequenced list is how they stay un-sequenced; putting them first
+// also keeps the spec's rule that `final_access` is genuinely last.
+function snagPhaseRank(key) {
+  for (var i = 0; i < SNAG_PHASES.length; i++) if (SNAG_PHASES[i].key === key) return i;
+  return -1;
+}
+// '' for an un-phased snag, which prints as nothing rather than as "No phase"
+// -- on a document going out to somebody, a blank column reads as "not
+// sequenced yet" and a label reads as a phase called "No phase".
+function snagPhaseLabel(key) {
+  var p = SNAG_PHASES.find(function(x) { return x.key === key; });
+  return p ? p.label : '';
+}
+// Display order within a room: CLEARED LAST, then phase, then sort_order
+// (which is ENTRY order -- see db/setup.sql), then id so the sort is total and
+// a render can never shuffle two otherwise-identical rows against each other.
+//
+// A done snag still stays in the list -- the evidence it was dealt with is the
+// whole reason the row is kept (see SNAGS_SPEC.md) -- but it stays at the
+// BOTTOM of its group rather than in place. A working list is read for what is
+// still outstanding, and on a job three weeks in, with thirty rows cleared, the
+// handful still open were scattered through them. Nothing else about the order
+// changes: within the open band and within the cleared band, phase and entry
+// order are exactly as they were.
+function snagSorted(list) {
+  return list.slice().sort(function(a, b) {
+    var da = snagIsOpen(a) ? 0 : 1, db = snagIsOpen(b) ? 0 : 1;
+    if (da !== db) return da - db;
+    var pa = snagPhaseRank(a.phase), pb = snagPhaseRank(b.phase);
+    if (pa !== pb) return pa - pb;
+    var sa = +a.sortOrder || 0, sb = +b.sortOrder || 0;
+    if (sa !== sb) return sa - sb;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+}
+
+function snagLabelKey(s) { return String(s == null ? '' : s).trim().toLowerCase(); }
+function snagIsOpen(s) { return s.status !== 'done'; }
+function openSnagCount() { return snags.filter(snagIsOpen).length; }
+
+// Every named place in the job a snag could sensibly belong to, with the
+// colour(s) recorded against it. Read-only here -- colour lives on the
+// Colours tab and this is just showing what's already decided, so the person
+// clearing a snag doesn't have to leave the screen to find out what to open.
+// An undecided colour reads as nothing rather than as "To be confirmed":
+// that phrase is useful on a colour schedule the client reads and is pure
+// noise on a working list.
+// Memoised for the duration of one render, the same way colourPlaceholderMap
+// is and for the same reason: a render of forty snags asks for the area list
+// once per group and once per row, and each call otherwise re-walks every
+// room, exterior item and fitted unit. Dropped on the next microtask, and
+// again by invalidateColourPlaceholders() -- which every mutation that could
+// move a room, an area or a colour already calls.
+var snagAreasCache = null;
+function snagAreas() {
+  if (snagAreasCache) return snagAreasCache;
+  var out = [], seen = {};
+  var push = function(name, parts) {
+    var key = snagLabelKey(name);
+    if (!key || seen[key]) return;
+    seen[key] = true;
+    out.push({ name: name, colour: snagColourLine(parts) });
+  };
+  rooms.forEach(function(r) {
+    var parts = [];
+    if (+r.wc > 0) parts.push({ role: 'Walls', num: r.colourNumber || 1 });
+    if (+r.cc > 0) parts.push({ role: 'Ceiling', num: r.ceilingColourNumber || 1 });
+    if (+r.xc > 0) parts.push({ role: 'Woodwork', num: r.woodworkColourNumber || 1 });
+    if (+r.featureWallArea > 0 && (r.featureWallMode || 'paint') === 'paint') parts.push({ role: 'Feature wall', num: r.featureWallColourNumber || 1 });
+    if ((r.panelItems || []).length) parts.push({ role: 'Panelling', num: r.panelColourNumber || 1 });
+    push(r.name || 'Room', parts);
+  });
+  extItems.forEach(function(it) {
+    var parts = [];
+    if (extMasonryLitres(it) > 0) parts.push({ role: 'Masonry', num: it.masonryColourNumber || 1 });
+    if (extWoodworkLitres(it) > 0) parts.push({ role: 'Woodwork', num: it.extWoodworkColourNumber || 1 });
+    push(it.label || 'Exterior', parts);
+  });
+  var job = activeJob();
+  if (job) {
+    var k = ensureKitchenShape(job);
+    if (calcKitchen(k).total > 0.005) push('Kitchen Cabinets', [{ role: 'Cabinets', num: +k.colourNumber || 1 }]);
+    fittedUnitList(job).forEach(function(fu) { push(fittedUnitName(fu), [{ role: 'Unit', num: +fu.colourNumber || 1 }]); });
+  }
+  snagAreasCache = out;
+  Promise.resolve().then(function() { snagAreasCache = null; });
+  return out;
+}
+
+// The colour line beside a snag group's room heading. Deliberately NOT
+// roomColourSchedule()/colourLabelFor(): those spell a colour out in full
+// ("Farrow & Ball No. 28 Dead Salmon") because they print on documents a
+// client reads, and three of those on one heading buries the snags under
+// them. On site the name alone is what gets said out loud, so that is all
+// this shows -- and an undecided colour shows nothing at all rather than
+// "To be confirmed", which on a working list is pure noise.
+function snagColourName(num) {
+  var c = colours.find(function(x) { return x.number === num; });
+  return c && c.label ? c.label : '';
+}
+function snagColourLine(parts, allowCollapse) {
+  var all = parts || [];
+  var live = all.filter(function(p) { return snagColourName(p.num); });
+  if (!live.length) return '';
+  var names = live.map(function(p) { return snagColourName(p.num); });
+  // The bare name is only the truth when the WHOLE room is that one colour --
+  // every surface named, and all of them the same. Collapsing whenever the
+  // *named* ones happen to match read "Study — Card Room Green" on a room
+  // whose ceiling and woodwork nobody had chosen yet, which says the ceiling
+  // is Card Room Green. A surface still undecided keeps the others honest by
+  // making them say which is which.
+  if (allowCollapse !== false && live.length === all.length
+      && names.every(function(n) { return n === names[0]; })) return names[0];
+  return live.map(function(p) { return p.role + ' ' + snagColourName(p.num); }).join(' · ');
+}
+
+// A snag's room_label is TEXT with no foreign key (see db/setup.sql): it may
+// name a space that was never a priced room. Matching is by name, case- and
+// whitespace-insensitively, and a label that matches nothing is simply a
+// custom group with no colours to show.
+function snagAreaFor(label) {
+  var key = snagLabelKey(label);
+  if (!key) return null;
+  var areas = snagAreas();
+  for (var i = 0; i < areas.length; i++) if (snagLabelKey(areas[i].name) === key) return areas[i];
+  return null;
+}
+// Typed "master bedroom" for a job that has a "Master Bedroom"? Store the
+// job's spelling, so the group heading, the colour lookup and the room
+// dropdown all agree from then on.
+function canonicalSnagRoom(label) {
+  var a = snagAreaFor(label);
+  return a ? a.name : String(label == null ? '' : label).trim();
+}
+
+// Grouped by room, in the job's own area order where the label matches a real
+// area -- so the list reads down the house the same way Measure does --
+// with custom labels after them in the order they were first entered.
+function snagRoomGroups(list) {
+  var byKey = {}, order = [];
+  list.forEach(function(s) {
+    var key = snagLabelKey(s.roomLabel);
+    if (!byKey[key]) { byKey[key] = { key: key, label: s.roomLabel || 'No room', items: [] }; order.push(key); }
+    byKey[key].items.push(s);
+  });
+  var areaOrder = {};
+  snagAreas().forEach(function(a, i) { areaOrder[snagLabelKey(a.name)] = i; });
+  return order.map(function(k) { return byKey[k]; }).sort(function(a, b) {
+    // Same rule as the rows inside them: a room with nothing left open sinks
+    // below every room that still has work in it. House order is preserved
+    // within each band, so the outstanding half still reads down the house --
+    // it just isn't interleaved with rooms that are finished with.
+    var da = a.items.some(snagIsOpen) ? 0 : 1, db = b.items.some(snagIsOpen) ? 0 : 1;
+    if (da !== db) return da - db;
+    var ai = areaOrder[a.key], bi = areaOrder[b.key];
+    if ((ai === undefined) !== (bi === undefined)) return ai === undefined ? 1 : -1;
+    if (ai !== undefined) return ai - bi;
+    return order.indexOf(a.key) - order.indexOf(b.key);
+  }).map(function(g) { g.items = snagSorted(g.items); return g; });
+}
+
+// The optional flattened view: every snag in the house at the same phase,
+// together. Room-grouped is the default and the working view; this is for
+// batching -- "show me every stain block job in the house" before getting the
+// stain block out. Same rows, same ticks, just regrouped.
+function snagPhaseGroups(list) {
+  var areaOrder = {};
+  snagAreas().forEach(function(a, i) { areaOrder[snagLabelKey(a.name)] = i; });
+  var rank = function(s) {
+    var i = areaOrder[snagLabelKey(s.roomLabel)];
+    return i === undefined ? 9999 : i;
+  };
+  var groups = [];
+  var add = function(key, label, items) { if (items.length) groups.push({ key: key, label: label, items: items }); };
+  var inPhase = function(key) {
+    return list.filter(function(s) { return (s.phase || '') === key; }).sort(function(a, b) {
+      var da = snagIsOpen(a) ? 0 : 1, db = snagIsOpen(b) ? 0 : 1;
+      if (da !== db) return da - db;
+      if (rank(a) !== rank(b)) return rank(a) - rank(b);
+      var sa = +a.sortOrder || 0, sb = +b.sortOrder || 0;
+      if (sa !== sb) return sa - sb;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
+  };
+  add('', 'No phase set', inPhase(''));
+  SNAG_PHASES.forEach(function(p) { add(p.key, p.label, inPhase(p.key)); });
+  // And a phase with nothing left open drops below the ones that still have
+  // something in them, phase sequence preserved within each band. The point of
+  // this view is "what is there still to batch" -- a finished phase sitting in
+  // the middle of that answers a question nobody asked.
+  var live = groups.filter(function(g) { return g.items.some(snagIsOpen); });
+  var cleared = groups.filter(function(g) { return !g.items.some(snagIsOpen); });
+  return live.concat(cleared);
+}
+
+async function loadSnags() {
+  snags = await apiGet('/api/snags?job_id=' + encodeURIComponent(activeJobId));
+}
+
+// The write. Throws on a server rejection (apiPutStrict's contract), returns
+// quietly when the write was queued because there's no signal -- which on
+// this screen is the normal case, not the exception.
+function putSnag(s) {
+  return apiPutStrict('/api/snags/' + s.id, {
+    jobId: activeJobId,
+    roomLabel: s.roomLabel || '',
+    description: s.description,
+    status: s.status || 'open',
+    phase: s.phase || '',
+    sortOrder: +s.sortOrder || 0,
+    completedAt: s.completedAt || null
+  });
+}
+
+async function saveSnag(s) {
+  try {
+    await putSnag(s);
+  } catch (e) {
+    alert('Could not save that snag: ' + e.message + '\n\nCheck the connection and tap again.');
+    try { await loadSnags(); } catch (e2) {}
+  }
+  renderActuals();
+}
+
+// Entry order within a room. Display order comes from phase; this is the
+// tiebreaker under it, so a pasted list keeps the order it was pasted in
+// until phases are assigned.
+function nextSnagSortOrder(roomLabel) {
+  var key = snagLabelKey(roomLabel);
+  return snags.reduce(function(m, s) {
+    return snagLabelKey(s.roomLabel) === key ? Math.max(m, (+s.sortOrder || 0) + 1) : m;
+  }, 0);
+}
+
+// Ticking one off. It STAYS in the list, struck through: on site the value of
+// a cleared snag is the evidence that it was cleared, and a row that vanishes
+// takes that with it.
+function toggleSnagDone(id) {
+  var s = snags.find(function(x) { return x.id === id; });
+  if (!s) return;
+  if (s.status === 'done') { s.status = 'open'; s.completedAt = null; }
+  else { s.status = 'done'; s.completedAt = new Date().toISOString(); }
+  renderActuals(); // instant tick; saveSnag repaints again once the write lands
+  saveSnag(s);
+}
+
+function setSnagPhase(id, value) {
+  var s = snags.find(function(x) { return x.id === id; });
+  if (!s) return;
+  s.phase = SNAG_PHASES.some(function(p) { return p.key === value; }) ? value : '';
+  renderActuals();
+  saveSnag(s);
+}
+
+// "cleared Wed, 3 Sept". Falls back to a bare "cleared" for a row ticked
+// before completed_at existed, or one whose stamp didn't survive a restore --
+// better than printing "Invalid Date" beside it.
+function snagClearedLabel(s) {
+  if (!s.completedAt) return 'cleared';
+  var d = new Date(s.completedAt);
+  if (isNaN(d.getTime())) return 'cleared';
+  return 'cleared ' + d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+var snagEditId = null;
+function editSnag(id) { snagEditId = id; renderActuals(); }
+function cancelEditSnag() { snagEditId = null; renderActuals(); }
+function saveEditSnag(id) {
+  var s = snags.find(function(x) { return x.id === id; });
+  if (!s) return;
+  var desc = (document.getElementById('snag-edit-desc') || {}).value || '';
+  if (!desc.trim()) { alert('A snag needs a description.'); return; }
+  var roomSel = (document.getElementById('snag-edit-room') || {}).value || '';
+  var roomCustom = (document.getElementById('snag-edit-room-custom') || {}).value || '';
+  var room = roomSel === '__custom' ? roomCustom : roomSel;
+  if (!room.trim()) { alert('A snag needs a room or area.'); return; }
+  var nextRoom = canonicalSnagRoom(room);
+  // Moved to another room? It joins the end of that room's entry order --
+  // its old sort_order means nothing there.
+  if (snagLabelKey(nextRoom) !== snagLabelKey(s.roomLabel)) s.sortOrder = nextSnagSortOrder(nextRoom);
+  s.roomLabel = nextRoom;
+  s.description = desc.trim();
+  s.phase = (document.getElementById('snag-edit-phase') || {}).value || '';
+  snagEditId = null;
+  renderActuals();
+  saveSnag(s);
+}
+
+async function deleteSnag(id) {
+  var s = snags.find(function(x) { return x.id === id; });
+  if (!s) return;
+  if (!confirm('Remove "' + s.description + '" from the snag list?')) return;
+  snags = snags.filter(function(x) { return x.id !== id; });
+  if (snagEditId === id) snagEditId = null;
+  renderActuals();
+  try {
+    await apiDeleteStrict('/api/snags/' + id);
+  } catch (e) {
+    alert('Could not remove that snag: ' + e.message);
+    try { await loadSnags(); } catch (e2) {}
+  }
+  renderActuals();
+}
+
+// ── Snag-room colours ─────────────────────────────────────────────────────
+// The colour of a snag group that ISN'T a measured room. See db/setup.sql on
+// snag_rooms for why this carrier has to exist at all: a Xero-imported job
+// priced outside the app has no rooms, so its snag headings had nothing to
+// pull a colour from and every one of them read blank.
+//
+// A snag room is coloured by exactly the same machinery as everything else --
+// it joins colourAreas() as an area with ref {kind:'snag'}, so the Colours
+// tab lists it beside real rooms, applyAreaColourName()'s rename-vs-fork rule
+// applies to it, and the colour library's autocomplete fills brand/code. What
+// is stored here is the colour NUMBER, never a second copy of the name.
+var snagRooms = [];
+
+async function loadSnagRooms() {
+  snagRooms = await apiGet('/api/snag-rooms?job_id=' + encodeURIComponent(activeJobId));
+}
+
+// The surfaces a snag room's colour can be recorded against. The five named
+// ones reuse the SAME role keys a measured room uses, which is what lets these
+// rows join colourAreas() as ordinary areas and pick up AREA_ROLE_WORDS, the
+// Colours tab's row rendering and the rename-vs-fork rule with no special
+// case. 'all' is one colour for the whole room and is exclusive with them.
+var SNAG_ROOM_SURFACES = [
+  { role: 'wall',        label: 'Walls' },
+  { role: 'ceiling',     label: 'Ceiling' },
+  { role: 'woodwork',    label: 'Woodwork' },
+  { role: 'featurewall', label: 'Feature wall' },
+  { role: 'panel',       label: 'Panelling' }
+];
+function snagSurfaceLabel(role) {
+  var s = SNAG_ROOM_SURFACES.find(function(x) { return x.role === role; });
+  return s ? s.label : '';
+}
+
+function snagRoomEntry(label, role) {
+  var key = snagLabelKey(label);
+  if (!key) return null;
+  role = role || 'all';
+  for (var i = 0; i < snagRooms.length; i++) {
+    if (snagLabelKey(snagRooms[i].roomLabel) === key && (snagRooms[i].role || 'all') === role) return snagRooms[i];
+  }
+  return null;
+}
+// Every surface this room has a colour recorded against, in the order they
+// read on site. Empty when the room is undecided or is on a single whole-room
+// colour.
+function snagRoomSurfaceParts(label) {
+  var out = [];
+  SNAG_ROOM_SURFACES.forEach(function(sf) {
+    var e = snagRoomEntry(label, sf.role);
+    if (e && e.colourNumber) out.push({ role: sf.label, roleKey: sf.role, num: e.colourNumber });
+  });
+  return out;
+}
+// 'all' while the room is on one colour or has none yet; 'surfaces' the moment
+// any individual surface carries one. Never both -- writing one set clears the
+// other, so there is always a single true answer for the heading.
+function snagRoomMode(label) {
+  return snagRoomSurfaceParts(label).length ? 'surfaces' : 'all';
+}
+// An undecided snag room has NO colour -- not colour 1. That distinction
+// matters here in a way it doesn't for a measured room: colour 1 is seeded
+// "White" on purpose (see ensureDefaultColour), because a measured room's
+// ceilings and woodwork really are usually white. A snag-list heading makes
+// no such claim -- it exists because somebody wrote a snag against a room
+// name -- so falling back to colour 1 would put "White" beside every room
+// nobody has said anything about. Undecided reads as blank, everywhere.
+function snagRoomColourNumber(label, role) {
+  var e = snagRoomEntry(label, role || 'all');
+  return e && e.colourNumber ? e.colourNumber : null;
+}
+// Does this room have a colour of any kind -- whole-room or per-surface?
+function snagRoomHasColour(label) {
+  return !!snagRoomColourNumber(label, 'all') || snagRoomSurfaceParts(label).length > 0;
+}
+
+// Writes the carrier. Called by setAreaColourNumber's 'snag' branch, so both
+// the Colours tab and the On Site sheet go through one path.
+function setSnagRoomColour(label, num, role) {
+  label = String(label == null ? '' : label).trim();
+  if (!label) return;
+  role = role || 'all';
+  invalidateColourPlaceholders();
+  var e = snagRoomEntry(label, role);
+  if (!e) { e = { id: uid(), roomLabel: label, role: role, colourNumber: null }; snagRooms.push(e); }
+  e.roomLabel = label;
+  e.role = role;
+  e.colourNumber = num == null ? null : +num;
+  saveSnagRoom(e);
+  // The two ways of describing a room are exclusive. A room that is both "all
+  // Dead Salmon" and "ceiling All White" has no single true heading, so
+  // writing one set clears the other rather than leaving the display to pick.
+  if (num != null) clearSnagRoomRoles(label, role === 'all'
+    ? SNAG_ROOM_SURFACES.map(function(sf) { return sf.role; })
+    : ['all']);
+}
+
+function clearSnagRoomRoles(label, roles) {
+  roles.forEach(function(role) {
+    var e = snagRoomEntry(label, role);
+    if (!e || e.colourNumber == null) return;
+    e.colourNumber = null;
+    saveSnagRoom(e);
+  });
+}
+
+async function saveSnagRoom(entry) {
+  try {
+    var res = await apiPutStrict('/api/snag-rooms/' + entry.id, {
+      jobId: activeJobId, roomLabel: entry.roomLabel,
+      role: entry.role || 'all', colourNumber: entry.colourNumber
+    });
+    // The LABEL is the identity server-side, so a row another device already
+    // created for this room wins and the client adopts its id -- same
+    // contract as /actuals and /labour.
+    if (res && res.id) entry.id = res.id;
+  } catch (e) {
+    alert('Could not save that colour: ' + e.message + '\n\nCheck the connection and tap again.');
+    try { await loadSnagRooms(); } catch (e2) {}
+  }
+}
+
+// What a snag group's heading shows. Precedence matters and is the whole
+// reason snag_rooms never holds a row for a measured room: if the label names
+// a real area, the Colours tab owns that colour and this is read-only,
+// exactly as specified. Only a group with no measured room behind it falls
+// through to its own carrier.
+function snagGroupColour(label) {
+  var a = snagAreaFor(label);
+  if (a) return a.colour;
+  var parts = snagRoomSurfaceParts(label);
+  // Per-surface entry ALWAYS prints the surface names, even where they happen
+  // to match: someone who filled the surfaces in separately is telling you
+  // they differ, and collapsing "Walls Dead Salmon · Ceiling Dead Salmon" to
+  // one name would throw away the only thing they took the trouble to say.
+  // One colour for the whole room is what the "Whole room" field is for.
+  if (parts.length) return snagColourLine(parts, false);
+  var num = snagRoomColourNumber(label, 'all');
+  return num ? snagColourName(num) : '';
+}
+
+// Every snag group with no measured room behind it, for colourAreas() to
+// adopt. Derived from the SNAGS (the labels actually in use), not from
+// snag_rooms -- a room has to be listable before it has been coloured, or
+// there would be no way to colour it.
+function unmeasuredSnagRooms() {
+  var measured = {}, seen = {}, out = [];
+  snagAreas().forEach(function(a) { measured[snagLabelKey(a.name)] = true; });
+  snags.forEach(function(s) {
+    var key = snagLabelKey(s.roomLabel);
+    if (!key || measured[key] || seen[key]) return;
+    seen[key] = true;
+    out.push(s.roomLabel);
+  });
+  return out;
+}
+
+// ── Snags: rendering ──────────────────────────────────────────────────────
+var snagView = 'rooms';       // 'rooms' | 'phases' -- per visit, not stored
+var snagsExpanded = false;    // only used once everything is cleared
+
+// Which groups the user has folded shut, by view and group key. Per visit and
+// not stored: the answer to "is this room folded" is worth about as much
+// tomorrow as where you last scrolled to. Only groups the user has actually
+// tapped appear here -- everything else falls through to the default in
+// snagGroupCollapsed, so the map stays a record of choices, not of state.
+var snagCollapsed = {};
+
+function setSnagView(v) { snagView = v; renderActuals(); }
+function toggleSnagsExpanded() { snagsExpanded = !snagsExpanded; renderActuals(); }
+
+function snagGroupStateKey(g) { return snagView + ':' + g.key; }
+
+// Untapped, a group is open while it still has work in it and folded once it
+// hasn't -- the same rule the section itself follows when the last snag is
+// ticked off. The exception is a job with nothing open anywhere: that list is
+// only ever on screen because someone opened the cleared record deliberately,
+// and handing them a column of shut headings would be answering a question
+// they already asked.
+function snagGroupCollapsed(g) {
+  var k = snagGroupStateKey(g);
+  if (Object.prototype.hasOwnProperty.call(snagCollapsed, k)) return !!snagCollapsed[k];
+  return openSnagCount() > 0 && !g.items.some(snagIsOpen);
+}
+
+function toggleSnagGroup(i) {
+  var g = snagGroupsCache[i];
+  if (!g) return;
+  snagCollapsed[snagGroupStateKey(g)] = !snagGroupCollapsed(g);
+  renderActuals();
+}
+
+function setAllSnagGroups(collapsed) {
+  snagGroupsForView().forEach(function(g) { snagCollapsed[snagGroupStateKey(g)] = collapsed; });
+  renderActuals();
+}
+
+function snagRoomOptionsHtml(selected, includeCustom) {
+  var areas = snagAreas();
+  var sel = snagLabelKey(selected);
+  var matched = areas.some(function(a) { return snagLabelKey(a.name) === sel; });
+  var html = areas.map(function(a) {
+    return '<option value="' + escapeHtml(a.name) + '"' + (snagLabelKey(a.name) === sel ? ' selected' : '') + '>'
+      + escapeHtml(a.name) + '</option>';
+  }).join('');
+  // A snag already sitting on a custom label keeps that label as an option of
+  // its own, so opening the editor can't silently re-home it to the first room
+  // in the list.
+  if (selected && !matched) {
+    html += '<option value="' + escapeHtml(selected) + '" selected>' + escapeHtml(selected) + '</option>';
+  }
+  if (includeCustom) html += '<option value="__custom">Custom…</option>';
+  return html;
+}
+
+function snagPhaseOptionsHtml(selected) {
+  return '<option value=""' + (selected ? '' : ' selected') + '>— No phase —</option>'
+    + SNAG_PHASES.map(function(p) {
+        return '<option value="' + p.key + '"' + (p.key === selected ? ' selected' : '') + '>' + p.label + '</option>';
+      }).join('');
+}
+
+function snagRowHtml(s, showRoom) {
+  if (snagEditId === s.id) {
+    var isCustom = !snagAreaFor(s.roomLabel);
+    return '<div style="padding:4px 0 12px;border-bottom:1px solid var(--border)">'
+      + '<div class="snag-field" style="border-bottom:none;padding-bottom:8px"><div class="field-label">Description</div>'
+        + '<input type="text" class="snag-input" id="snag-edit-desc" value="' + escapeHtml(s.description) + '" autocorrect="off"></div>'
+      + '<div class="snag-field" style="border-bottom:none;padding-top:0;padding-bottom:8px"><div class="field-label">Room / area</div>'
+        + '<select class="snag-input" id="snag-edit-room" onchange="onSnagEditRoomChange()">'
+        + snagRoomOptionsHtml(s.roomLabel, true) + '</select></div>'
+      + '<div class="snag-field" id="snag-edit-room-custom-row" style="border-bottom:none;padding-top:0;padding-bottom:8px;display:' + (isCustom ? 'block' : 'none') + '">'
+        + '<div class="field-label">Custom name</div>'
+        + '<input type="text" class="snag-input" id="snag-edit-room-custom" value="' + escapeHtml(isCustom ? s.roomLabel : '') + '" placeholder="e.g. Airing cupboard" autocorrect="off"></div>'
+      + '<div class="snag-field" style="border-bottom:none;padding-top:0;padding-bottom:8px"><div class="field-label">Phase</div>'
+        + '<select class="snag-input" id="snag-edit-phase">' + snagPhaseOptionsHtml(s.phase || '') + '</select></div>'
+      + '<div style="display:flex;gap:8px;margin:0 16px">'
+        + '<button onclick="saveEditSnag(\'' + escapeHtml(s.id) + '\')" style="background:var(--accent);color:#fff;border:none;border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;flex:1">Save</button>'
+        + '<button onclick="cancelEditSnag()" style="background:var(--surface2);color:var(--text);border:none;border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;flex:1">Cancel</button>'
+      + '</div></div>';
+  }
+  var done = !snagIsOpen(s);
+  // A cleared snag keeps its date: the whole reason a done row stays on the
+  // list is that it is the evidence it was dealt with, and "when" is half of
+  // that. The room name only appears in the flattened phase view, where the
+  // group heading is a phase rather than a room.
+  var meta = [showRoom ? (s.roomLabel || 'No room') : '', done ? snagClearedLabel(s) : '']
+    .filter(Boolean).join(' · ');
+  return '<div style="display:flex;align-items:flex-start;gap:10px;padding:11px 16px;border-bottom:1px solid var(--border)' + (done ? ';opacity:.55' : '') + '">'
+    + '<input type="checkbox" ' + (done ? 'checked' : '') + ' onchange="toggleSnagDone(\'' + escapeHtml(s.id) + '\')" style="margin-top:2px;width:20px;height:20px;flex:none;accent-color:var(--accent)">'
+    + '<div style="flex:1;min-width:0">'
+      + '<div style="font-size:14px;line-height:1.4' + (done ? ';text-decoration:line-through' : '') + '">' + escapeHtml(s.description) + '</div>'
+      + (meta ? '<div style="font-size:12px;color:var(--text2);margin-top:2px">' + escapeHtml(meta) + '</div>' : '')
+      + '<div style="display:flex;align-items:center;gap:6px;margin-top:6px">'
+        + '<select onchange="setSnagPhase(\'' + escapeHtml(s.id) + '\', this.value)" style="background:' + (s.phase ? 'var(--accent-soft-bg)' : 'var(--surface2)') + ';border:1px solid ' + (s.phase ? 'var(--accent-soft-border)' : 'var(--border)') + ';color:' + (s.phase ? 'var(--accent)' : 'var(--text3)') + ';border-radius:20px;padding:3px 8px;font-family:\'DM Sans\',sans-serif;font-size:11px;font-weight:600;outline:none">'
+          + snagPhaseOptionsHtml(s.phase || '') + '</select>'
+        + '<div style="margin-left:auto;display:flex;gap:2px">'
+          + '<button onclick="editSnag(\'' + escapeHtml(s.id) + '\')" style="background:none;border:none;color:var(--text3);font-size:14px;cursor:pointer;padding:0 4px;line-height:1">✎</button>'
+          + '<button onclick="deleteSnag(\'' + escapeHtml(s.id) + '\')" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0 4px;line-height:1">✕</button>'
+        + '</div>'
+      + '</div>'
+    + '</div></div>';
+}
+
+// The group heading -- a room, or a phase in the flattened view -- and the tap
+// target that folds its snags away. In the room view it also carries that
+// room's recorded colours, where the label matches a real area. Same
+// subsection-label style the Colours tab groups its areas with, so the two
+// screens read the same way.
+function snagGroupHeadHtml(g, i, collapsed) {
+  var colourHtml = '';
+  if (snagView !== 'phases') {
+    var measured = !!snagAreaFor(g.label);
+    var colour = snagGroupColour(g.label);
+    // A measured room's colour is read-only here -- it belongs to the Colours
+    // tab and this is just showing it. A group with no measured room behind it
+    // has nowhere else to be coloured, so it gets a tappable chip that writes
+    // its own carrier (see snag_rooms). That chip sits inside the heading's own
+    // tap target, so it has to stop the click reaching the fold.
+    colourHtml = measured
+      ? (colour ? ' <span style="text-transform:none;letter-spacing:0;font-weight:600;color:var(--accent)">— ' + escapeHtml(colour) + '</span>' : '')
+      : ' <button onclick="event.stopPropagation();openSnagColourPanel(' + i + ')" style="background:none;border:none;padding:0 2px;cursor:pointer;font-family:\'DM Sans\',sans-serif;text-transform:none;letter-spacing:0;font-weight:600;font-size:11px;color:'
+          + (colour ? 'var(--accent)' : 'var(--text3)') + '">'
+          + (colour ? '— ' + escapeHtml(colour) : '+ colour') + '</button>';
+  }
+  var openN = g.items.filter(snagIsOpen).length;
+  return '<div class="subsection-label" style="display:flex;align-items:center;gap:10px;padding-bottom:10px;cursor:pointer;user-select:none"'
+      + ' onclick="toggleSnagGroup(' + i + ')">'
+    + '<span style="flex:1;min-width:0">' + escapeHtml(g.label) + colourHtml + '</span>'
+    + '<span style="flex:none;text-transform:none;letter-spacing:0;font-weight:600;color:var(--text3)">'
+      + (openN ? openN + ' open' : 'all done ✓') + '</span>'
+    + '<span class="sec-chev' + (collapsed ? '' : ' open') + '" style="font-size:16px">›</span>'
+    + '</div>';
+}
+
+// The rendered room groups, so a heading's colour chip can find its room by
+// index rather than carrying an apostrophe-bearing label through an inline
+// onclick. Same trick as actualsRowsCache.
+var snagGroupsCache = [];
+
+function snagGroupsForView() {
+  return snagView === 'phases' ? snagPhaseGroups(snags) : snagRoomGroups(snags);
+}
+
+function snagListHtml() {
+  var groups = snagGroupsForView();
+  snagGroupsCache = groups;
+  return '<div class="card" style="overflow:visible">' + groups.map(function(g, i) {
+    // A group holding the open editor stays open whatever the fold says --
+    // folding a room from underneath a half-typed snag would look like the
+    // edit had been thrown away.
+    var editing = snagEditId && g.items.some(function(s) { return s.id === snagEditId; });
+    var collapsed = !editing && snagGroupCollapsed(g);
+    return snagGroupHeadHtml(g, i, collapsed)
+      + (collapsed ? '' : g.items.map(function(s) { return snagRowHtml(s, snagView === 'phases'); }).join(''));
+  }).join('') + '</div>';
+}
+
+// The prominent section: only ever rendered while something is still open.
+function snagsSectionHtml() {
+  var openN = openSnagCount();
+  if (!snags.length || !openN) return '';
+  // Fold all / Open all: one tap for the lot, beside the view switch, because
+  // on a forty-snag house the point of folding is to get down to the room
+  // you're standing in and folding nine rooms by hand to do that isn't it.
+  // Anything still open folds everything; only once the screen is all
+  // headings does the button offer to open them again.
+  var anyExpanded = snagGroupsForView().some(function(g) { return !snagGroupCollapsed(g); });
+  return '<div class="section-title" style="margin:16px 0 8px;display:flex;align-items:center;justify-content:space-between;gap:10px">'
+      + '<span>Snags (' + openN + ')</span>'
+      + '<span style="display:flex;gap:6px;flex:none">'
+      + '<button id="snag-pdf-btn" onclick="saveSnagPdf()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);border-radius:20px;padding:5px 12px;font-size:12px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;text-transform:none;letter-spacing:0">PDF</button>'
+      + '<button onclick="openSnagPanel()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:20px;padding:5px 12px;font-size:12px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;text-transform:none;letter-spacing:0">+ Add snag</button>'
+      + '</span>'
+    + '</div>'
+    + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
+      + '<div class="seg" style="flex:1;min-width:0">'
+        + '<button class="seg-btn' + (snagView === 'rooms' ? ' active' : '') + '" style="padding:6px 4px;font-size:13px" onclick="setSnagView(\'rooms\')">By room</button>'
+        + '<button class="seg-btn' + (snagView === 'phases' ? ' active' : '') + '" style="padding:6px 4px;font-size:13px" onclick="setSnagView(\'phases\')">By phase</button>'
+      + '</div>'
+      + '<button onclick="setAllSnagGroups(' + (anyExpanded ? 'true' : 'false') + ')" style="flex:none;background:var(--surface2);border:1px solid var(--border);color:var(--text2);border-radius:20px;padding:6px 12px;font-size:12px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer">'
+        + (anyExpanded ? 'Fold all' : 'Open all') + '</button>'
+    + '</div>'
+    + snagListHtml();
+}
+
+// The quiet half, at the bottom of the screen: the way in when there are no
+// snags yet, and the cleared list once there are none left open. Neither is
+// front and centre -- that space belongs to the work still outstanding.
+function snagsQuietHtml() {
+  var openN = openSnagCount();
+  if (openN) return '';
+  if (!snags.length) {
+    return '<div style="display:flex;justify-content:center;padding:16px 0 4px">'
+      + '<button onclick="openSnagPanel()" style="background:none;border:none;color:var(--text2);font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;padding:6px 10px">+ Start a snag list</button>'
+      + '</div>';
+  }
+  return '<div class="section-title" style="margin:18px 0 8px">Snags</div>'
+    + '<div class="card">'
+      + '<div class="card-header sec-toggle" onclick="toggleSnagsExpanded()">'
+        + '<span>All ' + snags.length + ' cleared ✓</span>'
+        + '<span class="sec-chev' + (snagsExpanded ? ' open' : '') + '">›</span>'
+      + '</div>'
+    + '</div>'
+    + (snagsExpanded
+        ? snagListHtml()
+          + '<div style="display:flex;justify-content:center;gap:6px;padding:8px 0 0">'
+          + '<button onclick="openSnagPanel()" style="background:none;border:none;color:var(--text2);font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;padding:6px 10px">+ Add snag</button>'
+          + '<button id="snag-pdf-btn" onclick="saveSnagPdf()" style="background:none;border:none;color:var(--text2);font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;padding:6px 10px">Export PDF</button>'
+          + '</div>'
+        : '');
+}
+
+// ── Snags: the room-colour sheet ──────────────────────────────────────────
+// Only ever opened for a group with no measured room behind it. Everything it
+// writes goes through setAreaColourNumber/applyAreaColourName, the same two
+// functions the Colours tab uses, so naming a colour here puts it in the
+// job's colour list, matches the colour library for brand/code, and forks
+// rather than renames when the colour it starts on is shared.
+var snagColourPanelLabel = null;
+// One slot id, not one per room: only ever one of these sheets is open, and
+// colourSlots is keyed by slot so a fresh registration replaces the last.
+var SNAG_COLOUR_SLOT = 'snagroom';
+// 'all' (one colour for the room) or 'surfaces' (one per wall/ceiling/etc).
+// Per visit, seeded from whatever the room already is.
+var snagColourPanelMode = 'all';
+
+function openSnagColourPanel(i) {
+  var g = snagGroupsCache[i];
+  if (g) openSnagColourPanelForLabel(g.label);
+}
+
+function openSnagColourPanelForLabel(label) {
+  // A measured room already has a carrier and Colours owns its colour -- see
+  // snagGroupColour's precedence. Writing one here would be a second answer to
+  // one question, and the heading would ignore it anyway.
+  if (snagAreaFor(label)) return;
+  snagColourPanelLabel = label;
+  // Opens on whichever mode the room is already in, so a per-surface room
+  // doesn't greet you with a single field that would wipe its surfaces.
+  snagColourPanelMode = snagRoomMode(label);
+  document.getElementById('snag-colour-room').textContent = label;
+  renderSnagColourSlot();
+  document.getElementById('snag-colour-panel').style.display = 'block';
+}
+function closeSnagColourPanel() {
+  document.getElementById('snag-colour-panel').style.display = 'none';
+  snagColourPanelLabel = null;
+}
+// Switching mode only changes what the sheet SHOWS. Nothing is cleared until
+// a colour is actually written, which is what setSnagRoomColour does -- so
+// tapping "By surface" to look, then tapping back, costs nothing.
+function setSnagColourMode(mode) {
+  snagColourPanelMode = mode;
+  renderSnagColourSlot();
+}
+
+// The field itself, rebuilt on open and after every commit so the brand chip,
+// the quick-pick chips and the Clear button reflect what just happened.
+//
+// num is null while the room is undecided, which colourSlotHtml handles as it
+// does any unnamed area: an empty field ghosted with where it goes (the room
+// name), and every colour on the job offered as a chip.
+function renderSnagColourSlot() {
+  var label = snagColourPanelLabel;
+  if (!label) return;
+  var host = document.getElementById('snag-colour-body');
+  if (!host) return;
+  var mode = snagColourPanelMode;
+  document.getElementById('snag-colour-mode-all').classList.toggle('active', mode === 'all');
+  document.getElementById('snag-colour-mode-surfaces').classList.toggle('active', mode === 'surfaces');
+
+  // One slot per field on show. Each needs its own id: colourSlots is keyed by
+  // slot, and five surfaces sharing one would fight over a single input and a
+  // single dropdown -- the exact reason slots are keyed by slot and not by
+  // colour number.
+  var fields = mode === 'surfaces'
+    ? SNAG_ROOM_SURFACES.map(function(sf) { return { role: sf.role, label: sf.label }; })
+    : [{ role: 'all', label: '' }];
+
+  // ONE innerHTML assignment, slot markup included. Writing the containers
+  // first and filling them in a second pass threw "The node to be removed is
+  // no longer a child of this node" when a commit arrived from a field's own
+  // blur -- the second pass was reaching for nodes the first had just swapped
+  // out from under the browser mid-blur.
+  host.innerHTML = fields.map(function(f) {
+    var num = snagRoomColourNumber(label, f.role);
+    // Ghost text names the surface on a per-surface field and the room on the
+    // whole-room one, matching how an undecided measured area reads.
+    var ghost = f.role === 'all' ? label : areaPlaceholder(label, f.role);
+    return (f.label ? '<div class="subsection-label" style="border-top:none;padding-left:0">' + f.label + '</div>' : '')
+      + '<div class="colour-slot" style="margin-bottom:10px">'
+      + colourSlotHtml(SNAG_COLOUR_SLOT + '-' + f.role, num, ghost, null)
+      + '</div>';
+  }).join('');
+
+  fields.forEach(function(f) {
+    registerColourSlot(SNAG_COLOUR_SLOT + '-' + f.role, {
+      apply: function(text, brand, code) { applySnagRoomColourName(label, text, brand, code, f.role); },
+      pick: function(picked) { pickSnagRoomColour(label, picked, f.role); }
+    });
+  });
+
+  var clear = document.getElementById('snag-colour-clear');
+  if (clear) clear.style.display = snagRoomHasColour(label) ? 'flex' : 'none';
+}
+
+// A name typed or chosen from the library. Mirrors what the Colours tab does
+// for an area, with one carve-out: an UNDECIDED snag room must never route
+// through applyAreaColourName() with colour 1 as its current. It isn't on
+// colour 1 (see snagRoomColourNumber), and passing it there would let naming
+// one snag room rename the job's default colour out from under every surface
+// that really does use it.
+function applySnagRoomColourName(label, text, brand, code, role) {
+  role = role || 'all';
+  text = String(text == null ? '' : text).trim();
+  var current = snagRoomColourNumber(label, role);
+  // Emptying ONE field clears that surface only, not the whole room -- the
+  // Clear button below is what wipes the lot.
+  if (!text) { clearSnagRoomSurface(label, role); return; }
+  var next;
+  if (current) {
+    next = applyAreaColourName(current, text, brand, code, null);
+  } else {
+    invalidateColourPlaceholders();
+    var already = colours.find(function(c) {
+      return c.label && c.label.toLowerCase() === text.toLowerCase();
+    });
+    if (already) {
+      next = already.number;
+      // Picked from the library and the job's own entry predates knowing the
+      // brand? Fill it in rather than leaving the chip blank.
+      if (brand && !already.brand) { already.brand = brand; already.code = code || ''; }
+    } else {
+      next = addColourEntry(text, brand || '', code || '');
+    }
+  }
+  if (next !== current) {
+    setAreaColourNumber({ kind: 'snag', id: label, role: role }, next);
+    if (current) pruneOrphanColour(current, null);
+  }
+  saveColours();
+  afterSnagColourChange();
+}
+
+// A one-tap chip for a colour already on the job.
+function pickSnagRoomColour(label, picked, role) {
+  role = role || 'all';
+  var current = snagRoomColourNumber(label, role);
+  if (picked === current) return;
+  setAreaColourNumber({ kind: 'snag', id: label, role: role }, picked);
+  if (current) pruneOrphanColour(current, null);
+  saveColours();
+  afterSnagColourChange();
+}
+
+// One surface back to undecided.
+function clearSnagRoomSurface(label, role) {
+  var was = snagRoomColourNumber(label, role);
+  if (was) {
+    setSnagRoomColour(label, null, role);
+    pruneOrphanColour(was, null);
+    saveColours();
+  }
+  afterSnagColourChange();
+}
+
+function clearSnagRoomColour() {
+  if (snagColourPanelLabel) clearSnagRoomColourFor(snagColourPanelLabel);
+}
+// The whole room back to undecided, whichever way it was described. Each
+// carrier goes to NULL rather than being deleted, and each colour left behind
+// may now be an unnamed orphan with nothing on it.
+function clearSnagRoomColourFor(label) {
+  var roles = ['all'].concat(SNAG_ROOM_SURFACES.map(function(sf) { return sf.role; }));
+  var freed = [];
+  roles.forEach(function(role) {
+    var was = snagRoomColourNumber(label, role);
+    if (!was) return;
+    setSnagRoomColour(label, null, role);
+    freed.push(was);
+  });
+  if (freed.length) {
+    // Prune after every carrier is cleared, not as we go: two surfaces can
+    // share a colour, and pruning on the first would still see the second
+    // holding it.
+    freed.forEach(function(num) { pruneOrphanColour(num, null); });
+    saveColours();
+  }
+  afterSnagColourChange();
+}
+
+// The sheet is reachable from BOTH On Site and the Colours tab, so repaint
+// both rather than guessing which is behind it, plus the sheet's own field.
+// Each is a pure re-render of data already in memory.
+function afterSnagColourChange() {
+  renderActiveJobColourViews();
+  // The sheet's own fields go last and on a timeout. A commit usually arrives
+  // from a field's blur, and replacing the node the browser is part-way
+  // through blurring throws; by the next tick it has finished.
+  setTimeout(renderSnagColourSlot, 0);
+}
+
+// Both screens the snag colours show on. Neither knows which is in front, and
+// each is a pure re-render of data already in memory.
+function renderActiveJobColourViews() {
+  renderActuals();
+  renderColours();
+}
+
+// The Colours tab's home for snag rooms still waiting on a colour. A room
+// that HAS one is an ordinary area in the card above -- this is only the
+// not-yet-decided remainder, which can't live there without claiming colour 1
+// (see colourAreas). Tapping a row opens the same sheet On Site uses, so
+// there is one way to colour a snag room, reachable from both screens.
+//
+// Renders nothing at all on a job with no uncoloured snag rooms, which is
+// every job that was measured in the app -- this exists for the imported ones.
+function renderSnagRoomsCard() {
+  var wrap = document.getElementById('colour-snagrooms-wrap');
+  var card = document.getElementById('colour-snagrooms-card');
+  if (!wrap || !card) return;
+  var pending = unmeasuredSnagRooms().filter(function(l) { return !snagRoomHasColour(l); });
+  if (!pending.length) { wrap.style.display = 'none'; card.innerHTML = ''; return; }
+  wrap.style.display = 'block';
+  card.innerHTML = '<div style="padding:12px 16px;font-size:12px;color:var(--text2);line-height:1.5;border-bottom:1px solid var(--border)">'
+      + 'From the snag list, with no measured room behind them. Give one a colour and it joins the areas above.'
+    + '</div>'
+    + pending.map(function(label, i) {
+        return '<div class="field-row" style="cursor:pointer" onclick="openSnagColourPanelFromColours(' + i + ')">'
+          + '<div class="field-label">' + escapeHtml(label) + '</div>'
+          + '<span style="font-size:13px;font-weight:600;color:var(--text3)">To decide</span>'
+          + '<span class="nav-menu-arrow">›</span>'
+          + '</div>';
+      }).join('');
+}
+
+// Index into the same filtered list the card just rendered, for the same
+// apostrophe-safety reason snagGroupsCache exists.
+function openSnagColourPanelFromColours(i) {
+  var pending = unmeasuredSnagRooms().filter(function(l) { return !snagRoomHasColour(l); });
+  if (pending[i]) openSnagColourPanelForLabel(pending[i]);
+}
+
+// ── Snags: the add sheet ──────────────────────────────────────────────────
+function openSnagPanel() {
+  var areas = snagAreas();
+  var roomSel = document.getElementById('snag-add-room');
+  // No measured rooms at all (a Xero-imported job, say) -- the dropdown would
+  // be empty, so the form opens straight on a free-typed label instead.
+  roomSel.innerHTML = snagRoomOptionsHtml('', true);
+  roomSel.value = areas.length ? areas[0].name : '__custom';
+  document.getElementById('snag-add-phase').innerHTML = snagPhaseOptionsHtml('');
+  document.getElementById('snag-add-desc').value = '';
+  document.getElementById('snag-add-room-custom').value = '';
+  document.getElementById('snag-add-paste').value = '';
+  onSnagAddRoomChange();
+  setSnagPanelMode('single');
+  document.getElementById('snag-panel').style.display = 'block';
+}
+function closeSnagPanel() { document.getElementById('snag-panel').style.display = 'none'; }
+
+function setSnagPanelMode(mode) {
+  document.getElementById('snag-mode-single').classList.toggle('active', mode === 'single');
+  document.getElementById('snag-mode-paste').classList.toggle('active', mode === 'paste');
+  document.getElementById('snag-single-body').style.display = mode === 'single' ? 'block' : 'none';
+  document.getElementById('snag-paste-body').style.display = mode === 'paste' ? 'block' : 'none';
+}
+
+function onSnagAddRoomChange() {
+  var custom = document.getElementById('snag-add-room').value === '__custom';
+  document.getElementById('snag-add-room-custom-row').style.display = custom ? 'block' : 'none';
+}
+function onSnagEditRoomChange() {
+  var row = document.getElementById('snag-edit-room-custom-row');
+  if (row) row.style.display = document.getElementById('snag-edit-room').value === '__custom' ? 'block' : 'none';
+}
+
+function addSingleSnag() {
+  var sel = document.getElementById('snag-add-room').value;
+  var room = sel === '__custom' ? document.getElementById('snag-add-room-custom').value : sel;
+  var desc = document.getElementById('snag-add-desc').value;
+  if (!room || !room.trim()) { alert('Which room or area is this snag in?'); return; }
+  if (!desc || !desc.trim()) { alert('What is the snag?'); return; }
+  var label = canonicalSnagRoom(room);
+  var s = {
+    id: uid(), roomLabel: label, description: desc.trim(), status: 'open',
+    phase: document.getElementById('snag-add-phase').value || '',
+    sortOrder: nextSnagSortOrder(label), completedAt: null
+  };
+  snags.push(s);
+  // The sheet stays open on the same room: snags come in runs, and closing
+  // after each one would mean reopening it four times for one wall.
+  document.getElementById('snag-add-desc').value = '';
+  document.getElementById('snag-add-desc').focus();
+  renderActuals();
+  saveSnag(s);
+}
+
+// ── Snags: bulk paste ─────────────────────────────────────────────────────
+// The shape these lists actually arrive in -- a client's email, a note on a
+// phone, a markdown checklist: a bare line is a room heading, a bulleted line
+// is an item under it.
+//
+// Checked items ([x]) import as OPEN, deliberately. In a list someone has
+// emailed over, a tick means "I've flagged this", not "this has been fixed on
+// your job" -- importing them as done would silently hide work.
+//
+// Nothing here is clever about wording: no phase is guessed, and the parse is
+// shown for correction before a single row is written, because the one thing
+// that reliably goes wrong is a stray sentence landing as a room heading.
+function parseSnagPaste(text) {
+  var groups = [], current = null;
+  String(text == null ? '' : text).split(/\r?\n/).forEach(function(raw) {
+    var line = raw.trim();
+    if (!line) return;
+    // Bullets: -, *, •, en/em dash (phone keyboards autocorrect - to –),
+    // with an optional [ ] / [x] checkbox. Numbered items count too: a
+    // "1. Touch in the skirting" list read as ten room headings would be a
+    // uselessly bad parse, and the preview can always demote one back.
+    var m = /^(?:[-*•–—]|\d+[.)])\s+(?:\[\s*[xX]?\s*\]\s*)?(.*)$/.exec(line);
+    if (m) {
+      var desc = m[1].trim();
+      if (!desc) return;
+      if (!current) { current = { room: '', items: [] }; groups.push(current); }
+      current.items.push({ description: desc, phase: '' });
+      return;
+    }
+    // Anything else starts a new room. Markdown heading marks, bold markers
+    // and a trailing colon are decoration around the name, not part of it.
+    var head = line.replace(/^#+\s*/, '').replace(/\*\*/g, '').replace(/[:：]\s*$/, '').trim();
+    if (!head) return;
+    current = { room: head, items: [] };
+    groups.push(current);
+  });
+  // Headings with nothing under them are KEPT, not quietly dropped. An empty
+  // group is precisely the stray-sentence mis-parse the preview exists to
+  // catch, and a line that vanished between the paste and the preview is a
+  // line nobody gets the chance to fix. The preview blocks the import until
+  // each one is either folded into the room above (↑ item) or dismissed (✕).
+  return groups;
+}
+
+var snagImportDraft = [];
+
+function openSnagImportPreview() {
+  var draft = parseSnagPaste(document.getElementById('snag-add-paste').value);
+  if (!draft.length) {
+    alert('Nothing to import. Paste a list with a room name on its own line and the snags under it as "- " bullets.');
+    return;
+  }
+  // Match against the job's own rooms here, not at commit time, so the
+  // preview shows the spelling that will actually be stored.
+  snagImportDraft = draft.map(function(g) {
+    return { room: canonicalSnagRoom(g.room), items: g.items.slice() };
+  });
+  renderSnagImportPreview();
+  document.getElementById('snag-preview').style.display = 'block';
+}
+function closeSnagImportPreview() { document.getElementById('snag-preview').style.display = 'none'; }
+
+function snagImportCount() {
+  return snagImportDraft.reduce(function(n, g) { return n + g.items.length; }, 0);
+}
+function snagImportReady() {
+  return snagImportDraft.length > 0 && snagImportDraft.every(function(g) {
+    return g.room && g.room.trim() && g.items.length;
+  });
+}
+function snagImportEmptyGroups() {
+  return snagImportDraft.filter(function(g) { return !g.items.length; }).length;
+}
+
+function renderSnagImportPreview() {
+  var body = document.getElementById('snag-preview-body');
+  var summary = document.getElementById('snag-preview-summary');
+  var n = snagImportCount();
+  var missing = snagImportDraft.filter(function(g) { return !(g.room && g.room.trim()); }).length;
+  var empty = snagImportEmptyGroups();
+  summary.innerHTML = n + ' snag' + (n === 1 ? '' : 's') + ' in ' + snagImportDraft.length + ' room'
+    + (snagImportDraft.length === 1 ? '' : 's') + '. Fix anything the paste got wrong before it is added — '
+    + 'a sentence read as a room heading becomes an item with <strong>↑ item</strong>.'
+    + (missing ? '<div style="color:var(--danger);margin-top:6px">' + missing + ' group' + (missing === 1 ? ' has' : 's have') + ' no room name yet.</div>' : '')
+    + (empty ? '<div style="color:var(--danger);margin-top:6px">' + empty + ' heading' + (empty === 1 ? ' has' : 's have')
+        + ' no snags under ' + (empty === 1 ? 'it' : 'them') + ' — fold ' + (empty === 1 ? 'it' : 'them')
+        + ' into the room above with ↑ item, or drop with ✕.</div>' : '');
+
+  body.innerHTML = snagImportDraft.map(function(g, i) {
+    var area = snagAreaFor(g.room);
+    var colour = area && area.colour
+      ? '<div style="font-size:12px;color:var(--accent);padding:0 16px 8px">' + escapeHtml(area.colour) + '</div>' : '';
+    var head = '<div class="subsection-label" style="display:flex;align-items:center;gap:8px">'
+      + '<span style="flex:1">Room</span>'
+      + (i > 0 ? '<button onclick="snagDraftMergeUp(' + i + ')" style="background:none;border:none;color:var(--accent);font-size:11px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;text-transform:none;letter-spacing:0;padding:0 2px">↑ item</button>' : '')
+      + '<button onclick="snagDraftRemoveGroup(' + i + ')" style="background:none;border:none;color:var(--text3);font-size:14px;cursor:pointer;padding:0 2px;line-height:1">✕</button>'
+      + '</div>'
+      + '<div style="padding:0 16px 8px"><input type="text" class="field-input wide" style="width:100%;text-align:left;box-sizing:border-box;font-family:\'DM Sans\',sans-serif;font-size:15px" value="' + escapeHtml(g.room) + '" placeholder="Room or area" autocorrect="off" list="snag-area-names" oninput="snagDraftSetRoom(' + i + ', this.value)" onchange="snagDraftSetRoom(' + i + ', this.value, true)"></div>'
+      + colour;
+    if (!g.items.length) {
+      return head + '<div style="padding:0 16px 10px;font-size:12px;color:var(--danger);line-height:1.5">'
+        + 'Nothing was listed under this line. If it was really a snag in the room above, tap ↑ item.</div>';
+    }
+    // Description on its own full-width line rather than sharing a row with
+    // the phase picker: a snag reads "Scuff on the return wall by the door",
+    // and a third of a phone's width shows four words of it.
+    var items = g.items.map(function(it, j) {
+      return '<div style="padding:0 16px 10px">'
+        + '<input type="text" class="field-input" style="width:100%;box-sizing:border-box;text-align:left;font-family:\'DM Sans\',sans-serif;font-size:15px" value="' + escapeHtml(it.description) + '" autocorrect="off" oninput="snagDraftSetItem(' + i + ',' + j + ', this.value)">'
+        + '<div style="display:flex;align-items:center;gap:8px;margin-top:6px">'
+          + '<select onchange="snagDraftSetPhase(' + i + ',' + j + ', this.value)" style="background:var(--surface2);border:1px solid var(--border);color:' + (it.phase ? 'var(--text)' : 'var(--text3)') + ';border-radius:20px;padding:5px 10px;font-family:\'DM Sans\',sans-serif;font-size:12px;font-weight:600;outline:none">'
+            + snagPhaseOptionsHtml(it.phase || '') + '</select>'
+          + '<button onclick="snagDraftRemoveItem(' + i + ',' + j + ')" style="margin-left:auto;background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0 4px;line-height:1">✕</button>'
+        + '</div></div>';
+    }).join('');
+    return head + items;
+  }).join('');
+
+  // Type-ahead for the room field: the job's own area names, so a group the
+  // paste named loosely can be snapped onto a real room without retyping it.
+  var dl = document.getElementById('snag-area-names');
+  if (dl) dl.innerHTML = snagAreas().map(function(a) { return '<option value="' + escapeHtml(a.name) + '"></option>'; }).join('');
+
+  var btn = document.getElementById('snag-import-btn');
+  btn.disabled = !snagImportReady();
+  btn.style.opacity = btn.disabled ? '.5' : '1';
+  btn.textContent = 'Add ' + n + ' snag' + (n === 1 ? '' : 's');
+}
+
+// oninput updates the model only -- re-rendering on every keystroke would
+// take the caret out of the field being typed in. onchange (i.e. blur) is
+// what repaints, which is when the room's colour line can usefully refresh.
+function snagDraftSetRoom(i, value, repaint) {
+  if (!snagImportDraft[i]) return;
+  snagImportDraft[i].room = repaint ? canonicalSnagRoom(value) : value;
+  if (repaint) renderSnagImportPreview();
+}
+function snagDraftSetItem(i, j, value) {
+  if (snagImportDraft[i] && snagImportDraft[i].items[j]) snagImportDraft[i].items[j].description = value;
+}
+function snagDraftSetPhase(i, j, value) {
+  if (snagImportDraft[i] && snagImportDraft[i].items[j]) snagImportDraft[i].items[j].phase = value;
+  renderSnagImportPreview();
+}
+function snagDraftRemoveItem(i, j) {
+  if (!snagImportDraft[i]) return;
+  snagImportDraft[i].items.splice(j, 1);
+  if (!snagImportDraft[i].items.length) snagImportDraft.splice(i, 1);
+  if (!snagImportDraft.length) { closeSnagImportPreview(); return; }
+  renderSnagImportPreview();
+}
+function snagDraftRemoveGroup(i) {
+  snagImportDraft.splice(i, 1);
+  if (!snagImportDraft.length) { closeSnagImportPreview(); return; }
+  renderSnagImportPreview();
+}
+// The mis-parse this exists for: a stray sentence read as a room heading.
+// Fold it back into the previous room as an item, with its own items after it.
+function snagDraftMergeUp(i) {
+  if (i < 1 || !snagImportDraft[i]) return;
+  var g = snagImportDraft.splice(i, 1)[0];
+  var prev = snagImportDraft[i - 1];
+  if (g.room && g.room.trim()) prev.items.push({ description: g.room.trim(), phase: '' });
+  prev.items = prev.items.concat(g.items);
+  renderSnagImportPreview();
+}
+
+async function commitSnagImport() {
+  if (!snagImportReady()) return;
+  var running = {};
+  var rows = [];
+  snagImportDraft.forEach(function(g) {
+    var label = canonicalSnagRoom(g.room);
+    var key = snagLabelKey(label);
+    if (running[key] === undefined) running[key] = nextSnagSortOrder(label);
+    g.items.forEach(function(it) {
+      var desc = (it.description || '').trim();
+      if (!desc) return;
+      rows.push({
+        id: uid(), roomLabel: label, description: desc, status: 'open',
+        phase: it.phase || '', sortOrder: running[key]++, completedAt: null
+      });
+    });
+  });
+  if (!rows.length) return;
+  snags = snags.concat(rows);
+  snagImportDraft = [];
+  closeSnagImportPreview();
+  closeSnagPanel();
+  renderActuals();
+  // One PUT per row, in order, like every other On Site write. Offline they
+  // queue and replay; a server that rejects one is counted and reported once
+  // at the end rather than forty times.
+  var failed = 0;
+  for (var i = 0; i < rows.length; i++) {
+    try { await putSnag(rows[i]); } catch (e) { failed++; }
+  }
+  if (failed) {
+    alert(failed + ' of ' + rows.length + ' snags could not be saved. The list has been reloaded from the server — re-paste the ones that are missing.');
+    try { await loadSnags(); } catch (e2) {}
+  }
+  renderActuals();
+}
+
 // The reconciliation: estimate (rolled up) LEFT JOIN actuals, plus any actual
 // with no estimate line -- the case that loses money if it's missed, since it's
 // something bought for the job that was never quoted.
@@ -12969,14 +14748,19 @@ async function openActuals() {
     // "no rows" should ever empty the log.
     await Promise.all([
       loadMaterialActuals(),
-      loadLabourLog().catch(function(e) { if (!(e instanceof TypeError)) labourLog = []; })
+      loadLabourLog().catch(function(e) { if (!isNetworkFailure(e)) labourLog = []; }),
+      // Snags are tolerant for the same reason as the labour log: a database
+      // that has material_actuals but not yet snags (the table is created
+      // lazily on first use) must still show the materials screen.
+      loadSnags().catch(function(e) { if (!isNetworkFailure(e)) snags = []; }),
+      loadSnagRooms().catch(function(e) { if (!isNetworkFailure(e)) snagRooms = []; })
     ]);
   } catch (e) {
     // Offline (fetch itself failed, not the server refusing): the copies
     // loaded at startup/last visit are still in memory, and every edit
     // queues + flushes on reconnect — being on site with no signal is
     // exactly when this screen is needed most, so render, don't refuse.
-    if (!navigator.onLine || e instanceof TypeError || !serverAvailable) {
+    if (!navigator.onLine || isNetworkFailure(e) || !serverAvailable) {
       renderActuals();
       return;
     }
@@ -13048,7 +14832,7 @@ function renderActuals() {
     + '</div>'
     + '</div>';
 
-  var rowsHtml = t.rows.map(function(r) {
+  var rowsHtml = t.rows.map(function(r, ri) {
     var price = materialPriceFor({ itemCode: r.itemCode, unitAmount: r.unitAmount });
     var qty = actualsRowQuantity(r);
     var unit = materialUnitLabel({ itemCode: r.itemCode, isPerLitre: r.isPerLitre, quantity: qty });
@@ -13079,6 +14863,34 @@ function renderActuals() {
       ? '<span style="font-size:11px;font-weight:600;color:var(--danger);background:var(--danger-soft-bg);border-radius:10px;padding:2px 8px;margin-left:6px">not quoted</span>'
       : (variance ? '<span style="font-size:11px;font-weight:600;color:var(--text2);background:var(--surface2);border-radius:10px;padding:2px 8px;margin-left:6px">est '+(Math.round(r.estimated*100)/100)+'</span>' : '');
 
+    // Opt-in add to the (global) shopping list, on EVERY row. This screen is
+    // the one you are standing in the room with, so it is the one that has to
+    // answer "do I need to buy this?" for the whole job -- a material added
+    // here exists nowhere else at all (it is an actual, never a snapshot
+    // line, so it never reaches Summary), and a quoted tin you haven't ticked
+    // off yet is just as much a thing to pick up. Summary's materials card
+    // keeps its own chip on the estimate lines; both funnel through
+    // shopListAdd, match a product the same way and therefore agree about
+    // what is on the list, so the same tin tapped on either screen is one
+    // line, not two.
+    // Opt-in per row for the reason the Summary one is: plenty of what is on
+    // this list is already in the van. Left on a bought row deliberately --
+    // "bought" means bought once, and running out of it is exactly a
+    // shopping-list event.
+    // The id is keyed on the render index, not r.key: that key carries the
+    // free-text description, which can hold spaces and is no use in an id.
+    var jobNameForTag = (activeJob() && activeJob().name) || '';
+    // Best-effort read-only state: shopList may simply not have been fetched
+    // yet this session, in which case the chip reads "Add to list" and
+    // tapping it is a harmless re-add (shopListAdd dedupes).
+    var onShopList = shopList !== null && shopList.some(function(i) {
+      return !i.ticked
+        && (r.itemCode ? i.code === r.itemCode : !i.code && i.name.trim().toLowerCase() === r.description.trim().toLowerCase())
+        && (!jobNameForTag || (i.jobTags || []).indexOf(jobNameForTag) !== -1);
+    });
+    var shopTag = '<div class="mat-chargeable-tag'+(onShopList?' on':'')+'" id="act-shop-'+ri+'"'
+      + ' onclick="addActualToShopList(\''+escapeHtml(r.key)+'\')">'+(onShopList?'✓ On list':'🛒 Add to list')+'</div>';
+
     // Editing (description/colour/price) only makes sense for rows added
     // manually on this screen: an estimate-pulled row is one PRODUCT that
     // can legitimately cover more than one colour (see the `detail` comment
@@ -13104,6 +14916,7 @@ function renderActuals() {
         + '<div style="flex:1;min-width:0">'
           + '<div style="font-size:14px;font-weight:600'+(bought ? ';text-decoration:line-through' : '')+'">'+escapeHtml(r.description)+tag+'</div>'
           + (detail ? '<div style="font-size:12px;color:var(--text2);margin-top:3px">'+escapeHtml(detail)+'</div>' : '')
+          + shopTag
           + '<div style="display:flex;align-items:center;gap:8px;margin-top:8px">'
             + '<input type="number" min="0" step="'+(r.isPerLitre ? '0.1' : '1')+'" value="'+qty+'" inputmode="decimal"'
               + ' onchange="setActualQuantity(\''+escapeHtml(r.key)+'\', this.value)"'
@@ -13148,12 +14961,16 @@ function renderActuals() {
   }
   // Order per Nicky (2026-07-23): the daily rhythm is days → materials,
   // with variations the occasional visitor — so they sit below.
-  el.innerHTML = onSiteJobHeader() + head + renderTimeOnSiteCard()
+  // Snags go above everything materials, and only while something is still
+  // open (snagsSectionHtml returns '' otherwise). The cleared/empty list has
+  // its own quiet home at the bottom -- see snagsQuietHtml.
+  el.innerHTML = onSiteJobHeader() + snagsSectionHtml() + head + renderTimeOnSiteCard()
     + '<div class="section-title" style="margin:16px 0 8px;display:flex;align-items:center;justify-content:space-between;gap:14px">Materials'
       + undoChipHtml()
     + '</div>'
     + rowsHtml + add
-    + variationsSection;
+    + variationsSection
+    + snagsQuietHtml();
   restoreFields(pendingAdd);
   // Reuses the Summary picker wholesale -- same onMaterialProductInput
   // function, same materialItemIndex, just mounted with the 'act-add' prefix.
@@ -14207,6 +16024,7 @@ var colourLibrary = [];
 function saveColours() {
   invalidateColourPlaceholders();
   localStorage.setItem('pe-colours', JSON.stringify(colours));
+  writeJobMirror('colours', activeJobId, colours);
   var jobId = activeJobId;
   var payload = colours.map(function(c) { return { number: c.number, label: c.label, brand: c.brand||'', code: c.code||'' }; });
   pendingSaves.colours = apiPut('/api/colours?job_id='+encodeURIComponent(jobId), { colours: payload })
@@ -14341,6 +16159,38 @@ function colourAreas(live) {
                  num: +fu.colourNumber || 1, ref: { kind: 'fittedunit', id: fu.id, role: 'fittedunit' } });
     });
   }
+  // Snag groups with no measured room behind them (SNAGS_SPEC.md). They are
+  // areas like any other here -- which is the point: it means the Colours tab
+  // lists them beside real rooms, an unnamed colour can read as one of them,
+  // and the rename-vs-fork rule counts them. Their carrier is the snag_rooms
+  // table rather than a room record; see setAreaColourNumber's 'snag' branch.
+  // A label that DOES match a measured area is deliberately absent -- that
+  // room already has a carrier, and two would be two answers to one question.
+  // Only the ones that have actually been given a colour. An undecided snag
+  // room deliberately does NOT appear as an area: an area carries a colour
+  // number, every unset one resolves to colour 1, and colour 1 is named
+  // "White" -- so listing undecided snag rooms here would have them claim a
+  // colour, count towards its usage in the rename-vs-fork rule, and read as
+  // "White" on the heading. They are offered for naming by their own card on
+  // the Colours tab instead (see renderSnagRoomsCard).
+  unmeasuredSnagRooms().forEach(function(label) {
+    // Per-surface rooms contribute one area EACH, exactly as a measured room
+    // does -- same role keys, so areaPlaceholder/AREA_ROLE_WORDS name them
+    // ("Hallway Ceiling") and the Colours tab renders them with no special
+    // case. A whole-room colour is the single-area case it always was.
+    var parts = snagRoomSurfaceParts(label);
+    if (parts.length) {
+      parts.forEach(function(p) {
+        out.push({ owner: label, role: p.roleKey, label: areaPlaceholder(label, p.roleKey),
+                   num: p.num, ref: { kind: 'snag', id: label, role: p.roleKey } });
+      });
+      return;
+    }
+    var num = snagRoomColourNumber(label, 'all');
+    if (!num) return;
+    out.push({ owner: label, role: 'snag', label: label,
+               num: num, ref: { kind: 'snag', id: label, role: 'all' } });
+  });
   return out;
 }
 
@@ -14365,7 +16215,7 @@ var colourPlaceholderCache = null;
 // say so; it is NOT enough on its own, because a handler that edits and then
 // re-renders synchronously (every one of them does) would render off the map
 // built before its own edit.
-function invalidateColourPlaceholders() { colourPlaceholderCache = null; }
+function invalidateColourPlaceholders() { colourPlaceholderCache = null; snagAreasCache = null; }
 function colourPlaceholderMap(live) {
   if (!live && colourPlaceholderCache) return colourPlaceholderCache;
   var byNum = {};
@@ -14620,16 +16470,21 @@ function filterPriceLookup() {
   document.getElementById('pricelookup-count').textContent =
     matches.length + (matches.length === 1 ? ' item' : ' items');
   var html = matches.map(function(i, idx) {
-    // The Xero price IS the till (inc-VAT) figure, shown big and untouched so
-    // it can be checked against the shop receipt digit for digit; ex = ÷ 1.2.
+    // The Xero BUY price IS the till (inc-VAT) figure, shown big and untouched
+    // so it can be checked against the shop receipt digit for digit; ex = ÷ 1.2
+    // is the supplier's price-list figure. No buy price in Xero = say so,
+    // rather than a £0.00 that reads as free.
+    var priceHtml = i.price != null
+      ? '<div style="font-size:17px;font-weight:700;color:var(--accent)">' + fmt(i.price) + '</div>'
+        + '<div style="font-size:12px;color:var(--text2);margin-top:2px">' + fmt(i.price / 1.2) + ' ex</div>'
+      : '<div style="font-size:12px;color:var(--text2)">no buy price</div>';
     return '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 12px 14px 16px;border-bottom:1px solid var(--border)">'
       + '<div style="min-width:0;flex:1">'
       +   '<div style="font-weight:600;font-size:15px;color:var(--text)">' + escapeHtml(i.name) + '</div>'
       +   (i.code ? '<div style="font-size:12px;color:var(--text2);font-family:\'DM Mono\',monospace;margin-top:2px">' + escapeHtml(i.code) + '</div>' : '')
       + '</div>'
       + '<div style="text-align:right;flex-shrink:0;font-family:\'DM Mono\',monospace">'
-      +   '<div style="font-size:17px;font-weight:700;color:var(--accent)">' + fmt(i.price) + '</div>'
-      +   '<div style="font-size:12px;color:var(--text2);margin-top:2px">' + fmt(i.price / 1.2) + ' ex</div>'
+      +   priceHtml
       + '</div>'
       + '<button id="pl-add-' + idx + '" onclick="addShopFromLookup(' + idx + ')" title="Add to shopping list"'
       +   ' style="flex-shrink:0;width:40px;height:40px;border-radius:20px;border:1px solid var(--accent-soft-border);background:var(--accent-soft-bg);color:var(--accent);font-size:20px;font-weight:600;line-height:1;cursor:pointer">+</button>'
@@ -14814,6 +16669,41 @@ function addMaterialToShopList(lineId) {
   });
 }
 
+// "Add to list" on an On Site materials row, whichever half of the screen it
+// came from -- the twin of addMaterialToShopList above, which does the same
+// job for Summary's estimate lines. Everything meaningful is shared:
+// shopListAdd does the dedupe (one line per product, ticked copies un-ticked,
+// job tags appended), and the job's NAME is snapshotted onto the row so the
+// list still says why the tin is there after a rename or a delete. A product
+// tapped on both screens is therefore one line, not two.
+//
+// The price differs from the Summary twin, because this is the actuals side:
+// materialPriceFor() is exactly the figure the row is already showing, which
+// on a manually-added row is normally the price typed into "Unit price"
+// ("change it if the shop price has moved") -- the most current price anyone
+// has. A row with no real price goes on with NO price rather than £0.00,
+// which would read at the till as free.
+//
+// The per-litre rule is the Summary twin's, verbatim, and it matters here
+// only for estimate-pulled rows: their unitAmount is per LITRE, not the till
+// price of anything, and a wrong figure at the till is worse than none. A
+// manually-added row can't hit it -- buildActualsView() gives every one of
+// them isPerLitre false.
+function addActualToShopList(key) {
+  var row = actualsRowsCache.find(function(r) { return r.key === key; });
+  if (!row) return;
+  var jobName = (activeJob() && activeJob().name) || '';
+  var price = row.isPerLitre ? 0 : materialPriceFor({ itemCode: row.itemCode, unitAmount: row.unitAmount });
+  withShopList(function() {
+    shopListAdd(row.description, row.itemCode || '', price > 0 ? price : null, jobName);
+    // Patch the chip rather than re-rendering: a tap here must not disturb a
+    // half-typed quantity or the add form further down the screen.
+    var i = actualsRowsCache.findIndex(function(r) { return r.key === key; });
+    var tag = document.getElementById('act-shop-' + i);
+    if (tag) { tag.textContent = '✓ On list'; tag.classList.add('on'); }
+  });
+}
+
 function toggleShopTick(id) {
   var it = (shopList || []).find(function(i) { return i.id === id; });
   if (!it) return;
@@ -14875,8 +16765,13 @@ function renderColours() {
       }
     });
     var roleWord = a.label === a.owner ? '' : (AREA_ROLE_WORDS[a.role] || '');
+    // A snag-room area was never measured -- it exists because the snag list
+    // names it. Saying so stops it reading as a room somebody forgot to
+    // price, which on a Xero-imported job is a real question to have.
+    var snagNote = (a.ref && a.ref.kind === 'snag')
+      ? '<span style="text-transform:none;letter-spacing:0;font-weight:600;color:var(--text3)"> · from the snag list</span>' : '';
     var head = a.owner !== lastOwner
-      ? '<div class="subsection-label">' + escapeHtml(a.owner) + '</div>' : '';
+      ? '<div class="subsection-label">' + escapeHtml(a.owner) + snagNote + '</div>' : '';
     lastOwner = a.owner;
     areasHtml += head
       + '<div class="area-row">'
@@ -14897,6 +16792,8 @@ function renderColours() {
       + '<div style="padding:14px 16px;font-size:13px;color:var(--text2);line-height:1.5">'
       + 'Measure a room or an exterior item and every painted surface shows up here, '
       + 'named after where it goes until you know the colour.</div>';
+
+  renderSnagRoomsCard();
 
   // ── What to buy, per colour ──────────────────────────────────────────────
   var mats = computeMaterials();
@@ -14974,6 +16871,13 @@ function setAreaColourNumber(ref, num) {
     if (!job) return;
     ensureKitchenShape(job).colourNumber = num;
     saveKitchenJob();
+    return;
+  }
+  // A snag group with no measured room behind it. Its id IS its label -- see
+  // the snag_rooms table, where the label is the identity rather than a row
+  // id, so the Colours tab and the On Site sheet address the same row.
+  if (ref.kind === 'snag') {
+    setSnagRoomColour(ref.id, num, ref.role || 'all');
     return;
   }
   if (ref.kind === 'fittedunit') {
@@ -17207,6 +19111,7 @@ function clearExteriorItems() {
   if(!confirm('Clear all exterior items?')) return;
   extItems=[];
   localStorage.setItem('pe-extitems','[]');
+  writeJobMirror('extitems', activeJobId, []);
   apiDelete('/api/extitems?job_id='+encodeURIComponent(activeJobId));
   renderExterior();
 }
@@ -17214,6 +19119,7 @@ function clearExteriorItems() {
 function saveExtItems() {
   invalidateColourPlaceholders();
   localStorage.setItem('pe-extitems', JSON.stringify(extItems));
+  writeJobMirror('extitems', activeJobId, extItems);
   var jobId = activeJobId, payload = extItems;
   pendingSaves.extItems = apiPut('/api/extitems?job_id='+encodeURIComponent(jobId), { items: extItems })
     .then(function() { if (serverAvailable) noteServerCopy('extitems', jobId, payload); });
@@ -17782,7 +19688,7 @@ function renderAttentionStrip() {
 // status card holds the action the line is nagging about (chase → the
 // quoted card, invoice → Mark Invoiced).
 function attentionOpenJob(jobId) {
-  if (jobId !== activeJobId) { switchJob(jobId).then(function() { goTab('summary'); }); }
+  if (jobId !== activeJobId) { switchJob(jobId).then(function(ok) { if (ok) goTab('summary'); }); }
   else goTab('summary');
 }
 
@@ -21212,6 +23118,7 @@ function renderSummary() {
     recalculateMaterialsSnapshot(mats);
   }
   var materialsTotal = materialsSnapshotTotal();
+  var trackingOnlyTotal = materialsTrackingOnlyTotal();
   var allMatRows = mats.wallRows.concat(mats.ceilingRows, mats.topcoatRows, mats.primerRows, mats.mistRows, mats.featureWallRows, mats.panelRows, mats.masonryRows, mats.extTopcoatRows, mats.extPrimerRows, mats.fuTopcoatRows, mats.fuPrimerRows);
   // Unmapped roles (no Xero product picked) have no real quantity/price to
   // make editable -- they stay exactly as before, a read-only litres/tin-
@@ -21968,6 +23875,13 @@ function renderSummary() {
       (materialsTotal>0?'<div class="breakdown-row" style="border-top:1px solid var(--border);padding:12px 16px">'+
         '<span class="breakdown-label" style="font-weight:600;color:var(--text)">Materials subtotal</span>'+
         '<span class="breakdown-value" style="color:var(--accent)">'+fmt(materialsTotal)+'</span></div>':'')+
+      // Shown whether or not there is a subtotal above it: a list that is
+      // ENTIRELY tracking-only has a subtotal of nothing and no row at all,
+      // which is the case where the omission is least visible and costs the
+      // most. Tap a row's "Tracking only" tag to put it on the quote.
+      (trackingOnlyTotal>0.005?'<div class="breakdown-row" style="border-top:1px solid var(--border);padding:10px 16px">'+
+        '<span class="breakdown-label" style="font-size:12px;color:var(--text2)">Tracking only — not on the quote</span>'+
+        '<span class="breakdown-value" style="font-size:12px;color:var(--text2)">'+fmt(trackingOnlyTotal)+'</span></div>':'')+
     '</div>'+
     '<button onclick="recalculateMaterialsFromButton()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%;margin-top:8px">Recalculate from rooms &amp; exterior</button>'+
     // Says up front what the button will and won't touch -- the old one gave
@@ -21995,8 +23909,16 @@ function renderSummary() {
       '<div class="field-row"><div class="field-label">Unit price</div><input type="number" class="field-input" id="add-mat-price" value="0" min="0" step="0.01" inputmode="decimal"></div>'+
       '<div class="field-row"><div class="field-label">Quantity</div><input type="number" class="field-input" id="add-mat-qty" value="1" min="0" step="1" inputmode="numeric"></div>'+
       '<div class="toggle-row" style="border-top:1px solid var(--border)">'+
-        '<div class="toggle-label">Chargeable<small>off = shows on the list for tracking only, doesn\'t affect the total</small></div>'+
-        '<div class="toggle" id="add-mat-chargeable" onclick="toggleAddMatChargeable()"></div>'+
+        // Defaults ON, the same default-on convention as a custom line's
+        // markup toggle -- a material added here is one the calculation
+        // missed (an exterior plastic door, a kitchen), so it is paint you
+        // are buying for the job and billing for. Defaulting it OFF meant
+        // every hand-added line was silently saved chargeable:false and left
+        // out of the quote total, the Xero quote and the deposit, which is
+        // exactly how a job went out priced with no materials on it at all.
+        // Tracking-only is the deliberate choice, so it takes the tap.
+        '<div class="toggle-label">Chargeable<small>on = billed on the quote · off = shows on the list for tracking only, doesn\'t affect the total</small></div>'+
+        '<div class="toggle on" id="add-mat-chargeable" onclick="toggleAddMatChargeable()"></div>'+
       '</div>'+
       '<input type="hidden" id="add-mat-itemcode">'+
     '</div>'+
@@ -22600,6 +24522,15 @@ var PDF_UNI = { 0x2014:0x97, 0x2013:0x96, 0x2018:0x91, 0x2019:0x92, 0x201C:0x93,
 // is DROPPED rather than substituted: a wrong glyph on a document going to a
 // customer is worse than a missing decoration, and the emoji here are all
 // decorative prefixes whose label is carried separately.
+// It has to be IDEMPOTENT, because it isn't called once: every layout below
+// sanitises a string to measure and wrap it, then d.text() sanitises each
+// wrapped line again on the way out. The mapped codes PDF_UNI produces --
+// \x97 for an em dash, \x85 for an ellipsis, \x93/\x94 for smart quotes --
+// all sit below 0xA1, so without the PDF_EXTRA passthrough here the second
+// pass dropped every one of them: "Hallway — Card Room Green" printed as
+// "Hallway Card Room Green", on the quote as well as on the snag list.
+// Passing through exactly the PDF_EXTRA codes is safe by construction, since
+// those are precisely the codes the mapper emits and the widths table knows.
 function pdfSanitise(s) {
   s = String(s == null ? '' : s);
   var out = '';
@@ -22607,6 +24538,7 @@ function pdfSanitise(s) {
     var c = s.charCodeAt(i);
     if (c >= 32 && c <= 126) out += s.charAt(i);
     else if (PDF_UNI[c] != null) out += String.fromCharCode(PDF_UNI[c]);
+    else if (PDF_EXTRA[c]) out += s.charAt(i);
     else if (c >= 0xA1 && c <= 0xFF) out += s.charAt(i);
   }
   return out.replace(/\s+/g, ' ').trim();
@@ -22893,6 +24825,187 @@ async function buildClientQuotePdf(m) {
   return pdfSerialise(d, logo);
 }
 
+// ── Snag list PDF ──────────────────────────────────────────────────────────
+// The punch list as a document, for the walk-round the client wants a copy of
+// and for the decorator who isn't holding the phone. Same hand-rolled writer
+// as the quote above, same header band, so the two obviously come from the
+// same business.
+//
+// It renders the IN-MEMORY list and deliberately does not re-fetch first.
+// `snags` is the freshest copy there is: it already carries every tick made on
+// this phone, including the ones still sitting in the offline queue waiting for
+// signal, and a GET at this moment would replace those with the server's older
+// answer. "Up to date" on a snag list means "including the one I ticked thirty
+// seconds ago in a cellar", which is exactly the tick a re-fetch would lose.
+function snagPdfModel() {
+  var job = activeJob();
+  var contact = (job && job.contact) || {};
+  // Room-grouped, in the order the screen is showing -- cleared rows at the
+  // bottom of their room, cleared rooms at the bottom of the list. The
+  // document and the screen are the same list or the document is no use for
+  // checking against.
+  var groups = snagRoomGroups(snags).map(function(g) {
+    return {
+      label: g.label,
+      colour: snagGroupColour(g.label) || '',
+      openN: g.items.filter(snagIsOpen).length,
+      items: g.items.map(function(x) {
+        var done = !snagIsOpen(x);
+        return {
+          description: x.description || '',
+          phase: snagPhaseLabel(x.phase || ''),
+          done: done,
+          cleared: done ? snagClearedLabel(x) : ''
+        };
+      })
+    };
+  });
+  var openN = openSnagCount();
+  return {
+    jobName: (job && job.name) || '',
+    clientName: (job && job.xeroClient) || '',
+    address: [contact.street, contact.town, contact.postcode].filter(Boolean).join(', '),
+    today: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+    openN: openN,
+    doneN: snags.length - openN,
+    total: snags.length,
+    groups: groups
+  };
+}
+
+function snagPdfFilename(m) {
+  var base = (m.jobName || 'Job').replace(/[^A-Za-z0-9 _-]+/g, '').trim().replace(/\s+/g, '-');
+  // Dated by the day it was exported, unlike the quote: a snag list is a
+  // snapshot of a moving list, so two exports a week apart SHOULD be two
+  // differently-named files -- that's the point of exporting it twice.
+  return 'NH-Snags-' + (base || 'Job') + '-' + new Date().toISOString().slice(0, 10) + '.pdf';
+}
+
+async function buildSnagPdf(m) {
+  var logo = await pdfLoadLogo();
+  var d = pdfDoc();
+  var L = PDF_MARGIN, R = PDF_PAGE_W - PDF_MARGIN, W = R - L;
+  var BOX = 9, TEXT_X = L + 16;
+
+  var snagRow = function(it) {
+    var phase = pdfSanitise(it.phase);
+    var phaseW = phase ? pdfTextWidth(phase, false, 8.5) + 14 : 0;
+    var colW = R - TEXT_X - phaseW;
+    var lines = pdfWrap(pdfSanitise(it.description), false, 10, colW);
+    var h = lines.length * 13 + (it.cleared ? 11 : 0) + 9;
+    d.need(h);
+    var top = d.y, yy = top - 10;
+    // Filled box for a cleared snag, outlined for one still open. Not a ✓ --
+    // the WinAnsi standard fonts have no tick glyph and pdfSanitise drops it,
+    // and this stays legible photocopied in black and white anyway.
+    if (it.done) d.rect(L, top - 2.5, BOX, BOX, PDF_STEEL);
+    else { d.rect(L, top - 2.5, BOX, BOX, PDF_MUT); d.rect(L + 1, top - 3.5, BOX - 2, BOX - 2, PDF_WHITE); }
+    lines.forEach(function(ln) {
+      d.text(ln, TEXT_X, yy, { size: 10, rgb: it.done ? PDF_MUT : PDF_INK });
+      // PDF has no strike-through, but it does have a horizontal rule, and a
+      // line drawn through the text at x-height is the same mark the screen
+      // puts on a cleared row.
+      if (it.done) d.rule(TEXT_X, yy + 3, TEXT_X + pdfTextWidth(pdfSanitise(ln), false, 10), PDF_MUT);
+      yy -= 13;
+    });
+    if (it.cleared) { d.text(it.cleared, TEXT_X, yy + 1, { size: 8.5, rgb: PDF_MUT }); yy -= 11; }
+    if (phase) d.text(phase, R, top - 10, { size: 8.5, rgb: PDF_MUT, align: 'right' });
+    d.y = top - h;
+    d.rule(L, d.y + 3, R, PDF_RULE);
+  };
+
+  // Header band
+  var headH = 74;
+  d.rect(L, d.y, W, headH, PDF_STEEL);
+  var titleX = L + 20;
+  if (logo) {
+    d.rect(L + 14, d.y - 13, 48, 48, PDF_WHITE);
+    var iw = 40, ih = iw * logo.h / logo.w;
+    d.image(L + 18, d.y - 13 - (48 - ih) / 2, iw, ih);
+    titleX = L + 76;
+  }
+  d.text(quoteBusinessName(), titleX, d.y - 33, { size: 19, bold: true, rgb: PDF_WHITE });
+  d.text('Snag list', titleX, d.y - 50, { size: 10, rgb: PDF_WHITE });
+  d.y -= headH + 18;
+
+  [['Job', m.jobName], ['For', m.clientName], ['At', m.address], ['Date', m.today]].forEach(function(pair) {
+    if (!pair[1]) return;
+    d.need(16);
+    d.text(pair[0] + ':', L, d.y - 10, { size: 10, bold: true });
+    d.text(pair[1], L + 36, d.y - 10, { size: 10, rgb: PDF_MUT });
+    d.y -= 15;
+  });
+  d.y -= 6;
+
+  // The count, spelled out rather than left to be worked out by counting boxes
+  // -- "eleven outstanding" is the whole reason somebody asked for this file.
+  d.need(24);
+  d.text(m.openN === 0
+      ? 'All ' + m.total + ' snag' + (m.total === 1 ? '' : 's') + ' cleared'
+      : m.openN + ' outstanding' + (m.doneN ? ' · ' + m.doneN + ' cleared' : ''),
+    L, d.y - 11, { size: 11, bold: true, rgb: PDF_STEEL });
+  d.y -= 22;
+
+  m.groups.forEach(function(g) {
+    // Keep a room heading with at least its first snag: a heading stranded at
+    // the foot of a page reads as a room with nothing in it.
+    d.need(60);
+    var right = g.openN ? g.openN + ' open' : 'all done';
+    var rightW = pdfTextWidth(pdfSanitise(right), false, 9) + 12;
+    var head = g.label + (g.colour ? '  —  ' + g.colour : '');
+    var headLines = pdfWrap(pdfSanitise(head), true, 10.5, W - rightW);
+    var top = d.y, yy = top - 11;
+    headLines.forEach(function(ln) { d.text(ln, L, yy, { size: 10.5, bold: true, rgb: PDF_STEEL }); yy -= 13; });
+    d.text(right, R, top - 11, { size: 9, rgb: PDF_MUT, align: 'right' });
+    d.y = yy - 3;
+    d.rule(L, d.y + 6, R, PDF_RULE);
+    g.items.forEach(snagRow);
+    d.y -= 14;
+  });
+
+  d.need(26);
+  d.y -= 6;
+  d.text('Prepared ' + m.today + ' · ' + quoteBusinessName(),
+    L + W / 2, d.y - 9, { size: 8, rgb: PDF_MUT, align: 'center' });
+
+  return pdfSerialise(d, logo);
+}
+
+// The button, from either end of the On Site screen. Same three visible
+// outcomes as saveQuotePdf(): the share sheet, a download, or a toast saying
+// what went wrong -- never a tap with no result.
+async function saveSnagPdf() {
+  var btn = document.getElementById('snag-pdf-btn');
+  var label = btn ? btn.textContent : '';
+  if (btn) { btn.textContent = 'Working…'; btn.disabled = true; }
+  try {
+    if (!snags.length) { toast('Nothing on the snag list to export yet.'); return; }
+    var m = snagPdfModel();
+    var bytes = await buildSnagPdf(m);
+    var blob = new Blob([bytes], { type: 'application/pdf' });
+    var filename = snagPdfFilename(m);
+    var file = null;
+    try { file = new File([blob], filename, { type: 'application/pdf' }); } catch (e) { file = null; }
+    var canShareFile = false;
+    try { canShareFile = !!(file && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })); } catch (e) { canShareFile = false; }
+    if (canShareFile) {
+      try {
+        await navigator.share({ files: [file], title: (m.jobName || 'Job') + ' — snag list' });
+        return;
+      } catch (e) {
+        if (e && (e.name === 'AbortError' || e.name === 'NotAllowedError')) return;
+        console.warn('Share sheet refused the snag PDF, falling back to download', e);
+      }
+    }
+    downloadBlob(blob, filename);
+    toast('Snag list saved as ' + filename);
+  } catch (err) {
+    reportFailure('Couldn\'t generate the snag list PDF', err);
+  } finally {
+    if (btn) { btn.textContent = label; btn.disabled = false; }
+  }
+}
+
 // ── Export CSV ─────────────────────────────────────────────────────────────
 function exportCSV() {
   // BUG FIX: this only ever checked rooms.length, so an exterior-only or
@@ -23061,6 +25174,19 @@ function cancelBackupImport() {
   document.getElementById('backup-import-file').value = '';
 }
 
+// A response body as JSON where it is JSON, and something sayable where it
+// isn't. Used by the backup import, which is the one place the app posts a
+// payload big enough for an infrastructure error to answer instead of the app.
+async function readJsonResponse(resp) {
+  var text = '';
+  try { text = await resp.text(); } catch (e) { return {}; }
+  try { return JSON.parse(text); } catch (e) {}
+  // Not JSON: an HTML error page, or a proxy's plain-text refusal. Strip the
+  // markup and keep the first line, which is the part that says what happened.
+  var plain = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  return { error: plain ? plain.slice(0, 200) : ('HTTP ' + resp.status) };
+}
+
 async function confirmBackupImport() {
   if (!pendingBackupImport) return;
   if (!confirm('Import ' + pendingBackupImport.jobs.length + ' job(s) now? This adds to what is already saved and does not delete anything.')) return;
@@ -23070,8 +25196,14 @@ async function confirmBackupImport() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ backup: pendingBackupImport, restoreSettings: backupRestoreSettings })
     });
-    var result = await resp.json();
-    if (!resp.ok) throw new Error(result.error || 'Import failed');
+    // Read the body defensively rather than assuming JSON. A failure raised
+    // before the route ran (an oversized or malformed file) used to arrive as
+    // an HTML error page, and resp.json() then threw a syntax error about an
+    // unexpected '<' -- so the one message the user needed was replaced by one
+    // that meant nothing. The server answers /api in JSON now; this is the
+    // belt to that braces, and covers a proxy erroring ahead of it too.
+    var result = await readJsonResponse(resp);
+    if (!resp.ok) throw new Error(result.error || ('Import failed (HTTP ' + resp.status + ')'));
     var settingsRestored = result.settingsRestored;
     cancelBackupImport();
     // Jobs list needs a fresh fetch to show the newly-imported jobs; a full
@@ -23114,17 +25246,144 @@ if (window.ResizeObserver) {
   window.addEventListener('orientationchange', syncNavHeight);
 }
 
+// ── Bottom bar: pinned to the bottom of what is actually on screen ─────────
+// `.navbar` is position:fixed;bottom:0, and on every browser that gets fixed
+// positioning right that is the whole story. iOS is not one of them: a fixed
+// element is pinned to the LAYOUT viewport, and in a standalone PWA the
+// on-screen keyboard resizes that viewport -- after which WebKit does not
+// reliably resize it back when the keyboard goes away. (Exactly the failure
+// the --vh boot script already carries five re-polls, a focusout re-poll,
+// pageshow and visibilitychange handlers to compensate for.) The bar is then
+// pinned to the bottom of a viewport that no longer matches the screen, so it
+// renders part of the way up with the page still scrolling underneath it --
+// reported as "the bottom menu bar slides up the screen during use", and the
+// reason v2.31.1's sticky -> fixed swap cured the scrolling case but not this
+// one: fixed made the bar independent of --vh and of scroll momentum, not of
+// WebKit's own idea of how tall the viewport is.
+//
+// visualViewport reports what is actually visible rather than what WebKit
+// last decided the layout viewport was, so both rules below run off it.
+//
+//   1. While the keyboard is up the bar hides. Pinning it above the keyboard
+//      instead would park it over the field being typed into -- iOS scrolls
+//      the focused input to the bottom of the visible area and knows nothing
+//      about our bar. Native tab bars get out of the way for the same reason,
+//      and the bar is untappable behind a keyboard either way.
+//   2. Every other time, the bar's own bottom edge is measured against the
+//      visible bottom edge and whatever gap is found is closed with a
+//      translate. Correcting the gap it MEASURES, rather than compensating
+//      for one named cause, is what makes this hold for the next variant of
+//      the same WebKit bug -- and it is a no-op (translate 0) on every
+//      browser that had the bar in the right place already, so nothing
+//      changes on Android or desktop.
+var _navShift = 0;   // px of translate currently applied to the bar
+var _navVisH = 0;    // visible height last seen with no field focused
+
+// Same test as the boot script's _editing(): a focused field is the only
+// thing that puts a keyboard (or a picker) on screen.
+function navEditing() {
+  var el = document.activeElement, t = el && el.tagName;
+  return t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT' || !!(el && el.isContentEditable);
+}
+
+function pinNav() {
+  var nav = document.querySelector('.navbar');
+  if (!nav) return;
+  var vv = window.visualViewport;
+  var visH = (vv && vv.height) || window.innerHeight;
+  var editing = navEditing();
+  if (!editing) _navVisH = visH;
+  // A field has focus AND a good chunk of the visible area has gone since the
+  // last time one didn't: that is the keyboard. The threshold keeps the rule
+  // off the small changes a collapsing browser toolbar makes, and off desktop
+  // and split-keyboard cases where focusing a field costs no height at all --
+  // there the bar stays put rather than vanishing whenever a field is tapped.
+  var keyboard = editing && _navVisH - visH > 120;
+  nav.classList.toggle('nav-kb-hidden', keyboard);
+  if (keyboard) return;
+  var r = nav.getBoundingClientRect();
+  if (!r.height) return;              // not laid out yet; the CSS default stands
+  // getBoundingClientRect on a fixed element is in layout-viewport
+  // coordinates, which is the same space visualViewport.offsetTop measures
+  // in, so the visible bottom edge is offsetTop + height. Solve for the
+  // translate that lands the bar's bottom exactly there -- absolutely, from
+  // the shift already applied, so repeated calls settle instead of walking.
+  var target = vv ? vv.offsetTop + vv.height : window.innerHeight;
+  var shift = _navShift + (target - r.bottom);
+  if (Math.abs(shift) < 1) shift = 0;
+  // A reading this far out is not a viewport the user is looking at (a
+  // background tab mid-restore will report one); leaving the bar alone beats
+  // flinging it off screen on the strength of it.
+  if (!isFinite(shift) || Math.abs(shift) > visH) shift = 0;
+  if (shift === _navShift) return;
+  _navShift = shift;
+  nav.style.transform = shift ? 'translateY(' + shift + 'px)' : '';
+}
+
+// One pin per frame however many events land in it: the read forces layout,
+// and visualViewport fires on every step of a pinch-zoom.
+var _navPinQueued = false;
+function queuePinNav() {
+  if (_navPinQueued) return;
+  _navPinQueued = true;
+  (window.requestAnimationFrame || function(f) { setTimeout(f, 16); })(function() {
+    _navPinQueued = false;
+    pinNav();
+  });
+}
+// The keyboard animates in and out over ~250ms and WebKit's events during it
+// report heights that are still transient -- or don't arrive at all. Re-poll
+// through and past the animation, the same belt and braces --vh uses.
+function pinNavSoon() { [0, 100, 300, 600].forEach(function(ms) { setTimeout(queuePinNav, ms); }); }
+
+window.addEventListener('resize', queuePinNav);
+window.addEventListener('orientationchange', pinNavSoon);
+window.addEventListener('pageshow', pinNavSoon);
+document.addEventListener('visibilitychange', function() { if (!document.hidden) pinNavSoon(); });
+document.addEventListener('focusin', pinNavSoon);
+document.addEventListener('focusout', pinNavSoon);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', queuePinNav);
+  window.visualViewport.addEventListener('scroll', queuePinNav);
+}
+// Scroll is handled on the settle, not continuously. Mid-momentum the
+// compositor is already moving the bar and a correction computed from a
+// reading it has scrolled past lands as jitter; 120ms of quiet means the
+// gesture is over and whatever offset it left behind is the real one.
+var _navScrollT;
+window.addEventListener('scroll', function() {
+  clearTimeout(_navScrollT);
+  _navScrollT = setTimeout(queuePinNav, 120);
+}, { passive: true });
+// A cold standalone launch settles its height a beat after this script runs,
+// sometimes without firing anything -- same re-poll schedule as --vh's.
+pinNav();
+[50, 150, 300, 600, 1000].forEach(function(ms) { setTimeout(queuePinNav, ms); });
+
 // ── Init ───────────────────────────────────────────────────────────────────
 initApp();
 
 // Service worker: offline app shell + installability (see public/sw.js).
-// Registered after load so it never competes with the startup fetches.
+//
+// Kept off the critical path, but NO LONGER GATED ON window 'load'. 'load'
+// waits for every subresource on the page, including the third-party font
+// stylesheet -- so on precisely the connection this worker exists to survive
+// (a dead spot: signal, no throughput, requests that hang rather than fail)
+// 'load' could be a minute away or never arrive at all, and the phone that
+// most needed an offline copy of the app was the one least likely to have
+// registered the worker that makes one. Whichever comes first now, the event
+// or a short timer; the guard makes the loser a no-op.
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', function() {
+  var registerSW = function() {
+    if (registerSW.done) return;
+    registerSW.done = true;
     navigator.serviceWorker.register('/sw.js').catch(function(e) {
       console.log('Service worker registration failed:', e.message);
     });
-  });
+  };
+  if (document.readyState === 'complete') registerSW();
+  else window.addEventListener('load', registerSW);
+  setTimeout(registerSW, 2500);
 }
 </script>
 </body>

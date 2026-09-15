@@ -10,6 +10,16 @@ A simple standalone tab to track informal short-term borrowing — from people o
 
 **This tab is purely for notes. It has zero interaction with the debt snowball, pot balances, cashflow calculations, or any other part of the app.** Nothing written here affects any numbers elsewhere.
 
+> **Amended v2.60.0 — borrowing from a pot.** The paragraph above still
+> describes every row that names a *person* or an outside savings pot, which
+> is what this document was written for. A row can now instead name one of the
+> app's **own** pots (`pot` = `biz`, `per`, `savings`, `bufferBiz` or
+> `bufferPer`), and those rows are not notes: the money comes out of that pot
+> when the loan is logged, and goes back off the top of the next pay-in,
+> before this month's payments, the buffer, savings and the sweep. Everything
+> below still holds for `pot IS NULL` rows. See Feature 18 in
+> `debt-app-roadmap.md` for the mechanics.
+
 ---
 
 ## Key design decisions

@@ -90,21 +90,17 @@
 
 <script>
 const COLORS=["#e05c5c","#e0923b","#d4bc17","#7db87d","#4a9fd4","#7b6fcf","#c466a1","#5bbfb0","#8c9b6e","#6e8c9b","#b07d5c","#9b6e8c"];
-// floorPayment mirrors the SQL backfill in db/setup-debt.sql: the
-// contractual minimum doubles as the starting floor, and stays null where
-// there is no minimum to copy (Brewers' arrears-only trade account, HMRC
-// pre-Time-to-Pay) — those need a floor agreed before they can have one.
 const DEBTS_INITIAL=[
-  {id:2, name:"Currys",       balance:965.72,   apr:39.9, min:25,     arrears:0,        due:15,   account:"personal", note:"Est. figures", floorPayment:25},
-  {id:3, name:"Natwest CC",   balance:1111.90,  apr:26.9, min:40.03,  arrears:0,        due:10,   account:"personal", note:"", floorPayment:40.03},
-  {id:4, name:"PayPal",       balance:2017.25,  apr:0,    min:93.44,  arrears:0,        due:11,   account:"personal", note:"0% interest", floorPayment:93.44},
-  {id:5, name:"Brewers",      balance:2200.89,  apr:0,    min:0,      arrears:2200.89,  due:1,    account:"business", note:"Trade account — full balance in arrears", floorPayment:null},
-  {id:6, name:"Amex",         balance:4065.64,  apr:30.4, min:205,    arrears:65.64,    due:28,   account:"business", note:"", floorPayment:205},
-  {id:7, name:"Updraft",      balance:3583.81,  apr:17.9, min:264.66, arrears:793.98,   due:20,   account:"personal", note:"", floorPayment:264.66},
-  {id:8, name:"Bounce Back",  balance:7733.65,  apr:2.5,  min:182.08, arrears:177.48,   due:14,   account:"business", note:"", floorPayment:182.08},
-  {id:9, name:"NatWest Loan", balance:17122.68, apr:19,   min:520.01, arrears:2662.97,  due:15,   account:"personal", note:"", floorPayment:520.01},
-  {id:10,name:"Van",          balance:20600,    apr:0,    min:400,    arrears:0,        due:null, account:"business", note:"Family loan — low priority", floorPayment:400},
-  {id:11,name:"HMRC",         balance:31510.32, apr:0,    min:0,      arrears:0,        due:null, account:"business", note:"Needs Time to Pay arrangement", floorPayment:null},
+  {id:2, name:"Currys",       balance:965.72,   apr:39.9, min:25,     arrears:0,        due:15,   account:"personal", note:"Est. figures"},
+  {id:3, name:"Natwest CC",   balance:1111.90,  apr:26.9, min:40.03,  arrears:0,        due:10,   account:"personal", note:""},
+  {id:4, name:"PayPal",       balance:2017.25,  apr:0,    min:93.44,  arrears:0,        due:11,   account:"personal", note:"0% interest"},
+  {id:5, name:"Brewers",      balance:2200.89,  apr:0,    min:0,      arrears:2200.89,  due:1,    account:"business", note:"Trade account — full balance in arrears"},
+  {id:6, name:"Amex",         balance:4065.64,  apr:30.4, min:205,    arrears:65.64,    due:28,   account:"business", note:""},
+  {id:7, name:"Updraft",      balance:3583.81,  apr:17.9, min:264.66, arrears:793.98,   due:20,   account:"personal", note:""},
+  {id:8, name:"Bounce Back",  balance:7733.65,  apr:2.5,  min:182.08, arrears:177.48,   due:14,   account:"business", note:""},
+  {id:9, name:"NatWest Loan", balance:17122.68, apr:19,   min:520.01, arrears:2662.97,  due:15,   account:"personal", note:""},
+  {id:10,name:"Van",          balance:20600,    apr:0,    min:400,    arrears:0,        due:null, account:"business", note:"Family loan — low priority"},
+  {id:11,name:"HMRC",         balance:31510.32, apr:0,    min:0,      arrears:0,        due:null, account:"business", note:"Needs Time to Pay arrangement"},
 ];
 
 // ---------- State ----------
@@ -117,15 +113,21 @@ let bizPot=0;
 let perPot=0;
 let savingsPot=0;
 let savingsPct=10;
-// Floor & target payments. bufferPot is a cash cushion filled BEFORE any
-// debt allocation; bufferTarget 0 means the buffer is switched off, which is
-// the default — it moves real money, so it's opted into, not assumed.
-let bufferPot=0;
-let bufferTarget=0;
-// Running "behind on floors" ledger: [{id,name,amount,since}], one entry per
-// debt, written when a cycle closes with a floor unmet. Deliberately inert —
-// nothing reads it back into the plan until the user taps Catch up.
-let floorShortfalls=[];
+// The buffer: a cash cushion the pay-in fills after this month's minimums.
+// Note: a target of 0 means it is switched off, which is the
+// default — it moves real money, so it's opted into, not assumed.
+//
+// TWO jars, not one, because bizPot and perPot are two real bank accounts and
+// neither can rescue the other: a £905 personal cushion does nothing for a
+// £387 business minimum falling due. What the buffer is FOR is holding one
+// month of contractual minimums (see monthlyMinimums()) so a light month pays
+// them out of stored cash instead of putting them into arrears.
+let bufferBiz=0;
+let bufferPer=0;
+let bufferTargetBiz=0;
+let bufferTargetPer=0;
+const bufferPot=()=>round2(bufferBiz+bufferPer);
+const bufferTarget=()=>round2(bufferTargetBiz+bufferTargetPer);
 let incomeLog=[]; // {id, amount, bizAmt, perAmt, savedAmt, bufferAmt, date}
 let paidThisCycle=[]; // array of debt ids paid
 // What each tick actually took off a balance this cycle, keyed by debt id:
@@ -135,11 +137,13 @@ let paidThisCycle=[]; // array of debt ids paid
 // what was removed, clamping and pot-shortfalls included.
 let appliedPayments={};
 let missedThisCycle=[]; // debt ids deliberately skipped this cycle — mutually exclusive with paidThisCycle
-// Debt ids where the FLOOR was paid but the target wasn't — the third state a
-// payment can be in, and the only reason the two verdicts can differ. All
-// three lists are mutually exclusive; setPaymentState() is the one place
-// that moves an id between them.
-let floorPaidThisCycle=[];
+// Debt ids where the contractual MINIMUM was paid but the target wasn't — the
+// third state a payment can be in, and the only reason the two verdicts can
+// differ. All three lists are mutually exclusive; setPaymentState() is the one
+// place that moves an id between them. Stored in the debt_plan_cashflow column
+// still named floor_paid_this_cycle: it holds exactly what it always held, and
+// renaming a column to rename a concept is not worth a migration.
+let minPaidThisCycle=[];
 let history=[]; // completed cycles, newest first — from debt_plan_cycle_history
 let view='cashflow';
 let tightThreshold=600;
@@ -199,8 +203,8 @@ function persist(...kinds){
 }
 const PERSIST_BODIES={
   debts:()=>({debts,clientUpdatedAt:debtsUpdatedAt}),
-  settings:()=>({budget,sweepPct,savingsPct,tightThreshold,lastMilestone,notifyDaysBefore,notificationsEnabled,bufferTarget,clientUpdatedAt:settingsUpdatedAt}),
-  cashflow:()=>({bizPot,perPot,savingsPot,bufferPot,paidThisCycle,missedThisCycle,floorPaidThisCycle,floorShortfalls,appliedPayments,clientUpdatedAt:cashflowUpdatedAt})
+  settings:()=>({budget,sweepPct,savingsPct,tightThreshold,lastMilestone,notifyDaysBefore,notificationsEnabled,bufferTargetBiz,bufferTargetPer,clientUpdatedAt:settingsUpdatedAt}),
+  cashflow:()=>({bizPot,perPot,savingsPot,bufferBiz,bufferPer,paidThisCycle,missedThisCycle,minPaidThisCycle,appliedPayments,clientUpdatedAt:cashflowUpdatedAt})
 };
 async function persistNow(){
   if(!loadedFromServer)return; // never push the fallback seed over real data
@@ -238,14 +242,13 @@ async function handleWriteResponse(res,kind){
       budget=body.current.budget;sweepPct=body.current.sweepPct;savingsPct=body.current.savingsPct;
       tightThreshold=body.current.tightThreshold;lastMilestone=body.current.lastMilestone;
       notifyDaysBefore=body.current.notifyDaysBefore;notificationsEnabled=body.current.notificationsEnabled;
-      bufferTarget=body.current.bufferTarget??0;
+      bufferTargetBiz=body.current.bufferTargetBiz??0;bufferTargetPer=body.current.bufferTargetPer??0;
       settingsUpdatedAt=body.updatedAt;
     }else if(kind==='cashflow'){
       bizPot=body.current.bizPot;perPot=body.current.perPot;savingsPot=body.current.savingsPot;
-      bufferPot=body.current.bufferPot??0;
+      bufferBiz=body.current.bufferBiz??0;bufferPer=body.current.bufferPer??0;
       paidThisCycle=body.current.paidThisCycle;missedThisCycle=body.current.missedThisCycle||[];
-      floorPaidThisCycle=body.current.floorPaidThisCycle||[];
-      floorShortfalls=body.current.floorShortfalls||[];
+      minPaidThisCycle=body.current.minPaidThisCycle||[];
       appliedPayments=body.current.appliedPayments||{};
       cashflowUpdatedAt=body.updatedAt;
     }
@@ -270,15 +273,18 @@ function applyStatePayload(s){
   lastMilestone=s.settings.lastMilestone;
   notifyDaysBefore=s.settings.notifyDaysBefore??3;
   notificationsEnabled=s.settings.notificationsEnabled??true;
-  bufferTarget=s.settings.bufferTarget??0; // ??0 — pre-feature offline snapshots lack it
+  // ??/|| throughout — an offline snapshot taken before the buffer was split
+  // by account carries the single legacy figure, which was personal money.
+  bufferTargetBiz=s.settings.bufferTargetBiz??0;
+  bufferTargetPer=s.settings.bufferTargetPer??s.settings.bufferTarget??0;
   bizPot=s.cashflow.bizPot;
   perPot=s.cashflow.perPot;
   savingsPot=s.cashflow.savingsPot;
-  bufferPot=s.cashflow.bufferPot??0;
+  bufferBiz=s.cashflow.bufferBiz??0;
+  bufferPer=s.cashflow.bufferPer??s.cashflow.bufferPot??0;
   paidThisCycle=s.cashflow.paidThisCycle;
   missedThisCycle=s.cashflow.missedThisCycle||[]; // ||[] — pre-feature offline snapshots lack it
-  floorPaidThisCycle=s.cashflow.floorPaidThisCycle||[];
-  floorShortfalls=s.cashflow.floorShortfalls||[];
+  minPaidThisCycle=s.cashflow.minPaidThisCycle||[];
   appliedPayments=s.cashflow.appliedPayments||{}; // ||{} — pre-column rows and old offline snapshots
   incomeLog=s.incomeLog;
   debtsUpdatedAt=s.meta?.debtsUpdatedAt||null;
@@ -340,8 +346,80 @@ async function refreshCycleStatus(){
     cycleStatus=await res.json();
   }catch(err){console.error('Failed to load cycle status',err);}
 }
-// Borrowed money tab — fully standalone from the rest of the app's state.
-// See Debt Management App/debt-app-borrowed-money.md.
+// ---------- Borrowing from a pot ----------
+// The Borrowed tab began as notes: a record of money owed to a person, with
+// no interaction with pot balances at all (debt-app-borrowed-money.md).
+// A loan can now name one of the app's OWN pots instead, and then it is not a
+// note — the money comes out of that pot when you log it, and goes back off
+// the top of the next pay-in, before the month, the buffer, savings and the
+// sweep. A loan with no `pot` is exactly what it always was and moves nothing.
+//
+// The read/write pair per pot is what lets one piece of code borrow from and
+// repay any of them: the balances are top-level `let`s, so a plain object of
+// them would be a copy, not a handle.
+const POTS={
+  biz:{label:'Business pot',account:'business',colour:'#e0923b',get:()=>bizPot,set:v=>{bizPot=v;}},
+  per:{label:'Personal pot',account:'personal',colour:'#5b8def',get:()=>perPot,set:v=>{perPot=v;}},
+  savings:{label:'Savings pot',account:'personal',colour:'#7db87d',get:()=>savingsPot,set:v=>{savingsPot=v;}},
+  bufferBiz:{label:'Buffer — business',account:'business',colour:'#7db87d',get:()=>bufferBiz,set:v=>{bufferBiz=v;}},
+  bufferPer:{label:'Buffer — personal',account:'personal',colour:'#7db87d',get:()=>bufferPer,set:v=>{bufferPer=v;}}
+};
+// Repayment order when a pay-in cannot clear everything: oldest borrowing
+// first. Not by pot — what you took out first is what you put back first, and
+// on the same date the id decides so the order can never wobble.
+const POT_LOAN_ORDER=(a,b)=>String(a.borrowed_at||'').localeCompare(String(b.borrowed_at||''))||a.id-b.id;
+function potMove(key,delta){
+  const pot=POTS[key];
+  if(!pot)return 0;
+  const before=round2(pot.get());
+  const after=round2(Math.max(0,before+delta));
+  pot.set(after);
+  return round2(after-before); // what actually moved: a pot can't go negative
+}
+// Active loans taken out of a pot, oldest first. An unknown pot name (a row
+// written by a newer version, or hand-edited) is treated as a note rather
+// than silently moving money somewhere it wasn't meant to.
+function potLoans(){
+  return borrowedActive.filter(b=>b.pot&&POTS[b.pot]).slice().sort(POT_LOAN_ORDER);
+}
+function loanOutstanding(b){
+  return round2(Math.max(0,Number(b.amount||0)-Number(b.repaid_amount||0)));
+}
+// What is still owed back to each pot, and to all of them together.
+function potLoansOwed(){
+  const owed={};
+  let total=0;
+  for(const b of potLoans()){
+    const left=loanOutstanding(b);
+    if(left<=0.005)continue;
+    owed[b.pot]=round2((owed[b.pot]||0)+left);
+    total=round2(total+left);
+  }
+  return {byPot:owed,total};
+}
+// How `amt` of a pay-in would be shared out among the outstanding pot loans,
+// oldest first. Returns the per-loan repayments (what the server is told) and
+// the per-pot totals (what actually moves), so the preview, the transfer
+// instructions and the commit all read the same split.
+function potRepayPlan(amt,onlyPot){
+  let rem=round2(Math.max(0,amt));
+  const loans=[],byPot={};
+  let total=0;
+  for(const b of potLoans()){
+    if(rem<=0.005)break;
+    // A repayment aimed at ONE pot — a balance corrected by hand — settles
+    // only that pot's borrowing, oldest first, and leaves the others alone.
+    if(onlyPot&&b.pot!==onlyPot)continue;
+    const take=Math.min(rem,loanOutstanding(b));
+    if(take<=0.005)continue;
+    loans.push({id:b.id,amount:round2(take)});
+    byPot[b.pot]=round2((byPot[b.pot]||0)+take);
+    total=round2(total+take);
+    rem=round2(rem-take);
+  }
+  return {total,byPot,loans};
+}
+// Borrowed money tab — see Debt Management App/debt-app-borrowed-money.md.
 async function refreshBorrowed(){
   try{
     const res=await fetch('/debt/api/borrowed');
@@ -359,15 +437,21 @@ function parseCycleNotes(notes){
   try{const o=JSON.parse(notes);return o&&typeof o==='object'?o:{};}
   catch(err){return {};}
 }
-function renderCycleVerdict(notes){
-  if(typeof notes.floorsMet!=='boolean'&&typeof notes.targetMet!=='boolean')return '';
+// History rows are permanent, and rows closed before floors were retired carry
+// `floorsMet` and a floor-shortfall list instead of `minsMet`. Both are read
+// here — a past cycle is shown as it was judged at the time, labelled for the
+// number it was actually judged against — while only `minsMet` is ever written.
+function renderArchivedVerdict(notes){
+  const met=typeof notes.minsMet==='boolean'?{ok:notes.minsMet,label:'Minimums'}
+    :typeof notes.floorsMet==='boolean'?{ok:notes.floorsMet,label:'Floors'}:null;
+  if(!met&&typeof notes.targetMet!=='boolean')return '';
   const badge=(ok,label)=>`<span class="badge" style="background:${ok?'#1a3a1a':'#2a1a0a'};color:${ok?'#7db87d':'#e0923b'}">${ok?'✅':'⚠'} ${label}</span>`;
   const shortfalls=Array.isArray(notes.floorShortfalls)?notes.floorShortfalls:[];
   const shortTotal=shortfalls.reduce((s,f)=>s+(Number(f.amount)||0),0);
   return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
-    ${typeof notes.floorsMet==='boolean'?badge(notes.floorsMet,'Floors'):''}
+    ${met?badge(met.ok,met.label):''}
     ${typeof notes.targetMet==='boolean'?badge(notes.targetMet,'Target'):''}
-  </div>${shortTotal>0.005?`<div style="font-size:11px;color:#e0923b;margin-bottom:8px">${fmt(shortTotal)} short on ${shortfalls.length} floor${shortfalls.length===1?'':'s'} — ${shortfalls.map(f=>esc(f.name)).join(', ')}</div>`:''}`;
+  </div>${shortTotal>0.005?`<div style="font-size:11px;color:#7c7f96;margin-bottom:8px">${fmt(shortTotal)} was short on ${shortfalls.length} floor${shortfalls.length===1?'':'s'} — ${shortfalls.map(f=>esc(f.name)).join(', ')} (floors have since been retired; nothing is owed on this)</div>`:''}`;
 }
 // Recognises the history row an automatic rollover wrote, so the app can say
 // the cycle turned over without you. Manual closes carry no autoRolled key
@@ -377,8 +461,7 @@ function rollNotice(h){
   const n=parseCycleNotes(h.notes);
   if(!n.autoRolled)return null;
   return {cycleNumber:h.cycleNumber,closedAt:h.closedAt,
-    floorsMet:n.floorsMet===true,
-    shortfalls:Array.isArray(n.floorShortfalls)?n.floorShortfalls:[],
+    minsMet:typeof n.minsMet==='boolean'?n.minsMet:n.floorsMet===true,
     arrearsAdded:Array.isArray(n.arrearsAdded)?n.arrearsAdded:[]};
 }
 function dismissRollNotice(){
@@ -393,13 +476,24 @@ function formatBorrowedDate(d){
   if(!d)return '—';
   return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short'});
 }
+// What a cycle payment has actually had paid to it, in pounds. Since a
+// payment can now be any amount, every "is this covered?" test asks this
+// rather than which tick-list an id sits in.
+//
+// The ledger is the truth WHERE IT EXISTS. A tick carrying no ledger entry —
+// a cycle that was already open before applied_payments existed — is taken at
+// its word exactly as it was before, rather than being read as a payment of
+// nothing and turning a settled cycle into a pile of arrears at close.
+function paidAmountOf(p){
+  const a=appliedPayments[p.id];
+  if(a)return a.nominal;
+  if(paidThisCycle.includes(p.id))return p.target;
+  if(minPaidThisCycle.includes(p.id))return p.minDue||0;
+  return 0;
+}
 // Contractual minimums this cycle left uncovered. The MINIMUM is what is
 // owed under the agreement, so whatever of it goes unpaid is genuinely
-// overdue and joins arrears at close. The FLOOR is discretionary — what
-// you have chosen to aim for, above or below that minimum — so missing it
-// is not a debt to anyone and goes on the catch-up ledger instead. A floor
-// payment BELOW the minimum settles the floor and still leaves contractual
-// ground uncovered, which is why both can happen to the same debt.
+// overdue and joins arrears at close.
 // Mirrors the same calculation in lib/debtCycle.js's rollOnce().
 function getUnpaidMinimums(){
   const cyclePayments=getCyclePayments();
@@ -408,13 +502,12 @@ function getUnpaidMinimums(){
     if(d.balance<=0.005)continue;
     const minDue=Math.min(Number(d.min)||0,d.balance);
     if(minDue<=0.005)continue;
-    // Paying the target in full always covers the minimum (the plan's
-    // payment is built on top of it); a floor-only payment covers only as
-    // far as the floor reaches, which may fall short.
+    // What actually went out covers the minimum as far as it reaches, and no
+    // further. Paying the target in full always covers it (the plan's payment
+    // is built on top of the minimum); a minimum-only payment covers
+    // exactly it, and a custom amount covers exactly itself.
     const cp=cyclePayments.find(x=>x.id===d.id);
-    const covered=paidThisCycle.includes(d.id)?minDue
-      :floorPaidThisCycle.includes(d.id)?(cp&&cp.floorDue!==null?cp.floorDue:0)
-      :0;
+    const covered=cp?Math.min(minDue,paidAmountOf(cp)):0;
     const unpaid=Math.max(0,minDue-covered);
     if(unpaid<=0.005)continue;
     const newArrears=Math.min(d.balance,d.arrears+unpaid);
@@ -436,38 +529,26 @@ function applyUnpaidMinimums(list){
 // Read before debts/paidThisCycle/incomeLog are cleared for the new cycle.
 function getCycleArchivePayload(){
   const cyclePayments=getCyclePayments();
-  // Floor-only payments belong in the archive too, at the amount that
-  // actually left the pot — otherwise a floors-met cycle reads as £0 paid.
-  const debtsPaid=[...paidThisCycle,...floorPaidThisCycle].map(raw=>{
+  // Minimum-only payments belong in the archive too, at the amount that
+  // actually left the pot — otherwise a minimums-met cycle reads as £0 paid.
+  const debtsPaid=[...paidThisCycle,...minPaidThisCycle].map(raw=>{
     const id=Number(raw);
     const a=appliedPayments[id];
     const p=cyclePayments.find(x=>x.id===id);
-    const fallback=p?(paidThisCycle.includes(id)?p.amount:(p.floorDue||0)):0;
+    const fallback=p?(paidThisCycle.includes(id)?p.amount:(p.minDue||0)):0;
     return {id,name:a?.name||p?.name||('Debt '+id),amount:a?a.nominal:fallback};
   }).filter(p=>p.amount>0.005);
   // Only ids that are genuinely among this cycle's payments — a stale missed
   // id (debt since cleared/edited away) shouldn't reach the history note.
   const debtsMissed=missedThisCycle.filter(id=>cyclePayments.some(p=>p.id===id));
-  // Floors that weren't met this cycle become ledger entries — recorded per
-  // debt, visible, and inert until the user chooses to catch up. Deliberately
-  // NOT added to next cycle's required payment: automatic compounding is the
-  // pressure this whole feature exists to remove.
-  const fs=getFloorStatus();
-  const cycleFloorShortfalls=fs.unmet.map(p=>({id:p.id,name:p.name,amount:round2(p.floorDue)}));
-  const since=new Date().toLocaleDateString('en-GB',{month:'short',year:'numeric'});
-  const merged=floorShortfalls.map(f=>({...f}));
-  for(const nf of cycleFloorShortfalls){
-    const existing=merged.find(m=>m.id===nf.id);
-    if(existing){existing.amount=round2(existing.amount+nf.amount);existing.name=nf.name;}
-    else merged.push({...nf,since});
-  }
   // Contractual minimums left uncovered — these become arrears (see
   // getUnpaidMinimums), and are archived so History and the rollover banner
-  // can say exactly what moved.
+  // can say exactly what moved. There is no second, discretionary ledger any
+  // more: an uncovered minimum is a real debt and goes where real debts go.
+  const fs=getCycleStatus();
   const arrearsAdded=getUnpaidMinimums();
   return {debtsPaid,debtsMissed,bizPotClose:bizPot,perPotClose:perPot,
-    floorShortfalls:merged,cycleFloorShortfalls,floorsMet:fs.floorsMet,targetMet:fs.targetMet,
-    arrearsAdded};
+    minsMet:fs.minsMet,targetMet:fs.targetMet,arrearsAdded};
 }
 
 // For free text (notes, loan sources) interpolated into innerHTML/attribute
@@ -570,13 +651,28 @@ function getCurrentTarget(){
   // snowball: smallest balance overall
   return active.slice().sort((a,b)=>a.balance-b.balance)[0]||null;
 }
+// What this debt contractually commits you to this cycle: its minimum, capped
+// at the BALANCE, because you can never owe more than is left. `paidOff` is
+// what an already-applied payment took off, so the cap is measured against the
+// balance as the cycle opened.
+//
+// 0 means no commitment at all — Brewers' trade account, HMRC before a Time to
+// Pay arrangement — and such a debt drops out of the verdict rather than
+// counting as a promise met by paying nothing. That used to need a separate
+// nullable `floor_payment` column to express; `min` already said it.
+//
+// This is the same cap rollOnce() uses server-side, so the verdict the app
+// shows and the one the cycle close records cannot disagree.
+function minDueOf(debt,paidOff){
+  const balance=(debt?Number(debt.balance)||0:0)+(Number(paidOff)||0);
+  return round2(Math.min(Number(debt&&debt.min)||0,balance));
+}
 function getCyclePayments(){
   const months=getSim();
   const m1=months[0];
   if(!m1)return [];
   const rows=m1.payments.filter(p=>p.total>0.005).map(p=>{
     const debt=debts.find(d=>d.id===p.id);
-    const floor=floorOf(debt);
     // A row whose payment has already been applied keeps showing what was
     // ACTUALLY paid. Re-running the sim would quote a different figure,
     // because it is now working off the balance that payment already
@@ -584,137 +680,398 @@ function getCyclePayments(){
     // is the point: clearing one debt's arrears moves the budget on.
     const a=appliedPayments[p.id];
     const total=a?a.nominal:p.total;
-    return {id:p.id,name:p.name,amount:total,due:debt?.due??99,arrears:(a?a.arrearsAmt:p.arrearsPaid)>0.005,
+    // What the plan asked for, as opposed to what went out. They're the same
+    // number until a custom amount separates them, and the target is read
+    // from the ledger once applied because the sim is now working off the
+    // balance that payment already reduced. ?? keeps ledger entries written
+    // before custom amounts existed reading as "paid exactly the target".
+    const target=a?(a.target??a.nominal):p.total;
+    // The arrears figures are the DEBT's, not the payment's. `arrearsAmt` is
+    // the catch-up inside this month's payment; `arrearsLeft` is what stays
+    // overdue once it has gone out — which is what the ARREARS badge means
+    // everywhere else in the app, and what was missing here. debts[] is live,
+    // so an applied payment has already come off d.arrears.
+    const arrearsAmt=a?a.arrearsAmt:p.arrearsPaid;
+    const arrearsLeft=round2(Math.max(0,(debt?debt.arrears:0)-(a?0:arrearsAmt)));
+    return {id:p.id,name:p.name,amount:total,target,custom:!!(a&&a.custom),due:debt?.due??99,
+      arrears:arrearsLeft>0.005,arrearsLeft,unfunded:false,
       snowball:a?!!a.snowball:p.extra>0.005,missed:missedThisCycle.includes(p.id),
-      floorPaid:floorPaidThisCycle.includes(p.id),
+      minPaid:minPaidThisCycle.includes(p.id),
       account:debt?.account||'personal',
-      floor,
       // The split behind the payment, so applying a tick knows how much of it
       // is arrears catch-up (the discretionary part) rather than the
       // contractual minimum.
-      minAmt:p.minPaid,arrearsAmt:a?a.arrearsAmt:p.arrearsPaid,
-      // What must actually go out to keep the commitment. Capped at the
-      // planned payment: once a balance is nearly cleared you can't (and
-      // needn't) send more than is left.
-      floorDue:floor===null?null:Math.min(floor,total)};
+      minAmt:a&&a.minAmt!=null?a.minAmt:p.minPaid,arrearsAmt,
+      // What must actually go out to keep the agreement current.
+      minDue:minDueOf(debt,a?a.amount:0)};
   });
   // A debt this cycle's payment cleared outright drops out of month 1 — keep
   // its ticked row on the checklist rather than losing a payment you made.
-  for(const raw of [...paidThisCycle,...floorPaidThisCycle]){
+  for(const raw of [...paidThisCycle,...minPaidThisCycle]){
     const id=Number(raw);
     if(rows.some(r=>r.id===id))continue;
     const a=appliedPayments[id];
     if(!a)continue;
     const debt=debts.find(d=>d.id===id);
-    rows.push({id,name:debt?.name||a.name||('Debt '+id),amount:a.nominal,due:debt?.due??99,
-      arrears:a.arrearsAmt>0.005,snowball:!!a.snowball,missed:false,
-      floorPaid:floorPaidThisCycle.includes(id),account:debt?.account||'personal',
-      floor:floorOf(debt),minAmt:0,arrearsAmt:a.arrearsAmt,
-      floorDue:floorOf(debt)===null?null:Math.min(floorOf(debt),a.nominal)});
+    const target=a.target??a.nominal;
+    rows.push({id,name:debt?.name||a.name||('Debt '+id),amount:a.nominal,target,custom:!!a.custom,due:debt?.due??99,
+      arrears:round2(debt?debt.arrears:0)>0.005,arrearsLeft:round2(debt?debt.arrears:0),unfunded:false,
+      snowball:!!a.snowball,missed:false,
+      minPaid:minPaidThisCycle.includes(id),account:debt?.account||'personal',
+      minAmt:a.minAmt??0,arrearsAmt:a.arrearsAmt,
+      minDue:minDueOf(debt,a.amount)});
+  }
+  // Arrears the month's budget never reached. A debt with no contractual
+  // minimum — Brewers' trade account, whose whole balance is overdue — takes
+  // nothing from the sim except through the arrears queue, so in a tight
+  // month its planned payment is £0 and `p.total>0.005` dropped it off the
+  // checklist entirely: All Debts said £1,700.89 in arrears and the cycle it
+  // belongs to never mentioned it. £0 is the honest allocation; silence is
+  // not. The row goes in marked `unfunded` — visible, still payable with your
+  // own amount — but it asks for nothing, so it moves no pot money and shifts
+  // no verdict.
+  for(const d of debts){
+    if(d.balance<=0.005||d.arrears<=0.005)continue;
+    if(!(d.min>0.005||d.due))continue; // not in the payment plan at all
+    if(rows.some(r=>r.id===d.id))continue;
+    // A ticked payment with no ledger entry behind it (a cycle opened before
+    // applied_payments existed) is settled, not waiting — leave it as it was.
+    if(paidThisCycle.includes(d.id)||minPaidThisCycle.includes(d.id))continue;
+    rows.push({id:d.id,name:d.name,amount:0,target:0,custom:false,due:d.due??99,
+      arrears:true,arrearsLeft:round2(d.arrears),unfunded:true,
+      snowball:false,missed:missedThisCycle.includes(d.id),minPaid:false,
+      account:d.account||'personal',minAmt:0,arrearsAmt:0,
+      minDue:minDueOf(d,0)});
   }
   return rows.sort((a,b)=>a.due-b.due);
 }
 
-// ---------- Floors & targets ----------
+// ---------- Minimums & targets ----------
 // Two numbers per debt: the TARGET (what the plan pays in an average month —
-// the existing budget-driven figure) and the FLOOR (the minimum committed
-// payment, sized to a worst-case income month, and the number creditors are
-// held to). A cycle that meets every floor is on track even if it misses
-// targets, which is the whole point: irregular income shouldn't turn one
-// light month into a failed plan.
+// the budget-driven figure, minimum plus whatever arrears catch-up or snowball
+// the month affords) and the MINIMUM (what the agreement requires). A cycle
+// that pays every minimum has put nothing new into arrears, even if it misses
+// targets — which is the verdict that matters on an irregular-income month.
 //
-// null means "no floor agreed yet" and is NOT the same as a floor of £0 —
-// an unset debt is left out of the floors verdict and flagged for the user
-// to set, rather than being silently counted as a commitment of nothing.
-function floorOf(d){
-  const f=d&&d.floorPayment;
-  if(f===null||f===undefined||f==='')return null;
-  const n=Number(f);
-  return isFinite(n)&&n>=0?n:null;
-}
+// There used to be a third number between them, a discretionary FLOOR, with
+// its own column, verdict, priority order and catch-up ledger. Across the
+// whole live plan it was set equal to the minimum on every debt but one, and
+// never once above it — it never said anything `min` didn't already say. What
+// it was invented for (a light month shouldn't read as a failed one) is now
+// done properly by the month-ahead buffer, with money rather than relabelling.
+//
 // Arrears first (smallest arrears first, matching simulate()), then earliest
-// due date — the order floors get funded in when income can't cover them all.
-function floorPriority(a,b){
+// due date — the order minimums get funded in when income can't cover them all.
+function paymentPriority(a,b){
   const da=debts.find(x=>x.id===a.id),db_=debts.find(x=>x.id===b.id);
   const aa=da?.arrears||0,ba=db_?.arrears||0;
   if((aa>0.005)!==(ba>0.005))return aa>0.005?-1:1;
   if(Math.abs(aa-ba)>0.005)return aa-ba;
   return a.due-b.due;
 }
-// The cycle's standing on both numbers. Everything the Cash Flow view needs
-// to say "floors met / target met" and how much is still uncovered.
-function getFloorStatus(){
+// The cycle's standing on both numbers. Everything the Cash Flow view needs to
+// say "minimums met / target met" and how much is still uncovered.
+function getCycleStatus(){
   const payments=getCyclePayments();
-  let floorTotal=0,floorPaid=0,outstandingBiz=0,outstandingPer=0,noFloorSet=0;
+  let minTotal=0,minCovered=0,outstandingBiz=0,outstandingPer=0;
   const unmet=[];
   for(const p of payments){
-    if(p.floorDue===null){noFloorSet++;continue;}
-    floorTotal+=p.floorDue;
-    // Either route settles the floor: the target paid in full, or the floor
-    // paid on its own.
-    if(paidThisCycle.includes(p.id)||p.floorPaid){floorPaid+=p.floorDue;continue;}
+    // No minimum = no commitment (a trade account, HMRC pre-arrangement). Such
+    // a debt is left out of the verdict rather than counted as a promise met
+    // by paying nothing — which is what the nullable floor column existed for.
+    if(p.minDue<=0.005)continue;
+    minTotal+=p.minDue;
+    // A minimum is settled by money, not by which tick was used: paying the
+    // target in full or the minimum on its own both clear it by construction,
+    // and a custom amount clears it if it reaches. One that doesn't leaves the
+    // minimum uncovered even though the payment is ticked — the honest answer,
+    // and what sends the rest into arrears at close.
+    if(paidAmountOf(p)>=p.minDue-0.005){minCovered+=p.minDue;continue;}
     unmet.push(p);
-    // A deliberately missed debt still counts as an unmet floor (that's the
-    // signal worth having), but no money is set aside for it.
+    // A deliberately missed debt still counts as uncovered (that's the signal
+    // worth having), but no money is set aside for it.
     if(!p.missed){
-      if(p.account==='business')outstandingBiz+=p.floorDue; else outstandingPer+=p.floorDue;
+      if(p.account==='business')outstandingBiz+=p.minDue; else outstandingPer+=p.minDue;
     }
   }
-  const withFloor=payments.filter(p=>p.floorDue!==null);
-  const targetTotal=payments.filter(p=>!p.missed).reduce((s,p)=>s+p.amount,0);
-  // What actually went out: full amount where the target was paid, the floor
-  // where only that was.
-  const targetPaid=payments.reduce((s,p)=>s+(paidThisCycle.includes(p.id)?p.amount:p.floorPaid?(p.floorDue||0):0),0);
+  const withMin=payments.filter(p=>p.minDue>0.005);
+  // The targets, not the amounts that went out — so "£x to go" still counts
+  // the gap left by a minimum-only or under-target custom payment.
+  const targetTotal=payments.filter(p=>!p.missed).reduce((s,p)=>s+p.target,0);
+  // What actually went out, whatever route it took.
+  const targetPaid=payments.reduce((s,p)=>s+paidAmountOf(p),0);
   return {
-    payments,unmet,noFloorSet,floorTotal,floorPaid,targetTotal,targetPaid,
+    payments,unmet,minTotal,minCovered,targetTotal,targetPaid,
     outstandingBiz,outstandingPer,
-    // Money already in the pots against the floors still to pay.
+    // Money already in the pots against the minimums still to pay.
     shortBy:Math.max(0,outstandingBiz-bizPot)+Math.max(0,outstandingPer-perPot),
-    floorsMet:withFloor.length>0&&unmet.length===0,
-    // Stricter than the surplus prompt's allDone: a deliberately missed debt
-    // means the target wasn't hit, even though the floors verdict is what
-    // decides whether the cycle counts as on track.
-    targetMet:payments.length>0&&payments.every(p=>paidThisCycle.includes(p.id))
+    // The verdict that matters: every minimum paid means nothing NEW went
+    // overdue this cycle.
+    minsMet:withMin.length>0&&unmet.length===0,
+    // Stricter: a deliberately missed debt means the target wasn't hit, even
+    // though the minimums verdict is what says whether the cycle was sound.
+    targetMet:payments.length>0&&payments.every(p=>paidAmountOf(p)>=p.target-0.005)
   };
 }
-// Where a pay-in goes, in the spec's order: buffer, then floors (arrears
-// first), then savings, then whatever the ordinary sweep has left for
-// targets, then living money. Floors come OUT OF the sweep rather than on
-// top of it, so a month whose floors are already covered splits exactly as
-// it did before this feature existed.
-function allocateIncome(amt){
+// One month of CONTRACTUAL MINIMUMS, split the way the pots are. This is the
+// number a month-ahead buffer has to reach, and it is deliberately the
+// the minimums: missing one is money genuinely overdue. Same
+// "in the payment plan" rule as getCurrentTarget() — a live balance and
+// either a minimum or a due date — and each minimum capped at its balance.
+function monthlyMinimums(){
+  let biz=0,per=0;
+  for(const d of debts){
+    if(d.balance<=0.005)continue;
+    if(!(d.min>0.005||d.due))continue;
+    const m=Math.min(Number(d.min)||0,d.balance);
+    if(m<=0.005)continue;
+    if(d.account==='business')biz+=m; else per+=m;
+  }
+  return {biz:round2(biz),per:round2(per),total:round2(biz+per)};
+}
+// What must actually leave each pot this cycle for nothing new to go overdue:
+// every payment's contractual minimum, less whatever has already gone out.
+function cycleCommitments(){
+  let biz=0,per=0;
+  for(const p of getCycleStatus().payments){
+    if(p.missed)continue;
+    const left=Math.max(0,p.minDue-paidAmountOf(p));
+    if(left<=0.005)continue;
+    if(p.account==='business')biz+=left; else per+=left;
+  }
+  return {biz:round2(biz),per:round2(per),total:round2(biz+per)};
+}
+// What the buffer could put into the pots right now against those
+// commitments — the whole reason for holding it. Per account, because
+// neither jar can rescue the other. At the start of a cycle, with nothing
+// paid and the pots empty, this is the whole month: exactly the "move the
+// float across on the 1st" that being a month ahead means.
+function bufferCover(){
+  const need=cycleCommitments();
+  const gapBiz=round2(Math.max(0,need.biz-bizPot));
+  const gapPer=round2(Math.max(0,need.per-perPot));
+  const biz=round2(Math.min(gapBiz,bufferBiz)),per=round2(Math.min(gapPer,bufferPer));
+  return {biz,per,total:round2(biz+per),gapBiz,gapPer,need,
+    // What the buffer cannot reach: the pot is short and its own jar is empty.
+    stillShort:round2(Math.max(0,gapBiz-biz)+Math.max(0,gapPer-per))};
+}
+// How far the stored target has drifted from a month of TODAY's minimums.
+// The target is a snapshot taken when a preset was tapped; the plan moves
+// under it as debts clear, minimums change and new debts arrive. Positive =
+// holding more than a month costs (safe, but money sitting idle); negative =
+// "a month ahead" is not true any more.
+function bufferDrift(){
+  const mm=monthlyMinimums();
+  const drift=round2(bufferTarget()-mm.total);
+  return {mm,drift,matters:bufferTarget()>0.005&&Math.abs(drift)>1};
+}
+// What each payment still needs out of its pot this cycle, worst first. Same
+// figure cycleCommitments() totals, itemised and in funding order —
+// arrears first, then earliest due — so a pay-in that can't cover everything
+// covers the ones that hurt most.
+function commitmentQueue(){
+  const out=[];
+  for(const p of getCycleStatus().payments){
+    if(p.missed)continue;
+    const left=Math.max(0,p.minDue-paidAmountOf(p));
+    if(left<=0.005)continue;
+    out.push({id:p.id,account:p.account,due:p.due,amount:round2(left)});
+  }
+  return out.sort(paymentPriority);
+}
+// The same queue for what each payment wants ON TOP of its contractual
+// minimum, in the same order. A pot exists to have the money ready when the
+// bill lands, so the top-up follows the calendar too: there is no point
+// filling the personal pot while a business bill is due first. The minimum is
+// excluded because the queue above has already funded it — what is left here
+// is the discretionary part of the payment.
+function targetQueue(){
+  const out=[];
+  for(const p of getCycleStatus().payments){
+    if(p.missed)continue;
+    const above=Math.max(0,p.target-Math.max(p.minDue,paidAmountOf(p)));
+    if(above<=0.005)continue;
+    out.push({id:p.id,account:p.account,due:p.due,amount:round2(above)});
+  }
+  return out.sort(paymentPriority);
+}
+// What each buffer jar still has to find, once the repayment has been counted
+// as already back in it. Both the sweep and the split below read it, so a jar
+// can never be told it needs money that step 0 is on its way to returning.
+function bufferNeededAfter(potRepay){
+  const byPot=(potRepay&&potRepay.byPot)||{};
+  const biz=Math.max(0,bufferTargetBiz-bufferBiz-(byPot.bufferBiz||0));
+  const per=Math.max(0,bufferTargetPer-bufferPer-(byPot.bufferPer||0));
+  return {biz,per,total:biz+per};
+}
+// How one lump of buffer money divides between the two jars: in proportion to
+// what each still needs, falling back to the targets, then evenly. The
+// automatic figure and a typed one split the same way — the user types one
+// number because they moved one lump of cash; it still has to land in two
+// places.
+function bufferSplit(total,potRepay){
+  const need=bufferNeededAfter(potRepay);
+  const w=need.total>0.005?need.biz/need.total
+    :bufferTargetBiz+bufferTargetPer>0.005?bufferTargetBiz/(bufferTargetBiz+bufferTargetPer):0.5;
+  const biz=round2(total*w);
+  return {bufferBiz:biz,bufferPer:round2(total-biz)};
+}
+// Where a pay-in goes. THIS MONTH FIRST, then the buffer, then savings, then
+// whatever the sweep has left for targets, then living money.
+//
+// The buffer used to come off the top, ahead of everything. That was right
+// when it was a £200 cushion and wrong the moment it became a month-ahead
+// float: on a light month the whole pay-in disappeared into next month's
+// safety while this month's minimums went into arrears — building the cushion
+// by creating the very thing it exists to prevent. £1,200 in against a
+// £1,292.02 target funded £0.00 of a £1,292.02 month.
+//
+// So the month is funded first and the buffer is built out of what is left
+// over, which is the only way a float is ever actually built. It costs the
+// buffer nothing in the steady state: once you are a month ahead and have
+// funded the cycle from the buffer on day one, the pots already cover this
+// month's commitments (pot balances count before new money does), the first
+// step takes nothing, and income flows straight back into refilling the jars.
+// The float rolls forward month on month.
+//
+// The buffer still sits AHEAD of savings and the target sweep, because a
+// month ahead is worth more than either and, behind them, it would never fill
+// while there were arrears to chase. Commitment money continues to come OUT
+// OF the sweep rather than on top of it, so a month whose commitments are
+// already covered splits exactly as it did before any of this existed.
+// `pins` is the overrides panel: a figure typed against any of the four
+// lines is a decision already made, so it is taken out of the pay-in at the
+// top and the automatic steps below share out only what is left. Pinning a
+// line is not the same as adding to it — the typed figure IS that line's
+// total, so the steps that would have fed it are skipped and the money they
+// would have used flows on down the waterfall instead of piling up in living
+// money. Anything a pin asks for beyond the pay-in is trimmed and reported
+// as `unfunded`: this allocation can only ever hand out money that came in.
+function allocateIncome(amt,pins){
   const gross=Math.max(0,amt);
-  const buffer=Math.min(gross,Math.max(0,bufferTarget-bufferPot));
-  let rem=gross-buffer;
-  // Pot balances count toward the floors before any new money does.
-  let creditBiz=bizPot,creditPer=perPot,floorBiz=0,floorPer=0;
-  for(const p of getFloorStatus().unmet.filter(x=>!x.missed).sort(floorPriority)){
+  let rem=gross;
+  // 0. Money borrowed out of a pot goes back FIRST, ahead of the month
+  // itself. A pot loan is a hole in money the plan has already counted —
+  // every figure downstream, this month's funding included, is computed as if
+  // the pot were whole — so leaving it open would quietly spend the same
+  // pound twice. It is also the one thing here that is not a choice about
+  // where new money should go: it is owed. A pay-in too small to clear it
+  // repays what it can, oldest borrowing first, and the rest waits for the
+  // next one.
+  const potRepay=potRepayPlan(rem);
+  rem=round2(rem-potRepay.total);
+  // 0b. The overrides, off what the repayment left. They come first because a
+  // typed figure outranks a computed one, and in the sweep's own order so that
+  // two pins asking for more than the week holds are trimmed from the bottom
+  // up rather than arbitrarily. Nothing here can take what isn't there: a pin
+  // is clamped to what remains, and the difference is `unfunded`.
+  const pin=k=>pins&&pins[k]!==null&&pins[k]!==undefined?Math.max(0,pins[k]):null;
+  const pinBiz=pin('biz'),pinPer=pin('per'),pinBuf=pin('buffer'),pinSav=pin('savings');
+  const asked=(pinBiz||0)+(pinPer||0)+(pinBuf||0)+(pinSav||0);
+  const take=want=>{const got=round2(Math.min(want,Math.max(0,rem)));rem=round2(rem-got);return got;};
+  const gotBiz=pinBiz!==null?take(pinBiz):0;
+  const gotPer=pinPer!==null?take(pinPer):0;
+  const gotBuf=pinBuf!==null?take(pinBuf):0;
+  const gotSav=pinSav!==null?take(pinSav):0;
+  const unfunded=round2(asked-(gotBiz+gotPer+gotBuf+gotSav));
+  // 1. This month. Pot balances count toward it before any new money does —
+  // including whatever step 0 has just put back into them, and whatever a pin
+  // is already sending to that pot: money is money once it lands, so a typed
+  // figure covers the same commitments an automatic one would have, and the
+  // account is not funded twice for the same payment.
+  let creditBiz=bizPot+(potRepay.byPot.biz||0)+gotBiz,creditPer=perPot+(potRepay.byPot.per||0)+gotPer,dueBiz=0,duePer=0;
+  for(const p of commitmentQueue()){
     const isBiz=p.account==='business';
     const credit=isBiz?creditBiz:creditPer;
-    const used=Math.min(credit,p.floorDue);
+    const used=Math.min(credit,p.amount);
     if(isBiz)creditBiz-=used; else creditPer-=used;
-    const gap=p.floorDue-used;
+    const gap=p.amount-used;
     if(gap<=0.005||rem<=0.005)continue;
+    // A pinned pot gets exactly what was typed, so this month stops asking it
+    // for more — the money goes on to the next account that isn't pinned.
+    if(isBiz?pinBiz!==null:pinPer!==null)continue;
     const add=Math.min(rem,gap);
-    if(isBiz)floorBiz+=add; else floorPer+=add;
+    if(isBiz)dueBiz+=add; else duePer+=add;
     rem-=add;
   }
-  const savings=Math.min(rem,gross*savingsPct/100);
-  rem-=savings;
-  // Targets get the rest of the sweep — the floor money already spent counts
-  // against it, so this is a top-up to target, not a second helping.
-  const targetSweep=Math.max(0,Math.min(rem,gross*sweepPct/100-floorBiz-floorPer));
-  const {businessTotal,personalTotal}=getCycleTotals();
-  const needBiz=Math.max(0,businessTotal-bizPot-floorBiz);
-  const needPer=Math.max(0,personalTotal-perPot-floorPer);
-  let tBiz;
-  if(needBiz+needPer>0.005)tBiz=targetSweep*needBiz/(needBiz+needPer);
-  else if(businessTotal+personalTotal>0.005)tBiz=targetSweep*businessTotal/(businessTotal+personalTotal);
-  else tBiz=targetSweep/2;
-  const tPer=targetSweep-tBiz;
+  // 2. The buffer, out of what this month didn't need. The two jars fill
+  // together, in proportion to what each still needs, so a light month can't
+  // top one account to the brim while the other stays empty.
+  // Less whatever step 0 is putting back into each jar, or the pay-in would
+  // fund a gap the repayment has already closed.
+  const bufferWanted=bufferNeededAfter(potRepay).total;
+  const buffer=pinBuf!==null?gotBuf:Math.min(rem,bufferWanted);
+  const {bufferBiz:bufBiz,bufferPer:bufPer}=bufferSplit(buffer,potRepay);
+  if(pinBuf===null)rem-=buffer;
+  // 3. Savings. What step 0 has already put back into the savings pot counts
+  // toward this week's percentage — the pot is what the percentage is FOR, and
+  // paying a savings loan back only to set the same slice aside again would
+  // take the same money out of living twice over.
+  const savings=pinSav!==null?gotSav:Math.max(0,Math.min(rem,gross*savingsPct/100-(potRepay.byPot.savings||0)));
+  if(pinSav===null)rem-=savings;
+  // 4. Targets get the rest of the sweep — this month's money already spent
+  // counts against it, so this is a top-up to target, not a second helping.
+  // A pinned pot is not swept into either: the typed figure is its whole
+  // share, so the sweep goes to the other one, and with both pinned there is
+  // nowhere for it to go and living money keeps it.
+  //
+  // It used to be divided between the two pots in PROPORTION to what each was
+  // short of its cycle target, which ignored the calendar entirely: a business
+  // bill due on the 3rd and a personal one due on the 28th were funded
+  // together, at the same rate, and a week's money could go into the personal
+  // pot while the business pot was still short for a bill that lands first.
+  // Now it fills them in the order the bills actually arrive — the same order
+  // step 1 funds minimums in — and stops at what each payment still wants, so
+  // a pot is never topped up past the bill it is being kept for.
+  const targetSweep=pinBiz!==null&&pinPer!==null?0
+    :Math.max(0,Math.min(rem,gross*sweepPct/100-dueBiz-duePer));
+  let sweepLeft=targetSweep,tBiz=0,tPer=0;
+  for(const p of targetQueue()){
+    const isBiz=p.account==='business';
+    const credit=isBiz?creditBiz:creditPer;
+    const used=Math.min(credit,p.amount);
+    if(isBiz)creditBiz-=used; else creditPer-=used;
+    const gap=p.amount-used;
+    if(gap<=0.005||sweepLeft<=0.005)continue;
+    if(isBiz?pinBiz!==null:pinPer!==null)continue;
+    const add=Math.min(sweepLeft,gap);
+    if(isBiz)tBiz+=add; else tPer+=add;
+    sweepLeft=round2(sweepLeft-add);
+  }
+  // A sweep bigger than every bill this cycle is waiting for is not a mistake
+  // — a pot with money left once the checklist is done is what the surplus
+  // button sends at the current target, and clearing debt early is the whole
+  // point of the plan. But that button can only spend the pot the target debt
+  // is paid from, so a surplus in the other one is money the plan cannot
+  // reach. It goes where it can be used: the account of the debt the plan is
+  // currently clearing, and only failing that is it divided by the size of
+  // each account's cycle.
+  if(sweepLeft>0.005){
+    const target=getCurrentTarget();
+    let w;
+    if(pinBiz!==null)w=0;
+    else if(pinPer!==null)w=1;
+    else if(target)w=target.account==='business'?1:0;
+    else{
+      const {businessTotal,personalTotal}=getCycleTotals();
+      w=businessTotal+personalTotal>0.005?businessTotal/(businessTotal+personalTotal):0.5;
+    }
+    tBiz+=sweepLeft*w;tPer+=sweepLeft*(1-w);
+  }
   rem-=targetSweep;
-  return {buffer,biz:floorBiz+tBiz,per:floorPer+tPer,savings,keep:Math.max(0,rem),
-    floorBiz,floorPer,floorFunded:floorBiz+floorPer,targetSweep};
+  return {buffer,bufferBiz:bufBiz,bufferPer:bufPer,
+    biz:pinBiz!==null?gotBiz:round2(dueBiz+tBiz),
+    per:pinPer!==null?gotPer:round2(duePer+tPer),
+    savings,keep:Math.max(0,round2(rem)),
+    // What the overrides asked for and the pay-in could not cover. Zero on
+    // every automatic allocation — only a typed figure can outrun the money.
+    unfunded,
+    dueBiz,duePer,dueFunded:dueBiz+duePer,
+    // Reported separately from `biz`/`per` even where it lands in the same
+    // pot: it is money going back, not money being allocated, and the
+    // transfer instructions have to be able to name it.
+    potRepay,
+    targetSweep};
 }
 
 function renderAll(){
@@ -793,25 +1150,33 @@ function renderAll(){
 
   // ---------- CASH FLOW (home) ----------
   if(view==='cashflow'){
-    const fs=getFloorStatus();
+    const fs=getCycleStatus();
     const cyclePayments=fs.payments;
     // Missed debts stay in the rendered list (so the toggle can undo them)
     // but drop out of every total — the pots don't reserve money for a
     // payment that deliberately isn't happening.
     const activeCycle=cyclePayments.filter(p=>!p.missed);
+    // Rows the plan actually asks money for. An `unfunded` row — a debt in
+    // arrears the budget never reached — is on the list to be seen, not to be
+    // ticked off, so it stays out of the "n of m done" count and out of
+    // "next to pay". It already contributes £0 to every money total.
+    const plannedCycle=activeCycle.filter(p=>!p.unfunded);
     const missedCount=cyclePayments.length-activeCycle.length;
     const bizPayments=activeCycle.filter(p=>{const d=debts.find(x=>x.id===p.id);return d&&d.account==='business';});
     const perPayments=activeCycle.filter(p=>{const d=debts.find(x=>x.id===p.id);return d&&d.account==='personal';});
-    const bizCycleTotal=bizPayments.reduce((s,p)=>s+p.amount,0);
-    const perCycleTotal=perPayments.reduce((s,p)=>s+p.amount,0);
-    // A floor-only payment counts for what actually left the pot — its floor,
-    // not the target it fell short of.
-    const paidOut=p=>paidThisCycle.includes(p.id)?p.amount:p.floorPaid?(p.floorDue||0):0;
+    // Measured against the plan's targets: a custom payment changes what went
+    // out, not what the cycle asked for.
+    const bizCycleTotal=bizPayments.reduce((s,p)=>s+p.target,0);
+    const perCycleTotal=perPayments.reduce((s,p)=>s+p.target,0);
+    // Every payment counts for what actually left the pot — a minimum-only one
+    // for its minimum, a custom one for the amount typed, not the target either
+    // fell short of (or, for a lump sum, sailed past).
+    const paidOut=p=>paidAmountOf(p);
     const paidBizTotal=bizPayments.reduce((s,p)=>s+paidOut(p),0);
     const paidPerTotal=perPayments.reduce((s,p)=>s+paidOut(p),0);
     const bizStillNeeded=Math.max(0,bizCycleTotal-paidBizTotal);
     const perStillNeeded=Math.max(0,perCycleTotal-paidPerTotal);
-    const nextDue=activeCycle.find(p=>!paidThisCycle.includes(p.id)&&!p.floorPaid);
+    const nextDue=plannedCycle.find(p=>paymentState(p.id)==='unpaid');
     const totalIn=incomeLog.reduce((s,e)=>s+e.amount,0);
 
     html+=`<div class="total-card" style="background:linear-gradient(135deg,#1a2535,#141a2e)">
@@ -834,10 +1199,22 @@ function renderAll(){
       </div>
     </div>`;
 
+    // Money owed back to one of the app's own pots. Unlike the nudge below it
+    // this is not informational: the pot cards above are short by exactly this
+    // much, and the next pay-in will put it back before anything else.
+    const owedToPots=potLoansOwed();
+    if(owedToPots.total>0.005){
+      const parts=Object.entries(owedToPots.byPot).map(([k,v])=>`${fmt(v)} from your ${esc(POTS[k].label.toLowerCase())}`);
+      html+=`<div style="background:#1a1020;border:1px solid #4a2a5a;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#c07de0;line-height:1.5">
+        <strong>${fmt(owedToPots.total)} borrowed from your pots</strong> — ${parts.join(', ')}. It comes off the top of your next pay-in.
+        <button onclick="setView('borrowed')" style="display:block;margin-top:8px;background:none;border:none;padding:0;color:#c07de0;font-size:12px;font-weight:600;text-decoration:underline">See the Borrowed tab</button>
+      </div>`;
+    }
+
     // Borrowed-money nudge — informational only, no interaction with pots/cashflow.
-    const savingsLoans=borrowedActive.filter(b=>b.is_savings);
+    const savingsLoans=borrowedActive.filter(b=>b.is_savings&&!(b.pot&&POTS[b.pot]));
     if(savingsLoans.length>0){
-      const savingsTotal=savingsLoans.reduce((s,b)=>s+b.amount,0);
+      const savingsTotal=savingsLoans.reduce((s,b)=>s+loanOutstanding(b),0);
       const savingsSources=[...new Set(savingsLoans.map(b=>b.source_name))];
       const nudgeText=savingsSources.length===1
         ? `⚠ ${fmt(savingsTotal)} borrowed from ${esc(savingsSources[0])} — repay when you can`
@@ -888,18 +1265,24 @@ function renderAll(){
       </div>`;
     }
 
-    // Surplus prompt — all (non-missed) payments done AND money left in pot
-    const allDone = activeCycle.length>0 && activeCycle.every(p=>paidThisCycle.includes(p.id));
+    // Surplus prompt — all (non-missed) payments done AND money left in pot.
+    // plannedCycle, not activeCycle: an `unfunded` arrears row asks for £0 and
+    // refuses the tick by design, so counting it here would hold the prompt
+    // shut for good on any plan carrying a debt the budget can't reach.
+    const allDone = plannedCycle.length>0 && plannedCycle.every(p=>paidThisCycle.includes(p.id));
     const targetForSurplus=getCurrentTarget();
     const surplus = targetForSurplus?.account==='business'?bizPot:perPot;
     if(allDone && surplus>0.005){
       const target=getCurrentTarget();
       if(target){
         const isArr=target.arrears>0.005;
+        // What the surplus can actually do here, which is never more than the
+        // debt still owes — the rest stays in the pot for the next target.
+        const sending=Math.min(surplus,round2(target.balance));
         html+=`<div class="card card-green" style="border-radius:12px">
           <div style="font-size:11px;color:#7db87d;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Surplus in pot — put it to work</div>
           <div style="font-size:13px;color:#e8e8ec;line-height:1.5;margin-bottom:12px">
-            All bills are paid and you've got <strong style="color:#7db87d">${fmt(surplus)}</strong> left over. Sending it to your current target clears debt faster and shaves time off the plan.
+            All bills are paid and you've got <strong style="color:#7db87d">${fmt(surplus)}</strong> left over. Sending it to your current target clears debt faster and shaves time off the plan${sending<surplus-0.005?`, and only ${fmt(sending)} of it is needed to clear this one`:''}.
           </div>
           <div style="background:#0f1117;border-radius:8px;padding:10px 12px;margin-bottom:12px">
             <div class="row">
@@ -909,11 +1292,11 @@ function renderAll(){
               </div>
               <div style="text-align:right">
                 <div style="font-size:11px;color:#7c7f96">After payment</div>
-                <div style="font-weight:700;color:#7db87d">${fmt(Math.max(0,target.balance-surplus))}</div>
+                <div style="font-weight:700;color:#7db87d">${fmt(Math.max(0,target.balance-sending))}</div>
               </div>
             </div>
           </div>
-          <button class="btn-primary" style="width:100%;background:#7db87d" onclick="applySurplus()">Send ${fmt(surplus)} to ${esc(target.name)}</button>
+          <button class="btn-primary" style="width:100%;background:#7db87d" onclick="applySurplus()">Send ${fmt(sending)} to ${esc(target.name)}</button>
         </div>`;
       }
     }
@@ -927,7 +1310,6 @@ function renderAll(){
     // speaks up again.
     const roll=rollNotice(history[0]);
     if(roll&&roll.cycleNumber>rollNoticeDismissed){
-      const shortTotal=roll.shortfalls.reduce((sum,f)=>sum+(Number(f.amount)||0),0);
       const owedTotal=roll.arrearsAdded.reduce((sum,a)=>sum+(Number(a.amount)||0),0);
       html+=`<div class="card" style="border:1px solid #6a5a1a;background:#1a1608;border-radius:10px;margin-bottom:8px">
         <div class="row" style="align-items:flex-start">
@@ -937,11 +1319,8 @@ function renderAll(){
         ${roll.arrearsAdded.length
           ?`<div style="font-size:12px;color:#e05c5c;margin-top:8px;line-height:1.5">${fmt(owedTotal)} of unpaid minimums went into arrears — ${roll.arrearsAdded.map(a=>esc(a.name)+' '+fmt(a.amount)).join(', ')}. Paid one of these outside the app? Put it right under Edit Debts.</div>`
           :''}
-        ${roll.shortfalls.length
-          ?`<div style="font-size:12px;color:#e0923b;margin-top:8px;line-height:1.5">${fmt(shortTotal)} across ${roll.shortfalls.length} unmet floor${roll.shortfalls.length===1?'':'s'} went onto the catch-up ledger — ${roll.shortfalls.map(f=>esc(f.name)).join(', ')}. That one's discretionary; clear it from the Behind panel when you're ready.</div>`
-          :''}
-        ${!roll.arrearsAdded.length&&!roll.shortfalls.length
-          ?`<div style="font-size:12px;color:#7db87d;margin-top:8px">Everything was covered — nothing went into arrears or onto the ledger.</div>`
+        ${!roll.arrearsAdded.length
+          ?`<div style="font-size:12px;color:#7db87d;margin-top:8px">Every minimum was covered — nothing went into arrears.</div>`
           :''}
         <button class="btn-ghost" style="width:100%;margin-top:10px" onclick="openSyncBalances('balances')">Update my balances</button>
       </div>`;
@@ -954,14 +1333,13 @@ function renderAll(){
       const when=dtr==null?'soon':dtr<=0?'today':dtr===1?'tomorrow':`in ${dtr} days`;
       html+=`<div class="card" style="border:1px solid #6a5a1a;background:#1a1608;border-radius:10px;margin-bottom:8px">
         <div class="row" style="align-items:flex-start">
-          <div style="font-size:13px;color:#e0c060">📅 This cycle renews ${when}. Any minimum still unpaid then goes into arrears, and any unmet floor onto the catch-up ledger — tick off what you've paid, or close it now and sync your balances.</div>
+          <div style="font-size:13px;color:#e0c060">📅 This cycle renews ${when}. Any minimum still unpaid then goes into arrears — tick off what you've paid, or close it now and sync your balances.${renderBufferRescue()}</div>
           <button onclick="cycleResetDismissed=true;renderAll()" style="background:none;border:none;color:#7c7f96;font-size:16px;padding:0 0 0 8px;flex-shrink:0">×</button>
         </div>
         <button class="btn-ghost" style="width:100%;margin-top:10px" onclick="startNewCycle()">Close it now</button>
       </div>`;
     }
 
-    html+=renderBehindPanel();
 
     // Progress bar of cycle
     const cycleTotal2=bizCycleTotal+perCycleTotal;
@@ -970,9 +1348,9 @@ function renderAll(){
     html+=`<div class="card">
       <div class="row" style="margin-bottom:8px">
         <h2 style="margin:0">This cycle's payments</h2>
-        <span style="font-size:12px;color:#7c7f96">${activeCycle.filter(p=>paidThisCycle.includes(p.id)).length}/${activeCycle.length} done · ${fmt(paidTotal2)} paid${activeCycle.filter(p=>p.floorPaid).length?` · <span style="color:#7db87d">${activeCycle.filter(p=>p.floorPaid).length} at floor</span>`:''}${missedCount?` · <span style="color:#e0923b">${missedCount} missed</span>`:''}</span>
+        <span style="font-size:12px;color:#7c7f96">${plannedCycle.filter(p=>paidThisCycle.includes(p.id)).length}/${plannedCycle.length} done · ${fmt(paidTotal2)} paid${activeCycle.filter(p=>p.minPaid).length?` · <span style="color:#7db87d">${activeCycle.filter(p=>p.minPaid).length} at minimum</span>`:''}${missedCount?` · <span style="color:#e0923b">${missedCount} missed</span>`:''}</span>
       </div>
-      ${renderFloorIndicators(fs)}
+      ${renderCycleVerdict(fs)}
       <div style="background:#0f1117;border-radius:6px;height:6px;overflow:hidden;margin-bottom:14px">
         <div style="width:${pctPaid}%;height:100%;background:#7db87d;border-radius:6px;transition:width .3s"></div>
       </div>`;
@@ -988,36 +1366,73 @@ function renderAll(){
     cyclePayments.forEach((p,i)=>{
       const state=paymentState(p.id);
       const done=state==='paid';
-      const floorOnly=state==='floor';
+      const minOnly=state==='min';
       const missed=state==='missed';
+      const custom=state==='custom';
+      // A debt in arrears the budget never reached this cycle. It is on the
+      // list so the overdue money is visible, not so it can be ticked: there
+      // is nothing to pay against, only an amount you could choose to send.
+      const unfunded=p.unfunded;
+      // Struck through and settled either way — the difference is only
+      // whether the amount was the plan's or the user's.
+      const settled=done||custom;
+      const overTarget=custom&&p.amount>p.target+0.005;
       const debt=debts.find(d=>d.id===p.id);
-      // "Paid the floor" is only a distinct choice when the floor is actually
-      // less than the target — otherwise paying the floor IS paying in full.
-      const floorIsLess=p.floorDue!==null&&p.floorDue<p.amount-0.005;
-      const link=(fn,label,color)=>`<button onclick="${fn}(${p.id})" style="background:none;border:none;padding:2px 0 0;font-size:10px;font-weight:600;color:${color};text-decoration:underline">${label}</button>`;
+      // "Paid the minimum" is only a distinct choice when the minimum is
+      // actually less than the target — otherwise it IS paying in full.
+      const minIsLess=p.minDue>0.005&&p.minDue<p.target-0.005;
+      // Ticked at an amount that doesn't reach the minimum is a real state —
+      // the payment happened, the agreement still isn't current — so the
+      // figure stays amber rather than greying out with the rest of the row.
+      const minSettled=p.minDue>0.005&&paidAmountOf(p)>=p.minDue-0.005;
+      const customNote=Math.abs(p.amount-p.target)<=0.005?'Your own amount'
+        :overTarget?`${fmt(p.amount-p.target)} over the ${fmt(p.target)} target`
+        :`${fmt(p.target-p.amount)} under the ${fmt(p.target)} target`;
+      const link=(fn,label,color,arg)=>`<button onclick="${fn}(${p.id}${arg?','+arg:''})" style="background:none;border:none;padding:2px 0 0;font-size:10px;font-weight:600;color:${color};text-decoration:underline">${label}</button>`;
+      // A row that has already been paid still gets links. "Pay more" is the
+      // one that was missing: a second payment to a debt the checklist had
+      // ticked used to mean unticking it (refunding the balance and the pot)
+      // and re-entering the two payments added together, against figures the
+      // first one had already moved. It opens the same modal on its top-up
+      // reading, where the box is what you have just paid.
+      const payMore=link('openCustomPayModal','pay more','#5b8def',"'add'");
+      const changeTotal=link('openCustomPayModal','change amount','#5b8def',"'total'");
       html+=`<div style="display:flex;align-items:center;gap:12px;padding:10px 0;${i<cyclePayments.length-1?'border-bottom:1px solid #2a2d3e':''}">
-        <button class="check ${done?'done':''}" onclick="togglePaid(${p.id})" style="${missed?'opacity:.35':''}${floorOnly?'border-color:#7db87d;color:#7db87d':''}">${done?'✓':floorOnly?'◐':''}</button>
+        ${unfunded
+          ?`<div class="check" style="border-color:#4a2020;color:#e05c5c;font-weight:700">!</div>`
+          :`<button class="check ${done?'done':''}" onclick="${custom?'undoPayment':'togglePaid'}(${p.id})" style="${missed?'opacity:.35':''}${minOnly?'border-color:#7db87d;color:#7db87d':''}${custom?'border-color:#5b8def;color:#5b8def':''}">${done?'✓':minOnly?'◐':custom?'✓':''}</button>`}
         <div style="flex:1">
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-            <span style="font-weight:600;${done?'color:#555;text-decoration:line-through':missed?'color:#7c7f96':''}">${esc(p.name)}</span>
+            <span style="font-weight:600;${settled?'color:#555;text-decoration:line-through':missed?'color:#7c7f96':''}">${esc(p.name)}</span>
             ${debt?.account==='business'?'<span class="badge" style="background:#2a1a0a;color:#e0923b">BIZ</span>':'<span class="badge" style="background:#0a1228;color:#5b8def">PER</span>'}
             ${missed?'<span class="badge" style="background:#3a2a0a;color:#e0923b">MISSED</span>':''}
-            ${floorOnly?'<span class="badge badge-green">FLOOR PAID</span>':''}
-            ${p.arrears&&!done&&!missed&&!floorOnly?'<span class="badge badge-red">ARREARS</span>':''}
-            ${p.snowball&&!done&&!missed&&!floorOnly?'<span class="badge badge-blue">SNOWBALL</span>':''}
+            ${minOnly?'<span class="badge badge-green">MINIMUM PAID</span>':''}
+            ${custom?'<span class="badge badge-blue">OWN AMOUNT</span>':''}
+            ${p.arrears?'<span class="badge badge-red">ARREARS</span>':''}
+            ${p.snowball&&!settled&&!missed&&!minOnly?'<span class="badge badge-blue">SNOWBALL</span>':''}
           </div>
-          <div style="font-size:11px;color:#555;margin-top:1px">${missed?'Skipped this cycle — no budget set aside':floorOnly?`Floor met · ${fmt(p.amount-p.floorDue)} under target`:(p.due<99?'Due '+ord(p.due):'Flexible date')}${p.floorDue!==null&&!floorOnly?` · floor <span style="color:${done?'#555':missed?'#e0923b':'#7c7f96'}">${fmt(p.floorDue)}</span>`:''}${p.floorDue===null?' · <span style="color:#e0923b">no floor set</span>':''}</div>
+          <div style="font-size:11px;color:#555;margin-top:1px">${unfunded?`${p.due<99?'Due '+ord(p.due):'Flexible date'} · <span style="color:#e0923b">waiting for budget</span>`:missed?'Skipped this cycle — no budget set aside':custom?customNote:minOnly?`Minimum met · ${fmt(Math.max(0,p.target-p.minDue))} under target`:(p.due<99?'Due '+ord(p.due):'Flexible date')}${p.minDue>0.005&&!minOnly?` · min <span style="color:${minSettled?'#555':settled||missed?'#e0923b':'#7c7f96'}">${fmt(p.minDue)}</span>`:''}${p.minDue<=0.005&&!unfunded?' · <span style="color:#7c7f96">no minimum</span>':''}${p.arrearsLeft>0.005?` · <span style="color:#e05c5c">${fmt(p.arrearsLeft)} still overdue</span>`:''}</div>
         </div>
         <div style="text-align:right;flex-shrink:0">
-          <div style="font-weight:700;color:${done||missed?'#555':floorOnly?'#7db87d':'#e8e8ec'};${done||missed?'text-decoration:line-through':''}">${floorOnly?fmt(p.floorDue):fmt(p.amount)}</div>
-          ${done?'':`<div style="display:flex;gap:8px;justify-content:flex-end">
-            ${floorIsLess||floorOnly?link('togglePaidFloor',floorOnly?'undo floor':'paid floor only','#7db87d'):''}
-            ${floorOnly?'':link('toggleMissed',missed?'undo missed':'missed this cycle?',missed?'#e0923b':'#555')}
-          </div>`}
+          <div style="font-weight:700;color:${unfunded?'#555':custom?'#5b8def':done||missed?'#555':minOnly?'#7db87d':'#e8e8ec'};${settled||missed?'text-decoration:line-through':''}">${unfunded?'—':minOnly?fmt(p.minDue):fmt(p.amount)}</div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;max-width:176px;margin-left:auto">
+            ${unfunded?link('openCustomPayModal','pay some of it','#5b8def',"'total'")
+             :settled?payMore+changeTotal+(custom?link('undoPayment','undo','#555'):'')
+             :`
+            ${minIsLess||minOnly?link('togglePaidMin',minOnly?'undo minimum':'paid minimum only','#7db87d'):''}
+            ${minOnly?payMore+changeTotal:''}
+            ${minOnly?'':link('toggleMissed',missed?'undo missed':'missed this cycle?',missed?'#e0923b':'#555')}
+            ${missed||minOnly?'':link('openCustomPayModal','own amount','#5b8def',"'total'")}`}
+          </div>
         </div>
       </div>`;
     });
+    // Debts with no planned payment this cycle still take money — a trade
+    // account with no minimum, HMRC before a Time to Pay arrangement — so a
+    // lump sum has to be able to reach one that isn't on the checklist.
+    const offPlan=debts.filter(d=>d.balance>0.005&&!cyclePayments.some(p=>p.id===d.id));
     html+=`<div style="display:flex;gap:8px;margin-top:14px">
+      ${offPlan.length?`<button class="btn-ghost" style="flex:1" onclick="openPayOtherModal()">Pay another debt</button>`:''}
       <button class="btn-ghost" style="flex:1" onclick="startNewCycle()">Start new cycle</button>
     </div></div>`;
 
@@ -1052,7 +1467,7 @@ function renderAll(){
     if(cycleIncome>0 && cycleIncome<tightThreshold*4.33){
       // This cycle looks tight - show triage
       const today=new Date().getDate();
-      const unpaid=cyclePayments.filter(p=>!paidThisCycle.includes(p.id)&&!p.missed&&!p.floorPaid);
+      const unpaid=cyclePayments.filter(p=>paymentState(p.id)==='unpaid');
       const withPriority=unpaid.map(p=>{
         const debt=debts.find(d=>d.id===p.id);
         const daysUntilDue=debt?.due?((debt.due-today+31)%31):30;
@@ -1061,7 +1476,13 @@ function renderAll(){
         const isTrade=debt?.account==='business'&&(debt?.min===0||!debt?.due);
         // Priority scoring
         let priority,color,bg,advice;
-        if(inArrears&&daysUntilDue<=7){
+        if(p.unfunded){
+          // Overdue with nothing allocated — the budget ran out before the
+          // arrears queue reached it. There is no planned payment to quote,
+          // so the figure that matters is what is overdue.
+          priority='MUST PAY';color='#e05c5c';bg='#3a0d0d';
+          advice=`${fmt(p.arrearsLeft)} overdue · nothing budgeted this cycle — pay what you can`;
+        } else if(inArrears&&daysUntilDue<=7){
           priority='MUST PAY';color='#e05c5c';bg='#3a0d0d';
           advice='Already in arrears — missing this risks default';
         } else if(inArrears||daysUntilDue<=5){
@@ -1096,7 +1517,7 @@ function renderAll(){
           <div style="flex:1">
             <div style="display:flex;justify-content:space-between;align-items:flex-start">
               <span style="font-weight:600;font-size:14px">${esc(p.name)}</span>
-              <span style="font-weight:700;color:${p.color};flex-shrink:0;margin-left:8px">${fmt(p.amount)}</span>
+              <span style="font-weight:700;color:${p.color};flex-shrink:0;margin-left:8px">${p.unfunded?fmt(p.arrearsLeft):fmt(p.amount)}</span>
             </div>
             <div style="font-size:12px;color:#555;margin-top:2px">${p.advice}</div>
           </div>
@@ -1123,13 +1544,26 @@ function renderAll(){
     </div>`;
 
     // Buffer target. £0 = off, and off is the default — money only starts
-    // being held back once a target is deliberately set.
-    html+=`<div class="card"><div class="row" style="align-items:center">
-      <div><div style="font-size:13px;font-weight:600">Buffer pot target</div><div style="font-size:12px;color:#7c7f96;margin-top:2px">Cash cushion filled before anything reaches the debts</div></div>
-      <div style="font-weight:700;font-size:18px;color:${bufferTarget>0?'#7db87d':'#555'}">${bufferTarget>0?fmtS(bufferTarget):'Off'}</div>
-    </div>
-    <input type="range" min="0" max="500" step="25" value="${bufferTarget}" oninput="setBufferTarget(this.value)" style="width:100%;margin-top:10px;accent-color:#7db87d">
-    <div class="slider-ends"><span>Off</span><span>£500</span></div>
+    // being held back once a target is deliberately set. A slider was the
+    // wrong control: it topped out at £500, and a month of minimums is
+    // whatever this plan's minimums happen to add up to, so the figure is
+    // typed (or taken from the plan in one tap) rather than dragged to.
+    const mm=monthlyMinimums();
+    html+=`<div class="card">
+      <div class="row" style="align-items:center;margin-bottom:4px">
+        <div><div style="font-size:13px;font-weight:600">Buffer pot target</div><div style="font-size:12px;color:#7c7f96;margin-top:2px">Cash held back before anything reaches the debts</div></div>
+        <div style="font-weight:700;font-size:18px;color:${bufferTarget()>0?'#7db87d':'#555'}">${bufferTarget()>0?fmtS(bufferTarget()):'Off'}</div>
+      </div>
+      <div style="font-size:11px;color:#555;line-height:1.5;margin:8px 0 12px">A month ahead means holding one month of <strong style="color:#7c7f96">contractual minimums</strong> — ${fmt(mm.total)} on today's plan (${fmt(mm.biz)} business, ${fmt(mm.per)} personal). Miss one and it becomes arrears.</div>
+      <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+        ${[['One month ahead',1],['Half a month',0.5]].map(([label,f])=>`<button onclick="setBufferPreset(${f})" style="flex:1;min-width:120px;padding:8px;border-radius:6px;border:1px solid ${Math.abs(bufferTargetBiz-mm.biz*f)<0.02&&Math.abs(bufferTargetPer-mm.per*f)<0.02&&mm.total>0.005?'#7db87d':'#2a2d3e'};background:${Math.abs(bufferTargetBiz-mm.biz*f)<0.02&&Math.abs(bufferTargetPer-mm.per*f)<0.02&&mm.total>0.005?'#0d1a12':'#0f1117'};color:#7db87d;font-size:12px;font-weight:600">${label}<br><span style="font-size:10px;color:#555">${fmt(round2(mm.total*f))}</span></button>`).join('')}
+        <button onclick="setBufferPreset(0)" style="flex:1;min-width:80px;padding:8px;border-radius:6px;border:1px solid ${bufferTarget()<=0.005?'#5a3a1a':'#2a2d3e'};background:#0f1117;color:#7c7f96;font-size:12px;font-weight:600">Off</button>
+      </div>
+      <div class="edit-grid">
+        <div><div class="field-label" style="color:#e0923b">Business (£)</div><input class="field-input" type="number" inputmode="decimal" min="0" step="0.01" value="${bufferTargetBiz||''}" placeholder="0" oninput="setBufferTargetFor('business',this.value)"></div>
+        <div><div class="field-label" style="color:#5b8def">Personal (£)</div><input class="field-input" type="number" inputmode="decimal" min="0" step="0.01" value="${bufferTargetPer||''}" placeholder="0" oninput="setBufferTargetFor('personal',this.value)"></div>
+      </div>
+      <div style="font-size:11px;color:#555;line-height:1.5;margin-top:10px">Two jars, because the pots are two real bank accounts — a full personal cushion can't pay a business minimum.</div>
     </div>`;
 
     // Notification settings
@@ -1314,11 +1748,11 @@ function renderAll(){
 
   // ---------- EDIT ----------
   else if(view==='edit'){
-    html+=`<p class="desc">Update figures as things change. Tap Save to recalculate.<br><strong style="color:#7db87d">Floor</strong> is the minimum you've committed to — the number a creditor is told and held to. Leave it blank where nothing is agreed yet. The plan still pays the higher target figure whenever the money is there.</p>`;
+    html+=`<p class="desc">Update figures as things change. Tap Save to recalculate.<br><strong style="color:#7db87d">Min. Payment</strong> is what the agreement requires — the number that becomes arrears if it goes unpaid. Leave it at 0 where there is no minimum (a trade account, HMRC before an arrangement). The plan pays the higher target figure whenever the money is there.</p>`;
     debts.forEach((d,i)=>{
-      const ev=editDraft[d.id]||{balance:d.balance,apr:d.apr,min:d.min,arrears:d.arrears,due:d.due??'',account:d.account||'personal',note:d.note,floorPayment:d.floorPayment??''};
+      const ev=editDraft[d.id]||{balance:d.balance,apr:d.apr,min:d.min,arrears:d.arrears,due:d.due??'',account:d.account||'personal',note:d.note};
       html+=`<div class="card" style="border-radius:12px;margin-bottom:12px"><div class="row" style="align-items:center;margin-bottom:12px"><div style="display:flex;align-items:center;gap:8px"><div class="dot" style="background:${COLORS[i%COLORS.length]};margin-top:0"></div><span style="font-weight:700;font-size:15px">${esc(d.name)}</span>${d.arrears>0?'<span class="badge badge-red">ARREARS</span>':''}</div><button onclick="openArchiveModal(${d.id})" style="background:none;border:none;color:#555;font-size:11px;font-weight:600;text-decoration:underline;padding:0;flex-shrink:0">archive</button></div>
-      <div class="edit-grid">${[['balance','Balance (£)'],['arrears','Arrears (£)'],['apr','APR (%)'],['min','Min. Payment (£)'],['floorPayment','Floor (£)'],['due','Due Date (day)']].map(([f,label])=>`<div><div class="field-label"${f==='floorPayment'?' style="color:#7db87d"':''}>${label}</div><input class="field-input" type="number" min="0" step="${f==='apr'?'0.1':f==='due'?'1':'0.01'}" value="${ev[f]}"${f==='floorPayment'?' placeholder="not set"':''} oninput="updateDraft(${d.id},'${f}',this.value)"></div>`).join('')}<div><div class="field-label" style="color:${ev.account==='business'?'#e0923b':'#5b8def'}">Account</div><select class="field-input" style="background:#0f1117;color:#e8e8ec" onchange="updateDraft(${d.id},'account',this.value)"><option value="personal" ${ev.account==='personal'?'selected':''}>Personal</option><option value="business" ${ev.account==='business'?'selected':''}>Business</option></select></div><div style="grid-column:1/-1"><div class="field-label">Note</div><input class="field-input" type="text" value="${esc(ev.note||'')}" oninput="updateDraft(${d.id},'note',this.value)"></div></div></div>`;
+      <div class="edit-grid">${[['balance','Balance (£)'],['arrears','Arrears (£)'],['apr','APR (%)'],['min','Min. Payment (£)'],['due','Due Date (day)']].map(([f,label])=>`<div><div class="field-label"${f==='min'?' style="color:#7db87d"':''}>${label}</div><input class="field-input" type="number" min="0" step="${f==='apr'?'0.1':f==='due'?'1':'0.01'}" value="${ev[f]}" oninput="updateDraft(${d.id},'${f}',this.value)"></div>`).join('')}<div><div class="field-label" style="color:${ev.account==='business'?'#e0923b':'#5b8def'}">Account</div><select class="field-input" style="background:#0f1117;color:#e8e8ec" onchange="updateDraft(${d.id},'account',this.value)"><option value="personal" ${ev.account==='personal'?'selected':''}>Personal</option><option value="business" ${ev.account==='business'?'selected':''}>Business</option></select></div><div style="grid-column:1/-1"><div class="field-label">Note</div><input class="field-input" type="text" value="${esc(ev.note||'')}" oninput="updateDraft(${d.id},'note',this.value)"></div></div></div>`;
     });
     html+=`<button class="btn-ghost" style="width:100%;margin-bottom:12px;border-style:dashed" onclick="openAddDebtModal()">+ Add debt</button>`;
     html+=`<div style="display:flex;gap:10px;margin-top:4px"><button id="saveBtn" class="btn-primary" style="flex:1" onclick="applyEdits()">Save &amp; Recalculate</button><button class="btn-ghost" onclick="resetDebts()">Reset</button></div>`;
@@ -1346,17 +1780,29 @@ function renderAll(){
     debts.forEach((d,i)=>{
       html+=`<div class="card"><div class="row"><div style="display:flex;align-items:flex-start;gap:8px"><div class="dot" style="background:${COLORS[i%COLORS.length]}"></div><div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span style="font-weight:600;font-size:14px">${esc(d.name)}</span>${d.arrears>0?'<span class="badge badge-red">ARREARS</span>':''}</div>
-      <div style="font-size:12px;color:#7c7f96;margin-top:3px;display:flex;gap:12px;flex-wrap:wrap">${d.apr>0?`<span>${d.apr}% APR</span>`:''}${d.min>0?`<span>Min: ${fmt(d.min)}</span>`:''}${floorOf(d)!==null?`<span style="color:#7db87d">Floor: ${fmt(floorOf(d))}</span>`:''}${d.due?`<span>Due: ${ord(d.due)}</span>`:''}${d.arrears>0?`<span style="color:#e05c5c">Arrears: ${fmt(d.arrears)}</span>`:''}</div>
+      <div style="font-size:12px;color:#7c7f96;margin-top:3px;display:flex;gap:12px;flex-wrap:wrap">${d.apr>0?`<span>${d.apr}% APR</span>`:''}${d.min>0?`<span>Min: ${fmt(d.min)}</span>`:''}${d.due?`<span>Due: ${ord(d.due)}</span>`:''}${d.arrears>0?`<span style="color:#e05c5c">Arrears: ${fmt(d.arrears)}</span>`:''}</div>
       ${d.note?`<div style="font-size:11px;color:#555;margin-top:3px;font-style:italic">${esc(d.note)}</div>`:''}</div></div>
       <div style="font-size:18px;font-weight:700;color:${d.balance===0?'#3a4a3a':'#e8e8ec'};flex-shrink:0;margin-left:8px">${fmt(d.balance)}</div></div></div>`;
     });
   }
 
   // ---------- BORROWED ----------
-  // Standalone notes tab: no read/write of any other app state or calculation.
+  // Notes about money owed to people, plus (v2.60.0) real borrowing from the
+  // app's own pots — the rows that name a `pot` move money and are repaid off
+  // the top of the next pay-in. Everything else here still moves nothing.
   else if(view==='borrowed'){
-    html+=`<p class="desc">Track informal short-term borrowing — from people or from your own savings pots. Purely for notes; nothing here affects the debt plan.</p>`;
-    const grandTotal=borrowedActive.reduce((s,b)=>s+b.amount,0);
+    html+=`<p class="desc">Track informal short-term borrowing — from people, or from one of your own pots. A loan from a pot takes the money out now and puts it back off the top of your next pay-in.</p>`;
+    const owedToPots=potLoansOwed();
+    if(owedToPots.total>0.005){
+      const parts=Object.entries(owedToPots.byPot).map(([k,v])=>`${esc(POTS[k].label)} ${fmt(v)}`);
+      html+=`<div class="card" style="border:1px solid #4a2a5a;background:#1a1020;border-radius:12px;margin-bottom:12px">
+        <div style="font-size:11px;color:#c07de0;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Owed back to your pots</div>
+        <div style="font-size:26px;font-weight:800;color:#e8e8ec">${fmt(owedToPots.total)}</div>
+        <div style="font-size:12px;color:#7c7f96;margin-top:4px;line-height:1.5">${parts.join(' · ')}</div>
+        <div style="font-size:12px;color:#c07de0;margin-top:8px;line-height:1.5">This comes off the top of your next pay-in — before this month's payments, the buffer and savings — until it is back where it came from.</div>
+      </div>`;
+    }
+    const grandTotal=borrowedActive.reduce((s,b)=>s+loanOutstanding(b),0);
     const sourceCount=new Set(borrowedActive.map(b=>b.source_name)).size;
     if(grandTotal<=0.005){
       html+=`<div class="card card-green" style="text-align:center;padding:20px;border-radius:12px;margin-bottom:16px">
@@ -1374,12 +1820,16 @@ function renderAll(){
     // Group active loans by source: savings-flagged first, then alphabetical.
     const groups={};
     borrowedActive.forEach(b=>{
-      const key=b.source_name+'|'+b.is_savings;
-      if(!groups[key])groups[key]={source_name:b.source_name,is_savings:b.is_savings,items:[],total:0};
+      const pot=b.pot&&POTS[b.pot]?b.pot:'';
+      const key=b.source_name+'|'+b.is_savings+'|'+pot;
+      if(!groups[key])groups[key]={source_name:b.source_name,is_savings:b.is_savings,pot,items:[],total:0};
       groups[key].items.push(b);
-      groups[key].total+=b.amount;
+      groups[key].total+=loanOutstanding(b);
     });
+    // Money owed back to a pot first — it is the only kind here that is
+    // actually costing the plan something — then savings, then people.
     const groupList=Object.values(groups).sort((a,b)=>{
+      if(!!a.pot!==!!b.pot)return a.pot?-1:1;
       if(a.is_savings!==b.is_savings)return a.is_savings?-1:1;
       return a.source_name.localeCompare(b.source_name);
     });
@@ -1388,20 +1838,20 @@ function renderAll(){
       html+=`<div class="card" style="border-radius:12px;margin-bottom:12px">
         <div class="row" style="margin-bottom:8px;align-items:center">
           <div style="display:flex;align-items:center;gap:8px">
-            <div class="dot" style="background:${g.is_savings?'#7db87d':'#5b8def'};margin-top:0"></div>
+            <div class="dot" style="background:${g.pot?'#c07de0':g.is_savings?'#7db87d':'#5b8def'};margin-top:0"></div>
             <span style="font-weight:700;font-size:15px">${esc(g.source_name)}</span>
-            <span class="badge" style="background:${g.is_savings?'#0d1a0d':'#0a1228'};color:${g.is_savings?'#7db87d':'#5b8def'}">${g.is_savings?'SAVINGS':'PERSON'}</span>
+            <span class="badge" style="background:${g.pot?'#1e1426':g.is_savings?'#0d1a0d':'#0a1228'};color:${g.pot?'#c07de0':g.is_savings?'#7db87d':'#5b8def'}">${g.pot?'MY '+POTS[g.pot].label.toUpperCase():g.is_savings?'SAVINGS':'PERSON'}</span>
           </div>
-          <strong style="color:#e8e8ec">${fmt(g.total)} total</strong>
+          <strong style="color:#e8e8ec">${fmt(g.total)} ${g.pot?'still owed':'total'}</strong>
         </div>`;
       g.items.forEach((b,i)=>{
         html+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;${i<g.items.length-1?'border-bottom:1px solid #2a2d3e':''}">
           <div>
             <div style="font-size:13px;color:${b.note?'#e8e8ec':'#555'}">${esc(b.note)||'No note'}</div>
-            <div style="font-size:11px;color:#555;margin-top:1px">${formatBorrowedDate(b.borrowed_at)}</div>
+            <div style="font-size:11px;color:#555;margin-top:1px">${formatBorrowedDate(b.borrowed_at)}${b.pot&&Number(b.repaid_amount)>0.005?` · <span style="color:#7db87d">${fmt(Number(b.repaid_amount))} of ${fmt(b.amount)} back so far</span>`:''}</div>
           </div>
           <div style="display:flex;align-items:center;gap:10px">
-            <strong>${fmt(b.amount)}</strong>
+            <strong>${fmt(loanOutstanding(b))}</strong>
             <button onclick="openRepayModal(${b.id})" style="padding:5px 10px;border-radius:6px;border:1px solid #2a4a2a;background:transparent;color:#7db87d;font-size:11px;font-weight:600">Repaid ✓</button>
           </div>
         </div>`;
@@ -1433,45 +1883,101 @@ function renderAll(){
   document.getElementById('tabContent').innerHTML=html;
 }
 
-// ---------- Floors & buffer rendering ----------
+// ---------- Verdict & buffer rendering ----------
 // The buffer sits under the two pots rather than beside them: three cards
 // across is unreadable on a phone, and the buffer is a different kind of
 // number — a cushion, not money earmarked for a payment.
 function renderBufferStrip(){
-  if(bufferTarget<=0.005){
+  const held=bufferPot(),target=bufferTarget();
+  if(target<=0.005){
+    const mm=monthlyMinimums();
     return `<div style="display:flex;justify-content:space-between;align-items:center;background:#0d1512;border:1px solid #1e3a2e;border-radius:10px;padding:9px 12px;margin-bottom:14px">
       <div>
         <div style="font-size:10px;color:#7db87d;text-transform:uppercase;letter-spacing:.08em">Buffer pot</div>
-        <div style="font-size:11px;color:#7c7f96;margin-top:2px">${bufferPot>0.005?`${fmt(bufferPot)} held · no target set`:'Not set up — a small cushion absorbs a bad month'}</div>
+        <div style="font-size:11px;color:#7c7f96;margin-top:2px">${held>0.005?`${fmt(held)} held · no target set`:mm.total>0.005?`Not set up — ${fmt(mm.total)} would put you a month ahead`:'Not set up — a cushion absorbs a bad month'}</div>
       </div>
       <button onclick="scrollToBufferSetting()" style="padding:5px 10px;border-radius:6px;border:1px solid #2a4a3a;background:transparent;color:#7db87d;font-size:11px;font-weight:600;flex-shrink:0">Set a target</button>
     </div>`;
   }
-  const pct=Math.min(100,Math.round((bufferPot/bufferTarget)*100));
-  const full=bufferPot>=bufferTarget-0.005;
+  const pct=Math.min(100,Math.round((held/target)*100));
+  const full=held>=target-0.005;
+  const cover=bufferCover();
+  const drift=bufferDrift();
+  // One line per account, because that is the level the money is actually
+  // held and spent at — a full personal jar next to an empty business one is
+  // not "83% of a month ahead", it is a business minimum about to be missed.
+  const line=(label,col,pot,tgt)=>tgt<=0.005&&pot<=0.005?'':`<div class="row" style="align-items:center;margin-top:5px">
+      <span style="font-size:11px;color:${col}">${label}</span>
+      <span style="font-size:11px;color:${pot>=tgt-0.005?'#7db87d':'#7c7f96'}">${fmt(pot)}<span style="color:#555"> / ${fmt(tgt)}</span></span>
+    </div>`;
   return `<div style="background:#0d1512;border:1px solid #1e3a2e;border-radius:10px;padding:9px 12px;margin-bottom:14px">
     <div class="row" style="align-items:center;margin-bottom:6px">
       <div style="display:flex;align-items:baseline;gap:8px">
         <span style="font-size:10px;color:#7db87d;text-transform:uppercase;letter-spacing:.08em">Buffer pot</span>
-        <span style="font-size:11px;color:#7c7f96">${full?'full ✓':`${fmt(bufferTarget-bufferPot)} to go`}</span>
+        <span style="font-size:11px;color:#7c7f96">${full?'a month ahead ✓':`${fmt(target-held)} to go`}</span>
       </div>
-      <strong style="font-size:15px;color:${full?'#7db87d':'#e8e8ec'}">${fmt(bufferPot)} <span style="font-size:11px;color:#555;font-weight:600">/ ${fmt(bufferTarget)}</span></strong>
+      <strong style="font-size:15px;color:${full?'#7db87d':'#e8e8ec'}">${fmt(held)} <span style="font-size:11px;color:#555;font-weight:600">/ ${fmt(target)}</span></strong>
     </div>
     <div style="background:#0f1117;border-radius:6px;height:4px;overflow:hidden">
       <div style="width:${pct}%;height:100%;background:#7db87d;border-radius:6px;transition:width .3s"></div>
     </div>
+    ${line('Business','#e0923b',bufferBiz,bufferTargetBiz)}
+    ${line('Personal','#5b8def',bufferPer,bufferTargetPer)}
+    ${cover.total>0.005?`<button onclick="openBufferCoverModal()" style="width:100%;margin-top:9px;padding:7px;border-radius:7px;border:1px solid #2a4a3a;background:#0f1a15;color:#7db87d;font-size:12px;font-weight:700">Fund this month — move ${fmt(cover.total)} across</button>
+      <div style="font-size:10px;color:#555;margin-top:5px;line-height:1.4">Puts every minimum still owing into the pots up front. Income then refills the buffer instead of paying the bills — which is what being a month ahead buys you.</div>`:''}
+    ${drift.matters?`<div style="margin-top:9px;padding-top:8px;border-top:1px solid #16281f;font-size:10px;color:#e0c060;line-height:1.4">A month of minimums is now <strong>${fmt(drift.mm.total)}</strong> — ${drift.drift>0?`${fmt(drift.drift)} less than you're holding for`:`${fmt(-drift.drift)} more than your target`}. <button onclick="setBufferPreset(1)" style="background:none;border:none;padding:0;color:#e0c060;font-size:10px;font-weight:700;text-decoration:underline">Update the target</button></div>`:''}
   </div>`;
 }
-// Two verdicts instead of one pass/fail. Floors is the one that matters —
-// every floor met is an on-track cycle even when the targets slip.
-function renderFloorIndicators(fs){
-  const floorChip=fs.floorTotal<=0.005
-    ? {bg:'#151821',bd:'#2a2d3e',fg:'#7c7f96',icon:'—',label:'Floors',sub:'none set yet'}
-    : fs.floorsMet
-      ? {bg:'#0d1a0d',bd:'#2a4a2a',fg:'#7db87d',icon:'✅',label:'Floors met',sub:`${fmt(fs.floorTotal)} committed`}
+// Moving buffer money into the pots is a real bank transfer, so it says
+// exactly which account sends what before it happens. It is a TRANSFER, not
+// a payment: the money lands in the pot and the payment is then ticked
+// normally, which keeps every ledger and undo path untouched.
+function openBufferCoverModal(){
+  const c=bufferCover();
+  if(c.total<=0.005)return;
+  const row=(label,col,amt,from,to)=>amt<=0.005?'':`<div class="row" style="align-items:center;margin-bottom:8px">
+      <div><div style="font-size:13px;font-weight:600;color:${col}">${label}</div>
+      <div style="font-size:11px;color:#555">buffer ${fmt(from)} → ${fmt(round2(from-amt))} · pot ${fmt(to)} → ${fmt(round2(to+amt))}</div></div>
+      <strong style="color:${col}">${fmt(amt)}</strong>
+    </div>`;
+  document.getElementById('modalRoot').innerHTML=`
+    <div class="modal-bg" onclick="if(event.target===this)closeModal()">
+      <div class="modal">
+        <h2 style="font-size:18px;margin-bottom:6px">Fund this month from the buffer</h2>
+        <div style="font-size:12px;color:#7c7f96;margin-bottom:16px;line-height:1.5">Moves buffer money into the pots so every contractual minimum still owing this cycle is funded up front — ${fmt(c.need.total)} in total. Each account draws on its own jar; neither can rescue the other.</div>
+        <div style="background:#0f1117;border-radius:8px;padding:12px;margin-bottom:14px">
+          ${row('Business','#e0923b',c.biz,bufferBiz,bizPot)}
+          ${row('Personal','#5b8def',c.per,bufferPer,perPot)}
+          <div style="border-top:1px solid #2a2d3e;margin-top:8px;padding-top:8px" class="row">
+            <span style="font-size:13px;color:#7c7f96">Total moved</span><strong style="color:#7db87d">${fmt(c.total)}</strong>
+          </div>
+        </div>
+        ${c.stillShort>0.005?`<div style="font-size:12px;color:#e0923b;margin-bottom:14px;line-height:1.5">⚠ Still ${fmt(c.stillShort)} short after this — that account's buffer doesn't hold enough.</div>`:''}
+        <div style="font-size:11px;color:#555;margin-bottom:16px;line-height:1.5">Move the same money in your bank now. Next month's first income refills the buffer before anything else.</div>
+        <div style="display:flex;gap:10px">
+          <button class="btn-primary" style="flex:1" onclick="confirmBufferCover()">Move it</button>
+          <button class="btn-ghost" onclick="closeModal()">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+}
+function confirmBufferCover(){
+  const c=bufferCover();
+  bufferBiz=round2(bufferBiz-c.biz);bizPot=round2(bizPot+c.biz);
+  bufferPer=round2(bufferPer-c.per);perPot=round2(perPot+c.per);
+  persist('cashflow');closeModal();renderAll();
+}
+// Two readings of the cycle. Minimums is the verdict — every one paid means
+// nothing new went overdue, which is what "on track" actually means on an
+// irregular-income month. Target is progress against the plan, not a pass/fail.
+function renderCycleVerdict(fs){
+  const minChip=fs.minTotal<=0.005
+    ? {bg:'#151821',bd:'#2a2d3e',fg:'#7c7f96',icon:'—',label:'Minimums',sub:'none due this cycle'}
+    : fs.minsMet
+      ? {bg:'#0d1a0d',bd:'#2a4a2a',fg:'#7db87d',icon:'✅',label:'Minimums met',sub:`${fmt(fs.minTotal)} · nothing new overdue`}
       : fs.shortBy>0.005
-        ? {bg:'#1a0f08',bd:'#5a3a1a',fg:'#e0923b',icon:'⚠',label:'Floors at risk',sub:`${fmt(fs.shortBy)} short in the pots`}
-        : {bg:'#1a1608',bd:'#4a4020',fg:'#e0c060',icon:'⚠',label:'Floors not yet',sub:`${fmt(fs.floorTotal-fs.floorPaid)} still to pay · covered`};
+        ? {bg:'#1a0f08',bd:'#5a3a1a',fg:'#e0923b',icon:'⚠',label:'Arrears risk',sub:`${fmt(fs.shortBy)} short in the pots`}
+        : {bg:'#1a1608',bd:'#4a4020',fg:'#e0c060',icon:'⚠',label:'Minimums not yet',sub:`${fmt(fs.minTotal-fs.minCovered)} still to pay · covered`};
   const targetChip=fs.targetMet
     ? {bg:'#0d1a0d',bd:'#2a4a2a',fg:'#7db87d',icon:'✅',label:'Target met',sub:`${fmt(fs.targetPaid)} paid`}
     : {bg:'#151821',bd:'#2a2d3e',fg:'#7c7f96',icon:'⚠',label:'Target not met',sub:`${fmt(Math.max(0,fs.targetTotal-fs.targetPaid))} to go`};
@@ -1479,33 +1985,22 @@ function renderFloorIndicators(fs){
       <div style="font-size:12px;font-weight:700;color:${c.fg}">${c.icon} ${c.label}</div>
       <div style="font-size:11px;color:#7c7f96;margin-top:2px">${c.sub}</div>
     </div>`;
-  const nudge=fs.noFloorSet>0
-    ? `<div style="font-size:11px;color:#e0923b;margin-bottom:10px">${fs.noFloorSet} debt${fs.noFloorSet===1?' has':'s have'} no floor set — add one under <button onclick="setView('edit')" style="background:none;border:none;padding:0;color:#e0923b;font-size:11px;font-weight:600;text-decoration:underline">Edit Debts</button> so it counts.</div>`
-    : '';
-  return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">${chip(floorChip)}${chip(targetChip)}</div>${nudge}`;
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">${chip(minChip)}${chip(targetChip)}</div>`;
 }
-// The "behind" ledger. Shortfalls are shown, never applied: nothing here
-// changes what the plan asks for until Catch up is tapped.
-function renderBehindPanel(){
-  if(!floorShortfalls.length)return '';
-  const total=floorShortfalls.reduce((s,f)=>s+f.amount,0);
-  let out=`<div class="card" style="border:1px solid #5a3a1a;background:#160f08;border-radius:12px">
-    <div class="row" style="margin-bottom:6px">
-      <h2 style="margin:0;color:#e0923b">Behind on floors</h2>
-      <strong style="color:#e0923b">${fmt(total)}</strong>
-    </div>
-    <div style="font-size:12px;color:#7c7f96;line-height:1.5;margin-bottom:10px">Floors missed in past cycles. None of this has been added to your plan — catch up only when you actually can.</div>`;
-  floorShortfalls.forEach((f,i)=>{
-    out+=`<div style="display:flex;align-items:center;gap:10px;padding:9px 0;${i<floorShortfalls.length-1?'border-bottom:1px solid #2a1a0a':''}">
-      <div style="flex:1">
-        <div style="font-weight:600;font-size:14px">${esc(f.name)}</div>
-        <div style="font-size:11px;color:#555;margin-top:1px">${fmt(f.amount)} short${f.since?` · since ${esc(f.since)}`:''}</div>
-      </div>
-      <button onclick="openCatchUpModal(${f.id})" style="padding:5px 10px;border-radius:6px;border:1px solid #5a3a1a;background:transparent;color:#e0923b;font-size:11px;font-weight:600;flex-shrink:0">Catch up</button>
-      <button onclick="clearShortfall(${f.id})" style="background:none;border:none;color:#555;font-size:11px;font-weight:600;text-decoration:underline;padding:0;flex-shrink:0">Clear</button>
-    </div>`;
-  });
-  return out+`</div>`;
+// The one thing a full buffer cannot do for itself. The close does NOT reach
+// into the buffer — it moves real money between real bank accounts, so only
+// the user can — which means a cycle can close with minimums going into
+// arrears while the cushion held to prevent exactly that sits untouched.
+// Nothing here spends anything; it says what is unfunded and what the buffer
+// could do about it, wherever the close is about to happen.
+function renderBufferRescue(){
+  const c=bufferCover();
+  if(c.total<=0.005)return '';
+  const gap=round2(c.gapBiz+c.gapPer);
+  return `<div style="margin-top:10px;padding-top:9px;border-top:1px solid #4a4020;color:#e8e8ec;font-size:12px;line-height:1.5">
+    <strong style="color:#e0923b">${fmt(gap)} still unfunded</strong> in the pots, and your buffer holds ${fmt(c.total)} of it. Move it across before this closes, or that money goes to arrears with the cushion still full.
+    <button onclick="openBufferCoverModal()" style="display:block;margin-top:8px;padding:6px 12px;border-radius:6px;border:1px solid #2a4a3a;background:#0f1a15;color:#7db87d;font-size:11px;font-weight:700">Fund ${fmt(c.total)} from the buffer</button>
+  </div>`;
 }
 function scrollToBufferSetting(){
   // The target slider lives further down the same tab — jump to it rather
@@ -1519,14 +2014,29 @@ function getCycleTotals(){
   // are out — the sweep shouldn't set money aside for a payment that
   // deliberately isn't happening.
   const cp=getCyclePayments().filter(p=>!p.missed);
-  const businessTotal=cp.filter(p=>{const d=debts.find(x=>x.id===p.id);return d&&d.account==='business';}).reduce((s,p)=>s+p.amount,0);
-  const personalTotal=cp.filter(p=>{const d=debts.find(x=>x.id===p.id);return d&&d.account==='personal';}).reduce((s,p)=>s+p.amount,0);
+  // Capped at the target: a lump sum well over what the plan asked for is
+  // money spent, not a bigger bill still to fund, and counting the overshoot
+  // here would have the next pay-in chasing an account that is already ahead.
+  const need=p=>Math.min(p.amount,p.target);
+  const businessTotal=cp.filter(p=>{const d=debts.find(x=>x.id===p.id);return d&&d.account==='business';}).reduce((s,p)=>s+need(p),0);
+  const personalTotal=cp.filter(p=>{const d=debts.find(x=>x.id===p.id);return d&&d.account==='personal';}).reduce((s,p)=>s+need(p),0);
   return {businessTotal,personalTotal};
+}
+// One indented destination inside the transfers panel. The two headline
+// figures are what leaves for each BANK; these say which pot inside it each
+// part belongs to, which is the whole instruction once the buffer is a real
+// savings space rather than a number in the app.
+function subTransfer(label,id,colour){
+  return `<div class="row" style="align-items:center;padding-left:16px;margin-top:3px">
+    <span style="font-size:11px;color:#7c7f96">${label}</span>
+    <span id="${id}" style="font-size:12px;color:${colour};font-weight:600">£0.00</span>
+  </div>`;
 }
 function openLogModal(){
   const {businessTotal:bizCycTotal,personalTotal:perCycTotal}=getCycleTotals();
-  const fs=getFloorStatus();
-  const bufferNeed=Math.max(0,bufferTarget-bufferPot);
+  const fs=getCycleStatus();
+  const bufferNeed=Math.max(0,bufferTarget()-bufferPot());
+  const owedBack=potLoansOwed().total;
   document.getElementById('modalRoot').innerHTML=`
     <div class="modal-bg" onclick="if(event.target===this)closeModal()">
       <div class="modal">
@@ -1539,27 +2049,34 @@ function openLogModal(){
         <input id="logAmount" class="field-input" type="number" inputmode="decimal" placeholder="e.g. 850" style="font-size:20px;padding:12px;margin-bottom:16px" oninput="updateSweepPreview()">
         <div style="background:#0f1117;border-radius:8px;padding:12px;margin-bottom:14px">
           <div style="font-size:10px;color:#555;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">Where it goes</div>
-          ${bufferTarget>0.005?`<div class="row" style="margin-bottom:8px;align-items:center">
+          ${owedBack>0.005?`<div class="row" style="margin-bottom:8px;align-items:center">
             <div style="display:flex;align-items:center;gap:8px">
-              <div style="width:8px;height:8px;border-radius:50%;background:#7db87d;flex-shrink:0"></div>
-              <div><div style="font-size:13px;font-weight:600;color:#e8e8ec">Buffer pot</div><div style="font-size:11px;color:#555">${bufferNeed>0.005?`${fmt(bufferNeed)} to fill · taken first`:'full ✓'}</div></div>
+              <div style="width:8px;height:8px;border-radius:50%;background:#c07de0;flex-shrink:0"></div>
+              <div><div style="font-size:13px;font-weight:600;color:#e8e8ec">Back to your pots</div><div style="font-size:11px;color:#555">${fmt(owedBack)} borrowed · repaid before anything else</div><div id="repaySplitNote" style="font-size:10px;color:#555"></div></div>
             </div>
-            <strong id="bufferPreview" style="color:#7db87d">£0.00</strong>
+            <strong id="repayPreview" style="color:#c07de0">£0.00</strong>
           </div>`:''}
           <div class="row" style="margin-bottom:8px;align-items:center">
             <div style="display:flex;align-items:center;gap:8px">
               <div style="width:8px;height:8px;border-radius:50%;background:#e0923b;flex-shrink:0"></div>
-              <div><div style="font-size:13px;font-weight:600;color:#e8e8ec">Business pot</div><div style="font-size:11px;color:#555">floor ${fmt(fs.outstandingBiz)} · target ${fmt(bizCycTotal)}</div></div>
+              <div><div style="font-size:13px;font-weight:600;color:#e8e8ec">Business pot</div><div style="font-size:11px;color:#555">min ${fmt(fs.outstandingBiz)} · target ${fmt(bizCycTotal)}</div></div>
             </div>
             <strong id="bizPreview" style="color:#e0923b">£0.00</strong>
           </div>
           <div class="row" style="margin-bottom:8px;align-items:center">
             <div style="display:flex;align-items:center;gap:8px">
               <div style="width:8px;height:8px;border-radius:50%;background:#5b8def;flex-shrink:0"></div>
-              <div><div style="font-size:13px;font-weight:600;color:#e8e8ec">Personal pot</div><div style="font-size:11px;color:#555">floor ${fmt(fs.outstandingPer)} · target ${fmt(perCycTotal)}</div></div>
+              <div><div style="font-size:13px;font-weight:600;color:#e8e8ec">Personal pot</div><div style="font-size:11px;color:#555">min ${fmt(fs.outstandingPer)} · target ${fmt(perCycTotal)}</div></div>
             </div>
             <strong id="perPreview" style="color:#5b8def">£0.00</strong>
           </div>
+          ${bufferTarget()>0.005?`<div class="row" style="margin-bottom:8px;align-items:center">
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="width:8px;height:8px;border-radius:50%;background:#7db87d;flex-shrink:0"></div>
+              <div><div style="font-size:13px;font-weight:600;color:#e8e8ec">Buffer pot</div><div style="font-size:11px;color:#555">${bufferNeed>0.005?`${fmt(bufferNeed)} to fill · after this month`:'a month ahead ✓'}</div><div id="bufferSplitNote" style="font-size:10px;color:#555"></div></div>
+            </div>
+            <strong id="bufferPreview" style="color:#7db87d">£0.00</strong>
+          </div>`:''}
           <div class="row" style="margin-bottom:8px;align-items:center">
             <div style="display:flex;align-items:center;gap:8px">
               <div style="width:8px;height:8px;border-radius:50%;background:#7db87d;flex-shrink:0"></div>
@@ -1572,31 +2089,40 @@ function openLogModal(){
             <strong id="keepPreview" style="color:#e8e8ec">£0.00</strong>
           </div>
         </div>
-        <div id="floorCoverNote" style="display:none;font-size:12px;line-height:1.5;margin:-4px 0 14px"></div>
+        <div id="minCoverNote" style="display:none;font-size:12px;line-height:1.5;margin:-4px 0 14px"></div>
         <div style="background:#1a2535;border:1px solid #2a3d52;border-radius:8px;padding:12px;margin-bottom:14px">
           <div style="font-size:10px;color:#7c9fb5;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Transfers to make</div>
-          <div class="row" style="margin-bottom:6px;align-items:center">
+          <div class="row" style="margin-bottom:2px;align-items:center">
             <div style="display:flex;align-items:center;gap:8px">
               <div style="width:8px;height:8px;border-radius:50%;background:#e0923b;flex-shrink:0"></div>
               <span style="font-size:13px;color:#e8e8ec">Business account</span>
             </div>
             <strong id="transferBiz" style="color:#e0923b;font-size:17px">£0.00</strong>
           </div>
-          <div class="row" style="align-items:center">
+          ${subTransfer('Business pot','transferBizPot','#e0923b')}
+          ${bufferTargetBiz>0.005?subTransfer('Business buffer','transferBizBuffer','#7db87d'):''}
+          ${owedBack>0.005?subTransfer('Back to borrowed-from pots','transferBizRepay','#c07de0'):''}
+          <div class="row" style="margin:10px 0 2px;align-items:center">
             <div style="display:flex;align-items:center;gap:8px">
               <div style="width:8px;height:8px;border-radius:50%;background:#5b8def;flex-shrink:0"></div>
-              <span style="font-size:13px;color:#e8e8ec">Personal account <span style="font-size:11px;color:#555">(pot${bufferTarget>0.005?' + buffer':''} + savings + living)</span></span>
+              <span style="font-size:13px;color:#e8e8ec">Personal account</span>
             </div>
             <strong id="transferPer" style="color:#5b8def;font-size:17px">£0.00</strong>
           </div>
+          ${subTransfer('Personal pot','transferPerPot','#5b8def')}
+          ${bufferTargetPer>0.005?subTransfer('Personal buffer','transferPerBuffer','#7db87d'):''}
+          ${subTransfer('Savings','transferSavings','#7db87d')}
+          ${owedBack>0.005?subTransfer('Back to borrowed-from pots','transferPerRepay','#c07de0'):''}
+          ${subTransfer('Keep for living','transferKeep','#7c7f96')}
         </div>
         <div style="font-size:12px;color:#555;margin-bottom:14px">Override any amount below if this week needs adjusting.</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:18px">
           <div><div class="field-label" style="color:#e0923b">Business pot (£)</div><input id="logBiz" class="field-input" type="number" inputmode="decimal" placeholder="auto" oninput="updateSweepPreview()"></div>
           <div><div class="field-label" style="color:#5b8def">Personal pot (£)</div><input id="logPer" class="field-input" type="number" inputmode="decimal" placeholder="auto" oninput="updateSweepPreview()"></div>
           <div><div class="field-label" style="color:#7db87d">Savings (£)</div><input id="logSaved" class="field-input" type="number" inputmode="decimal" placeholder="auto" oninput="updateSweepPreview()"></div>
-          ${bufferTarget>0.005?`<div><div class="field-label" style="color:#7db87d">Buffer (£)</div><input id="logBuffer" class="field-input" type="number" inputmode="decimal" placeholder="auto" oninput="updateSweepPreview()"></div>`:''}
+          ${bufferTarget()>0.005?`<div><div class="field-label" style="color:#7db87d">Buffer (£)</div><input id="logBuffer" class="field-input" type="number" inputmode="decimal" placeholder="auto" oninput="updateSweepPreview()"></div>`:''}
         </div>
+        <div id="overrideTrimNote" style="display:none;background:#3a1a0a;border:1px solid #6a3a1a;border-radius:8px;padding:10px 12px;margin:-8px 0 16px;font-size:12px;color:#e0923b;line-height:1.5"></div>
         <div style="display:flex;gap:10px">
           <button class="btn-primary" style="flex:1" onclick="confirmLog()">Allocate</button>
           <button class="btn-ghost" onclick="closeModal()">Cancel</button>
@@ -1615,13 +2141,26 @@ function readOverride(id){
 }
 function currentAllocation(){
   const amt=parseNum(document.getElementById('logAmount')?.value||0);
-  const auto=allocateIncome(amt);
-  const oBuf=readOverride('logBuffer'),oBiz=readOverride('logBiz'),oPer=readOverride('logPer'),oSav=readOverride('logSaved');
-  const buffer=oBuf!==null?oBuf:auto.buffer;
-  const biz=oBiz!==null?oBiz:auto.biz;
-  const per=oPer!==null?oPer:auto.per;
-  const savings=oSav!==null?oSav:auto.savings;
-  return {amt,auto,buffer,biz,per,savings,keep:Math.max(0,amt-buffer-biz-per-savings)};
+  // The typed figures go INTO the allocation rather than on top of it, so the
+  // whole waterfall is worked out around them: a pinned line takes its share
+  // off the pay-in, the steps below share out only what is left, and the
+  // total still cannot exceed the money that came in.
+  //
+  // Substituting them afterwards, as this used to, quietly invented money.
+  // £325.64 in with £302.29 owed back to the pots leaves £23.35 to allocate —
+  // but typing £182.08 into Business pot simply replaced the £23.35 with it,
+  // and the modal printed transfer instructions for £484.37: £158.73 that was
+  // never in the account, landing in real pot balances on Allocate.
+  //
+  // The repayment itself is not overridable: it is owed to a pot the plan has
+  // already counted as whole. The four lines can only move what is left
+  // after it.
+  const a=allocateIncome(amt,{
+    biz:readOverride('logBiz'),per:readOverride('logPer'),
+    buffer:readOverride('logBuffer'),savings:readOverride('logSaved')});
+  return {amt,plan:a,buffer:a.buffer,bufferBiz:a.bufferBiz,bufferPer:a.bufferPer,
+    biz:a.biz,per:a.per,savings:a.savings,potRepay:a.potRepay,
+    unfunded:a.unfunded,keep:a.keep};
 }
 function updateSweepPreview(){
   const a=currentAllocation();
@@ -1632,37 +2171,94 @@ function updateSweepPreview(){
   set('perPreview',a.per);
   set('savingsPreview',a.savings);
   set('keepPreview',a.keep);
-  set('transferBiz',a.biz);
-  set('transferPer',a.per+a.savings+a.buffer+a.keep);
+  set('repayPreview',a.potRepay.total);
+  // Which pots it is going back into, and what is still owed after it.
+  const repaySplit=document.getElementById('repaySplitNote');
+  if(repaySplit){
+    const parts=Object.entries(a.potRepay.byPot).map(([k,v])=>`${fmt(v)} to ${POTS[k].label.toLowerCase()}`);
+    const stillOwed=round2(potLoansOwed().total-a.potRepay.total);
+    repaySplit.textContent=parts.length
+      ?parts.join(' · ')+(stillOwed>0.005?` · ${fmt(stillOwed)} still owed after this`:'')
+      :'';
+  }
+  // The buffer is no longer one lump landing in the personal account: its
+  // business share has to be transferred to the business account, because
+  // that is the jar a business minimum will be paid out of.
+  // A repayment is a real transfer like any other: the money has to land back
+  // in the account the pot lives in, so it joins that account's total and
+  // gets its own line underneath.
+  const repayBiz=Object.entries(a.potRepay.byPot).reduce((s,[k,v])=>s+(POTS[k].account==='business'?v:0),0);
+  const repayPer=round2(a.potRepay.total-repayBiz);
+  set('transferBiz',a.biz+a.bufferBiz+repayBiz);
+  set('transferPer',a.per+a.savings+a.bufferPer+a.keep+repayPer);
+  set('transferBizRepay',repayBiz);
+  set('transferPerRepay',repayPer);
+  // ...and where each part of those two goes once it lands. Four pots means
+  // four figures; the headline totals alone can't tell you how to split them.
+  set('transferBizPot',a.biz);
+  set('transferBizBuffer',a.bufferBiz);
+  set('transferPerPot',a.per);
+  set('transferPerBuffer',a.bufferPer);
+  set('transferSavings',a.savings);
+  set('transferKeep',a.keep);
+  const splitNote=document.getElementById('bufferSplitNote');
+  if(splitNote)splitNote.textContent=a.buffer>0.005?`${fmt(a.bufferBiz)} biz · ${fmt(a.bufferPer)} per`:'';
   // Show the tight-week banner if below threshold
   const tightBanner=document.getElementById('tightWeekBanner');
   if(tightBanner)tightBanner.style.display=a.amt>0&&a.amt<tightThreshold?'block':'none';
-  // Floors are the line that matters on a light week — say plainly whether
-  // this pay-in leaves them covered.
-  const floorNote=document.getElementById('floorCoverNote');
-  if(floorNote){
-    const fs=getFloorStatus();
-    const shortAfter=Math.max(0,fs.outstandingBiz-bizPot-a.auto.floorBiz)+Math.max(0,fs.outstandingPer-perPot-a.auto.floorPer);
-    if(fs.outstandingBiz+fs.outstandingPer<=0.005){floorNote.style.display='none';}
+  // An override the pay-in cannot cover is trimmed rather than conjured, and
+  // the modal says so — the alternative is transfer instructions for money
+  // that isn't in the account.
+  const trimNote=document.getElementById('overrideTrimNote');
+  if(trimNote){
+    trimNote.style.display=a.unfunded>0.005?'block':'none';
+    if(a.unfunded>0.005){
+      const left=round2(Math.max(0,a.amt-a.potRepay.total));
+      trimNote.innerHTML=`⚠ <strong>${fmt(a.unfunded)} more than this pay-in has</strong> — trimmed to fit.`
+        +(a.potRepay.total>0.005
+          ?` ${fmt(a.potRepay.total)} goes back to your pots first, so there is ${fmt(left)} to share out.`
+          :` There is ${fmt(left)} to share out.`);
+    }
+  }
+  // Minimums are the line that matters on a light week — say plainly whether
+  // this pay-in leaves them covered. What counts is what actually lands in
+  // each pot — the money going back into it included, and whatever figure was
+  // typed over the app's own — not just the automatic step that funds this
+  // month, or the note would read the same however the week is adjusted.
+  const minNote=document.getElementById('minCoverNote');
+  if(minNote){
+    const fs=getCycleStatus();
+    const intoBiz=a.biz+(a.potRepay.byPot.biz||0),intoPer=a.per+(a.potRepay.byPot.per||0);
+    const shortAfter=Math.max(0,fs.outstandingBiz-bizPot-intoBiz)+Math.max(0,fs.outstandingPer-perPot-intoPer);
+    if(fs.outstandingBiz+fs.outstandingPer<=0.005){minNote.style.display='none';}
     else{
-      floorNote.style.display='block';
-      floorNote.style.color=shortAfter>0.005?'#e0923b':'#7db87d';
-      floorNote.textContent=shortAfter>0.005
-        ?`⚠ Still ${fmt(shortAfter)} short of this cycle's floors after this.`
-        :`✓ Every floor this cycle is covered after this.`;
+      minNote.style.display='block';
+      minNote.style.color=shortAfter>0.005?'#e0923b':'#7db87d';
+      minNote.textContent=shortAfter>0.005
+        ?`⚠ Still ${fmt(shortAfter)} short of this cycle's minimums after this.`
+        :`✓ Every minimum this cycle is covered after this.`;
     }
   }
 }
 async function confirmLog(){
   const a=currentAllocation();
   if(a.amt<=0){closeModal();return;}
-  const bizAmt=a.biz,perAmt=a.per,savedAmt=a.savings,bufferAmt=a.buffer;
+  const bizAmt=a.biz,perAmt=a.per,savedAmt=a.savings;
+  const bufferBizAmt=a.bufferBiz,bufferPerAmt=a.bufferPer;
+  // What is owed back to a pot goes back into it first, and the loans it
+  // repays are marked before the allocation lands on top.
+  const potRepay=a.potRepay;
+  applyPotRepay(potRepay,1);
   bizPot+=bizAmt;
   perPot+=perAmt;
   savingsPot+=savedAmt;
-  bufferPot+=bufferAmt;
+  bufferBiz+=bufferBizAmt;
+  bufferPer+=bufferPerAmt;
   const date=new Date().toLocaleDateString('en-GB',{day:'numeric',month:'short'});
-  const entry={amount:a.amt,bizAmt,perAmt,savedAmt,bufferAmt,date};
+  const entry={amount:a.amt,bizAmt,perAmt,savedAmt,
+    bufferAmt:round2(bufferBizAmt+bufferPerAmt),bufferBizAmt,bufferPerAmt,date,
+    // Kept on the entry so deleting the pay-in can put the loans back too.
+    potRepay:potRepay.total>0.005?potRepay:null};
   closeModal();renderAll();
   try{
     const res=await fetch('/debt/api/income',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify(entry)});
@@ -1672,6 +2268,121 @@ async function confirmLog(){
   }catch(err){saveError=true;console.error('Failed to save income entry',err);}
   incomeLog.push(entry);
   persist('cashflow');renderAll();
+  await saveRepayments(potRepay,1);
+}
+// Moves a repayment plan in one direction or the other: sign 1 puts the money
+// back into the pots (a pay-in), sign -1 takes it out again (that pay-in
+// deleted). The pot side is applied locally and at once, so the app is right
+// even offline; the loan side follows over the network.
+// `moveMoney` is false when the money is already in the pot — a balance the
+// user has corrected by hand carries it in the figure they typed, so only the
+// loans are marked and moving it again would put it in twice.
+function applyPotRepay(plan,sign,moveMoney){
+  if(!plan||plan.total<=0.005)return;
+  if(moveMoney!==false)for(const [key,amount] of Object.entries(plan.byPot))potMove(key,sign*amount);
+  // Keep the loaded loans in step with what the server is about to be told,
+  // rather than waiting on a refresh to stop the app double-repaying.
+  for(const item of plan.loans){
+    const loan=borrowedActive.find(b=>b.id===item.id);
+    if(loan)loan.repaid_amount=round2(Math.max(0,Number(loan.repaid_amount||0)+sign*item.amount));
+  }
+}
+async function saveRepayments(plan,sign){
+  if(!plan||plan.total<=0.005)return;
+  try{
+    const res=await fetch('/debt/api/borrowed/repay',{method:'POST',headers:JSON_HEADERS,
+      body:JSON.stringify({repayments:plan.loans.map(l=>({id:l.id,amount:round2(sign*l.amount)}))})});
+    if(!res.ok)throw new Error('repayment save failed: '+res.status);
+  }catch(err){saveError=true;console.error('Failed to record pot repayment',err);}
+  // A fully repaid loan moves to the repaid log, and a reversed one comes
+  // back out of it — either way the tab is only right after a reload.
+  await refreshBorrowed();renderAll();
+}
+// ---------- Correcting a pot by hand ----------
+// Putting money back into a pot BY HAND is the same act a pay-in performs when
+// it repays a pot loan: the money is in the pot again, and the borrowing it
+// came out of is settled. Nothing connected the two, so raising a pot you had
+// borrowed from left the loan open and the NEXT PAY-IN took the same money off
+// the top a second time — the pot ended up holding twice what was borrowed and
+// living money paid for it twice, silently.
+//
+// It is not automatic, because a correction and a repayment look identical in
+// the balance and mean opposite things: the figure might be going up because
+// you moved the money back, or because the app's number was wrong all along
+// and the loan is still owed. So the modal asks, and says exactly what its
+// answer will do. It defaults to counting it, because that is the reading
+// where getting it wrong is silent.
+const POT_EDIT_FIELDS={biz:'bizPotVal',per:'perPotVal',bufferBiz:'bufferBizVal',bufferPer:'bufferPerVal',savings:'savingsVal'};
+let potEditRepays=true,potEditKeys=[];
+function setPotEditRepays(v){potEditRepays=v;renderPotOwedPanel();}
+// What each edited field is asking the pot's balance to become.
+function potEditsFrom(keys){
+  const out={};
+  for(const k of keys){
+    const el=document.getElementById(POT_EDIT_FIELDS[k]);
+    if(el)out[k]=Math.max(0,parseNum(el.value));
+  }
+  return out;
+}
+// The loans a set of hand-typed balances would settle: for each pot, whatever
+// it is being RAISED by, capped at what is still owed to it, oldest borrowing
+// first. Lowering a pot settles nothing — money leaving a pot by hand is not a
+// loan the app has any record of, and inventing one would be worse than
+// leaving the correction as exactly what it says it is.
+function potEditRepayPlan(edits){
+  const owed=potLoansOwed().byPot;
+  const merged={total:0,byPot:{},loans:[]};
+  for(const [key,value] of Object.entries(edits)){
+    const pot=POTS[key];
+    if(!pot)continue;
+    const back=Math.min(round2(value-round2(pot.get())),round2(owed[key]||0));
+    if(back<=0.005)continue;
+    const plan=potRepayPlan(back,key);
+    merged.total=round2(merged.total+plan.total);
+    merged.loans.push(...plan.loans);
+    for(const [k,v] of Object.entries(plan.byPot))merged.byPot[k]=round2((merged.byPot[k]||0)+v);
+  }
+  return merged;
+}
+function potOwedPanelInner(){
+  const owed=potLoansOwed().byPot;
+  const rows=potEditKeys.filter(k=>round2(owed[k]||0)>0.005);
+  if(!rows.length)return '';
+  const btn=(on,label)=>`<button onclick="setPotEditRepays(${on})" style="flex:1;padding:8px 10px;border-radius:6px;font-size:12px;font-weight:600;border:1px solid ${potEditRepays===on?'#5a3a7a':'#2a2d3e'};background:${potEditRepays===on?'#2a1a3e':'#14161f'};color:${potEditRepays===on?'#c07de0':'#7c7f96'}">${label}</button>`;
+  return `<div style="font-size:12px;color:#c07de0;font-weight:600;margin-bottom:6px">${rows.map(k=>`${fmt(owed[k])} owed back to the ${POTS[k].label.toLowerCase()}`).join(' · ')}</div>
+    <div style="font-size:12px;color:#7c7f96;line-height:1.5;margin-bottom:10px">If you've just moved that money back yourself, say so — otherwise the next pay-in takes it off the top and puts it in a second time.</div>
+    <div style="display:flex;gap:8px">${btn(true,'I moved it back')}${btn(false,'Just a correction')}</div>
+    <div id="potOwedPreview" style="font-size:11px;color:#7c7f96;margin-top:8px;line-height:1.5"></div>`;
+}
+function renderPotOwedPanel(){
+  const panel=document.getElementById('potOwedPanel');
+  if(!panel)return;
+  panel.innerHTML=potOwedPanelInner();
+  panel.style.display=panel.innerHTML?'block':'none';
+  updatePotOwedPreview();
+}
+function updatePotOwedPreview(){
+  const note=document.getElementById('potOwedPreview');
+  if(!note)return;
+  const plan=potEditRepayPlan(potEditsFrom(potEditKeys));
+  if(plan.total<=0.005){note.textContent='';return;}
+  const parts=Object.entries(plan.byPot).map(([k,v])=>`${fmt(v)} to the ${POTS[k].label.toLowerCase()}`);
+  note.textContent=potEditRepays
+    ?`This marks ${parts.join(' · ')} as paid back — the money is already in the balance you've typed, so nothing else moves.`
+    :`${parts.join(' · ')} stays owed, and the next pay-in will put it back on top of what you've typed.`;
+}
+// Both hand-edit modals commit through here: set the balances to what was
+// typed, settle whatever borrowing that repays, and tell the server — in that
+// order, so a failed save leaves the loans open rather than silently lost.
+async function applyPotEdits(edits){
+  const plan=potEditRepays?potEditRepayPlan(edits):null;
+  for(const [key,value] of Object.entries(edits)){
+    const pot=POTS[key];
+    if(pot)pot.set(round2(Math.max(0,value)));
+  }
+  if(plan&&plan.total>0.005)applyPotRepay(plan,1,false);
+  persist('cashflow');closeModal();renderAll();
+  if(plan&&plan.total>0.005)await saveRepayments(plan,1);
 }
 function openPotsModal(){
   document.getElementById('modalRoot').innerHTML=`
@@ -1680,31 +2391,40 @@ function openPotsModal(){
         <h2 style="font-size:18px;margin-bottom:16px">Adjust pot balances</h2>
         <div style="font-size:13px;color:#7c7f96;margin-bottom:16px">Manually correct either pot if something didn't quite go to plan.</div>
         <div style="display:flex;gap:10px;margin-bottom:18px">
-          <div style="flex:1"><div class="field-label" style="color:#e0923b">Business pot (£)</div><input id="bizPotVal" class="field-input" type="number" inputmode="decimal" value="${bizPot.toFixed(2)}" style="font-size:16px;padding:10px"></div>
-          <div style="flex:1"><div class="field-label" style="color:#5b8def">Personal pot (£)</div><input id="perPotVal" class="field-input" type="number" inputmode="decimal" value="${perPot.toFixed(2)}" style="font-size:16px;padding:10px"></div>
+          <div style="flex:1"><div class="field-label" style="color:#e0923b">Business pot (£)</div><input id="bizPotVal" class="field-input" type="number" inputmode="decimal" value="${bizPot.toFixed(2)}" style="font-size:16px;padding:10px" oninput="updatePotOwedPreview()"></div>
+          <div style="flex:1"><div class="field-label" style="color:#5b8def">Personal pot (£)</div><input id="perPotVal" class="field-input" type="number" inputmode="decimal" value="${perPot.toFixed(2)}" style="font-size:16px;padding:10px" oninput="updatePotOwedPreview()"></div>
         </div>
-        <div style="margin-bottom:18px"><div class="field-label" style="color:#7db87d">Buffer pot (£)</div><input id="bufferPotVal" class="field-input" type="number" inputmode="decimal" value="${bufferPot.toFixed(2)}" style="font-size:16px;padding:10px"></div>
+        <div style="display:flex;gap:10px;margin-bottom:18px">
+          <div style="flex:1"><div class="field-label" style="color:#7db87d">Buffer — business (£)</div><input id="bufferBizVal" class="field-input" type="number" inputmode="decimal" value="${bufferBiz.toFixed(2)}" style="font-size:16px;padding:10px" oninput="updatePotOwedPreview()"></div>
+          <div style="flex:1"><div class="field-label" style="color:#7db87d">Buffer — personal (£)</div><input id="bufferPerVal" class="field-input" type="number" inputmode="decimal" value="${bufferPer.toFixed(2)}" style="font-size:16px;padding:10px" oninput="updatePotOwedPreview()"></div>
+        </div>
+        <div id="potOwedPanel" style="display:none;background:#1a1428;border:1px solid #3a2a52;border-radius:8px;padding:12px;margin-bottom:18px"></div>
         <div style="display:flex;gap:10px"><button class="btn-primary" style="flex:1" onclick="confirmPots()">Save</button><button class="btn-ghost" onclick="closeModal()">Cancel</button></div>
       </div>
     </div>`;
+  potEditRepays=true;potEditKeys=['biz','per','bufferBiz','bufferPer'];
+  renderPotOwedPanel();
 }
-function confirmPots(){
-  bizPot=parseNum(document.getElementById('bizPotVal').value);
-  perPot=parseNum(document.getElementById('perPotVal').value);
-  bufferPot=parseNum(document.getElementById('bufferPotVal').value);
-  persist('cashflow');closeModal();renderAll();
+async function confirmPots(){
+  await applyPotEdits(potEditsFrom(['biz','per','bufferBiz','bufferPer']));
 }
 function closeModal(){document.getElementById('modalRoot').innerHTML='';}
 
-// A cycle payment is in exactly one of four states: unpaid, floor (the
-// committed minimum went out, the target didn't), paid (the full target), or
-// missed (nothing went out, deliberately). Every transition runs through
-// here so the pot is refunded for whatever the old state took and charged
-// for whatever the new one takes — the pot arithmetic was the easiest thing
-// to get wrong when this was three separate toggles.
+// A cycle payment is in exactly one of five states: unpaid, min (the
+// contractual minimum went out, the target didn't), paid (the full target),
+// custom (an amount the user typed — a lump sum clearing arrears outright,
+// or a part payment), or missed (nothing went out, deliberately). Every
+// transition runs through here so the pot is refunded for whatever the old
+// state took and charged for whatever the new one takes — the pot arithmetic
+// was the easiest thing to get wrong when this was three separate toggles.
+//
+// custom shares paidThisCycle with paid rather than owning a fourth list:
+// the amount that makes it custom is in the ledger already, and every "is
+// this covered?" test now asks the ledger what actually went out instead of
+// which list an id sits in.
 function paymentState(id){
-  if(paidThisCycle.includes(id))return 'paid';
-  if(floorPaidThisCycle.includes(id))return 'floor';
+  if(paidThisCycle.includes(id))return appliedPayments[id]&&appliedPayments[id].custom?'custom':'paid';
+  if(minPaidThisCycle.includes(id))return 'min';
   if(missedThisCycle.includes(id))return 'missed';
   return 'unpaid';
 }
@@ -1713,7 +2433,13 @@ function paymentState(id){
 // instead of standing still until the next manual balance sync. Every delta is
 // recorded because none of them is simply "the payment": arrears are clamped
 // to the balance, and the pot only gives what it actually holds.
-function applyPayment(id,amount,arrearsPart,snowball){
+// `meta` carries what the payment was measured against — the plan's target,
+// the minimum it had to clear and the contractual part inside it — so those
+// figures survive in the ledger instead of being re-derived later from a
+// balance the payment itself has already moved. A custom payment can be any
+// amount, so without them nothing could tell an underpayment from a target
+// met.
+function applyPayment(id,amount,arrearsPart,snowball,meta){
   const debt=debts.find(d=>d.id===id);
   if(!debt)return;
   const isBiz=debt.account==='business';
@@ -1723,7 +2449,8 @@ function applyPayment(id,amount,arrearsPart,snowball){
   const newArr=Math.min(Math.max(0,debt.arrears-Math.max(0,arrearsPart||0)),newBal);
   appliedPayments={...appliedPayments,[id]:{
     name:debt.name,nominal:amount,snowball:!!snowball,
-    amount:debt.balance-newBal,arrearsAmt:debt.arrears-newArr,potAmt:potBefore-potAfter
+    amount:debt.balance-newBal,arrearsAmt:debt.arrears-newArr,potAmt:potBefore-potAfter,
+    ...(meta||{})
   }};
   debts=debts.map(d=>d.id===id?{...d,balance:newBal,arrears:newArr}:d);
   if(isBiz)bizPot=potAfter; else perPot=potAfter;
@@ -1742,51 +2469,302 @@ function setPaymentState(id,next){
   if(!p)return;
   const current=paymentState(id);
   if(current===next)next='unpaid'; // tapping the control you're already in undoes it
-  // Leaving paid/floor restores the balance, the arrears and the pot from the
+  // Leaving paid/min restores the balance, the arrears and the pot from the
   // ledger — not from a re-run of the sim, which is now working off the
   // balance that payment already reduced.
   //
   // ...and `p` has to be re-read once it has, because getCyclePayments() is
   // derived from the balance the payment just moved. While a debt is
-  // floor-paid it reports amount = the floor, so upgrading floor -> paid off
-  // the stale `p` refunded the floor and charged the floor straight back: a
+  // minimum-paid it reports amount = the minimum, so upgrading min -> paid off
+  // the stale `p` refunded it and charged it straight back: a
   // net no-op that flipped the state and left the pot short by the rest of
   // the target. Re-derive AFTER the unapply, when the balance is whole again
   // and `amount` means the target once more.
-  if(current==='paid'||current==='floor'){
+  if(current==='paid'||current==='min'||current==='custom'){
     unapplyPayment(id);
     p=getCyclePayments().find(x=>x.id===id)||p;
   }
+  // An unfunded arrears row asks for £0. Ticking it "paid" would record a
+  // payment of nothing and strike the debt through while it is still overdue
+  // — the checklist doesn't offer the tick, and neither does this.
+  if(next==='paid'&&p.amount<=0.005)next='unpaid';
   paidThisCycle=paidThisCycle.filter(x=>x!==id);
-  floorPaidThisCycle=floorPaidThisCycle.filter(x=>x!==id);
+  minPaidThisCycle=minPaidThisCycle.filter(x=>x!==id);
   missedThisCycle=missedThisCycle.filter(x=>x!==id);
+  // Every applied payment records what it was measured against, computed
+  // from the freshly re-derived row: the ledger then says what the cycle
+  // asked for as well as what went out, whichever of the two the tick sent.
+  const meta={target:p.amount,minDue:p.minDue,minAmt:p.minAmt};
   if(next==='paid'){
     paidThisCycle=[...paidThisCycle,id];
-    applyPayment(id,p.amount,p.arrearsAmt,p.snowball);
-  }else if(next==='floor'){
-    // Paying only the floor sends the contractual minimum, so it clears no
-    // arrears unless the floor itself exceeds that minimum — the arrears
-    // catch-up is the discretionary part on top, and that part wasn't paid.
-    const due=p.floorDue||0;
-    floorPaidThisCycle=[...floorPaidThisCycle,id];
-    applyPayment(id,due,Math.max(0,due-(p.minAmt||0)),false);
+    applyPayment(id,p.amount,p.arrearsAmt,p.snowball,meta);
+  }else if(next==='min'){
+    // Paying only the minimum keeps the account current, so it clears no
+    // arrears — the arrears catch-up is the part on top, and it wasn't paid.
+    const due=p.minDue||0;
+    minPaidThisCycle=[...minPaidThisCycle,id];
+    applyPayment(id,due,Math.max(0,due-(p.minAmt||0)),false,meta);
   }else if(next==='missed'){
     missedThisCycle=[...missedThisCycle,id];
   }
   persist('cashflow','debts');renderAll();
 }
 function togglePaid(id){setPaymentState(id,'paid');}
-function togglePaidFloor(id){setPaymentState(id,'floor');}
+function togglePaidMin(id){setPaymentState(id,'min');}
 function toggleMissed(id){setPaymentState(id,'missed');}
+// Back to unpaid from any state. Deliberately not routed through
+// setPaymentState: a custom payment can be on a debt that has no row in this
+// cycle's plan at all, and setPaymentState gives up when it can't find one.
+function undoPayment(id){
+  if(appliedPayments[id])unapplyPayment(id);
+  paidThisCycle=paidThisCycle.filter(x=>x!==id);
+  minPaidThisCycle=minPaidThisCycle.filter(x=>x!==id);
+  missedThisCycle=missedThisCycle.filter(x=>x!==id);
+  persist('cashflow','debts');renderAll();
+}
+
+// ---------- Paying your own amount ----------
+// The plan hands you two figures — the target and the minimum — and until now
+// they were the only two amounts a tick could send. A lump sum doesn't fit
+// either: clearing an account's arrears outright is a payment of whatever
+// that account happens to be behind by, which is neither number.
+//
+// Everything the modal quotes is stated as if the payment hadn't happened
+// yet, because an already-applied payment has moved the very balance, arrears
+// and pot the next amount has to be measured against. Adding its ledger entry
+// back here (rather than un-applying for real) means CANCELLING the modal
+// leaves the existing payment exactly as it was.
+function payContext(id){
+  const debt=debts.find(d=>d.id===id);
+  if(!debt)return null;
+  const a=appliedPayments[id];
+  const row=getCyclePayments().find(p=>p.id===id);
+  const balance=round2(debt.balance+(a?a.amount:0));
+  const arrears=round2(debt.arrears+(a?a.arrearsAmt:0));
+  const isBiz=debt.account==='business';
+  const pot=round2((isBiz?bizPot:perPot)+(a?a.potAmt:0));
+  // The contractual minimum inside the payment. It keeps the account current
+  // rather than catching it up, so it clears no arrears — everything above
+  // it does. Same split simulate() makes, and the one 'paid minimum only' uses.
+  const minAmt=a&&a.minAmt!=null?a.minAmt:row?row.minAmt:Math.min(Number(debt.min)||0,balance);
+  // null target = no planned payment this cycle at all (a trade account with
+  // no minimum, HMRC before Time to Pay). Such a debt can still be paid; it
+  // just has nothing to be over or under.
+  // An unfunded arrears row carries a target of £0, which is the same thing
+  // as having no planned payment — say so rather than quoting "plan says
+  // £0.00" at a debt the budget simply never reached.
+  const target=a?(a.target??a.nominal):row&&row.target>0.005?row.target:null;
+  return {debt,isBiz,balance,arrears,pot,minAmt,target,
+    // Capped at the balance, never at the planned payment — see minDueOf().
+    minDue:minDueOf(debt,a?a.amount:0),
+    // What it takes to leave nothing overdue: this month's minimum, then
+    // every penny of the arrears on top.
+    clearArrears:Math.min(balance,round2(minAmt+arrears))};
+}
+let customPayId=null;
+// A debt that has already been paid this cycle can be paid AGAIN without
+// first undoing what is there. The two readings of the box are:
+//
+//   'add'   — what you have just paid, on top of what the cycle already
+//             recorded. This is the one you want after the checklist is done
+//             and another payment goes out: you type what left the account.
+//   'total' — everything this cycle has paid against the debt. This is what
+//             the box has always meant, and what the ledger stores.
+//
+// Only the total is ever recorded, so nothing downstream has to know which
+// way the figure was typed. Unticking a payment to re-enter it as a bigger
+// number was the only route to a top-up before, and it made you do the
+// addition yourself against a balance the first payment had already moved.
+let customPayMode='total'; // 'add' | 'total'
+// `mode` and `preset` are for re-opening the modal on the other reading (see
+// setCustomPayMode); opening it from a row passes the mode the link means.
+function openCustomPayModal(id,mode,preset){
+  const ctx=payContext(id);
+  if(!ctx)return;
+  customPayId=id;
+  const a=appliedPayments[id];
+  const already=a?round2(a.nominal):0;
+  // Nothing paid yet = nothing to add to, so the box is the total whatever
+  // the caller asked for.
+  customPayMode=already>0.005&&mode==='add'?'add':'total';
+  const adding=customPayMode==='add';
+  // Live figures for the top-up reading: what is owed NOW, after this
+  // cycle's payment. ctx carries the pristine ones, which is what an amount
+  // stated as the cycle's total has to be measured against.
+  const liveBalance=round2(ctx.debt.balance);
+  const liveArrears=round2(ctx.debt.arrears);
+  if(preset==null)preset=adding?null
+    :a?a.nominal:ctx.target!=null&&ctx.target>0.005?ctx.target:ctx.arrears>0.005?ctx.clearArrears:ctx.balance;
+  const chips=[];
+  if(ctx.target!=null&&ctx.target>0.005)chips.push(['Plan target',round2(ctx.target)]);
+  if(ctx.minDue>0.005)chips.push(['Minimum',round2(ctx.minDue)]);
+  if(ctx.arrears>0.005)chips.push(['Clear arrears',ctx.clearArrears]);
+  chips.push(['Clear balance',round2(ctx.balance)]);
+  // Same figure twice helps nobody — a debt entirely in arrears has one
+  // button, not three that all say the same number. The chips are cycle
+  // totals; in the top-up reading each becomes what it would take ON TOP of
+  // what is already paid, and one that is already reached drops out.
+  const seen=[];
+  const chipHtml=chips.map(([label,v])=>[label,adding?round2(v-already):v]).filter(([,v])=>{
+    if(v<=0.005||seen.some(x=>Math.abs(x-v)<=0.005))return false;
+    seen.push(v);return true;
+  }).map(([label,v])=>`<button onclick="setCustomPay(${v})" style="flex:1;min-width:88px;background:#0f1117;border:1px solid #2a2d3e;border-radius:8px;padding:8px 6px;color:#e8e8ec">
+      <div style="font-size:10px;color:#7c7f96;text-transform:uppercase;letter-spacing:.05em">${label}</div>
+      <div style="font-size:14px;font-weight:700;margin-top:2px">${fmt(v)}</div>
+    </button>`).join('');
+  const tab=(m,label)=>`<button onclick="setCustomPayMode('${m}')" style="flex:1;background:${customPayMode===m?'#141a2e':'#0f1117'};border:1px solid ${customPayMode===m?'#5b8def':'#2a2d3e'};border-radius:8px;padding:7px 6px;font-size:12px;font-weight:600;color:${customPayMode===m?'#5b8def':'#7c7f96'}">${label}</button>`;
+  document.getElementById('modalRoot').innerHTML=`
+    <div class="modal-bg" onclick="if(event.target===this)closeModal()">
+      <div class="modal" style="max-height:88vh;overflow-y:auto">
+        <h2 style="font-size:18px;margin-bottom:4px">Pay ${esc(ctx.debt.name)}</h2>
+        <div style="font-size:12px;color:#7c7f96;margin-bottom:${already>0.005?'10px':'14px'};line-height:1.5">${adding
+          ?`Owing ${fmt(liveBalance)}${liveArrears>0.005?` · <span style="color:#e05c5c">${fmt(liveArrears)} in arrears</span>`:''} · <span style="color:#7db87d">${fmt(already)} already paid this cycle</span>`
+          :`Owing ${fmt(ctx.balance)}${ctx.arrears>0.005?` · <span style="color:#e05c5c">${fmt(ctx.arrears)} in arrears</span>`:''}${ctx.target==null?' · not in this cycle\'s plan':` · plan says ${fmt(ctx.target)}`}`}</div>
+        ${already>0.005?`<div style="display:flex;gap:6px;margin-bottom:12px">${tab('add','Pay more')}${tab('total','Change the total')}</div>`:''}
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${chipHtml}</div>
+        <div class="field-label">${adding?'Extra payment (£)':'Amount paid (£)'}</div>
+        <input id="customPayInput" class="field-input" type="number" inputmode="decimal" min="0" step="0.01" value="${preset==null||(adding&&preset<=0.005)?'':Number(preset).toFixed(2)}" style="font-size:18px;padding:12px" oninput="customPayPreview()">
+        <div id="customPayPreview" style="background:#0f1117;border-radius:8px;padding:12px;font-size:12px;margin-top:12px;line-height:1.6"></div>
+        <div style="display:flex;gap:10px;margin-top:16px">
+          <button class="btn-primary" style="flex:1" onclick="confirmCustomPay()">Record payment</button>
+          <button class="btn-ghost" onclick="closeModal()">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+  customPayPreview();
+}
+// The same payment, stated the other way round — so switching reading keeps
+// whatever has been typed rather than starting again.
+function setCustomPayMode(mode){
+  if(mode===customPayMode||customPayId==null)return;
+  const a=appliedPayments[customPayId];
+  const already=a?round2(a.nominal):0;
+  const el=document.getElementById('customPayInput');
+  const typed=round2(parseNum(el?el.value:0));
+  openCustomPayModal(customPayId,mode,mode==='add'?Math.max(0,round2(typed-already)):round2(typed+already));
+}
+// What the box means as a cycle total, which is the only figure recorded.
+function customPayTotal(){
+  const a=appliedPayments[customPayId];
+  const already=a?round2(a.nominal):0;
+  const el=document.getElementById('customPayInput');
+  const typed=round2(parseNum(el?el.value:0));
+  return customPayMode==='add'?round2(already+typed):typed;
+}
+function setCustomPay(v){
+  const el=document.getElementById('customPayInput');
+  if(!el)return;
+  el.value=Number(v).toFixed(2);
+  customPayPreview();
+}
+// What the amount in the box would actually do — the balance and arrears it
+// leaves, what it takes out of the pot, and whether it clears the minimum.
+function customPayPreview(){
+  const el=document.getElementById('customPayPreview');
+  const input=document.getElementById('customPayInput');
+  const ctx=payContext(customPayId);
+  if(!el||!input||!ctx)return;
+  const a=appliedPayments[customPayId];
+  const already=a?round2(a.nominal):0;
+  const adding=customPayMode==='add';
+  // Everything is computed off the CYCLE TOTAL against the pristine figures,
+  // because that is what gets recorded either way. Only the "from" side of
+  // each line changes: in the top-up reading it starts where the debt stands
+  // now, so the arrow matches what is on the checklist behind the modal.
+  const typed=round2(parseNum(input.value));
+  const total=adding?round2(already+typed):typed;
+  const extra=round2(total-already);
+  const amount=Math.min(total,ctx.balance);
+  const arrearsPart=Math.min(Math.max(0,amount-ctx.minAmt),ctx.arrears);
+  const newBal=round2(Math.max(0,ctx.balance-amount));
+  const newArr=round2(Math.min(Math.max(0,ctx.arrears-arrearsPart),newBal));
+  const shortBy=round2(amount-ctx.pot);
+  const fromBal=adding?round2(ctx.debt.balance):ctx.balance;
+  const fromArr=adding?round2(ctx.debt.arrears):ctx.arrears;
+  const fromPot=adding?round2(ctx.isBiz?bizPot:perPot):ctx.pot;
+  const line=(label,val)=>`<div class="row"><span style="color:#7c7f96">${label}</span><span style="font-weight:600">${val}</span></div>`;
+  el.innerHTML=
+    (already>0.005?line('Paid this cycle',`${fmt(already)} → <span style="color:#7db87d">${fmt(amount)}</span>${adding?'':extra<-0.005?` <span style="color:#e0923b">${fmt(-extra)} less</span>`:''}`):'')+
+    line('Balance',`${fmt(fromBal)} → <span style="color:${newBal<=0.005?'#7db87d':'#e8e8ec'}">${fmt(newBal)}</span>${newBal<=0.005?' <span style="color:#7db87d">cleared ✓</span>':''}`)+
+    (fromArr>0.005?line('Arrears',`${fmt(fromArr)} → <span style="color:${newArr<=0.005?'#7db87d':'#e05c5c'}">${fmt(newArr)}</span>${newArr<=0.005?' <span style="color:#7db87d">cleared ✓</span>':''}`):'')+
+    line(`${ctx.isBiz?'Business':'Personal'} pot`,`${fmt(fromPot)} → ${fmt(Math.max(0,ctx.pot-amount))}`)+
+    (total>ctx.balance+0.005?`<div style="color:#e0923b;margin-top:6px">Capped at the ${fmt(adding?round2(ctx.debt.balance):ctx.balance)} still owed — you can't pay more than is owed.</div>`:'')+
+    (shortBy>0.005?`<div style="color:#e0923b;margin-top:6px">${fmt(shortBy)} more than the pot holds. Log the money in first if it has landed, or the pot will just bottom out at zero.</div>`:'')+
+    (ctx.minDue>0.005&&amount<ctx.minDue-0.005?`<div style="color:#e0923b;margin-top:6px">Under the ${fmt(ctx.minDue)} minimum — the uncovered part goes into arrears when this cycle closes.</div>`:'')+
+    (adding&&extra<=0.005?`<div style="color:#7c7f96;margin-top:6px">Enter what you have just paid — it goes on top of the ${fmt(already)} already recorded.</div>`
+      :amount<=0.005?`<div style="color:#7c7f96;margin-top:6px">Enter an amount, or use “missed this cycle?” on the row to record paying nothing.</div>`:'');
+}
+// Records `total` as everything this cycle has paid against the debt,
+// replacing whatever was there before. Every route that moves money at an
+// amount of the user's choosing goes through here -- the modal, and the
+// surplus button -- so a payment is recorded the same way whichever door it
+// came in by, and lands in the ledger the cycle close reads.
+//
+// `ctx` must be a payContext() read BEFORE any of this, off the pristine
+// figures: the balance, arrears and pot as they stood before this cycle's
+// payment touched them. That is what makes re-recording safe -- the old
+// payment is refunded rather than the new one debited on top of it.
+function recordPayment(id,total,ctx,snowball){
+  const amount=Math.min(round2(total),ctx.balance);
+  if(amount<=0.005)return false; // nothing to record; the row keeps whatever state it had
+  if(appliedPayments[id])unapplyPayment(id);
+  paidThisCycle=paidThisCycle.filter(x=>x!==id);
+  minPaidThisCycle=minPaidThisCycle.filter(x=>x!==id);
+  missedThisCycle=missedThisCycle.filter(x=>x!==id);
+  const arrearsPart=Math.min(Math.max(0,amount-ctx.minAmt),ctx.arrears);
+  paidThisCycle=[...paidThisCycle,id];
+  applyPayment(id,amount,arrearsPart,!!snowball,
+    {custom:true,target:ctx.target==null?amount:ctx.target,minDue:ctx.minDue,minAmt:ctx.minAmt});
+  return true;
+}
+function confirmCustomPay(){
+  const id=customPayId;
+  const ctx=payContext(id);
+  const input=document.getElementById('customPayInput');
+  if(!ctx||!input){closeModal();return;}
+  const a=appliedPayments[id];
+  const recorded=recordPayment(id,customPayTotal(),ctx,a&&a.snowball);
+  customPayId=null;
+  closeModal();
+  if(!recorded)return; // nothing to record; the row keeps whatever state it had
+  persist('cashflow','debts');renderAll();
+}
+// Debts with nothing planned this cycle never reach the checklist, so this is
+// the only way a payment can be recorded against one.
+function openPayOtherModal(){
+  const onList=getCyclePayments();
+  const rows=debts.filter(d=>d.balance>0.005&&!onList.some(p=>p.id===d.id)).map(d=>`
+    <button onclick="openCustomPayModal(${d.id})" style="display:block;width:100%;text-align:left;background:#0f1117;border:1px solid #2a2d3e;border-radius:8px;padding:10px 12px;margin-bottom:8px;color:#e8e8ec">
+      <div class="row"><span style="font-weight:600">${esc(d.name)}</span><span style="font-weight:700">${fmt(d.balance)}</span></div>
+      <div style="font-size:11px;color:#7c7f96;margin-top:2px">${d.account==='business'?'Business':'Personal'}${d.arrears>0.005?` · <span style="color:#e05c5c">${fmt(d.arrears)} in arrears</span>`:''}${Number(d.min)>0.005?` · min ${fmt(d.min)}`:' · no minimum set'}</div>
+    </button>`).join('');
+  document.getElementById('modalRoot').innerHTML=`
+    <div class="modal-bg" onclick="if(event.target===this)closeModal()">
+      <div class="modal" style="max-height:85vh;overflow-y:auto">
+        <h2 style="font-size:18px;margin-bottom:6px">Pay another debt</h2>
+        <div style="font-size:13px;color:#7c7f96;margin-bottom:14px;line-height:1.5">Nothing is planned for these this cycle — the budget went elsewhere. Pay one anyway and it joins the checklist.</div>
+        ${rows||'<div style="font-size:13px;color:#7c7f96">Every live debt already has a payment on this cycle.</div>'}
+        <button class="btn-ghost" style="width:100%;margin-top:8px" onclick="closeModal()">Cancel</button>
+      </div>
+    </div>`;
+}
 async function deleteIncome(idx){
   const e=incomeLog[idx];
   if(!e)return;
+  // A pay-in that repaid a pot loan is undone in both directions: the money
+  // comes back out of the pot and the loan re-opens, so a mistyped pay-in
+  // cannot quietly write off borrowing that was never actually put back.
+  const undoRepay=e.potRepay&&e.potRepay.total>0.005?e.potRepay:null;
+  if(undoRepay)applyPotRepay(undoRepay,-1);
   bizPot=Math.max(0,bizPot-(e.bizAmt||0));
   perPot=Math.max(0,perPot-(e.perAmt||0));
   savingsPot=Math.max(0,savingsPot-(e.savedAmt||0));
-  bufferPot=Math.max(0,bufferPot-(e.bufferAmt||0));
+  // Pre-split entries carry only the legacy total, which was personal money.
+  bufferBiz=Math.max(0,bufferBiz-(e.bufferBizAmt||0));
+  bufferPer=Math.max(0,bufferPer-(e.bufferPerAmt??e.bufferAmt??0));
   incomeLog.splice(idx,1);
   persist('cashflow');renderAll();
+  if(undoRepay)await saveRepayments(undoRepay,-1);
   if(e.id!=null){
     try{ await fetch('/debt/api/income/'+e.id,{method:'DELETE'}); }
     catch(err){ console.error('Failed to delete income entry',err); }
@@ -1809,6 +2787,10 @@ function startNewCycle(){
       <div class="modal">
         <h2 style="font-size:18px;margin-bottom:12px">Start a new cycle</h2>
         <div style="font-size:13px;color:#7c7f96;margin-bottom:18px;line-height:1.5">First, let's update your balances so the plan stays accurate. Grab your latest statements if you have them — or just skip and keep the current figures.</div>
+        ${(()=>{const c=bufferCover();return c.total<=0.005?'':`<div style="background:#1a1608;border:1px solid #4a4020;border-radius:8px;padding:11px 12px;margin-bottom:16px;font-size:12px;color:#e8e8ec;line-height:1.5">
+          <strong style="color:#e0923b">${fmt(round2(c.gapBiz+c.gapPer))} is still unfunded</strong> in the pots, and the buffer holds ${fmt(c.total)} of it. Close now and that goes into arrears with the cushion still full.
+          <button onclick="openBufferCoverModal()" style="display:block;margin-top:8px;padding:6px 12px;border-radius:6px;border:1px solid #2a4a3a;background:#0f1a15;color:#7db87d;font-size:11px;font-weight:700">Fund ${fmt(c.total)} from the buffer first</button>
+        </div>`;})()}
         <div style="display:flex;flex-direction:column;gap:10px">
           <button class="btn-primary" onclick="openSyncBalances()">Update my balances</button>
           <button class="btn-ghost" style="border-color:#3a3d52" onclick="confirmNewCycle()">Skip — just clear the cycle</button>
@@ -1850,11 +2832,11 @@ function openSyncBalances(mode){
     else if(m1&&!missedThisCycle.includes(d.id)){
       const p=m1.payments.find(x=>x.id===d.id);
       if(p&&p.wasActive){
-        // A floor-only payment sent less than the plan assumed, so the
-        // estimate has to come down by the floor, not the full payment.
-        if(floorPaidThisCycle.includes(d.id)){
+        // A minimum-only payment sent less than the plan assumed, so the
+        // estimate comes down by the minimum, not the full payment.
+        if(minPaidThisCycle.includes(d.id)){
           const cp=getCyclePayments().find(x=>x.id===d.id);
-          projected=Math.max(0,d.balance-(cp&&cp.floorDue!==null?cp.floorDue:0));
+          projected=Math.max(0,d.balance-(cp&&cp.minDue!==null?cp.minDue:0));
         }else projected=p.remaining;
       }
     }
@@ -1919,10 +2901,9 @@ async function confirmSync(){
   // over — new-cycle persists the same merged list server-side.
   paidThisCycle=[];
   missedThisCycle=[];
-  floorPaidThisCycle=[];
+  minPaidThisCycle=[];
   appliedPayments={};
   incomeLog=[];
-  floorShortfalls=archivePayload.floorShortfalls;
   syncDraft={};
   selectedMonth=1;
   closeModal();renderAll();
@@ -1940,10 +2921,9 @@ async function confirmNewCycle(){
   applyUnpaidMinimums(archivePayload.arrearsAdded);
   paidThisCycle=[];
   missedThisCycle=[];
-  floorPaidThisCycle=[];
+  minPaidThisCycle=[];
   appliedPayments={};
   incomeLog=[];
-  floorShortfalls=archivePayload.floorShortfalls;
   closeModal();renderAll();
   try{
     // `debts` goes with it now: the arrears roll above has to reach the
@@ -1959,13 +2939,17 @@ function applySurplus(){
   const target=getCurrentTarget();
   const surplusAmt=target?.account==='business'?bizPot:perPot;
   if(!target||surplusAmt<=0.005){return;}
-  const amount=surplusAmt;
+  // Never more than is owed. This used to empty the pot whatever the balance
+  // was, so a surplus bigger than the target debt destroyed the difference:
+  // the balance stopped at zero and the rest of the money simply vanished.
+  const amount=Math.min(surplusAmt,round2(target.balance));
+  const leftover=round2(surplusAmt-amount);
   document.getElementById('modalRoot').innerHTML=`
     <div class="modal-bg" onclick="if(event.target===this)closeModal()">
       <div class="modal">
         <h2 style="font-size:18px;margin-bottom:12px">Send surplus to ${esc(target.name)}?</h2>
         <div style="font-size:13px;color:#7c7f96;margin-bottom:18px;line-height:1.5">
-          This puts <strong style="color:#7db87d">${fmt(amount)}</strong> toward ${esc(target.name)}, dropping its balance from ${fmt(target.balance)} to <strong style="color:#7db87d">${fmt(Math.max(0,target.balance-amount))}</strong>. Your pot empties and the whole plan recalculates.
+          This puts <strong style="color:#7db87d">${fmt(amount)}</strong> toward ${esc(target.name)}, dropping its balance from ${fmt(target.balance)} to <strong style="color:#7db87d">${fmt(Math.max(0,target.balance-amount))}</strong>. It goes on this cycle's checklist as a payment${leftover>0.005?`, and the ${fmt(leftover)} it doesn't need stays in your pot`:', your pot empties'} — and the whole plan recalculates.
         </div>
         <div style="display:flex;gap:10px">
           <button class="btn-primary" style="flex:1;background:#7db87d" onclick="confirmSurplus()">Yes, pay it off</button>
@@ -1974,62 +2958,46 @@ function applySurplus(){
       </div>
     </div>`;
 }
+// The surplus is a payment like any other, and has to be recorded like one.
+// It used to write the new balance and zero the pot by hand, touching neither
+// applied_payments nor the tick-lists — so the money left the pot and came
+// off the debt, and then the cycle closed with no trace of it: nothing in
+// History's debts-paid, nothing in the total paid, and nothing covering the
+// minimum it had just paid several times over.
 function confirmSurplus(){
   const target=getCurrentTarget();
-  const isBiz=target?.account==='business';
-  const surplusAmt=isBiz?bizPot:perPot;
-  if(!target||surplusAmt<=0.005){closeModal();return;}
-  const amount=surplusAmt;
-  const newBal=Math.max(0,target.balance-amount);
-  const newArrears=Math.min(target.arrears,newBal);
-  debts=debts.map(d=>d.id===target.id?{...d,balance:newBal,arrears:newArrears}:d);
-  if(isBiz)bizPot=0; else perPot=0;
+  if(!target){closeModal();return;}
+  const surplusAmt=target.account==='business'?bizPot:perPot;
+  const ctx=payContext(target.id);
+  if(!ctx||surplusAmt<=0.005){closeModal();return;}
+  // On top of anything the cycle has already paid it: the target is usually a
+  // debt the checklist has ticked, and recordPayment stores cycle totals.
+  const a=appliedPayments[target.id];
+  recordPayment(target.id,round2((a?a.nominal:0)+surplusAmt),ctx,true);
   persist('debts','cashflow');closeModal();renderAll();
 }
 function setSweep(v){sweepPct=parseInt(v);persist('settings');renderAll();}
-function setBufferTarget(v){bufferTarget=parseInt(v)||0;persist('settings');renderAll();}
+// One tap for the figure that matters: a whole month of minimums, or half of
+// one while it is being built up. 0 switches the buffer off entirely.
+function setBufferPreset(fraction){
+  const mm=monthlyMinimums();
+  bufferTargetBiz=round2(mm.biz*fraction);
+  bufferTargetPer=round2(mm.per*fraction);
+  persist('settings');renderAll();
+}
+// Typed directly. NOT re-rendered on every keystroke — that would rewrite the
+// input mid-type and bounce the caret to the end; the strip catches up on the
+// next render, exactly as the debt edit fields do.
+function setBufferTargetFor(account,v){
+  const n=Math.max(0,parseNum(v));
+  if(account==='business')bufferTargetBiz=n; else bufferTargetPer=n;
+  persist('settings');
+}
 // Catch up is the ONLY route from "behind" back into the plan, and it says
 // exactly what it will do first. Adding the shortfall to arrears is what puts
 // the debt into the arrears-first order — near the front of it, since that
 // order now funds the SMALLEST arrears first and a single caught-up shortfall
 // is usually a small number.
-function openCatchUpModal(id){
-  const f=floorShortfalls.find(x=>x.id===id);
-  if(!f)return;
-  const d=debts.find(x=>x.id===id);
-  document.getElementById('modalRoot').innerHTML=`
-    <div class="modal-bg" onclick="if(event.target===this)closeModal()">
-      <div class="modal">
-        <h2 style="font-size:18px;margin-bottom:12px">Catch up on ${esc(f.name)}?</h2>
-        <div style="font-size:13px;color:#7c7f96;margin-bottom:18px;line-height:1.5">
-          This adds <strong style="color:#e0923b">${fmt(f.amount)}</strong> to ${esc(f.name)}'s arrears${d?` (${fmt(d.arrears)} → <strong style="color:#e8e8ec">${fmt(Math.min(d.balance,d.arrears+f.amount))}</strong>)`:''}, so the plan puts it back at the front of the queue.<br><br>
-          Skip this if your next statement will already show the missed payment as arrears — otherwise it gets counted twice. Clearing the entry instead leaves the plan untouched.
-        </div>
-        <div style="display:flex;gap:10px">
-          <button class="btn-primary" style="flex:1" onclick="confirmCatchUp(${id})">Add to arrears</button>
-          <button class="btn-ghost" onclick="closeModal()">Cancel</button>
-        </div>
-      </div>
-    </div>`;
-}
-function confirmCatchUp(id){
-  const f=floorShortfalls.find(x=>x.id===id);
-  if(!f){closeModal();return;}
-  const d=debts.find(x=>x.id===id);
-  if(d){
-    // Arrears can never exceed the balance — same invariant the sync and
-    // surplus flows keep.
-    debts=debts.map(x=>x.id===id?{...x,arrears:Math.min(x.balance,x.arrears+f.amount)}:x);
-    persist('debts');
-    selectedMonth=1;
-  }
-  floorShortfalls=floorShortfalls.filter(x=>x.id!==id);
-  persist('cashflow');closeModal();renderAll();
-}
-function clearShortfall(id){
-  floorShortfalls=floorShortfalls.filter(x=>x.id!==id);
-  persist('cashflow');renderAll();
-}
 function setTightThreshold(v){tightThreshold=parseInt(v);persist('settings');renderAll();}
 function toggleNotifications(){notificationsEnabled=!notificationsEnabled;persist('settings');renderAll();}
 function setNotifyDays(n){notifyDaysBefore=n;persist('settings');renderAll();}
@@ -2189,19 +3157,22 @@ function openSavingsAdjust(){
         <h2 style="font-size:18px;margin-bottom:16px">Adjust savings balance</h2>
         <div style="font-size:13px;color:#7c7f96;margin-bottom:14px">Manually set your savings balance if needed.</div>
         <div class="field-label">Savings balance (£)</div>
-        <input id="savingsVal" class="field-input" type="number" inputmode="decimal" value="${savingsPot.toFixed(2)}" style="font-size:18px;padding:12px;margin-bottom:18px">
+        <input id="savingsVal" class="field-input" type="number" inputmode="decimal" value="${savingsPot.toFixed(2)}" style="font-size:18px;padding:12px;margin-bottom:18px" oninput="updatePotOwedPreview()">
+        <div id="potOwedPanel" style="display:none;background:#1a1428;border:1px solid #3a2a52;border-radius:8px;padding:12px;margin-bottom:18px"></div>
         <div style="display:flex;gap:10px"><button class="btn-primary" style="flex:1" onclick="confirmSavings()">Save</button><button class="btn-ghost" onclick="closeModal()">Cancel</button></div>
       </div>
     </div>`;
+  potEditRepays=true;potEditKeys=['savings'];
+  renderPotOwedPanel();
 }
-function confirmSavings(){savingsPot=parseNum(document.getElementById('savingsVal').value);persist('cashflow');closeModal();renderAll();}
+async function confirmSavings(){
+  await applyPotEdits(potEditsFrom(['savings']));
+}
 
 // ---------- Edit actions ----------
-function updateDraft(id,field,val){if(!editDraft[id]){const d=debts.find(x=>x.id===id);editDraft[id]={balance:d.balance,apr:d.apr,min:d.min,arrears:d.arrears,due:d.due??'',note:d.note,floorPayment:d.floorPayment??''};}editDraft[id][field]=val;}
+function updateDraft(id,field,val){if(!editDraft[id]){const d=debts.find(x=>x.id===id);editDraft[id]={balance:d.balance,apr:d.apr,min:d.min,arrears:d.arrears,due:d.due??'',note:d.note};}editDraft[id][field]=val;}
 function applyEdits(){
-  // An empty floor box means "no floor agreed", which is null — not 0. A 0
-  // would read as a commitment to pay nothing, and count as met every cycle.
-  debts=debts.map(d=>{const ev=editDraft[d.id];if(!ev)return d;return{...d,balance:parseNum(ev.balance),apr:parseNum(ev.apr),min:parseNum(ev.min),arrears:parseNum(ev.arrears),due:ev.due===''?null:parseInt(ev.due)||null,account:ev.account||d.account||'personal',note:ev.note,floorPayment:ev.floorPayment===''||ev.floorPayment==null?null:parseNum(ev.floorPayment)};});
+  debts=debts.map(d=>{const ev=editDraft[d.id];if(!ev)return d;return{...d,balance:parseNum(ev.balance),apr:parseNum(ev.apr),min:parseNum(ev.min),arrears:parseNum(ev.arrears),due:ev.due===''?null:parseInt(ev.due)||null,account:ev.account||d.account||'personal',note:ev.note};});
   editDraft={};selectedMonth=1;persist('debts');
   const btn=document.getElementById('saveBtn');if(btn){btn.textContent='✓ Saved';btn.style.background='#1a3a1a';btn.style.color='#7db87d';}
   setTimeout(()=>renderAll(),1000);
@@ -2220,7 +3191,6 @@ function openAddDebtModal(){
           <div><div class="field-label">Arrears (£)</div><input id="newDebtArrears" class="field-input" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0"></div>
           <div><div class="field-label">APR (%)</div><input id="newDebtApr" class="field-input" type="number" inputmode="decimal" min="0" step="0.1" placeholder="0"></div>
           <div><div class="field-label">Min. Payment (£)</div><input id="newDebtMin" class="field-input" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0"></div>
-          <div><div class="field-label" style="color:#7db87d">Floor (£)</div><input id="newDebtFloor" class="field-input" type="number" inputmode="decimal" min="0" step="0.01" placeholder="min payment"></div>
           <div><div class="field-label">Due Date (day)</div><input id="newDebtDue" class="field-input" type="number" min="1" max="31" step="1" placeholder="none"></div>
           <div><div class="field-label">Account</div><select id="newDebtAccount" class="field-input" style="background:#0f1117;color:#e8e8ec"><option value="personal">Personal</option><option value="business">Business</option></select></div>
         </div>
@@ -2240,16 +3210,12 @@ async function confirmAddDebt(){
   const errEl=document.getElementById('newDebtError');
   if(!name){errEl.textContent='Name is required';errEl.style.display='block';return;}
   const dueRaw=document.getElementById('newDebtDue').value;
-  const floorRaw=document.getElementById('newDebtFloor').value;
   const minVal=parseNum(document.getElementById('newDebtMin').value);
   const debt={
     name,
     balance:parseNum(document.getElementById('newDebtBalance').value),
     apr:parseNum(document.getElementById('newDebtApr').value),
     min:minVal,
-    // A blank floor falls back to the minimum payment, matching how the
-    // existing debts were seeded; blank with no minimum stays null.
-    floorPayment:floorRaw===''?(minVal>0?minVal:null):parseNum(floorRaw),
     arrears:parseNum(document.getElementById('newDebtArrears').value),
     due:dueRaw===''?null:parseInt(dueRaw)||null,
     account:document.getElementById('newDebtAccount').value,
@@ -2310,10 +3276,10 @@ async function confirmArchive(id){
     selectedMonth=1;
     // Out of this cycle too. Pots are left alone on purpose: a ticked
     // payment really left the pot, and archiving doesn't undo that.
-    if(paidThisCycle.includes(id)||missedThisCycle.includes(id)||floorPaidThisCycle.includes(id)){
+    if(paidThisCycle.includes(id)||missedThisCycle.includes(id)||minPaidThisCycle.includes(id)){
       paidThisCycle=paidThisCycle.filter(x=>x!==id);
       missedThisCycle=missedThisCycle.filter(x=>x!==id);
-      floorPaidThisCycle=floorPaidThisCycle.filter(x=>x!==id);
+      minPaidThisCycle=minPaidThisCycle.filter(x=>x!==id);
       persist('cashflow');
     }
   }catch(err){saveError=true;console.error('Failed to archive debt',err);}
@@ -2350,6 +3316,8 @@ function confirmReset(){debts=DEBTS_INITIAL.map(d=>({...d}));editDraft={};select
 function openRepayModal(id){
   const b=borrowedActive.find(x=>x.id===id);
   if(!b)return;
+  const pot=b.pot&&POTS[b.pot]?POTS[b.pot]:null;
+  const left=loanOutstanding(b);
   document.getElementById('modalRoot').innerHTML=`
     <div class="modal-bg" onclick="if(event.target===this)closeModal()">
       <div class="modal">
@@ -2357,6 +3325,7 @@ function openRepayModal(id){
         <div style="font-size:13px;color:#7c7f96;margin-bottom:18px;line-height:1.5">
           <strong style="color:#e8e8ec">${fmt(b.amount)}</strong> borrowed from ${esc(b.source_name)}<br>
           ${esc(b.note)||'No note'} · ${formatBorrowedDate(b.borrowed_at)}
+          ${pot?`<div style="margin-top:10px;color:#c07de0">This puts the ${fmt(left)} still owed straight back into your ${esc(pot.label.toLowerCase())} — ${fmt(round2(pot.get()))} → ${fmt(round2(pot.get()+left))} — instead of waiting for your next pay-in.</div>`:''}
         </div>
         <div style="display:flex;gap:10px">
           <button class="btn-primary" style="flex:1;background:#7db87d" onclick="confirmRepay(${id})">Yes, mark repaid</button>
@@ -2367,27 +3336,46 @@ function openRepayModal(id){
 }
 async function confirmRepay(id){
   closeModal();
+  // Repaying a pot loan by hand is the same act the next pay-in would have
+  // done, just now: the outstanding money goes back into the pot it came out
+  // of. A note-only loan still moves nothing.
+  const b=borrowedActive.find(x=>x.id===id);
+  const pot=b&&b.pot&&POTS[b.pot]?b.pot:null;
+  const left=b?loanOutstanding(b):0;
+  if(pot&&left>0.005){potMove(pot,left);persist('cashflow');renderAll();}
   try{
     const res=await fetch('/debt/api/borrowed/'+id+'/repay',{method:'POST'});
     if(!res.ok)throw new Error('repay failed: '+res.status);
   }catch(err){ saveError=true;console.error('Failed to mark loan repaid',err); }
   await refreshBorrowed();renderAll();
 }
+// Which of the app's own pots a new loan is coming out of, or '' for the two
+// original kinds of row (a person, or an outside savings pot the app doesn't
+// hold) which move no money anywhere.
+let loanPot='';
 function openAddLoanModal(){
-  loanIsSavings=false;
+  loanIsSavings=false;loanPot='';
+  const potOption=(key,pot)=>`<button id="loanPot_${key}" onclick="setLoanPot('${key}')" style="flex:1;min-width:104px;padding:8px 6px;border-radius:6px;border:1px solid #2a2d3e;background:#1a1d2e;color:#7c7f96;font-size:12px;font-weight:600">
+      <div>${pot.label}</div><div style="font-size:11px;font-weight:400;margin-top:2px">${fmt(pot.get())}</div>
+    </button>`;
   document.getElementById('modalRoot').innerHTML=`
     <div class="modal-bg" onclick="if(event.target===this)closeModal()">
-      <div class="modal">
+      <div class="modal" style="max-height:88vh;overflow-y:auto">
         <h2 style="font-size:18px;margin-bottom:16px">Log a loan</h2>
         <div class="field-label">Source name</div>
         <input id="loanSource" class="field-input" type="text" placeholder="e.g. Dave, Tax, Emergency fund" style="margin-bottom:14px">
         <div class="field-label">Type</div>
-        <div style="display:flex;gap:8px;margin-bottom:14px">
+        <div style="display:flex;gap:8px;margin-bottom:${''}10px">
           <button id="loanTypePerson" onclick="setLoanType(false)" style="flex:1;padding:10px;border-radius:6px;border:1px solid #5b8def;background:#141a2e;color:#5b8def;font-size:13px;font-weight:600">Person</button>
           <button id="loanTypeSavings" onclick="setLoanType(true)" style="flex:1;padding:10px;border-radius:6px;border:1px solid #2a2d3e;background:#1a1d2e;color:#7c7f96;font-size:13px;font-weight:600">Savings pot</button>
         </div>
+        <div style="font-size:11px;color:#555;margin-bottom:6px">Or take it out of one of your own pots — the money comes out now and goes back off the top of your next pay-in.</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
+          ${Object.entries(POTS).map(([k,pot])=>potOption(k,pot)).join('')}
+        </div>
         <div class="field-label">Amount (£)</div>
-        <input id="loanAmount" class="field-input" type="number" inputmode="decimal" step="0.01" min="0" style="font-size:18px;padding:12px;margin-bottom:14px">
+        <input id="loanAmount" class="field-input" type="number" inputmode="decimal" step="0.01" min="0" style="font-size:18px;padding:12px;margin-bottom:8px" oninput="loanPotPreview()">
+        <div id="loanPotPreview" style="display:none;background:#0f1117;border-radius:8px;padding:10px 12px;font-size:12px;line-height:1.6;margin-bottom:14px"></div>
         <div class="field-label">What was it for? (optional)</div>
         <input id="loanNote" class="field-input" type="text" style="margin-bottom:14px">
         <div class="field-label">Date borrowed</div>
@@ -2401,17 +3389,55 @@ function openAddLoanModal(){
     </div>`;
   setTimeout(()=>document.getElementById('loanSource')?.focus(),100); // ?. — modal may already be closed
 }
+// Person / savings-pot / one-of-my-pots are one choice, not two: picking a
+// pot clears the person-or-savings pair, and picking either of those clears
+// the pot. Only one of them can be where the money came from.
 function setLoanType(isSavings){
-  loanIsSavings=isSavings;
-  const p=document.getElementById('loanTypePerson');
-  const s=document.getElementById('loanTypeSavings');
-  if(isSavings){
-    s.style.borderColor='#7db87d';s.style.background='#0d1a0d';s.style.color='#7db87d';
-    p.style.borderColor='#2a2d3e';p.style.background='#1a1d2e';p.style.color='#7c7f96';
-  }else{
-    p.style.borderColor='#5b8def';p.style.background='#141a2e';p.style.color='#5b8def';
-    s.style.borderColor='#2a2d3e';s.style.background='#1a1d2e';s.style.color='#7c7f96';
+  loanIsSavings=isSavings;loanPot='';
+  paintLoanType();
+}
+function setLoanPot(key){
+  loanPot=loanPot===key?'':key; // tapping the pot you're on unpicks it
+  if(loanPot){
+    loanIsSavings=false;
+    // A pot loan names its own source unless you have typed one, so the row
+    // reads "Savings pot" rather than an empty label.
+    const src=document.getElementById('loanSource');
+    if(src&&!src.value.trim())src.value=POTS[loanPot].label;
   }
+  paintLoanType();
+  loanPotPreview();
+}
+function paintLoanType(){
+  const on=(el,colour,bg)=>{if(el){el.style.borderColor=colour;el.style.background=bg;el.style.color=colour;}};
+  const off=el=>{if(el){el.style.borderColor='#2a2d3e';el.style.background='#1a1d2e';el.style.color='#7c7f96';}};
+  const p=document.getElementById('loanTypePerson');
+  const sv=document.getElementById('loanTypeSavings');
+  if(loanPot){off(p);off(sv);}
+  else if(loanIsSavings){off(p);on(sv,'#7db87d','#0d1a0d');}
+  else{on(p,'#5b8def','#141a2e');off(sv);}
+  for(const key of Object.keys(POTS)){
+    const el=document.getElementById('loanPot_'+key);
+    if(key===loanPot)on(el,'#c07de0','#1e1426'); else off(el);
+  }
+}
+// What taking it out would leave in the pot. A pot cannot go negative — every
+// other pot movement in the app floors at zero — so an amount above the
+// balance is capped, and says so rather than inventing money that was never
+// in there to borrow.
+function loanPotPreview(){
+  const el=document.getElementById('loanPotPreview');
+  const input=document.getElementById('loanAmount');
+  if(!el||!input)return;
+  if(!loanPot){el.style.display='none';return;}
+  const pot=POTS[loanPot];
+  const held=round2(pot.get());
+  const typed=round2(parseNum(input.value));
+  const taking=Math.min(typed,held);
+  el.style.display='block';
+  el.innerHTML=`<div class="row"><span style="color:#7c7f96">${pot.label}</span><span style="font-weight:600">${fmt(held)} → <span style="color:${held-taking<=0.005?'#e0923b':'#e8e8ec'}">${fmt(held-taking)}</span></span></div>`
+    +(typed>held+0.005?`<div style="color:#e0923b;margin-top:6px">Capped at the ${fmt(held)} the pot holds. If it really had more in it, put the balance right under Adjust pot balances first.</div>`:'')
+    +(taking>0.005?`<div style="color:#7c7f96;margin-top:6px">${fmt(taking)} goes back into this pot off the top of your next pay-in, before the month, the buffer and savings.</div>`:'');
 }
 async function confirmAddLoan(){
   const source=document.getElementById('loanSource').value.trim();
@@ -2421,11 +3447,30 @@ async function confirmAddLoan(){
   const errEl=document.getElementById('loanError');
   if(!source){errEl.textContent='Source name is required';errEl.style.display='block';return;}
   if(!amount||amount<=0){errEl.textContent='Amount must be greater than 0';errEl.style.display='block';return;}
-  try{
-    const res=await fetch('/debt/api/borrowed',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify({source_name:source,is_savings:loanIsSavings,amount,note:note||null,borrowed_at:date||null})});
-    if(!res.ok)throw new Error('loan save failed: '+res.status);
-  }catch(err){saveError=true;console.error('Failed to save loan',err);}
+  // Borrowing from a pot is capped at what the pot holds — you cannot take
+  // out money that was never in there — and the loan is recorded at what
+  // actually came out, so what goes back matches what left.
+  const pot=loanPot&&POTS[loanPot]?loanPot:null;
+  const taken=pot?Math.min(amount,round2(POTS[pot].get())):amount;
+  if(pot&&taken<=0.005){errEl.textContent=POTS[pot].label+' is empty — there is nothing to borrow from it';errEl.style.display='block';return;}
+  if(pot)potMove(pot,-taken);
   closeModal();
+  if(pot){persist('cashflow');renderAll();}
+  try{
+    const res=await fetch('/debt/api/borrowed',{method:'POST',headers:JSON_HEADERS,body:JSON.stringify({source_name:source,is_savings:loanIsSavings,amount:taken,note:note||null,borrowed_at:date||null,pot})});
+    if(!res.ok)throw new Error('loan save failed: '+res.status);
+    // Shown from what came back rather than waiting on the refresh below, so
+    // the row is there the moment the modal closes.
+    const saved=await res.json();
+    borrowedActive=[saved,...borrowedActive];
+  }catch(err){
+    saveError=true;
+    // The loan never got recorded, so the money must not leave the pot: a
+    // debit with no row to repay it would simply disappear, and there is no
+    // offline queue for this tab to catch it later.
+    if(pot){potMove(pot,taken);persist('cashflow');}
+    console.error('Failed to save loan',err);
+  }
   await refreshBorrowed();renderAll();
 }
 

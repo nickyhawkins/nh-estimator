@@ -32,9 +32,16 @@ This manual follows the life of a job in order: **set up → measure → quote �
 
 ## 1. Getting started
 
+> **Your first half hour**, in order: [install it on your phone](#install-it-on-your-phone)
+> → [put your own name on it](#make-it-yours) → [connect Xero](#connect-xero-one-off)
+> → [check your rates](#check-your-rates) → [start your first job](#your-first-job).
+> That's the whole setup. Everything after section 1 you can read as you need it.
+
 ### Install it on your phone
 
-The app lives at your own web address (the one on your Render account). It's designed to be **installed to your home screen** so it opens full-screen like a normal app:
+The app lives at its own web address — if someone set this copy up for you, that
+link is the one they sent you. It's designed to be **installed to your home
+screen** so it opens full-screen like a normal app:
 
 - **iPhone:** open the app in Safari → tap the Share button → **Add to Home Screen**.
 - **Android:** open it in Chrome → menu (⋮) → **Add to Home screen** / **Install app**.
@@ -44,6 +51,24 @@ If your copy of the app has a password set, you'll be asked for it the first tim
 Setting a password is worth doing now that you can send clients an approval link: the link points at the same web address the app runs on, so a client who trimmed it back to the domain would otherwise land on your jobs. With a password set they get a sign-in screen and nothing else. If there's no password on your instance, guard the web address like you would any private page.
 
 ![Sign-in screen](images/16-login.png)
+
+### Make it yours
+
+**Do this before you send anything to a client.** Until you enter your own
+details the app falls back to the name and logo it was built with, so a quote, a
+snag-list PDF or even your sign-in screen could go to a client with somebody
+else's business on it.
+
+Menu (☰) → **Settings** → **Business**:
+
+- **Business name** — replaces that fallback everywhere it appears.
+- **Logo** — optional, and shown *instead of* the name in the header when you
+  set one. Leave it empty and your business name is used on its own.
+
+Between them they carry through to the app header, the sign-in screen, the top
+of every quote you send and its PDF, the snag-list PDF and your calendar feed.
+To check it landed, open any job and tap **Quote ⤴** — what you see there is
+what the client sees.
 
 ### Connect Xero (one-off)
 
@@ -57,6 +82,21 @@ Almost everything works without Xero, but quoting and invoicing shine with it co
 ### Check your rates
 
 The app ships with sensible defaults (day rate £300, 20% markup, 25% deposit, standard coverage rates), split across two screens off the menu: **Rates** holds the calculation tables, **Settings** holds everything else. Skim through both once and adjust anything that doesn't match how you price — every figure in a quote comes from these numbers.
+
+### Your first job
+
+There's nothing to create before you can start measuring: the app opens on a
+starter job called **My Job**, and Measure, On Site and Summary are already
+pointed at it. Give it the real name before you go any further, though — a job's
+name is what you'll be searching for months later.
+
+Menu (☰) → **Jobs** → tap the **✎** on *My Job* and type the client's address or
+job name over it. From then on **`+`** on that same screen starts each new job.
+The one you're working on is marked **CURRENT**; Rates and Settings are global
+and apply to every job. There's more on all of it in [Jobs](#10-jobs).
+
+Then open **📐 Measure** and put a room in it — [Measuring up](#3-measuring-up)
+picks up from there.
 
 ---
 
@@ -353,7 +393,7 @@ Below that, **What to buy** is the ordering view, unchanged: each colour, the ro
 
 Two small tools off the menu, independent of any one job.
 
-**🔍 Price Lookup** searches every sales item in your Xero account by name or code and shows what it actually costs at the till — the inc-VAT price, with ex-VAT alongside. It's a read-only till check, not tied to any quote:
+**🔍 Price Lookup** searches every sales item in your Xero account by name or code and shows what it actually costs at the till — your **buy** price from Xero, inc VAT, with the ex-VAT figure underneath, which is the number printed on the supplier's price list. It is not your sell price: that has your markup on it, and belongs on quotes, not at the counter. An item with no buy price in Xero says **no buy price** rather than showing £0.00. It's a read-only till check, not tied to any quote:
 
 ![Price Lookup screen](images/17-pricelookup.png)
 
@@ -363,7 +403,7 @@ Tap the **+** on a result to add it straight to your Shopping List.
 
 ![Shopping List screen](images/18-shoplist.png)
 
-Items arrive from Price Lookup, or type one straight in ("masking tape") for anything that isn't a Xero item. Tick items off as you buy them and **Clear ticked** to reset for next time; items added from a job's materials carry that job's name as a tag, so the list says why something's on it.
+Items arrive from Price Lookup, or type one straight in ("masking tape") for anything that isn't a Xero item. They can also come off a job: tap **🛒 Add to list** on any materials row on **On Site**, or on a materials row on **Summary** — see [Putting materials on the shopping list](#putting-materials-on-the-shopping-list). Tick items off as you buy them and **Clear ticked** to reset for next time; items added from a job's materials carry that job's name as a tag, so the list says why something's on it.
 
 ---
 
@@ -389,7 +429,7 @@ Materials list **one line per product and tin size**, the way On Site has always
 
 ### Materials & Undo
 
-Materials are quoted as an estimate and — once the job runs — invoiced as used, so the list on Summary and On Site is the same list throughout a job's life. **Add Material** searches your Xero items (or free-text) for anything the calculation missed, and manually-added lines carry a **Chargeable** tickbox — off keeps a line as tracking-only, on puts it on the invoice. **Recalculate** re-pulls the calculated lines from the rooms without throwing away your own additions: anything you added yourself is kept and tagged **"added by you"**, a quantity you've typed over is kept and tagged **"edited"** (with a **reset to N** link if you want the calculation's figure back), and if recalculating would drop something you edited by hand, you're asked first, by name.
+Materials are quoted as an estimate and — once the job runs — invoiced as used, so the list on Summary and On Site is the same list throughout a job's life. **Add Material** searches your Xero items (or free-text) for anything the calculation missed — an exterior plastic door, a kitchen, anything you've deleted the calculated line for and are entering by hand. Manually-added lines carry a **Chargeable** switch which is **on by default**, so what you add is on the quote, in the Materials subtotal and in the deposit like any other material. Turn it **off** to keep a line as tracking-only: it stays on your shopping list but is left out of the total, and the card then says how much is sitting there — *"Tracking only — not on the quote"* under the subtotal — so nothing is ever quietly missing off a price. A row you've already added shows **Chargeable** or **Tracking only** as a tag; tap the tag to switch it. **Recalculate** re-pulls the calculated lines from the rooms without throwing away your own additions: anything you added yourself is kept and tagged **"added by you"**, a quantity you've typed over is kept and tagged **"edited"** (with a **reset to N** link if you want the calculation's figure back), and if recalculating would drop something you edited by hand, you're asked first, by name.
 
 Almost anything you do to the materials list — recalculating, deleting a line, changing a quantity, adding a line — can be undone. Look for an **UNDO** button on the confirmation message right after the change, **↩ Undo** at the top of the Materials list, or **↩ Undo** in the ☰ menu if you missed the moment. It remembers the last 10 changes on the current job; switching job or closing the app starts it fresh.
 
@@ -556,7 +596,7 @@ Menu (☰) → **Jobs**. The app holds any number of jobs; the one you're workin
 ![Searching the jobs list](images/08b-jobs-search.png)
 
 - Jobs group by status: **Draft → Quoted → Accepted / Declined → Completed → Invoiced**.
-- **`+`** starts a new job. **⧉** duplicates a job as a quick template (notes aren't copied). Each job is fully separate — its own rooms, kitchen, colours and materials.
+- **`+`** starts a new job. **✎** renames one. **⧉** duplicates a job as a quick template (notes aren't copied). Each job is fully separate — its own rooms, kitchen, colours and materials.
 - **Import an accepted quote from Xero** — took the job on before the app existed? Import the Xero quote and it becomes a job here, with the agreed price as the record (adjustable via the **Agreed figures** card, or the **Imported from Xero** toggle on Summary — see [The quote](#9-the-quote-summary)). If a listed quote actually belongs to a job already in the app, use **"Already a job in the app? Link it ›"** instead of importing a duplicate.
 
 ---
@@ -573,6 +613,33 @@ Menu (☰) → **Schedule** — or tap **Schedule ›** on an accepted job's Sum
 - The header tells you your **next free day** at all times.
 - **What a job is called on the calendar:** entries read **client — job name — calendar title**, skipping anything the others already say. So a Kitchen job for Lauren Lowe reads "Lauren Lowe — Kitchen" whether or not you typed a calendar title, and an older job still named "Lauren Lowe - Kitchen" doesn't say her name twice. The client comes from the job's **Client** details (Xero panel on Summary) — if a job has no client saved, the entry is just the job name.
 
+### Blocking days off
+
+Holidays, a day at the dentist, a week's decorating on your own house — tap the
+day and the sheet opens with the day's own actions first:
+
+![Tapping a day on the calendar](images/09b-schedule-day.png)
+
+- **Block day(s)…** is offered on **every day from today onwards** — including
+  Saturdays, Sundays and bank holidays. Your usual week may have those off,
+  but a job set to *+ Saturdays* or *Every day* works them, and a block is the
+  one thing that override never beats. The picture above is exactly that: a
+  Saturday in the middle of a whole-house job.
+- It takes a range: the day you tapped → an end date (the same day, for a
+  single day off), plus an optional label such as *Holiday*. The day you
+  tapped is always blocked. Days merely swept up in between are blocked only
+  if you'd have been working them anyway — a weekend in the middle of a
+  fortnight off is already off, so it isn't cluttered with a chip, unless a
+  job was booked across it.
+- Blocked days draw as a dashed grey bar across the calendar, are never
+  offered as a start date, and booked jobs stretch **around** them. Your phone
+  calendar feed agrees, so a blocked fortnight is a gap there too.
+- Tap a blocked day for **Unblock this day**, or **Unblock all N days** to
+  clear the whole run in one go.
+- **Start a job here** lists the accepted jobs still waiting for a date, four
+  at a time — tap **N more waiting…** for the rest. Blocking stays at the top
+  of the sheet however many are waiting.
+
 **A one-off day out of the ordinary**, without changing anything globally: tap the day itself → **start a job here** (or move a job there), and the confirm tells you what switches on — a Saturday turns on "Saturdays for this job only", a Sunday or bank holiday turns on "Every day for this job only". From an accepted job's own **Schedule ›** form, the same idea is the **Days worked** picker (Usual / + Saturdays / Every day), which switches itself if you pick such a start date. Automatic slot suggestions still only ever offer your usual working days, and your own blocked days always win.
 
 **See jobs in your phone calendar:** Rates → Scheduling → turn on **Calendar feed**, then tap the link to copy it and subscribe in your calendar app. Booked jobs then appear alongside everything else in your life.
@@ -587,10 +654,115 @@ Once a job is accepted, the **🛠 On Site** tab is your day-to-day companion:
 
 - **Estimated vs Actual** — the card at the top tracks what the materials are really costing against what you quoted, with the variance.
 - **Time on Site** — tap **+ Log today (full day)** at the end of each day (or *Log a different day* to back-fill). This builds the true labour record for the job.
-- **Materials** — the quote's materials list becomes a shopping list. Tick items off as you buy them, and correct quantities/prices to what you actually paid — see [Materials & Undo](#materials--undo) for how edits and Recalculate interact, and Undo if something goes wrong.
+- **Materials** — the quote's materials list becomes a shopping list. Tick items off as you buy them, and correct quantities/prices to what you actually paid — see [Materials & Undo](#materials--undo) for how edits and Recalculate interact, and Undo if something goes wrong. Any row here can also go on your **Shopping List** — see below.
 - **Add material the estimate missed** — extra sundries or a forgotten tin: search the product, set the price, done.
 - **Variations** — the client asks for "just one more room" mid-job? Add the room (or exterior item, fitted unit) on Measure and flick its **Variation** toggle. It's priced with the same engine but kept separate from the accepted quote, and appears in its own Variations card here. Each variation carries a status — tap **✓ Approved by client** to record their yes (with an optional note; the date is stamped automatically), or mark one Declined to drop it from the totals and the final invoice while keeping the record. Anything still Pending gets called out before the final invoice will let it through.
+- **Snags** — the punch list for the job, above everything else once there's something on it. See below.
 - **Invoice ›** (top right) shows the materials list formatted for invoicing, with a **Copy** button.
+
+#### Putting materials on the shopping list
+
+This is the screen you have open standing in the room, so it's the one that answers *"do I still need to buy this?"* — and every materials row carries a **🛒 Add to list** chip, the quoted tins as well as the sundries you added yourself. Tap it and the product goes on your [Shopping List](#8-price-lookup--shopping-list) with its price and this job's name, and the chip changes to **✓ On list**:
+
+![Adding On Site materials to the shopping list](images/10g-onsite-shoplist.png)
+
+It's per row and never automatic — plenty of what's on a job is already in the van. Summary's materials list has the same chip on the quoted lines, and either route lands on the same list: one line per product, no duplicates however many times you tap, and both job names on it if two jobs need the same thing. Paint sold by the litre goes on **without a price**, because the figure on the row is a price per litre, not what a tin costs at the till. Ticked something off in the shop and then ran out? Tap the chip again and it goes back on the list.
+
+### Snags — the punch list
+
+The last few days of a job are a list of small things: a scuff by the switch, a handle to refit, a staircase that wants one more coat. That list goes here, and On Site puts it above everything else while anything on it is still open.
+
+![The Snags section on On Site](images/10b-snags.png)
+
+- **The section only shows up when there's something to show.** No snags yet, and there's just a quiet **+ Start a snag list** at the bottom of the screen. Tick the last one off and it drops back down there too, collapsed to **All n cleared ✓** — tap it to reopen the record.
+- **Grouped by room**, with that room's colours next to its name, read straight from the Colours tab — each surface named where they differ (*Walls Dead Salmon · Ceiling All White*), or just the colour where the whole room is one. So you don't have to leave the screen to find out what to open. Rooms the quote never priced — the airing cupboard, the garage step — can have snags too, and you can give those a colour by hand (see below).
+- **Ticking one off doesn't remove it — it drops to the bottom.** The row goes struck through with the date you cleared it and stays on the list, which is the point: at the end of the job the list *is* the evidence of what got done. But it moves below everything still open in that room, so three weeks in, with thirty things ticked off, the handful you've still got to do are the ones at the top rather than scattered through them. A room where everything's cleared drops below the rooms that still have work in them, and the same rule applies in the **By phase** view. Untick anything you tick by mistake and it goes straight back up where it was.
+- **Phase** on each row (the little dropdown) is the pass it belongs to — Prep, Stain block, Woodwork, Walls, Ceiling, Details, Final access. Set it and the room re-sorts itself into working order, with anything that blocks the space once it's done (floor cleans, stair recoats) last. Snags with no phase yet sit at the top of their room so they're not forgotten.
+- **By room / By phase.** The toggle flattens the whole house into phase order instead — every stain-block job in the building together, so you get the stain block out once. Room order is what it opens on.
+- **Every group folds.** Tap a room heading (or a phase heading in the other view) and its snags fold away, leaving the heading, its colours and its count — *2 open*, or *all done ✓*. Tap it again to open it back up. A room you've finished with is folded to start with, so a forty-snag house opens as the rooms that still have work in them. Once you've tapped a heading yourself your choice sticks for the rest of the visit — the app won't fold a room back up under you when you tick its last snag off. **Fold all** (beside the toggle) folds the lot in one go and turns into **Open all**. Folding rooms doesn't touch the **By phase** view, or the other way round, and none of it is remembered between visits.
+- **PDF** (next to **+ Add snag**) saves the list as it stands right now — see below.
+
+![Three rooms folded down to their headings, the room in hand left open](images/10b2-snags-folded.png)
+
+#### The snag list as a PDF
+
+**PDF** at the top of the Snags section builds a one-file copy of the list and
+hands it to your phone's share sheet, so it can go straight to the client, to
+whoever's working with you, or into an email as a record. On a computer it
+downloads instead. It's named for the job and the day you exported it
+(*NH-Snags-12-Ermine-Street-2026-09-04.pdf*), because a snag list moves —
+two exports a week apart *should* be two different files.
+
+What's in it: your business name and logo at the top, the job, the client and
+the address, then **how many are outstanding and how many are cleared**, then
+the list room by room in the same order the screen is showing it — colours
+beside each room name, the phase against each snag, an empty box for anything
+still to do and a filled one, struck through and dated, for anything cleared.
+
+It builds from what's on your phone, not from what's reached the server, so a
+snag you ticked in a cellar with no bars is already ticked in the file. It
+works with no signal at all. Once everything's cleared, **Export PDF** sits
+under the reopened list at the bottom of the screen — that copy is the
+completed punch list, which is the one worth sending on.
+
+#### Adding snags
+
+**+ Add snag** opens a sheet with two ways in.
+
+**One snag** — pick the room (or **Custom…** and type a name), type the snag, set the phase if you know it. The sheet stays open on the same room afterwards, because snags come in runs.
+
+**Paste a list** — for the list the client emails you, or the notes off your own phone. Paste it as it came: a line on its own is a room, and lines starting `-`, `*` or `1.` are the snags under it. `- [ ]` and `- [x]` checkboxes are fine — **both come in as still to do**, because on someone else's list a tick means "I've flagged this", not "you've fixed it".
+
+![Reviewing a pasted snag list before it's added](images/10c-snags-paste.png)
+
+Nothing is written until you've looked at it. The review sheet shows exactly what it made of the paste, and everything on it is editable: room names, the snags themselves, and the phase on each one (pasted snags start with none — the app never guesses a phase from the wording, because it would guess wrong). If a stray sentence got read as a room heading, **↑ item** folds it back into the room above; **✕** drops a line. Then **Add n snags**.
+
+#### Colours on rooms you never measured
+
+On a job that came in from Xero there are no measured rooms at all, so there's
+nothing for the snag headings to read a colour from. Any room heading with no
+measured room behind it gets a **+ colour** tap instead:
+
+![Snag rooms with and without a colour](images/10d-snag-room-colours.png)
+
+Tap it and you get the same colour field as everywhere else in the app: start
+typing and your colour library offers matches with their brand and number, so
+"dead sal" finds Farrow & Ball No. 28 Dead Salmon and fills the rest in for you.
+
+![Looking a colour up for a snag room](images/10e-snag-colour-sheet.png)
+
+Under the field, the colours already on this job are one tap each. A name the
+library has never heard of is fine too — type it and it's yours; the dropdown
+also offers to **save it to your colour library** with a brand and code, so
+it's there for the next job. **Clear colour** puts a room back to undecided
+without losing the colour itself.
+
+**Rooms that aren't one colour.** Most rooms aren't — the walls one thing, the
+ceiling another, the woodwork a third. Switch the sheet to **By surface** and
+you get a field each for walls, ceiling, woodwork, feature wall and panelling:
+
+![Setting a colour per surface](images/10f-snag-colour-by-surface.png)
+
+The heading then names each one — *Master Bedroom — Walls Dead Salmon · Ceiling
+All White · Woodwork Wimborne White* — and each surface shows up on the Colours
+tab in its own right, exactly as a measured room's would. **Whole room** and
+**By surface** are either/or: setting one clears the other, so a room only ever
+has one answer. Measured rooms already worked this way; this just brings the
+ones you never measured into line.
+
+Once a room has a colour it shows on the heading (**Landing — Dead Salmon**)
+and joins the **Colours** tab alongside everything else, marked *from the snag
+list* so you can tell it apart from a room you measured. Rooms still waiting
+on one are listed there too, under **Snag rooms — no colour yet**, so you can
+work through them from either screen.
+
+A room you *did* measure works the other way round, unchanged: its colour comes
+from the Colours tab and the snag heading just shows it. There's only ever one
+place a given room's colour is set.
+
+#### Snags and signal
+
+Snags sync exactly like the rest of On Site — tick things off in a house with no bars and every change queues on the phone and goes up when you're back in signal, same as your materials and your logged days. The sync dot in the corner counts them with everything else.
 
 ### Let the client approve extras themselves
 
@@ -714,7 +886,7 @@ Those stay your judgement call.
 Settings → **Backup**:
 
 - **Export everything** downloads a single JSON file containing every job, room, setting and colour. Do this regularly — Home will nag you when the last backup is getting old.
-- **Import backup** restores from a file, adding to what's already there — imported jobs get fresh identities, so it can never overwrite existing data. Restoring settings is a separate opt-in on the import preview, since it's the one thing an import *can* overwrite.
+- **Import backup** restores from a file, adding to what's already there — imported jobs get fresh identities, so it can never overwrite existing data. Restoring settings is a separate opt-in on the import preview, since it's the one thing an import *can* overwrite. Backup files up to 64MB are accepted, which is far more than a full job history comes to; if anything is ever wrong with a file, the app now tells you what in plain English rather than showing a syntax error.
 
 ---
 
@@ -722,11 +894,23 @@ Settings → **Backup**:
 
 **The dot** in the top bar is your sync status: green = everything saved to the server, amber = saving now, red = offline. If you lose signal mid-measure, keep working — changes are kept on your phone ("Offline — N changes queued on this phone") and pushed up when the connection returns; the menu's sync line confirms with "All changes synced ✓".
 
+**Opening the app with no signal.** The app keeps a copy of itself on the phone, so it opens in a dead spot exactly as it does anywhere else — everything you've measured is on the phone, not fetched from the server. It has to have been opened *once* somewhere with signal first, to save that copy; if it hasn't, you'll get a short page saying so rather than the browser's "no internet" screen.
+
+If you've had launches that hung on a blank screen in a dead spot, that's fixed as of v2.61.0. The cause was a phone showing a bar of signal with nothing actually getting through — not the same as being cleanly offline, and the app used to sit waiting on it. It now gives the network a few seconds and then opens from the phone's own copy. The same deadline applies to saving: a change made where the signal is dead is queued on the phone within seconds instead of hanging, so the dot goes red and tells you what's waiting rather than sitting on amber.
+
+**Starting a job with no signal.** You can now do this too — pull up outside a house with no bars, add the job, and measure straight into it. The job is created on the phone and appears on the server when you're next in signal, along with everything you put in it. (Before v2.61.0 nothing happened when you tapped it.)
+
+**Switching jobs with no signal.** A job is kept on the phone once you've opened it in signal, so you can switch between the jobs you've been working on with no bars at all and each one comes back with its own rooms, colours and materials. The last dozen jobs you've opened are kept; older ones drop off and reload the next time you open them in signal.
+
+If you try to switch to a job this phone hasn't got a copy of, it now tells you so and stays where it is — rather than opening the job looking empty. That matters: before v2.62.0 it opened with every room gone, and anything you then measured would have replaced that job's real rooms on the server when the signal came back. If you see that message, the job is fine — the phone just hasn't downloaded it yet.
+
 **A price looks wrong?** Work backwards: room Preview → Summary breakdown → Rates. The calculation is always *areas × time rates × day rate*, plus *areas ÷ coverage = litres → tins*, plus sundries and markup. One of those numbers will be the culprit — usually a coverage or time rate that doesn't match how you actually work. If the job is already **Accepted**, remember its figures are frozen — a rate change won't move it; you'd need **Amend → revision N+1** on Summary.
 
 **Xero button not working?** Tokens occasionally expire for good if the app hasn't talked to Xero in a long while. Settings → Disconnect Xero → Connect Xero puts it right in under a minute.
 
 **Sent a quote, then client wants changes?** Just edit the rooms and hit **Update quote Q-nnn in Xero** on Summary — same quote number, new figures.
+
+**Materials you added by hand not in the total?** Check the row's tag on Summary's materials list. A line tagged **Tracking only** is deliberately left off the quote — tap the tag to make it **Chargeable** and it joins the subtotal, the Xero quote and the deposit straight away. The card also prints *"Tracking only — not on the quote"* with a figure whenever anything on the list isn't being billed, so you can see at a glance whether money is sitting outside the price. (Lines added before September 2026 may have been saved as tracking-only by default — one tap each puts them on.)
 
 **Extra work mid-job?** Always add it as a **Variation** rather than editing the accepted rooms — the original quote stays honest, and the extra shows separately on the final invoice where the client expects to see it.
 
@@ -736,6 +920,6 @@ Settings → **Backup**:
 
 ---
 
-*Manual for NH Estimator v2.45.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.66.2. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

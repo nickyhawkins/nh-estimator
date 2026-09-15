@@ -680,3 +680,934 @@ Changed in three places that must agree or the plan contradicts itself: the casc
 ### The zero-minimum case
 
 Brewers has no minimum (trade account, whole balance overdue), so it receives nothing except through the arrears queue — four months of £0 on these figures. That is the ordering working as intended, but the row rendered as a bare "—", which reads as "nothing to do" rather than "overdue and waiting its turn". A debt with outstanding arrears and no allocation this month now carries an **IN ARREARS** badge and an "£X overdue · waiting for budget" line. The money is unchanged; only the honesty of the row is.
+
+---
+
+## Feature 11 — Pay a different amount — BUILT (v2.49.0)
+
+Asked as a question: *"a lump sum comes in and I want to clear an account's
+arrears rather than spread it over multiple cycles — can I?"* The answer was
+no. A cycle payment could only be one of two computed figures — the plan's
+**target**, or the **floor** — and a lump sum is neither. The only routes to a
+different amount were editing the balance by hand in Edit Debts (which debits
+no pot, writes no ledger entry and never reaches History) or dragging the
+budget slider, which raises the whole month for every debt: the spreading the
+question was trying to avoid.
+
+A payment can now be any amount. The row's **own amount** link opens a modal
+that takes a figure, shows what it would do, and records it.
+
+### Where the money goes
+
+The same split `simulate()` makes, and the one `paid floor only` already used:
+the **contractual minimum first** (that keeps the account current and so
+clears no arrears), **everything above it onto the arrears**. Which is why
+**Clear arrears** is `minimum + arrears`, not the arrears alone.
+
+The modal offers the figures worth having as one-tap chips — **Plan target**,
+**Floor**, **Clear arrears**, **Clear balance** — deduplicated, because a debt
+whose plan payment already covers its arrears would otherwise show the same
+number three times. Under the box it says what the amount does before it is
+recorded: balance and arrears before → after, what leaves which pot, and a
+warning for each of the three ways an amount can surprise you — over the
+balance (capped, you can't pay more than is owed), over the pot (log the money
+in first, or the pot bottoms out at zero), under the floor (that floor will
+count as unmet and the shortfall goes on the catch-up ledger at close).
+
+### A fifth payment state
+
+`custom` joins unpaid / floor / paid / missed. It shares `paid_this_cycle`
+with **paid** rather than owning a fourth list — the amount that makes it
+custom is already in `applied_payments`, and there is no schema change here at
+all. What made that safe is the second half of the feature:
+
+**Every "is this covered?" test now asks the ledger what actually went out,
+rather than which tick-list an id sits in** (`paidAmountOf()`, and the
+matching helpers in `rollOnce()`). A tick is no longer a promise that the
+commitment was met:
+
+| paid | against | outcome |
+|---|---|---|
+| ≥ the floor | `floorDue` | floor met |
+| < the floor | `floorDue` | floor unmet — shortfall on the catch-up ledger at close |
+| ≥ the contractual minimum | `min` | nothing overdue added |
+| < the contractual minimum | `min` | the uncovered part becomes arrears at close |
+| ≥ the target | `target` | counts toward "target met" |
+
+Ledger entries therefore carry the three figures the payment was **judged
+against** — `target`, `floorDue`, `minAmt` — alongside what it did:
+
+```json
+{ "5": { "name": "Brewers", "nominal": 2200.89, "custom": true,
+         "target": 349.76, "floorDue": null, "minAmt": 0,
+         "amount": 2200.89, "arrearsAmt": 2200.89, "potAmt": 2200.89 } }
+```
+
+Without them, a £20 payment would redefine a £205 floor as £20 and call it
+met — the floor cap is `min(floor, target)`, and after a payment is applied
+the sim's target is gone (it is now working off the balance that payment
+reduced).
+
+**A tick with no ledger entry is still taken at its word.** A cycle that was
+already open before `applied_payments` existed carries ids in the tick-lists
+and nothing in the ledger; reading those as "paid nothing" would turn a
+settled cycle into a pile of arrears on deploy. Both the client and
+`rollOnce()` fall back to the old list semantics whenever the ledger is
+silent, and `rollOnce()` only diverges from its previous behaviour for an
+entry explicitly flagged `custom`.
+
+### Debts with nothing planned this cycle
+
+The case a lump sum most often lands on. Brewers has no contractual minimum,
+so it receives money only through the arrears queue and in a tight month takes
+no month-1 payment at all — no row, nothing to tap. **Pay another debt**, next
+to Start new cycle, lists every live debt that isn't already on the checklist
+(HMRC included) and pays it the same way. The payment then appears on the
+checklist on the strength of the ledger alone, the way a debt cleared outright
+mid-cycle already did.
+
+Such a debt has no target to be over or under, so its ledger entry takes the
+amount paid as its own target: it is not counted as an underpayment, and
+`getCycleTotals()` caps every row's contribution at its target so a £2,200
+lump sum doesn't leave the app insisting that account still needs £2,200.
+
+### Tests
+
+`npm run test:custom-payments` (`scripts/test-custom-payments.js`) — 42 checks,
+no database, no browser, no server. The vm-with-stub-DOM harness Feature 8
+introduced was factored out to `scripts/debt-app-sandbox.js` and is now shared
+by both suites, so these drive the real modal: open it, type an amount,
+confirm. Covered: the minimum/arrears split at four amounts, Clear arrears
+leaving nothing overdue, **undo restoring balance, arrears and pot exactly
+from any amount** (including re-entering an amount, and switching a custom
+payment to missed or up to the full target — the pot must not be charged
+twice), the five judgements in the table above, the balance cap, and the
+ledger-less fallback. `npm run test:floors` 47 green alongside.
+
+
+---
+
+## Feature 12 — Every arrear accounted for — BUILT (v2.53.0)
+
+Reported as *"not all the arrears are being taken into account"*, against a
+plan carrying £7,639.12 of arrears across five creditors. The header total was
+right. Everything under it was not: **This cycle's payments** showed one
+ARREARS badge and never mentioned two of the five debts' overdue money at all.
+
+Three separate causes, all of them in the cycle view rather than in the
+allocation — the money each debt is offered has not changed by a penny.
+
+### 1. A debt the budget never reached vanished
+
+`getCyclePayments()` builds from month 1 of the sim and drops any row with
+`p.total <= 0.005`. A debt with **no contractual minimum** — Brewers, whose
+whole balance is overdue — takes nothing from the sim except through the
+arrears queue, and in a tight month that queue runs out before reaching it.
+Planned payment £0, so no row: All Debts said £1,700.89 in arrears and the
+cycle it belongs to never mentioned it.
+
+£0 is the honest allocation. The silence was the bug. Such a debt now gets an
+`unfunded` row on the checklist — the same honesty Feature 10 gave the
+Schedule view's **IN ARREARS · waiting for budget** line, applied to the screen
+the money is actually paid from:
+
+- **!** in place of the tick box, because there is nothing to tick off.
+- **ARREARS**, `waiting for budget`, and the amount overdue.
+- **pay some of it**, which opens the ordinary own-amount modal preset to
+  *Clear arrears*.
+- The amount column reads **—**, not £0.00: nothing is being asked for.
+
+It asks for nothing, so it moves nothing. The floors total, both pot needs,
+the target total and the `n/m done` count are penny-identical to what they
+were when the row was missing, and the tick is refused outright if it is ever
+reached (`setPaymentState` turns a `paid` on a £0 row back into `unpaid`
+rather than recording a payment of nothing and striking the debt through).
+
+Being on the checklist, it drops off **Pay another debt** — which is where it
+had to be paid from before, and still lists HMRC and anything else outside the
+plan.
+
+### 2. ARREARS meant the payment, not the debt
+
+`p.arrears` was `arrearsPaid > 0.005` — *this month's payment contains arrears
+catch-up*. So NatWest Loan, £3,751.74 overdue but affordable only to its
+£520.01 minimum, showed **no arrears at all** on the row, while All Debts two
+screens away badged it in red. The same flag drove the tight-week triage, so
+that read the payment too.
+
+The row now carries the **debt's** figures:
+
+| field | meaning |
+|---|---|
+| `arrearsAmt` | the catch-up inside this month's payment — unchanged |
+| `arrearsLeft` | what stays overdue once that payment has gone out |
+| `arrears` | `arrearsLeft > 0.005` — i.e. this debt is overdue |
+
+`ARREARS` therefore means on the checklist what it means everywhere else in
+the app, and every row that carries it says **£X still overdue** beside the
+floor. Updraft's £1,253.43 payment now reads "£528.51 still overdue" instead
+of looking like the end of it.
+
+### 3. A floor capped at the planned payment could be zeroed
+
+`floorDue` was `min(floor, target)` — capped at the month's planned payment.
+The comment said "you can't send more than is left", which is a cap at the
+**balance**; the planned payment was standing in for it. They part company
+twice, both times badly:
+
+- A debt the budget never reached has a planned payment of £0, so a real
+  commitment was rewritten as a floor of nothing and counted as met.
+- A floor set **above** the minimum — the whole reason the field is editable —
+  was quietly shrunk back to the minimum in any month with no spare. A £400
+  floor against a £40.03 minimum read as £40.03 and passed on £40.03.
+
+`floorDueOf(debt, paidOff)` caps at the balance instead, adding back what an
+already-applied payment took off so the cap is measured against the balance as
+the cycle opened. This is also the cap `rollOnce()` has always used
+server-side, so the verdict the app shows and the one the close records can no
+longer disagree — previously the app could say "floors met" and the cycle
+close still put the shortfall on the catch-up ledger.
+
+A floor agreed on an unfunded arrears debt is consequently a real commitment
+again: it counts as unmet until paid and the pots are asked to cover it. That
+is the one figure this feature does move, and it moves because a promise you
+made should be funded whether or not the arrears queue got that far.
+
+### Tests
+
+`npm run test:arrears` (`scripts/test-arrears-visibility.js`) — 26 checks on
+the reported plan itself, through the shared vm harness, no database, no
+browser, no server. It pins the missing row, the badge meaning both ways round,
+the "moves no money" guarantee measured against the same plan with the debt
+removed, both halves of the floor cap, and the refusal to tick £0.
+`npm run test:floors` 47 and `npm run test:custom-payments` 46 green alongside.
+
+---
+
+## Feature 13 — A month ahead: the buffer that can actually be spent — BUILT (v2.54.0)
+
+Asked after Feature 12: *"what's the best way of building up a month ahead to
+cover all payments and avoid arrears again?"* The mechanism already existed —
+`bufferPot`, filled first out of every pay-in, ahead of floors, savings, sweep
+and living money. It could not do the job:
+
+- **The target slider stopped at £500.** A month of this plan's contractual
+  minimums is £1,292.02. The number could not be entered.
+- **Nothing ever spent it.** `bufferPot` was only ever added to; the sole way
+  out was retyping it in Adjust pots. In the short month it exists for, it sat
+  there and the minimum went into arrears anyway.
+- **One jar, two bank accounts.** A full personal cushion cannot pay a
+  business minimum, and the Log-money-in transfer panel sent the whole buffer
+  to the personal account regardless.
+
+### The target is a month of MINIMUMS
+
+`monthlyMinimums()` — the same "in the payment plan" rule as
+`getCurrentTarget()` (a live balance and either a minimum or a due date), each
+minimum capped at its balance, split by account. On the reported plan:
+**£387.08 business + £904.94 personal = £1,292.02**.
+
+Deliberately the minimums and not the floors (£1,241.29). Missing a floor
+writes an inert entry on the catch-up ledger; missing a **minimum** is money
+genuinely overdue, and that is the thing this feature exists to stop. The
+Settings card says so, in those words, above the figure.
+
+The slider is gone. In its place: **One month ahead** / **Half a month** /
+**Off** as one-tap presets computed from the plan, and a typed field per
+account for anything else. `setBufferTargetFor()` deliberately does NOT
+re-render on each keystroke — that would rewrite the input mid-type and throw
+the caret to the end, the same reason the debt edit fields don't.
+
+### Two jars
+
+`buffer_biz` / `buffer_per` and `buffer_target_biz` / `buffer_target_per`,
+because `bizPot` and `perPot` are two real bank accounts and neither can
+rescue the other. They fill **together, in proportion to what each still
+needs**, so a light month cannot brim one while the other — the one with a
+minimum falling due — stays empty.
+
+The legacy single jar migrates entirely to the **personal** side, which is
+where the money physically was: the transfer panel has always routed the
+buffer to the personal account alongside savings and living money. That panel
+is now correct too — the business share of a pay-in's buffer is transferred to
+the **business** account, because that is the jar a business minimum is paid
+from. `buffer_pot` and `buffer_target` are kept, unwritten, so the split can be
+rolled back without losing the money; `buffer_amt` on the income log stays the
+total of the two new columns.
+
+### It can be spent
+
+`bufferCover()` is the tap that was missing: per account, the smaller of what
+that pot is short of this cycle's uncovered floors and what that jar holds.
+The buffer strip grows a **Cover £X from the buffer** button whenever there is
+something to move, and the modal names the two transfers before they happen —
+`buffer £850 → £206 · pot £415 → £854` — plus what is still short when a jar
+can't reach, which is never made up from the other account.
+
+It is a **transfer, not a payment**: the money lands in the pot and the payment
+is then ticked normally, so every ledger, undo and archive path is untouched.
+
+### Cost, for the record
+
+Diverting money to build the cushion pushes the arrears-clear date back by
+**exactly one month, however it is spread** — £1,300 once, £650 × 2, £325 × 4
+and £220 × 6 all land on the same month, because the spare per month fixes the
+finish date and not the order. So the cheapest way to build it is slowly, and
+cheaper still out of the `savingsPct` that already diverts 10% of every pay-in
+away from the debt sweep.
+
+### The transfer instruction (v2.54.1)
+
+Asked as soon as the pots became real: *"does the app show me how much to
+transfer to each buffer pot, like it already did for business and personal?"*
+Half. The split was in the **Where it goes** breakdown, under the Buffer line;
+the **Transfers to make** panel — the part you actually work from, standing in
+your banking app — still showed two figures, one per bank account, with the
+buffer folded silently inside them. With the buffer as a number in the app
+that was fine. With it as a real savings space, "£490.59 to the personal
+account" is not an instruction anyone can act on.
+
+The panel now names every destination: the two bank totals stay as the
+headline (they are what leaves for each bank, which still matters when the two
+are different banks), and under each sits the pot-by-pot split —
+
+```
+Business account            £409.41
+   Business pot               £0.00
+   Business buffer          £409.41
+Personal account            £490.59
+   Personal pot               £0.00
+   Personal buffer          £490.59
+   Savings                    £0.00
+   Keep for living            £0.00
+```
+
+Four destinations, four figures, and each headline is exactly its own rows
+added up — which the tests assert rather than trust.
+
+### Tests
+
+`npm run test:buffer` (`scripts/test-buffer-month-ahead.js`) — 33 checks
+through the shared vm harness, no database, no browser, no server. Covers the
+minimums split (including a minimum capped at its balance and a debt outside
+the plan contributing nothing), the presets, proportional filling with a full
+jar and an over-target pay-in, "nothing lost or invented" across the whole
+allocation, the cover capped per account and never crossing between them, the
+corrected transfer panel, and an income delete reversing both jars — including
+a pre-split entry, whose buffer was personal money; and the transfers panel
+driven through the real modal — every destination named, each headline the sum
+of its own rows, and the four accounting for the whole pay-in. `test:arrears` 26,
+`test:floors` 47 and `test:custom-payments` 46 green alongside.
+
+**Deploy:** new columns are applied lazily by `routes/debt.js`'s
+`ensureSchema()` on the first API request, as with every debt-app migration —
+no manual step.
+
+---
+
+## Feature 14 — Spending the month ahead — BUILT (v2.55.0)
+
+Feature 13 built the cushion and could move money out of it, but only as a
+rescue: the button appeared when the pots were already short. Three questions
+about what happens after the buffer fills turned out to have three different
+answers, one of them a bug.
+
+### The bug: funded on floors, sized on minimums
+
+`bufferCover()` measured what to move against `getFloorStatus()`'s outstanding
+**floors**. The buffer is sized on contractual **minimums**, and deliberately
+so — a missed floor writes an inert catch-up entry, a missed minimum becomes
+arrears. Where a floor sits BELOW its minimum the two disagree, and the buffer
+would sit full while arrears grew on the difference. On the reported plan that
+is Currys: floor £50.73 against a £101.46 minimum, so funding the floors moved
+£854.21 to the personal pot when £904.94 was owed and let £50.73 go overdue.
+
+`cycleCommitments()` replaces it: per debt still owing, the **higher** of its
+floor and its contractual minimum, less what has already gone out; missed
+debts excluded, exactly as the pots exclude them. On that plan it comes to
+£387.08 business + £904.94 personal — the buffer target to the penny, which is
+the point. The seeded plan hides this entirely (every seeded floor equals its
+minimum), so the suite now carries a floor-below-minimum case of its own.
+
+### Fund the month up front, don't wait to be rescued
+
+Asked as *"a button to transfer the buffer to the main pot… then as the month
+goes on the buffer is refilled while all the minimums are already funded, the
+whole point of being a month ahead."* That is what the action always computed
+at the start of a cycle — with nothing paid and the pots empty, the gap IS the
+whole month — but it was labelled and framed as a shortfall rescue. It now
+reads **Fund this month — move £X across**, and says what it buys: every floor
+and minimum still owing in the pots up front, income then refilling the buffer
+instead of paying the bills.
+
+Nothing else had to change for that to work. `allocateIncome()` already fills
+the buffer first and already counts pot balances toward the floors before new
+money does, so a pot funded from the buffer takes no second helping: income
+goes buffer → savings → sweep, and the float rolls forward month on month.
+
+### The close warns, and never spends it
+
+A cycle can close with minimums going into arrears while the cushion held to
+prevent exactly that sits untouched — the close cannot move money between real
+bank accounts, so it must not pretend to. `renderBufferRescue()` says so
+instead, on the renewal banner and inside the Start-a-new-cycle modal: what is
+unfunded, how much of it the buffer holds, and the transfer button. The test
+asserts both that the warning appears and that closing moves nothing by itself.
+
+### The target is a snapshot, and now admits it
+
+`setBufferPreset()` stores numbers; `monthlyMinimums()` is computed live. Clear
+two debts and the stored target is over-held; let a minimum rise and "a month
+ahead ✓" is quietly false. `bufferDrift()` compares the two and the strip says
+which way it has gone, with a one-tap re-set, whenever they differ by more
+than a pound.
+
+### Regression fixed on the way
+
+The surplus prompt ("All bills are paid and you've got £X left over") gated on
+`activeCycle.every(paid)`. Feature 12's `unfunded` arrears rows are in
+`activeCycle`, ask for £0 and refuse the tick by design — so on any plan
+carrying a debt the budget can't reach (Brewers), that prompt would never have
+appeared again. It gates on `plannedCycle` now, like the n/m done counter.
+
+### Where money goes once the buffer is full — no change needed
+
+The third question was whether a full buffer should start pushing extra money
+at the pots. It already does, and there was nothing to build: with the buffer
+full it takes nothing off the top, and the pots fill toward this cycle's
+targets up to `sweepPct`. Measured on the reported plan at a full buffer, a
+£3,000 pay-in splits £471.04 business + £1,028.96 personal (£1,500 — exactly
+the 50% sweep), £300 savings, £1,200 living. The plan's targets already carry
+the arrears catch-up, so pot money above the minimums IS the overpayment, and
+the existing surplus prompt spends what is left at the end of a cycle. The
+lever for wanting more of it is `sweepPct`, one slider away — inventing a
+second mechanism beside it would have been two controls fighting over one
+number.
+
+### Tests
+
+`npm run test:buffer` grows to 48: the floor-below-minimum funding case, a
+payment already made dropping out of what must still be funded, a missed debt
+funded not at all, the close warning appearing and the close spending nothing,
+and drift in both directions with the re-set clearing it. `test:arrears` 29
+(two new, holding the surplus-prompt gate), `test:floors` 47 and
+`test:custom-payments` 46 green alongside.
+
+---
+
+## Feature 15 — This month first, then the buffer — BUILT (v2.56.0)
+
+Asked plainly: *"should the buffer fill before the actual month where it's
+needed? Shouldn't it be the other way around?"* Yes, and it was a real fault,
+introduced by me in Feature 13 rather than inherited.
+
+`allocateIncome()` filled the buffer off the top, ahead of everything. That
+was right when the buffer was the £200 cushion it was designed as, and wrong
+the moment it became a month-ahead float. On a light month the whole pay-in
+vanished into next month's safety while this month's minimums went into
+arrears — the cushion built out of the very thing it exists to prevent.
+Measured on the reported plan, target £1,292.02 and nothing paid:
+
+| in | old: buffer | old: pots | old: still unfunded |
+|---|---|---|---|
+| £600 | £600.00 | £0.00 | £1,292.02 |
+| £1,200 | £1,200.00 | £0.00 | £1,292.02 |
+
+The order is now **this month → buffer → savings → sweep → living**. Same
+figures:
+
+| in | new: buffer | new: pots | new: still unfunded |
+|---|---|---|---|
+| £600 | £0.00 | £600.00 | £692.02 |
+| £1,200 | £0.00 | £1,200.00 | £92.02 |
+
+"This month" is `commitmentQueue()` — `cycleCommitments()` itemised and in the
+existing funding order (arrears first, then earliest due), so a pay-in that
+cannot cover everything covers what hurts most. Pot balances still count
+before any new money does.
+
+**It costs the buffer nothing in the steady state.** Once you are a month
+ahead and have funded the cycle from the buffer on day one, the pots already
+cover this month's commitments, the first step takes nothing, and income flows
+straight back into refilling the jars. The float rolls forward month on month
+— which is the whole mechanic, and it only works in this order.
+
+The buffer still sits AHEAD of savings and the target sweep: a month ahead is
+worth more than either, and behind them it would never fill while there were
+arrears to chase. Commitment money still comes OUT OF the sweep rather than on
+top of it, so a month whose commitments are already covered splits exactly as
+it did before any of this existed.
+
+`floorBiz`/`floorPer`/`floorFunded` are still returned under those names
+alongside the clearer `dueBiz`/`duePer`/`dueFunded` — it is the same money,
+and the floors-covered note and the floors suite both read it.
+
+The Log-money-in modal's "Where it goes" list was reordered to match, and the
+Buffer line now reads "after this month" rather than "taken first", because
+that is no longer true.
+
+### Tests
+
+`test:buffer` 51 and `test:floors` 48. Seven checks across the two suites
+asserted the old order outright ("buffer is filled before anything else") and
+now pin the new one from both sides: a light month funding the month and not
+the buffer, a pay-in bigger than the month funding the month first and the
+buffer with the remainder, and — with the pots already covering the cycle, the
+steady state — the buffer refilling ahead of savings and the sweep exactly as
+before. `test:arrears` 29 and `test:custom-payments` 46 green alongside.
+
+---
+
+## Feature 16 — Floors retired — BUILT (v2.57.0)
+
+Said plainly while working through the buffer: *"I'm not really seeing a
+benefit of the floor payment, it seems to be complicating things."* Correct,
+and the live data was blunt about it. Across the whole plan:
+
+| | count |
+|---|---|
+| floor identical to the contractual minimum | **7 of 8** |
+| floor below the minimum | 0 |
+| floor above the minimum | **0** |
+| no floor set | 1 (Brewers, which has no minimum either) |
+
+The one apparent exception — Currys at £50.73 against a £101.46 minimum — was
+my own bad inference from a screenshot. Its minimum IS £50.73. So the floor
+field, in the entire history of the plan, never once expressed anything `min`
+did not already say, and the only configuration where it could have (a floor
+ABOVE the minimum) was never used.
+
+For that it cost a second verdict, a fifth payment state, a priority order, a
+nullable column, a running catch-up ledger with its own panel and two actions,
+and 326 lines across four files.
+
+**The deeper reason it had stopped earning its place:** floors were a
+*bookkeeping* answer to irregular income — relabel a light month so it doesn't
+read as failure. The month-ahead buffer (Features 13–15) is a *cash* answer to
+the same problem. Once a light month is genuinely rescued with money, the
+relabelling is redundant.
+
+### What went
+
+- `floor_payment` and the Floor field in Edit Debts and Add Debt.
+- `floorOf()`, `floorDueOf()`, `getFloorStatus()`, `floorPriority()`,
+  `renderFloorIndicators()`.
+- The **Behind on floors** ledger entirely — panel, Catch up, Clear,
+  `floor_shortfalls`, and the shortfall merge in both close paths. It existed
+  only because a floor was a discretionary promise rather than a debt. An
+  uncovered *minimum* is a real debt and already goes where real debts go.
+
+### What stayed
+
+- **"Paid the minimum only"** (◐), re-anchored on `min`. Pay what the
+  agreement requires, skip the arrears catch-up. The state is `min` now;
+  it still shares `paid_this_cycle`'s sibling column `floor_paid_this_cycle`,
+  which is left named as it is — renaming a column to rename a concept is not
+  worth a migration.
+- **Two chips, both honest**: *Minimums met* — the verdict, meaning nothing
+  new went overdue — and *Target*, which is progress, not a pass/fail. An
+  unmet minimum with the pots short now reads **Arrears risk**, which is what
+  it is.
+- Everything the buffer does. `cycleCommitments()` and `commitmentQueue()`
+  simply lost their `max(floor, min)` and read `min` directly.
+
+### The nullable-column trick that turned out to be unnecessary
+
+`floor_payment` was deliberately NULLABLE so that "no commitment agreed"
+(Brewers, HMRC) could be told apart from "committed to £0", which would count
+as met every cycle by paying nothing. `min` encodes exactly the same thing as
+**0**, and always did. `minDueOf()` returns 0 there and `getCycleStatus()`
+leaves those debts out of the verdict — same behaviour, one fewer column and
+no null-handling anywhere.
+
+### Data
+
+Discarded on the user's instruction: no floor values are migrated to anything
+and no catch-up ledger entries are converted to arrears. `floor_payment` and
+`floor_shortfalls` are LEFT IN PLACE in the schema, unwritten, so the change is
+reversible and nothing is destroyed. History rows are permanent, so
+`renderArchivedVerdict()` reads `minsMet` **or** the older `floorsMet`, and a
+row carrying a floor-shortfall list still renders it — labelled as retired,
+with "nothing is owed on this".
+
+### Tests
+
+`npm run test:floors` becomes **`npm run test:minimums`**
+(`scripts/test-minimums.js`, 47 checks): the minimum as the only commitment
+and 0 meaning there isn't one, both caps (balance, and the balance before an
+applied payment took its bite), the two verdicts judged separately, pot
+arithmetic across all five payment states, allocation order and conservation,
+and an uncovered minimum becoming arrears — capped at the balance, applied
+once, with the archive asserted to carry no floor ledger at all.
+`test:arrears` 29, `test:custom-payments` 46 and `test:buffer` 51 green
+alongside; every one of them lost its floor scaffolding on the way.
+
+**Deploy:** no migration. The retired columns are simply no longer read.
+
+---
+
+## Feature 17 — A payment after the checklist is done — BUILT (v2.59.0)
+
+Asked plainly: *"what happens if I add a payment after all the payments have
+been made that month?"* Reading the code to answer it turned up one route
+that lost the money from the record entirely, and one that made you do
+arithmetic the app should have done.
+
+### 1. The surplus button was not recording a payment
+
+"All bills are paid and you've got £X left over — send it to your current
+target" wrote the new balance and zeroed the pot by hand:
+
+```js
+debts=debts.map(d=>d.id===target.id?{...d,balance:newBal,arrears:newArrears}:d);
+if(isBiz)bizPot=0; else perPot=0;
+```
+
+It touched neither `applied_payments` nor the tick-lists. So the money left
+the pot, came off the debt, and then the cycle closed with **no trace of it**:
+nothing in History's debts-paid, nothing in the total paid for the cycle, and
+— because the close reads the ledger to decide what was covered — nothing
+crediting a contractual minimum it had just paid several times over. A surplus
+that cleared a debt outright could still be followed by a rollover recording
+that debt's minimum as newly overdue.
+
+Zeroing the pot unconditionally was a second, quieter fault: a £1,500 surplus
+against a £965.72 balance stopped the balance at zero and **destroyed the
+£534.28**. The pot is now charged only what the debt took, and the card and
+confirm dialog say so when the surplus is bigger than the target.
+
+A third: it moved the money without splitting it the way every other payment
+is split (contractual minimum first, everything above it onto the arrears).
+`newArrears=Math.min(target.arrears,newBal)` only ever clamped the arrears to
+the new balance, so a surplus that covered a debt's overdue amount several
+times over left every penny of it still recorded as overdue — still badged
+ARREARS, still ahead of everything else in the arrears queue next month.
+
+One consequence worth expecting: with those arrears genuinely cleared, the
+budget's arrears queue moves on, and a debt it never used to reach — Brewers,
+whose whole balance is overdue — gets a funded row for the first time. It is
+unticked, so the **target-met** verdict now reads false where it used to read
+true. That is the plan re-planning freed budget, exactly as it does after any
+other payment, and it is what the server has always computed at the close:
+`rollOnce()` counts Brewers as in-plan (it has a due date) and unpaid. Client
+and server agreed on the minimums verdict before and disagreed on this one;
+now they agree on both.
+
+### 2. A second payment meant undoing the first
+
+A row ticked `paid` hid every action link, so paying a debt again in the same
+cycle meant unticking it — refunding the balance, the arrears and the pot —
+and re-entering the two payments added together, computed by hand against a
+balance the first payment had already moved. The one thing the app knows and
+you don't.
+
+Settled rows now carry **pay more** and **change amount**, and the pay modal
+has two readings of its box, with a toggle when a payment already exists:
+
+| reading | the box means | when |
+|---|---|---|
+| `add` | what you have **just paid**, on top of the cycle | "pay more" on a settled or minimum-paid row |
+| `total` | everything the cycle has paid against this debt | "own amount", "change amount" — the box's original meaning |
+
+Only the total is ever stored, so nothing downstream has to know which way it
+was typed. The quick-fill chips restate themselves as *what it would take on
+top* (a target already reached drops out), the preview counts from what is
+owed **now** rather than from the pristine balance, and switching reading
+carries the typed figure across rather than clearing it.
+
+### What holds it together
+
+`recordPayment(id,total,ctx,snowball)` — every route that moves money at an
+amount of the user's choosing now goes through it: the modal, and the surplus
+button. It refunds whatever the cycle had recorded before charging the new
+total, so re-recording is safe and undo still puts back exactly what was
+taken, pot included. The surplus passes `already + surplus`, because the debt
+it lands on has usually been ticked already.
+
+No server change and no migration: `applied_payments` already carried
+everything `rollOnce()` needs, and the surplus simply starts writing to it.
+
+### Tests
+
+**`npm run test:extra-payments`** (`scripts/test-extra-payments.js`, 50
+checks): the surplus recorded as a real payment (ledger entry, checklist row,
+History, minimum covered, nothing sent to arrears), added on top of an
+existing tick rather than replacing it, capped at the balance with the change
+left in the pot, top-ups from every prior state including minimum-only, "change
+the total" still replacing, the cap, and both readings of the modal with the
+figure carried across the switch. The last check is the strongest statement of
+the fix: the surplus button and the same amount typed into the modal leave the
+plan in byte-identical states. `test:custom-payments` 46, `test:minimums` 47,
+`test:arrears` 29 and `test:buffer` 51 green alongside.
+
+---
+
+## Feature 18 — Borrowing from a pot — BUILT (v2.60.0)
+
+Asked for directly: *"I want the ability to borrow from a pot if needed. This
+goes in the borrowing tab, automatically subtracts from the desired pot but
+then makes sure the shortfall is replaced the very next time a payment is
+recorded."*
+
+The Borrowed tab was built as notes and nothing else — "zero interaction with
+the debt snowball, pot balances, cashflow calculations, or any other part of
+the app" (`debt-app-borrowed-money.md`). That is still true of every row
+naming a person or an outside pot. A row can now name one of the app's **own**
+pots instead, and those rows move real money.
+
+### Borrowing
+
+The Log-a-loan modal offers all five pots — business, personal, savings, and
+the two buffer jars — under the existing Person / Savings-pot pair, and
+picking one clears that pair: only one of them can be where the money came
+from. The amount is **capped at what the pot holds**, because you cannot take
+out money that was never in there, and the loan is recorded at what actually
+came out so that what goes back matches what left. If the row fails to save,
+the debit is rolled back: money out of a pot with no loan to repay it would
+simply disappear, and this tab has no offline queue to catch it later.
+
+### Repayment — off the top of the next pay-in
+
+`allocateIncome()` gains a step 0, ahead of the month itself:
+
+```
+0. pot loans   ← new: what is owed back, oldest borrowing first
+1. this month
+2. the buffer
+3. savings
+4. the sweep
+5. living money
+```
+
+Step 0 is deliberately ahead of the rule Feature 15 established (this month
+first, then the buffer), and for the opposite reason to the one that put the
+buffer second. **A pot loan is a hole in money the plan has already counted.**
+Every figure downstream — what this month still needs, what the buffer is
+short by, what the savings percentage has already set aside — is computed
+against a pot balance that the loan has quietly reduced. Leaving it open for
+even one pay-in means spending the same pound twice. It is also the one line
+here that is not a choice about where new money *should* go: it is owed.
+
+So the repayment is not overridable, and it is credited to every step that
+follows it — the commitments' pot credit, the buffer's gap, the savings
+percentage — so a pound going back into a pot is never allocated to that same
+pot a second time. A pay-in too small to clear the loan repays what it can,
+oldest borrowing first, and the rest waits for the next one. It appears in the
+"Where it goes" list and gets its own line in the transfer instructions under
+the account the pot lives in, because it is a real transfer like any other.
+
+Where it is deliberately *not* equivalent to never having borrowed: living
+money. Borrow £400 and the pay-in that repays it has £400 less to live on —
+that money was spent when it was borrowed, and the cost lands where the loan
+actually put it.
+
+### Undo, in both directions
+
+`POST /debt/api/borrowed/repay` applies **deltas** in one transaction, so the
+same endpoint runs in reverse. Each pay-in stores what it repaid on its income
+row (`pot_repay` JSONB), and deleting that pay-in takes the money back out of
+the pot and re-opens the loans — a mistyped pay-in cannot quietly write off
+borrowing that was never actually put back. Marking a pot loan repaid by hand
+does the same thing the next pay-in would have, just now: the outstanding
+money goes straight back into the pot.
+
+### Schema
+
+`debt_plan_borrowed` gains `pot TEXT` (NULL = a note, unchanged) and
+`repaid_amount NUMERIC` (part repayments — `repaid` is derived from it, so a
+reversal re-opens a closed loan). `debt_plan_income_log` gains `pot_repay
+JSONB`. All three are applied lazily by `routes/debt.js`'s `ensureSchema()`
+and documented in `db/setup-debt.sql`: **no migration step on deploy.**
+
+### Tests
+
+**`npm run test:borrowing`** (`scripts/test-pot-borrowing.js`, 41 checks):
+what a pot loan owes and what a note owes (nothing), the pot floor at zero,
+repayment off the top with the pay-in still conserving, a part repayment
+finished by the next pay-in, oldest-first across two pots, the three
+double-count guards stated as equivalences (a borrowed-then-repaid pot ends
+exactly where an untouched one does, and living money pays for it once),
+deleting the pay-in reversing both halves, and repaying by hand.
+`test:extra-payments` 50, `test:custom-payments` 46, `test:minimums` 47,
+`test:arrears` 29 and `test:buffer` 51 green alongside.
+
+---
+
+## Feature 19 — A typed figure that actually adds up — BUILT (v2.64.0)
+
+Reported with a screenshot: *"Allocating payments doesn't calculate properly
+when adding a manual amount."* £325.64 came in, £302.29 of it was owed back to
+the pots, and £182.08 was typed into **Business pot**. The modal printed
+transfer instructions for **£219.16 to the business account and £265.21 to the
+personal** — £484.37 out of a £325.64 pay-in, £158.73 of it money that was
+never in the bank. Pressing Allocate would have added that £158.73 to real pot
+balances, and the phone would have gone on planning against it.
+
+### What was wrong
+
+The four override boxes were **substituted into a plan already worked out
+without them**. `allocateIncome()` ran on the pay-in, and `currentAllocation()`
+then swapped the typed figure in for whichever line it belonged to. Nothing
+afterwards checked the result against the money that came in: the only clamp
+was on living money, `Math.max(0, amt − …)`, which floors the last line at zero
+and silently swallows the fact that the lines above it have already overspent
+the week. Everything downstream — the "Where it goes" list, the transfer
+instructions, the pot credits on Allocate, the history entry — took the
+overspend at face value.
+
+The same substitution got the other direction wrong too, quietly. A typed
+figure *smaller* than the automatic one left the money it freed stranded: the
+lines below had been computed as though the bigger figure was still being paid,
+so the difference fell through to living money instead of reaching the buffer,
+savings or the other pot.
+
+### What it does now
+
+The overrides go **into** the waterfall rather than on top of it —
+`allocateIncome(amt, pins)`:
+
+```
+0.  pot loans     ← owed back, never overridable
+0b. the pins      ← what was typed, in waterfall order, out of what is left
+1.  this month    ← skipped for a pinned pot; its pin counts as that pot's credit
+2.  the buffer    ← skipped if pinned
+3.  savings       ← skipped if pinned
+4.  the sweep     ← a pinned pot is not swept into
+5.  living money  ← whatever is genuinely left
+```
+
+Three things follow from that, and each is a check in the suite:
+
+- **A pay-in can only ever hand out what came in.** A pin is clamped to what
+  the week has left, so the screenshot's £182.08 becomes the £23.35 that
+  actually exists, and repaid + allocated + kept is exactly £325.64.
+- **What can't be funded is said out loud**, not conjured: the modal shows
+  "£158.73 more than this pay-in has — trimmed to fit. £302.29 goes back to
+  your pots first, so there is £23.35 to share out." Two pins over budget are
+  trimmed from the bottom of the waterfall up, so this month's pots keep what
+  was asked of them before savings does.
+- **A pin is that line's whole share**, so the steps it displaces get their
+  turn: hold the buffer back and savings still takes its percentage and the
+  rest reaches living money; hold one pot back and the other pot's commitments
+  get funded further. A pinned pot also counts toward this month's credit, so
+  the account is not funded twice, and the sweep leaves it alone rather than
+  topping it up behind the user's back.
+
+The repayment is still not overridable — it is owed to a pot the plan has
+already counted as whole (Feature 18) — so the four boxes share out only what
+is left after it.
+
+### The minimums note
+
+`⚠ Still £633.74 short of this cycle's minimums after this` was reading off
+`auto.dueBiz`/`auto.duePer`: the automatic step alone, ignoring both the
+override and the £302.29 going back into the spending pots. It answered for an
+allocation that wasn't being made. It now counts **everything that lands in
+each pot** — the repayment into it, the sweep, and whatever figure was typed
+over the app's own — which is what makes it move when the week is adjusted,
+which is the entire point of adjusting it.
+
+### Tests
+
+**`npm run test:manual-allocation`** (`scripts/test-manual-allocation.js`, 48
+checks): the screenshot's week conserving under every combination of the four
+boxes, trimming with the shortfall reported and the modal warning it, the
+waterfall order when two pins are over budget, a smaller pin flowing on down
+the steps below it, a pinned pot neither double-funded nor swept into, the
+repayment surviving four pins asking for everything, Allocate committing the
+trimmed figures into real pot balances, the minimums note answering for the
+allocation actually being made, a typed buffer splitting across both jars, and
+— line by line — an allocation with nothing typed being untouched.
+`test:borrowing` 41, `test:extra-payments` 50, `test:custom-payments` 46,
+`test:minimums` 47, `test:arrears` 29 and `test:buffer` 51 green alongside.
+
+---
+
+## Feature 20 — The pot the money is actually needed in — BUILT (v2.65.0)
+
+Two things asked for together.
+
+### 1. Fill the pot whose bill lands first
+
+*"The pots need to fill up to cover the bills due soonest. No point adding
+more to the personal pot if the business pot has a bill due."*
+
+Minimums were already funded that way: `commitmentQueue()` walks this cycle's
+payments in `paymentPriority` order — arrears first, then earliest due — and
+funds each one from whichever account it belongs to. The **top-up toward
+targets** was not. It took the sweep and divided it between the two pots **in
+proportion to what each was short of its cycle total**, which ignores the
+calendar completely: a business bill due on the 3rd and a personal one due on
+the 28th filled at the same rate, and a week's money went into the personal pot
+while the business pot was still short for a bill that lands three weeks
+earlier.
+
+The sweep now walks a queue of its own, `targetQueue()` — what each payment
+still wants **on top of** its contractual minimum (the minimum having been
+funded by step 1 already), in exactly the same order — and fills the pot each
+one is paid from, stopping at what that payment actually wants. So the pots
+fill in the order the bills arrive, and a pot is never topped up past the bill
+it is being kept for while another bill goes short.
+
+In the snowball phase this changes nothing by construction: the plan aims its
+whole discretionary spend at one debt, so only that debt's account ever wants
+money above its minimums and there is nothing for an ordering rule to choose
+between. It bites during **arrears catch-up**, where several debts across both
+accounts want money at once — which is the whole of the current plan.
+
+**A sweep bigger than every bill this cycle is still swept into a pot**, not
+kept back. That is not an oversight: a pot with money left once the checklist
+is done is exactly what the surplus button sends at the current target, and
+clearing a debt early is the point of the plan. But that button can only spend
+the pot the target debt is paid from (`applySurplus()` reads `bizPot` or
+`perPot` by the target's account), so a surplus in the *other* pot is money the
+plan cannot reach. It now goes to the account of the debt the plan is currently
+clearing, and only failing that (no target left at all) is it divided by the
+size of each account's cycle.
+
+### 2. Correcting a pot by hand settles what was borrowed from it
+
+*"Should manually adjusting the pot totals adjust any money owed to the pot?"*
+— yes, when the pot is being **raised** and something is owed to it.
+
+Putting money back into a pot by hand is the same act a pay-in performs when it
+repays a pot loan (Feature 18): the money is in the pot again. Nothing
+connected the two, so raising a pot you had borrowed from left the loan open
+and **the next pay-in took the same money off the top a second time** — the pot
+ended up holding twice what was borrowed, living money paid for it twice, and
+nothing on screen said so.
+
+It is **asked, not assumed**, because a correction and a repayment look
+identical in the balance and mean opposite things: the figure might be going up
+because you moved the money back, or because the app's number was wrong all
+along and the borrowing is still owed. Both hand-edit modals — **Adjust pot
+balances** (business, personal, both buffer jars) and **Adjust savings
+balance** — now show what is owed to any pot being edited, offer *I moved it
+back* / *Just a correction*, and say in a line underneath exactly what saving
+will do. The default counts it, because that is the reading where getting it
+wrong is silent.
+
+What it settles is the **rise only**, capped at what is owed, oldest borrowing
+first, and only against the pot that was raised (`potRepayPlan(amt, pot)`).
+The loans are marked without moving any money — `applyPotRepay(plan, 1, false)`
+— because the money is already in the balance the user typed; moving it again
+would put it in twice, which is the bug in the other direction. **Lowering** a
+pot settles nothing and records no new borrowing: money leaving a pot by hand
+is not a loan the app has any record of, and inventing one would be worse than
+leaving the correction as what it says it is.
+
+### Tests
+
+**`npm run test:pot-priority`** (`scripts/test-pot-priority.js`, 30 checks):
+the queue ordered by due date and flipping when the dates swap, minimums still
+funded first across both accounts, a pot not topped up past its own payment,
+the surplus landing in the pot the current target is paid from, arrears still
+ahead of a nearer due date, and — for the hand edits — a raise settling the
+borrowing so the next pay-in has nothing left to put back, the money not landing
+twice, "just a correction" leaving it owed, a partial raise settling part, a
+raise past what is owed settling only what is owed, lowering settling nothing,
+one pot's correction not touching another's loans, the savings modal behaving
+the same, and a plain balance correction with nothing borrowed being untouched.
+`test:manual-allocation` 48, `test:borrowing` 41, `test:extra-payments` 50,
+`test:custom-payments` 46, `test:minimums` 47, `test:arrears` 29 and
+`test:buffer` 51 green alongside.
