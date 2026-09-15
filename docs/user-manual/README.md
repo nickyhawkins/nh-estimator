@@ -210,7 +210,7 @@ The rest of the measuring cards follow in the order you'd meet them moving round
 - **Feature Wall** — one wall in a different finish: paint, or wallpaper (standard, wide vinyl or mural).
 - **Wallpaper** — lining and finish paper for walls or ceiling, priced per roll with an automatic **rolls-to-order** count, plus a free-text note for the paper itself. Covered in detail in [Wallpaper](#wallpaper--rolls-to-order) below.
 - **Excluded Walls** — walls you're *not* painting (a tiled wall, wallpaper that's staying). Add its width × height and it's deducted.
-- **Panelling** — wall panelling by area with its own coats (up to 4), prep and colour, independent of the room's own settings.
+- **Panelling** — wall panelling by area with its own coats (up to 4), prep and colour, independent of the room's own settings. Leave a wall's **−m²** chip on when the panelling sits on the room's own walls: its area comes off the painted walls *and* the wallpapered walls, so you can paper a room and paint its panelling without paying for either twice. For half-height panelling enter just the panelled part — the wall above keeps its paint or paper.
 - **Mist Coat** — for fresh plaster; tick walls and/or ceiling, with a manual area override for "only part of it is new plaster".
 
 #### Decide the scheme
@@ -289,6 +289,7 @@ Two things worth knowing:
 
 - The rolls figure is a **buying guide, not a charge** — the labour feeds the quote; the client buys the paper — and the app deliberately doesn't supply it.
 - On a staircase/HSL room, wallpaper labour automatically picks up the **staircase multiplier**. Ceilings get their own multiplier the same way.
+- **Panelling comes off the paper.** Any Panelling wall with its **−m²** chip on is taken out of the wall paper: a full-height panelled wall loses its drops altogether, and half-height panelling (wainscoting) leaves shorter drops above it, which the count cuts from the offcuts left on your rolls. Turn the chip off for panelling that isn't on the papered walls (a bath panel, boxing-in). Staircase rooms don't do this yet — their paper is still worked out from the full stair walls.
 
 Besides the standard roll calculation above, two other wallpaper types are available (feature wall only, under Rates → Wallpaper Rates for pricing): **Wide Vinyl** (commercial 137 cm material, priced per metre/area) and **Mural** (printed to the wall size, priced per m² or a flat fee).
 
@@ -919,6 +920,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.66.1. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.66.2. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
