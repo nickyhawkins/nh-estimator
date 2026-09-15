@@ -13,15 +13,19 @@
 //
 // So a manual On Site row now carries the same chip. What is held here:
 //
-//   1. The chip is on manually-added rows and NOT on estimate-pulled ones --
-//      those already have it on Summary, where their snapshot line lives.
+//   1. EVERY materials row on the screen has the chip -- the ones added by
+//      hand and the ones pulled from the quote alike. This is the screen you
+//      are standing in the room with, and an un-ticked quoted tin is just as
+//      much a thing to pick up as a sundry the estimate missed.
 //   2. A tap puts one line on the list carrying the row's description, its
 //      item code, its price and the job's NAME as a tag, so the list says
 //      why the tin is there.
 //   3. The chip flips to "✓ On list" WITHOUT re-rendering the screen, so a
 //      half-typed entry in the add form below it survives the tap.
 //   4. A row with no real price goes on with no price rather than £0.00,
-//      which at a till reads as free.
+//      which at a till reads as free -- and neither does a PER-LITRE row,
+//      whose unit amount is a price per litre rather than the price of a
+//      thing you can pick up. That rule only reaches estimate-pulled rows.
 //   5. Tapping twice does not duplicate, and the chip reads "✓ On list" from
 //      the real list state on the next render.
 //   6. Re-adding something already ticked off un-ticks it -- a fresh need for
@@ -31,8 +35,9 @@
 //      names, not two lines.
 //   8. A coded row matches on code and a free-text one on name; neither is
 //      mistaken for the other.
-//   9. An estimate row's key does nothing if it reaches the handler -- the
-//      guard, so the two halves of the screen cannot cross.
+//   9. The same product tapped here and on Summary is ONE line: both entry
+//      points funnel through shopListAdd, so they cannot disagree about what
+//      is already on the list. A key matching no row does nothing.
 //  10. A row already ticked as bought keeps its chip: "bought" means bought
 //      once, and running out of it is exactly a shopping-list event.
 //
@@ -108,7 +113,9 @@ const SEED = () => {
   activeJobId = 'j1';
   colours = [{ number: 1, name: 'White' }];
   materialsSnapshot = [
-    { id: 'l1', itemCode: 'PAINT1', description: 'Dulux WS Gloss & UC 5ltr', quantity: 2, unitAmount: 78.07, isPerLitre: false, colourNumber: 1 }
+    { id: 'l1', itemCode: 'PAINT1', description: 'Dulux WS Gloss & UC 5ltr', quantity: 2, unitAmount: 78.07, isPerLitre: false, colourNumber: 1 },
+    // Sold by the litre, so its unitAmount is £/litre -- never a till price.
+    { id: 'l2', itemCode: 'PAINT2', description: 'Trade Vinyl Matt — White', quantity: 7.5, unitAmount: 6.2, isPerLitre: true, colourNumber: 1 }
   ];
   materialActuals = [
     { id: 'a1', itemCode: null, description: 'Extra roller sleeves', actualQuantity: 3, unitAmount: 4.5, bought: false, colourNumber: null },
@@ -150,9 +157,12 @@ const SEED = () => {
     ({ name: i.name, code: i.code, price: i.price, ticked: i.ticked, jobTags: i.jobTags || [] })));
 
   // ── 1. Who gets a chip ───────────────────────────────────────────────────
-  eq('1. the estimate-pulled row has no chip', await chip('Dulux WS Gloss & UC 5ltr'), null);
+  eq('1. an estimate-pulled row has one', await chip('Dulux WS Gloss & UC 5ltr'), '🛒 Add to list');
   eq('1. a manually-added free-text row has one', await chip('Extra roller sleeves'), '🛒 Add to list');
   eq('1. a manually-added coded row has one', await chip('Masking tape 50m'), '🛒 Add to list');
+  eq('1. every row on the screen has one, none missed',
+    await page.evaluate(() => [actualsRowsCache.length,
+      document.querySelectorAll('[id^=act-shop-]').length]), [5, 5]);
 
   // ── 2/3. A tap, and what it disturbs ─────────────────────────────────────
   await page.evaluate(() => { document.getElementById('act-add-desc').value = 'half typed'; });
@@ -169,10 +179,15 @@ const SEED = () => {
   eq('8. a coded row goes on with its item code',
     (await list()).find(i => i.name === 'Masking tape 50m'), { name: 'Masking tape 50m', code: 'SUN123', price: 3.2, ticked: false, jobTags: ['Test Job'] });
 
-  // ── 4. No price is better than £0.00 ─────────────────────────────────────
+  // ── 4. No price is better than a wrong one ───────────────────────────────
   await tap('Dust sheets');
   eq('4. a row with no price typed goes on WITHOUT a price',
     ((await list()).find(i => i.name === 'Dust sheets') || { price: 'not on the list' }).price, null);
+  await tap('Trade Vinyl Matt — White');
+  eq('4. a per-litre row goes on WITHOUT its per-litre price',
+    ((await list()).find(i => i.code === 'PAINT2') || { price: 'not on the list' }).price, null);
+  eq('4. but it does go on, with its code and the job tag',
+    ((await list()).find(i => i.code === 'PAINT2') || {}).jobTags, ['Test Job']);
 
   // ── 5. Twice is once ─────────────────────────────────────────────────────
   await tap('Extra roller sleeves');
@@ -193,7 +208,8 @@ const SEED = () => {
   eq('6. re-adding un-ticks it rather than adding a second line', await list(), [
     { name: 'Extra roller sleeves', code: '', price: 4.5, ticked: false, jobTags: ['Test Job'] },
     { name: 'Masking tape 50m', code: 'SUN123', price: 3.2, ticked: false, jobTags: ['Test Job'] },
-    { name: 'Dust sheets', code: '', price: null, ticked: false, jobTags: ['Test Job'] }
+    { name: 'Dust sheets', code: '', price: null, ticked: false, jobTags: ['Test Job'] },
+    { name: 'Trade Vinyl Matt — White', code: 'PAINT2', price: null, ticked: false, jobTags: ['Test Job'] }
   ]);
 
   // ── 7. Two jobs, one line ────────────────────────────────────────────────
@@ -208,16 +224,27 @@ const SEED = () => {
   eq('7. and adding gives one line carrying both job names',
     (await list()).filter(i => i.code === 'SUN123').map(i => i.jobTags), [['Test Job', 'Second Job']]);
 
-  // ── 9/10. The guard, and a bought row ────────────────────────────────────
+  // ── 9/10. Agreeing with Summary, and a bought row ────────────────────────
   await page.evaluate(SEED);
   await page.evaluate(() => { shopList = []; renderActuals(); });
-  const guarded = await page.evaluate(() => {
+  // Summary's own chip on the SAME product, tapped first. The two entry
+  // points must land on one line, and this screen must then read it as
+  // already on the list -- otherwise the same tin gets bought twice.
+  const crossed = await page.evaluate(() => {
     if (typeof addActualToShopList !== 'function') return 'addActualToShopList() is missing';
-    addActualToShopList('code:PAINT1');          // the estimate row's key
-    addActualToShopList('desc:nothing like this');
-    return shopList.length;
+    addMaterialToShopList('l1');                 // Summary's snapshot line id
+    addActualToShopList('code:PAINT1');          // the same product, here
+    return shopList.filter(i => i.code === 'PAINT1').length;
   });
-  eq('9. an estimate row\'s key adds nothing', guarded, 0);
+  eq('9. tapped on Summary and here, it is ONE line', crossed, 1);
+  await page.evaluate(() => renderActuals());
+  eq('9. and this screen reads Summary\'s add as already on the list',
+    await chip('Dulux WS Gloss & UC 5ltr'), '✓ On list');
+  eq('9. a key matching no row does nothing', await page.evaluate(() => {
+    const before = shopList.length;
+    addActualToShopList('desc:nothing like this');
+    return shopList.length - before;
+  }), 0);
 
   await page.evaluate(() => {
     materialActuals[0].bought = true;
@@ -225,7 +252,8 @@ const SEED = () => {
   });
   eq('10. a row ticked as bought keeps its chip', await chip('Extra roller sleeves'), '🛒 Add to list');
   await tap('Extra roller sleeves');
-  eq('10. and can still be put back on the list', (await list()).map(i => i.name), ['Extra roller sleeves']);
+  check('10. and can still be put back on the list',
+    (await list()).some(i => i.name === 'Extra roller sleeves' && !i.ticked), await list());
 
   check('no page errors', errors.length === 0, errors);
 

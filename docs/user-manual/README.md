@@ -402,7 +402,7 @@ Tap the **+** on a result to add it straight to your Shopping List.
 
 ![Shopping List screen](images/18-shoplist.png)
 
-Items arrive from Price Lookup, or type one straight in ("masking tape") for anything that isn't a Xero item. They can also come off a job: tap **🛒 Add to list** on a materials row on **Summary**, or on a material you added yourself on **On Site** — see [Putting what you added on the shopping list](#putting-what-you-added-on-the-shopping-list). Tick items off as you buy them and **Clear ticked** to reset for next time; items added from a job's materials carry that job's name as a tag, so the list says why something's on it.
+Items arrive from Price Lookup, or type one straight in ("masking tape") for anything that isn't a Xero item. They can also come off a job: tap **🛒 Add to list** on any materials row on **On Site**, or on a materials row on **Summary** — see [Putting materials on the shopping list](#putting-materials-on-the-shopping-list). Tick items off as you buy them and **Clear ticked** to reset for next time; items added from a job's materials carry that job's name as a tag, so the list says why something's on it.
 
 ---
 
@@ -653,19 +653,19 @@ Once a job is accepted, the **🛠 On Site** tab is your day-to-day companion:
 
 - **Estimated vs Actual** — the card at the top tracks what the materials are really costing against what you quoted, with the variance.
 - **Time on Site** — tap **+ Log today (full day)** at the end of each day (or *Log a different day* to back-fill). This builds the true labour record for the job.
-- **Materials** — the quote's materials list becomes a shopping list. Tick items off as you buy them, and correct quantities/prices to what you actually paid — see [Materials & Undo](#materials--undo) for how edits and Recalculate interact, and Undo if something goes wrong.
-- **Add material the estimate missed** — extra sundries or a forgotten tin: search the product, set the price, done. Anything you add here can go straight onto your **Shopping List** — see below.
+- **Materials** — the quote's materials list becomes a shopping list. Tick items off as you buy them, and correct quantities/prices to what you actually paid — see [Materials & Undo](#materials--undo) for how edits and Recalculate interact, and Undo if something goes wrong. Any row here can also go on your **Shopping List** — see below.
+- **Add material the estimate missed** — extra sundries or a forgotten tin: search the product, set the price, done.
 - **Variations** — the client asks for "just one more room" mid-job? Add the room (or exterior item, fitted unit) on Measure and flick its **Variation** toggle. It's priced with the same engine but kept separate from the accepted quote, and appears in its own Variations card here. Each variation carries a status — tap **✓ Approved by client** to record their yes (with an optional note; the date is stamped automatically), or mark one Declined to drop it from the totals and the final invoice while keeping the record. Anything still Pending gets called out before the final invoice will let it through.
 - **Snags** — the punch list for the job, above everything else once there's something on it. See below.
 - **Invoice ›** (top right) shows the materials list formatted for invoicing, with a **Copy** button.
 
-#### Putting what you added on the shopping list
+#### Putting materials on the shopping list
 
-A material you add here is usually one you still have to go and buy. Every row you added yourself — the ones tagged **not quoted** — carries a **🛒 Add to list** chip; tap it and the product goes on your [Shopping List](#8-price-lookup--shopping-list) with its price and this job's name, and the chip changes to **✓ On list**:
+This is the screen you have open standing in the room, so it's the one that answers *"do I still need to buy this?"* — and every materials row carries a **🛒 Add to list** chip, the quoted tins as well as the sundries you added yourself. Tap it and the product goes on your [Shopping List](#8-price-lookup--shopping-list) with its price and this job's name, and the chip changes to **✓ On list**:
 
-![Adding an On Site material to the shopping list](images/10g-onsite-shoplist.png)
+![Adding On Site materials to the shopping list](images/10g-onsite-shoplist.png)
 
-It's per row and never automatic — plenty of what you add here is already in the van. Rows that came from the quote don't have the chip because they already have one on Summary's materials list, and either route lands on the same list: one line per product, no duplicates, and both job names on it if two jobs need the same thing. Ticked something off in the shop and then ran out? Tap the chip again and it goes back on the list.
+It's per row and never automatic — plenty of what's on a job is already in the van. Summary's materials list has the same chip on the quoted lines, and either route lands on the same list: one line per product, no duplicates however many times you tap, and both job names on it if two jobs need the same thing. Paint sold by the litre goes on **without a price**, because the figure on the row is a price per litre, not what a tin costs at the till. Ticked something off in the shop and then ran out? Tap the chip again and it goes back on the list.
 
 ### Snags — the punch list
 

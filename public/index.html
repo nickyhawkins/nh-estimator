@@ -14861,34 +14861,33 @@ function renderActuals() {
       ? '<span style="font-size:11px;font-weight:600;color:var(--danger);background:var(--danger-soft-bg);border-radius:10px;padding:2px 8px;margin-left:6px">not quoted</span>'
       : (variance ? '<span style="font-size:11px;font-weight:600;color:var(--text2);background:var(--surface2);border-radius:10px;padding:2px 8px;margin-left:6px">est '+(Math.round(r.estimated*100)/100)+'</span>' : '');
 
-    // Opt-in add to the (global) shopping list, on manually-added rows only.
-    // An estimate row already has this chip on Summary's materials card,
-    // where its snapshot line lives; a row added HERE exists nowhere else, so
-    // this screen was the one place a material could be logged with no route
-    // to the list at all -- you'd note the extra tin you need standing in the
-    // room, then have to remember it again at the merchant's.
-    // Same chip, same words, same dedupe as Summary's (both funnel through
-    // shopListAdd via addActualToShopList / addMaterialToShopList), so the
-    // two entry points can't drift apart. Opt-in per row for the reason the
-    // Summary one is: plenty of what you add here is already in the van.
-    // Left on a bought row deliberately -- "bought" means bought once, and
-    // running out of it is exactly a shopping-list event.
+    // Opt-in add to the (global) shopping list, on EVERY row. This screen is
+    // the one you are standing in the room with, so it is the one that has to
+    // answer "do I need to buy this?" for the whole job -- a material added
+    // here exists nowhere else at all (it is an actual, never a snapshot
+    // line, so it never reaches Summary), and a quoted tin you haven't ticked
+    // off yet is just as much a thing to pick up. Summary's materials card
+    // keeps its own chip on the estimate lines; both funnel through
+    // shopListAdd, match a product the same way and therefore agree about
+    // what is on the list, so the same tin tapped on either screen is one
+    // line, not two.
+    // Opt-in per row for the reason the Summary one is: plenty of what is on
+    // this list is already in the van. Left on a bought row deliberately --
+    // "bought" means bought once, and running out of it is exactly a
+    // shopping-list event.
     // The id is keyed on the render index, not r.key: that key carries the
     // free-text description, which can hold spaces and is no use in an id.
-    var shopTag = '';
-    if (!r.onEstimate) {
-      var jobNameForTag = (activeJob() && activeJob().name) || '';
-      // Best-effort read-only state: shopList may simply not have been
-      // fetched yet this session, in which case the chip reads "Add to list"
-      // and tapping it is a harmless re-add (shopListAdd dedupes).
-      var onShopList = shopList !== null && shopList.some(function(i) {
-        return !i.ticked
-          && (r.itemCode ? i.code === r.itemCode : !i.code && i.name.trim().toLowerCase() === r.description.trim().toLowerCase())
-          && (!jobNameForTag || (i.jobTags || []).indexOf(jobNameForTag) !== -1);
-      });
-      shopTag = '<div class="mat-chargeable-tag'+(onShopList?' on':'')+'" id="act-shop-'+ri+'"'
-        + ' onclick="addActualToShopList(\''+escapeHtml(r.key)+'\')">'+(onShopList?'✓ On list':'🛒 Add to list')+'</div>';
-    }
+    var jobNameForTag = (activeJob() && activeJob().name) || '';
+    // Best-effort read-only state: shopList may simply not have been fetched
+    // yet this session, in which case the chip reads "Add to list" and
+    // tapping it is a harmless re-add (shopListAdd dedupes).
+    var onShopList = shopList !== null && shopList.some(function(i) {
+      return !i.ticked
+        && (r.itemCode ? i.code === r.itemCode : !i.code && i.name.trim().toLowerCase() === r.description.trim().toLowerCase())
+        && (!jobNameForTag || (i.jobTags || []).indexOf(jobNameForTag) !== -1);
+    });
+    var shopTag = '<div class="mat-chargeable-tag'+(onShopList?' on':'')+'" id="act-shop-'+ri+'"'
+      + ' onclick="addActualToShopList(\''+escapeHtml(r.key)+'\')">'+(onShopList?'✓ On list':'🛒 Add to list')+'</div>';
 
     // Editing (description/colour/price) only makes sense for rows added
     // manually on this screen: an estimate-pulled row is one PRODUCT that
@@ -16663,28 +16662,31 @@ function addMaterialToShopList(lineId) {
   });
 }
 
-// "Add to list" on a manually-added On Site row -- the twin of
-// addMaterialToShopList above, for the materials that only ever exist on
-// this screen. Everything meaningful is shared: shopListAdd does the dedupe
-// (one line per product, ticked copies un-ticked, job tags appended), and
-// the job's NAME is snapshotted onto the row so the list still says why the
-// tin is there after a rename or a delete.
+// "Add to list" on an On Site materials row, whichever half of the screen it
+// came from -- the twin of addMaterialToShopList above, which does the same
+// job for Summary's estimate lines. Everything meaningful is shared:
+// shopListAdd does the dedupe (one line per product, ticked copies un-ticked,
+// job tags appended), and the job's NAME is snapshotted onto the row so the
+// list still says why the tin is there after a rename or a delete. A product
+// tapped on both screens is therefore one line, not two.
 //
-// Two differences from the Summary twin, both because this is the actuals
-// side rather than the estimate:
-//   · the price is materialPriceFor()'s, i.e. exactly the figure this row is
-//     already showing -- which for a manual row is normally the price typed
-//     into "Unit price" ("change it if the shop price has moved"), the most
-//     current price anyone has. A row left at 0 goes on with NO price rather
-//     than £0.00, which would read at the till as free.
-//   · no per-litre case to dodge: buildActualsView() gives every manual row
-//     isPerLitre false, so unitAmount here is a price per THING, never per
-//     litre.
+// The price differs from the Summary twin, because this is the actuals side:
+// materialPriceFor() is exactly the figure the row is already showing, which
+// on a manually-added row is normally the price typed into "Unit price"
+// ("change it if the shop price has moved") -- the most current price anyone
+// has. A row with no real price goes on with NO price rather than £0.00,
+// which would read at the till as free.
+//
+// The per-litre rule is the Summary twin's, verbatim, and it matters here
+// only for estimate-pulled rows: their unitAmount is per LITRE, not the till
+// price of anything, and a wrong figure at the till is worse than none. A
+// manually-added row can't hit it -- buildActualsView() gives every one of
+// them isPerLitre false.
 function addActualToShopList(key) {
   var row = actualsRowsCache.find(function(r) { return r.key === key; });
-  if (!row || row.onEstimate) return;
+  if (!row) return;
   var jobName = (activeJob() && activeJob().name) || '';
-  var price = materialPriceFor({ itemCode: row.itemCode, unitAmount: row.unitAmount });
+  var price = row.isPerLitre ? 0 : materialPriceFor({ itemCode: row.itemCode, unitAmount: row.unitAmount });
   withShopList(function() {
     shopListAdd(row.description, row.itemCode || '', price > 0 ? price : null, jobName);
     // Patch the chip rather than re-rendering: a tap here must not disturb a
