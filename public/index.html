@@ -2269,7 +2269,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.67.0</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.67.1</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -3954,6 +3954,23 @@ function currentInvoiceText() {
   return renderJobTemplate('invoice');
 }
 
+// Saved text is not the same thing as hand-edited text. The stamp-on-send
+// above also fills job.quoteText, and reading that as an edit switched the
+// per-room scope lines off on the NEXT send — so updating a quote turned
+// every later room into a bare "same as above". quoteTextEdited /
+// invoiceTextEdited record the real thing: true from a typed edit, false
+// once a send stamps untouched template text, null after a reset. Jobs
+// stamped before the flag existed have neither; for those, text that still
+// matches a fresh render can't have been typed by hand.
+function templateTextHandEdited(mode) {
+  var job = activeJob();
+  var text = job && (mode === 'quote' ? job.quoteText : job.invoiceText);
+  if (text == null) return false;
+  var flag = mode === 'quote' ? job.quoteTextEdited : job.invoiceTextEdited;
+  if (flag != null) return !!flag;
+  return text.trim() !== (renderJobTemplate(mode) || '').trim();
+}
+
 // ── Template card on the Summary quote panel ───────────────────────────────
 function populateTemplateCard() {
   var sel = document.getElementById('xero-template-select');
@@ -3979,7 +3996,7 @@ function updateTemplateCardNote() {
   var leftovers = unresolvedTemplateTokens(ta.value);
   // The note tracks the actual behaviour: once the text is hand-edited the
   // app stops generating per-room scope lines, so it stops promising them.
-  var msg = (activeJob() && activeJob().quoteText != null)
+  var msg = templateTextHandEdited('quote')
     ? 'Goes on the first line of the quote — the other lines read \u201Csame as above\u201D.'
     : 'Describes the first line of the quote \u2014 that room. Each other room states its own scope, or reads \u201Csame as above\u201D where it matches this one. Editing this text turns those off.';
   if (leftovers.length) msg += ' <span style="color:var(--warn);font-weight:600">Unfilled: ' + escapeHtml(leftovers.join(' ')) + '</span>';
@@ -3998,6 +4015,8 @@ function onTemplatePick(id) {
   job.templateId = id;
   job.quoteText = null;
   job.invoiceText = null;
+  job.quoteTextEdited = null;
+  job.invoiceTextEdited = null;
   persistJobData(job);
   populateTemplateCard();
 }
@@ -4007,6 +4026,7 @@ function onQuoteTextChange() {
   var ta = document.getElementById('xero-template-text');
   if (!job || !ta) return;
   job.quoteText = ta.value;
+  job.quoteTextEdited = true;
   // Stamp the suggestion too — an edit is a commitment to this template.
   if (!job.templateId) job.templateId = effectiveTemplateId();
   persistJobData(job);
@@ -4018,6 +4038,7 @@ function resetQuoteText() {
   if (!job) return;
   if (!confirm('Reset the quote text to the template? Your edits to it will be lost.')) return;
   job.quoteText = null;
+  job.quoteTextEdited = null;
   persistJobData(job);
   populateTemplateCard();
 }
@@ -5001,7 +5022,7 @@ async function createXeroQuote(forceNew) {
       // the app stops generating scope lines entirely (the block is then
       // Nicky's wording, not the template's, and a generated sentence
       // underneath it would be text he didn't write and can't edit).
-      var handEdited = !!(activeJob() && activeJob().quoteText != null);
+      var handEdited = templateTextHandEdited('quote');
       // Same order the server pushes lines: rooms → exterior → kitchen →
       // fitted units (per named unit). Custom line items are deliberately
       // NOT in the chain — a custom item's description IS its own text.
@@ -5176,6 +5197,8 @@ async function createXeroQuote(forceNew) {
         if (quoteBlock) {
           if (!quoteJob.templateId) quoteJob.templateId = effectiveTemplateId();
           quoteJob.quoteText = quoteBlock;
+          // A send is not an edit — see templateTextHandEdited().
+          quoteJob.quoteTextEdited = handEdited;
         }
         localStorage.setItem('pe-jobs', JSON.stringify(jobs));
         persistJobData(quoteJob);
@@ -6078,7 +6101,8 @@ function persistJobData(job) {
   // semantics (the whole job blob is sent every time).
   // NB `standalone` is v2.4.2's fix (the toggle never persisted without
   // it) — it must stay in this list. templateId/quoteText/invoiceText are
-  // the text-templates trio (TEXT_TEMPLATES_SPEC.md) — same deal.
+  // the text-templates trio (TEXT_TEMPLATES_SPEC.md) — same deal, and so are
+  // quoteTextEdited/invoiceTextEdited (see templateTextHandEdited).
   // fittedUnit: the jobs PUT MERGES data (jsonb ||), so once a job has
   // migrated to the fittedUnits list the legacy single-object key is
   // explicitly nulled — otherwise the server copy would keep the old
@@ -6095,7 +6119,7 @@ function persistJobData(job) {
   // (jobRequiresDeposit) — same "must be in this list or it never persists"
   // rule as `standalone`. Written as an explicit boolean, never omitted:
   // absent means "predates the toggle", which reads as deposit required.
-  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, deposit: job.deposit, notes: job.notes, kitchen: job.kitchen, fittedUnits: job.fittedUnits, fittedUnit: Array.isArray(job.fittedUnits) ? null : job.fittedUnit, customItems: job.customItems, isXeroImported: !!job.isXeroImported, honouredLabourAmount: job.honouredLabourAmount != null ? job.honouredLabourAmount : null, depositRequired: job.depositRequired !== false, upchargeTotal: job.upchargeTotal != null ? job.upchargeTotal : null, roundingDelta: job.roundingDelta != null ? job.roundingDelta : null });
+  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, quoteTextEdited: job.quoteTextEdited != null ? job.quoteTextEdited : null, invoiceTextEdited: job.invoiceTextEdited != null ? job.invoiceTextEdited : null, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, deposit: job.deposit, notes: job.notes, kitchen: job.kitchen, fittedUnits: job.fittedUnits, fittedUnit: Array.isArray(job.fittedUnits) ? null : job.fittedUnit, customItems: job.customItems, isXeroImported: !!job.isXeroImported, honouredLabourAmount: job.honouredLabourAmount != null ? job.honouredLabourAmount : null, depositRequired: job.depositRequired !== false, upchargeTotal: job.upchargeTotal != null ? job.upchargeTotal : null, roundingDelta: job.roundingDelta != null ? job.roundingDelta : null });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -15808,7 +15832,7 @@ function toggleFinalInvLine(section, id) {
 // edited/stamp-on-create semantics as the quote text.
 function invoiceDescNoteText(text) {
   var leftovers = unresolvedTemplateTokens(text);
-  var msg = (activeJob() && activeJob().invoiceText != null)
+  var msg = templateTextHandEdited('invoice')
     ? 'Goes on the first labour line — the other labour lines read “same as above”.'
     : 'Describes the first labour line. Each other line states its own scope, or reads “same as above” where it matches this one. Editing this text turns those off.';
   if (leftovers.length) msg += ' <span style="color:var(--warn);font-weight:600">Unfilled: ' + escapeHtml(leftovers.join(' ')) + '</span>';
@@ -15823,13 +15847,14 @@ function onInvoiceTextInput(value) {
 function onInvoiceTextChange(value) {
   var job = activeJob();
   if (finalInvState) finalInvState.invoiceText = value;
-  if (job) { job.invoiceText = value; persistJobData(job); }
+  if (job) { job.invoiceText = value; job.invoiceTextEdited = true; persistJobData(job); }
 }
 function resetInvoiceText() {
   var job = activeJob();
   if (!job) return;
   if (!confirm('Reset the invoice text to the template? Your edits to it will be lost.')) return;
   job.invoiceText = null;
+  job.invoiceTextEdited = null;
   persistJobData(job);
   if (finalInvState) finalInvState.invoiceText = currentInvoiceText();
   renderFinalInvoice();
@@ -15966,7 +15991,7 @@ async function createFinalInvoice() {
   // Mirrors the quote's rule exactly (see createXeroQuote): a later room
   // line carries its own scope unless that matches the block's sentence, and
   // nothing is generated at all once the invoice text has been hand-edited.
-  var invHandEdited = !!(activeJob() && activeJob().invoiceText != null);
+  var invHandEdited = templateTextHandEdited('invoice');
   // Mirrors the quote exactly: the block describes the line it sits on, so
   // "same as above" means same as THAT line. The baseline is the first
   // labour line's own scope -- whatever kind of line that is -- and a line
@@ -16036,7 +16061,7 @@ async function createFinalInvoice() {
     job.xeroInvoiceNumber = result.invoiceNumber || null;
     // Same stamp-on-send rule as the quote text: the created invoice is
     // history, its wording stops tracking the template/rooms from here.
-    if (invBlock) job.invoiceText = invBlock;
+    if (invBlock) { job.invoiceText = invBlock; job.invoiceTextEdited = invHandEdited; }
     // The invoice's gross total is the revenue side of the profitability
     // card (Summary, once Invoiced) — recorded here because Xero is never
     // read back for it (deliberate later-scope, same as the deductions).

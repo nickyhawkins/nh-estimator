@@ -540,7 +540,9 @@ to template** goes back). **Editing it also turns the per-room lines off** — o
 the wording is yours, the app stops adding sentences underneath it that you
 didn't write and can't edit; every other line goes back to "same as above".
 Sending stamps the exact wording onto the quote, so a document you've already
-sent never changes underneath you.
+sent never changes underneath you. Sending doesn't count as editing, though —
+**Update quote in Xero** keeps each room's own lines exactly as the first send
+wrote them.
 
 **Exterior items get the same treatment**, from what you measured on them —
 render (textured or not), fascias and soffits, windows, sash windows, doors,
@@ -924,6 +926,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.67.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.67.1. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
