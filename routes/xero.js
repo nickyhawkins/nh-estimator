@@ -738,6 +738,28 @@ router.get('/material-groups', async (req, res) => {
 // till check, so the unmodellable items (Isomat kg products etc.) must appear
 // here too. Same fetch, same cache shape and TTL as material-groups, held
 // separately so a ?fresh=1 on one doesn't evict the other.
+function priceLookupItems(allItems) {
+  return allItems
+    .filter(i => i.SalesDetails?.AccountCode === '202')
+    .map(i => ({
+      name: i.Name || i.Code || '',
+      code: i.Code || '',
+      // The till price is the BUY price, PurchaseDetails.UnitPrice — the
+      // supplier's ex-VAT list price × 1.20 VAT, verified to the penny
+      // across every supplier (scripts/pricelists/README.md). It is NOT
+      // SalesDetails.UnitPrice, which this screen read until v2.66.1: the
+      // sell price is the buy price × Nicky's markup (1.20 on most
+      // suppliers, 1.15 Benjamin Moore, 1.10 Farrow & Ball/Little Greene),
+      // so its "÷ 1.2 = ex VAT" matched neither the receipt nor the PDF —
+      // found in the shop buying BM Scuff-X (£100.68 shown, £87.55 at the
+      // till, £72.96 on the price list). The 20% split is done
+      // client-side; this stays the untouched Xero figure. null, never 0,
+      // when Xero holds no buy price — £0.00 at a till reads as free.
+      price: +i.PurchaseDetails?.UnitPrice > 0 ? +i.PurchaseDetails.UnitPrice : null
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 let salesItemsCache = null;          // { at: epoch-ms, body: [{name,code,price}] }
 const SALES_ITEMS_TTL_MS = 5 * 60 * 1000;
 
@@ -762,17 +784,7 @@ router.get('/sales-items', async (req, res) => {
     });
 
     const allItems = itemsRes.data.Items || [];
-    const items = allItems
-      .filter(i => i.SalesDetails?.AccountCode === '202')
-      .map(i => ({
-        name: i.Name || i.Code || '',
-        code: i.Code || '',
-        // Xero's SalesDetails.UnitPrice is the till price — VAT already in it.
-        // The 20% split is done client-side; this stays the untouched figure
-        // so it can be checked against Xero digit for digit.
-        price: +i.SalesDetails?.UnitPrice || 0
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+    const items = priceLookupItems(allItems);
     console.log(`Sales items: ${items.length} on account 202 (of ${allItems.length} total)`);
     salesItemsCache = { at: Date.now(), body: items };
     res.json(items);
@@ -1756,4 +1768,5 @@ module.exports.contactWriteRequest = contactWriteRequest;
 module.exports.parseItemName = parseItemName;
 module.exports.trueFill = trueFill;
 module.exports.groupMaterialItems = groupMaterialItems;
+module.exports.priceLookupItems = priceLookupItems;
 module.exports.TIK_REDUCED_FILL_RANGES = TIK_REDUCED_FILL_RANGES;
