@@ -288,8 +288,17 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
    bottom edge mid-scroll. Fixed depends on neither: it's pinned to the
    viewport and composited, so nothing about document height or scroll
    momentum can move it. The cost is that it leaves the flow, which is what
-   --navh above reserves for. */
+   --navh above reserves for.
+   Not the whole story, though (v2.65.1): fixed pins the bar to the LAYOUT
+   viewport, and on iOS that is its own moving target -- the keyboard resizes
+   it and WebKit doesn't reliably resize it back. pinNav() at the foot of the
+   script corrects the bar against visualViewport for that; read it before
+   changing anything about where this bar lives. */
 .navbar{position:fixed;left:0;right:0;bottom:0;z-index:100;background:var(--glass2);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:1px solid var(--border);display:flex;padding:8px 0 max(var(--sb), 8px)}
+/* Hidden while the on-screen keyboard owns the bottom of the screen -- see
+   pinNav() at the foot of the script for why the bar gets out of the way
+   rather than riding above the keyboard. */
+.navbar.nav-kb-hidden{display:none}
 .nav-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 4px 2px;cursor:pointer;border:none;background:transparent;color:var(--text3);transition:color .15s}
 .nav-item.active{color:var(--accent)}
 .nav-icon{font-size:19px;position:relative}
@@ -2258,7 +2267,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.65.0</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.65.1</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -25095,6 +25104,120 @@ if (window.ResizeObserver) {
   window.addEventListener('resize', syncNavHeight);
   window.addEventListener('orientationchange', syncNavHeight);
 }
+
+// ── Bottom bar: pinned to the bottom of what is actually on screen ─────────
+// `.navbar` is position:fixed;bottom:0, and on every browser that gets fixed
+// positioning right that is the whole story. iOS is not one of them: a fixed
+// element is pinned to the LAYOUT viewport, and in a standalone PWA the
+// on-screen keyboard resizes that viewport -- after which WebKit does not
+// reliably resize it back when the keyboard goes away. (Exactly the failure
+// the --vh boot script already carries five re-polls, a focusout re-poll,
+// pageshow and visibilitychange handlers to compensate for.) The bar is then
+// pinned to the bottom of a viewport that no longer matches the screen, so it
+// renders part of the way up with the page still scrolling underneath it --
+// reported as "the bottom menu bar slides up the screen during use", and the
+// reason v2.31.1's sticky -> fixed swap cured the scrolling case but not this
+// one: fixed made the bar independent of --vh and of scroll momentum, not of
+// WebKit's own idea of how tall the viewport is.
+//
+// visualViewport reports what is actually visible rather than what WebKit
+// last decided the layout viewport was, so both rules below run off it.
+//
+//   1. While the keyboard is up the bar hides. Pinning it above the keyboard
+//      instead would park it over the field being typed into -- iOS scrolls
+//      the focused input to the bottom of the visible area and knows nothing
+//      about our bar. Native tab bars get out of the way for the same reason,
+//      and the bar is untappable behind a keyboard either way.
+//   2. Every other time, the bar's own bottom edge is measured against the
+//      visible bottom edge and whatever gap is found is closed with a
+//      translate. Correcting the gap it MEASURES, rather than compensating
+//      for one named cause, is what makes this hold for the next variant of
+//      the same WebKit bug -- and it is a no-op (translate 0) on every
+//      browser that had the bar in the right place already, so nothing
+//      changes on Android or desktop.
+var _navShift = 0;   // px of translate currently applied to the bar
+var _navVisH = 0;    // visible height last seen with no field focused
+
+// Same test as the boot script's _editing(): a focused field is the only
+// thing that puts a keyboard (or a picker) on screen.
+function navEditing() {
+  var el = document.activeElement, t = el && el.tagName;
+  return t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT' || !!(el && el.isContentEditable);
+}
+
+function pinNav() {
+  var nav = document.querySelector('.navbar');
+  if (!nav) return;
+  var vv = window.visualViewport;
+  var visH = (vv && vv.height) || window.innerHeight;
+  var editing = navEditing();
+  if (!editing) _navVisH = visH;
+  // A field has focus AND a good chunk of the visible area has gone since the
+  // last time one didn't: that is the keyboard. The threshold keeps the rule
+  // off the small changes a collapsing browser toolbar makes, and off desktop
+  // and split-keyboard cases where focusing a field costs no height at all --
+  // there the bar stays put rather than vanishing whenever a field is tapped.
+  var keyboard = editing && _navVisH - visH > 120;
+  nav.classList.toggle('nav-kb-hidden', keyboard);
+  if (keyboard) return;
+  var r = nav.getBoundingClientRect();
+  if (!r.height) return;              // not laid out yet; the CSS default stands
+  // getBoundingClientRect on a fixed element is in layout-viewport
+  // coordinates, which is the same space visualViewport.offsetTop measures
+  // in, so the visible bottom edge is offsetTop + height. Solve for the
+  // translate that lands the bar's bottom exactly there -- absolutely, from
+  // the shift already applied, so repeated calls settle instead of walking.
+  var target = vv ? vv.offsetTop + vv.height : window.innerHeight;
+  var shift = _navShift + (target - r.bottom);
+  if (Math.abs(shift) < 1) shift = 0;
+  // A reading this far out is not a viewport the user is looking at (a
+  // background tab mid-restore will report one); leaving the bar alone beats
+  // flinging it off screen on the strength of it.
+  if (!isFinite(shift) || Math.abs(shift) > visH) shift = 0;
+  if (shift === _navShift) return;
+  _navShift = shift;
+  nav.style.transform = shift ? 'translateY(' + shift + 'px)' : '';
+}
+
+// One pin per frame however many events land in it: the read forces layout,
+// and visualViewport fires on every step of a pinch-zoom.
+var _navPinQueued = false;
+function queuePinNav() {
+  if (_navPinQueued) return;
+  _navPinQueued = true;
+  (window.requestAnimationFrame || function(f) { setTimeout(f, 16); })(function() {
+    _navPinQueued = false;
+    pinNav();
+  });
+}
+// The keyboard animates in and out over ~250ms and WebKit's events during it
+// report heights that are still transient -- or don't arrive at all. Re-poll
+// through and past the animation, the same belt and braces --vh uses.
+function pinNavSoon() { [0, 100, 300, 600].forEach(function(ms) { setTimeout(queuePinNav, ms); }); }
+
+window.addEventListener('resize', queuePinNav);
+window.addEventListener('orientationchange', pinNavSoon);
+window.addEventListener('pageshow', pinNavSoon);
+document.addEventListener('visibilitychange', function() { if (!document.hidden) pinNavSoon(); });
+document.addEventListener('focusin', pinNavSoon);
+document.addEventListener('focusout', pinNavSoon);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', queuePinNav);
+  window.visualViewport.addEventListener('scroll', queuePinNav);
+}
+// Scroll is handled on the settle, not continuously. Mid-momentum the
+// compositor is already moving the bar and a correction computed from a
+// reading it has scrolled past lands as jitter; 120ms of quiet means the
+// gesture is over and whatever offset it left behind is the real one.
+var _navScrollT;
+window.addEventListener('scroll', function() {
+  clearTimeout(_navScrollT);
+  _navScrollT = setTimeout(queuePinNav, 120);
+}, { passive: true });
+// A cold standalone launch settles its height a beat after this script runs,
+// sometimes without firing anything -- same re-poll schedule as --vh's.
+pinNav();
+[50, 150, 300, 600, 1000].forEach(function(ms) { setTimeout(queuePinNav, ms); });
 
 // ── Init ───────────────────────────────────────────────────────────────────
 initApp();
