@@ -941,7 +941,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     <div class="card searchable-card">
       <div class="card-header sec-toggle" onclick="toggleFormSection('panelling')"><span>Panelling</span><span class="sec-chev" id="sec-chev-panelling">›</span></div>
       <div class="card-body" id="sec-panelling">
-        <div class="subsection-label">Panelling<small>each wall as its own width × height, up to 4 coats; leave empty to skip. −m² takes that wall's area off the room walls so it isn't also priced as wall paint — for half-height panelling enter just the panelled portion and the wall above stays in the room colour</small></div>
+        <div class="subsection-label">Panelling<small>each wall as its own width × height, up to 4 coats; leave empty to skip. −m² takes that wall's area off the room walls so it isn't also priced as wall paint or hung with wallpaper — for half-height panelling enter just the panelled portion and the wall above stays in the room colour (or paper, as shorter drops)</small></div>
         <div id="panel-walls-list"></div>
         <div class="field-row" style="cursor:pointer" onclick="addPanelWall()"><div class="field-label" style="color:var(--accent);font-weight:600">+ Add panelling wall</div></div>
         <div class="field-row" style="border-top:1px solid var(--border)">
@@ -2127,7 +2127,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.48.7</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.48.8</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -18721,7 +18721,13 @@ function roomWallpaperRolls(r, isCeil, type) {
   // Walls: drop height is the ceiling height in every mode; width to cover
   // is the shape-aware perimeter (typed, summed zones, or (L+W)*2 --
   // identical to before for box rooms), bay window extra included.
-  else { dropH=H; widthToCover=roomShapePerimeter(r); }
+  // Panelling flagged −m² comes off the walls' paper -- see
+  // calcWallpaperRollsAroundPanels(). Staircase rooms returned above on
+  // their override, so this is normal rooms only.
+  else {
+    var wallCalc = calcWallpaperRollsAroundPanels(H, roomShapePerimeter(r), r.panelItems, rollLen, rollWidth, effectiveMatch, repeatMm, settings.wpTrimCm, !!r.wpSpareRoll);
+    return wallCalc ? wallCalc.rolls : 0;
+  }
   var calc = calcWallpaperRolls(dropH, widthToCover, rollLen, rollWidth, effectiveMatch, repeatMm, settings.wpTrimCm, !!r.wpSpareRoll);
   return calc ? calc.rolls : 0;
 }
@@ -18952,6 +18958,67 @@ function calcWallpaperRolls(wallHeight, wallWidth, rollLen, rollWidth, matchType
   var dropsNeeded = Math.ceil(wallWidth / rollWidth);
   var rolls = packWallpaperRolls(new Array(dropsNeeded).fill(dropLength), rollLen, spareRoll);
   return { dropLength:dropLength, dropsPerRoll:dropsPerRoll, dropsNeeded:dropsNeeded, rolls:rolls };
+}
+
+// Room walls papered around panelling. The panelling rows flagged "−m²"
+// are the ones sitting on the room's measured walls -- the same rows
+// calcRoom()'s panelDeductArea takes off the PAINTED wall area -- so they
+// come off the paper too, or a panelled wall gets priced as panelling AND
+// hung with paper. Each row's width leaves the full-height run; a
+// full-height panel (h >= wall height) takes its drops away entirely, a
+// half-height one (wainscoting) leaves shorter drops of (wall height - h)
+// above it, match allowance and trim included as for any drop. Those short
+// drops are packed first-fit decreasing, so they can be cut from what's
+// left on a roll after the full drops -- which is how offcuts above a dado
+// actually get used. Rows without the flag (a bath panel, boxing-in) don't
+// sit on the papered walls and are ignored, exactly as on the paint side.
+// No flagged rows returns calcWallpaperRolls() unchanged, so rooms without
+// panelling price exactly as before; with them, the count is capped at the
+// no-panelling figure so per-run drop rounding can never make papering
+// round panelling dearer than papering the whole wall.
+function calcWallpaperRollsAroundPanels(wallHeight, wallWidth, panelItems, rollLen, rollWidth, matchType, repeatMm, trimCm, spareRoll) {
+  var plain = calcWallpaperRolls(wallHeight, wallWidth, rollLen, rollWidth, matchType, repeatMm, trimCm, spareRoll);
+  if (!plain) return plain;
+  var panels = (panelItems || []).filter(function(p){ return p.deduct && +p.width > 0 && +p.height > 0; });
+  if (!panels.length) return plain;
+  var extra = plain.dropLength - wallHeight;  // match allowance + trim
+  // Widths are pooled per height before rounding to whole drops, so a room
+  // panelled all round entered as four walls counts the same drops as one
+  // row of the whole perimeter -- paper runs on round the corners.
+  var widthLeft = wallWidth, widthByAbove = {}, lengths = [];
+  panels.forEach(function(p) {
+    var w = Math.min(+p.width, widthLeft);
+    if (w <= 0) return;
+    widthLeft -= w;
+    var above = Math.round((wallHeight - Math.min(+p.height, wallHeight)) * 1000) / 1000;
+    if (above <= 0) return;
+    widthByAbove[above] = (widthByAbove[above] || 0) + w;
+  });
+  Object.keys(widthByAbove).forEach(function(above) {
+    var n = Math.ceil(widthByAbove[above] / rollWidth - 1e-9);
+    for (var i=0; i<n; i++) lengths.push(+above + extra);
+  });
+  var fullDrops = Math.ceil(widthLeft / rollWidth - 1e-9);
+  for (var j=0; j<fullDrops; j++) lengths.push(plain.dropLength);
+  if (!lengths.length) return { dropLength:plain.dropLength, minDropLength:plain.dropLength, dropsPerRoll:plain.dropsPerRoll, dropsNeeded:0, rolls:0 };
+  lengths.sort(function(a, b){ return b - a; });
+  var remaining = [];
+  lengths.forEach(function(len) {
+    if (len > rollLen) { remaining.push(0); return; }
+    for (var k=0; k<remaining.length; k++) {
+      if (remaining[k] >= len) { remaining[k] -= len; return; }
+    }
+    remaining.push(rollLen - len);
+  });
+  var rolls = remaining.length + (spareRoll ? 1 : 0);
+  // The working shown on the form describes the drops actually hung: the
+  // longest (sorted first) and shortest, and how many of the longest a
+  // roll gives -- not the full-height drop the panelling has replaced.
+  var longest = lengths[0], shortest = lengths[lengths.length - 1];
+  return { dropLength:longest, minDropLength:shortest,
+           dropsPerRoll:Math.max(1, Math.floor(rollLen / longest)),
+           dropsNeeded:Math.min(lengths.length, plain.dropsNeeded),
+           rolls:Math.min(rolls, plain.rolls) };
 }
 
 // Height of a stair wall at horizontal position x (0..totalWidth) -- SAME
@@ -19592,13 +19659,16 @@ function previewRoomNow() {
   if (wpwOn) {
     var wpwRollResult = wpSurfaceResult(wpWallLining, wpWallFinish, false, false, function(t){
       var match = t==='lining' ? 'none' : wpMatch;
-      return calcWallpaperRolls(H, wallWidthLM, rollLen, rollWidth, match, repeatMm, settings.wpTrimCm, wpSpareRoll);
+      return calcWallpaperRollsAroundPanels(H, wallWidthLM, panelItemsForm, rollLen, rollWidth, match, repeatMm, settings.wpTrimCm, wpSpareRoll);
     });
     if (wpwRollResult.parts.length) {
       document.getElementById('wp-r-droplen-row').style.display = 'flex';
       document.getElementById('wp-r-drops-row').style.display = 'flex';
       document.getElementById('wp-r-rolls-row').style.display = 'flex';
-      document.getElementById('wp-r-droplen').textContent = joinWPParts(wpwRollResult.parts, function(p){ return p.dropLength.toFixed(2)+' m'; });
+      // Around half-height panelling the drops differ -- show the range.
+      document.getElementById('wp-r-droplen').textContent = joinWPParts(wpwRollResult.parts, function(p){
+        return (p.minDropLength != null && p.minDropLength < p.dropLength ? p.minDropLength.toFixed(2)+'–' : '') + p.dropLength.toFixed(2)+' m';
+      });
       document.getElementById('wp-r-drops').textContent = joinWPParts(wpwRollResult.parts, function(p){ return p.dropsPerRoll+' / '+p.dropsNeeded; });
       document.getElementById('wp-r-rolls').textContent = joinWPParts(wpwRollResult.parts, function(p){ return p.rolls; });
     }
