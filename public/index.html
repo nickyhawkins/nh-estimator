@@ -288,8 +288,17 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
    bottom edge mid-scroll. Fixed depends on neither: it's pinned to the
    viewport and composited, so nothing about document height or scroll
    momentum can move it. The cost is that it leaves the flow, which is what
-   --navh above reserves for. */
+   --navh above reserves for.
+   Not the whole story, though (v2.65.1): fixed pins the bar to the LAYOUT
+   viewport, and on iOS that is its own moving target -- the keyboard resizes
+   it and WebKit doesn't reliably resize it back. pinNav() at the foot of the
+   script corrects the bar against visualViewport for that; read it before
+   changing anything about where this bar lives. */
 .navbar{position:fixed;left:0;right:0;bottom:0;z-index:100;background:var(--glass2);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:1px solid var(--border);display:flex;padding:8px 0 max(var(--sb), 8px)}
+/* Hidden while the on-screen keyboard owns the bottom of the screen -- see
+   pinNav() at the foot of the script for why the bar gets out of the way
+   rather than riding above the keyboard. */
+.navbar.nav-kb-hidden{display:none}
 .nav-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 4px 2px;cursor:pointer;border:none;background:transparent;color:var(--text3);transition:color .15s}
 .nav-item.active{color:var(--accent)}
 .nav-icon{font-size:19px;position:relative}
@@ -2258,7 +2267,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.65.0</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.66.0</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -14821,7 +14830,7 @@ function renderActuals() {
     + '</div>'
     + '</div>';
 
-  var rowsHtml = t.rows.map(function(r) {
+  var rowsHtml = t.rows.map(function(r, ri) {
     var price = materialPriceFor({ itemCode: r.itemCode, unitAmount: r.unitAmount });
     var qty = actualsRowQuantity(r);
     var unit = materialUnitLabel({ itemCode: r.itemCode, isPerLitre: r.isPerLitre, quantity: qty });
@@ -14852,6 +14861,34 @@ function renderActuals() {
       ? '<span style="font-size:11px;font-weight:600;color:var(--danger);background:var(--danger-soft-bg);border-radius:10px;padding:2px 8px;margin-left:6px">not quoted</span>'
       : (variance ? '<span style="font-size:11px;font-weight:600;color:var(--text2);background:var(--surface2);border-radius:10px;padding:2px 8px;margin-left:6px">est '+(Math.round(r.estimated*100)/100)+'</span>' : '');
 
+    // Opt-in add to the (global) shopping list, on EVERY row. This screen is
+    // the one you are standing in the room with, so it is the one that has to
+    // answer "do I need to buy this?" for the whole job -- a material added
+    // here exists nowhere else at all (it is an actual, never a snapshot
+    // line, so it never reaches Summary), and a quoted tin you haven't ticked
+    // off yet is just as much a thing to pick up. Summary's materials card
+    // keeps its own chip on the estimate lines; both funnel through
+    // shopListAdd, match a product the same way and therefore agree about
+    // what is on the list, so the same tin tapped on either screen is one
+    // line, not two.
+    // Opt-in per row for the reason the Summary one is: plenty of what is on
+    // this list is already in the van. Left on a bought row deliberately --
+    // "bought" means bought once, and running out of it is exactly a
+    // shopping-list event.
+    // The id is keyed on the render index, not r.key: that key carries the
+    // free-text description, which can hold spaces and is no use in an id.
+    var jobNameForTag = (activeJob() && activeJob().name) || '';
+    // Best-effort read-only state: shopList may simply not have been fetched
+    // yet this session, in which case the chip reads "Add to list" and
+    // tapping it is a harmless re-add (shopListAdd dedupes).
+    var onShopList = shopList !== null && shopList.some(function(i) {
+      return !i.ticked
+        && (r.itemCode ? i.code === r.itemCode : !i.code && i.name.trim().toLowerCase() === r.description.trim().toLowerCase())
+        && (!jobNameForTag || (i.jobTags || []).indexOf(jobNameForTag) !== -1);
+    });
+    var shopTag = '<div class="mat-chargeable-tag'+(onShopList?' on':'')+'" id="act-shop-'+ri+'"'
+      + ' onclick="addActualToShopList(\''+escapeHtml(r.key)+'\')">'+(onShopList?'✓ On list':'🛒 Add to list')+'</div>';
+
     // Editing (description/colour/price) only makes sense for rows added
     // manually on this screen: an estimate-pulled row is one PRODUCT that
     // can legitimately cover more than one colour (see the `detail` comment
@@ -14877,6 +14914,7 @@ function renderActuals() {
         + '<div style="flex:1;min-width:0">'
           + '<div style="font-size:14px;font-weight:600'+(bought ? ';text-decoration:line-through' : '')+'">'+escapeHtml(r.description)+tag+'</div>'
           + (detail ? '<div style="font-size:12px;color:var(--text2);margin-top:3px">'+escapeHtml(detail)+'</div>' : '')
+          + shopTag
           + '<div style="display:flex;align-items:center;gap:8px;margin-top:8px">'
             + '<input type="number" min="0" step="'+(r.isPerLitre ? '0.1' : '1')+'" value="'+qty+'" inputmode="decimal"'
               + ' onchange="setActualQuantity(\''+escapeHtml(r.key)+'\', this.value)"'
@@ -16620,6 +16658,41 @@ function addMaterialToShopList(lineId) {
   withShopList(function() {
     shopListAdd(line.description, line.itemCode || '', line.isPerLitre ? null : (+line.unitAmount || null), jobName);
     var tag = document.getElementById('mat-shop-' + lineId);
+    if (tag) { tag.textContent = '✓ On list'; tag.classList.add('on'); }
+  });
+}
+
+// "Add to list" on an On Site materials row, whichever half of the screen it
+// came from -- the twin of addMaterialToShopList above, which does the same
+// job for Summary's estimate lines. Everything meaningful is shared:
+// shopListAdd does the dedupe (one line per product, ticked copies un-ticked,
+// job tags appended), and the job's NAME is snapshotted onto the row so the
+// list still says why the tin is there after a rename or a delete. A product
+// tapped on both screens is therefore one line, not two.
+//
+// The price differs from the Summary twin, because this is the actuals side:
+// materialPriceFor() is exactly the figure the row is already showing, which
+// on a manually-added row is normally the price typed into "Unit price"
+// ("change it if the shop price has moved") -- the most current price anyone
+// has. A row with no real price goes on with NO price rather than £0.00,
+// which would read at the till as free.
+//
+// The per-litre rule is the Summary twin's, verbatim, and it matters here
+// only for estimate-pulled rows: their unitAmount is per LITRE, not the till
+// price of anything, and a wrong figure at the till is worse than none. A
+// manually-added row can't hit it -- buildActualsView() gives every one of
+// them isPerLitre false.
+function addActualToShopList(key) {
+  var row = actualsRowsCache.find(function(r) { return r.key === key; });
+  if (!row) return;
+  var jobName = (activeJob() && activeJob().name) || '';
+  var price = row.isPerLitre ? 0 : materialPriceFor({ itemCode: row.itemCode, unitAmount: row.unitAmount });
+  withShopList(function() {
+    shopListAdd(row.description, row.itemCode || '', price > 0 ? price : null, jobName);
+    // Patch the chip rather than re-rendering: a tap here must not disturb a
+    // half-typed quantity or the add form further down the screen.
+    var i = actualsRowsCache.findIndex(function(r) { return r.key === key; });
+    var tag = document.getElementById('act-shop-' + i);
     if (tag) { tag.textContent = '✓ On list'; tag.classList.add('on'); }
   });
 }
@@ -25095,6 +25168,120 @@ if (window.ResizeObserver) {
   window.addEventListener('resize', syncNavHeight);
   window.addEventListener('orientationchange', syncNavHeight);
 }
+
+// ── Bottom bar: pinned to the bottom of what is actually on screen ─────────
+// `.navbar` is position:fixed;bottom:0, and on every browser that gets fixed
+// positioning right that is the whole story. iOS is not one of them: a fixed
+// element is pinned to the LAYOUT viewport, and in a standalone PWA the
+// on-screen keyboard resizes that viewport -- after which WebKit does not
+// reliably resize it back when the keyboard goes away. (Exactly the failure
+// the --vh boot script already carries five re-polls, a focusout re-poll,
+// pageshow and visibilitychange handlers to compensate for.) The bar is then
+// pinned to the bottom of a viewport that no longer matches the screen, so it
+// renders part of the way up with the page still scrolling underneath it --
+// reported as "the bottom menu bar slides up the screen during use", and the
+// reason v2.31.1's sticky -> fixed swap cured the scrolling case but not this
+// one: fixed made the bar independent of --vh and of scroll momentum, not of
+// WebKit's own idea of how tall the viewport is.
+//
+// visualViewport reports what is actually visible rather than what WebKit
+// last decided the layout viewport was, so both rules below run off it.
+//
+//   1. While the keyboard is up the bar hides. Pinning it above the keyboard
+//      instead would park it over the field being typed into -- iOS scrolls
+//      the focused input to the bottom of the visible area and knows nothing
+//      about our bar. Native tab bars get out of the way for the same reason,
+//      and the bar is untappable behind a keyboard either way.
+//   2. Every other time, the bar's own bottom edge is measured against the
+//      visible bottom edge and whatever gap is found is closed with a
+//      translate. Correcting the gap it MEASURES, rather than compensating
+//      for one named cause, is what makes this hold for the next variant of
+//      the same WebKit bug -- and it is a no-op (translate 0) on every
+//      browser that had the bar in the right place already, so nothing
+//      changes on Android or desktop.
+var _navShift = 0;   // px of translate currently applied to the bar
+var _navVisH = 0;    // visible height last seen with no field focused
+
+// Same test as the boot script's _editing(): a focused field is the only
+// thing that puts a keyboard (or a picker) on screen.
+function navEditing() {
+  var el = document.activeElement, t = el && el.tagName;
+  return t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT' || !!(el && el.isContentEditable);
+}
+
+function pinNav() {
+  var nav = document.querySelector('.navbar');
+  if (!nav) return;
+  var vv = window.visualViewport;
+  var visH = (vv && vv.height) || window.innerHeight;
+  var editing = navEditing();
+  if (!editing) _navVisH = visH;
+  // A field has focus AND a good chunk of the visible area has gone since the
+  // last time one didn't: that is the keyboard. The threshold keeps the rule
+  // off the small changes a collapsing browser toolbar makes, and off desktop
+  // and split-keyboard cases where focusing a field costs no height at all --
+  // there the bar stays put rather than vanishing whenever a field is tapped.
+  var keyboard = editing && _navVisH - visH > 120;
+  nav.classList.toggle('nav-kb-hidden', keyboard);
+  if (keyboard) return;
+  var r = nav.getBoundingClientRect();
+  if (!r.height) return;              // not laid out yet; the CSS default stands
+  // getBoundingClientRect on a fixed element is in layout-viewport
+  // coordinates, which is the same space visualViewport.offsetTop measures
+  // in, so the visible bottom edge is offsetTop + height. Solve for the
+  // translate that lands the bar's bottom exactly there -- absolutely, from
+  // the shift already applied, so repeated calls settle instead of walking.
+  var target = vv ? vv.offsetTop + vv.height : window.innerHeight;
+  var shift = _navShift + (target - r.bottom);
+  if (Math.abs(shift) < 1) shift = 0;
+  // A reading this far out is not a viewport the user is looking at (a
+  // background tab mid-restore will report one); leaving the bar alone beats
+  // flinging it off screen on the strength of it.
+  if (!isFinite(shift) || Math.abs(shift) > visH) shift = 0;
+  if (shift === _navShift) return;
+  _navShift = shift;
+  nav.style.transform = shift ? 'translateY(' + shift + 'px)' : '';
+}
+
+// One pin per frame however many events land in it: the read forces layout,
+// and visualViewport fires on every step of a pinch-zoom.
+var _navPinQueued = false;
+function queuePinNav() {
+  if (_navPinQueued) return;
+  _navPinQueued = true;
+  (window.requestAnimationFrame || function(f) { setTimeout(f, 16); })(function() {
+    _navPinQueued = false;
+    pinNav();
+  });
+}
+// The keyboard animates in and out over ~250ms and WebKit's events during it
+// report heights that are still transient -- or don't arrive at all. Re-poll
+// through and past the animation, the same belt and braces --vh uses.
+function pinNavSoon() { [0, 100, 300, 600].forEach(function(ms) { setTimeout(queuePinNav, ms); }); }
+
+window.addEventListener('resize', queuePinNav);
+window.addEventListener('orientationchange', pinNavSoon);
+window.addEventListener('pageshow', pinNavSoon);
+document.addEventListener('visibilitychange', function() { if (!document.hidden) pinNavSoon(); });
+document.addEventListener('focusin', pinNavSoon);
+document.addEventListener('focusout', pinNavSoon);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', queuePinNav);
+  window.visualViewport.addEventListener('scroll', queuePinNav);
+}
+// Scroll is handled on the settle, not continuously. Mid-momentum the
+// compositor is already moving the bar and a correction computed from a
+// reading it has scrolled past lands as jitter; 120ms of quiet means the
+// gesture is over and whatever offset it left behind is the real one.
+var _navScrollT;
+window.addEventListener('scroll', function() {
+  clearTimeout(_navScrollT);
+  _navScrollT = setTimeout(queuePinNav, 120);
+}, { passive: true });
+// A cold standalone launch settles its height a beat after this script runs,
+// sometimes without firing anything -- same re-poll schedule as --vh's.
+pinNav();
+[50, 150, 300, 600, 1000].forEach(function(ms) { setTimeout(queuePinNav, ms); });
 
 // ── Init ───────────────────────────────────────────────────────────────────
 initApp();
