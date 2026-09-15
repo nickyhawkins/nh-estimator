@@ -971,7 +971,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     <div class="card searchable-card">
       <div class="card-header sec-toggle" onclick="toggleFormSection('panelling')"><span>Panelling</span><span class="sec-chev" id="sec-chev-panelling">›</span></div>
       <div class="card-body" id="sec-panelling">
-        <div class="subsection-label">Panelling<small>each wall as its own width × height, up to 4 coats; leave empty to skip. −m² takes that wall's area off the room walls so it isn't also priced as wall paint or hung with wallpaper — for half-height panelling enter just the panelled portion and the wall above stays in the room colour (or paper, as shorter drops)</small></div>
+        <div class="subsection-label">Panelling<small>each wall as its own width × height, up to 4 coats; leave empty to skip. −m² takes that wall's area off the room walls so it isn't also priced as wall paint or hung with wallpaper — for half-height panelling enter just the panelled portion and the wall above stays in the room colour (or paper, as shorter drops). Skirt paints that wall's skirting with the panelling — it comes off the room's woodwork and is priced as panelling</small></div>
         <div id="panel-walls-list"></div>
         <div class="field-row" style="cursor:pointer" onclick="addPanelWall()"><div class="field-label" style="color:var(--accent);font-weight:600">+ Add panelling wall</div></div>
         <div class="field-row" style="border-top:1px solid var(--border)">
@@ -2269,7 +2269,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.66.2</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.67.0</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -11089,6 +11089,18 @@ function calcRoom(r) {
     return sum + (p.deduct ? Math.max(+p.width || 0, 0) * Math.max(+p.height || 0, 0) : 0);
   }, 0);
   wallArea = Math.max(wallArea - excludedWallArea - panelDeductArea, 0);
+  // Skirting painted with the panelling: a panelling row flagged "skirting"
+  // takes its width off the room's skirting run, and calcPanel() adds that
+  // width x SKIRTING_HEIGHT_M onto the panelling's own area instead (its
+  // coats, rate, prep and paint). The skirting under panelling is normally
+  // the panelling's paint and colour, carried on in the same pass, so
+  // charging it again at the skirting rate out of the woodwork tin priced
+  // it twice over. Walls without the flag keep their skirting as ordinary
+  // woodwork. HSL rooms skip it for the same reason as panelDeductArea:
+  // computeHSLOverrides() already took it off the staircase's skirting
+  // perimeter (panelSkirtLM(panelItemsForm)), so woodCostOverride and
+  // woodAreaOverride arrive net.
+  var skirtPerim = r.isHSL ? perim : Math.max(perim - panelSkirtLM(r.panelItems), 0);
   var ceilArea = r.ceilAreaOverride ? +r.ceilAreaOverride : roomShapeCeilArea(r);
   var r2       = rpm();
   var hpd      = settings.hpd;
@@ -11118,7 +11130,7 @@ function calcRoom(r) {
   // painted.
   var winCost  = win>0 && xc>0 ? win*winMins()*r2 : 0;
   var woodCost = r.woodCostOverride != null ? +r.woodCostOverride :
-                 (xc>0 ? perim*skirtMins(xc)*r2 : 0);
+                 (xc>0 ? skirtPerim*skirtMins(xc)*r2 : 0);
   // The room's prep uplift, hoisted above the door/frame block because both
   // need it -- doors and frames used to carry their own independent
   // doorFramePrepPct and no longer do (one prep decision per room).
@@ -11293,7 +11305,7 @@ function calcRoom(r) {
   // Windows count as woodwork, so their measured m² joins the gloss basis
   // alongside skirting/sills -- gated on xc, so 0 woodwork coats means no
   // window paint either.
-  var wdA = r.woodAreaOverride != null ? +r.woodAreaOverride : perim*0.15 + sills*0.25 + win;
+  var wdA = r.woodAreaOverride != null ? +r.woodAreaOverride : skirtPerim*SKIRTING_HEIGHT_M + sills*0.25 + win;
   // Self-priming (PRODUCT_COVERAGE_SPEC.md): when the room's effective
   // topcoat product has a woodwork Coverage Rates entry, that entry's
   // Self-priming flag decides the coat swap for BOTH woodwork buckets --
@@ -11373,6 +11385,7 @@ function calcRoom(r) {
            fwCommercialType:fwCommercialType, featureWallVinylMetres:featureWallVinylResult?featureWallVinylResult.metres:0,
            featureWallMuralArea:featureWallMuralResult?featureWallMuralResult.area:0,
            panelCost:panelCost, panelL:panelL, panelArea:panelArea, panelRawCost:panelMinsCost,
+           panelSkirtLM:panelResult.panelSkirtLM,
            // Sprayed rooms use extra masking consumables, so their labour
            // carries the spray sundries bump on top of the job-wide sundries
            // % -- see computeDepositPlan(). Exposed as this room's labour
@@ -11396,13 +11409,20 @@ function calcRoom(r) {
 // covOverride: the room's panel product coverage rate where one exists
 // (resolved by the caller, which has the room object), else null for the
 // flat Panelling rate.
+// A row flagged `skirting` also paints the skirting along its width (see
+// calcRoom()'s skirtPerim): width x SKIRTING_HEIGHT_M joins the row's area
+// at the row's own coats, so it is labour at the panelling rate, the
+// panelling's prep, and litres out of the panel tin -- panelArea included,
+// so the panel primer basis and everything reading the area see it too.
 function calcPanel(panelItems, panelPrepPct, panelPrepCustom, r2, covOverride) {
   panelItems = panelItems || [];
-  var panelArea = 0, panelAreaCoats = 0, panelMinsCost = 0;
+  var panelArea = 0, panelAreaCoats = 0, panelMinsCost = 0, panelSkirtLMTotal = 0;
   panelItems.forEach(function(p) {
     var pw = Math.max(+p.width || 0, 0), ph = Math.max(+p.height || 0, 0);
     var pc = Math.min(4, Math.max(+p.coats || 0, 0));
-    var area = pw * ph;
+    var skirtLM = (p.skirting && ph > 0) ? pw : 0;
+    panelSkirtLMTotal += skirtLM;
+    var area = pw * ph + skirtLM * SKIRTING_HEIGHT_M;
     panelArea += area;
     panelAreaCoats += area * pc;
     panelMinsCost += area * pc * settings.rPanel * r2;
@@ -11414,7 +11434,25 @@ function calcPanel(panelItems, panelPrepPct, panelPrepCustom, r2, covOverride) {
   // whose coverage entry says Self-priming OFF (see calcRoom()'s
   // panelPrimerCoatM2) -- same area × coats shape the woodwork primer
   // bases use.
-  return { panelCost:panelCost, panelL:panelL, panelArea:panelArea, panelAreaCoats:panelAreaCoats, panelRawCost:panelMinsCost, panelPrepUp:panelPrepUp };
+  return { panelCost:panelCost, panelL:panelL, panelArea:panelArea, panelAreaCoats:panelAreaCoats, panelRawCost:panelMinsCost, panelPrepUp:panelPrepUp, panelSkirtLM:panelSkirtLMTotal };
+}
+
+// Skirting height the woodwork paint basis has always assumed (perim x 0.15
+// in calcRoom()'s wdA and computeHSLOverrides()' woodAreaOverride) -- the
+// same figure prices skirting moved onto the panelling, so moving a wall's
+// skirting across never changes how many m² of it there are.
+var SKIRTING_HEIGHT_M = 0.15;
+
+// Linear metres of skirting painted with the panelling: the widths of the
+// rows flagged `skirting`. The same "0 to skip" rule calcPanel() and
+// buildRoomFromForm() apply -- a half-filled row (no height yet) moves no
+// skirting, or the live preview would drift from the saved room. Shared by
+// calcRoom() (saved rows) and the staircase form (panelItemsForm) so the
+// skirting run can't come off differently in the two.
+function panelSkirtLM(panelItems) {
+  return (panelItems || []).reduce(function(sum, p) {
+    return sum + ((p.skirting && +p.height > 0) ? Math.max(+p.width || 0, 0) : 0);
+  }, 0);
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -20181,7 +20219,8 @@ function bulkSurfacesOf(r, pendingMist) {
   // calcRoom's own woodwork paint basis (its wdA): skirting run, sills and
   // windows -- or the staircase/HSL override outright, since those rooms
   // carry dummy l/w/h and a real measured woodwork area.
-  var woodArea = r.woodAreaOverride != null ? +r.woodAreaOverride : perim * 0.15 + sills * 0.25 + win;
+  var woodArea = r.woodAreaOverride != null ? +r.woodAreaOverride
+    : Math.max(perim - (r.isHSL ? 0 : panelSkirtLM(r.panelItems)), 0) * SKIRTING_HEIGHT_M + sills * 0.25 + win;
   // A feature wall is measured independently and can exist with no general
   // wall area behind it, and with no product of its own it falls back to the
   // room's wall product -- so it counts as walls for that purpose.
@@ -21094,23 +21133,36 @@ function renderPanelWallsList() {
     // wall paint AND panelling. On by default for new walls; tap off for
     // panelling that isn't on a measured room wall (bath panel, boxing-in).
     // Too cramped in this row for the full .toggle switch, hence the chip.
+    var chipStyle = function(on) {
+      return 'font-size:11px;font-weight:600;padding:4px 7px;border-radius:8px;cursor:pointer;white-space:nowrap;border:1px solid '+(on?'var(--accent);background:var(--accent);color:#fff':'var(--border);background:var(--surface2);color:var(--text3)');
+    };
     var chip =
-        '<div onclick="togglePanelWallDeduct('+i+')" title="Deduct this wall\'s m² from the room wall area" style="font-size:11px;font-weight:600;padding:4px 7px;border-radius:8px;cursor:pointer;white-space:nowrap;border:1px solid '+(p.deduct?'var(--accent);background:var(--accent);color:#fff':'var(--border);background:var(--surface2);color:var(--text3)')+'">−m²</div>';
+        '<div onclick="togglePanelWallDeduct('+i+')" title="Deduct this wall\'s m² from the room wall area" style="'+chipStyle(p.deduct)+'">−m²</div>';
+    // "Skirt" chip: the skirting along this wall is painted with the
+    // panelling -- its width comes off the room's skirting (woodwork) and is
+    // priced on the panelling instead (calcPanel()/panelSkirtLM()). On by
+    // default for new walls; tap off where the skirting is a different
+    // colour from the panelling.
+    var skirtChip =
+        '<div onclick="togglePanelWallSkirting('+i+')" title="Skirting along this wall painted with the panelling (off the room\'s woodwork)" style="'+chipStyle(p.skirting)+'">Skirt</div>';
     return '<div class="field-row">'+
       '<div class="field-label">Wall '+(i+1)+'</div>'+
       '<div style="display:flex;align-items:center;gap:6px">'+
-        chip+
-        '<input type="number" class="field-input" style="width:56px" value="'+p.width+'" min="0" step="0.1" inputmode="decimal" placeholder="W" onchange="setPanelWallField('+i+',\'width\',this.value)">'+
+        chip+skirtChip+
+        '<input type="number" class="field-input" style="width:56px;padding-left:6px;padding-right:6px" value="'+p.width+'" min="0" step="0.1" inputmode="decimal" placeholder="W" onchange="setPanelWallField('+i+',\'width\',this.value)">'+
         '<span style="color:var(--text3)">×</span>'+
-        '<input type="number" class="field-input" style="width:56px" value="'+p.height+'" min="0" step="0.1" inputmode="decimal" placeholder="H" onchange="setPanelWallField('+i+',\'height\',this.value)">'+
+        '<input type="number" class="field-input" style="width:56px;padding-left:6px;padding-right:6px" value="'+p.height+'" min="0" step="0.1" inputmode="decimal" placeholder="H" onchange="setPanelWallField('+i+',\'height\',this.value)">'+
         '<input type="number" class="field-input" style="width:44px" value="'+p.coats+'" min="1" max="4" step="1" inputmode="numeric" title="Coats" onchange="setPanelWallField('+i+',\'coats\',this.value)">'+
         '<div onclick="removePanelWall('+i+')" style="color:var(--danger);font-size:22px;padding:0 4px;cursor:pointer">×</div>'+
       '</div>'+
     '</div>';
   }).join('') + (panelItemsForm.some(function(p){ return p.deduct; })
     ? '<div class="breakdown-row"><span class="breakdown-label">Deducted from wall area</span><span class="breakdown-value" id="panel-deduct-total">—</span></div>'
+    : '') + (panelItemsForm.some(function(p){ return p.skirting; })
+    ? '<div class="breakdown-row"><span class="breakdown-label">Skirting painted with panelling</span><span class="breakdown-value" id="panel-skirt-total">—</span></div>'
     : '');
   updatePanelDeductTotal();
+  updatePanelSkirtTotal();
 }
 
 // Same in-place update pattern as updateExcludedWallsTotal() -- a width
@@ -21122,6 +21174,10 @@ function updatePanelDeductTotal() {
   el.textContent = fmtM(panelItemsForm.reduce(function(s, p){
     return s + (p.deduct ? (+p.width || 0) * (+p.height || 0) : 0);
   }, 0));
+}
+function updatePanelSkirtTotal() {
+  var el = document.getElementById('panel-skirt-total');
+  if (el) el.textContent = panelSkirtLM(panelItemsForm).toFixed(2) + ' m';
 }
 
 function togglePanelWallDeduct(idx) {
@@ -21135,13 +21191,26 @@ function togglePanelWallDeduct(idx) {
   previewRoom();
 }
 
+function togglePanelWallSkirting(idx) {
+  var p = panelItemsForm[idx];
+  if (!p) return;
+  p.skirting = !p.skirting;
+  // Full re-render for the same reason as togglePanelWallDeduct().
+  renderPanelWallsList();
+  previewRoom();
+}
+
 function addPanelWall() {
   // deduct on by default: panelling nearly always goes on a wall that's
   // already inside the room's measured dimensions, and the old behaviour
   // (no deduction) silently priced that wall twice. Existing saved rooms
   // load with whatever they stored (missing flag = off) so old quotes
   // don't move.
-  panelItemsForm.push({ id: uid(), width: 0, height: 0, coats: 2, deduct: true });
+  // skirting on by default too: the skirting under panelling is usually
+  // painted in the panelling's paint and colour. Same "saved rooms keep
+  // what they stored" rule -- a missing flag is off, so existing quotes
+  // still price their skirting as woodwork until the chip is tapped.
+  panelItemsForm.push({ id: uid(), width: 0, height: 0, coats: 2, deduct: true, skirting: true });
   renderPanelWallsList();
   previewRoom();
 }
@@ -21157,6 +21226,7 @@ function setPanelWallField(idx, field, value) {
   if (!p) return;
   p[field] = field === 'coats' ? Math.max(1, Math.min(4, +value || 1)) : Math.max(0, +value || 0);
   updatePanelDeductTotal();
+  updatePanelSkirtTotal();
   previewRoom();
 }
 
@@ -21698,7 +21768,7 @@ function editRoom(id) {
   };
   ['wall','ceiling','topcoat','primer','mist','featurewall','panel'].forEach(populateRoomOverridePicker);
   document.getElementById('r-mist-area').value = r.mistAreaOverride || '';
-  panelItemsForm = (r.panelItems || []).map(function(p){ return { id: p.id||uid(), width: +p.width||0, height: +p.height||0, coats: +p.coats||2, deduct: !!p.deduct }; });
+  panelItemsForm = (r.panelItems || []).map(function(p){ return { id: p.id||uid(), width: +p.width||0, height: +p.height||0, coats: +p.coats||2, deduct: !!p.deduct, skirting: !!p.skirting }; });
   renderPanelWallsList();
   excludedWallsForm = (r.excludedWalls || []).map(function(x){ return { id: x.id||uid(), width: +x.width||0, height: +x.height||0 }; });
   renderExcludedWallsList();
@@ -21918,7 +21988,7 @@ function buildRoomFromForm() {
     // feature wall's width/height above.
     // deduct saved as undefined when off so pre-feature rooms and
     // deduct-off rooms are indistinguishable in the stored JSON.
-    panelItems:panelItemsForm.filter(function(p){ return (+p.width>0 && +p.height>0); }).map(function(p){ return { id:p.id, width:+p.width, height:+p.height, coats:+p.coats||2, deduct:p.deduct||undefined }; }),
+    panelItems:panelItemsForm.filter(function(p){ return (+p.width>0 && +p.height>0); }).map(function(p){ return { id:p.id, width:+p.width, height:+p.height, coats:+p.coats||2, deduct:p.deduct||undefined, skirting:p.skirting||undefined }; }),
     // Walls NOT being painted -- same "empty placeholder rows dropped on
     // save" rule as panelItems above.
     excludedWalls:excludedWallsForm.filter(function(x){ return (+x.width>0 && +x.height>0); }).map(function(x){ return { id:x.id, width:+x.width, height:+x.height }; }),
@@ -22286,7 +22356,9 @@ function calcHSLNow() {
   if (hslFloors>=2) { var l1lv=+document.getElementById('hsl-l1-l').value||0, l1wv=+document.getElementById('hsl-l1-w').value||0; landPerimDisp += (l1lv+l1wv)*2; }
   if (hslFloors>=3) { var l2lv=+document.getElementById('hsl-l2-l').value||0, l2wv=+document.getElementById('hsl-l2-w').value||0; landPerimDisp += (l2lv+l2wv)*2; }
   var hallPerimDisp = (h1l+h1w)*2;
-  var totalSkirtPerimDisp = hallPerimDisp + landPerimDisp;
+  // Skirting painted with the panelling comes off here too -- mirrors
+  // computeHSLOverrides() via the same panelSkirtLM() helper.
+  var totalSkirtPerimDisp = Math.max(hallPerimDisp + landPerimDisp - panelSkirtLM(panelItemsForm), 0);
   var skirtCostDisp = xc>0 ? totalSkirtPerimDisp*skirtMins(xc)*r2 : 0;
   var doorFrameLabourDisp = doorFrameLabourCost('int', doorQtyDisp, frameQtyDisp, doorCoats, frameCoats, r2, doorBothSides);
   var doorFrameExtrasDisp = doorFrameExtrasCost(doorQtyDisp, doorFireDoor, doorIronRemove, doorIronMask);
@@ -22513,7 +22585,11 @@ function computeHSLOverrides() {
     var l2wv=+document.getElementById('hsl-l2-w').value||0;
     landPerim += (l2lv+l2wv)*2;
   }
-  var totalSkirtPerim = hallPerim + landPerim;
+  // Panelling rows flagged "skirting" take their width off the skirting
+  // run (it's priced on the panelling instead -- see calcPanel()), so the
+  // skirtCost and woodAreaOverride saved here are already net; calcRoom()
+  // doesn't deduct it again for HSL rooms.
+  var totalSkirtPerim = Math.max(hallPerim + landPerim - panelSkirtLM(panelItemsForm), 0);
   var skirtCost = xc>0 ? totalSkirtPerim*skirtMins(xc)*r2 : 0;
   // Windows are woodwork here too, so their m² joins the gloss-litres basis
   // alongside skirting (read early -- winCost below reuses it). Doors/frames
@@ -22521,7 +22597,7 @@ function computeHSLOverrides() {
   // straight from r.doorQty/frameQty like a normal room -- no override
   // needed since they don't depend on the staircase's dummy 1x1 dimensions).
   var win = +document.getElementById('r-win').value||0;
-  var woodAreaOverride = totalSkirtPerim*0.15 + win;
+  var woodAreaOverride = totalSkirtPerim*SKIRTING_HEIGHT_M + win;
 
   // Wallpaper -- shared card/fields. Rolls computed once here via the SAME
   // computeHSLWallpaperRolls() calcHSL()'s live preview uses (through the
@@ -23021,7 +23097,7 @@ function renderSummary() {
     if(c.panelCost>0) {
       var panelPrepUp2 = c.panelPrepUp;
       var panelPrepLabel = prepLabelFor(panelPrepUp2);
-      subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Panelling</span><span class="breakdown-sub-value">'+fmt(c.panelRawCost*mk)+'</span></div>';
+      subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">'+(c.panelSkirtLM>0?'Panelling (incl. skirting)':'Panelling')+'</span><span class="breakdown-sub-value">'+fmt(c.panelRawCost*mk)+'</span></div>';
       if(panelPrepUp2>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Panelling prep ('+panelPrepLabel+')</span><span class="breakdown-sub-value">'+fmt((c.panelCost-c.panelRawCost)*mk)+'</span></div>';
     }
     if(cc>0)  subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ceiling</span><span class="breakdown-sub-value">'+fmt(dispCeilCost*mk)+'</span></div>';

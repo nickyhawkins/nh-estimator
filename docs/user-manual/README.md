@@ -211,6 +211,10 @@ The rest of the measuring cards follow in the order you'd meet them moving round
 - **Wallpaper** — lining and finish paper for walls or ceiling, priced per roll with an automatic **rolls-to-order** count, plus a free-text note for the paper itself. Covered in detail in [Wallpaper](#wallpaper--rolls-to-order) below.
 - **Excluded Walls** — walls you're *not* painting (a tiled wall, wallpaper that's staying). Add its width × height and it's deducted.
 - **Panelling** — wall panelling by area with its own coats (up to 4), prep and colour, independent of the room's own settings. Leave a wall's **−m²** chip on when the panelling sits on the room's own walls: its area comes off the painted walls *and* the wallpapered walls, so you can paper a room and paint its panelling without paying for either twice. For half-height panelling enter just the panelled part — the wall above keeps its paint or paper.
+
+  ![Panelling walls with the −m² and Skirt chips](images/04f-panelling-skirting.png)
+
+  The **Skirt** chip is for skirting painted in the panelling's paint and colour, which it usually is. With it on, that wall's skirting comes off the room's woodwork (both the time and the woodwork paint) and is priced as part of the panelling instead: the wall's width × a 0.15 m skirting board, at the panelling's coats, time rate and prep, out of the panelling tin. **Skirting painted with panelling** under the rows shows how many metres have moved, and on Summary the room's line reads **Panelling (incl. skirting)**. Both chips start on for a new wall; tap **Skirt** off where the skirting is a different colour and it stays with the rest of the woodwork. Rooms saved before this chip existed keep their skirting as woodwork until you tap it on. It works on staircase rooms too.
 - **Mist Coat** — for fresh plaster; tick walls and/or ceiling, with a manual area override for "only part of it is new plaster".
 
 #### Decide the scheme
@@ -920,6 +924,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.66.2. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.67.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
