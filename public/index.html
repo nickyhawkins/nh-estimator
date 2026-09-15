@@ -1922,8 +1922,10 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
      or code and see the inc-VAT price (what's actually paid at the till)
      with ex-VAT alongside. Deliberately NOT the range/band/size materials
      parsing used for quoting -- raw Xero Name/Code straight through, so the
-     unmodellable items appear here too. Xero's SalesUnitPrice already
-     includes VAT, so inc = the Xero figure untouched and ex = inc ÷ 1.2.
+     unmodellable items appear here too. The till price is the item's Xero
+     BUY price (PurchasesUnitPrice = list price × 1.20 VAT), so inc = that
+     figure untouched and ex = inc ÷ 1.2, which lands on the supplier's PDF.
+     Never the sell price: that carries the markup (see /sales-items).
      Not tied to any job or quote; nothing here writes anywhere. -->
 <div id="screen-pricelookup" class="screen">
   <div class="topbar">
@@ -16468,16 +16470,21 @@ function filterPriceLookup() {
   document.getElementById('pricelookup-count').textContent =
     matches.length + (matches.length === 1 ? ' item' : ' items');
   var html = matches.map(function(i, idx) {
-    // The Xero price IS the till (inc-VAT) figure, shown big and untouched so
-    // it can be checked against the shop receipt digit for digit; ex = ÷ 1.2.
+    // The Xero BUY price IS the till (inc-VAT) figure, shown big and untouched
+    // so it can be checked against the shop receipt digit for digit; ex = ÷ 1.2
+    // is the supplier's price-list figure. No buy price in Xero = say so,
+    // rather than a £0.00 that reads as free.
+    var priceHtml = i.price != null
+      ? '<div style="font-size:17px;font-weight:700;color:var(--accent)">' + fmt(i.price) + '</div>'
+        + '<div style="font-size:12px;color:var(--text2);margin-top:2px">' + fmt(i.price / 1.2) + ' ex</div>'
+      : '<div style="font-size:12px;color:var(--text2)">no buy price</div>';
     return '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 12px 14px 16px;border-bottom:1px solid var(--border)">'
       + '<div style="min-width:0;flex:1">'
       +   '<div style="font-weight:600;font-size:15px;color:var(--text)">' + escapeHtml(i.name) + '</div>'
       +   (i.code ? '<div style="font-size:12px;color:var(--text2);font-family:\'DM Mono\',monospace;margin-top:2px">' + escapeHtml(i.code) + '</div>' : '')
       + '</div>'
       + '<div style="text-align:right;flex-shrink:0;font-family:\'DM Mono\',monospace">'
-      +   '<div style="font-size:17px;font-weight:700;color:var(--accent)">' + fmt(i.price) + '</div>'
-      +   '<div style="font-size:12px;color:var(--text2);margin-top:2px">' + fmt(i.price / 1.2) + ' ex</div>'
+      +   priceHtml
       + '</div>'
       + '<button id="pl-add-' + idx + '" onclick="addShopFromLookup(' + idx + ')" title="Add to shopping list"'
       +   ' style="flex-shrink:0;width:40px;height:40px;border-radius:20px;border:1px solid var(--accent-soft-border);background:var(--accent-soft-bg);color:var(--accent);font-size:20px;font-weight:600;line-height:1;cursor:pointer">+</button>'

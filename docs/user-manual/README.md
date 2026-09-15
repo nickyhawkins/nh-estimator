@@ -392,7 +392,7 @@ Below that, **What to buy** is the ordering view, unchanged: each colour, the ro
 
 Two small tools off the menu, independent of any one job.
 
-**🔍 Price Lookup** searches every sales item in your Xero account by name or code and shows what it actually costs at the till — the inc-VAT price, with ex-VAT alongside. It's a read-only till check, not tied to any quote:
+**🔍 Price Lookup** searches every sales item in your Xero account by name or code and shows what it actually costs at the till — your **buy** price from Xero, inc VAT, with the ex-VAT figure underneath, which is the number printed on the supplier's price list. It is not your sell price: that has your markup on it, and belongs on quotes, not at the counter. An item with no buy price in Xero says **no buy price** rather than showing £0.00. It's a read-only till check, not tied to any quote:
 
 ![Price Lookup screen](images/17-pricelookup.png)
 
@@ -919,6 +919,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.66.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.66.1. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
