@@ -324,3 +324,37 @@ ALTER TABLE debt_plan_borrowed ADD COLUMN IF NOT EXISTS repaid_amount NUMERIC NO
 --   { "total": 200, "byPot": { "savings": 200 }, "loans": [ { "id": 4, "amount": 200 } ] }
 -- NULL on every pay-in that repaid nothing, which is most of them.
 ALTER TABLE debt_plan_income_log ADD COLUMN IF NOT EXISTS pot_repay JSONB;
+
+-- An agreed arrears payment plan (v2.68.0): a fixed monthly instalment a
+-- creditor has accepted to bring arrears up to date, separate from the debt's
+-- ordinary contractual `min`. Once set it is funded with the SAME priority as
+-- a minimum -- it is not left to the opportunistic smallest-arrears-first
+-- cascade -- because missing it risks the creditor cancelling the plan.
+--
+-- NULLABLE, and NULL is the only "off" state. Not 0: an arrangement of
+-- literally nothing is not something a creditor agrees to, so an arrangement
+-- cleared in Edit Debts goes back to NULL rather than 0 -- the same reasoning
+-- the retired floor_payment column's null handling had. `arrears` keeps
+-- meaning exactly what it always meant (money still overdue): an arrangement
+-- is a floor under the arrears payment, not a ceiling, so a windfall can still
+-- be pointed at it with the "Clear arrears" chip. ALSO applied lazily by
+-- routes/debt.js, like every other post-launch column here.
+ALTER TABLE debt_plan_debts ADD COLUMN IF NOT EXISTS arrangement_amount NUMERIC;
+
+-- The staged emergency fund (v2.68.0). Stage one is the existing month-ahead
+-- buffer and is unchanged: fund this month's commitments, then top the buffer
+-- up to one month of them. These columns are stage two -- the 3-6 month
+-- figures the buffer may grow toward, and the toggle that says whether it
+-- does this cycle.
+--
+-- The extension is only ever filled once EVERY debt's arrears are at zero:
+-- while anything is overdue, everything past the one-month baseline goes at
+-- the arrears instead (and savings_pct is suppressed to 0 for the same
+-- reason -- that money is protection against sliding back, not saving yet).
+-- 0 = not pursuing an extension. The toggle defaults to true because growing
+-- the cushion is the safer default the one time it is introduced; it has no
+-- effect at all until the arrears are clear. ALSO applied lazily by
+-- routes/debt.js.
+ALTER TABLE debt_plan_settings ADD COLUMN IF NOT EXISTS emergency_extended_target_biz NUMERIC NOT NULL DEFAULT 0;
+ALTER TABLE debt_plan_settings ADD COLUMN IF NOT EXISTS emergency_extended_target_per NUMERIC NOT NULL DEFAULT 0;
+ALTER TABLE debt_plan_settings ADD COLUMN IF NOT EXISTS emergency_fund_growing BOOLEAN NOT NULL DEFAULT true;

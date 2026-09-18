@@ -128,6 +128,22 @@ let bufferTargetBiz=0;
 let bufferTargetPer=0;
 const bufferPot=()=>round2(bufferBiz+bufferPer);
 const bufferTarget=()=>round2(bufferTargetBiz+bufferTargetPer);
+// STAGE TWO of the same jars: the 3-6 month emergency fund. Stage one is the
+// month-ahead buffer above and is untouched — it fills to one month of
+// commitments always, whatever these say. These are the bigger figures the
+// SAME two jars may grow toward, and they only ever get filled once every
+// debt's arrears are at zero: while anything is overdue, money past the
+// one-month baseline goes at the arrears instead, because a cushion built on
+// top of overdue debt is not a cushion.
+//
+// 0 = not pursuing an extension. `emergencyGrowing` is the manual
+// grow-vs-snowball choice, and it persists until you change it rather than
+// resetting each cycle — a switch that flips itself back is one you stop
+// trusting. It does nothing at all while arrears remain.
+let emergencyTargetBiz=0;
+let emergencyTargetPer=0;
+let emergencyGrowing=true;
+const emergencyTarget=()=>round2(emergencyTargetBiz+emergencyTargetPer);
 let incomeLog=[]; // {id, amount, bizAmt, perAmt, savedAmt, bufferAmt, date}
 let paidThisCycle=[]; // array of debt ids paid
 // What each tick actually took off a balance this cycle, keyed by debt id:
@@ -203,7 +219,7 @@ function persist(...kinds){
 }
 const PERSIST_BODIES={
   debts:()=>({debts,clientUpdatedAt:debtsUpdatedAt}),
-  settings:()=>({budget,sweepPct,savingsPct,tightThreshold,lastMilestone,notifyDaysBefore,notificationsEnabled,bufferTargetBiz,bufferTargetPer,clientUpdatedAt:settingsUpdatedAt}),
+  settings:()=>({budget,sweepPct,savingsPct,tightThreshold,lastMilestone,notifyDaysBefore,notificationsEnabled,bufferTargetBiz,bufferTargetPer,emergencyTargetBiz,emergencyTargetPer,emergencyGrowing,clientUpdatedAt:settingsUpdatedAt}),
   cashflow:()=>({bizPot,perPot,savingsPot,bufferBiz,bufferPer,paidThisCycle,missedThisCycle,minPaidThisCycle,appliedPayments,clientUpdatedAt:cashflowUpdatedAt})
 };
 async function persistNow(){
@@ -243,6 +259,8 @@ async function handleWriteResponse(res,kind){
       tightThreshold=body.current.tightThreshold;lastMilestone=body.current.lastMilestone;
       notifyDaysBefore=body.current.notifyDaysBefore;notificationsEnabled=body.current.notificationsEnabled;
       bufferTargetBiz=body.current.bufferTargetBiz??0;bufferTargetPer=body.current.bufferTargetPer??0;
+      emergencyTargetBiz=body.current.emergencyTargetBiz??0;emergencyTargetPer=body.current.emergencyTargetPer??0;
+      emergencyGrowing=body.current.emergencyGrowing??true;
       settingsUpdatedAt=body.updatedAt;
     }else if(kind==='cashflow'){
       bizPot=body.current.bizPot;perPot=body.current.perPot;savingsPot=body.current.savingsPot;
@@ -277,6 +295,9 @@ function applyStatePayload(s){
   // by account carries the single legacy figure, which was personal money.
   bufferTargetBiz=s.settings.bufferTargetBiz??0;
   bufferTargetPer=s.settings.bufferTargetPer??s.settings.bufferTarget??0;
+  emergencyTargetBiz=s.settings.emergencyTargetBiz??0;
+  emergencyTargetPer=s.settings.emergencyTargetPer??0;
+  emergencyGrowing=s.settings.emergencyGrowing??true;
   bizPot=s.cashflow.bizPot;
   perPot=s.cashflow.perPot;
   savingsPot=s.cashflow.savingsPot;
@@ -560,6 +581,47 @@ const parseNum=(s)=>{const n=parseFloat(String(s).replace(/[^0-9.]/g,''));return
 const round2=(n)=>Math.round((Number(n)||0)*100)/100;
 const ord=(n)=>n+(['st','nd','rd'][n-1]||'th');
 
+// ---------- Agreed arrangements & the arrears gate ----------
+// An AGREED ARRANGEMENT is a fixed monthly instalment a creditor has accepted
+// to bring arrears up to date, on top of (and separate from) the debt's
+// ordinary contractual `min`. `arrears` still means exactly what it always
+// meant — money still overdue — so an arrangement is a FLOOR under the arrears
+// payment, never a ceiling: a windfall can still be pointed at the whole lot
+// with the "Clear arrears" chip.
+//
+// null/absent is the only "off" state, which is nearly every debt.
+function arrangementOf(debt){
+  const v=Number(debt&&debt.arrangement);
+  return Number.isFinite(v)&&v>0.005?v:0;
+}
+const hasArrangement=(debt)=>arrangementOf(debt)>0.005;
+// Is ANY debt still behind? The gate the staged emergency fund hangs off: it
+// suppresses the savings sweep, and it holds the buffer at its one-month
+// baseline. A debt with an agreed arrangement counts here exactly like any
+// other — its arrears are still arrears, they are just funded differently.
+function anyArrears(){
+  return debts.some(d=>Number(d.arrears)>0.005);
+}
+// The savings percentage is suppressed to zero while anything is overdue.
+// This isn't your savings yet — it's protection against sliding back into
+// arrears — so it doesn't get siphoned off into generic saving. It resumes
+// its old behaviour untouched the moment every debt is up to date.
+const savingsSuppressed=()=>anyArrears();
+// Can the buffer grow PAST one month this cycle? Three things have to be
+// true: every arrear cleared, the toggle set to grow, and a target to grow
+// toward. Flipping the toggle early is allowed and simply does nothing yet.
+function emergencyEligible(){
+  return !anyArrears()&&emergencyGrowing&&emergencyTarget()>0.005;
+}
+// What each jar is actually filling toward right now. Stage one — the
+// one-month baseline — is what it always was and applies regardless; stage
+// two only lifts the ceiling, never lowers it, so a badly-typed extension
+// can't shrink the month-ahead float.
+function bufferFillTargets(){
+  if(!emergencyEligible())return {biz:round2(bufferTargetBiz),per:round2(bufferTargetPer)};
+  return {biz:round2(Math.max(bufferTargetBiz,emergencyTargetBiz)),
+          per:round2(Math.max(bufferTargetPer,emergencyTargetPer))};
+}
 // Month 1 of the projection is the month the CURRENT cycle opened, so every
 // forecast date counts forward from where you actually are. This was pinned
 // to July 2026, which is why "arrears cleared" and "debt-free" never moved
@@ -581,12 +643,33 @@ function simulate(dts,bdgt){
   for(let month=1;month<=360;month++){
     let bl=bdgt;const payments=[];
     for(let d of state){
-      if(d.remaining<=0.005){payments.push({id:d.id,name:d.name,minPaid:0,arrearsPaid:0,extra:0,total:0,remaining:0,remainingArrears:0,cleared:true,wasActive:false});continue;}
+      if(d.remaining<=0.005){payments.push({id:d.id,name:d.name,minPaid:0,arrearsPaid:0,extra:0,total:0,remaining:0,remainingArrears:0,cleared:true,wasActive:false,arrangement:0});continue;}
       const interest=(d.apr/100/12)*d.remaining;d.remaining+=interest;
       const minPaid=Math.min(d.min,d.remaining);d.remaining=Math.max(0,d.remaining-minPaid);bl-=minPaid;
-      payments.push({id:d.id,name:d.name,minPaid,arrearsPaid:0,extra:0,total:minPaid,remaining:d.remaining,remainingArrears:d.remainingArrears,cleared:false,wasActive:true});
+      // An AGREED ARRANGEMENT is paid here, alongside the minimum, rather than
+      // down in the cascade: a creditor has accepted this instalment to bring
+      // the arrears up to date, and missing it can get the plan cancelled. It
+      // is a commitment, not an opportunity, so it comes out of the budget
+      // before anything discretionary and never has to win a queue. Capped at
+      // what is actually still overdue — you cannot catch up further than you
+      // are behind — and at what is left owing.
+      const agreed=Math.min(arrangementOf(d),d.remainingArrears,d.remaining);
+      if(agreed>0.005){
+        d.remaining=Math.max(0,d.remaining-agreed);
+        d.remainingArrears=Math.max(0,d.remainingArrears-agreed);
+        bl-=agreed;
+      }
+      // `arrearsPaid` carries the arrangement money, because that is exactly
+      // what it is: the catch-up part of the payment. Everything downstream —
+      // the min/arrears split a tick applies, the Schedule tab's "min + arrears"
+      // line — then works unchanged.
+      payments.push({id:d.id,name:d.name,minPaid,arrearsPaid:agreed>0.005?agreed:0,extra:0,total:minPaid+(agreed>0.005?agreed:0),remaining:d.remaining,remainingArrears:d.remainingArrears,cleared:false,wasActive:true,arrangement:agreed>0.005?agreed:0});
     }
-    const arrearsDebts=state.filter(d=>d.remainingArrears>0.005&&d.remaining>0.005);
+    // The opportunistic cascade deliberately SKIPS a debt with an arrangement:
+    // its arrears money has already been funded above as a guaranteed
+    // commitment, so letting it also compete for the leftover would pay it
+    // twice in one month and starve the creditors who have no plan at all.
+    const arrearsDebts=state.filter(d=>d.remainingArrears>0.005&&d.remaining>0.005&&arrangementOf(d)<=0.005);
     const inArrears=arrearsDebts.length>0;
     if(inArrears&&bl>0.005){
       // SMALLEST arrears first — snowball logic applied to arrears. The spare
@@ -603,7 +686,7 @@ function simulate(dts,bdgt){
         const pay=Math.min(remaining,d.remainingArrears,d.remaining);
         d.remainingArrears=Math.max(0,d.remainingArrears-pay);d.remaining=Math.max(0,d.remaining-pay);remaining-=pay;
         const pi=payments.findIndex(p=>p.id===d.id);
-        payments[pi].arrearsPaid=pay;payments[pi].total+=pay;payments[pi].remaining=d.remaining;payments[pi].remainingArrears=d.remainingArrears;
+        payments[pi].arrearsPaid+=pay;payments[pi].total+=pay;payments[pi].remaining=d.remaining;payments[pi].remainingArrears=d.remainingArrears;
         if(d.remaining<=0.005)payments[pi].cleared=true;
       }
       bl=remaining;
@@ -643,7 +726,10 @@ function getCurrentTarget(){
   // arrangement sets a min/due it joins the plan by itself). Data-driven so
   // new debts behave sensibly — was a hardcoded `id !== 11`.
   const active=debts.filter(d=>d.balance>0.005 && (d.min>0.005||d.due));
-  const arrearsDebts=active.filter(d=>d.arrears>0.005);
+  // A debt with an agreed arrangement is out of the cascade, exactly as in
+  // simulate(): its catch-up is already funded as a commitment, so it does not
+  // also queue for the opportunistic leftover.
+  const arrearsDebts=active.filter(d=>d.arrears>0.005&&!hasArrangement(d));
   if(arrearsDebts.length){
     // smallest arrears first — matches simulate()'s payment order
     return arrearsDebts.slice().sort((a,b)=>a.arrears-b.arrears)[0];
@@ -666,6 +752,31 @@ function getCurrentTarget(){
 function minDueOf(debt,paidOff){
   const balance=(debt?Number(debt.balance)||0:0)+(Number(paidOff)||0);
   return round2(Math.min(Number(debt&&debt.min)||0,balance));
+}
+// The agreed instalment on top of that minimum, capped at what is still
+// overdue (you can't catch up further than you are behind) and at whatever the
+// minimum leaves of the balance. `arrearsPaidOff` is what an already-applied
+// payment took off the ARREARS, so the cap is measured against the figures as
+// the cycle opened — the same trick minDueOf plays with `paidOff`.
+function arrangementDueOf(debt,paidOff,arrearsPaidOff){
+  const amt=arrangementOf(debt);
+  if(amt<=0.005)return 0;
+  const balance=(debt?Number(debt.balance)||0:0)+(Number(paidOff)||0);
+  const arrears=(debt?Number(debt.arrears)||0:0)+(Number(arrearsPaidOff)||0);
+  return round2(Math.max(0,Math.min(amt,arrears,balance-minDueOf(debt,paidOff))));
+}
+// What the cycle actually COMMITS you to on this debt: the contractual
+// minimum plus any agreed instalment. This is the funding figure — what has to
+// leave the pot, what the buffer covers, what a pay-in fills first.
+//
+// It is deliberately NOT what the arrears roll measures. A missed minimum is
+// money genuinely overdue and joins arrears at close; a missed arrangement
+// instalment is money that was ALREADY overdue, so the arrears simply don't
+// come down that cycle. Adding a shortfall on top would count the same pound
+// twice. What a missed instalment does instead is put the agreement itself at
+// risk, which the checklist and the close-cycle banner say in words.
+function commitDueOf(debt,paidOff,arrearsPaidOff){
+  return round2(minDueOf(debt,paidOff)+arrangementDueOf(debt,paidOff,arrearsPaidOff));
 }
 function getCyclePayments(){
   const months=getSim();
@@ -703,7 +814,11 @@ function getCyclePayments(){
       // contractual minimum.
       minAmt:a&&a.minAmt!=null?a.minAmt:p.minPaid,arrearsAmt,
       // What must actually go out to keep the agreement current.
-      minDue:minDueOf(debt,a?a.amount:0)};
+      minDue:minDueOf(debt,a?a.amount:0),
+      // ...and the agreed instalment on top of it, if there is one. The two
+      // added together are what this cycle commits to on this debt.
+      arrangementDue:arrangementDueOf(debt,a?a.amount:0,a?a.arrearsAmt:0),
+      commitDue:commitDueOf(debt,a?a.amount:0,a?a.arrearsAmt:0)};
   });
   // A debt this cycle's payment cleared outright drops out of month 1 — keep
   // its ticked row on the checklist rather than losing a payment you made.
@@ -719,7 +834,9 @@ function getCyclePayments(){
       snowball:!!a.snowball,missed:false,
       minPaid:minPaidThisCycle.includes(id),account:debt?.account||'personal',
       minAmt:a.minAmt??0,arrearsAmt:a.arrearsAmt,
-      minDue:minDueOf(debt,a.amount)});
+      minDue:minDueOf(debt,a.amount),
+      arrangementDue:arrangementDueOf(debt,a.amount,a.arrearsAmt),
+      commitDue:commitDueOf(debt,a.amount,a.arrearsAmt)});
   }
   // Arrears the month's budget never reached. A debt with no contractual
   // minimum — Brewers' trade account, whose whole balance is overdue — takes
@@ -741,7 +858,9 @@ function getCyclePayments(){
       arrears:true,arrearsLeft:round2(d.arrears),unfunded:true,
       snowball:false,missed:missedThisCycle.includes(d.id),minPaid:false,
       account:d.account||'personal',minAmt:0,arrearsAmt:0,
-      minDue:minDueOf(d,0)});
+      minDue:minDueOf(d,0),
+      arrangementDue:arrangementDueOf(d,0,0),
+      commitDue:commitDueOf(d,0,0)});
   }
   return rows.sort((a,b)=>a.due-b.due);
 }
@@ -775,24 +894,42 @@ function getCycleStatus(){
   const payments=getCyclePayments();
   let minTotal=0,minCovered=0,outstandingBiz=0,outstandingPer=0;
   const unmet=[];
+  // Agreed instalments this cycle hasn't covered. NOT part of the minimums
+  // verdict and NOT arrears — display only. The app has no way to know whether
+  // a creditor actually pulled the plan, so it never clears the arrangement
+  // itself; it just says plainly what is at stake.
+  const arrangementsAtRisk=[];
   for(const p of payments){
+    const paid=paidAmountOf(p);
+    // An agreed instalment is shorted when the payment doesn't reach the
+    // minimum AND the instalment together. Overpaying — a "Clear arrears" lump
+    // that sails past both — is not a shortfall, so it raises nothing.
+    if(p.arrangementDue>0.005&&paid<p.commitDue-0.005){
+      arrangementsAtRisk.push({id:p.id,name:p.name,amount:round2(Math.max(0,p.commitDue-paid)),
+        arrangement:p.arrangementDue,missed:!!p.missed});
+    }
     // No minimum = no commitment (a trade account, HMRC pre-arrangement). Such
     // a debt is left out of the verdict rather than counted as a promise met
     // by paying nothing — which is what the nullable floor column existed for.
-    if(p.minDue<=0.005)continue;
-    minTotal+=p.minDue;
-    // A minimum is settled by money, not by which tick was used: paying the
-    // target in full or the minimum on its own both clear it by construction,
-    // and a custom amount clears it if it reaches. One that doesn't leaves the
-    // minimum uncovered even though the payment is ticked — the honest answer,
-    // and what sends the rest into arrears at close.
-    if(paidAmountOf(p)>=p.minDue-0.005){minCovered+=p.minDue;continue;}
-    unmet.push(p);
-    // A deliberately missed debt still counts as uncovered (that's the signal
-    // worth having), but no money is set aside for it.
-    if(!p.missed){
-      if(p.account==='business')outstandingBiz+=p.minDue; else outstandingPer+=p.minDue;
+    // An arrangement doesn't put it in either: the verdict is about what
+    // becomes arrears, and a missed instalment never does.
+    if(p.minDue>0.005){
+      minTotal+=p.minDue;
+      // A minimum is settled by money, not by which tick was used: paying the
+      // target in full or the minimum on its own both clear it by construction,
+      // and a custom amount clears it if it reaches. One that doesn't leaves the
+      // minimum uncovered even though the payment is ticked — the honest answer,
+      // and what sends the rest into arrears at close.
+      if(paid>=p.minDue-0.005)minCovered+=p.minDue;
+      else unmet.push(p);
     }
+    // What still has to be found, which is the minimum AND the agreed
+    // instalment: an arrangement is funded like a commitment, not like the
+    // opportunistic catch-up it replaces. A deliberately missed debt sets aside
+    // nothing (that's what missing it means), and neither does one whose
+    // payment has already covered the lot.
+    if(p.missed||p.commitDue<=0.005||paid>=p.commitDue-0.005)continue;
+    if(p.account==='business')outstandingBiz+=p.commitDue; else outstandingPer+=p.commitDue;
   }
   const withMin=payments.filter(p=>p.minDue>0.005);
   // The targets, not the amounts that went out — so "£x to go" still counts
@@ -802,7 +939,7 @@ function getCycleStatus(){
   const targetPaid=payments.reduce((s,p)=>s+paidAmountOf(p),0);
   return {
     payments,unmet,minTotal,minCovered,targetTotal,targetPaid,
-    outstandingBiz,outstandingPer,
+    outstandingBiz,outstandingPer,arrangementsAtRisk,
     // Money already in the pots against the minimums still to pay.
     shortBy:Math.max(0,outstandingBiz-bizPot)+Math.max(0,outstandingPer-perPot),
     // The verdict that matters: every minimum paid means nothing NEW went
@@ -823,7 +960,12 @@ function monthlyMinimums(){
   for(const d of debts){
     if(d.balance<=0.005)continue;
     if(!(d.min>0.005||d.due))continue;
-    const m=Math.min(Number(d.min)||0,d.balance);
+    // An agreed instalment is part of a month too. The buffer exists to fund
+    // the cycle's commitments out of stored cash on a light month, and
+    // cycleCommitments() — what it is actually spent against — counts the
+    // instalment; a target that left it out would call the jar "a month ahead"
+    // while being short by exactly the arrangements every month.
+    const m=Math.min(Number(d.min)||0,d.balance)+arrangementDueOf(d,0,0);
     if(m<=0.005)continue;
     if(d.account==='business')biz+=m; else per+=m;
   }
@@ -835,7 +977,10 @@ function cycleCommitments(){
   let biz=0,per=0;
   for(const p of getCycleStatus().payments){
     if(p.missed)continue;
-    const left=Math.max(0,p.minDue-paidAmountOf(p));
+    // Minimum AND agreed instalment: both are commitments, and the instalment
+    // is funded ahead of the buffer and the sweep for the same reason the
+    // minimum is — missing it has a real consequence.
+    const left=Math.max(0,p.commitDue-paidAmountOf(p));
     if(left<=0.005)continue;
     if(p.account==='business')biz+=left; else per+=left;
   }
@@ -873,7 +1018,7 @@ function commitmentQueue(){
   const out=[];
   for(const p of getCycleStatus().payments){
     if(p.missed)continue;
-    const left=Math.max(0,p.minDue-paidAmountOf(p));
+    const left=Math.max(0,p.commitDue-paidAmountOf(p));
     if(left<=0.005)continue;
     out.push({id:p.id,account:p.account,due:p.due,amount:round2(left)});
   }
@@ -889,7 +1034,7 @@ function targetQueue(){
   const out=[];
   for(const p of getCycleStatus().payments){
     if(p.missed)continue;
-    const above=Math.max(0,p.target-Math.max(p.minDue,paidAmountOf(p)));
+    const above=Math.max(0,p.target-Math.max(p.commitDue,paidAmountOf(p)));
     if(above<=0.005)continue;
     out.push({id:p.id,account:p.account,due:p.due,amount:round2(above)});
   }
@@ -900,9 +1045,24 @@ function targetQueue(){
 // can never be told it needs money that step 0 is on its way to returning.
 function bufferNeededAfter(potRepay){
   const byPot=(potRepay&&potRepay.byPot)||{};
-  const biz=Math.max(0,bufferTargetBiz-bufferBiz-(byPot.bufferBiz||0));
-  const per=Math.max(0,bufferTargetPer-bufferPer-(byPot.bufferPer||0));
+  // What each jar aims at: the one-month baseline always, and the 3-6 month
+  // emergency target on top of it only once every arrear is cleared and the
+  // toggle says grow. Once a jar reaches whichever target applies it stops
+  // asking — the same "stop filling at target" the buffer has always had, so
+  // an extension that has been reached quietly falls through to the snowball
+  // whether the toggle is left on or not.
+  const aim=bufferFillTargets();
+  const biz=Math.max(0,aim.biz-bufferBiz-(byPot.bufferBiz||0));
+  const per=Math.max(0,aim.per-bufferPer-(byPot.bufferPer||0));
   return {biz,per,total:biz+per};
+}
+// What the jars hold against the one-month baseline alone — the stage-one
+// figure, unaffected by any extension. The strip and the cover modal quote it
+// so "a month ahead ✓" keeps meaning a month ahead.
+function baselineNeeded(){
+  return {biz:round2(Math.max(0,bufferTargetBiz-bufferBiz)),
+          per:round2(Math.max(0,bufferTargetPer-bufferPer)),
+          total:round2(Math.max(0,bufferTargetBiz-bufferBiz)+Math.max(0,bufferTargetPer-bufferPer))};
 }
 // How one lump of buffer money divides between the two jars: in proportion to
 // what each still needs, falling back to the targets, then evenly. The
@@ -911,8 +1071,9 @@ function bufferNeededAfter(potRepay){
 // places.
 function bufferSplit(total,potRepay){
   const need=bufferNeededAfter(potRepay);
+  const aim=bufferFillTargets();
   const w=need.total>0.005?need.biz/need.total
-    :bufferTargetBiz+bufferTargetPer>0.005?bufferTargetBiz/(bufferTargetBiz+bufferTargetPer):0.5;
+    :aim.biz+aim.per>0.005?aim.biz/(aim.biz+aim.per):0.5;
   const biz=round2(total*w);
   return {bufferBiz:biz,bufferPer:round2(total-biz)};
 }
@@ -1007,7 +1168,15 @@ function allocateIncome(amt,pins){
   // toward this week's percentage — the pot is what the percentage is FOR, and
   // paying a savings loan back only to set the same slice aside again would
   // take the same money out of living twice over.
-  const savings=pinSav!==null?gotSav:Math.max(0,Math.min(rem,gross*savingsPct/100-(potRepay.byPot.savings||0)));
+  // ...but NOT while any debt is still behind. Everything past the one-month
+  // buffer belongs to the arrears until they are gone: this money isn't
+  // savings yet, it is protection against sliding back into the very thing
+  // being cleared. `savingsPct` itself is untouched — it simply doesn't fire,
+  // and resumes its old generic behaviour the moment the arrears are clear. A
+  // figure TYPED against the savings line still stands: a pin is a decision
+  // already made, and the app doesn't overrule one.
+  const savingsRate=savingsSuppressed()?0:savingsPct;
+  const savings=pinSav!==null?gotSav:Math.max(0,Math.min(rem,gross*savingsRate/100-(potRepay.byPot.savings||0)));
   if(pinSav===null)rem-=savings;
   // 4. Targets get the rest of the sweep — this month's money already spent
   // counts against it, so this is a top-up to target, not a second helping.
@@ -1333,7 +1502,7 @@ function renderAll(){
       const when=dtr==null?'soon':dtr<=0?'today':dtr===1?'tomorrow':`in ${dtr} days`;
       html+=`<div class="card" style="border:1px solid #6a5a1a;background:#1a1608;border-radius:10px;margin-bottom:8px">
         <div class="row" style="align-items:flex-start">
-          <div style="font-size:13px;color:#e0c060">📅 This cycle renews ${when}. Any minimum still unpaid then goes into arrears — tick off what you've paid, or close it now and sync your balances.${renderBufferRescue()}</div>
+          <div style="font-size:13px;color:#e0c060">📅 This cycle renews ${when}. Any minimum still unpaid then goes into arrears — tick off what you've paid, or close it now and sync your balances.${renderBufferRescue()}${arrangementRiskNote('inline')}</div>
           <button onclick="cycleResetDismissed=true;renderAll()" style="background:none;border:none;color:#7c7f96;font-size:16px;padding:0 0 0 8px;flex-shrink:0">×</button>
         </div>
         <button class="btn-ghost" style="width:100%;margin-top:10px" onclick="startNewCycle()">Close it now</button>
@@ -1380,11 +1549,26 @@ function renderAll(){
       const debt=debts.find(d=>d.id===p.id);
       // "Paid the minimum" is only a distinct choice when the minimum is
       // actually less than the target — otherwise it IS paying in full.
+      // Against the CONTRACTUAL minimum, not the commitment: on a debt with an
+      // arrangement, paying the minimum alone is exactly the case worth being
+      // able to record in one tap — it keeps the account current and shorts the
+      // instalment, and the row then says the arrangement is at risk.
       const minIsLess=p.minDue>0.005&&p.minDue<p.target-0.005;
       // Ticked at an amount that doesn't reach the minimum is a real state —
       // the payment happened, the agreement still isn't current — so the
       // figure stays amber rather than greying out with the rest of the row.
       const minSettled=p.minDue>0.005&&paidAmountOf(p)>=p.minDue-0.005;
+      // The row prints the COMMITMENT (minimum plus any agreed instalment), so
+      // what greys it out is whether that whole figure has gone out.
+      const commitSettled=p.commitDue>0.005&&paidAmountOf(p)>=p.commitDue-0.005;
+      // An agreed arrangement: the row shows the COMBINED min + instalment as
+      // one commitment (the instalment already is the catch-up, so there is no
+      // separate arrears row for it), with a badge so the combined figure
+      // can't be mistaken for a plain contractual minimum. The warning names
+      // the real consequence rather than the ordinary "missed" language: the
+      // creditor can pull the plan.
+      const hasArr=p.arrangementDue>0.005;
+      const arrShort=hasArr&&paidAmountOf(p)<p.commitDue-0.005;
       const customNote=Math.abs(p.amount-p.target)<=0.005?'Your own amount'
         :overTarget?`${fmt(p.amount-p.target)} over the ${fmt(p.target)} target`
         :`${fmt(p.target-p.amount)} under the ${fmt(p.target)} target`;
@@ -1409,12 +1593,15 @@ function renderAll(){
             ${minOnly?'<span class="badge badge-green">MINIMUM PAID</span>':''}
             ${custom?'<span class="badge badge-blue">OWN AMOUNT</span>':''}
             ${p.arrears?'<span class="badge badge-red">ARREARS</span>':''}
+            ${hasArr?'<span class="badge" style="background:#1a2a1a;color:#7db87d">ARRANGEMENT</span>':''}
             ${p.snowball&&!settled&&!missed&&!minOnly?'<span class="badge badge-blue">SNOWBALL</span>':''}
           </div>
-          <div style="font-size:11px;color:#555;margin-top:1px">${unfunded?`${p.due<99?'Due '+ord(p.due):'Flexible date'} · <span style="color:#e0923b">waiting for budget</span>`:missed?'Skipped this cycle — no budget set aside':custom?customNote:minOnly?`Minimum met · ${fmt(Math.max(0,p.target-p.minDue))} under target`:(p.due<99?'Due '+ord(p.due):'Flexible date')}${p.minDue>0.005&&!minOnly?` · min <span style="color:${minSettled?'#555':settled||missed?'#e0923b':'#7c7f96'}">${fmt(p.minDue)}</span>`:''}${p.minDue<=0.005&&!unfunded?' · <span style="color:#7c7f96">no minimum</span>':''}${p.arrearsLeft>0.005?` · <span style="color:#e05c5c">${fmt(p.arrearsLeft)} still overdue</span>`:''}</div>
+          <div style="font-size:11px;color:#555;margin-top:1px">${unfunded?`${p.due<99?'Due '+ord(p.due):'Flexible date'} · <span style="color:#e0923b">waiting for budget</span>`:missed?'Skipped this cycle — no budget set aside':custom?customNote:minOnly?`Minimum met · ${fmt(Math.max(0,p.target-p.minDue))} under target`:(p.due<99?'Due '+ord(p.due):'Flexible date')}${p.commitDue>0.005&&!minOnly?` · ${hasArr?'min + arrangement':'min'} <span style="color:${commitSettled?'#555':settled||missed?'#e0923b':'#7c7f96'}">${fmt(p.commitDue)}</span>`:''}${p.commitDue<=0.005&&!unfunded?' · <span style="color:#7c7f96">no minimum</span>':''}${p.arrearsLeft>0.005?` · <span style="color:#e05c5c">${fmt(p.arrearsLeft)} still overdue</span>`:''}</div>
+          ${arrShort?`<div style="font-size:11px;color:#e0c060;margin-top:3px;line-height:1.4">⚠ Arrangement at risk — missing this can get the plan cancelled. ${fmt(p.arrangementDue)} agreed monthly${p.missed?' · skipped this cycle':''}</div>`:''}
         </div>
         <div style="text-align:right;flex-shrink:0">
           <div style="font-weight:700;color:${unfunded?'#555':custom?'#5b8def':done||missed?'#555':minOnly?'#7db87d':'#e8e8ec'};${settled||missed?'text-decoration:line-through':''}">${unfunded?'—':minOnly?fmt(p.minDue):fmt(p.amount)}</div>
+          ${minOnly&&hasArr?`<div style="font-size:10px;color:#e0c060;margin-top:1px">arrangement not paid</div>`:''}
           <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;max-width:176px;margin-left:auto">
             ${unfunded?link('openCustomPayModal','pay some of it','#5b8def',"'total'")
              :settled?payMore+changeTotal+(custom?link('undoPayment','undo','#555'):'')
@@ -1554,7 +1741,7 @@ function renderAll(){
         <div><div style="font-size:13px;font-weight:600">Buffer pot target</div><div style="font-size:12px;color:#7c7f96;margin-top:2px">Cash held back before anything reaches the debts</div></div>
         <div style="font-weight:700;font-size:18px;color:${bufferTarget()>0?'#7db87d':'#555'}">${bufferTarget()>0?fmtS(bufferTarget()):'Off'}</div>
       </div>
-      <div style="font-size:11px;color:#555;line-height:1.5;margin:8px 0 12px">A month ahead means holding one month of <strong style="color:#7c7f96">contractual minimums</strong> — ${fmt(mm.total)} on today's plan (${fmt(mm.biz)} business, ${fmt(mm.per)} personal). Miss one and it becomes arrears.</div>
+      <div style="font-size:11px;color:#555;line-height:1.5;margin:8px 0 12px">A month ahead means holding one month of <strong style="color:#7c7f96">commitments</strong> — every contractual minimum, plus any agreed arrangement instalment — ${fmt(mm.total)} on today's plan (${fmt(mm.biz)} business, ${fmt(mm.per)} personal). Miss a minimum and it becomes arrears; miss an arrangement and the plan can be cancelled.</div>
       <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
         ${[['One month ahead',1],['Half a month',0.5]].map(([label,f])=>`<button onclick="setBufferPreset(${f})" style="flex:1;min-width:120px;padding:8px;border-radius:6px;border:1px solid ${Math.abs(bufferTargetBiz-mm.biz*f)<0.02&&Math.abs(bufferTargetPer-mm.per*f)<0.02&&mm.total>0.005?'#7db87d':'#2a2d3e'};background:${Math.abs(bufferTargetBiz-mm.biz*f)<0.02&&Math.abs(bufferTargetPer-mm.per*f)<0.02&&mm.total>0.005?'#0d1a12':'#0f1117'};color:#7db87d;font-size:12px;font-weight:600">${label}<br><span style="font-size:10px;color:#555">${fmt(round2(mm.total*f))}</span></button>`).join('')}
         <button onclick="setBufferPreset(0)" style="flex:1;min-width:80px;padding:8px;border-radius:6px;border:1px solid ${bufferTarget()<=0.005?'#5a3a1a':'#2a2d3e'};background:#0f1117;color:#7c7f96;font-size:12px;font-weight:600">Off</button>
@@ -1564,6 +1751,7 @@ function renderAll(){
         <div><div class="field-label" style="color:#5b8def">Personal (£)</div><input class="field-input" type="number" inputmode="decimal" min="0" step="0.01" value="${bufferTargetPer||''}" placeholder="0" oninput="setBufferTargetFor('personal',this.value)"></div>
       </div>
       <div style="font-size:11px;color:#555;line-height:1.5;margin-top:10px">Two jars, because the pots are two real bank accounts — a full personal cushion can't pay a business minimum.</div>
+      ${renderEmergencyFund(mm)}
     </div>`;
 
     // Notification settings
@@ -1748,11 +1936,11 @@ function renderAll(){
 
   // ---------- EDIT ----------
   else if(view==='edit'){
-    html+=`<p class="desc">Update figures as things change. Tap Save to recalculate.<br><strong style="color:#7db87d">Min. Payment</strong> is what the agreement requires — the number that becomes arrears if it goes unpaid. Leave it at 0 where there is no minimum (a trade account, HMRC before an arrangement). The plan pays the higher target figure whenever the money is there.</p>`;
+    html+=`<p class="desc">Update figures as things change. Tap Save to recalculate.<br><strong style="color:#7db87d">Min. Payment</strong> is what the agreement requires — the number that becomes arrears if it goes unpaid. Leave it at 0 where there is no minimum (a trade account, HMRC before an arrangement). The plan pays the higher target figure whenever the money is there.<br><strong style="color:#e0c060">Arrangement</strong> is a monthly instalment a creditor has AGREED to, to clear the arrears. Set it and the plan funds it alongside the minimum every cycle instead of leaving that debt to the catch-up queue. Leave it empty where there is no agreement — put the date or reference in the note. Clear it back to empty when the plan ends and the debt goes back to its minimum.</p>`;
     debts.forEach((d,i)=>{
-      const ev=editDraft[d.id]||{balance:d.balance,apr:d.apr,min:d.min,arrears:d.arrears,due:d.due??'',account:d.account||'personal',note:d.note};
+      const ev=editDraft[d.id]||{balance:d.balance,apr:d.apr,min:d.min,arrears:d.arrears,arrangement:d.arrangement??'',due:d.due??'',account:d.account||'personal',note:d.note};
       html+=`<div class="card" style="border-radius:12px;margin-bottom:12px"><div class="row" style="align-items:center;margin-bottom:12px"><div style="display:flex;align-items:center;gap:8px"><div class="dot" style="background:${COLORS[i%COLORS.length]};margin-top:0"></div><span style="font-weight:700;font-size:15px">${esc(d.name)}</span>${d.arrears>0?'<span class="badge badge-red">ARREARS</span>':''}</div><button onclick="openArchiveModal(${d.id})" style="background:none;border:none;color:#555;font-size:11px;font-weight:600;text-decoration:underline;padding:0;flex-shrink:0">archive</button></div>
-      <div class="edit-grid">${[['balance','Balance (£)'],['arrears','Arrears (£)'],['apr','APR (%)'],['min','Min. Payment (£)'],['due','Due Date (day)']].map(([f,label])=>`<div><div class="field-label"${f==='min'?' style="color:#7db87d"':''}>${label}</div><input class="field-input" type="number" min="0" step="${f==='apr'?'0.1':f==='due'?'1':'0.01'}" value="${ev[f]}" oninput="updateDraft(${d.id},'${f}',this.value)"></div>`).join('')}<div><div class="field-label" style="color:${ev.account==='business'?'#e0923b':'#5b8def'}">Account</div><select class="field-input" style="background:#0f1117;color:#e8e8ec" onchange="updateDraft(${d.id},'account',this.value)"><option value="personal" ${ev.account==='personal'?'selected':''}>Personal</option><option value="business" ${ev.account==='business'?'selected':''}>Business</option></select></div><div style="grid-column:1/-1"><div class="field-label">Note</div><input class="field-input" type="text" value="${esc(ev.note||'')}" oninput="updateDraft(${d.id},'note',this.value)"></div></div></div>`;
+      <div class="edit-grid">${[['balance','Balance (£)'],['arrears','Arrears (£)'],['apr','APR (%)'],['min','Min. Payment (£)'],['arrangement','Arrangement (£)'],['due','Due Date (day)']].map(([f,label])=>`<div><div class="field-label"${f==='min'?' style="color:#7db87d"':f==='arrangement'?' style="color:#e0c060"':''}>${label}</div><input class="field-input" type="number" min="0" step="${f==='apr'?'0.1':f==='due'?'1':'0.01'}" value="${ev[f]??''}" placeholder="${f==='arrangement'?'none':''}" oninput="updateDraft(${d.id},'${f}',this.value)"></div>`).join('')}<div><div class="field-label" style="color:${ev.account==='business'?'#e0923b':'#5b8def'}">Account</div><select class="field-input" style="background:#0f1117;color:#e8e8ec" onchange="updateDraft(${d.id},'account',this.value)"><option value="personal" ${ev.account==='personal'?'selected':''}>Personal</option><option value="business" ${ev.account==='business'?'selected':''}>Business</option></select></div><div style="grid-column:1/-1"><div class="field-label">Note</div><input class="field-input" type="text" value="${esc(ev.note||'')}" oninput="updateDraft(${d.id},'note',this.value)"></div></div></div>`;
     });
     html+=`<button class="btn-ghost" style="width:100%;margin-bottom:12px;border-style:dashed" onclick="openAddDebtModal()">+ Add debt</button>`;
     html+=`<div style="display:flex;gap:10px;margin-top:4px"><button id="saveBtn" class="btn-primary" style="flex:1" onclick="applyEdits()">Save &amp; Recalculate</button><button class="btn-ghost" onclick="resetDebts()">Reset</button></div>`;
@@ -1780,7 +1968,7 @@ function renderAll(){
     debts.forEach((d,i)=>{
       html+=`<div class="card"><div class="row"><div style="display:flex;align-items:flex-start;gap:8px"><div class="dot" style="background:${COLORS[i%COLORS.length]}"></div><div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span style="font-weight:600;font-size:14px">${esc(d.name)}</span>${d.arrears>0?'<span class="badge badge-red">ARREARS</span>':''}</div>
-      <div style="font-size:12px;color:#7c7f96;margin-top:3px;display:flex;gap:12px;flex-wrap:wrap">${d.apr>0?`<span>${d.apr}% APR</span>`:''}${d.min>0?`<span>Min: ${fmt(d.min)}</span>`:''}${d.due?`<span>Due: ${ord(d.due)}</span>`:''}${d.arrears>0?`<span style="color:#e05c5c">Arrears: ${fmt(d.arrears)}</span>`:''}</div>
+      <div style="font-size:12px;color:#7c7f96;margin-top:3px;display:flex;gap:12px;flex-wrap:wrap">${d.apr>0?`<span>${d.apr}% APR</span>`:''}${d.min>0?`<span>Min: ${fmt(d.min)}</span>`:''}${arrangementOf(d)>0.005?`<span style="color:#e0c060">Arrangement: ${fmt(arrangementOf(d))}/mo</span>`:''}${d.due?`<span>Due: ${ord(d.due)}</span>`:''}${d.arrears>0?`<span style="color:#e05c5c">Arrears: ${fmt(d.arrears)}</span>`:''}</div>
       ${d.note?`<div style="font-size:11px;color:#555;margin-top:3px;font-style:italic">${esc(d.note)}</div>`:''}</div></div>
       <div style="font-size:18px;font-weight:700;color:${d.balance===0?'#3a4a3a':'#e8e8ec'};flex-shrink:0;margin-left:8px">${fmt(d.balance)}</div></div></div>`;
     });
@@ -1925,7 +2113,84 @@ function renderBufferStrip(){
     ${line('Personal','#5b8def',bufferPer,bufferTargetPer)}
     ${cover.total>0.005?`<button onclick="openBufferCoverModal()" style="width:100%;margin-top:9px;padding:7px;border-radius:7px;border:1px solid #2a4a3a;background:#0f1a15;color:#7db87d;font-size:12px;font-weight:700">Fund this month — move ${fmt(cover.total)} across</button>
       <div style="font-size:10px;color:#555;margin-top:5px;line-height:1.4">Puts every minimum still owing into the pots up front. Income then refills the buffer instead of paying the bills — which is what being a month ahead buys you.</div>`:''}
+    ${emergencyEligible()&&emergencyTarget()>bufferTarget()+0.005?`<div style="margin-top:9px;padding-top:8px;border-top:1px solid #16281f;font-size:10px;color:#e0c060;line-height:1.4">Arrears clear — growing toward a <strong>${fmt(emergencyTarget())}</strong> emergency fund (${fmt(bufferPot())} held). Everything above it goes to the snowball.</div>`:''}
     ${drift.matters?`<div style="margin-top:9px;padding-top:8px;border-top:1px solid #16281f;font-size:10px;color:#e0c060;line-height:1.4">A month of minimums is now <strong>${fmt(drift.mm.total)}</strong> — ${drift.drift>0?`${fmt(drift.drift)} less than you're holding for`:`${fmt(-drift.drift)} more than your target`}. <button onclick="setBufferPreset(1)" style="background:none;border:none;padding:0;color:#e0c060;font-size:10px;font-weight:700;text-decoration:underline">Update the target</button></div>`:''}
+  </div>`;
+}
+// ---------- Stage two: the emergency fund ----------
+// The month-ahead buffer above is stage one and never changes: fund this
+// month's commitments, then top the jars up to one month of them. This is what
+// happens to money BEYOND that — and the order is not a preference, it is the
+// whole point of the staging:
+//
+//   1. While ANY debt is in arrears, nothing grows. The savings percentage is
+//      suppressed to zero and everything past the one-month baseline goes at
+//      the arrears. A cushion built while you are behind is borrowed from the
+//      creditors you are behind with.
+//   2. Once every arrear is clear, the jars MAY grow toward 3-6 months — your
+//      call, per cycle, with the toggle. The app does not decide it: a small
+//      debt one payment from gone and a thin cushion are both real, and which
+//      wins is a judgement about the month you are actually in.
+//   3. Once the extended target is reached the jars stop asking, toggle or no
+//      toggle, and everything goes to the snowball.
+//
+// The toggle is left exactly where you put it rather than resetting each
+// cycle, and it is not auto-flipped when the target is reached — the card says
+// the fund is full and the money goes to the snowball on its own.
+function setEmergencyMonths(months){
+  const mm=monthlyMinimums();
+  emergencyTargetBiz=round2(mm.biz*months);
+  emergencyTargetPer=round2(mm.per*months);
+  persist('settings');renderAll();
+}
+// No renderAll() here, exactly as setBufferTargetFor(): this fires on every
+// keystroke, and re-rendering the card mid-type would take the caret with it.
+function setEmergencyTargetFor(account,v){
+  const n=Math.max(0,parseNum(v));
+  if(account==='business')emergencyTargetBiz=n; else emergencyTargetPer=n;
+  persist('settings');
+}
+function toggleEmergencyGrowing(){
+  emergencyGrowing=!emergencyGrowing;persist('settings');renderAll();
+}
+function renderEmergencyFund(mm){
+  const held=bufferPot(),ext=emergencyTarget();
+  const clear=!anyArrears();
+  const reached=ext>0.005&&held>=ext-0.005;
+  const months=ext>0.005&&mm.total>0.005?ext/mm.total:0;
+  // Where the money past the baseline is going right now, said in one line,
+  // because that is the only question this card exists to answer.
+  const state=!clear
+    ?`<span style="color:#e0923b">Waiting on arrears.</span> Everything past the one-month buffer is going at what's overdue — and the savings % is paused while it is.`
+    :ext<=0.005
+    ?`Arrears are clear. Pick a target below to start growing the fund, or leave it off and everything goes to the snowball.`
+    :reached
+    ?`<span style="color:#7db87d">Fund reached ✓</span> — ${fmt(held)} held. The jars stop asking for more; everything now goes to the snowball.`
+    :emergencyGrowing
+    ?`<span style="color:#7db87d">Growing.</span> ${fmt(held)} of ${fmt(ext)} — money past the one-month buffer is filling the jars.`
+    :`<span style="color:#5b8def">Snowballing.</span> The buffer holds at one month and everything above it goes at the debts.`;
+  const preset=(label,n)=>`<button onclick="setEmergencyMonths(${n})" style="flex:1;min-width:76px;padding:8px;border-radius:6px;border:1px solid ${Math.abs(months-n)<0.02&&ext>0.005?'#e0c060':'#2a2d3e'};background:${Math.abs(months-n)<0.02&&ext>0.005?'#1a1608':'#0f1117'};color:#e0c060;font-size:12px;font-weight:600">${label}<br><span style="font-size:10px;color:#555">${fmt(round2(mm.total*n))}</span></button>`;
+  return `<div style="margin-top:14px;padding-top:12px;border-top:1px solid #2a2d3e">
+    <div class="row" style="align-items:center;margin-bottom:4px">
+      <div><div style="font-size:13px;font-weight:600">Emergency fund <span style="font-size:11px;color:#555;font-weight:400">· stage two</span></div><div style="font-size:12px;color:#7c7f96;margin-top:2px">3–6 months, once the arrears are gone</div></div>
+      <div style="font-weight:700;font-size:18px;color:${ext>0.005?'#e0c060':'#555'}">${ext>0.005?fmtS(ext):'Off'}</div>
+    </div>
+    <div style="font-size:11px;color:#555;line-height:1.5;margin:8px 0 12px">${state}</div>
+    <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+      ${preset('3 months',3)}${preset('4 months',4)}${preset('6 months',6)}
+      <button onclick="setEmergencyMonths(0)" style="flex:1;min-width:70px;padding:8px;border-radius:6px;border:1px solid ${ext<=0.005?'#5a3a1a':'#2a2d3e'};background:#0f1117;color:#7c7f96;font-size:12px;font-weight:600">Off</button>
+    </div>
+    <div class="edit-grid">
+      <div><div class="field-label" style="color:#e0923b">Business (£)</div><input class="field-input" type="number" inputmode="decimal" min="0" step="0.01" value="${emergencyTargetBiz||''}" placeholder="0" oninput="setEmergencyTargetFor('business',this.value)"></div>
+      <div><div class="field-label" style="color:#5b8def">Personal (£)</div><input class="field-input" type="number" inputmode="decimal" min="0" step="0.01" value="${emergencyTargetPer||''}" placeholder="0" oninput="setEmergencyTargetFor('personal',this.value)"></div>
+    </div>
+    <div class="row" style="align-items:center;margin-top:12px;opacity:${clear?'1':'.5'}">
+      <div><div style="font-size:13px;font-weight:600">${emergencyGrowing?'Grow emergency fund':'Snowball debt'}</div><div style="font-size:11px;color:#7c7f96;margin-top:2px">${clear?'Where money above the one-month buffer goes this cycle':'Takes effect once every arrear is cleared'}</div></div>
+      <button onclick="toggleEmergencyGrowing()" style="width:44px;height:24px;border-radius:12px;border:none;background:${emergencyGrowing?'#e0c060':'#2a2d3e'};position:relative;flex-shrink:0;padding:0">
+        <div style="width:18px;height:18px;border-radius:50%;background:#fff;position:absolute;top:3px;left:${emergencyGrowing?'23px':'3px'};transition:left .15s"></div>
+      </button>
+    </div>
+    ${!clear?`<div style="font-size:11px;color:#e0923b;line-height:1.5;margin-top:10px">Savings % is <strong>paused while arrears are being cleared</strong> — it doesn't fire at all, whatever it is set to. This isn't savings yet; it's protection against sliding back, so it goes at the arrears instead.</div>`:''}
   </div>`;
 }
 // Moving buffer money into the pots is a real bank transfer, so it says
@@ -1993,6 +2258,22 @@ function renderCycleVerdict(fs){
 // arrears while the cushion held to prevent exactly that sits untouched.
 // Nothing here spends anything; it says what is unfunded and what the buffer
 // could do about it, wherever the close is about to happen.
+// Agreed arrangements this cycle hasn't covered, in the two places a cycle
+// gets closed from: the renewal nudge and the "Start a new cycle" modal. It is
+// deliberately NOT the ordinary "missed minimum → arrears" language, because
+// what is at stake is different: the arrears don't grow (that money is already
+// overdue and counted), the AGREEMENT does. The app has no way of knowing
+// whether a creditor actually pulled the plan, so it never clears the
+// arrangement on a miss — it only says what is at risk.
+function arrangementRiskNote(style){
+  const at=getCycleStatus().arrangementsAtRisk;
+  if(!at.length)return '';
+  const names=at.map(a=>`${esc(a.name)} ${fmt(a.amount)}`).join(', ');
+  const body=`⚠ <strong>Arrangement at risk</strong> — missing this can get the plan cancelled. Still to pay: ${names}. The arrears won't grow, but the agreement can go.`;
+  return style==='inline'
+    ?`<div style="font-size:12px;color:#e0c060;margin-top:8px;line-height:1.5">${body}</div>`
+    :`<div style="background:#1a1608;border:1px solid #4a4020;border-radius:8px;padding:11px 12px;margin-bottom:16px;font-size:12px;color:#e0c060;line-height:1.5">${body}</div>`;
+}
 function renderBufferRescue(){
   const c=bufferCover();
   if(c.total<=0.005)return '';
@@ -2035,7 +2316,14 @@ function subTransfer(label,id,colour){
 function openLogModal(){
   const {businessTotal:bizCycTotal,personalTotal:perCycTotal}=getCycleTotals();
   const fs=getCycleStatus();
-  const bufferNeed=Math.max(0,bufferTarget()-bufferPot());
+  // What the jars are actually asking for right now — the one-month baseline,
+  // or the emergency-fund target when stage two is live.
+  const aim=bufferFillTargets();
+  const aimTotal=round2(aim.biz+aim.per);
+  const bufferNeed=round2(bufferNeededAfter(null).total);
+  // "min" is the whole story until a debt carries an agreed arrangement, at
+  // which point the figure below is the minimum AND the instalment.
+  const commitLabel=debts.some(d=>d.balance>0.005&&hasArrangement(d))?'min + arranged':'min';
   const owedBack=potLoansOwed().total;
   document.getElementById('modalRoot').innerHTML=`
     <div class="modal-bg" onclick="if(event.target===this)closeModal()">
@@ -2059,28 +2347,28 @@ function openLogModal(){
           <div class="row" style="margin-bottom:8px;align-items:center">
             <div style="display:flex;align-items:center;gap:8px">
               <div style="width:8px;height:8px;border-radius:50%;background:#e0923b;flex-shrink:0"></div>
-              <div><div style="font-size:13px;font-weight:600;color:#e8e8ec">Business pot</div><div style="font-size:11px;color:#555">min ${fmt(fs.outstandingBiz)} · target ${fmt(bizCycTotal)}</div></div>
+              <div><div style="font-size:13px;font-weight:600;color:#e8e8ec">Business pot</div><div style="font-size:11px;color:#555">${commitLabel} ${fmt(fs.outstandingBiz)} · target ${fmt(bizCycTotal)}</div></div>
             </div>
             <strong id="bizPreview" style="color:#e0923b">£0.00</strong>
           </div>
           <div class="row" style="margin-bottom:8px;align-items:center">
             <div style="display:flex;align-items:center;gap:8px">
               <div style="width:8px;height:8px;border-radius:50%;background:#5b8def;flex-shrink:0"></div>
-              <div><div style="font-size:13px;font-weight:600;color:#e8e8ec">Personal pot</div><div style="font-size:11px;color:#555">min ${fmt(fs.outstandingPer)} · target ${fmt(perCycTotal)}</div></div>
+              <div><div style="font-size:13px;font-weight:600;color:#e8e8ec">Personal pot</div><div style="font-size:11px;color:#555">${commitLabel} ${fmt(fs.outstandingPer)} · target ${fmt(perCycTotal)}</div></div>
             </div>
             <strong id="perPreview" style="color:#5b8def">£0.00</strong>
           </div>
-          ${bufferTarget()>0.005?`<div class="row" style="margin-bottom:8px;align-items:center">
+          ${aimTotal>0.005?`<div class="row" style="margin-bottom:8px;align-items:center">
             <div style="display:flex;align-items:center;gap:8px">
               <div style="width:8px;height:8px;border-radius:50%;background:#7db87d;flex-shrink:0"></div>
-              <div><div style="font-size:13px;font-weight:600;color:#e8e8ec">Buffer pot</div><div style="font-size:11px;color:#555">${bufferNeed>0.005?`${fmt(bufferNeed)} to fill · after this month`:'a month ahead ✓'}</div><div id="bufferSplitNote" style="font-size:10px;color:#555"></div></div>
+              <div><div style="font-size:13px;font-weight:600;color:#e8e8ec">Buffer pot${emergencyEligible()&&emergencyTarget()>bufferTarget()+0.005?' <span style="font-size:10px;color:#e0c060">· emergency fund</span>':''}</div><div style="font-size:11px;color:#555">${bufferNeed>0.005?`${fmt(bufferNeed)} to fill · after this month`:'at target ✓'}</div><div id="bufferSplitNote" style="font-size:10px;color:#555"></div></div>
             </div>
             <strong id="bufferPreview" style="color:#7db87d">£0.00</strong>
           </div>`:''}
           <div class="row" style="margin-bottom:8px;align-items:center">
             <div style="display:flex;align-items:center;gap:8px">
               <div style="width:8px;height:8px;border-radius:50%;background:#7db87d;flex-shrink:0"></div>
-              <div><div style="font-size:13px;font-weight:600;color:#e8e8ec">Savings</div><div style="font-size:11px;color:#555">${savingsPct}% of income</div></div>
+              <div><div style="font-size:13px;font-weight:600;color:#e8e8ec">Savings</div><div style="font-size:11px;color:${savingsSuppressed()?'#e0923b':'#555'}">${savingsSuppressed()?`paused while arrears are being cleared · ${savingsPct}% resumes after`:`${savingsPct}% of income`}</div></div>
             </div>
             <strong id="savingsPreview" style="color:#7db87d">£0.00</strong>
           </div>
@@ -2100,7 +2388,7 @@ function openLogModal(){
             <strong id="transferBiz" style="color:#e0923b;font-size:17px">£0.00</strong>
           </div>
           ${subTransfer('Business pot','transferBizPot','#e0923b')}
-          ${bufferTargetBiz>0.005?subTransfer('Business buffer','transferBizBuffer','#7db87d'):''}
+          ${aim.biz>0.005?subTransfer('Business buffer','transferBizBuffer','#7db87d'):''}
           ${owedBack>0.005?subTransfer('Back to borrowed-from pots','transferBizRepay','#c07de0'):''}
           <div class="row" style="margin:10px 0 2px;align-items:center">
             <div style="display:flex;align-items:center;gap:8px">
@@ -2110,7 +2398,7 @@ function openLogModal(){
             <strong id="transferPer" style="color:#5b8def;font-size:17px">£0.00</strong>
           </div>
           ${subTransfer('Personal pot','transferPerPot','#5b8def')}
-          ${bufferTargetPer>0.005?subTransfer('Personal buffer','transferPerBuffer','#7db87d'):''}
+          ${aim.per>0.005?subTransfer('Personal buffer','transferPerBuffer','#7db87d'):''}
           ${subTransfer('Savings','transferSavings','#7db87d')}
           ${owedBack>0.005?subTransfer('Back to borrowed-from pots','transferPerRepay','#c07de0'):''}
           ${subTransfer('Keep for living','transferKeep','#7c7f96')}
@@ -2120,7 +2408,7 @@ function openLogModal(){
           <div><div class="field-label" style="color:#e0923b">Business pot (£)</div><input id="logBiz" class="field-input" type="number" inputmode="decimal" placeholder="auto" oninput="updateSweepPreview()"></div>
           <div><div class="field-label" style="color:#5b8def">Personal pot (£)</div><input id="logPer" class="field-input" type="number" inputmode="decimal" placeholder="auto" oninput="updateSweepPreview()"></div>
           <div><div class="field-label" style="color:#7db87d">Savings (£)</div><input id="logSaved" class="field-input" type="number" inputmode="decimal" placeholder="auto" oninput="updateSweepPreview()"></div>
-          ${bufferTarget()>0.005?`<div><div class="field-label" style="color:#7db87d">Buffer (£)</div><input id="logBuffer" class="field-input" type="number" inputmode="decimal" placeholder="auto" oninput="updateSweepPreview()"></div>`:''}
+          ${aimTotal>0.005?`<div><div class="field-label" style="color:#7db87d">Buffer (£)</div><input id="logBuffer" class="field-input" type="number" inputmode="decimal" placeholder="auto" oninput="updateSweepPreview()"></div>`:''}
         </div>
         <div id="overrideTrimNote" style="display:none;background:#3a1a0a;border:1px solid #6a3a1a;border-radius:8px;padding:10px 12px;margin:-8px 0 16px;font-size:12px;color:#e0923b;line-height:1.5"></div>
         <div style="display:flex;gap:10px">
@@ -2234,9 +2522,10 @@ function updateSweepPreview(){
     else{
       minNote.style.display='block';
       minNote.style.color=shortAfter>0.005?'#e0923b':'#7db87d';
+      const what=debts.some(d=>d.balance>0.005&&hasArrangement(d))?'commitments':'minimums';
       minNote.textContent=shortAfter>0.005
-        ?`⚠ Still ${fmt(shortAfter)} short of this cycle's minimums after this.`
-        :`✓ Every minimum this cycle is covered after this.`;
+        ?`⚠ Still ${fmt(shortAfter)} short of this cycle's ${what} after this.`
+        :`✓ Every ${what==='commitments'?'commitment':'minimum'} this cycle is covered after this.`;
     }
   }
 }
@@ -2557,6 +2846,10 @@ function payContext(id){
   return {debt,isBiz,balance,arrears,pot,minAmt,target,
     // Capped at the balance, never at the planned payment — see minDueOf().
     minDue:minDueOf(debt,a?a.amount:0),
+    // The agreed instalment, and the two together — what the cycle actually
+    // commits to on this debt.
+    arrangementDue:arrangementDueOf(debt,a?a.amount:0,a?a.arrearsAmt:0),
+    commitDue:commitDueOf(debt,a?a.amount:0,a?a.arrearsAmt:0),
     // What it takes to leave nothing overdue: this month's minimum, then
     // every penny of the arrears on top.
     clearArrears:Math.min(balance,round2(minAmt+arrears))};
@@ -2598,6 +2891,11 @@ function openCustomPayModal(id,mode,preset){
   const chips=[];
   if(ctx.target!=null&&ctx.target>0.005)chips.push(['Plan target',round2(ctx.target)]);
   if(ctx.minDue>0.005)chips.push(['Minimum',round2(ctx.minDue)]);
+  // The agreed instalment sits between the two: more than keeping the account
+  // current, less than clearing the lot, and the figure the creditor is
+  // expecting. An arrangement is a floor under the arrears payment, not a
+  // ceiling, so "Clear arrears" stays right where it is.
+  if(ctx.arrangementDue>0.005)chips.push(['Min + arrangement',round2(ctx.commitDue)]);
   if(ctx.arrears>0.005)chips.push(['Clear arrears',ctx.clearArrears]);
   chips.push(['Clear balance',round2(ctx.balance)]);
   // Same figure twice helps nobody — a debt entirely in arrears has one
@@ -2619,7 +2917,7 @@ function openCustomPayModal(id,mode,preset){
         <h2 style="font-size:18px;margin-bottom:4px">Pay ${esc(ctx.debt.name)}</h2>
         <div style="font-size:12px;color:#7c7f96;margin-bottom:${already>0.005?'10px':'14px'};line-height:1.5">${adding
           ?`Owing ${fmt(liveBalance)}${liveArrears>0.005?` · <span style="color:#e05c5c">${fmt(liveArrears)} in arrears</span>`:''} · <span style="color:#7db87d">${fmt(already)} already paid this cycle</span>`
-          :`Owing ${fmt(ctx.balance)}${ctx.arrears>0.005?` · <span style="color:#e05c5c">${fmt(ctx.arrears)} in arrears</span>`:''}${ctx.target==null?' · not in this cycle\'s plan':` · plan says ${fmt(ctx.target)}`}`}</div>
+          :`Owing ${fmt(ctx.balance)}${ctx.arrears>0.005?` · <span style="color:#e05c5c">${fmt(ctx.arrears)} in arrears</span>`:''}${ctx.target==null?' · not in this cycle\'s plan':` · plan says ${fmt(ctx.target)}`}${ctx.arrangementDue>0.005?` · <span style="color:#e0c060">${fmt(ctx.arrangementDue)}/mo arranged</span>`:''}`}</div>
         ${already>0.005?`<div style="display:flex;gap:6px;margin-bottom:12px">${tab('add','Pay more')}${tab('total','Change the total')}</div>`:''}
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${chipHtml}</div>
         <div class="field-label">${adding?'Extra payment (£)':'Amount paid (£)'}</div>
@@ -2691,6 +2989,9 @@ function customPayPreview(){
     (total>ctx.balance+0.005?`<div style="color:#e0923b;margin-top:6px">Capped at the ${fmt(adding?round2(ctx.debt.balance):ctx.balance)} still owed — you can't pay more than is owed.</div>`:'')+
     (shortBy>0.005?`<div style="color:#e0923b;margin-top:6px">${fmt(shortBy)} more than the pot holds. Log the money in first if it has landed, or the pot will just bottom out at zero.</div>`:'')+
     (ctx.minDue>0.005&&amount<ctx.minDue-0.005?`<div style="color:#e0923b;margin-top:6px">Under the ${fmt(ctx.minDue)} minimum — the uncovered part goes into arrears when this cycle closes.</div>`:'')+
+    // Short of the agreed instalment but not of the minimum: nothing new goes
+    // overdue, but the agreement itself is what's on the line.
+    (ctx.arrangementDue>0.005&&amount>=ctx.minDue-0.005&&amount<ctx.commitDue-0.005?`<div style="color:#e0c060;margin-top:6px">⚠ Under the ${fmt(ctx.commitDue)} agreed with them (${fmt(ctx.minDue)} minimum + ${fmt(ctx.arrangementDue)} arrangement). Arrears won't grow, but missing this can get the plan cancelled.</div>`:'')+
     (adding&&extra<=0.005?`<div style="color:#7c7f96;margin-top:6px">Enter what you have just paid — it goes on top of the ${fmt(already)} already recorded.</div>`
       :amount<=0.005?`<div style="color:#7c7f96;margin-top:6px">Enter an amount, or use “missed this cycle?” on the row to record paying nothing.</div>`:'');
 }
@@ -2787,6 +3088,7 @@ function startNewCycle(){
       <div class="modal">
         <h2 style="font-size:18px;margin-bottom:12px">Start a new cycle</h2>
         <div style="font-size:13px;color:#7c7f96;margin-bottom:18px;line-height:1.5">First, let's update your balances so the plan stays accurate. Grab your latest statements if you have them — or just skip and keep the current figures.</div>
+        ${arrangementRiskNote()}
         ${(()=>{const c=bufferCover();return c.total<=0.005?'':`<div style="background:#1a1608;border:1px solid #4a4020;border-radius:8px;padding:11px 12px;margin-bottom:16px;font-size:12px;color:#e8e8ec;line-height:1.5">
           <strong style="color:#e0923b">${fmt(round2(c.gapBiz+c.gapPer))} is still unfunded</strong> in the pots, and the buffer holds ${fmt(c.total)} of it. Close now and that goes into arrears with the cushion still full.
           <button onclick="openBufferCoverModal()" style="display:block;margin-top:8px;padding:6px 12px;border-radius:6px;border:1px solid #2a4a3a;background:#0f1a15;color:#7db87d;font-size:11px;font-weight:700">Fund ${fmt(c.total)} from the buffer first</button>
@@ -3170,9 +3472,13 @@ async function confirmSavings(){
 }
 
 // ---------- Edit actions ----------
-function updateDraft(id,field,val){if(!editDraft[id]){const d=debts.find(x=>x.id===id);editDraft[id]={balance:d.balance,apr:d.apr,min:d.min,arrears:d.arrears,due:d.due??'',note:d.note};}editDraft[id][field]=val;}
+function updateDraft(id,field,val){if(!editDraft[id]){const d=debts.find(x=>x.id===id);editDraft[id]={balance:d.balance,apr:d.apr,min:d.min,arrears:d.arrears,arrangement:d.arrangement??'',due:d.due??'',note:d.note};}editDraft[id][field]=val;}
 function applyEdits(){
-  debts=debts.map(d=>{const ev=editDraft[d.id];if(!ev)return d;return{...d,balance:parseNum(ev.balance),apr:parseNum(ev.apr),min:parseNum(ev.min),arrears:parseNum(ev.arrears),due:ev.due===''?null:parseInt(ev.due)||null,account:ev.account||d.account||'personal',note:ev.note};});
+  // An arrangement of nothing is not a thing a creditor agrees to, so an empty
+  // (or zero) field means NULL — no agreed plan — rather than an agreement to
+  // pay £0. That is also how you end one: clear the box.
+  const arrangementFrom=(v)=>{const n=parseNum(v);return v===''||v==null||n<=0.005?null:n;};
+  debts=debts.map(d=>{const ev=editDraft[d.id];if(!ev)return d;return{...d,balance:parseNum(ev.balance),apr:parseNum(ev.apr),min:parseNum(ev.min),arrears:parseNum(ev.arrears),arrangement:arrangementFrom(ev.arrangement),due:ev.due===''?null:parseInt(ev.due)||null,account:ev.account||d.account||'personal',note:ev.note};});
   editDraft={};selectedMonth=1;persist('debts');
   const btn=document.getElementById('saveBtn');if(btn){btn.textContent='✓ Saved';btn.style.background='#1a3a1a';btn.style.color='#7db87d';}
   setTimeout(()=>renderAll(),1000);
@@ -3191,6 +3497,7 @@ function openAddDebtModal(){
           <div><div class="field-label">Arrears (£)</div><input id="newDebtArrears" class="field-input" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0"></div>
           <div><div class="field-label">APR (%)</div><input id="newDebtApr" class="field-input" type="number" inputmode="decimal" min="0" step="0.1" placeholder="0"></div>
           <div><div class="field-label">Min. Payment (£)</div><input id="newDebtMin" class="field-input" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0"></div>
+          <div><div class="field-label" style="color:#e0c060">Arrangement (£)</div><input id="newDebtArrangement" class="field-input" type="number" inputmode="decimal" min="0" step="0.01" placeholder="none"></div>
           <div><div class="field-label">Due Date (day)</div><input id="newDebtDue" class="field-input" type="number" min="1" max="31" step="1" placeholder="none"></div>
           <div><div class="field-label">Account</div><select id="newDebtAccount" class="field-input" style="background:#0f1117;color:#e8e8ec"><option value="personal">Personal</option><option value="business">Business</option></select></div>
         </div>
@@ -3217,6 +3524,8 @@ async function confirmAddDebt(){
     apr:parseNum(document.getElementById('newDebtApr').value),
     min:minVal,
     arrears:parseNum(document.getElementById('newDebtArrears').value),
+    // Empty or zero = no agreed plan at all, which is the normal case.
+    arrangement:(()=>{const v=document.getElementById('newDebtArrangement').value;const n=parseNum(v);return v===''||n<=0.005?null:n;})(),
     due:dueRaw===''?null:parseInt(dueRaw)||null,
     account:document.getElementById('newDebtAccount').value,
     note:document.getElementById('newDebtNote').value.trim()

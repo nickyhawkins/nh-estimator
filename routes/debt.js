@@ -22,7 +22,9 @@ function mapDebt(d) {
   return {
     id: d.id, name: d.name, balance: Number(d.balance), apr: Number(d.apr),
     min: Number(d.min), arrears: Number(d.arrears), due: d.due,
-    account: d.account, note: d.note
+    account: d.account, note: d.note,
+    // null (not 0) when there is no agreed plan -- the normal case.
+    arrangement: d.arrangement_amount == null ? null : Number(d.arrangement_amount)
   };
 }
 
@@ -94,6 +96,21 @@ function ensureSchema() {
       // What a pay-in put back into which pot, kept on the income row so that
       // deleting the row can undo the repayment as well as the allocation.
       await db.query(`ALTER TABLE debt_plan_income_log ADD COLUMN IF NOT EXISTS pot_repay JSONB`);
+      // An agreed arrears payment plan (v2.68.0): a fixed monthly instalment a
+      // creditor has accepted, funded with the same priority as a contractual
+      // minimum because missing it can get the plan cancelled. NULLABLE, and
+      // NULL is the only "off" state -- an arrangement of nothing is not a
+      // thing a creditor agrees to, same reasoning as the retired
+      // floor_payment's null handling.
+      await db.query(`ALTER TABLE debt_plan_debts ADD COLUMN IF NOT EXISTS arrangement_amount NUMERIC`);
+      // The staged emergency fund (v2.68.0). The buffer's one-month baseline is
+      // unchanged; these are the stage-two figures it may grow toward once
+      // every debt's arrears are at zero, and the toggle that says whether it
+      // does. 0 = not pursuing an extension. The toggle defaults ON: growing
+      // the cushion is the safer default the one time it is introduced.
+      await db.query(`ALTER TABLE debt_plan_settings ADD COLUMN IF NOT EXISTS emergency_extended_target_biz NUMERIC NOT NULL DEFAULT 0`);
+      await db.query(`ALTER TABLE debt_plan_settings ADD COLUMN IF NOT EXISTS emergency_extended_target_per NUMERIC NOT NULL DEFAULT 0`);
+      await db.query(`ALTER TABLE debt_plan_settings ADD COLUMN IF NOT EXISTS emergency_fund_growing BOOLEAN NOT NULL DEFAULT true`);
     })().catch(err => { schemaReady = null; throw err; });
   }
   return schemaReady;
@@ -135,7 +152,10 @@ router.get('/api/state', async (req, res) => {
         budget: s.budget, sweepPct: s.sweep_pct, savingsPct: s.savings_pct,
         tightThreshold: s.tight_threshold, lastMilestone: s.last_milestone,
         notifyDaysBefore: s.notify_days_before, notificationsEnabled: s.notifications_enabled,
-        bufferTargetBiz: Number(s.buffer_target_biz), bufferTargetPer: Number(s.buffer_target_per)
+        bufferTargetBiz: Number(s.buffer_target_biz), bufferTargetPer: Number(s.buffer_target_per),
+        emergencyTargetBiz: Number(s.emergency_extended_target_biz),
+        emergencyTargetPer: Number(s.emergency_extended_target_per),
+        emergencyGrowing: s.emergency_fund_growing
       },
       cashflow: {
         bizPot: Number(c.biz_pot), perPot: Number(c.per_pot),
@@ -184,16 +204,23 @@ router.post('/api/debts', async (req, res) => {
     const result = await db.query(
       `UPDATE debt_plan_debts d
           SET name=j.name, balance=j.balance, apr=j.apr, min=j."min",
-              arrears=j.arrears, due=j.due, account=j.account, note=j.note
+              arrears=j.arrears, due=j.due, account=j.account, note=j.note,
+              arrangement_amount=j.arrangement
          FROM jsonb_to_recordset($1::jsonb)
               AS j(id int, name text, balance numeric, apr numeric, "min" numeric,
-                   arrears numeric, due int, account text, note text)
+                   arrears numeric, due int, account text, note text,
+                   arrangement numeric)
         WHERE d.id = j.id
-          AND (d.name, d.balance, d.apr, d.min, d.arrears, d.due, d.account, d.note)
+          AND (d.name, d.balance, d.apr, d.min, d.arrears, d.due, d.account, d.note, d.arrangement_amount)
               IS DISTINCT FROM
-              (j.name, j.balance, j.apr, j."min", j.arrears, j.due, j.account, j.note)
+              (j.name, j.balance, j.apr, j."min", j.arrears, j.due, j.account, j.note, j.arrangement)
     RETURNING d.updated_at`,
-      [JSON.stringify(debts.map(d => ({ ...d, note: d.note || '' })))]
+      // An arrangement of 0 is stored as NULL: NULL is the only "off" state,
+      // so a cleared field and "never had one" are the same row.
+      [JSON.stringify(debts.map(d => ({
+        ...d, note: d.note || '',
+        arrangement: Number(d.arrangement) > 0.005 ? Number(d.arrangement) : null
+      })))]
     );
     // If nothing actually changed, the client's timestamp should stay at the
     // table's current max rather than null.
@@ -228,13 +255,14 @@ router.post('/api/debts/add', async (req, res) => {
       });
     }
     const due = debt.due == null || debt.due === '' ? null : parseInt(debt.due, 10) || null;
+    const arrangement = Number(debt.arrangement) > 0.005 ? Number(debt.arrangement) : null;
     const result = await db.query(
-      `INSERT INTO debt_plan_debts (id, name, balance, apr, min, arrears, due, account, note)
-       SELECT COALESCE(MAX(id), 0) + 1, $1, $2, $3, $4, $5, $6, $7, $8 FROM debt_plan_debts
+      `INSERT INTO debt_plan_debts (id, name, balance, apr, min, arrears, due, account, note, arrangement_amount)
+       SELECT COALESCE(MAX(id), 0) + 1, $1, $2, $3, $4, $5, $6, $7, $8, $9 FROM debt_plan_debts
        RETURNING *`,
       [String(debt.name).trim(), Number(debt.balance) || 0, Number(debt.apr) || 0,
         Number(debt.min) || 0, Number(debt.arrears) || 0, due,
-        debt.account === 'business' ? 'business' : 'personal', debt.note || '']
+        debt.account === 'business' ? 'business' : 'personal', debt.note || '', arrangement]
     );
     const row = result.rows[0];
     // The inserted row's updated_at (DEFAULT NOW()) is the table's new max.
@@ -276,7 +304,8 @@ router.post('/api/debts/:id/archive', async (req, res) => {
 
 router.post('/api/settings', async (req, res) => {
   const { budget, sweepPct, savingsPct, tightThreshold, lastMilestone, notifyDaysBefore,
-    notificationsEnabled, bufferTargetBiz, bufferTargetPer, clientUpdatedAt } = req.body;
+    notificationsEnabled, bufferTargetBiz, bufferTargetPer,
+    emergencyTargetBiz, emergencyTargetPer, emergencyGrowing, clientUpdatedAt } = req.body;
   try {
     const current = await db.query('SELECT * FROM debt_plan_settings WHERE id = 1');
     const s = current.rows[0];
@@ -288,17 +317,23 @@ router.post('/api/settings', async (req, res) => {
           budget: s.budget, sweepPct: s.sweep_pct, savingsPct: s.savings_pct,
           tightThreshold: s.tight_threshold, lastMilestone: s.last_milestone,
           notifyDaysBefore: s.notify_days_before, notificationsEnabled: s.notifications_enabled,
-          bufferTargetBiz: Number(s.buffer_target_biz), bufferTargetPer: Number(s.buffer_target_per)
+          bufferTargetBiz: Number(s.buffer_target_biz), bufferTargetPer: Number(s.buffer_target_per),
+          emergencyTargetBiz: Number(s.emergency_extended_target_biz),
+          emergencyTargetPer: Number(s.emergency_extended_target_per),
+          emergencyGrowing: s.emergency_fund_growing
         },
         updatedAt: s.updated_at
       });
     }
 
     const result = await db.query(
-      `UPDATE debt_plan_settings SET budget=$1, sweep_pct=$2, savings_pct=$3, tight_threshold=$4, last_milestone=$5, notify_days_before=$6, notifications_enabled=$7, buffer_target_biz=$8, buffer_target_per=$9 WHERE id=1 RETURNING updated_at`,
+      `UPDATE debt_plan_settings SET budget=$1, sweep_pct=$2, savings_pct=$3, tight_threshold=$4, last_milestone=$5, notify_days_before=$6, notifications_enabled=$7, buffer_target_biz=$8, buffer_target_per=$9, emergency_extended_target_biz=$10, emergency_extended_target_per=$11, emergency_fund_growing=$12 WHERE id=1 RETURNING updated_at`,
       [budget, sweepPct, savingsPct, tightThreshold, lastMilestone,
         notifyDaysBefore ?? s.notify_days_before, notificationsEnabled ?? s.notifications_enabled,
-        bufferTargetBiz ?? s.buffer_target_biz, bufferTargetPer ?? s.buffer_target_per]
+        bufferTargetBiz ?? s.buffer_target_biz, bufferTargetPer ?? s.buffer_target_per,
+        emergencyTargetBiz ?? s.emergency_extended_target_biz,
+        emergencyTargetPer ?? s.emergency_extended_target_per,
+        emergencyGrowing ?? s.emergency_fund_growing]
     );
     res.json({ ok: true, updatedAt: result.rows[0].updated_at });
   } catch (err) {

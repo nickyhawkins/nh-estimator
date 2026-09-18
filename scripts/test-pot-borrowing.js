@@ -165,7 +165,11 @@ async function main(){
   // percentage aside again on top would take it out of living money twice.
   // The pots start full so this month is already covered and the pay-in
   // actually reaches the savings step (this month comes first, always).
-  const covered = { bizPot: 5000, perPot: 5000, savingsPot: 0, savingsPct: 10 };
+  // Arrears cleared as well as the month covered: the savings percentage does
+  // not fire at all while a debt is overdue (v2.68.0), and this block is about
+  // what the savings step does with a repayment, not about that gate.
+  const covered = { debts: app.DEBTS_INITIAL.map(d => ({ ...d, arrears: 0 })),
+    bizPot: 5000, perPot: 5000, savingsPot: 0, savingsPct: 10 };
   reset(covered);
   const noLoan = app.allocateIncome(1000);
   check('10% of a covered month goes to savings when nothing is borrowed',
