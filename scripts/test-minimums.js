@@ -168,8 +168,13 @@ check('and at the balance BEFORE an applied payment took its bite',
 {
   // Pots already hold every floor, so no floor top-up is needed and the
   // split must match the pre-feature behaviour: sweepPct of income to debt.
-  const fsNeed = (() => { reset(); return app.getCycleStatus(); })();
-  reset({ bizPot: fsNeed.outstandingBiz, perPot: fsNeed.outstandingPer });
+  // On a plan with NO arrears left: the savings percentage is suppressed
+  // entirely while anything is overdue (v2.68.0, the staged emergency fund),
+  // and the seeded plan is deep in arrears — so a check about where the
+  // savings slice lands has to be asked of a plan that is up to date.
+  const upToDate = () => app.DEBTS_INITIAL.map(d => ({ ...d, arrears: 0 }));
+  const fsNeed = (() => { reset({ debts: upToDate() }); return app.getCycleStatus(); })();
+  reset({ debts: upToDate(), bizPot: fsNeed.outstandingBiz, perPot: fsNeed.outstandingPer });
   const e = app.allocateIncome(1000);
   check('with floors covered, the debt sweep is exactly sweepPct of income',
     near(e.biz + e.per, 500), { toDebt: e.biz + e.per });

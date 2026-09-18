@@ -1611,3 +1611,233 @@ the same, and a plain balance correction with nothing borrowed being untouched.
 `test:manual-allocation` 48, `test:borrowing` 41, `test:extra-payments` 50,
 `test:custom-payments` 46, `test:minimums` 47, `test:arrears` 29 and
 `test:buffer` 51 green alongside.
+
+---
+
+## Feature 21 — Agreed arrears payment plans — BUILT (v2.68.0)
+
+A debt can now carry an **agreed arrangement**: a fixed monthly instalment a
+creditor has accepted to bring the arrears up to date, separate from that
+debt's ordinary contractual `min`. Once it is set, the app funds it with the
+**same priority as a contractual minimum** — not out of the opportunistic
+smallest-arrears-first cascade `simulate()` runs — because missing it risks the
+arrangement being cancelled, which is a real consequence, not an inert
+catch-up entry.
+
+`arrears` keeps meaning exactly what it always meant: money still overdue. It
+is not hidden or reframed once a plan is agreed, so a windfall can still be
+pointed at it with the existing **Clear arrears** chip (Feature 11). An
+arrangement is a **floor** under the arrears payment, never a ceiling.
+
+### Data model
+
+`debt_plan_debts.arrangement_amount NUMERIC`, nullable. `NULL` = no agreed
+plan, which is the normal case — most arrears sit in the ordinary cascade. Not
+`0`: an arrangement of literally nothing is not a thing creditors agree to, so
+`NULL` is the only "off" state (the same reasoning the retired `floor_payment`
+column's null handling had). Clearing the field in Edit Debts, or typing `0`,
+writes `NULL`. No new tables; applied lazily by `routes/debt.js`'s
+`ensureSchema()` and documented in `db/setup-debt.sql`, no migration step.
+
+### What it changes
+
+- **Funding (`cycleCommitments()`, `commitmentQueue()`, `monthlyMinimums()`)** —
+  a debt with an arrangement contributes `min + arrangement` to what this month
+  owes. That is what puts the instalment ahead of the buffer and the sweep, the
+  same as any other contractual commitment. `monthlyMinimums()` counts it too:
+  it is the figure the buffer target is built from, and a target that left the
+  arrangements out would call the jar "a month ahead" while being short by
+  exactly them, every month. The buffer card's copy now says *commitments*
+  rather than *contractual minimums* for the same reason.
+- **`simulate()` / `getCurrentTarget()`** — the smallest-arrears-first cascade
+  **skips** any debt with an arrangement. Its catch-up is already funded above
+  as a guaranteed commitment, so letting it queue for the leftover as well
+  would pay it twice in one month and starve the creditors with no plan at all.
+  In the sim the instalment is paid alongside the minimum and lands in
+  `arrearsPaid`, because that is exactly what it is — the catch-up part of the
+  payment — so the Schedule tab's "min + arrears" line and the split a tick
+  applies both work unchanged.
+- **Paying it** — no new payment state and no new ledger. Paying
+  `min + arrangement` clears `arrangement` worth of arrears through the same
+  min-vs-catch-up split Feature 9b already does. "Paid minimum only" still
+  exists on an arrangement debt, and is exactly the tap for the case where the
+  account was kept current and the instalment was not.
+- **Missing it does not compound.** If the cycle closes with the instalment
+  short, the arrears simply **don't come down** — nothing is added on top,
+  because that money is already known to be overdue and adding a shortfall
+  would count the same pound twice. `getUnpaidMinimums()` and
+  `lib/debtCycle.js`'s `rollOnce()` are therefore untouched: they still measure
+  the **contractual** minimum only, so the app's verdict and the one the cycle
+  close records still cannot disagree. A missed *minimum* on an arrangement
+  debt still becomes arrears exactly as on any other debt.
+
+### The warning
+
+What a shorted instalment does instead is put the agreement at risk, and the
+app says so in words rather than in the ordinary "missed" language:
+**"⚠ Arrangement at risk — missing this can get the plan cancelled."** It shows
+on the checklist row, in the pay modal's preview, in the renewal nudge and in
+the "Start a new cycle" modal (`arrangementRiskNote()`). It is **display-only**
+— the app has no way of knowing whether a creditor actually pulled the plan, so
+it never clears `arrangement_amount` on a miss.
+
+It fires only when the **arrangement portion specifically** was shorted:
+`paidAmountOf(p) < p.commitDue`. A "Clear arrears" lump that sails past the
+instalment raises nothing, because overpaying is not a shortfall.
+
+### UI
+
+- **Edit Debts / Add Debt** — an **Arrangement (£)** field next to Min.
+  Payment. The existing free-text note doubles as where to record the agreement
+  date or reference; no new note field was needed.
+- **This cycle's payments** — one row, showing the combined
+  `min + arrangement` as the commitment. No separate arrears row for it: the
+  instalment already *is* the catch-up.
+- **The open question about a badge is resolved: yes, there is one.** An
+  `ARRANGEMENT` badge sits on the row. The combined figure alone would read as
+  a plain contractual minimum, which is the one thing it must not be mistaken
+  for — the minimum is what becomes arrears, and the combined figure is not.
+- **All Debts** shows `Arrangement: £x/mo`; the pay modal's header says
+  `£x/mo arranged` and its chips offer **Min + arrangement** (deduped against
+  **Plan target** when, as usual, they are the same number).
+
+### The other open question — an end date
+
+**Not built, and it turns out not to be needed as a feature.** An instalment is
+capped at what is still overdue (`arrangementDueOf()`), so once a debt's
+arrears reach zero the arrangement stops asking for money on its own and the
+debt is back to its minimum. Clearing the field by hand when the plan ends is
+then tidying, not a correction — which matches how HMRC's Time to Pay is
+handled today: a data change, not a feature. The one case this does **not**
+cover is an arrangement a creditor sets against the whole balance rather than
+the arrears; the spec defines an arrangement as catching up the arrears, and
+that is what is built.
+
+### Tests
+
+**`npm run test:arrangements`** (`scripts/test-arrangements.js`, 52 checks) —
+same vm harness, no database, browser or server. Covers: the instalment capped
+at the arrears and at the balance; an arrangement debt excluded from the
+cascade in both `simulate()` and `getCurrentTarget()`; its combined commitment
+funded ahead of the buffer; the min/arrears split on a full payment and on a
+minimum-only one; un-ticking restoring both exactly; arrears **not** increasing
+on a missed instalment while an unpaid minimum still rolls; the warning on a
+minimum-only payment and on a missed one; **no** warning after a "Clear
+arrears" overpayment; the badge and the risk line in the rendered checklist;
+Edit Debts writing `NULL` for an empty or zero field; and a plan with no
+arrangements behaving byte-for-byte as before.
+
+---
+
+## Feature 22 — A staged emergency fund — BUILT (v2.68.0)
+
+The month-ahead buffer (Features 13-15) already did stage one without any
+changes: fund this month's commitments, then top the two jars up to one month
+of them, in parallel with paying every contractual minimum. That is the
+non-negotiable floor and it is **exactly as it was**. What is new is what
+happens to money beyond it. It used to be `savingsPct` → sweep → living.
+
+1. **While any debt has arrears, `savingsPct` is suppressed to zero.** This
+   isn't your savings yet — it is protection against sliding back into arrears
+   — so it doesn't get siphoned off into generic saving. Everything past the
+   one-month buffer goes at the arrears (the ordinary cascade, plus any
+   arrangement instalments, which Feature 21 already funds as commitments).
+2. **Once every debt's arrears reach zero** (balances may remain), the jars
+   become eligible to grow past one month toward a 3-6 month target. Whether
+   they do, this cycle, is a **manual toggle** — *Grow emergency fund* vs
+   *Snowball debt*. The app does not decide it: a small debt one payment from
+   gone and a thin cushion are both real, and which wins is a judgement about
+   the month you are actually in.
+3. **Once the extended target is reached** the jars stop asking, toggle or no
+   toggle — the same "stop filling at target" the buffer has always had — and
+   everything from then on goes to the snowball.
+4. **Once every balance is zero** the staged system is done. Generic personal
+   savings out of living money stays a separate, later feature.
+
+`savingsPct` itself is untouched in the schema and in the UI. It simply doesn't
+fire while it is suppressed, and resumes its old generic behaviour the moment
+the arrears are clear.
+
+### Data model
+
+`debt_plan_settings.emergency_extended_target_biz` / `_per NUMERIC DEFAULT 0` —
+the 3-6 month figures, computed from `monthlyMinimums()` exactly as the
+existing buffer presets are, multiplied by the number of months. `0` = not
+pursuing an extension.
+
+`debt_plan_settings.emergency_fund_growing BOOLEAN DEFAULT true` — the toggle.
+Default **on**, because growing the fund is the safer default the one time it
+is introduced, matching the flowchart's own ordering. It has no effect at all
+until every arrear is at zero; flipping it early is allowed and simply does
+nothing yet. Both applied lazily via `ensureSchema()`, no migration.
+
+### What it changes
+
+- **`allocateIncome()` step 2** fills to the one-month baseline exactly as now
+  — always, regardless of the toggle or the arrears state — and only then, if
+  `emergencyEligible()`, keeps filling toward the extended target. Otherwise
+  anything past the baseline falls straight through to the sweep, as it always
+  did. The mechanism is one function: `bufferFillTargets()` returns what each
+  jar is aiming at right now, and `bufferNeededAfter()` (and the jar split)
+  read it. The extension can only ever **raise** a jar's aim, never lower it,
+  so a mistyped extended target cannot shrink the month-ahead float.
+- **`allocateIncome()` step 3** reads `savingsSuppressed()` — true whenever any
+  debt's `arrears > 0.005` — and contributes `0` while it holds. A figure
+  **typed** against the savings line still stands: a pin is a decision already
+  made, and the app doesn't overrule one.
+- **Buffer settings card** gains a stage-two block: 3 / 4 / 6-month presets and
+  an Off, typed per-account fields, the grow-vs-snowball toggle, a one-line
+  statement of where money above the baseline is going right now, and — while
+  arrears remain — the line saying the savings % is **paused while arrears are
+  being cleared** rather than silently doing nothing. The Log money in modal's
+  Savings row says the same thing in place of its percentage.
+
+### The open questions, resolved
+
+- **Exact target** — both: 3 / 4 / 6-month presets (computed from
+  `monthlyMinimums()`, the same way the buffer's presets are) *and* the typed
+  per-account fields as a fallback, matching the buffer card exactly. One
+  control to learn, not two.
+- **Does the toggle reset each cycle?** No. It persists until you change it. A
+  switch that flips itself back is one you stop trusting, and the cycle it
+  would reset on is not a moment at which anything about the decision changed.
+- **Should it grey out once the target is reached?** Neither greyed nor
+  auto-flipped — auto-flipping someone's own switch is worse than leaving it.
+  The card states it plainly instead: *"Fund reached ✓ — £x held. The jars stop
+  asking for more; everything now goes to the snowball."* The buffer strip says
+  the same on the Cash Flow screen.
+
+### Tests
+
+**`npm run test:emergency-fund`** (`scripts/test-emergency-fund.js`, 37 checks)
+— same vm harness. Covers: `savingsPct` contributing zero while any debt has
+arrears (including a debt whose arrears are on an arrangement) and resuming
+once they clear; a pinned savings figure surviving the suppression; the buffer
+holding at the one-month baseline while arrears remain **regardless of the
+toggle**; the extension only reachable once every arrear is zero; the toggle
+deciding where post-baseline money goes; the fill stopping at the target with
+the toggle left on "growing"; an extension below the baseline leaving the
+baseline standing; the two jars still splitting in proportion; the presets and
+typed fields; and stage one — this month first, then the baseline — unchanged.
+
+### Interaction with Feature 21
+
+Built together. An arrangement debt's arrears count toward Feature 22's gate
+exactly like any other debt's — they are just funded differently — so a plan
+that is fully "on arrangements" is still, correctly, a plan in arrears, and
+nothing grows until they are gone.
+
+### Regression sweep
+
+`test:arrangements` 52, `test:emergency-fund` 37, `test:manual-allocation` 48,
+`test:borrowing` 41, `test:extra-payments` 50, `test:custom-payments` 46,
+`test:minimums` 47, `test:arrears` 29, `test:buffer` 51 and `test:pot-priority`
+30 all green.
+
+**Three existing checks were updated, not deleted.** `test:minimums`,
+`test:borrowing` and `test:manual-allocation` each had a block asserting where
+the savings slice lands, asked of the seeded plan — which is deep in arrears,
+and where savings now correctly contributes nothing. Each of those blocks is
+about the waterfall below the buffer rather than about the arrears gate, so
+each now runs against the same plan with the arrears cleared. The assertions
+themselves are unchanged.

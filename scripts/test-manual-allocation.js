@@ -162,7 +162,11 @@ async function main(){
   // The month is covered by the pots, so an automatic pay-in fills the buffer
   // and then saves. Pinning the buffer low must not park the difference in
   // living money — the steps below it get their turn.
-  const week = { bizPot: 5000, perPot: 5000, bufferTargetPer: 450, savingsPct: 10, sweepPct: 0 };
+  // Arrears cleared: the savings percentage is paused while any debt is
+  // overdue (v2.68.0), and what this block is checking is the waterfall below
+  // the buffer, which needs the savings step to actually fire.
+  const week = { debts: app.DEBTS_INITIAL.map(d => ({ ...d, arrears: 0 })),
+    bizPot: 5000, perPot: 5000, bufferTargetPer: 450, savingsPct: 10, sweepPct: 0 };
   reset(week);
   const auto = typeIn(500);
   check('automatically, the buffer takes what it needs and savings follows',

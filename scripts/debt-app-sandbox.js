@@ -34,7 +34,7 @@ function loadDebtApp() {
   if (src === m[1]) throw new Error('bootstrap calls not found — has the end of debt.html changed?');
   src += `
 globalThis.__t = {
-  get state(){ return {debts,budget,bizPot,perPot,savingsPot,bufferBiz,bufferPer,bufferTargetBiz,bufferTargetPer,savingsPct,sweepPct,paidThisCycle,missedThisCycle,minPaidThisCycle,appliedPayments,incomeLog,borrowedActive,borrowedRepaid}; },
+  get state(){ return {debts,budget,bizPot,perPot,savingsPot,bufferBiz,bufferPer,bufferTargetBiz,bufferTargetPer,emergencyTargetBiz,emergencyTargetPer,emergencyGrowing,savingsPct,sweepPct,paidThisCycle,missedThisCycle,minPaidThisCycle,appliedPayments,incomeLog,borrowedActive,borrowedRepaid}; },
   set state(o){
     if('debts' in o)debts=o.debts; if('budget' in o)budget=o.budget;
     if('bizPot' in o)bizPot=o.bizPot; if('perPot' in o)perPot=o.perPot;
@@ -42,6 +42,9 @@ globalThis.__t = {
     if('bufferBiz' in o)bufferBiz=o.bufferBiz; if('bufferPer' in o)bufferPer=o.bufferPer;
     if('bufferTargetBiz' in o)bufferTargetBiz=o.bufferTargetBiz;
     if('bufferTargetPer' in o)bufferTargetPer=o.bufferTargetPer;
+    if('emergencyTargetBiz' in o)emergencyTargetBiz=o.emergencyTargetBiz;
+    if('emergencyTargetPer' in o)emergencyTargetPer=o.emergencyTargetPer;
+    if('emergencyGrowing' in o)emergencyGrowing=o.emergencyGrowing;
     if('savingsPct' in o)savingsPct=o.savingsPct; if('sweepPct' in o)sweepPct=o.sweepPct;
     if('paidThisCycle' in o)paidThisCycle=o.paidThisCycle;
     if('missedThisCycle' in o)missedThisCycle=o.missedThisCycle;
@@ -67,7 +70,13 @@ globalThis.__t = {
   openPotsModal, confirmPots, openSavingsAdjust, confirmSavings,
   potEditRepayPlan, potEditsFrom, applyPotEdits, setPotEditRepays,
   updatePotOwedPreview, renderPotOwedPanel, get potEditRepays(){ return potEditRepays; },
-  cycleCommitments, bufferDrift, renderBufferRescue, startNewCycle
+  cycleCommitments, bufferDrift, renderBufferRescue, startNewCycle,
+  // Agreed arrangements (v2.68.0) and the staged emergency fund.
+  arrangementOf, arrangementDueOf, commitDueOf, anyArrears, savingsSuppressed,
+  emergencyEligible, bufferFillTargets, bufferNeededAfter, baselineNeeded,
+  setEmergencyMonths, setEmergencyTargetFor, toggleEmergencyGrowing,
+  applyEdits, updateDraft, arrangementRiskNote,
+  get editDraft(){ return editDraft; }, set editDraft(v){ editDraft=v; }
 };`;
   const els = {};
   const sandbox = {
@@ -113,6 +122,7 @@ function makeReset(app) {
       debts: app.DEBTS_INITIAL.map(d => ({ ...d })), budget: 2000,
       bizPot: 0, perPot: 0, savingsPot: 0,
       bufferBiz: 0, bufferPer: 0, bufferTargetBiz: 0, bufferTargetPer: 0,
+      emergencyTargetBiz: 0, emergencyTargetPer: 0, emergencyGrowing: true,
       savingsPct: 10, sweepPct: 50,
       paidThisCycle: [], missedThisCycle: [], minPaidThisCycle: [],
       appliedPayments: {}, incomeLog: [],
