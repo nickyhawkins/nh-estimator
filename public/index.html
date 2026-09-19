@@ -6122,7 +6122,7 @@ function persistJobData(job) {
   // (jobRequiresDeposit) — same "must be in this list or it never persists"
   // rule as `standalone`. Written as an explicit boolean, never omitted:
   // absent means "predates the toggle", which reads as deposit required.
-  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, quoteTextEdited: job.quoteTextEdited != null ? job.quoteTextEdited : null, invoiceTextEdited: job.invoiceTextEdited != null ? job.invoiceTextEdited : null, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, deposit: job.deposit, notes: job.notes, kitchen: job.kitchen, fittedUnits: job.fittedUnits, fittedUnit: Array.isArray(job.fittedUnits) ? null : job.fittedUnit, customItems: job.customItems, isXeroImported: !!job.isXeroImported, honouredLabourAmount: job.honouredLabourAmount != null ? job.honouredLabourAmount : null, depositRequired: job.depositRequired !== false, upchargeTotal: job.upchargeTotal != null ? job.upchargeTotal : null, roundingDelta: job.roundingDelta != null ? job.roundingDelta : null });
+  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, quoteTextEdited: job.quoteTextEdited != null ? job.quoteTextEdited : null, invoiceTextEdited: job.invoiceTextEdited != null ? job.invoiceTextEdited : null, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, variationBaselinesAt: job.variationBaselinesAt || null, variationBaselinesLate: !!job.variationBaselinesLate, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, deposit: job.deposit, notes: job.notes, kitchen: job.kitchen, fittedUnits: job.fittedUnits, fittedUnit: Array.isArray(job.fittedUnits) ? null : job.fittedUnit, customItems: job.customItems, isXeroImported: !!job.isXeroImported, honouredLabourAmount: job.honouredLabourAmount != null ? job.honouredLabourAmount : null, depositRequired: job.depositRequired !== false, upchargeTotal: job.upchargeTotal != null ? job.upchargeTotal : null, roundingDelta: job.roundingDelta != null ? job.roundingDelta : null });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -6191,7 +6191,16 @@ function setJobStatusById(jobId, newStatus, confirmMsg, opts) {
     // frozen SCOPE goes the same way: with no accepted quote there is nothing
     // for a variation to be a variation OF.
     job.acceptedSnapshot = null;
-    if (jobId === activeJobId) clearVariationBaselines(job);
+    // The frozen SCOPE is deliberately NOT cleared here, for the same reason
+    // the quote snapshot above it is not deleted: un-answering withdraws the
+    // acceptance, it does not destroy the record of what was agreed. Clearing
+    // it made un-accept/re-accept silently destructive -- the snapshot
+    // survives, so re-accepting captures no new revision, but every baseline
+    // re-stamped at today's scope and absorbed any classified extras into
+    // "original scope" with none of the warning amendAcceptedQuote() gives.
+    // Baselines are invisible while a job is not accepted anyway
+    // (variationApplies() is false), so keeping them costs nothing and makes
+    // the round trip a no-op, which is what it should be.
   }
   // THE ACCEPTED-QUOTE FREEZE (see the Accepted-quote snapshots section).
   // acceptedSnapshot above is a handful of comparison figures for the labour
@@ -6220,7 +6229,12 @@ function setJobStatusById(jobId, newStatus, confirmMsg, opts) {
       // over the loaded job's carriers, so a job accepted from the list or
       // from the inward Xero sync records the debt and stamps on first open
       // (stampVariationBaselinesIfOwed), exactly as the snapshot does.
-      stampVariationBaselines(job);
+      //
+      // Guarded the same way the capture above is: re-entering 'accepted'
+      // after a bounce must not re-baseline the job at today's scope and
+      // quietly absorb extras agreed since. Amending is the explicit action
+      // for that, and it says what it is absorbing first.
+      if (!job.variationBaselinesAt) stampVariationBaselines(job);
     } else {
       job.snapshotOwed = true;
     }
@@ -7254,13 +7268,15 @@ function quoteLineDrift(job, snap, liveSnap) {
         ? claim(function(r) { return r.sourceKey === w.sourceKey; })
         : claim(function(r) { return (r.description || '') === (w.description || ''); });
       var wasAmt = Math.round((+w.lineTotal || 0) * 100) / 100;
-      if (!hit) { out.push({ label: w.description || '', was: wasAmt, now: null, kind: 'gone' }); return; }
+      if (!hit) { out.push({ label: w.description || '', key: w.sourceKey || '', was: wasAmt, now: null, kind: 'gone' }); return; }
       var nowAmt = Math.round((+hit.row.lineTotal || 0) * 100) / 100;
-      if (Math.abs(nowAmt - wasAmt) > 0.005) out.push({ label: w.description || '', was: wasAmt, now: nowAmt, kind: 'moved' });
+      if (Math.abs(nowAmt - wasAmt) > 0.005) {
+        out.push({ label: w.description || '', key: w.sourceKey || hit.row.sourceKey || '', was: wasAmt, now: nowAmt, kind: 'moved' });
+      }
     });
     pool.forEach(function(pu) {
       if (pu.taken) return;
-      out.push({ label: pu.row.description || '', was: null, now: Math.round((+pu.row.lineTotal || 0) * 100) / 100, kind: 'new' });
+      out.push({ label: pu.row.description || '', key: pu.row.sourceKey || '', was: null, now: Math.round((+pu.row.lineTotal || 0) * 100) / 100, kind: 'new' });
     });
     return out;
   };
@@ -7369,12 +7385,21 @@ function quoteDriftCardHtml(job, liveSnap) {
     // is priced as a variation. Naming it here as a line that "moved" would
     // invite fixing something that is already handled -- and, on the amend
     // sheet, double-count it against the absorb warning directly above.
+    // Keyed on sourceKey ('kitchen:kitchen'), not on the display name: a
+    // carrier's name and its quote row's label are not the same string for
+    // every kind -- carrierName() says 'Kitchen' where the row reads 'Kitchen
+    // Cabinet Spraying' -- so a name match let the kitchen's extra through as
+    // the biggest unexplained mover, directly under the warning saying it was
+    // being absorbed. The label is kept as a fallback for older snapshots,
+    // whose rows have no key.
     var explained = {};
     variationDeltaScan(job).forEach(function(l) {
-      if (l.classified) explained[l.name] = true;
+      if (!l.classified) return;
+      explained[l.kind + ':' + l.id] = true;
+      explained['name:' + l.name] = true;
     });
     var all = drift.work.concat(drift.materials)
-      .filter(function(r) { return !explained[r.label]; })
+      .filter(function(r) { return !(r.key ? explained[r.key] : explained['name:' + r.label]); })
       .sort(function(a, b) { return moved(b) - moved(a); });
     if (all.length) {
       lineRows = '<div class="card-header" style="border-top:1px solid var(--border)">Which lines moved</div>'
@@ -8644,6 +8669,7 @@ function variationBaselineCopy(obj) {
   delete copy.variationStatus;
   delete copy.variationApprovedAt;
   delete copy.variationApprovalNote;
+  delete copy.variationApprovedRaw;
   return copy;
 }
 
@@ -8710,35 +8736,104 @@ function stampVariationBaselines(job, opts) {
   return n;
 }
 
-// Un-answering a quote withdraws the acceptance, and the agreed scope goes with
-// it -- same rule acceptedSnapshot already follows. A later re-accept stamps
-// fresh.
-function clearVariationBaselines(job) {
-  if (!job) return;
-  var touchedRooms = false, touchedExt = false, any = false;
+// The one multiplier every variation figure is marked up by. Percent markup
+// and commercial% stack; a FIXED-£ markup never touches a variation, because
+// that amount was the adjustment agreed on the original quote and spreading it
+// thinner would quietly change that quote's total (VARIATIONS_SPEC.md).
+function variationMarkupMult() {
+  return (1 + commercialRatio()) * (effectiveMarkupType() === 'fixed' ? 1 : 1 + (effectiveMarkup() / 100));
+}
+
+// A delta's customer-facing amount: raw labour, the sundries % on it, the
+// spray-masking % on any sprayed share, then markup -- the exact composition
+// buildClientVariationLines() publishes and the final invoice bills. Written
+// once because three screens quoting three slightly different figures for the
+// same extra is how a client ends up charged something they never saw.
+function variationDeltaAmount(d) {
+  if (!d) return 0;
+  var sPct = (settings.sundriesPct || 0) / 100;
+  var spPct = (settings.sundriesSprayPct || 0) / 100;
+  return (d.raw + d.raw * sPct + Math.max(0, d.spray || 0) * spPct) * variationMarkupMult();
+}
+
+// Every carrier whose live price has moved off its baseline, classified as
+// extra work or not yet. ONE scan, shared by the variations view, the
+// unclassified nag, the chips, the amend warning and the quote builders, so
+// none of them can disagree about what counts -- the "grep every consumer"
+// gotcha, answered by there being one thing to grep.
+//
+// `classified` means the person said "extra work" AND the extra is still
+// positive. A classified extra whose carrier has since shrunk back below its
+// baseline is no longer extra work at all, and saying so here keeps every
+// consumer from having to remember the case: it falls back to being an open
+// question, which is exactly what it is.
+function variationDeltaScan(job) {
+  var out = [];
   eachVariationCarrier(job, function(kind, obj) {
-    if (!obj.variationBaseline && !obj.variationDelta) return;
-    obj.variationBaseline = null;
-    obj.variationDelta = false;
-    any = true;
-    if (kind === 'room') touchedRooms = true;
-    else if (kind === 'ext') touchedExt = true;
+    var d = variationDeltaOf(kind, obj);
+    if (!d) return;
+    out.push({ kind: kind, id: carrierId(kind, obj), name: carrierName(kind, obj),
+               obj: obj, raw: d.raw, time: d.time, spray: d.spray,
+               classified: d.classified && d.raw > 0.005,
+               status: variationStatusOf(obj) });
   });
-  job.variationBaselinesAt = null;
-  job.variationBaselinesLate = false;
-  if (!any) return;
-  if (touchedRooms) saveRooms();
-  if (touchedExt) saveExtItems();
-  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
-  persistJobData(job);
+  return out;
+}
+
+// What an amend is about to absorb: the extras already classified as extra
+// work, which revision N+1 turns back into original scope.
+function classifiedDeltaSummary(job) {
+  var lines = variationDeltaScan(job).filter(function(l) {
+    return l.classified && l.status !== 'declined';
+  });
+  return {
+    count: lines.length,
+    names: lines.map(function(l) { return l.name; }),
+    total: lines.reduce(function(t, l) { return t + variationDeltaAmount(l); }, 0)
+  };
+}
+
+// The version of a carrier that ORIGINAL SCOPE prices. A carrier whose growth
+// above its baseline has been classified as extra work is original scope AT ITS
+// BASELINE: the extra prices separately as a variation line, so pricing the
+// live object here too would bill the same work twice -- once inside the quote
+// it was never part of, once again as the extra it is.
+//
+// The delta has to be POSITIVE for that to hold. If the carrier has since
+// shrunk back below its baseline there is no extra to bill, and pricing the
+// baseline anyway would invoice work that is no longer measured -- so the live
+// object stands, and variationDeltaScan() puts the carrier back on the card as
+// an open question.
+//
+// Deliberately NOT applied in buildAcceptedQuoteSnapshot(): that function means
+// "this job priced now", which is what an amend has to write (revision N+1
+// re-agrees the current scope and absorbs the extras) and what the drift
+// comparison has to read. Applied in the two places that mean "the original
+// quote, as agreed": the Xero re-send and the client-facing quote page.
+function originalScopeCarrier(kind, obj) {
+  if (!obj || obj.isVariation || !obj.variationDelta) return obj;
+  var base = obj.variationBaseline && obj.variationBaseline.obj;
+  if (!base) return obj;
+  var d = variationDeltaOf(kind, obj);
+  if (!d || d.raw <= 0.005) return obj;
+  var out;
+  try { out = JSON.parse(JSON.stringify(base)); } catch (e) { return obj; }
+  // The line is about the same thing it always was, so it keeps the carrier's
+  // identity and its CURRENT name -- a room renamed since acceptance should
+  // read under the name it has now, not the one frozen in the baseline.
+  out.id = obj.id;
+  if (obj.name !== undefined) out.name = obj.name;
+  if (obj.label !== undefined) out.label = obj.label;
+  if (obj.emoji !== undefined) out.emoji = obj.emoji;
+  return out;
 }
 
 // The raw (pre-markup) labour behind one variation line, whichever kind it is.
-// Stamped at sign-off so a figure that moves AFTERWARDS can be spotted: a
-// delta is live by design, so approving £48 of radiators and then adding a
-// fourth one silently changes what the client said yes to. Whole-item
-// variations have always had the same hole -- edit an approved variation room
-// and its price moves under its own tick -- so this covers both.
+// Stamped at sign-off so a figure that moves AFTERWARDS can be spotted: a delta
+// is live by design, so approving £48 of radiators and then adding a fourth one
+// silently changes what the client said yes to. Whole-item variations have
+// always had the same hole -- edit an approved variation room and its price
+// moves under its own tick -- so this covers both.
 function variationRawOf(kind, obj) {
   if (!obj) return null;
   var carrier = String(kind).replace(/delta$/, '');
@@ -8768,72 +8863,16 @@ function variationSignoffDrift(kind, obj) {
   return { was: was, now: now };
 }
 
-// The version of a carrier that ORIGINAL SCOPE prices. A carrier whose growth
-// above its baseline has been classified as extra work is original scope AT ITS
-// BASELINE: the extra prices separately as a variation line, so pricing the
-// live object here too would bill the same work twice -- once inside the quote
-// it was never part of, once again as the extra it is.
-//
-// Deliberately NOT applied in buildAcceptedQuoteSnapshot(): that function means
-// "this job priced now", which is what an amend has to write (revision N+1
-// re-agrees the current scope and absorbs the extras) and what the drift
-// comparison has to read. Applied in the two places that mean "the original
-// quote, as agreed": the Xero re-send and the client-facing quote page.
-function originalScopeCarrier(kind, obj) {
-  if (!obj || obj.isVariation || !obj.variationDelta) return obj;
-  var base = obj.variationBaseline && obj.variationBaseline.obj;
-  if (!base) return obj;
-  var out;
-  try { out = JSON.parse(JSON.stringify(base)); } catch (e) { return obj; }
-  // The line is about the same thing it always was, so it keeps the carrier's
-  // identity and its CURRENT name -- a room renamed since acceptance should
-  // read under the name it has now, not the one frozen in the baseline.
-  out.id = obj.id;
-  if (obj.name !== undefined) out.name = obj.name;
-  if (obj.label !== undefined) out.label = obj.label;
-  if (obj.emoji !== undefined) out.emoji = obj.emoji;
-  return out;
-}
-
-// The one multiplier every variation figure is marked up by. Percent markup
-// and commercial% stack; a FIXED-£ markup never touches a variation, because
-// that amount was the adjustment agreed on the original quote and spreading it
-// thinner would quietly change that quote's total (VARIATIONS_SPEC.md).
-function variationMarkupMult() {
-  return (1 + commercialRatio()) * (effectiveMarkupType() === 'fixed' ? 1 : 1 + (effectiveMarkup() / 100));
-}
-
-// Every carrier whose live price has moved off its baseline, classified as
-// extra work or not yet. ONE scan, shared by the variations view, the
-// unclassified nag, the chips, the amend warning and the quote builders, so
-// none of them can disagree about what counts -- the "grep every consumer"
-// gotcha, answered by there being one thing to grep.
-function variationDeltaScan(job) {
-  var out = [];
-  eachVariationCarrier(job, function(kind, obj) {
-    var d = variationDeltaOf(kind, obj);
-    if (!d) return;
-    out.push({ kind: kind, id: carrierId(kind, obj), name: carrierName(kind, obj),
-               obj: obj, raw: d.raw, time: d.time, spray: d.spray,
-               classified: d.classified, status: variationStatusOf(obj) });
-  });
-  return out;
-}
-
-// What an amend is about to absorb: the extras already classified as extra
-// work, which revision N+1 turns back into original scope.
-function classifiedDeltaSummary(job) {
-  var mk = variationMarkupMult();
-  var sPct = (settings.sundriesPct || 0) / 100;
-  var spPct = (settings.sundriesSprayPct || 0) / 100;
-  var lines = variationDeltaScan(job).filter(function(l) {
-    return l.classified && l.status !== 'declined' && l.raw > 0.005;
-  });
-  return {
-    count: lines.length,
-    names: lines.map(function(l) { return l.name; }),
-    total: lines.reduce(function(t, l) { return t + (l.raw + l.raw * sPct + Math.max(0, l.spray) * spPct) * mk; }, 0)
-  };
+// Read once and dismissed. The flag is the only record that a job's baselines
+// were taken late rather than at acceptance, so it is cleared by the person
+// acknowledging it, not by a timer or the next render.
+function dismissLateBaselineNotice() {
+  var job = activeJob();
+  if (!job) return;
+  job.variationBaselinesLate = false;
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  renderSummary();
 }
 
 // The lazy stamp, for jobs already accepted when this shipped. Honest but
@@ -9181,9 +9220,11 @@ function openVariationDeltaSheet(kind, id) {
   var d = variationDeltaOf(found.kind, found.obj);
   if (!d) { toast('Nothing has changed on this one.'); return; }
   var name = carrierName(found.kind, found.obj);
-  var mk = variationMarkupMult();
-  var sPct = (settings.sundriesPct || 0) / 100;
-  var amount = (d.raw + d.raw * sPct) * mk;
+  // The same composition buildClientVariationLines() publishes and the final
+  // invoice bills -- spray-sundries included. Quoting a figure here that the
+  // client is then charged a different version of is the one thing a sheet
+  // like this must not do.
+  var amount = variationDeltaAmount(d);
   var down = d.raw < 0;
   var fields = deltaFieldSummary(found.kind, found.obj);
   var btn = 'border:none;border-radius:var(--rs);padding:12px 14px;font-size:14px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%;text-align:left';
@@ -9226,9 +9267,16 @@ function classifyVariationDelta(kind, id, verdict) {
   var obj = found.obj;
   if (verdict === 'extra') {
     obj.variationDelta = true;
-    // Pending by default, like every other variation: the client has not said
-    // yes yet, and sign-off stays a deliberate act.
-    if (!obj.variationStatus) obj.variationStatus = 'pending';
+    // ALWAYS pending, never "pending unless something was already set". A
+    // carrier can arrive here carrying an approved sign-off from a previous
+    // life -- a whole-item variation that was approved and later unflagged, or
+    // an extra that was approved, corrected away, and has now grown again.
+    // Inheriting that would publish and invoice brand-new money as
+    // client-agreed without the client ever being asked.
+    obj.variationStatus = 'pending';
+    obj.variationApprovedAt = null;
+    obj.variationApprovalNote = '';
+    obj.variationApprovedRaw = null;
     obj.variationBaselineCorrectedAt = null;
   } else {
     // A correction re-agrees this carrier's scope. Recorded with a timestamp
@@ -9239,6 +9287,10 @@ function classifyVariationDelta(kind, id, verdict) {
     var prev = obj.variationBaseline || {};
     obj.variationBaseline = { at: prev.at || new Date().toISOString(), rev: prev.rev == null ? null : prev.rev, obj: copy };
     obj.variationDelta = false;
+    obj.variationStatus = 'pending';
+    obj.variationApprovedAt = null;
+    obj.variationApprovalNote = '';
+    obj.variationApprovedRaw = null;
     obj.variationBaselineCorrectedAt = new Date().toISOString();
   }
   saveCarrier(found.kind);
@@ -9273,9 +9325,7 @@ function variationsCardHtml(v) {
   // so they sit at the TOP of the card as an open question rather than being
   // filed among the answered lines below.
   unclassified.forEach(function(l) {
-    var mk = variationMarkupMult();
-    var sPct = (settings.sundriesPct || 0) / 100;
-    var amount = (l.raw + l.raw * sPct) * mk;
+    var amount = variationDeltaAmount(l);
     var down = l.raw < 0;
     rows += '<div class="breakdown-row" style="background:var(--surface2)">'
       + '<span class="breakdown-label">' + escapeHtml(l.name)
@@ -24599,6 +24649,21 @@ function renderSummary() {
       '<div class="stat-card"><div class="stat-label">On Site</div><div class="stat-value bl">'+fmtD(onSiteDays)+'</div>'+
         '<small style="display:block;font-weight:400;color:var(--text2);margin-top:2px">'+ttAll.toFixed(1)+'d working'+(hasVariations ? ' incl. variations' : '')+'</small></div>'+
     '</div>'+
+    // The one-off notice the lazy baseline stamp owes (VARIATIONS_SPEC.md
+    // Part 2). A job accepted before Part 2 shipped has no record of what its
+    // rooms looked like at acceptance, so its baselines are taken from the job
+    // as it stands the day it is next opened -- which forgives any extra
+    // already typed into a measured room. That is the only thing it can do,
+    // and it must not happen quietly.
+    (frozenQuote && statusJob && statusJob.variationBaselinesLate
+      ? '<div class="card" style="margin-top:16px;border-left:4px solid var(--warn,#f39c12)">'
+        + '<div style="padding:12px 16px;font-size:13px;line-height:1.5;color:var(--text)">'
+        + '<strong>Scope baselines set from this job as it stands today.</strong><br>'
+        + '<span style="color:var(--text2)">This job was accepted before the app started recording what each room '
+        + 'was measured as, so anything already on it counts as agreed. Changes from here are tracked as extra '
+        + 'work or corrections. <span onclick="dismissLateBaselineNotice()" style="color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline">Got it</span></span>'
+        + '</div></div>'
+      : '')+
     // The agreed record: the lines behind the headline immediately above it,
     // the payment plan agreed with them, and the two things you can do to
     // them. Under the hero rather than over it -- it itemises a total, so the

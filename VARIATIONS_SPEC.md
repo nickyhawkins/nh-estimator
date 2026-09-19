@@ -290,6 +290,41 @@ from the form, so an APPROVED variation's sign-off was silently reset to Pending
 every time its room was opened and saved, losing the client's note and the date.
 `carryVariationState()` fixes it and carries the baseline with it.
 
+**Found in review, after the first pass was written** (all fixed, all now held by
+the test):
+
+- `lib/clientQuote.js`'s `VARIATION_KINDS` was never extended, and the publish
+  route rejects the WHOLE payload on an unknown kind — so "Send for approval"
+  was broken end to end for any job with a classified extra, taking that job's
+  other variation lines down with it. The in-memory test passed anyway; there is
+  now a real round trip through the server and a check on the stored row.
+- **Un-accepting cleared the baselines but not the snapshot.** Re-accepting then
+  captured no new revision (one already existed) yet re-baselined every carrier
+  at today's scope, absorbing classified extras into original scope with none of
+  the warning amending gives. Baselines now survive un-accept exactly as the
+  snapshot does, and the acceptance stamp is guarded like the capture beside it.
+  This spec's "jobs moved back to draft drop their baselines with their snapshot"
+  was wrong on its premise: the snapshot is not dropped.
+- A re-classified carrier inherited an old `approved` sign-off, so brand-new
+  money could be published and invoiced as client-agreed without the client
+  being asked. Classification and correction now both reset the sign-off.
+- A classified extra whose carrier later **shrank below** its baseline vanished
+  from every list while `originalScopeCarrier()` still priced it at the baseline
+  — billing work no longer measured. A classified delta now means a *positive*
+  one; if it goes non-positive it returns to being an open question.
+- The classification sheet and the nag row omitted the spray-sundries component
+  that the published line and the invoice charge. One `variationDeltaAmount()`
+  now composes the figure for all of them.
+- The drift-card exclusion was keyed on `carrierName()`, which never matches the
+  kitchen's quote row label — so a classified kitchen extra still showed as the
+  biggest unexplained mover directly under the warning saying it was absorbed.
+  Keyed on `sourceKey` now, with the label as a fallback for older snapshots.
+- `variationBaselinesAt`/`variationBaselinesLate` were missing from
+  `persistJobData()`'s field list, so they never reached the server and the
+  "already baselined" guard failed on every fresh load. `variationBaselinesLate`
+  was also written and never read — the notice it promised now renders on
+  Summary with a Got it to dismiss it.
+
 Raised from a live job: quote accepted, client then asked for three radiators painting across two
 rooms already measured. Opening each room and typing the radiators into the Extras
 field produced **no variation, no chip, no money** — and, worse, no sign that anything

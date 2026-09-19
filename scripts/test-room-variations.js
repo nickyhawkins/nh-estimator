@@ -270,10 +270,94 @@ async function seed(db) {
     check('amending re-baselines the room at its current scope', afterAmend.rebaselined === 3);
     check('and the extra stops being extra', afterAmend.lines === 0 && afterAmend.delta === null);
 
-    // ── Un-accepting withdraws the agreed scope with the agreed money ──────
+    // ── A classified extra that shrinks back is no longer extra ───────────
+    const shrank = await page.evaluate(() => {
+      rooms[1].rads = 2;
+      classifyVariationDelta('room', rooms[1].id, 'extra');
+      const wasBilled = buildFinalInvoiceModel().variations.some(v => /Hallway/.test(v.desc));
+      // Now shrink it decisively below its baseline. Halving the room's length
+      // is the unambiguous way: removing doors would not do it, because a door
+      // is a hole in the wall -- take it out and the wall area it was covering
+      // comes back, which costs more than painting the door saved.
+      rooms[1].rads = 0; rooms[1].l = 3;
+      const v = computeVariationsView();
+      return {
+        wasBilled,
+        stillClassified: v.varLines.some(l => /Hallway/.test(l.name)),
+        backToAQuestion: v.unclassifiedDeltas.some(u => u.name === 'Hallway'),
+        // The invoice must bill what is measured now, not the old baseline.
+        pricesLive: !buildFinalInvoiceModel().variations.some(v2 => /Hallway/.test(v2.desc))
+      };
+    });
+    check('an extra that shrinks back below its baseline stops being billed',
+      shrank.wasBilled === true && shrank.pricesLive === true);
+    check('...and goes back to being an open question',
+      shrank.stillClassified === false && shrank.backToAQuestion === true);
+
+    // ── A new extra never inherits an old sign-off ─────────────────────────
+    const inherited = await page.evaluate(() => {
+      rooms[1].doorQty = 3;
+      classifyVariationDelta('room', rooms[1].id, 'extra');
+      window.prompt = () => '';
+      approveVariation('roomdelta', rooms[1].id);
+      const approved = variationStatusOf(rooms[1]);
+      // Rule it a correction, then let it grow again: the new extra is new.
+      classifyVariationDelta('room', rooms[1].id, 'correction');
+      rooms[1].rads = 4;
+      classifyVariationDelta('room', rooms[1].id, 'extra');
+      return { approved, after: variationStatusOf(rooms[1]),
+               noStaleFigure: rooms[1].variationApprovedRaw == null };
+    });
+    check('a corrected-then-regrown extra arrives Pending, not Approved',
+      inherited.approved === 'approved' && inherited.after === 'pending');
+    check('and carries no stale agreed figure', inherited.noStaleFigure === true);
+
+    // ── The publish round trip actually reaches the server ────────────────
+    // buildClientVariationLines() being right in memory is not enough: the
+    // server validates source_kind against a whitelist and rejects the WHOLE
+    // payload on an unknown one, so a missing kind takes Send for approval
+    // down for the job rather than dropping a line.
+    const published = await page.evaluate(async (id) => {
+      const lines = buildClientVariationLines();
+      const res = await fetch('/api/jobs/' + encodeURIComponent(id) + '/client-variations', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lines })
+      });
+      return { status: res.status, kinds: lines.map(l => l.kind), body: await res.text() };
+    }, JOB_ID);
+    check('publishing a delta line is accepted by the server',
+      published.status === 200, `HTTP ${published.status} ${published.body.slice(0, 120)}`);
+    check('it publishes under its own source kind',
+      published.kinds.some(k => /delta$/.test(k)), published.kinds.join(','));
+    const rows = await db.query('SELECT source_kind FROM job_variations WHERE job_id=$1', [JOB_ID]);
+    check('and reaches the database under that kind',
+      rows.rows.some(r => /delta$/.test(r.source_kind)),
+      rows.rows.map(r => r.source_kind).join(',') || 'no rows');
+
+    // ── Un-accepting withdraws the acceptance, not the record ─────────────
     await page.evaluate(() => { window.confirm = () => true; setJobStatusById(activeJobId, null); });
-    await page.waitForFunction(() => rooms.every(r => !r.variationBaseline), null, { timeout: 20000 });
-    check('un-accepting drops the baselines', true);
+    await page.waitForFunction(() => jobQuoteIsFrozen(activeJob()) === false, null, { timeout: 20000 });
+    const unaccepted = await page.evaluate(() => ({
+      keptBaselines: rooms.every(r => !!r.variationBaseline),
+      keptSnapshots: quoteSnapshots.length,
+      conceptGone: variationApplies() === false
+    }));
+    // The snapshot deliberately survives un-accept, so the agreed SCOPE has to
+    // as well. Clearing it made the round trip destructive: re-accepting
+    // captured no new revision (a snapshot already existed) but re-baselined
+    // every room at today's scope, absorbing classified extras into "original
+    // scope" with none of the warning amendAcceptedQuote() gives.
+    check('un-accepting keeps the agreed scope, exactly as it keeps the record',
+      unaccepted.keptBaselines === true && unaccepted.keptSnapshots > 0);
+    check('but the concept does not apply while the job is not accepted',
+      unaccepted.conceptGone === true);
+
+    await page.evaluate(() => { window.confirm = () => true; setJobStatusById(activeJobId, 'accepted'); });
+    await page.waitForFunction(() => jobQuoteIsFrozen(activeJob()) === true, null, { timeout: 20000 });
+    const reaccepted = await page.evaluate(() => ({
+      stillHasExtra: computeVariationsView().varLines.some(l => /extra work/.test(l.name))
+    }));
+    check('re-accepting does not silently absorb the extras', reaccepted.stillHasExtra === true);
 
   } catch (err) {
     console.error('E2E harness error:', err);
