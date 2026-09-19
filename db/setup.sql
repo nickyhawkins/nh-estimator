@@ -448,3 +448,69 @@ ALTER TABLE snag_rooms ADD COLUMN IF NOT EXISTS role VARCHAR NOT NULL DEFAULT 'a
 DROP INDEX IF EXISTS snag_rooms_job_label;
 CREATE UNIQUE INDEX IF NOT EXISTS snag_rooms_job_label_role ON snag_rooms (job_id, lower(room_label), role);
 CREATE INDEX IF NOT EXISTS snag_rooms_job ON snag_rooms (job_id);
+
+-- ── Job spec sheet (JOB_SPEC_SHEET_SPEC.md) ─────────────────────────────────
+-- The per-job quick reference: what is being done in each area, what colour
+-- each thing is going, and the stages from prep to finish, all tickable.
+--
+-- The ROWS are not here and never will be. They are rebuilt in the browser
+-- from the rooms, exterior items, kitchen, fitted units and custom items every
+-- time the sheet is opened -- the same principle as colourAreas() -- so they
+-- cannot drift from what is actually being painted. What is stored is the
+-- TICKS, and (while a job has a live link) the finished model the public page
+-- displays.
+--
+-- Columns rather than a JSON blob, for the reason snags gave: status is
+-- queried and counted. And ONE ROW PER (row, step) rather than one row per row
+-- with two status columns, so a Prep tick and a Painted tick can never
+-- overwrite each other -- which matters because two people can tick at once,
+-- one on the phone and one on the public link.
+--
+-- item_key is '<kind>:<id>:<role>' built from the record's ID, never its name
+-- ('room:ab12:ceiling', 'unit:cd34:unit'). Renaming a room therefore keeps its
+-- ticks, which is the opposite of snags, whose ticks belong to a place on site
+-- (a text label) rather than to a database row.
+--
+-- source says which side the tick came from -- 'app' (Nicky's phone) or 'link'
+-- (anyone holding the public URL). The app shows a small marker on a step
+-- ticked via the link, because "anyone with the link can tick" is worth being
+-- able to see.
+--
+-- The foreign key is real, like job_variations': a tick belonging to a job
+-- that no longer exists is reachable from a live public URL. ON DELETE CASCADE
+-- makes that unrepresentable rather than a thing to remember.
+CREATE TABLE IF NOT EXISTS spec_ticks (
+  job_id VARCHAR NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  item_key VARCHAR NOT NULL,
+  step VARCHAR NOT NULL,
+  status VARCHAR NOT NULL DEFAULT 'open',
+  completed_at TIMESTAMP,
+  source VARCHAR NOT NULL DEFAULT 'app',
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (job_id, item_key, step)
+);
+CREATE INDEX IF NOT EXISTS spec_ticks_job ON spec_ticks (job_id);
+
+-- The published model behind the live link. The server has no calc engine, so
+-- the phone publishes the finished model (plain strings and structure, no
+-- prices) and this stores it; the page renders it and never computes anything
+-- from it. One row per job, replaced wholesale on every publish -- last write
+-- wins, so a queued retry is always safe.
+--
+-- The TICKS are deliberately not in it. They live in spec_ticks, the one table
+-- both the app and the page write to, and the page reads them fresh on every
+-- load -- so a tick from either side shows on the other without a republish,
+-- and ticking never triggers one.
+CREATE TABLE IF NOT EXISTS job_spec_sheets (
+  job_id VARCHAR PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
+  model JSONB NOT NULL,
+  published_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- The spec sheet's OWN link token, deliberately not jobs.client_token. That
+-- one opens the client's variation page, which has Approve and Decline buttons
+-- on it, and handing it to a helper hands them those buttons. Two tokens means
+-- either link can be revoked without touching the other. Partial index for the
+-- same reason as jobs_client_token: every job without a link shares a NULL.
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS spec_token VARCHAR;
+CREATE UNIQUE INDEX IF NOT EXISTS jobs_spec_token ON jobs (spec_token) WHERE spec_token IS NOT NULL;

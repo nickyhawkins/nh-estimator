@@ -663,6 +663,7 @@ Once a job is accepted, the **🛠 On Site** tab is your day-to-day companion:
 - **Materials** — the quote's materials list becomes a shopping list. Tick items off as you buy them, and correct quantities/prices to what you actually paid — see [Materials & Undo](#materials--undo) for how edits and Recalculate interact, and Undo if something goes wrong. Any row here can also go on your **Shopping List** — see below.
 - **Add material the estimate missed** — extra sundries or a forgotten tin: search the product, set the price, done.
 - **Variations** — the client asks for "just one more room" mid-job? Add the room (or exterior item, fitted unit) on Measure and flick its **Variation** toggle. It's priced with the same engine but kept separate from the accepted quote, and appears in its own Variations card here. Each variation carries a status — tap **✓ Approved by client** to record their yes (with an optional note; the date is stamped automatically), or mark one Declined to drop it from the totals and the final invoice while keeping the record. Anything still Pending gets called out before the final invoice will let it through.
+- **Spec sheet** — what's being done in every area, what colour each thing is going, and how far through it is. Tick Prep and Painted off as you go. See below.
 - **Snags** — the punch list for the job, above everything else once there's something on it. See below.
 - **Invoice ›** (top right) shows the materials list formatted for invoicing, with a **Copy** button.
 
@@ -673,6 +674,176 @@ This is the screen you have open standing in the room, so it's the one that answ
 ![Adding On Site materials to the shopping list](images/10g-onsite-shoplist.png)
 
 It's per row and never automatic — plenty of what's on a job is already in the van. Summary's materials list has the same chip on the quoted lines, and either route lands on the same list: one line per product, no duplicates however many times you tap, and both job names on it if two jobs need the same thing. Paint sold by the litre goes on **without a price**, because the figure on the row is a price per litre, not what a tin costs at the till. Ticked something off in the shop and then ran out? Tap the chip again and it goes back on the list.
+
+### The spec sheet — what's going where, and how far through
+
+On site the questions are small and constant: *which walls am I painting in
+here*, *what colour is the radiator going*, *what have I still not touched*.
+All of it was already in the app — just spread across the room screen, the
+Colours tab and the materials list, which are screens for putting numbers in,
+not for looking things up with a brush in your hand.
+
+The **Spec sheet** puts the answers on one screen, and lets you tick them off.
+It sits on On Site next to Snags, headed with how much is still outstanding:
+
+![The spec sheet entry on On Site](images/10h-spec-sheet-entry.png)
+
+Tap **Open** and you get the whole job, area by area:
+
+![The spec sheet, by room](images/10h-spec-sheet.png)
+
+Every row is one surface in one area, in the order you'd actually work a room
+— **ceiling, panelling, woodwork** (with what it includes, and **radiators**
+right under it), **walls**, and the **feature wall last**. The colour is the
+biggest thing on the row, because it's the thing you came to look up. Under it
+sits the product and the prep, and under that the two boxes.
+
+**It's built from the job, not typed twice.** The rows come from your rooms,
+exterior items, kitchen, fitted units and custom lines every time you open it,
+so they can't drift from what you've actually measured. Rename a colour on the
+Colours tab and the sheet says the new name straight away. A surface with no
+coats on it simply isn't there. Nothing on this screen can be edited except the
+ticks — colours, coats and prep are changed where they live, so there's only
+ever one place to change them.
+
+**No prices anywhere on it** — not on the screen, not in the PDF, not on the
+shared link. It's a working document, not a quote.
+
+#### Ticking it off
+
+Two boxes per row: **Prep**, then **Painted**. They're independent — tick
+Painted without Prep if the prep was done last week or there wasn't any, or
+tick Prep on its own. Each one keeps the date you ticked it.
+
+- **Prep** strikes through the prep line. The row is still open — half done is
+  not done.
+- **Painted** clears the row: struck through, dimmed, and dropped to the bottom
+  of its area. It stays on the list, because at the end of the job the list
+  *is* the record of what got done. Untick anything and it goes straight back
+  where it was.
+
+Cleared rows sink to the bottom of their area and cleared areas sink to the
+bottom of the sheet, exactly like snags — so three weeks in, what's left is at
+the top. One thing worth knowing: that beats the working order, so a feature
+wall you haven't touched sits *above* a ceiling you've finished. It's last in
+the room's sequence, not last on the screen.
+
+**Papered surfaces and custom lines get one box, Done** — there's no separate
+prep step to a roll of wallpaper or to a line you typed in yourself.
+
+#### By room, by stage, and finding things
+
+**By stage** flattens the whole house: every ceiling in the job together, then
+all the panelling, then the woodwork, and so on, with the room name on every
+row. Use it to do one thing everywhere in one pass. Kitchen, fitted units,
+exterior items and custom lines stay as their own blocks at the end — there's
+nothing to batch between a kitchen and a garage door.
+
+![The spec sheet, by stage](images/10i-spec-sheet-stage.png)
+
+**Every heading folds**, same as the snag list: tap it and its rows fold away,
+leaving the name and the count. An area you've finished with is folded to start
+with, so a big house opens as the rooms that still have work in them — unless
+*everything* is done, in which case it all opens, because you only opened it to
+read the record. **Fold all** does the lot and turns into **Open all**.
+
+**The find box** matches the surface, the colour, the room and the product, and
+works in both views:
+
+![Finding every radiator row](images/10j-spec-sheet-find.png)
+
+Type *radiator* and you get every room's radiator row with its colour. Type a
+colour name and you get everywhere that colour is used. Clear it and the whole
+sheet comes back.
+
+#### The prep lines
+
+Each row carries a prep line. Where the job records prep for that surface, that
+wins — **Mist coat** with its product on new plaster, **Primer** with its
+product where the room actually buys one, the fitted unit's prep level, the
+kitchen's **Strip original coating**. Everything else gets the built-in line
+for that surface ("*Fill and sand. Tape switches, sockets and edges.*"). The
+Prep box belongs to whichever line is showing.
+
+#### Variations on the sheet
+
+Extras show up with everything else, tagged. An approved one reads **Variation
+✓**; one still waiting reads **Variation, awaiting approval** — shown on
+purpose, and tagged so it can't be read as a go-ahead. You *can* tick it; the
+tag is the warning. A declined variation isn't on the sheet at all.
+
+#### Sharing it: PDF
+
+**Share PDF** at the foot of the sheet builds a one-file copy and hands it to
+your phone's share sheet (on a computer it downloads). It's named for the job
+and the day you exported it — *NH-Spec-12-Ermine-Street-2026-09-19.pdf* — and
+stamped **Correct as of** the date and time, because a spec sheet moves.
+
+It prints **the view you're looking at, in the order you're looking at it**, so
+you can check the file against the screen: your business band at the top, the
+job and the address, then how many are outstanding and how many done, then each
+area with two boxes per row — empty for what's left, filled and dated for
+what's done. It builds from what's on your phone, so a row you ticked in a
+cellar with no bars is already ticked in the file. The client's name, phone and
+email are not on it.
+
+#### Sharing it: a live link anyone can tick
+
+**Share link** creates a private web page for this job and hands you the URL.
+Whoever you send it to opens it on their phone — no login, no app — and sees
+the same sheet, with the same By room / By stage toggle, the same find box and
+the same two boxes per row. **They can tick things off**, and their ticks show
+up on your phone within about half a minute. Yours show up on their page the
+same way.
+
+![The shared spec sheet, opened on someone else's phone](images/10l-spec-sheet-link.png)
+
+- **It's a different link from the client approval one.** That page has Approve
+  and Decline buttons on it; this one doesn't, and handing a helper the wrong
+  link would hand them those buttons. Either can be stopped without touching
+  the other.
+- **The rows are as of your phone's last sync.** The page says **Updated** and
+  when. Edit a room, change a colour, and the page catches up within a couple
+  of seconds if you've got signal — and when you haven't, it keeps showing the
+  last version and its timestamp says how old that is.
+- **The ticks are live either way.** They're not part of what gets published,
+  so a tick never waits for a sync and never triggers one.
+- **You can see which ticks came from the link.** Any step ticked from the page
+  is marked *via link* on your phone, and you can untick anything.
+- **Anyone with the link can tick.** That's the point of it, and it's worth
+  knowing: forward it on and whoever holds it can tick rows. There are no
+  prices and no client contact details on it, so what's exposed is progress.
+  **Stop sharing** kills the link for everyone — and **leaves every tick where
+  it is**, because the work happened whether or not anybody's still allowed to
+  look at the page.
+
+#### Radiator colours
+
+Radiators normally go out in the woodwork colour, and that's what the sheet
+shows. When a room wants something else, the room screen has a **Radiators**
+row under the colours — **Same as woodwork** is on by default, and switching it
+off gives you the ordinary colour field:
+
+![Setting a radiator colour on a room](images/10k-radiator-colour.png)
+
+The field works exactly like every other colour field: type and your library
+offers matches with brand and number, the colours already on this job are one
+tap each underneath, and leaving it blank means *not decided yet* — which is a
+different thing from *same as the woodwork*, so the chip and the blank field
+don't mean the same. Set one and it shows on the spec sheet, on the Colours tab
+as an area in its own right, and on the client's colour schedule
+(*Woodwork/Radiators: Wimborne White* where they match, on their own line where
+they don't). **It never changes what you buy** — radiators are priced as labour
+and use no paint of their own, so a colour that's only on a radiator never
+turns up as a tin on the list.
+
+#### The spec sheet and signal
+
+Same as everything else on On Site: tick things off in a house with no bars and
+every tick queues on the phone and goes up when you're back in signal. The
+sheet opens offline, the PDF generates offline with your queued ticks in it,
+and a tick that hasn't synced yet is never overwritten by what the server still
+thinks.
 
 ### Snags — the punch list
 
@@ -926,6 +1097,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.70.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.71.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
