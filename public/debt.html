@@ -671,6 +671,21 @@ function simulate(dts,bdgt){
     // twice in one month and starve the creditors who have no plan at all.
     const arrearsDebts=state.filter(d=>d.remainingArrears>0.005&&d.remaining>0.005&&arrangementOf(d)<=0.005);
     const inArrears=arrearsDebts.length>0;
+    // TWO different questions, which used to share one answer:
+    //
+    //   inArrears      — "is there anyone left to hand the leftover to?"
+    //                    Arrangement debts are excluded, correctly: their
+    //                    catch-up is already funded as a commitment.
+    //   stillInArrears — "is this plan still clearing arrears?" That one is
+    //                    about the PLAN, so it counts every overdue penny,
+    //                    arrangement or not. Same question anyArrears() asks
+    //                    of the live debts.
+    //
+    // Answering the second with the first made the Projection tab declare
+    // "Arrears Cleared" in month 1 on a plan whose only arrears were under an
+    // arrangement — five months before the instalments actually finished
+    // paying them off, on the seeded plan.
+    const stillInArrears=state.some(d=>d.remainingArrears>0.005&&d.remaining>0.005);
     if(inArrears&&bl>0.005){
       // SMALLEST arrears first — snowball logic applied to arrears. The spare
       // after minimums is small (a couple of hundred a month), so pouring it
@@ -697,7 +712,11 @@ function simulate(dts,bdgt){
         payments[pi].extra=extra;payments[pi].total+=extra;payments[pi].remaining=target.remaining;
         if(target.remaining<=0.005)payments[pi].cleared=true;}
     }
-    months.push({month,payments,totalOut:bdgt-bl,budgetLeft:bl,phase:inArrears?'arrears':'snowball'});
+    // phase reads stillInArrears, not inArrears: the leftover may well be
+    // snowballing balances this month (an arrangement debt is out of that
+    // cascade by design), but the plan is not out of arrears until the
+    // arrangement has finished paying them.
+    months.push({month,payments,totalOut:bdgt-bl,budgetLeft:bl,phase:stillInArrears?'arrears':'snowball'});
     if(state.every(d=>d.remaining<=0.005))break;
   }
   return months;
@@ -929,7 +948,18 @@ function getCycleStatus(){
     // nothing (that's what missing it means), and neither does one whose
     // payment has already covered the lot.
     if(p.missed||p.commitDue<=0.005||paid>=p.commitDue-0.005)continue;
-    if(p.account==='business')outstandingBiz+=p.commitDue; else outstandingPer+=p.commitDue;
+    // The REMAINDER, not the whole commitment. Money that has already gone out
+    // does not still have to be found, and adding it back in overstated the
+    // gap by exactly the amount paid: tapping "Minimum paid" on a debt with an
+    // arrangement moved the outstanding figure by £0, because the payment
+    // cleared the minimum but not the full min+instalment, so the guard above
+    // let it through and the whole commitment was counted again.
+    //
+    // It also disagreed with commitmentQueue() and cycleCommitments(), which
+    // have always asked for commitDue − paid. Three readers of one number,
+    // one of them answering a different question.
+    const stillDue=Math.max(0,p.commitDue-paid);
+    if(p.account==='business')outstandingBiz+=stillDue; else outstandingPer+=stillDue;
   }
   const withMin=payments.filter(p=>p.minDue>0.005);
   // The targets, not the amounts that went out — so "£x to go" still counts
@@ -1057,8 +1087,21 @@ function bufferNeededAfter(potRepay){
   return {biz,per,total:biz+per};
 }
 // What the jars hold against the one-month baseline alone — the stage-one
-// figure, unaffected by any extension. The strip and the cover modal quote it
-// so "a month ahead ✓" keeps meaning a month ahead.
+// figure, unaffected by any emergency-fund extension. Reported as its own
+// number so "a month ahead" keeps meaning a month ahead even while the jars
+// are filling past it toward 3-6 months.
+//
+// It is NOT what renderBufferStrip() or bufferCover() read: both go through
+// bufferTarget()/bufferNeededAfter(). (An earlier comment here claimed they
+// quoted it, which was never true.) The difference, if it is ever wired in:
+// this clamps each jar at zero BEFORE summing, so an overfull business jar
+// cannot mask an empty personal one, whereas the strip's headline nets them.
+// The per-account lines under that headline already show the split and money
+// can be moved between jars, so the netted headline is defensible — but the
+// two figures are not interchangeable.
+//
+// Held by test:emergency-fund, which pins it at the baseline while the aim is
+// the extension.
 function baselineNeeded(){
   return {biz:round2(Math.max(0,bufferTargetBiz-bufferBiz)),
           per:round2(Math.max(0,bufferTargetPer-bufferPer)),
