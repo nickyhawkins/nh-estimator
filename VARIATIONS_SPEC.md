@@ -87,6 +87,14 @@ who was there knows what was agreed. That is a deliberate relaxation of the Xero
 poll's prompt-don't-flip rule, valid only because an Approve on this page is per-line
 and unambiguous where a whole-quote ACCEPTED is not.
 
+**Addendum 2026-09-19 (BUILT, v2.71.0): extra work added INSIDE an
+already-measured room.** The flag is per-carrier, never per-field, so radiators typed
+into an accepted job's existing room produce no variation, no chip and no money — the
+work gets done and never billed. Part 2 at the end of this file specs the fix: a frozen
+copy of each carrier's inputs at acceptance, and the extra priced as the difference
+between the engine run over the live inputs and over that baseline, both at today's
+rates. Read it before touching any room-form save path.
+
 **Addendum 2026-07-23 (v1.11.0, per Nicky's layout review):** the Variations card
 moved from Summary to the renamed **On Site** screen (was "Materials") — extras get
 agreed on site, in the same moment days are logged. Summary keeps the money (the
@@ -257,3 +265,323 @@ a fixed gold (`#ffd166`) that reads on the fixed dark background regardless of t
 matching how every other hero-sub colour is hardcoded rather than theme-reactive. Net
 effect: the money was never missing, just unreadable — worth remembering next time a
 "total isn't there" report comes in against a hero-style dark card.
+
+---
+
+# Part 2 — Extra work inside an already-measured room
+
+**Status: BUILT 2026-09-19 (v2.71.0), all five build-order items.** Held by
+`npm run test:room-variations` (38 assertions against the real app in a real
+browser), which pins the two properties easiest to break by accident: a rate
+change must not look like extra work, and the agreed figure must not move
+whether the extra is unclassified, classified or declined.
+
+**Deviations from this spec, both deliberate:** (1) a delta whose price moves
+after sign-off is REPORTED on the card, not auto-reset to pending — flipping an
+approved line back on its own discards the client's answer with nobody seeing
+it, and sign-off in this app is always a deliberate act (the Xero poll follows
+the same prompt-don't-flip rule); the server agrees, its publish upsert carrying
+`WHERE status = 'pending'`. (2) The calibration footnote needed no change: no
+such footnote exists in the code, and every count there derives from
+`computeVariationsView()`, which now carries delta lines.
+
+**Found while building:** `saveRoom()`/`saveExtItem()` rebuild the stored object
+from the form, so an APPROVED variation's sign-off was silently reset to Pending
+every time its room was opened and saved, losing the client's note and the date.
+`carryVariationState()` fixes it and carries the baseline with it.
+
+**Found in review, after the first pass was written** (all fixed, all now held by
+the test):
+
+- `lib/clientQuote.js`'s `VARIATION_KINDS` was never extended, and the publish
+  route rejects the WHOLE payload on an unknown kind — so "Send for approval"
+  was broken end to end for any job with a classified extra, taking that job's
+  other variation lines down with it. The in-memory test passed anyway; there is
+  now a real round trip through the server and a check on the stored row.
+- **Un-accepting cleared the baselines but not the snapshot.** Re-accepting then
+  captured no new revision (one already existed) yet re-baselined every carrier
+  at today's scope, absorbing classified extras into original scope with none of
+  the warning amending gives. Baselines now survive un-accept exactly as the
+  snapshot does, and the acceptance stamp is guarded like the capture beside it.
+  This spec's "jobs moved back to draft drop their baselines with their snapshot"
+  was wrong on its premise: the snapshot is not dropped.
+- A re-classified carrier inherited an old `approved` sign-off, so brand-new
+  money could be published and invoiced as client-agreed without the client
+  being asked. Classification and correction now both reset the sign-off.
+- A classified extra whose carrier later **shrank below** its baseline vanished
+  from every list while `originalScopeCarrier()` still priced it at the baseline
+  — billing work no longer measured. A classified delta now means a *positive*
+  one; if it goes non-positive it returns to being an open question.
+- The classification sheet and the nag row omitted the spray-sundries component
+  that the published line and the invoice charge. One `variationDeltaAmount()`
+  now composes the figure for all of them.
+- The drift-card exclusion was keyed on `carrierName()`, which never matches the
+  kitchen's quote row label — so a classified kitchen extra still showed as the
+  biggest unexplained mover directly under the warning saying it was absorbed.
+  Keyed on `sourceKey` now, with the label as a fallback for older snapshots.
+- **A DECLINED extra was absorbed by an amend and billed.** `stampVariationBaselines()`
+  re-baselined every carrier, and the extra is still measured on the job (the
+  radiators are typed into the room), so amending folded work the client had
+  refused into the new revision's original scope — and the "this absorbs N
+  extras" warning never mentioned it, because that warning filters declined
+  lines out. A declined extra now survives an amend untouched, and
+  `revisionScopeCarrier()` keeps it out of the revision the snapshot writes.
+  This is the one place a revision does NOT price the current scope, and why
+  it is a separate function from `originalScopeCarrier()`.
+- The variations card's `varSpray`/`appSpray` took the raw spray delta while
+  `variationDeltaAmount()`, `buildClientVariationLines()` and the final invoice
+  all clamp it at zero — so a negative spray delta made the card's subtotal
+  differ from what was published and billed. Clamped to match.
+- `variationBaselinesAt`/`variationBaselinesLate` were missing from
+  `persistJobData()`'s field list, so they never reached the server and the
+  "already baselined" guard failed on every fresh load. `variationBaselinesLate`
+  was also written and never read — the notice it promised now renders on
+  Summary with a Got it to dismiss it.
+
+Raised from a live job: quote accepted, client then asked for three radiators painting across two
+rooms already measured. Opening each room and typing the radiators into the Extras
+field produced **no variation, no chip, no money** — and, worse, no sign that anything
+had been added at all beyond a line on the drift card.
+
+## The hole
+
+`isVariation` is a flag on a **whole carrier** — a room, an exterior item, the kitchen,
+a fitted unit, a free line. It is never a flag on a field inside one. Part 1's
+core design decision ("variations ARE ordinary items, flagged") is still right, but it
+only covers extras that arrive as a *new* item. An extra that lands *inside an existing
+item* has nowhere to be.
+
+The rule that makes this invisible rather than merely unsupported is Part 1's own:
+
+> Editing a pre-acceptance room after acceptance does NOT flag it — edits to original
+> scope are corrections.
+
+That rule exists for a good reason ("I mismeasured the landing" must not become
+billable), and it is correct for the case it was written for. It just also swallows the
+opposite case, silently, with no way to tell the two apart. What actually happens today
+when radiators go into an accepted job's measured room:
+
+- `calcRoom()` prices the room higher. Nothing forks on any flag, so nothing else moves.
+- On a frozen job (`ACCEPTED_SNAPSHOT_SPEC.md`) every client-facing figure reads the
+  snapshot, so the hero, the client quote, the Xero quote and the final invoice are all
+  unmoved. The final invoice bills *frozen original + variations*, and the radiators are
+  in neither.
+- The only trace is the "Where the £X difference is" card, which reports the room as
+  having **moved** — indistinguishable from a rate change, and phrased as drift to be
+  explained rather than work to be billed.
+- On an accepted job with **no** snapshot (accepted before v2.38.0), it is worse: the
+  extra silently inflates the "original quote" total, i.e. it moves a figure that is
+  supposed to be a record of what the client agreed.
+
+Net effect: work gets done and never billed. That is the exact leak Part 1 exists to
+close, arriving through the one door Part 1 left open.
+
+## Why not just "flag the room"
+
+Because the room isn't a variation — most of it was quoted and agreed. Flagging the
+whole Lounge would pull the *entire* Lounge out of original scope and into the
+variations subtotal, so the client's original quote would lose a room and the
+variations line would bill one. The totals would still add up; every document would be
+wrong.
+
+What is extra is the **difference**, not the item. So that is what gets flagged.
+
+## Core design decision — price the delta with the same engine, twice
+
+A carrier keeps a **baseline**: a frozen copy of its own inputs as they were when the
+quote was agreed. The extra is priced by running the existing calc over both:
+
+```
+deltaRaw   = calcRoom(live).total       − calcRoom(baseline.room).total
+deltaTime  = calcRoom(live).time        − calcRoom(baseline.room).time
+deltaSpray = calcRoom(live).sprayLabour − calcRoom(baseline.room).sprayLabour
+```
+
+Both sides run at **today's** rates, so the difference isolates the scope change and
+cancels rate drift exactly. No new pricing path, no fork in the engine, no second
+copy of any formula — the same "flag-not-fork" payoff Part 1 banked, applied one level
+down. It also means the delta stays **live**: change the radiator figure again and the
+variation re-prices itself, which a frozen £ line could never do.
+
+### Why a full input copy, not a field list or a stored £
+
+- **Not a stored £ baseline.** A day-rate change moves every room's raw labour, so a
+  money baseline would report a scope change on every room the moment a rate moved.
+  That is the bug the drift card already exists to explain; this feature must not
+  re-create it one screen over.
+- **Not a hand-picked list of pricing fields.** This file's recurring failure is a
+  second copy of something getting out of step with the first (see NOTES.md's `extCost`
+  gotcha, and Part 1's own "the duplicate-function history says don't trust memory of
+  where they all are"). A field list would have to be updated every time a new toggle is
+  added to a room form, and the failure mode when someone forgets is a silent unbilled
+  extra — the worst class of bug this app has.
+- **The whole room object, minus its own baseline**, is drift-proof by construction:
+  whatever prices a room today is in there, because it is the room.
+
+### Data model
+
+No schema change. `rooms.data`, `exterior_items.data` and `jobs.data` are all JSONB, and
+rooms/exterior items are saved with a transactional replace-all PUT, so this rides the
+existing save paths exactly as `isVariation` does.
+
+```
+// on any non-flagged room / exterior item / kitchen / fitted unit
+variationBaseline: {
+  at:   ISO timestamp,        // when this baseline was agreed
+  rev:  <quote_snapshots version at the time, or null>,
+  room: { …deep copy of the carrier, with variationBaseline itself stripped… }
+}
+variationDelta: true|false    // this carrier's growth above baseline is EXTRA WORK
+variationBaselineCorrectedAt: ISO|null   // last time a delta was ruled a correction
+```
+
+`variationBaseline.room` must have `variationBaseline` stripped before storing, or each
+re-stamp nests the previous copy inside the new one and the room object grows without
+bound.
+
+A carrier is never both: `isVariation: true` means the whole thing is extra and it gets
+no baseline at all. So `variationStatus` / `variationApprovedAt` /
+`variationApprovalNote` can be reused for the delta's sign-off with no collision — one
+carrier, at most one variation line, either way.
+
+### When the baseline is stamped
+
+1. **At acceptance**, for every carrier not flagged `isVariation`, alongside
+   `captureQuoteSnapshot()` in `setJobStatusById()`. Ordering is safe by construction:
+   a variation needs an accepted job, and the baseline is written in the same step that
+   makes the job accepted.
+2. **On amend** (`amendAcceptedQuote()`), for every carrier. Revision N+1 re-agrees the
+   current scope, so every baseline re-stamps and every `variationDelta` clears — the
+   extras are *absorbed into* the new agreed scope. This is the correct behaviour (that
+   is what amending means) but it is not obvious, so **the amend confirm must say how
+   many classified extras it is about to absorb, and their total**, before it writes.
+3. **Lazily, on first open of an accepted job that has none** — the same
+   `captureSnapshotIfOwed()` pattern, for jobs accepted before this ships. Honest but
+   blunt: it takes the room *as it stands today*, so any extra already typed into a
+   measured room becomes part of its baseline and is forgiven. That has to be said out
+   loud once, on Summary, rather than happening quietly: *"Scope baselines set from this
+   job as it stands today — changes from here are tracked."*
+
+Jobs moved back to draft/quoted/declined drop their baselines with their snapshot, same
+rule as `acceptedSnapshot`.
+
+## The classification moment
+
+A delta is detected, but the app never decides what it means — same
+control-is-the-judgement rule as the auto-on flag and sundries. *The app notices; Nicky
+decides.*
+
+**Where:** on Save of a room/exterior item/kitchen/fitted unit, when the job is
+accepted+, the carrier is not flagged, it has a baseline, and `deltaRaw > £5`. That is
+the moment the person who was there knows which it is. A sheet
+(`openScheduleSheet()`, the existing pattern), not a `confirm()` — three outcomes,
+not two:
+
+> **Lounge is now £48.20 more than the agreed quote.**
+> Radiators 0 → 1.5m².
+> *[Extra work — bill it]  [Correction to the quote]  [Decide later]*
+
+- **Extra work** → `variationDelta = true`, `variationStatus = 'pending'`. The room
+  stays original scope **at its baseline**; the delta becomes a variation line named
+  `"<Room> — extra work"`, and rides the whole existing sign-off / approval /
+  invoice machinery from there.
+- **Correction** → re-stamp `variationBaseline` from the current carrier, stamp
+  `variationBaselineCorrectedAt`. Nothing is billed. The timestamp exists so a
+  correction is a recorded decision rather than an absence of one.
+- **Decide later** → nothing is written; the delta stays **unclassified** and nags (below).
+
+**The £5 floor** is on the *interrupting sheet only*, never on detection. A £0.40 delta
+must not throw a sheet on a phone on site, and must not be silently absorbed either —
+silently absorbing money is the whole bug. Below the floor it goes straight to the nag
+list.
+
+### Unclassified deltas nag
+
+Any carrier with a non-zero unclassified delta gets:
+
+- a **"+£X unclassified"** row on the Variations card (On Site), tapping through to the
+  same sheet;
+- a plain count on Summary beside the variations line;
+- counted in `variationPendingCount` so the Jobs-list chip renders outlined — an
+  unclassified extra is as unfinished as an unsigned one.
+
+An unclassified delta is **billed nowhere and excluded nowhere**: original scope reads
+the baseline (so the agreed figure is never quietly inflated), and the variations
+subtotal does not count it (nothing has been agreed to bill). It shows as a question,
+which is what it is.
+
+### Negative deltas are out of scope for v1
+
+Scope that *shrank* (the client dropped a ceiling) is a credit, not a variation, and
+nothing in the app takes a negative variation today —
+`confirmAddFreeVariation()` rejects `value <= 0`, and `buildClientVariationLines()`
+drops anything not `> 0.005`. A negative delta therefore offers **Correction** or
+**Decide later** only, and the sheet says plainly that credits are recorded by amending
+the quote. Pretending to price a credit through a pipeline that filters negatives out is
+worse than declining to.
+
+## Totalling — every consumer, listed
+
+Part 1's gotcha stands and is the risk area again: *"Grep every consumer of the room
+list; the duplicate-function history says don't trust memory of where they all are."*
+One rule governs all of them:
+
+> **A carrier with a classified delta prices at its BASELINE everywhere original scope
+> is summed, and its delta prices separately as a variation.**
+
+| Consumer | Change |
+| --- | --- |
+| `computeVariationsView()` | Emit a delta line per classified carrier. Feeds `varLabourAll`/`varTimeAll`/`varSprayAll` always, and `varLabour`/`varTime`/`varSpray` only when not declined — the **same two-accumulator rule** Part 1's v2.47.0 fix established, for the same reason. |
+| Summary `tcOrig`/`ttOrig`/`sprayOrig` | Already `tcS − varLabourAll`; correct unchanged, because the delta now rides `varLabourAll`. Verify, don't assume. |
+| `createXeroQuote()` | Filters on `isVariation`, so a delta room currently goes out at its **live** total. Must price non-flagged carriers at baseline. |
+| `buildAcceptedQuoteSnapshot()` / `buildClientQuoteModel()` | Same: original-scope lines are baseline-priced. (On a frozen job these are read from the snapshot anyway; this matters for jobs with no snapshot, and for the amend re-capture.) |
+| Final invoice (`variations[]`) | One `Variation: <Room> — extra work` line per classified delta, same `varMk`, same declined-starts-dropped rule. |
+| In-app Quote ⤴ (`openClientQuote`) | Delta lines join the "Variations — extras beyond the original quote" card. |
+| `buildClientVariationLines()` / `job_variations` | New `source_kind` values: **`roomdelta`**, `extdelta`, `kitchendelta`, `fittedunitdelta`. `source_kind` is a free VARCHAR so no migration — but the kinds must be distinct from `room`/`ext`/… or the `(job_id, source_kind, source_id)` unique index would collide a delta with a whole-item variation on the same carrier. `findVariationEntry()` and `adoptClientVariationAnswers()` must learn them. |
+| `buildVariationQuoteLines()` (Xero variation quote) | Rides the above; verify pending-scoping still holds. |
+| `variationCount` / `variationPendingCount` | Count delta lines; unclassified deltas count as pending. |
+| Home / Exterior row chips | A classified delta room gets a distinct **`+ EXTRA`** chip, not `VARIATION` — the room itself is not a variation and must not read as one. |
+| `quoteLineDrift()` / the drift card | A classified delta is no longer unexplained drift. Exclude it from the "which lines moved" list and say so instead: *"Lounge — £48.20 of this is a variation, see On Site."* |
+| Calibration footnote | Include delta lines in "includes N variations". |
+| Materials / colours / tins | **Unchanged — stay blind to the flag**, per Part 1. The paint for a delta is bought and billed as an actual like all materials. Note the consequence: a *declined* delta's paint still lands in the materials list, exactly as a declined variation room's does today. Accepted, not fixed here. |
+
+## Gotchas
+
+- **`calcRoom()` mutates its argument.** It calls `migrateWPFields(r)` and
+  `migrateDoorFields(r)` on entry, which write normalised fields back onto the object
+  passed in. Pricing the baseline must therefore run over a **throwaway deep copy**, or
+  every render quietly rewrites the stored baseline it is supposed to be comparing
+  against. The migrations are idempotent so the *values* would survive, but a baseline
+  that the act of reading it can edit is not a baseline. `calcExtItem()` and
+  `calcFittedUnit()` need the same check before they are trusted here.
+
+- **The delta is live, the sign-off is not.** Approving a £48.20 delta and then editing
+  the room again changes what was approved. Treat it as the published-price rule already
+  does: a delta whose priced amount moves after approval re-publishes as pending, and
+  the Variations card says the figure changed since sign-off. (The existing `WHERE
+  job_variations.status = 'pending'` clause on the publish upsert already refuses to
+  overwrite an answered line — so this needs an explicit check, not silence.)
+- **A room can gain scope AND the rates can move.** The two-calc delta handles this
+  correctly by construction, but the drift card and the delta will both have something
+  to say about the same room. They must not each claim the whole difference.
+- **Fitted units and the kitchen benefit most.** The kitchen is one persistent per-job
+  form with no "added while accepted" moment at all, which is why its flag is manual
+  (Part 1, deviation 1). A baseline gives it the moment it never had: adding six doors
+  to an accepted kitchen becomes a priced, signed-off extra instead of a manual toggle
+  on the whole thing.
+- **Xero-imported jobs.** `variationDefaultsOn()` is OFF there because the retro-measure
+  *is* the original scope. Baselines must therefore be stamped **after** the
+  retro-measure, not at import — a job imported already-accepted and roomless has
+  nothing to baseline, and stamping empty would make the entire measure-out one enormous
+  delta. Stamp lazily on first open **only when the job has measured scope**, and treat
+  a roomless imported job as having no baselines until it does.
+
+## Build order
+
+1. Baseline stamp + the two-calc delta (`variationDeltaOf(carrier)`), no UI. Verifiable
+   against a job by console alone.
+2. Classification sheet on Save + the three outcomes.
+3. `computeVariationsView()` delta lines → Summary/On Site money, chips, counts.
+4. Every other consumer in the table above, in one pass, with the grep the gotcha asks
+   for.
+5. Publish/approval kinds + the re-publish-on-change rule.

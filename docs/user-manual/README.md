@@ -441,17 +441,29 @@ Almost anything you do to the materials list — recalculating, deleting a line,
 
 Everything in this app is calculated from your current Rates and Settings — right up until a client says yes. The moment a quote is **Accepted**, the app takes one snapshot of every figure — every room's price, the materials, the totals — and from then on the client-facing views read that frozen record, not a fresh recalculation. So nudging a coverage rate or a day rate next month can't silently move the price on a job someone already agreed to.
 
-Summary still shows the live calculation underneath, because that is how you price an amendment and how you spot that your rates have moved since. A single rule marks where one ends and the other begins — **"Working figures — today's rates. Everything below this line is the live calculation, not what the client agreed."** Everything above it (the accepted-quote card, the total, the Labour figure, the deposit) is the agreed record; the **Room Breakdown** and **Materials** below it are today's maths on the same job — the breakdown because it is where a variation added after acceptance shows up, and where a room's days and per-surface detail live, and the materials list because it is the shopping list and you buy at today's prices. The **Cost Summary** card doesn't appear on an accepted job at all: it is the pre-markup working of a quote that has been superseded, and sitting under the accepted total it only ever read as that total's breakdown.
+Because of that, an accepted job's Summary shows **one set of money**: the agreed one. The total at the top, then the **Accepted quote — Revision N** card underneath it with every line the client agreed, the materials, the deposit and balance **as agreed**, and the two things you can do to it — **Amend** and **History**.
 
-![The line between the agreed figures and the live working on an accepted job](images/07c-accepted-working-figures.png)
+![An accepted job's Summary — one set of figures, the agreed ones](images/07c-accepted-working-figures.png)
 
-If the live figure has moved away from the agreed one, the strap-line under the total says so — *"Same job priced today: £X — £Y more, broken down below"* — and a **Where the £Y difference is** card sits directly underneath telling you exactly where it went: labour agreed → today, materials agreed → today, the £5 rounding on its own line, and then **which lines moved** — room by room, biggest mover first, with anything added since acceptance marked as such. Underneath that it says whether the Rates page had anything to do with it. Only the settings that actually price a job are checked (the rates, the coverage table, the kitchen rates, the product choices), so exporting a backup or changing a payment plan never reads as a rate change. It also checks **the app's own version**: the rates are only half of what prices a job, and an update that changes how a room is costed will move a frozen quote's live figure with nothing on the job touched. Where the build has changed since you accepted, the card names both versions, so an unexplained few pounds has an explanation instead of looking like the app inventing money. None of it changes the agreed figures; **Amend** is still the only thing that does.
+Below that card is the working side of the job: the **Room Breakdown** (where a room's days and per-surface detail live), the **Materials** shopping list, and the colours. Those are today's maths on the same job — you buy paint at today's prices — and a line above them says so.
 
-![Where the difference is — the live figure attributed against the accepted one](images/07d-quote-drift.png)
+**What's no longer there, and why.** Summary used to print today's price of the job beside the agreed one — *"Same job priced today: £X"* — with a rule across the screen marking where the agreed figures stopped, and the pricing controls greyed out with a strip explaining why. All of that has gone. Showing the live figure was how you *detected* a quote silently re-pricing itself, back before the snapshot existed to stop it happening; now that the agreed figures physically can't move, a second total on the same screen was just something to mistake for the first. Today's price is still worth seeing at the one moment it matters — when you're about to re-price the job — and that's where it now lives.
 
-For the same reason the **Commercial job**, **Standalone job** and **Markup / Discount** controls stop taking taps once a job is accepted — they can't move a price that is already agreed. A strip above them says so, with **Unlock for amending** if you do want to change one: unlocking affects the working figures and whatever you freeze as the next revision, never the total already agreed.
+### Amending an accepted quote
 
-If the job genuinely needs to change after acceptance — a variation, a correction — Summary shows the current **Accepted quote — Revision N** and an **Amend → revision N+1** link, which re-runs the calculation once and freezes a new snapshot. The old revision stays on record; nothing is overwritten. Once there is more than one, a **History (N revisions)** link appears next to it: tap it for the list of every revision with its date, its total and what each amendment added or took off.
+If the job genuinely needs to change after acceptance, **Amend → revision N+1** on the accepted-quote card opens a sheet showing what the change would mean *before* you commit to it:
+
+![The amend sheet — what the job costs now, and where the difference came from](images/07d-quote-drift.png)
+
+At the top: the revision you agreed, and the same job priced now, with the difference between them. Under it, **Where the £X difference is** — labour agreed → today, materials agreed → today, the £5 rounding on its own line, and then **which lines moved**, room by room, biggest mover first.
+
+Underneath that it says whether the Rates page had anything to do with it. Only the settings that actually price a job are checked (the rates, the coverage table, the kitchen rates, the product choices), so exporting a backup or changing a payment plan never reads as a rate change. It also checks **the app's own version**: the rates are only half of what prices a job, and an update that changes how a room is costed will move the figure with nothing on the job touched. Where the build has changed since you accepted, it names both versions — so an unexplained few pounds has an explanation instead of looking like the app inventing money.
+
+The **Commercial job**, **Standalone job** and **Markup / Discount** controls are in this sheet too, because this is the one place they still do anything on an accepted job: they price the revision you're about to write, and the two figures at the top move as you change them. (On a job still being quoted they're where they always were, on Summary.)
+
+Last, a box to say **what changed**, which goes on the revision and is what History shows you later. Nothing is written until you tap **Amend**. The old revision stays on record; nothing is overwritten. Once there's more than one, **History (N revisions)** lists every revision with its date, its total and what each amendment added or took off.
+
+If the amend would absorb extras you'd already flagged as variations, the sheet says so before you commit — see [extra work in a room you already measured](#extra-work-in-a-room-you-already-measured).
 
 ### Client-facing quote view
 
@@ -662,7 +674,7 @@ Once a job is accepted, the **🛠 On Site** tab is your day-to-day companion:
 - **Time on Site** — tap **+ Log today (full day)** at the end of each day (or *Log a different day* to back-fill). This builds the true labour record for the job.
 - **Materials** — the quote's materials list becomes a shopping list. Tick items off as you buy them, and correct quantities/prices to what you actually paid — see [Materials & Undo](#materials--undo) for how edits and Recalculate interact, and Undo if something goes wrong. Any row here can also go on your **Shopping List** — see below.
 - **Add material the estimate missed** — extra sundries or a forgotten tin: search the product, set the price, done.
-- **Variations** — the client asks for "just one more room" mid-job? Add the room (or exterior item, fitted unit) on Measure and flick its **Variation** toggle. It's priced with the same engine but kept separate from the accepted quote, and appears in its own Variations card here. Each variation carries a status — tap **✓ Approved by client** to record their yes (with an optional note; the date is stamped automatically), or mark one Declined to drop it from the totals and the final invoice while keeping the record. Anything still Pending gets called out before the final invoice will let it through.
+- **Variations** — the client asks for "just one more room" mid-job? Add the room (or exterior item, fitted unit) on Measure and flick its **Variation** toggle. It's priced with the same engine but kept separate from the accepted quote, and appears in its own Variations card here. Each variation carries a status — tap **✓ Approved by client** to record their yes (with an optional note; the date is stamped automatically), or mark one Declined to drop it from the totals and the final invoice while keeping the record. Anything still Pending gets called out before the final invoice will let it through. For extra work added *inside* a room you already measured, see [below](#extra-work-in-a-room-you-already-measured).
 - **Snags** — the punch list for the job, above everything else once there's something on it. See below.
 - **Invoice ›** (top right) shows the materials list formatted for invoicing, with a **Copy** button.
 
@@ -769,6 +781,35 @@ place a given room's colour is set.
 #### Snags and signal
 
 Snags sync exactly like the rest of On Site — tick things off in a house with no bars and every change queues on the phone and goes up when you're back in signal, same as your materials and your logged days. The sync dot in the corner counts them with everything else.
+
+### Extra work in a room you already measured
+
+The bullet above covers the client asking for *another room*. This covers the commoner one: **"while you're here, can you do the radiators in these two?"** — extra work inside rooms you measured and quoted months ago.
+
+Just add it where it belongs. Open the room on **Measure**, put the radiators in, and save it as you normally would. The app does the noticing:
+
+![The app asks whether a change is extra work or a correction](images/07e-scope-changed.png)
+
+It knows because, at the moment the quote was accepted, it froze a copy of **what every room was measured as** — not just what the job was worth. So when you save a room that's grown past that, it can price exactly the difference, name the field that changed, and ask the only question it can't answer for you:
+
+- **Extra work — bill it.** The difference becomes a variation line, *Lounge — extra work*, priced through the same engine as everything else and sitting on the Variations card with the rest. Pending until the client says yes, exactly like any other variation.
+- **A correction to the quote.** Nothing is billed — you mismeasured, or forgot a wall, and the room's agreed scope becomes what it is now. Recorded with a date so it's a decision, not a gap.
+- **Decide later.** It stays on the Variations card as an open question, billed nowhere until you answer it.
+
+![An extra priced from the change, on the Variations card](images/24b-extra-work-variation.png)
+
+Whichever you pick, **the agreed quote does not move**. The room still bills at what was agreed; the extra bills separately, or not at all. Three things worth knowing:
+
+- **Small changes don't interrupt you.** Under £5 and it goes straight onto the Variations card as an open question rather than throwing a sheet at you on site — but it's never silently swallowed, because that's the money this exists to stop losing.
+- **A rate change is never mistaken for extra work.** The difference is worked out by pricing the old scope and the new scope *at the same rates*, so putting your day rate up next month doesn't make every room on every accepted job look like it grew.
+- **The kitchen and fitted units ask when you leave the screen** rather than on save, because those forms save as you type.
+- **Less work than quoted?** It'll tell you, but a reduction is a credit, not a variation — so the only real answer is **A correction**, and a genuine credit is agreed by amending the quote.
+
+On Measure, a room carrying an extra is chipped **+ EXTRA**; one with a change nobody's ruled on yet is chipped **SCOPE ?**.
+
+**If you edit that room again afterwards** — a fourth radiator, say — the extra re-prices itself. If the client had already approved it, the card says so: *"Changed since sign-off — £22.63 agreed, £29.47 now."* It doesn't quietly throw away their answer; it tells you the figure moved so you can go back to them or leave it.
+
+**Jobs accepted before this existed** get their frozen scope the first time you open them, taken from the job as it stands that day — so anything already typed in is treated as agreed, and it's changes from then on that get tracked.
 
 ### Let the client approve extras themselves
 
@@ -926,6 +967,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.70.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.71.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
