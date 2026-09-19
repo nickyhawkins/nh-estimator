@@ -17098,6 +17098,18 @@ function commitColour(number, label, brand, code) {
 var colourDropdownMatches = [];
 var colourDropdownFor = null;
 
+// How well one library entry answers the typed query: a name that STARTS with
+// it beats a brand that starts with it, which beats any mid-string hit. Lower
+// is better; the exact figures don't matter, only their order.
+function colourMatchRank(c, qLower) {
+  var name = c.name.toLowerCase();
+  if (name.indexOf(qLower) === 0) return 0;
+  if ((c.brand || '').toLowerCase().indexOf(qLower) === 0) return 1;
+  if ((c.code || '').toLowerCase().indexOf(qLower) === 0) return 2;
+  if (name.indexOf(qLower) !== -1) return 3;
+  return 4;
+}
+
 function onColourLabelInput(slot, value) {
   colourDropdownFor = slot;
   var q = String(value == null ? '' : value).trim();
@@ -17109,8 +17121,19 @@ function onColourLabelInput(slot, value) {
     // Matches on code too, not just name -- RAL Classic stores its number as
     // the name (e.g. "RAL 7016") and the descriptive name (e.g. "Anthracite
     // grey") as the code, so search needs both sides to stay findable either way.
+    // BRAND too, since v2.69.1: a brand whose colours are numbered rather than
+    // named (Lick's "Grey 04", RAL's "RAL 7016") is one you look up BY BRAND --
+    // typing "lick" found nothing at all, which made 136 entries invisible to
+    // anyone who didn't already know the exact hue and number.
     return c.name.toLowerCase().indexOf(qLower) !== -1
-      || (c.code && c.code.toLowerCase().indexOf(qLower) !== -1);
+      || (c.code && c.code.toLowerCase().indexOf(qLower) !== -1)
+      || (c.brand && c.brand.toLowerCase().indexOf(qLower) !== -1);
+  }).sort(function(a, b){
+    // Rank what the query STARTS a field with above what merely contains it,
+    // so "grey 0" leads with Lick's Grey 01-09 rather than eight unrelated
+    // colours that happen to have "grey 0" somewhere in a description. Only 8
+    // rows are shown, so without this the good match can fall off the list.
+    return colourMatchRank(a, qLower) - colourMatchRank(b, qLower);
   }).slice(0, 8);
   var html = colourDropdownMatches.map(function(c, i){
     return '<div style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:14px" onmousedown="event.preventDefault()" onclick="selectLibraryColour(\''+slot+'\','+i+')">'
