@@ -319,6 +319,19 @@ the test):
   kitchen's quote row label — so a classified kitchen extra still showed as the
   biggest unexplained mover directly under the warning saying it was absorbed.
   Keyed on `sourceKey` now, with the label as a fallback for older snapshots.
+- **A DECLINED extra was absorbed by an amend and billed.** `stampVariationBaselines()`
+  re-baselined every carrier, and the extra is still measured on the job (the
+  radiators are typed into the room), so amending folded work the client had
+  refused into the new revision's original scope — and the "this absorbs N
+  extras" warning never mentioned it, because that warning filters declined
+  lines out. A declined extra now survives an amend untouched, and
+  `revisionScopeCarrier()` keeps it out of the revision the snapshot writes.
+  This is the one place a revision does NOT price the current scope, and why
+  it is a separate function from `originalScopeCarrier()`.
+- The variations card's `varSpray`/`appSpray` took the raw spray delta while
+  `variationDeltaAmount()`, `buildClientVariationLines()` and the final invoice
+  all clamp it at zero — so a negative spray delta made the card's subtotal
+  differ from what was published and billed. Clamped to match.
 - `variationBaselinesAt`/`variationBaselinesLate` were missing from
   `persistJobData()`'s field list, so they never reached the server and the
   "already baselined" guard failed on every fresh load. `variationBaselinesLate`

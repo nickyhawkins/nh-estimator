@@ -6581,10 +6581,20 @@ function buildAcceptedQuoteSnapshot(job) {
   // Scope rules mirror createXeroQuote()/openClientQuote() exactly: the quote
   // is the ORIGINAL scope, variations settle on the final invoice. Anything
   // flagged isVariation is out.
-  var quoteRooms = rooms.filter(function(r) { return !r.isVariation; });
-  var quoteExtItems = extItems.filter(function(it) { return !it.isVariation; });
-  var quoteKitchen = (job.kitchen && !job.kitchen.isVariation) ? job.kitchen : null;
-  var quoteUnits = fittedUnitList(job).filter(function(f) { return !f.isVariation; });
+  //
+  // revisionScopeCarrier, NOT originalScopeCarrier: this function means "this
+  // job priced now", so a classified extra is deliberately priced IN -- taking
+  // extra work on is exactly what amending is for, and the amend sheet says how
+  // much it is absorbing first. The one exception is an extra the client has
+  // DECLINED: still measured on the job, but already refused, so a revision
+  // that billed it would put work on the quote they said no to.
+  var quoteRooms = rooms.filter(function(r) { return !r.isVariation; })
+    .map(function(r) { return revisionScopeCarrier('room', r); });
+  var quoteExtItems = extItems.filter(function(it) { return !it.isVariation; })
+    .map(function(it) { return revisionScopeCarrier('ext', it); });
+  var quoteKitchen = (job.kitchen && !job.kitchen.isVariation) ? revisionScopeCarrier('kitchen', job.kitchen) : null;
+  var quoteUnits = fittedUnitList(job).filter(function(f) { return !f.isVariation; })
+    .map(function(f) { return revisionScopeCarrier('fittedunit', f); });
   var kitchenCalc = calcKitchen(quoteKitchen);
   var fuAgg = calcFittedUnitsAgg(quoteUnits);
   var customItems = jobCustomItems(job);
@@ -8716,6 +8726,14 @@ function stampVariationBaselines(job, opts) {
   var n = 0, touchedRooms = false, touchedExt = false;
   eachVariationCarrier(job, function(kind, obj) {
     if (obj.isVariation) return;
+    // A DECLINED extra is work the client said no to. It is still measured on
+    // the job -- the radiators are typed into the room, which is why the delta
+    // exists at all -- but re-baselining would fold it into the new revision's
+    // original scope and bill it. So a declined extra survives an amend exactly
+    // as it was: still flagged, still declined, still excluded. This is also
+    // what makes classifiedDeltaSummary()'s "this absorbs N extras" warning
+    // truthful, since it already filters declined lines out.
+    if (obj.variationDelta && variationStatusOf(obj) === 'declined') return;
     var copy = variationBaselineCopy(obj);
     if (!copy) return;
     obj.variationBaseline = { at: at, rev: snap ? snap.version : null, obj: copy };
@@ -8811,6 +8829,20 @@ function classifiedDeltaSummary(job) {
 // comparison has to read. Applied in the two places that mean "the original
 // quote, as agreed": the Xero re-send and the client-facing quote page.
 function originalScopeCarrier(kind, obj) {
+  return carrierAtBaseline(kind, obj);
+}
+
+// The version a REVISION prices. buildAcceptedQuoteSnapshot() means "this job
+// priced now", so it deliberately prices classified extras in -- amending is
+// how you take extra work on. The exception is an extra the client has
+// DECLINED: it is still measured on the job, but they have already refused it,
+// and a revision that billed it would put work on the quote they said no to.
+function revisionScopeCarrier(kind, obj) {
+  if (!obj || !obj.variationDelta || variationStatusOf(obj) !== 'declined') return obj;
+  return carrierAtBaseline(kind, obj);
+}
+
+function carrierAtBaseline(kind, obj) {
   if (!obj || obj.isVariation || !obj.variationDelta) return obj;
   var base = obj.variationBaseline && obj.variationBaseline.obj;
   if (!base) return obj;
@@ -9012,8 +9044,12 @@ function computeVariationsView(roomCalcs, extCalcs, kitchenCalc) {
       return;
     }
     var st = addLine(l.kind + 'delta', l.id, l.name + ' — extra work', l.raw, l.obj);
-    if (st !== 'declined') { varLabour += l.raw; varTime += l.time; varSpray += l.spray; }
-    if (st === 'approved') { appLabour += l.raw; appSpray += l.spray; }
+    // Clamped, exactly as variationDeltaAmount(), buildClientVariationLines()
+    // and the final invoice clamp it. Unclamped, a negative spray delta made
+    // this card's subtotal differ from the figure published to the client and
+    // billed on the invoice.
+    if (st !== 'declined') { varLabour += l.raw; varTime += l.time; varSpray += Math.max(0, l.spray); }
+    if (st === 'approved') { appLabour += l.raw; appSpray += Math.max(0, l.spray); }
   });
 
   // Free lines: 'hours' prices from the raw hourly rate (day rate /

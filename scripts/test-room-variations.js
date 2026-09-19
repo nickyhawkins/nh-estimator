@@ -66,7 +66,8 @@ async function seed(db) {
   await db.query(
     `INSERT INTO rooms (id, job_id, name, data) VALUES
        ($1||'-r1',$1,'Lounge', '{"name":"Lounge","emoji":"\u{1F6CB}","l":5,"w":4,"h":2.4,"wc":2,"cc":2,"xc":2,"skirtM":18,"doorQty":1,"frameQty":1,"prepPct":10,"colourNumber":1}'::jsonb),
-       ($1||'-r2',$1,'Hallway','{"name":"Hallway","emoji":"\u{1F6AA}","l":6,"w":2,"h":2.4,"wc":2,"cc":2,"xc":2,"skirtM":16,"doorQty":3,"frameQty":3,"prepPct":10,"colourNumber":1}'::jsonb)`,
+       ($1||'-r2',$1,'Hallway','{"name":"Hallway","emoji":"\u{1F6AA}","l":6,"w":2,"h":2.4,"wc":2,"cc":2,"xc":2,"skirtM":16,"doorQty":3,"frameQty":3,"prepPct":10,"colourNumber":1}'::jsonb),
+       ($1||'-r3',$1,'Master Bedroom','{"name":"Master Bedroom","emoji":"\u{1F6CF}","l":4.2,"w":3.6,"h":2.4,"wc":2,"cc":2,"xc":2,"skirtM":15,"doorQty":1,"frameQty":1,"prepPct":10,"colourNumber":1}'::jsonb)`,
     [JOB_ID]);
   await db.query(
     `INSERT INTO materials_snapshot (id, job_id, data) VALUES
@@ -87,7 +88,7 @@ async function seed(db) {
     await page.goto(BASE + '/', { waitUntil: 'networkidle' });
     await page.waitForFunction(() => typeof switchJob === 'function' && window.jobs && window.jobs.length, null, { timeout: 30000 });
     await page.evaluate(async (id) => { await switchJob(id); }, JOB_ID);
-    await page.waitForFunction((id) => activeJobId === id && window.rooms.length === 2, JOB_ID, { timeout: 20000 });
+    await page.waitForFunction((id) => activeJobId === id && window.rooms.length === 3, JOB_ID, { timeout: 20000 });
 
     // ── Pre-acceptance: the concept does not exist yet ─────────────────────
     const before = await page.evaluate(() => ({
@@ -106,7 +107,7 @@ async function seed(db) {
       jobStamp: !!activeJob().variationBaselinesAt,
       nested: rooms.some(r => !!(r.variationBaseline.obj && r.variationBaseline.obj.variationBaseline))
     }));
-    check('every room is baselined at acceptance', stamped.rooms.length === 2 && stamped.jobStamp);
+    check('every room is baselined at acceptance', stamped.rooms.length === 3 && stamped.jobStamp);
     check('a baseline never nests a baseline inside itself', stamped.nested === false);
 
     // ── The live case: radiators into an already-measured room ─────────────
@@ -333,6 +334,41 @@ async function seed(db) {
     check('and reaches the database under that kind',
       rows.rows.some(r => /delta$/.test(r.source_kind)),
       rows.rows.map(r => r.source_kind).join(',') || 'no rows');
+
+    // ── A DECLINED extra survives an amend rather than being absorbed ─────
+    // Amending re-agrees the current scope, and the extra is still measured on
+    // the job -- the radiators are typed into the room. Folding a declined one
+    // in would bill work the client said no to, and the absorb warning would
+    // never mention it, because that warning filters declined lines out.
+    const declinedAmend = await page.evaluate(async () => {
+      rooms[2].rads = 2.5;
+      classifyVariationDelta('room', rooms[2].id, 'extra');
+      rooms[2].variationStatus = 'declined';
+      const baseBefore = JSON.stringify(rooms[2].variationBaseline.obj.rads || 0);
+      const snapNow = buildAcceptedQuoteSnapshot(activeJob());
+      const masterLine = (snapNow.lines.work || []).find(l => /Master Bedroom/.test(l.description));
+      const warn = classifiedDeltaSummary(activeJob());
+      amendAcceptedQuote();
+      document.getElementById('amend-note').value = 'unrelated change';
+      confirmAmendAcceptedQuote();
+      return { baseBefore, warnNames: warn.names,
+               masterAmount: masterLine ? masterLine.lineTotal : null };
+    });
+    await page.waitForTimeout(1500);
+    const afterDeclinedAmend = await page.evaluate(() => ({
+      baseAfter: JSON.stringify(rooms[2].variationBaseline.obj.rads || 0),
+      stillDeclined: variationStatusOf(rooms[2]) === 'declined' && rooms[2].variationDelta === true,
+      notBilled: !buildFinalInvoiceModel().variations.some(v => /Master Bedroom/.test(v.desc) && !v.dropped)
+    }));
+    // Other extras on this job ARE being absorbed, legitimately -- what must
+    // not appear in that list is the one the client refused.
+    check('a declined extra is not counted in what an amend absorbs',
+      !declinedAmend.warnNames.includes('Master Bedroom'), declinedAmend.warnNames.join(',') || 'none');
+    check('a declined extra is not priced into the new revision',
+      declinedAmend.baseBefore === '0' && afterDeclinedAmend.baseAfter === '0');
+    check('a declined extra survives the amend, still declined',
+      afterDeclinedAmend.stillDeclined === true);
+    check('and is still billed nowhere', afterDeclinedAmend.notBilled === true);
 
     // ── Un-accepting withdraws the acceptance, not the record ─────────────
     await page.evaluate(() => { window.confirm = () => true; setJobStatusById(activeJobId, null); });
