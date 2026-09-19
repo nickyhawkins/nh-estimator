@@ -4909,10 +4909,13 @@ async function createXeroQuote(forceNew) {
     // the record of what was agreed at acceptance, and a re-send must not
     // silently absorb mid-job extras — they reach Xero on the final
     // invoice. Everything below reads these filtered lists only.
-    var quoteRooms = rooms.filter(function(r) { return !r.isVariation; });
-    var quoteExtItems = extItems.filter(function(it) { return !it.isVariation; });
-    var quoteKitchen = (activeJob() && activeJob().kitchen && !activeJob().kitchen.isVariation) ? activeJob().kitchen : null;
-    var quoteFittedUnits = fittedUnitList(activeJob()).filter(function(f) { return !f.isVariation; });
+    var quoteRooms = rooms.filter(function(r) { return !r.isVariation; })
+      .map(function(r) { return originalScopeCarrier('room', r); });
+    var quoteExtItems = extItems.filter(function(it) { return !it.isVariation; })
+      .map(function(it) { return originalScopeCarrier('ext', it); });
+    var quoteKitchen = (activeJob() && activeJob().kitchen && !activeJob().kitchen.isVariation) ? originalScopeCarrier('kitchen', activeJob().kitchen) : null;
+    var quoteFittedUnits = fittedUnitList(activeJob()).filter(function(f) { return !f.isVariation; })
+      .map(function(f) { return originalScopeCarrier('fittedunit', f); });
 
     var tcS = 0, ttS = 0, sprayLabourS = 0;
     var roomData = quoteRooms.map(function(r) {
@@ -7362,7 +7365,17 @@ function quoteDriftCardHtml(job, liveSnap) {
       if (r.was == null) return Math.abs(r.now || 0);   // added: its whole amount
       return Math.abs(r.now - r.was);
     };
-    var all = drift.work.concat(drift.materials).sort(function(a, b) { return moved(b) - moved(a); });
+    // A classified extra is not unexplained drift: it has been ruled on and it
+    // is priced as a variation. Naming it here as a line that "moved" would
+    // invite fixing something that is already handled -- and, on the amend
+    // sheet, double-count it against the absorb warning directly above.
+    var explained = {};
+    variationDeltaScan(job).forEach(function(l) {
+      if (l.classified) explained[l.name] = true;
+    });
+    var all = drift.work.concat(drift.materials)
+      .filter(function(r) { return !explained[r.label]; })
+      .sort(function(a, b) { return moved(b) - moved(a); });
     if (all.length) {
       lineRows = '<div class="card-header" style="border-top:1px solid var(--border)">Which lines moved</div>'
         + all.slice(0, 8).map(function(r) {
@@ -8720,6 +8733,33 @@ function clearVariationBaselines(job) {
   persistJobData(job);
 }
 
+// The version of a carrier that ORIGINAL SCOPE prices. A carrier whose growth
+// above its baseline has been classified as extra work is original scope AT ITS
+// BASELINE: the extra prices separately as a variation line, so pricing the
+// live object here too would bill the same work twice -- once inside the quote
+// it was never part of, once again as the extra it is.
+//
+// Deliberately NOT applied in buildAcceptedQuoteSnapshot(): that function means
+// "this job priced now", which is what an amend has to write (revision N+1
+// re-agrees the current scope and absorbs the extras) and what the drift
+// comparison has to read. Applied in the two places that mean "the original
+// quote, as agreed": the Xero re-send and the client-facing quote page.
+function originalScopeCarrier(kind, obj) {
+  if (!obj || obj.isVariation || !obj.variationDelta) return obj;
+  var base = obj.variationBaseline && obj.variationBaseline.obj;
+  if (!base) return obj;
+  var out;
+  try { out = JSON.parse(JSON.stringify(base)); } catch (e) { return obj; }
+  // The line is about the same thing it always was, so it keeps the carrier's
+  // identity and its CURRENT name -- a room renamed since acceptance should
+  // read under the name it has now, not the one frozen in the baseline.
+  out.id = obj.id;
+  if (obj.name !== undefined) out.name = obj.name;
+  if (obj.label !== undefined) out.label = obj.label;
+  if (obj.emoji !== undefined) out.emoji = obj.emoji;
+  return out;
+}
+
 // The one multiplier every variation figure is marked up by. Percent markup
 // and commercial% stack; a FIXED-£ markup never touches a variation, because
 // that amount was the adjustment agreed on the original quote and spreading it
@@ -8779,6 +8819,24 @@ function stampVariationBaselinesIfOwed(job) {
 // Kitchen rows, Summary breakdown): outline while the sign-off is Pending,
 // filled once Approved, struck-out outline if Declined — approval state at
 // a glance without opening the Variations card.
+// The chip for a carrier that is NOT itself a variation but has grown past the
+// scope that was agreed (VARIATIONS_SPEC.md Part 2). Deliberately different
+// wording from VARIATION: the room is not a variation, part of it is, and a
+// row reading VARIATION would say the whole Lounge is extra work.
+function deltaChipHtml(kind, obj) {
+  if (!obj || obj.isVariation) return '';
+  var d = variationDeltaOf(kind, obj);
+  if (!d) return '';
+  var base = 'font-size:10px;font-weight:700;letter-spacing:.03em;border-radius:8px;padding:1px 6px;white-space:nowrap';
+  if (!d.classified) {
+    return ' <span style="'+base+';border:1px solid var(--warn,#f39c12);color:var(--warn,#f39c12)" title="Changed since the quote — extra work or a correction?">SCOPE ?</span>';
+  }
+  var st = variationStatusOf(obj);
+  if (st === 'approved') return ' <span style="'+base+';background:var(--accent);color:#fff" title="Extra work — approved by client">+ EXTRA ✓</span>';
+  if (st === 'declined') return ' <span style="'+base+';border:1px solid var(--danger);color:var(--danger);text-decoration:line-through" title="Extra work — declined by client">+ EXTRA ✗</span>';
+  return ' <span style="'+base+';border:1px solid var(--accent);color:var(--accent)" title="Extra work — pending client approval">+ EXTRA</span>';
+}
+
 function variationChipHtml(item) {
   var st = variationStatusOf(item);
   var base = 'font-size:10px;font-weight:700;letter-spacing:.03em;border-radius:8px;padding:1px 6px;text-decoration:none;white-space:nowrap';
@@ -16239,9 +16297,17 @@ function buildFinalInvoiceModel() {
   var labour = [];
   // Products for the exterior scope sentences below, resolved once.
   var invTplValues = buildTemplateValues('invoice');
+  // A carrier with a classified delta bills its BASELINE here -- the extra is
+  // assembled separately below, and billing the live figure too would put the
+  // same work on the invoice twice. The re-price only runs for the handful of
+  // carriers that actually carry a classified extra.
+  var origCalc = function(kind, obj, live) {
+    if (!obj || !obj.variationDelta) return live;
+    return carrierCalc(kind, originalScopeCarrier(kind, obj)) || live;
+  };
   rooms.forEach(function(r, i) {
     if (r.isVariation) return;
-    var c = roomCalcs[i];
+    var c = origCalc('room', r, roomCalcs[i]);
     ttOrig += c.time; sprayOrig += c.sprayLabour || 0;
     // scope: this room's own past-tense sentence, for the invoice line it
     // ends up on — the same treatment the quote gives its room lines.
@@ -16253,7 +16319,7 @@ function buildFinalInvoiceModel() {
   });
   extItems.forEach(function(it, i) {
     if (it.isVariation) return;
-    var c = extCalcs[i];
+    var c = origCalc('ext', it, extCalcs[i]);
     ttOrig += c.time; sprayOrig += c.sprayLabour || 0;
     if (c.total > 0.005) {
       rawOrig += c.total;
@@ -16262,13 +16328,15 @@ function buildFinalInvoiceModel() {
     }
   });
   if (job && job.kitchen && !kitchenIsVar && kitchenCalc.total > 0.005) {
-    rawOrig += kitchenCalc.total; ttOrig += kitchenCalc.time;
-    labour.push({ id: 'k', desc: 'Kitchen Cabinet Spraying', raw: kitchenCalc.total });
+    var kc = origCalc('kitchen', job.kitchen, kitchenCalc);
+    rawOrig += kc.total; ttOrig += kc.time;
+    labour.push({ id: 'k', desc: 'Kitchen Cabinet Spraying', raw: kc.total });
   }
   fuInvUnits.forEach(function(e, i) {
     if (e.unit.isVariation || e.calc.total <= 0.005) return;
-    rawOrig += e.calc.total; ttOrig += e.calc.time;
-    labour.push({ id: 'fu' + i, desc: fittedUnitName(e.unit), raw: e.calc.total,
+    var fc = origCalc('fittedunit', e.unit, e.calc);
+    rawOrig += fc.total; ttOrig += fc.time;
+    labour.push({ id: 'fu' + i, desc: fittedUnitName(e.unit), raw: fc.total,
                   scope: buildFuScopeSentence('invoice', [e.unit], invTplValues) });
   });
   var muVal = effectiveMarkup();
@@ -16451,6 +16519,18 @@ function buildFinalInvoiceModel() {
     var fuSt = variationStatusOf(e.unit);
     if (fuSt !== 'declined') varRaw += e.calc.total;
     variations.push({ id: 'vfu' + i, desc: 'Variation: ' + fittedUnitName(e.unit), amount: e.calc.total * varMk, dropped: fuSt === 'declined', signoff: fuSt, note: e.unit.variationApprovalNote || '' });
+  });
+  // Extra work added inside an already-measured carrier (VARIATIONS_SPEC.md
+  // Part 2). The carrier itself billed its baseline above; this is what was
+  // added to it since. Unclassified deltas are deliberately absent -- nobody
+  // has said they are extra work, so they are not billed, and the Variations
+  // card is where that question gets answered.
+  variationDeltaScan(job).forEach(function(l, i) {
+    if (!l.classified || l.raw <= 0.005) return;
+    if (l.status !== 'declined') { varRaw += l.raw; varSpray += Math.max(0, l.spray); }
+    variations.push({ id: 'vd' + i, desc: 'Variation: ' + l.name + ' — extra work',
+                      amount: l.raw * varMk, dropped: l.status === 'declined',
+                      signoff: l.status, note: l.obj.variationApprovalNote || '' });
   });
   var hourlyRate = (settings.dr || 0) / (settings.hpd || 7);
   var freeHoursRaw = 0;
@@ -19961,7 +20041,7 @@ function _renderExteriorInner() {
   cards.innerHTML = extItems.map(function(item, i) {
     var c=calcExtItem(item); total+=c.total;
     var info = '<div class="room-icon">'+item.emoji+'</div>'+
-      '<div class="room-info"><div class="room-name">'+item.label+(item.isVariation?variationChipHtml(item):'')+'</div>'+
+      '<div class="room-info"><div class="room-name">'+item.label+(item.isVariation?variationChipHtml(item):deltaChipHtml('ext', item))+'</div>'+
       '<div class="room-meta">'+fmtD(c.time)+'</div></div>';
     if (measureReorderMode) {
       return '<div class="room-item" style="cursor:default">'+info+
@@ -19998,7 +20078,7 @@ function _renderKitchenInner() {
   list.style.display='block';
   cards.innerHTML = '<div class="room-item" onclick="goScreen(\'kitchen\')">'+
     '<div class="room-icon">🍳</div>'+
-    '<div class="room-info"><div class="room-name">Kitchen'+(k.isVariation?variationChipHtml(k):'')+'</div>'+
+    '<div class="room-info"><div class="room-name">Kitchen'+(k.isVariation?variationChipHtml(k):deltaChipHtml('kitchen', k))+'</div>'+
     '<div class="room-meta">'+fmtD(kc.time)+'</div></div>'+
     '<div class="room-cost">'+fmt(kc.total)+'</div>'+
     '<div style="color:var(--text3);font-size:16px">›</div></div>';
@@ -20026,7 +20106,7 @@ function _renderFittedUnitInner() {
     measureFittedUnitTotal += fc.total;
     measureFittedUnitCount++;
     var info = '<div class="room-icon">📚</div>'+
-      '<div class="room-info"><div class="room-name">'+escapeHtml(fittedUnitName(f))+(f.isVariation?variationChipHtml(f):'')+'</div>'+
+      '<div class="room-info"><div class="room-name">'+escapeHtml(fittedUnitName(f))+(f.isVariation?variationChipHtml(f):deltaChipHtml('fittedunit', f))+'</div>'+
       '<div class="room-meta">'+fmtD(fc.time)+'</div></div>';
     if (measureReorderMode) {
       return '<div class="room-item" style="cursor:default">'+info+
@@ -20694,7 +20774,7 @@ function renderHome() {
   var total=0;
   cards.innerHTML = rooms.map(function(r, i) {
     var c=calcRoom(r); total+=c.total;
-    var info = '<div class="room-info"><div class="room-name">'+r.name+(r.isVariation?variationChipHtml(r):'')+'</div>'+
+    var info = '<div class="room-info"><div class="room-name">'+r.name+(r.isVariation?variationChipHtml(r):deltaChipHtml('room', r))+'</div>'+
       '<div class="room-meta">'+r.l+'×'+r.w+'×'+r.h+'m · '+fmtD(c.time)+'</div></div>';
     var meta = info + '<div class="room-cost">'+fmt(c.total)+'</div>';
     // Reorder mode: the row is a handle, not a link -- no tap through to the
@@ -23936,7 +24016,7 @@ function renderSummary() {
     if((r.doorIronRemove||r.doorIronMask) && doorQtyForExtras>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ironmongery ('+(r.doorIronRemove?'remove &amp; refit':'mask in place')+')</span><span class="breakdown-sub-value">'+fmt(doorQtyForExtras*(r.doorIronRemove ? (settings.ironmongeryRemovePrice!=null?settings.ironmongeryRemovePrice:8) : (settings.ironmongeryMaskPrice!=null?settings.ironmongeryMaskPrice:4))*mk)+'</span></div>';
     return '<div class="room-item room-item-tap" onclick="toggleRoomBd(this.dataset.id)" data-id="'+id+'"  style="border-bottom:none">'+
       '<div class="room-icon">'+r.emoji+'</div>'+
-      '<div class="room-info"><div class="room-name">'+r.name+(r.isVariation?variationChipHtml(r):'')+'</div>'+
+      '<div class="room-info"><div class="room-name">'+r.name+(r.isVariation?variationChipHtml(r):deltaChipHtml('room', r))+'</div>'+
       '<div class="room-meta">'+
       (r.isHSL
         ? 'Walls '+c.wallArea.toFixed(1)+'m² · '+fmtD(c.time)
@@ -24526,7 +24606,7 @@ function renderSummary() {
       if(+item.makingGood>0)sub+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Making Good</span><span class="breakdown-sub-value">'+fmt(+item.makingGood)+'</span></div>';
       return '<div class="room-item room-item-tap" onclick="toggleRoomBd(this.dataset.id)" data-id="'+eid+'" style="border-bottom:none">'+
         '<div class="room-icon">🏡</div>'+
-        '<div class="room-info"><div class="room-name">'+item.label+(item.isVariation?variationChipHtml(item):'')+'</div>'+
+        '<div class="room-info"><div class="room-name">'+item.label+(item.isVariation?variationChipHtml(item):deltaChipHtml('ext', item))+'</div>'+
         '<div class="room-meta">'+fmtD(c.time)+(prepUp>0?' · '+prepLabel:'')+'</div></div>'+
         '<div class="room-cost">'+fmt(c.total*mk)+'</div>'+
         '<div class="room-chevron-icon" id="chev-'+eid+'">›</div>'+
@@ -24573,7 +24653,7 @@ function renderSummary() {
       }).join('');
       return '<div class="room-item room-item-tap" onclick="toggleRoomBd(this.dataset.id)" data-id="fu-bd-'+fi+'" style="border-bottom:none">'+
         '<div class="room-icon">📚</div>'+
-        '<div class="room-info"><div class="room-name">'+escapeHtml(fittedUnitName(e.unit))+(e.unit.isVariation?variationChipHtml(e.unit):'')+'</div>'+
+        '<div class="room-info"><div class="room-name">'+escapeHtml(fittedUnitName(e.unit))+(e.unit.isVariation?variationChipHtml(e.unit):deltaChipHtml('fittedunit', e.unit))+'</div>'+
         '<div class="room-meta">'+fmtD(fc.time)+'</div></div>'+
         '<div class="room-cost">'+fmt(fc.total*mk)+'</div>'+
         '<div class="room-chevron-icon" id="chev-fu-bd-'+fi+'">›</div>'+
@@ -24809,12 +24889,15 @@ function openClientQuote() {
     reportFailure('The frozen figures for this accepted quote couldn\'t be read', new Error('snapshot has no quote model'));
     return;
   }
-  var quoteKitchen = (job && job.kitchen && !job.kitchen.isVariation) ? job.kitchen : null;
+  var quoteKitchen = (job && job.kitchen && !job.kitchen.isVariation) ? originalScopeCarrier('kitchen', job.kitchen) : null;
   // Original-scope units only, same variation filter as rooms -- the agg
   // carries per-unit calcs so the view can print one named line per unit.
-  var fuQuoteAgg = calcFittedUnitsAgg(fittedUnitList(job).filter(function(f) { return !f.isVariation; }));
-  var quoteRooms = rooms.filter(function(r) { return !r.isVariation; });
-  var quoteExtItems = extItems.filter(function(it) { return !it.isVariation; });
+  var fuQuoteAgg = calcFittedUnitsAgg(fittedUnitList(job).filter(function(f) { return !f.isVariation; })
+    .map(function(f) { return originalScopeCarrier('fittedunit', f); }));
+  var quoteRooms = rooms.filter(function(r) { return !r.isVariation; })
+    .map(function(r) { return originalScopeCarrier('room', r); });
+  var quoteExtItems = extItems.filter(function(it) { return !it.isVariation; })
+    .map(function(it) { return originalScopeCarrier('ext', it); });
   var kitchenCalc = calcKitchen(quoteKitchen);
   var vv = computeVariationsView();
   // A honoured pre-app labour figure (jobIsXeroImported) supersedes the
