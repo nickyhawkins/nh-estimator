@@ -8851,6 +8851,39 @@ function computeVariationsView(roomCalcs, extCalcs, kitchenCalc) {
     if (fuSt !== 'declined') { varLabour+=fc.total; varTime+=fc.time; }
     if (fuSt === 'approved') appLabour+=fc.total;
   });
+  // ── Extra work inside an already-measured carrier (Part 2) ──────────────
+  // A classified delta is a variation line like any other. An UNCLASSIFIED one
+  // is not yet anything, and the two accumulators say exactly that:
+  //
+  //   varLabourAll ("not part of the original quote") takes BOTH. Summary
+  //   computes tcOrig = tcS - varLabourAll, and because a delta carrier is not
+  //   flagged, its FULL live total is inside tcS -- so subtracting the delta
+  //   leaves it priced at its baseline, which is the "original scope reads the
+  //   baseline" rule, achieved by arithmetic with nothing else changed. An
+  //   unclassified delta therefore never quietly inflates the agreed figure.
+  //
+  //   varLabour ("what the variations are worth") takes neither an unclassified
+  //   delta (nothing has been agreed to bill) nor a declined one. So an
+  //   unclassified extra is billed nowhere and excluded nowhere: it shows as a
+  //   question, which is what it is.
+  //
+  // NEGATIVE deltas -- scope that shrank -- hold original scope at the baseline
+  // the same way (subtracting a negative adds it back), but never become a
+  // line: a credit is not a variation, nothing in this pipeline takes a
+  // negative amount, and pretending otherwise would bill a reduction as an
+  // extra. They surface in the nag with Correction as the only real answer.
+  var unclassifiedDeltas = [];
+  variationDeltaScan(job).forEach(function(l) {
+    varLabourAll += l.raw; varTimeAll += l.time; varSprayAll += l.spray;
+    if (!l.classified || l.raw <= 0.005) {
+      if (!l.classified) unclassifiedDeltas.push(l);
+      return;
+    }
+    var st = addLine(l.kind + 'delta', l.id, l.name + ' — extra work', l.raw, l.obj);
+    if (st !== 'declined') { varLabour += l.raw; varTime += l.time; varSpray += l.spray; }
+    if (st === 'approved') { appLabour += l.raw; appSpray += l.spray; }
+  });
+
   // Free lines: 'hours' prices from the raw hourly rate (day rate /
   // hours-per-day) and gets markup+sundries like any labour; 'flat' is the
   // agreed price verbatim — no markup, no sundries, no time contribution.
@@ -8866,8 +8899,12 @@ function computeVariationsView(roomCalcs, extCalcs, kitchenCalc) {
       if (st==='approved') appHoursRaw += (+fv.hours||0)*hourlyRate; }
   });
   var hasVariations = varLines.length>0 || freeVars.length>0;
+  // An unclassified extra is as unfinished as an unsigned one -- it counts
+  // toward the pending total, so the Jobs-list chip stays outlined until
+  // somebody has said what it is.
   var pendingCount = varLines.filter(function(l){ return l.status==='pending'; }).length
-    + freeVars.filter(function(fv){ return variationStatusOf(fv)==='pending'; }).length;
+    + freeVars.filter(function(fv){ return variationStatusOf(fv)==='pending'; }).length
+    + unclassifiedDeltas.length;
   // Sundries % on variation labour (plus the spray bump), then markup —
   // mirroring the main plan's composition. In fixed-£ markup mode
   // variations get NO markup: the fixed amount was the adjustment agreed
@@ -8885,6 +8922,7 @@ function computeVariationsView(roomCalcs, extCalcs, kitchenCalc) {
     freeVars:freeVars, freeHoursRaw:freeHoursRaw, freeHoursDays:freeHoursDays, freeFlatSum:freeFlatSum,
     hasVariations:hasVariations, kitchenIsVar:kitchenIsVar, fittedUnitIsVar:fittedUnitIsVar,
     varSundries:varSundries, varMk:varMk, variationsTotal:variationsTotal,
+    unclassifiedDeltas:unclassifiedDeltas,
     pendingCount:pendingCount, approvedTotal:approvedTotal };
 }
 
@@ -8923,6 +8961,13 @@ function variationSignoffHtml(kind, id, status, approvedAt, note) {
 // collection saves, kitchen and free lines live on jobs.data.
 function findVariationEntry(kind, id) {
   var job = activeJob();
+  // A delta line's sign-off rides the SAME carrier as a whole-item variation
+  // would -- one carrier is at most one variation line, so the variationStatus
+  // fields can be shared with no collision. Strip the suffix and resolve as
+  // normal. (The PUBLISHED kinds stay distinct: job_variations is unique on
+  // (job_id, source_kind, source_id), so a delta and a whole-item variation
+  // must never present the same key.)
+  if (/delta$/.test(kind)) kind = kind.replace(/delta$/, '');
   if (kind === 'room') {
     var r = rooms.find(function(x){ return x.id === id; });
     return r ? { obj: r, save: function(){ saveRooms(); renderHome(); } } : null;
@@ -8977,15 +9022,169 @@ function resetVariationStatus(kind, id) {
   refreshAfterVariationStatusChange();
 }
 
+// ── Classifying an extra (VARIATIONS_SPEC.md Part 2) ───────────────────────
+// The app notices; Nicky decides. Same control-is-the-judgement rule as the
+// auto-on flag and sundries -- the difference between "the client asked for
+// three radiators" and "I mismeasured the landing" is not in the data, it is
+// in the head of the person who was there.
+function findCarrier(kind, id) {
+  var job = activeJob();
+  kind = String(kind).replace(/delta$/, '');
+  if (kind === 'room') return { kind: 'room', obj: rooms.find(function(x){ return String(x.id) === String(id); }) };
+  if (kind === 'ext') return { kind: 'ext', obj: extItems.find(function(x){ return String(x.id) === String(id); }) };
+  if (kind === 'kitchen') return { kind: 'kitchen', obj: job && job.kitchen };
+  if (kind === 'fittedunit') return { kind: 'fittedunit', obj: fittedUnitList(job).find(function(x){ return String(x.id) === String(id); }) };
+  return { kind: kind, obj: null };
+}
+
+// Persist a carrier through whichever save path owns it.
+function saveCarrier(kind) {
+  var job = activeJob();
+  if (kind === 'room') { saveRooms(); renderHome(); }
+  else if (kind === 'ext') { saveExtItems(); renderExterior(); }
+  else { localStorage.setItem('pe-jobs', JSON.stringify(jobs)); persistJobData(job); }
+}
+
+// What actually changed, in the words of the form it was typed into. A sheet
+// that says only "this room is £48 more" leaves you opening the room to find
+// out why, which is the gap this whole feature exists to close.
+function deltaFieldSummary(kind, obj) {
+  var base = obj && obj.variationBaseline && obj.variationBaseline.obj;
+  if (!base) return '';
+  var LABELS = {
+    rads: 'Radiators (m²)', win: 'Windows', sills: 'Sills', doorQty: 'Doors', frameQty: 'Frames',
+    l: 'Length (m)', w: 'Width (m)', h: 'Height (m)', wc: 'Wall coats', cc: 'Ceiling coats',
+    xc: 'Woodwork coats', doorCoats: 'Door coats', frameCoats: 'Frame coats',
+    prepPct: 'Prep %', makingGood: 'Making good', masonry: 'Masonry (m²)', fascia: 'Fascias (m)',
+    coats: 'Coats', doorCount: 'Cabinet doors', shelfCount: 'Shelves', bayCount: 'Bays'
+  };
+  var out = [];
+  Object.keys(LABELS).forEach(function(k) {
+    var a = base[k], b = obj[k];
+    if (a == null && b == null) return;
+    var na = +a || 0, nb = +b || 0;
+    if (Math.abs(na - nb) < 0.0001) return;
+    out.push(LABELS[k] + ' ' + na + ' \u2192 ' + nb);
+  });
+  return out.slice(0, 4).join(' · ') + (out.length > 4 ? ' · and ' + (out.length - 4) + ' more' : '');
+}
+
+function openVariationDeltaSheet(kind, id) {
+  var found = findCarrier(kind, id);
+  if (!found.obj) return;
+  var d = variationDeltaOf(found.kind, found.obj);
+  if (!d) { toast('Nothing has changed on this one.'); return; }
+  var name = carrierName(found.kind, found.obj);
+  var mk = variationMarkupMult();
+  var sPct = (settings.sundriesPct || 0) / 100;
+  var amount = (d.raw + d.raw * sPct) * mk;
+  var down = d.raw < 0;
+  var fields = deltaFieldSummary(found.kind, found.obj);
+  var btn = 'border:none;border-radius:var(--rs);padding:12px 14px;font-size:14px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%;text-align:left';
+  var arg = '\'' + found.kind + '\',\'' + id + '\'';
+
+  openScheduleSheet(
+    '<div class="card">' +
+      '<div class="card-header">' + escapeHtml(name) + ' has moved off the agreed scope</div>' +
+      '<div class="breakdown-row"><span class="breakdown-label">' +
+        (down ? 'Less work than was quoted' : 'More work than was quoted') +
+        (fields ? '<small style="display:block;font-weight:400;color:var(--text2)">' + escapeHtml(fields) + '</small>' : '') +
+      '</span><span class="breakdown-value" style="color:var(--accent);font-weight:700">' +
+        (down ? '\u2212' : '+') + fmt(Math.abs(amount)) + '</span></div>' +
+      '<div style="padding:10px 16px 14px;display:flex;flex-direction:column;gap:8px">' +
+        // A credit is not a variation: nothing downstream takes a negative
+        // amount (confirmAddFreeVariation rejects <= 0, buildClientVariationLines
+        // drops anything not > 0.005), so offering to bill one would be a
+        // button that quietly does nothing. Reductions are agreed by amending.
+        (down ? '' :
+          '<button onclick="classifyVariationDelta(' + arg + ',\'extra\')" style="' + btn + ';background:var(--accent);color:white">' +
+          'Extra work \u2014 bill it<small style="display:block;font-weight:400;opacity:.85">Adds ' + fmt(Math.abs(amount)) +
+          ' to variations, pending the client\u2019s yes</small></button>') +
+        '<button onclick="classifyVariationDelta(' + arg + ',\'correction\')" style="' + btn + ';background:var(--surface2);color:var(--text)">' +
+          'A correction to the quote<small style="display:block;font-weight:400;color:var(--text2)">' +
+          'Nothing is billed. ' + escapeHtml(name) + '\u2019s agreed scope becomes what it is now</small></button>' +
+        '<button onclick="closeScheduleSheet()" style="' + btn + ';background:transparent;color:var(--text2)">' +
+          'Decide later<small style="display:block;font-weight:400;color:var(--text2)">' +
+          'Stays on the Variations card as an open question. Billed nowhere until then</small></button>' +
+      '</div>' +
+      (down ? '<div style="padding:0 16px 14px;font-size:12px;line-height:1.5;color:var(--text2)">' +
+        'Work was removed rather than added. A credit is agreed by amending the quote, not as a variation \u2014 ' +
+        'so the choice here is whether the agreed scope should move.</div>' : '') +
+    '</div>'
+  );
+}
+
+function classifyVariationDelta(kind, id, verdict) {
+  var found = findCarrier(kind, id);
+  if (!found.obj) return;
+  var obj = found.obj;
+  if (verdict === 'extra') {
+    obj.variationDelta = true;
+    // Pending by default, like every other variation: the client has not said
+    // yes yet, and sign-off stays a deliberate act.
+    if (!obj.variationStatus) obj.variationStatus = 'pending';
+    obj.variationBaselineCorrectedAt = null;
+  } else {
+    // A correction re-agrees this carrier's scope. Recorded with a timestamp
+    // rather than by simply overwriting, so "nothing was billed here" is a
+    // decision in the record and not the absence of one.
+    var copy = variationBaselineCopy(obj);
+    if (!copy) return;
+    var prev = obj.variationBaseline || {};
+    obj.variationBaseline = { at: prev.at || new Date().toISOString(), rev: prev.rev == null ? null : prev.rev, obj: copy };
+    obj.variationDelta = false;
+    obj.variationBaselineCorrectedAt = new Date().toISOString();
+  }
+  saveCarrier(found.kind);
+  closeScheduleSheet();
+  renderActuals(); renderSummary(); renderJobs();
+  toast(verdict === 'extra' ? 'Added to variations \u2014 pending the client\u2019s yes' : 'Recorded as a correction \u2014 nothing billed');
+}
+
+// Offered on SAVE of an accepted job's carrier, which is the moment the person
+// who was there knows the answer. The £5 floor is on this interruption only --
+// a 40p delta must not throw a sheet at someone on a phone on site, and must
+// not be silently absorbed either, so it goes straight to the nag instead.
+function offerVariationDeltaOnSave(kind, obj) {
+  if (!obj || obj.isVariation) return;
+  if (!variationApplies()) return;
+  var d = variationDeltaOf(kind, obj);
+  if (!d || d.classified) return;
+  if (Math.abs(d.raw) < VARIATION_DELTA_FLOOR) return;
+  openVariationDeltaSheet(kind, carrierId(kind, obj));
+}
+
 function variationsCardHtml(v) {
   var varLines = v.varLines, freeVars = v.freeVars, varSundries = v.varSundries,
       varMk = v.varMk, variationsTotal = v.variationsTotal;
-  var hasAny = varLines.length > 0 || freeVars.length > 0;
+  var unclassified = v.unclassifiedDeltas || [];
+  var hasAny = varLines.length > 0 || freeVars.length > 0 || unclassified.length > 0;
   if (!hasAny && !variationApplies()) return '';
   var rows = '';
   var struck = 'text-decoration:line-through;color:var(--text3)';
+  // Carriers that have moved off their agreed scope and not been ruled on.
+  // Billed nowhere and excluded nowhere until somebody says which they are --
+  // so they sit at the TOP of the card as an open question rather than being
+  // filed among the answered lines below.
+  unclassified.forEach(function(l) {
+    var mk = variationMarkupMult();
+    var sPct = (settings.sundriesPct || 0) / 100;
+    var amount = (l.raw + l.raw * sPct) * mk;
+    var down = l.raw < 0;
+    rows += '<div class="breakdown-row" style="background:var(--surface2)">'
+      + '<span class="breakdown-label">' + escapeHtml(l.name)
+      + '<small style="display:block;font-weight:400;color:var(--text2)">'
+      + (down ? 'less work than the agreed scope' : 'more work than the agreed scope') + '</small>'
+      + '<small style="display:block;font-weight:600;color:var(--warn,#f39c12);margin-top:3px;cursor:pointer;text-decoration:underline" '
+      + 'onclick="openVariationDeltaSheet(\'' + l.kind + '\',\'' + l.id + '\')">Extra work, or a correction?</small></span>'
+      + '<span class="breakdown-value" style="color:var(--warn,#f39c12)">'
+      + (down ? '\u2212' : '+') + fmt(Math.abs(amount)) + '</span></div>';
+  });
   varLines.forEach(function(l) {
-    rows += '<div class="breakdown-row"><span class="breakdown-label"><span'+(l.status==='declined'?' style="'+struck+'"':'')+'>'+escapeHtml(l.name)+'</span><small style="display:block;font-weight:400;color:var(--text2)">measured item — edit from its own form</small>'+
+    var sub = /delta$/.test(l.kind)
+      ? 'extra work added since the quote — priced from the change'
+      : 'measured item — edit from its own form';
+    rows += '<div class="breakdown-row"><span class="breakdown-label"><span'+(l.status==='declined'?' style="'+struck+'"':'')+'>'+escapeHtml(l.name)+'</span><small style="display:block;font-weight:400;color:var(--text2)">'+sub+'</small>'+
       variationSignoffHtml(l.kind, l.id, l.status, l.approvedAt, l.note)+'</span>'+
       '<span class="breakdown-value"'+(l.status==='declined'?' style="'+struck+'"':'')+'>'+fmt(l.raw*varMk)+'</span></div>';
   });
@@ -11139,12 +11338,25 @@ function goBack() {
   // route through here) discards any hidden-tab draft of it -- see
   // captureRoomDraft().
   if (inSub === 'room') clearRoomDraft();
+  // The kitchen and fitted-unit forms have no Save button -- they write on
+  // every field change (13 and 17 call sites), so the scope-change question
+  // cannot be asked there without interrupting mid-typing. Leaving the screen
+  // is their equivalent moment: the editing is done and the person is still
+  // standing in the room. Rooms and exterior items ask on their own save.
+  var leaving = inSub;
+  var jobNow = activeJob();
   inSub = null;
   document.querySelectorAll('.screen').forEach(function(s) { s.classList.remove('active'); });
   document.getElementById('screen-'+curTab).classList.add('active');
   // renderHome() covers both halves of the combined Measure screen — the
   // exterior form exits through here with curTab still 'home'.
   if(curTab==='home') renderHome();
+  if (leaving === 'kitchen' && jobNow && jobNow.kitchen) {
+    offerVariationDeltaOnSave('kitchen', jobNow.kitchen);
+  } else if (leaving === 'fittedunit' && editFittedUnitId) {
+    var unit = fittedUnitList(jobNow).find(function(f) { return String(f.id) === String(editFittedUnitId); });
+    if (unit) offerVariationDeltaOnSave('fittedunit', unit);
+  }
 }
 
 // ── Settings ───────────────────────────────────────────────────────────────
@@ -19679,12 +19891,14 @@ function saveExteriorItem() {
   item.emoji = '🏡';
   if(editExtId) {
     var idx=extItems.findIndex(function(x){return x.id===editExtId;});
+    carryVariationState(extItems[idx], item);
     extItems[idx]=item;
   } else {
     extItems.push(item);
   }
   saveExtItems();
   goBack();
+  if (editExtId) offerVariationDeltaOnSave('ext', item);
 }
 
 function deleteExteriorItem() {
@@ -22486,6 +22700,26 @@ function editRoom(id) {
   document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active');});
   document.getElementById('screen-room').classList.add('active');
 }
+// Everything about a carrier's VARIATION state that the entry forms do not
+// rebuild. saveRoom()/saveExtItem() replace the stored object wholesale with a
+// fresh one built from the form, so anything not written by the builder is
+// dropped -- which until now silently reset an APPROVED variation's sign-off
+// to Pending every time its room was opened and saved, losing the note and the
+// date the client agreed it. The baseline (Part 2) would go the same way, and
+// losing that turns every later edit into one enormous unexplained delta.
+//
+// isVariation is NOT carried here: the form owns that one and restores it into
+// roomIsVariation/exIsVariation on edit, so the toggle can be turned off.
+function carryVariationState(prev, next) {
+  if (!prev || !next) return next;
+  ['variationBaseline', 'variationDelta', 'variationBaselineCorrectedAt',
+   'variationStatus', 'variationApprovedAt', 'variationApprovalNote'
+  ].forEach(function(k) {
+    if (prev[k] !== undefined) next[k] = prev[k];
+  });
+  return next;
+}
+
 function saveRoom() {
   // Band changes the price and doubles as the finish/sheen pick, so an
   // override with a range chosen must also have an explicit band -- never
@@ -22500,10 +22734,18 @@ function saveRoom() {
     }
   }
   var room = buildRoomFromForm();
-  if(editId){var idx=rooms.findIndex(function(r){return r.id===editId;});rooms[idx]=room;}
+  if(editId){
+    var idx=rooms.findIndex(function(r){return r.id===editId;});
+    carryVariationState(rooms[idx], room);
+    rooms[idx]=room;
+  }
   else rooms.push(room);
   clearRoomDraft();
   saveRooms(); goBack();
+  // Did this edit take the room off the scope that was agreed? Asked here,
+  // on save, because this is the moment the person who was there knows
+  // whether it is extra work or a correction (VARIATIONS_SPEC.md Part 2).
+  if (editId) offerVariationDeltaOnSave('room', room);
 }
 
 // Builds the room object from the form's current state -- everything
