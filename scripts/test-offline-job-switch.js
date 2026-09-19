@@ -119,6 +119,7 @@ function load(server, opts) {
     },
     noteServerCopy: () => {},
     loadLabourLog: async () => {}, loadSnags: async () => {}, loadSnagRooms: async () => {},
+    loadSpecTicks: async () => {}, refreshSpecLink: async () => {},
     loadQuoteSnapshots: async () => {}, loadClientVariations: async () => {},
     applyClientVariationAnswers: () => {}, ensureDefaultColour: () => {},
     clearUndoStack: () => {}, restoreJobIdentityFields: () => {}, updateNavBadge: () => {},
