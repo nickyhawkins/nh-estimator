@@ -9,6 +9,14 @@ freeze, revisions, honoured Xero labour, imported jobs, variations — is indivi
 well-argued in its own spec, and each one arrived on Summary as **another card**. Nobody
 ever went back and asked what the screen was now, in total. This is that pass.
 
+**Conclusion, up front:** what an accepted job would cost at today's rates does not
+belong on Summary at all. It was the *detector* for the silent-drift bug, back when no
+frozen record existed to make drift impossible; the snapshot has been that record since
+v2.38.0. Removing the live money — rather than labelling it more carefully, as an earlier
+draft of this document proposed — takes the six explanatory captions, the lock strip and
+the divider with it. The one place it is still worth seeing is the moment of amending,
+which is where §4a moves it.
+
 ---
 
 ## 1. What an accepted job actually renders today
@@ -52,9 +60,10 @@ number near me is not the number you might think it is."* Read them in a row:
 - "Pricing controls unlocked. Changes move the working figures below… The accepted total does not move." (9, unlocked)
 
 Each one is well written and each one was the right fix for the report that prompted it.
-Together they are the tell: **prose is patching a layout problem.** When a screen needs
-six captions to stop misreadings, the misreadings are structural — the two worlds are
-interleaved down one column, and every caption is a fence where there should be a wall.
+Together they are the tell: **prose is patching a structural problem.** When a screen
+needs six captions to stop misreadings, the misreadings are not the reader's fault — two
+worlds are interleaved down one column and every caption is a fence around one of them.
+§3 argues the fences come down because one of the two worlds should not be there at all.
 
 ### 2b. The same money is told several times over
 
@@ -115,71 +124,140 @@ to be remembered in three times.
   an accepted job, all locked, all inert. Three cards of chrome for controls that by
   their own caption cannot do anything.
 
-## 3. The proposal
+## 3. The question that resolves it — the display was the alarm, the snapshot is the fix
 
-**One question decides the whole screen: has this been agreed?**
+Nicky's own framing, and it is the one that makes the rest of this easy:
 
-### Not agreed (draft / quoted)
+> *"All of this got added when I noticed quotes were silently drifting from what was
+> agreed."*
 
-Today's calculation *is* the answer, and there is no second world to confuse it with.
-The current screen is broadly right. Only change: the pre-app-Xero offer line moves out.
+That is exactly the history. Before v2.38.0 there was no frozen record, so the only way
+to know a quote had moved was to **show today's price beside it and let a human spot the
+gap**. The display *was* the safety mechanism, and it was the right one, because nothing
+else existed.
 
-### Agreed (accepted / completed / invoiced)
+It isn't any more. The snapshot is the safety mechanism now: the agreed figures are rows
+in an append-only table that no code path updates (`ACCEPTED_SNAPSHOT_SPEC.md` §1.1 —
+`routes/api.js` exposes GET and POST and nothing else). They physically cannot move. The
+live figure standing next to them is a monitor for a fault that has already been
+engineered out, and it costs six captions, a card, a lock strip and a divider to keep on
+screen.
 
-Two blocks, in this order, and nothing interleaved:
+### Is it load-bearing anywhere?
 
-**A. Agreed — one card, the whole agreed record.**
-Total, revision N, date, provenance in one line (frozen at acceptance / honoured /
-rebuilt from Xero), the agreed lines, deposit + balance, variations subtotal, and the
-**job total incl. variations**. Amend and History live here. This card answers "what does
-the client owe" completely, with nothing on screen contradicting it.
+The test: if today's money vanished from an accepted job's Summary, what could you no
+longer do? Each candidate, checked:
 
-Blocks 3, 4, 5, 6 and 13 collapse into this one card. The frozen Labour stat becomes a
-row inside it rather than a stat tile under a hero that means something else.
+| Needs a live figure? | Verdict |
+| --- | --- |
+| **Amending** | No. `amendAcceptedQuote()` (`public/index.html:6897`) builds its own live snapshot and prompts with revision N, N+1 and the delta before writing. It reads nothing off Summary. |
+| **Variations** | No. They price live, but against a *per-item baseline*, on the Variations card. A whole-job "today" total says nothing about them. |
+| **On-site days** | No — that's a **days** figure, not money, and it stays live deliberately (`ACCEPTED_SNAPSHOT_SPEC.md`, "What stays live") because the diary needs real days. |
+| **Materials** | No. They legitimately move — they bill as actuals. That is the materials list's job and it is already blind to all of this. |
+| **Deposit / payment plan** | No. Frozen, and reads the snapshot. |
 
-**B. Today — one collapsed row.**
+Nothing. The calc still has to **run** on an accepted job — variations, materials and
+days all need it — but running it and **displaying it as a rival total** are two
+different decisions, and the screen currently conflates them.
 
-> `Same job priced today: £Y  (+£Z)  ›`
+### What must stay
 
-Tapping it expands into: the drift card (7), the room breakdown (15), and the Cost
-Summary (16, which can come back — inside here it can't be mistaken for the agreed
-total). Pricing controls (10–12) live inside it too, unlocked, because **opening "Today"
-is the unlock** — self-evidently the live side, no lock strip needed to explain it.
+1. **The loud red banner** for jobs accepted before snapshots shipped
+   (`jobQuoteNeedsSnapshot`). Those figures genuinely are live and genuinely are
+   drifting. That is a real remaining hole and the warning is correct — a migration
+   state, not a permanent feature.
+2. **The room breakdown**, as a *working* view: how a measurement gets checked and how a
+   variation room is seen. Not as money-versus-money.
+3. **Today's price at the moment of amending** — see below.
 
-That single disclosure replaces blocks 9 and 14 outright and removes the need for 3 and
-5's aside: the wall does what six captions were doing. If the two figures agree to the
-penny, the row still shows, reading *"Same as agreed"* — which is worth knowing and
-currently isn't stated anywhere.
+## 4. The proposal
 
-**C. Below** — Materials, Add Material, Colour Schedule, unchanged. These are working
-lists, not money, and they are already correctly blind to all of the above.
+### 4a. Move the drift card to the amend flow
 
-### And collapse the three money models to one
+`quoteDriftCardHtml` is the best-reasoned thing on the screen. It splits labour from
+materials, names which lines moved, and states plainly whether the Rates page is
+responsible or whether an app release re-costed a room with nothing on the job touched.
+Nothing here suggests deleting it.
 
-On a frozen job, read the snapshot and stop — delete the `honouredLabour` and
-`importedFromXero` branches from the frozen render path, exactly as the final invoice
-already did. They stay live for jobs with no snapshot, which is the only place they are
-still load-bearing. This is the single biggest reduction in branching on the screen and
-it removes real duplicated state, not just visual clutter.
+But *"why is this different from what we agreed?"* is a question asked at exactly one
+moment: **when you are about to re-price.** On Summary it is an unprompted answer to a
+question nobody asked, rendered where it is most easily mistaken for a breakdown of the
+accepted total two cards above it. In the amend flow it is the right information at the
+right moment — and the current amend prompt offers a bare `was → now` with no
+attribution at all, which is precisely what this card exists to supply.
 
-## 4. What this is worth, honestly
+The whole chain — `quoteDriftCardHtml` → `quoteLineDrift` → `ratesDriftSince` — is
+**display-only and reachable from exactly one call site** (`renderSummary()`,
+`public/index.html:23730`). Verified by grep: no other caller, no side effects, nothing
+persisted. So it relocates wholesale into the amend sheet with nothing else touched.
+Amend becomes a sheet rather than a `prompt()`, carrying the card plus the
+what-changed note field it already asks for.
 
-The money is all correct today. Every figure on the current screen is right, each caption
-is true, and the bugs that produced them were real bugs properly fixed. This is a
+### 4b. Summary, accepted job, in full
+
+> **Agreed card** → **Variations** → **Room breakdown** (labelled as working) →
+> **Materials** → **Colour Schedule**
+
+That's it. No Today block, no working divider, no lock strip, no hero aside, no
+agreed-figures banner — only the red one, and only on unfrozen jobs.
+
+The **Agreed card** absorbs blocks 3, 4, 5, 6 and 13 from §1: total, revision N and its
+date, provenance in one line (frozen at acceptance / honoured / rebuilt from Xero), the
+agreed lines, deposit and balance, the variations subtotal, and the job total including
+variations. Amend and History live on it.
+
+This is materially smaller and safer than the earlier draft of this document, which
+proposed keeping today's money behind a collapsed "Today ›" disclosure. That was still
+answering the wrong question — it kept the rival total on the screen and merely folded
+it up. Deciding it does not belong on an accepted job's Summary at all removes the
+disclosure, the captions and the branching together.
+
+### 4c. Pricing controls move off the money column
+
+Commercial, Standalone and Markup (blocks 10–12) exist on an accepted job **only** to
+price an amendment — which is why they are locked, and why a strip had to be written to
+explain the lock. With amending now a screen of its own, they belong there or in the
+job's settings. Three cards of inert chrome leave the money column entirely, and
+`acceptedPricingLockHtml` plus its unlock variant are deleted rather than relocated.
+
+### 4d. Collapse the three money models to one
+
+Unchanged from §2d, and now easier: on a frozen job, read the snapshot and stop. Delete
+the `honouredLabour` and `importedFromXero` branches from the frozen render path exactly
+as the final invoice already did at `public/index.html:15671`. They stay live for jobs
+with no snapshot, which is the only place they are still load-bearing.
+
+## 5. The one thing lost, and where it should go instead
+
+*"Am I underpricing now compared to when I quoted this?"* — a real question, and the only
+genuine use the live figure had left.
+
+It is a **rates-calibration** question across many jobs, not a per-job one, and asking it
+one job at a time via a card on every accepted Summary is the worst available way to
+answer it. If it is wanted, it belongs with `CALIBRATION_SPEC.md` as a view over closed
+jobs, where a trend is visible and a single job's noise is not mistaken for one.
+
+## 6. What this is worth, honestly
+
+The money is all correct today. Every figure on the current screen is right, every
+caption is true, and the bugs that produced them were real bugs properly fixed. This is a
 **legibility** problem, not a correctness one — which is why it is a proposal rather than
 a fix, and why it should be sequenced behind anything that affects what gets billed
 (`VARIATIONS_SPEC.md` Part 2, for one).
 
-One caution against doing it piecemeal: every caption on the list in §2a was added
-*individually*, each one locally justified. Removing them one at a time will reintroduce
-exactly the misreadings that put them there. The captions go when the wall goes up, in
+One caution against doing it piecemeal: every caption in §2a was added *individually*,
+each locally justified by a real report. Removing them one at a time will reintroduce
+exactly the misreadings that put them there. The captions go when the live money goes, in
 one change, or they stay.
 
-## 5. Suggested order
+## 7. Suggested order
 
-1. **Low risk, do anytime, independent of the redesign** — drift line matching by stored
-   key (§2e), move the pre-app-Xero offer line out of the money column.
-2. **The snapshot collapse** (§2d) — pure de-duplication, no visual change, makes the
+1. **Low risk, anytime, independent of the rest** — drift line matching by stored key
+   (§2e); move the "Labour agreed in a pre-app Xero quote?" offer line out of the money
+   column.
+2. **The snapshot collapse** (§4d) — pure de-duplication, no visual change, makes the
    rest safe to attempt.
-3. **The A/B split** (§3) — one change, captions removed in the same commit as the wall
-   going up.
+3. **Drift card → amend sheet** (§4a) — self-contained, one call site, and it is what
+   makes step 4 possible without losing anything.
+4. **Strip the live money from an accepted Summary** (§4b, §4c) — captions, divider,
+   lock strip and pricing cards all in the one change.
