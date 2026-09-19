@@ -6,6 +6,7 @@ const pgSession = require('connect-pg-simple')(session);
 const path = require('path');
 const cron = require('node-cron');
 const db = require('./db');
+const { topUpColourLibrary } = require('./lib/colourLibrarySeed');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -253,4 +254,10 @@ if (DEBT_APP_ENABLED) {
 // Start server
 app.listen(PORT, () => {
   console.log(`NH Estimator running on port ${PORT}`);
+  // Deliberately AFTER listen and never awaited: a database that is slow or
+  // down must delay the health check by nothing, and an instance that can't
+  // reach its database has a bigger problem than its colour list.
+  topUpColourLibrary(db, console.log).catch(err => {
+    console.error('Colour library top-up skipped:', err.message);
+  });
 });
