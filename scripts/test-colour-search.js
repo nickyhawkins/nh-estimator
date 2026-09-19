@@ -53,7 +53,10 @@ console.log('Colour library autocomplete (' + colourLibrary.length + ' entries)\
 check('lick', 'a brand name finds that brand', r => r.length === 8 && r.every(x => x.brand === 'Lick'));
 check('coat', 'COAT too', r => r.length > 0 && r.some(x => x.brand === 'COAT'));
 check('grey 0', 'a hue+number prefix leads with those, not mid-string hits',
-  r => r.length === 8 && r[0].name.toLowerCase().indexOf('grey 0') === 0);
+  // Count is deliberately not asserted: Lick's range is not contiguous, so how
+  // many greys start "Grey 0" is a property of the chart, not of the ranking.
+  r => r.length > 0 && r[0].name.toLowerCase().indexOf('grey 0') === 0
+       && r.slice(0, 4).every(x => x.name.toLowerCase().indexOf('grey 0') === 0));
 check('grey 04', 'an exact Lick name', r => r.some(x => x.brand === 'Lick' && x.name === 'Grey 04'));
 check('coal drop', 'a COAT name typed partly', r => r.length === 1 && r[0].name === 'The Coal Drop');
 check('charcoal', "a COAT shade description in `code`", r => r.some(x => x.name === 'The Coal Drop'));
