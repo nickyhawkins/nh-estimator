@@ -290,6 +290,32 @@ from the form, so an APPROVED variation's sign-off was silently reset to Pending
 every time its room was opened and saved, losing the client's note and the date.
 `carryVariationState()` fixes it and carries the baseline with it.
 
+**Found in the field, after shipping** (both fixed, both held by the test):
+
+- **A job's rooms could lose their baselines and never get them back.** The
+  job-level flag (`variationBaselinesAt`) and the rooms' baselines are two
+  separate writes to two different tables, and they can come apart — the job
+  PUT lands, the rooms PUT is lost to a dead spot. `stampVariationBaselinesIfOwed`
+  bailed on that flag alone, so nothing healed it: with no baseline,
+  `variationDeltaOf()` returns null and no room on that job could report a
+  delta again, silently and permanently. The heal now asks the CARRIERS, and
+  stamps only the ones actually missing one — re-stamping a live baseline
+  would forgive a real extra.
+- **A save that changed nothing could report extra work.** `buildRoomFromForm()`
+  rebuilds the whole room from the DOM, filling in every field it knows about.
+  A room stored before a field existed lacks the key; `calcRoom()` reads a
+  missing key as zero/off; the form then supplies a non-empty default. So
+  opening a room and saving it with no edit priced it differently and read as
+  extra work — £36.93 on a room with doors and no stored `doorCoats`, where the
+  form supplied `doorCoats`/`frameCoats` of 2 and `prepPct` of 10.
+  `ROOM_SHAPE_DEFAULTS` + `applyShapeDefaults()` normalise BOTH sides of a
+  delta through the same fill-if-absent pass, so the comparison is
+  like-for-like. Only non-empty defaults are listed, which is what keeps a real
+  change real: `rads` is deliberately absent, so a room that gains radiators
+  still gains a delta. The list is a second copy of what the form writes, so
+  the test re-derives the form's defaults and fails if any of them can move a
+  room's price from outside the list.
+
 **Found in review, after the first pass was written** (all fixed, all now held by
 the test):
 

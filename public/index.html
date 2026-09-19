@@ -8714,6 +8714,48 @@ function variationStatusOf(x) { return (x && x.variationStatus) || 'pending'; }
 // someone on a phone on site.
 var VARIATION_DELTA_FLOOR = 5;
 
+// The non-empty defaults the room form writes into every room it saves.
+//
+// A room stored before a field existed simply lacks the key, and calcRoom()
+// reads a missing key as zero/off. The moment that room is opened and SAVED,
+// buildRoomFromForm() fills the key in — so the room prices differently with no
+// user edit at all. Compared against a baseline stamped in the old shape, that
+// difference reads as extra work: measured at £36.93 on a room with doors and
+// no stored doorCoats, where the form supplied doorCoats/frameCoats of 2 and
+// prepPct of 10.
+//
+// Both sides of a delta are normalised through this, so the comparison is
+// always like-for-like and a no-change save reports nothing.
+//
+// ONLY non-empty defaults belong here. Every other field the form writes
+// defaults to 0/false/''/[], which is exactly what an absent key already
+// prices as, so listing them would change nothing — and leaving them out is
+// what keeps a REAL change real: `rads` is deliberately absent, so a room that
+// gains radiators still gains a delta.
+//
+// Held by test:room-variations, which re-derives this from a blank form and
+// fails if the form's defaults move underneath it.
+var ROOM_SHAPE_DEFAULTS = {
+  wc: 2, cc: 2, xc: 2, h: 2.4, prepPct: 10,
+  doorCoats: 2, frameCoats: 2,
+  sprayCeiling: true, sprayWoodwork: true,
+  panelPrepPct: 10,
+  wpMatch: 'none', wpRollLen: 10.05, wpRollWidth: 0.53,
+  featureWallMode: 'paint', fwWpCommercialType: 'none',
+  fwMuralPriceMode: 'perArea', fwVinylRollWidthCm: 137,
+  colourNumber: 1, ceilingColourNumber: 1, woodworkColourNumber: 1,
+  featureWallColourNumber: 1, panelColourNumber: 1
+};
+
+// Fill in what a carrier never recorded, never overwrite what it did.
+function applyShapeDefaults(obj, defs) {
+  if (!obj || !defs) return obj;
+  Object.keys(defs).forEach(function(k) {
+    if (obj[k] === undefined || obj[k] === null) obj[k] = defs[k];
+  });
+  return obj;
+}
+
 // Price a carrier. calcRoom() and calcExtItem() MUTATE their argument
 // (migrateWPFields/migrateDoorFields/migrateExtDoorFields write normalised
 // fields back onto it), so pricing a stored baseline in place would let the act
@@ -8724,7 +8766,7 @@ function carrierCalc(kind, obj) {
   if (!obj) return null;
   var copy;
   try { copy = JSON.parse(JSON.stringify(obj)); } catch (e) { return null; }
-  if (kind === 'room') return calcRoom(copy);
+  if (kind === 'room') return calcRoom(applyShapeDefaults(copy, ROOM_SHAPE_DEFAULTS));
   if (kind === 'ext') return calcExtItem(copy);
   if (kind === 'kitchen') return calcKitchen(copy);
   if (kind === 'fittedunit') return calcFittedUnit(copy);

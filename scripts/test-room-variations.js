@@ -335,6 +335,78 @@ async function seed(db) {
       rows.rows.some(r => /delta$/.test(r.source_kind)),
       rows.rows.map(r => r.source_kind).join(',') || 'no rows');
 
+    // ── A save that changes nothing must report nothing ───────────────────
+    // The room form rebuilds the whole room object from the DOM, filling in
+    // every field it knows about. A room stored before a field existed lacks
+    // the key, calcRoom reads a missing key as zero/off, and the form then
+    // supplies a non-empty default — so opening a room and saving it with NO
+    // edit priced it differently and read as extra work. £36.93 on a room with
+    // doors and no stored doorCoats.
+    const noop = await page.evaluate(() => {
+      goTab('home');
+      editRoom(rooms[2].id);          // Master Bedroom, untouched so far
+      saveRoom();
+      return { sheetOpen: document.getElementById('schedule-sheet-backdrop').style.display === 'block',
+               delta: variationDeltaOf('room', rooms[2]),
+               unclassified: computeVariationsView().unclassifiedDeltas.map(u => u.name) };
+    });
+    check('opening a room and saving it unchanged reports no extra work',
+      noop.delta === null, noop.delta);
+    check('...and throws no sheet at you', noop.sheetOpen === false);
+    check('...and leaves no open question on the card',
+      !noop.unclassified.includes('Master Bedroom'), noop.unclassified.join(','));
+
+    // The guard: ROOM_SHAPE_DEFAULTS is a second copy of what the form writes,
+    // and this file's recurring bug is a second copy drifting from the first.
+    // Re-derive the form's real defaults and fail if the list has fallen behind.
+    // Asks the question that matters rather than listing key names: for every
+    // non-empty default the form writes, does REMOVING it from a room change
+    // what that room costs? If it does and it is not in ROOM_SHAPE_DEFAULTS,
+    // that field can produce a phantom delta and the list has fallen behind.
+    const drift = await page.evaluate(() => {
+      goTab('home'); goScreen('room');       // a blank form
+      const blank = buildRoomFromForm();
+      goBack();
+      // A realistic room to test each field against: doors and frames present,
+      // so the coat defaults actually bite.
+      const probe = Object.assign({}, blank, { l: 4, w: 3, h: 2.4, doorQty: 1, frameQty: 1 });
+      const full = calcRoom(JSON.parse(JSON.stringify(probe))).total;
+      const missing = [];
+      Object.keys(blank).forEach(k => {
+        if (k === 'id' || k === 'name' || k in ROOM_SHAPE_DEFAULTS) return;
+        const v = blank[k];
+        const empty = v === 0 || v === false || v === '' || v === null || v === undefined
+          || (Array.isArray(v) && v.length === 0);
+        if (empty) return;
+        const without = JSON.parse(JSON.stringify(probe));
+        delete without[k];
+        if (Math.abs(calcRoom(without).total - full) > 0.005) missing.push(k + '=' + JSON.stringify(v));
+      });
+      return missing;
+    });
+    check('no default the form writes can move a room\u2019s price from outside ROOM_SHAPE_DEFAULTS',
+      drift.length === 0, drift.join(', '));
+
+    // And the whole point: normalising must not swallow a REAL change.
+    const stillReal = await page.evaluate(() => {
+      goTab('home');
+      editRoom(rooms[2].id);
+      document.getElementById('r-rads').value = '1.6';
+      saveRoom();
+      const d = variationDeltaOf('room', rooms[2]);
+      closeScheduleSheet();
+      return d && Math.round(d.raw * 100) / 100;
+    });
+    check('but a room that genuinely gains radiators still reports it',
+      stillReal > 0, stillReal);
+    // Put the room back as it was — the declined-amend test below uses it.
+    await page.evaluate(() => {
+      rooms[2].rads = 0;
+      classifyVariationDelta('room', rooms[2].id, 'correction');
+      closeScheduleSheet();
+    });
+    await page.waitForTimeout(400);
+
     // ── A room that lost its baseline heals itself ────────────────────────
     // The job-level stamp and the rooms are two separate writes to two
     // different tables. They can come apart — the job PUT lands, the rooms PUT
