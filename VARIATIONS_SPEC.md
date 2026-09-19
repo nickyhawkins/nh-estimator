@@ -87,7 +87,7 @@ who was there knows what was agreed. That is a deliberate relaxation of the Xero
 poll's prompt-don't-flip rule, valid only because an Approve on this page is per-line
 and unambiguous where a whole-quote ACCEPTED is not.
 
-**Addendum 2026-09-19 (SPEC ONLY, not built): extra work added INSIDE an
+**Addendum 2026-09-19 (BUILT, v2.70.0): extra work added INSIDE an
 already-measured room.** The flag is per-carrier, never per-field, so radiators typed
 into an accepted job's existing room produce no variation, no chip and no money — the
 work gets done and never billed. Part 2 at the end of this file specs the fix: a frozen
@@ -270,8 +270,27 @@ effect: the money was never missing, just unreadable — worth remembering next 
 
 # Part 2 — Extra work inside an already-measured room
 
-**Status: SPEC ONLY, not built (written 2026-09-19 against v2.69.3).** Raised from a
-live job: quote accepted, client then asked for three radiators painting across two
+**Status: BUILT 2026-09-19 (v2.70.0), all five build-order items.** Held by
+`npm run test:room-variations` (38 assertions against the real app in a real
+browser), which pins the two properties easiest to break by accident: a rate
+change must not look like extra work, and the agreed figure must not move
+whether the extra is unclassified, classified or declined.
+
+**Deviations from this spec, both deliberate:** (1) a delta whose price moves
+after sign-off is REPORTED on the card, not auto-reset to pending — flipping an
+approved line back on its own discards the client's answer with nobody seeing
+it, and sign-off in this app is always a deliberate act (the Xero poll follows
+the same prompt-don't-flip rule); the server agrees, its publish upsert carrying
+`WHERE status = 'pending'`. (2) The calibration footnote needed no change: no
+such footnote exists in the code, and every count there derives from
+`computeVariationsView()`, which now carries delta lines.
+
+**Found while building:** `saveRoom()`/`saveExtItem()` rebuild the stored object
+from the form, so an APPROVED variation's sign-off was silently reset to Pending
+every time its room was opened and saved, losing the client's note and the date.
+`carryVariationState()` fixes it and carries the baseline with it.
+
+Raised from a live job: quote accepted, client then asked for three radiators painting across two
 rooms already measured. Opening each room and typing the radiators into the Extras
 field produced **no variation, no chip, no money** — and, worse, no sign that anything
 had been added at all beyond a line on the drift card.

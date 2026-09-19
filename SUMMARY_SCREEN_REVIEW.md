@@ -1,6 +1,14 @@
 # Summary screen — review (written 2026-09-19 against v2.69.3)
 
-**Status: REVIEW + PROPOSAL, nothing built.** Raised by Nicky: *"between honouring
+**Status: BUILT 2026-09-19 (v2.70.0).** §7's order was followed: stable drift
+keys and the pre-app-Xero offer line first, then the drift card into the amend
+sheet, then the live money off an accepted Summary. §2d was corrected mid-build
+(see the note there) and §4d turned out to need no separate change. Held by
+`npm run test:snapshots`, which grew from 40 assertions to 52 — the one that
+asserted Summary discloses the live figure now asserts the opposite, with five
+more on what replaced it and two on the amend sheet's pricing controls.
+
+Raised by Nicky: *"between honouring
 Xero quotes, revisions, snapshots, and accepted prices vs what it would cost today,
 everything seems to be getting complicated."*
 
