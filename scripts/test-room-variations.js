@@ -169,7 +169,8 @@ async function seed(db) {
       };
     });
     check('classifying it makes a variation line',
-      classified.lines.length === 1 && /extra work/.test(classified.lines[0].name));
+      classified.lines.length === 1 && /^Lounge \u2014 /.test(classified.lines[0].name),
+      classified.lines[0] && classified.lines[0].name);
     check('the line is its own kind, not the carrier’s',
       classified.lines[0].kind === 'roomdelta');
     check('it arrives Pending, awaiting the client', classified.lines[0].status === 'pending');
@@ -179,6 +180,41 @@ async function seed(db) {
       /\+ EXTRA/.test(classified.chip) && !/>VARIATION/.test(classified.chip));
     check('it publishes under a kind that cannot collide with a whole-room variation',
       classified.published.length === 1 && classified.published[0].kind === 'roomdelta');
+
+    // ── The client is told what they are approving ────────────────────────
+    // The approval page was sending "Lounge — extra work £140.01", which tells
+    // the person being asked to approve it nothing at all. The app has both
+    // shapes of the room, so it can say what changed — as the WORK, not as a
+    // field delta.
+    const words = await page.evaluate(() => {
+      const r = rooms[0];
+      const auto = variationDeltaDescription('room', r);
+      const line = computeVariationsView().varLines.find(l => /Lounge/.test(l.name));
+      const published = buildClientVariationLines().find(l => /roomdelta/.test(l.kind));
+      return { auto, lineName: line && line.name, published: published && published.description };
+    });
+    check('the extra is described as work, not as a field change',
+      /radiator/i.test(words.auto) && !/→|m²/.test(words.auto), words.auto);
+    check('the variation line carries that description',
+      /Lounge \u2014 .*radiator/i.test(words.lineName), words.lineName);
+    check('and so does what is published for the client to approve',
+      /radiator/i.test(words.published) && !/extra work$/.test(words.published), words.published);
+
+    // Nicky's own words beat anything derived: the app knows 1.6m², he knows
+    // it is three radiators.
+    const overridden = await page.evaluate(() => {
+      rooms[0].variationDeltaNote = 'Painting the three radiators in the lounge';
+      return { line: computeVariationsView().varLines.find(l => /Lounge/.test(l.name)).name,
+               published: buildClientVariationLines().find(l => /roomdelta/.test(l.kind)).description,
+               invoice: buildFinalInvoiceModel().variations.find(v => /Lounge/.test(v.desc)).desc };
+    });
+    check('a typed description overrides the app\u2019s wording everywhere',
+      /three radiators/.test(overridden.line) && /three radiators/.test(overridden.published)
+      && /three radiators/.test(overridden.invoice), overridden);
+
+    // Put the wording back to the app's own, so later steps read as before.
+    await page.evaluate(() => { rooms[0].variationDeltaNote = null; });
+
 
     // ── THE other property: the agreed figure never moves ──────────────────
     const declined = await page.evaluate(() => {
@@ -212,7 +248,8 @@ async function seed(db) {
     check('the room’s own invoice line does not grow with the extra',
       !!lounge && lounge.a > 0, lounge ? `Lounge £${lounge.a}` : 'no Lounge line');
     check('the extra bills as its own variation line',
-      invoice.vars.some(v => /Lounge — extra work/.test(v.d) && !v.dropped));
+      invoice.vars.some(v => /^Variation: Lounge \u2014 /.test(v.d) && !v.dropped),
+      invoice.vars.map(v => v.d).join(' | '));
 
     // ── Sign-off, and a figure that moves after it ─────────────────────────
     const signoff = await page.evaluate(() => {
@@ -237,18 +274,21 @@ async function seed(db) {
 
     // ── A correction bills nothing and re-agrees the scope ─────────────────
     const corrected = await page.evaluate(() => {
+      rooms[0].variationDeltaNote = 'a description that should not outlive the extra';
       classifyVariationDelta('room', rooms[0].id, 'correction');
       const v = computeVariationsView();
       return {
         lines: v.varLines.length, unclassified: v.unclassifiedDeltas.length,
         total: v.variationsTotal,
         recorded: !!rooms[0].variationBaselineCorrectedAt,
+        noteCleared: rooms[0].variationDeltaNote == null,
         delta: variationDeltaOf('room', rooms[0])
       };
     });
     check('a correction bills nothing', corrected.total === 0 && corrected.lines === 0);
     check('a correction leaves no open question', corrected.unclassified === 0 && corrected.delta === null);
     check('a correction is RECORDED, not just an absence of one', corrected.recorded === true);
+    check('and it clears the description with the extra it described', corrected.noteCleared === true);
 
     // ── Amending absorbs the extras into the new revision ──────────────────
     const amended = await page.evaluate(() => {
@@ -508,7 +548,10 @@ async function seed(db) {
     await page.evaluate(() => { window.confirm = () => true; setJobStatusById(activeJobId, 'accepted'); });
     await page.waitForFunction(() => jobQuoteIsFrozen(activeJob()) === true, null, { timeout: 20000 });
     const reaccepted = await page.evaluate(() => ({
-      stillHasExtra: computeVariationsView().varLines.some(l => /extra work/.test(l.name))
+      // Keyed on the line's KIND, not its wording: the description is now
+      // written for the client and says what the work is, so it no longer
+      // contains a fixed phrase to match on.
+      stillHasExtra: computeVariationsView().varLines.some(l => /delta$/.test(l.kind))
     }));
     check('re-accepting does not silently absorb the extras', reaccepted.stillHasExtra === true);
 

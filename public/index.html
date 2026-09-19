@@ -9193,7 +9193,8 @@ function computeVariationsView(roomCalcs, extCalcs, kitchenCalc) {
       if (!l.classified) unclassifiedDeltas.push(l);
       return;
     }
-    var st = addLine(l.kind + 'delta', l.id, l.name + ' — extra work', l.raw, l.obj);
+    var st = addLine(l.kind + 'delta', l.id,
+      l.name + ' \u2014 ' + variationDeltaDescription(l.kind, l.obj), l.raw, l.obj);
     // Clamped, exactly as variationDeltaAmount(), buildClientVariationLines()
     // and the final invoice clamp it. Unclamped, a negative spray delta made
     // this card's subtotal differ from the figure published to the client and
@@ -9400,6 +9401,96 @@ function deltaFieldSummary(kind, obj) {
   return out.slice(0, 4).join(' · ') + (out.length > 4 ? ' · and ' + (out.length - 4) + ' more' : '');
 }
 
+// What the extra actually IS, in words a client can act on.
+//
+// The approval page was sending "Lounge — extra work £140.01", which tells the
+// person being asked to approve it nothing at all. The app already knows what
+// changed — it has both shapes of the room — it was just never saying so.
+//
+// Phrased as the WORK, not as a field delta: "painting the radiators", not
+// "Radiators (m²) 0 → 1.6". Count fields carry their number because the client
+// can check it; areas and dimensions do not, because "1.6m²" is not how anyone
+// describes a radiator. Nicky's own note always wins, because he knows it is
+// three radiators while the app only knows it is 1.6 square metres.
+function variationDeltaDescription(kind, obj) {
+  if (obj && obj.variationDeltaNote) return obj.variationDeltaNote;
+  var base = obj && obj.variationBaseline && obj.variationBaseline.obj;
+  if (!base) return 'extra work';
+  // [field, what it is, counted?]. Counted fields say how many more; the rest
+  // just name the work, which is all a client needs to recognise it.
+  var THINGS = [
+    ['rads', 'painting the radiators', false],
+    ['win', 'painting the window', true],
+    ['sills', 'painting the window sill', true],
+    ['doorQty', 'painting the door', true],
+    ['frameQty', 'painting the door frame', true],
+    ['masonry', 'painting the masonry', false],
+    ['fascia', 'painting the fascias and soffits', false],
+    ['makingGood', 'making good', false],
+    ['doorCount', 'spraying the cabinet door', true],
+    ['shelfCount', 'painting the shelf', true],
+    ['bayCount', 'painting the bay', true]
+  ];
+  var COATS = [
+    ['wc', 'the walls'], ['cc', 'the ceiling'], ['xc', 'the woodwork'],
+    ['doorCoats', 'the doors'], ['frameCoats', 'the frames'], ['coats', 'it']
+  ];
+  var out = [];
+  THINGS.forEach(function(t) {
+    var was = +base[t[0]] || 0, now = +obj[t[0]] || 0;
+    if (now - was < 0.0001) return;
+    if (t[2]) {
+      var n = Math.round(now - was);
+      out.push(n > 1 ? 'painting ' + n + ' more ' + t[1].replace('painting the ', '') + 's'
+                     : t[1].replace('the ', 'an extra '));
+    } else {
+      out.push(t[1]);
+    }
+  });
+  COATS.forEach(function(c) {
+    var was = +base[c[0]] || 0, now = +obj[c[0]] || 0;
+    if (now - was < 0.0001) return;
+    var n = Math.round(now - was);
+    out.push(n > 1 ? n + ' more coats on ' + c[1] : 'an extra coat on ' + c[1]);
+  });
+  var wasPrep = +base.prepPct || 0, nowPrep = +obj.prepPct || 0;
+  if (nowPrep > wasPrep) out.push('extra preparation');
+  // A change in the room's own measurements has no natural phrase and is
+  // usually a correction rather than an extra, so it is named plainly.
+  ['l', 'w', 'h'].forEach(function(k) {
+    if ((+obj[k] || 0) > (+base[k] || 0) && out.indexOf('a larger area than first measured') < 0) {
+      out.push('a larger area than first measured');
+    }
+  });
+  if (!out.length) return 'extra work';
+  if (out.length === 1) return out[0];
+  // "painting the radiators and painting an extra window" reads like a list
+  // written by a machine. The verb carries from the first phrase, so the rest
+  // drop it.
+  var tidy = out.map(function(phrase, i) {
+    return i === 0 ? phrase : phrase.replace(/^painting /, '');
+  });
+  return tidy.slice(0, -1).join(', ') + ' and ' + tidy[tidy.length - 1];
+}
+
+// Nicky's own wording for a line, which beats anything derived. Offered on the
+// Variations card, because the moment to write "three radiators in the lounge"
+// is when you are looking at the line you are about to send.
+function editVariationDeltaNote(kind, id) {
+  var found = findCarrier(kind, id);
+  if (!found.obj) return;
+  var auto = (function() { var o = found.obj, keep = o.variationDeltaNote;
+    delete o.variationDeltaNote; var a = variationDeltaDescription(found.kind, o);
+    if (keep) o.variationDeltaNote = keep; return a; })();
+  var note = prompt('Describe this extra for the client\n\nThey see: "' + carrierName(found.kind, found.obj) +
+    ' \u2014 <this>". Leave it empty to use the app\u2019s own wording.', found.obj.variationDeltaNote || auto);
+  if (note === null) return;
+  found.obj.variationDeltaNote = note.trim() || null;
+  saveCarrier(found.kind);
+  renderActuals(); renderSummary();
+  toast('Description updated \u2014 send the link again so the client sees it');
+}
+
 function openVariationDeltaSheet(kind, id) {
   var found = findCarrier(kind, id);
   if (!found.obj) return;
@@ -9477,6 +9568,7 @@ function classifyVariationDelta(kind, id, verdict) {
     obj.variationApprovedAt = null;
     obj.variationApprovalNote = '';
     obj.variationApprovedRaw = null;
+    obj.variationDeltaNote = null;
     obj.variationBaselineCorrectedAt = new Date().toISOString();
   }
   saveCarrier(found.kind);
@@ -9524,8 +9616,10 @@ function variationsCardHtml(v) {
   });
   varLines.forEach(function(l) {
     var sub = /delta$/.test(l.kind)
-      ? 'extra work added since the quote — priced from the change'
-      : 'measured item — edit from its own form';
+      ? 'added since the quote \u2014 <span onclick="event.stopPropagation();editVariationDeltaNote(\''
+        + l.kind + '\',\'' + l.id + '\')" style="color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline">'
+        + 'reword for the client</span>'
+      : 'measured item \u2014 edit from its own form';
     rows += '<div class="breakdown-row"><span class="breakdown-label"><span'+(l.status==='declined'?' style="'+struck+'"':'')+'>'+escapeHtml(l.name)+'</span><small style="display:block;font-weight:400;color:var(--text2)">'+sub+'</small>'+
       variationSignoffHtml(l.kind, l.id, l.status, l.approvedAt, l.note)+'</span>'+
       '<span class="breakdown-value"'+(l.status==='declined'?' style="'+struck+'"':'')+'>'+fmt(l.raw*varMk)+'</span></div>';
@@ -9705,7 +9799,8 @@ function buildClientVariationLines() {
   // to approve.
   variationDeltaScan(job).forEach(function(l) {
     if (!l.classified || l.raw <= 0.005) return;
-    add(l.kind + 'delta', l.id, l.name + ' — extra work',
+    add(l.kind + 'delta', l.id,
+        l.name + ' \u2014 ' + variationDeltaDescription(l.kind, l.obj),
         (l.raw + l.raw * sPct + Math.max(0, l.spray) * spPct) * varMk,
         variationStatusOf(l.obj));
   });
@@ -17937,7 +18032,7 @@ function buildFinalInvoiceModel() {
   variationDeltaScan(job).forEach(function(l, i) {
     if (!l.classified || l.raw <= 0.005) return;
     if (l.status !== 'declined') { varRaw += l.raw; varSpray += Math.max(0, l.spray); }
-    variations.push({ id: 'vd' + i, desc: 'Variation: ' + l.name + ' — extra work',
+    variations.push({ id: 'vd' + i, desc: 'Variation: ' + l.name + ' \u2014 ' + variationDeltaDescription(l.kind, l.obj),
                       amount: l.raw * varMk, dropped: l.status === 'declined',
                       signoff: l.status, note: l.obj.variationApprovalNote || '' });
   });
@@ -24383,7 +24478,7 @@ function carryVariationState(prev, next) {
   if (!prev || !next) return next;
   ['variationBaseline', 'variationDelta', 'variationBaselineCorrectedAt',
    'variationStatus', 'variationApprovedAt', 'variationApprovalNote',
-   'variationApprovedRaw'
+   'variationApprovedRaw', 'variationDeltaNote'
   ].forEach(function(k) {
     if (prev[k] !== undefined) next[k] = prev[k];
   });
