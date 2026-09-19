@@ -8733,6 +8733,41 @@ function clearVariationBaselines(job) {
   persistJobData(job);
 }
 
+// The raw (pre-markup) labour behind one variation line, whichever kind it is.
+// Stamped at sign-off so a figure that moves AFTERWARDS can be spotted: a
+// delta is live by design, so approving £48 of radiators and then adding a
+// fourth one silently changes what the client said yes to. Whole-item
+// variations have always had the same hole -- edit an approved variation room
+// and its price moves under its own tick -- so this covers both.
+function variationRawOf(kind, obj) {
+  if (!obj) return null;
+  var carrier = String(kind).replace(/delta$/, '');
+  if (carrier === 'free') return null; // typed figure; changing it is explicit
+  if (/delta$/.test(kind)) {
+    var d = variationDeltaOf(carrier, obj);
+    return d ? d.raw : 0;
+  }
+  var c = carrierCalc(carrier, obj);
+  return c ? c.total : 0;
+}
+
+// Has this line's price moved since the client agreed it? Deliberately reports
+// rather than auto-resets: flipping an approved line back to Pending on its own
+// would discard the client's answer without anybody seeing it, and sign-off in
+// this app is always a deliberate act (the Xero poll follows the same
+// prompt-don't-flip rule). The server agrees -- the publish upsert carries
+// WHERE status = 'pending', so an answered line's amount is never overwritten
+// underneath the client either.
+function variationSignoffDrift(kind, obj) {
+  if (!obj || variationStatusOf(obj) !== 'approved') return null;
+  if (obj.variationApprovedRaw == null) return null;
+  var now = variationRawOf(kind, obj);
+  if (now == null) return null;
+  var was = +obj.variationApprovedRaw || 0;
+  if (Math.abs(now - was) <= 0.005) return null;
+  return { was: was, now: now };
+}
+
 // The version of a carrier that ORIGINAL SCOPE prices. A carrier whose growth
 // above its baseline has been classified as extra work is original scope AT ITS
 // BASELINE: the extra prices separately as a variation line, so pricing the
@@ -9002,7 +9037,17 @@ function variationSignoffHtml(kind, id, status, approvedAt, note) {
   var arg = '\''+kind+'\',\''+id+'\'';
   if (status === 'approved') {
     var when = approvedAt ? new Date(approvedAt).toLocaleDateString('en-GB', { day:'numeric', month:'short' }) : '';
+    // A variation's price is LIVE -- a delta re-prices when its room is edited
+    // again, and a flagged room re-prices when anything on it changes. So an
+    // approved figure can quietly stop being the figure the client agreed to.
+    // Said out loud rather than auto-reset: discarding a client's answer
+    // without anybody seeing it would be worse than showing the discrepancy
+    // and letting the person who spoke to them decide.
+    var t = findVariationEntry(kind, id);
+    var moved = t ? variationSignoffDrift(kind, t.obj) : null;
+    var mk = variationMarkupMult();
     return '<small style="display:block;font-weight:600;color:var(--success);margin-top:3px;cursor:pointer" onclick="event.stopPropagation();resetVariationStatus('+arg+')" title="Tap to move back to Pending">✓ Approved by client'+(when?' · '+when:'')+'</small>'+
+      (moved ? '<small style="display:block;font-weight:600;color:var(--warn,#f39c12);margin-top:2px">⚠ Changed since sign-off — '+fmt(moved.was*mk)+' agreed, '+fmt(moved.now*mk)+' now</small>' : '')+
       (note ? '<small style="display:block;font-weight:400;color:var(--text2);margin-top:1px">“'+escapeHtml(note)+'”</small>' : '');
   }
   if (status === 'declined') {
@@ -9059,6 +9104,8 @@ function approveVariation(kind, id) {
   t.obj.variationStatus = 'approved';
   t.obj.variationApprovedAt = new Date().toISOString();
   t.obj.variationApprovalNote = note.trim();
+  // What was agreed, so a later edit that moves the figure can be spotted.
+  t.obj.variationApprovedRaw = variationRawOf(kind, t.obj);
   t.save();
   refreshAfterVariationStatusChange();
 }
@@ -9076,6 +9123,7 @@ function resetVariationStatus(kind, id) {
   t.obj.variationStatus = 'pending';
   t.obj.variationApprovedAt = null;
   t.obj.variationApprovalNote = '';
+  t.obj.variationApprovedRaw = null;
   t.save();
   refreshAfterVariationStatusChange();
 }
@@ -9412,6 +9460,19 @@ function buildClientVariationLines() {
   fittedUnitList(job).forEach(function(f) {
     if (f.isVariation) measured('fittedunit', f.id, fittedUnitName(f), calcFittedUnit(f), f);
   });
+  // Extra work inside an already-measured carrier (VARIATIONS_SPEC.md Part 2),
+  // published under its OWN source kind. job_variations is unique on
+  // (job_id, source_kind, source_id), so a delta sharing 'room' with a
+  // whole-room variation on the same carrier would collide and one would
+  // silently overwrite the other. Unclassified deltas are not published --
+  // nobody has said they are extra work, so there is nothing to ask a client
+  // to approve.
+  variationDeltaScan(job).forEach(function(l) {
+    if (!l.classified || l.raw <= 0.005) return;
+    add(l.kind + 'delta', l.id, l.name + ' — extra work',
+        (l.raw + l.raw * sPct + Math.max(0, l.spray) * spPct) * varMk,
+        variationStatusOf(l.obj));
+  });
   // Free lines price the same way they do everywhere else: 'hours' from the
   // raw hourly rate with sundries and markup on top, 'flat' verbatim (the
   // typed figure IS the agreed price — marking it up would change the number
@@ -9467,9 +9528,15 @@ function adoptClientVariationAnswers(jobId) {
     t.obj.variationStatus = cv.status;
     t.obj.variationApprovedAt = cv.status === 'approved' ? (cv.approvedAt || new Date().toISOString()) : null;
     t.obj.variationApprovalNote = cv.status === 'approved' ? 'Approved by the client on the shared link' : '';
+    t.obj.variationApprovedRaw = cv.status === 'approved' ? variationRawOf(cv.kind, t.obj) : null;
     adopted++;
-    if (cv.kind === 'room') savedRooms = true;
-    else if (cv.kind === 'ext') savedExt = true;
+    // 'roomdelta' saves through the rooms collection like 'room' does -- the
+    // answer lands on the same carrier (findVariationEntry strips the suffix),
+    // so it has to be persisted by the same path or the client's yes is lost
+    // on the next load.
+    var carrier = String(cv.kind).replace(/delta$/, '');
+    if (carrier === 'room') savedRooms = true;
+    else if (carrier === 'ext') savedExt = true;
   });
   if (!adopted) return 0;
   if (savedRooms) saveRooms();
@@ -22793,7 +22860,8 @@ function editRoom(id) {
 function carryVariationState(prev, next) {
   if (!prev || !next) return next;
   ['variationBaseline', 'variationDelta', 'variationBaselineCorrectedAt',
-   'variationStatus', 'variationApprovedAt', 'variationApprovalNote'
+   'variationStatus', 'variationApprovedAt', 'variationApprovalNote',
+   'variationApprovedRaw'
   ].forEach(function(k) {
     if (prev[k] !== undefined) next[k] = prev[k];
   });
