@@ -87,7 +87,7 @@ who was there knows what was agreed. That is a deliberate relaxation of the Xero
 poll's prompt-don't-flip rule, valid only because an Approve on this page is per-line
 and unambiguous where a whole-quote ACCEPTED is not.
 
-**Addendum 2026-09-19 (BUILT, v2.70.0): extra work added INSIDE an
+**Addendum 2026-09-19 (BUILT, v2.71.0): extra work added INSIDE an
 already-measured room.** The flag is per-carrier, never per-field, so radiators typed
 into an accepted job's existing room produce no variation, no chip and no money — the
 work gets done and never billed. Part 2 at the end of this file specs the fix: a frozen
@@ -270,7 +270,7 @@ effect: the money was never missing, just unreadable — worth remembering next 
 
 # Part 2 — Extra work inside an already-measured room
 
-**Status: BUILT 2026-09-19 (v2.70.0), all five build-order items.** Held by
+**Status: BUILT 2026-09-19 (v2.71.0), all five build-order items.** Held by
 `npm run test:room-variations` (38 assertions against the real app in a real
 browser), which pins the two properties easiest to break by accident: a rate
 change must not look like extra work, and the agreed figure must not move

@@ -51,8 +51,9 @@ function check(description, fn) {
   check('a table short of the seed is topped up', () =>
     (r1.ranSeed && r1.inserted === SEED.length - old.length) ||
     `ranSeed=${r1.ranSeed} inserted=${r1.inserted}, expected ${SEED.length - old.length}`);
+  const newBrandRows = SEED.filter(c => c.brand === 'Lick' || c.brand === 'COAT').length;
   check('and the rows added are exactly the new brands', () =>
-    short.inserts === 262 || `inserted ${short.inserts}, expected 262`);
+    short.inserts === newBrandRows || `inserted ${short.inserts}, expected ${newBrandRows}`);
 
   // The normal case: a complete table costs one query and nothing else.
   const full = fakeDb(SEED);
@@ -99,7 +100,36 @@ function check(description, fn) {
     SEED.every(c => c.name && c.brand && typeof c.code === 'string') || 'malformed row(s)');
   check('Lick and COAT are actually in the seed', () => {
     const n = b => SEED.filter(c => c.brand === b).length;
-    return (n('Lick') === 136 && n('COAT') === 126) || `Lick=${n('Lick')} COAT=${n('COAT')}`;
+    return (n('Lick') === 100 && n('COAT') === 126) || `Lick=${n('Lick')} COAT=${n('COAT')}`;
+  });
+
+  // Lick's range is NOT contiguous -- Beige runs 01,02,03,09,10 and stops, Grey
+  // skips 05 and 09-13. v2.69.0 guessed contiguous ranges and invented 36
+  // colours that don't exist. This pins the range to the chart so it can't
+  // drift back to a guess.
+  const lick = SEED.filter(c => c.brand === 'Lick').map(c => c.name);
+  const EXPECTED_LICK = {
+    Beige: [1,2,3,9,10], Black: [1,2], Blue: [1,2,3,4,5,6,7,8,9,10,11,13,14,15,17,18,19],
+    Brown: [2], Green: [1,2,3,4,5,6,7,8,9,13,14,18,19,20], Greige: [1,2,3],
+    Grey: [1,2,3,4,6,7,8,14,15,16,17,18], Orange: [1,2,3,4,5],
+    Pink: [1,2,3,4,5,7,8,9,12,13], Purple: [1,3,5,6], Red: [1,2,3,6],
+    Taupe: [2,3,5], Teal: [1,2,3,4,5,6], White: [1,2,3,4,5,6,7], Yellow: [1,2,3,5,6,7,8]
+  };
+  const expected = [];
+  for (const [fam, nums] of Object.entries(EXPECTED_LICK))
+    for (const n of nums) expected.push(fam + ' ' + String(n).padStart(2, '0'));
+  // A Soho House colour carries the collaboration name after its number.
+  const baseOf = n => n.replace(/ (Soho Farmhouse|Soho Warehouse|Amsterdam House|Nashville House)$/, '');
+  const got = lick.map(baseOf).sort();
+  check('the Lick range matches the chart exactly — no invented numbers', () => {
+    const missing = expected.filter(e => !got.includes(e));
+    const extra = got.filter(g => !expected.includes(g));
+    return (!missing.length && !extra.length) || `missing: ${missing.join(', ')} | extra: ${extra.join(', ')}`;
+  });
+  check('the four Lick x Soho House colours keep their collaboration name', () => {
+    const want = ['Beige 02 Soho Farmhouse', 'Greige 02 Soho Warehouse', 'Grey 08 Amsterdam House', 'Pink 13 Nashville House'];
+    const miss = want.filter(w => !lick.includes(w));
+    return !miss.length || `missing: ${miss.join(', ')}`;
   });
 
   console.log(failed ? '\n' + failed + ' check(s) FAILED' : '\nAll checks passed.');

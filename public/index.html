@@ -17918,6 +17918,10 @@ function addColour() {
   ensureDefaultColour();
   var label = (prompt('Colour name') || '').trim();
   if (!label) return;
+  if (colourTextIsBareBrand(label)) {
+    alert(label + ' is a brand, not a colour.\n\nAdd one of its colours by name — the field on a room or on this tab autocompletes them.');
+    return;
+  }
   var matches = colourLibrary.filter(function(l){ return l.name.toLowerCase() === label.toLowerCase(); });
   var match = matches.length === 1 ? matches[0] : null;
   var existing = colours.find(function(c){ return c.label && c.label.toLowerCase() === label.toLowerCase(); });
@@ -18023,6 +18027,48 @@ function commitColourSlot(slot, label, brand, code) {
 // name, first-match-wins would put a confidently wrong code in front of the
 // merchant; a blank brand chip reads as "unresolved" and is the safer
 // failure. Picking from the dropdown resolves it explicitly.
+// Typing a BRAND is now a useful thing to do -- the dropdown searches brand
+// since v2.69.1, so "lick" is how you browse what Lick does. But the field
+// commits whatever it holds when it loses focus, so browsing and then tapping
+// elsewhere left the job carrying a colour literally called "Lick": a colour
+// no merchant can mix, on the quote, in the buy list, with a tin against it.
+//
+// Three things beat the brand reading, in order, because each is a real
+// intention the brand test would otherwise swallow:
+//   · a library colour actually CALLED this -- if a brand ever names a colour
+//     after itself, the colour wins;
+//   · a colour already on this job -- typing an existing name JOINS it
+//     (applyAreaColourName), which is the documented way to share a tin;
+//   · anything else that isn't exactly a brand name.
+// Only a bare, exact brand name and nothing else is declined.
+function colourTextIsBareBrand(label) {
+  var q = String(label == null ? '' : label).trim().toLowerCase();
+  if (!q) return false;
+  if (colourLibrary.some(function(c){ return c.name.toLowerCase() === q; })) return false;
+  if (colours.some(function(c){ return c.label && c.label.toLowerCase() === q; })) return false;
+  return colourLibrary.some(function(c){ return (c.brand || '').toLowerCase() === q; });
+}
+
+// Says why the typed text didn't take, under the field it was typed in, and
+// puts the field back to the colour the area actually holds. defaultValue is
+// the value attribute colourSlotHtml rendered, i.e. the committed label -- so
+// the revert needs no extra plumbing and is right for an empty slot too.
+function rejectBareBrand(slot, label) {
+  var input = document.getElementById('c-label-' + slot);
+  if (input) input.value = input.defaultValue || '';
+  var dd = document.getElementById('colour-dd-' + slot);
+  if (!dd) return;
+  dd.innerHTML = '<div style="padding:10px 12px;font-size:13px;color:var(--text2)">'
+    + '<strong style="color:var(--text)">' + escapeHtml(label) + '</strong> is a brand, not a colour — '
+    + 'type a bit more, or tap one of its colours from the list.</div>';
+  dd.classList.add('open');
+  setTimeout(function(){
+    // Only close what this message opened: the field may have been picked up
+    // again in the meantime, in which case the dropdown is showing matches.
+    if (dd.innerHTML.indexOf('is a brand, not a colour') !== -1) hideColourDropdown(slot);
+  }, 3000);
+}
+
 function commitColourSlotText(slot, label) {
   // Only stand down while this slot's dropdown/save-form is actually OPEN.
   // Guarding on colourDropdownFor alone (which is set on focus) swallowed
@@ -18031,6 +18077,7 @@ function commitColourSlotText(slot, label) {
   var dd = document.getElementById('colour-dd-' + slot);
   if (colourDropdownFor === slot && dd && dd.classList.contains('open')) return;
   label = String(label == null ? '' : label).trim();
+  if (colourTextIsBareBrand(label)) { rejectBareBrand(slot, label); return; }
   var matches = colourLibrary.filter(function(l){ return l.name.toLowerCase() === label.toLowerCase(); });
   var match = matches.length === 1 ? matches[0] : null;
   commitColourSlot(slot, label, match ? match.brand : '', match ? match.code : '');
