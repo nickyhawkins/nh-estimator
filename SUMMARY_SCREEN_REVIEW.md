@@ -93,20 +93,29 @@ un-grouped information.
 
 ### 2d. Three money models where the code already knows there should be one
 
-Summary still branches three ways — `frozenQuote`, `honouredLabour != null`, and
-`acceptedSnapshot.importedFromXero` — for the hero label, the Labour stat, the quote
-total and the imported baseline. But **the snapshot already represents all three**:
-`labour.mode` carries `honoured`, and `lines.imported` carries the Xero baseline, both of
-which `frozenQuoteCardHtml()` renders correctly.
-
-The final invoice worked this out already. Its comment at `public/index.html:15671`:
+Summary computes three money models on every render — `quoteTotal` via
+`honouredLabour`, `importedBaseline` via `acceptedSnapshot.importedFromXero`, and the
+frozen figures — where the snapshot already represents all three: `labour.mode` carries
+`honoured` and `lines.imported` carries the Xero baseline, both of which
+`frozenQuoteCardHtml()` renders correctly. The final invoice made exactly this
+observation about its own copies at `public/index.html:15671`:
 
 > *"Both branches below are already answered by the snapshot when one applies… Left to
 > run they would push a SECOND copy of money the frozen lines already carry."*
 
-Summary has not had that pass. On a frozen job the honoured/imported branches are mostly
-dead weight — kept alive, read on every render, and each one a place a future change has
-to be remembered in three times.
+**Correction to an earlier draft of this document**, which claimed Summary had never had
+that pass and that its honoured/imported branches were dead weight on the frozen path.
+Checked against the code, that is not true: every display site is already written
+`frozenQuote ? <from snapshot> : <honoured or live>`, so on a frozen job the other two
+branches are unreachable, not merely redundant. The guardrail in
+`scripts/check-snapshot-guardrails.js` is what keeps them that way.
+
+What is real is narrower, and it is a consequence of §3 rather than a finding of its own:
+those three models are computed for, and only reach the screen through, the **live**
+figures. Once the live money comes off an accepted Summary they are no longer read there
+at all, and the ternaries guarding them collapse on their own. So this is not a separate
+change — it falls out of §4b, and is listed here only so the branching is not mistaken
+for something still needing its own pass.
 
 ### 2e. Smaller things worth fixing regardless of the redesign
 
@@ -220,12 +229,14 @@ explain the lock. With amending now a screen of its own, they belong there or in
 job's settings. Three cards of inert chrome leave the money column entirely, and
 `acceptedPricingLockHtml` plus its unlock variant are deleted rather than relocated.
 
-### 4d. Collapse the three money models to one
+### 4d. The three money models collapse on their own
 
-Unchanged from §2d, and now easier: on a frozen job, read the snapshot and stop. Delete
-the `honouredLabour` and `importedFromXero` branches from the frozen render path exactly
-as the final invoice already did at `public/index.html:15671`. They stay live for jobs
-with no snapshot, which is the only place they are still load-bearing.
+Per the correction in §2d: the frozen render path already reads the snapshot and nothing
+else, so there is no separate deletion to make here. Removing the live money (§4b) is
+what retires `quoteTotal`, `internalEstimate` and `importedBaseline` from an accepted
+job's screen; they stay exactly as they are for jobs still being quoted and for accepted
+jobs with no snapshot, which is where they remain load-bearing. The ternaries that
+currently pick between the three are simplified in the same change, not before it.
 
 ## 5. The one thing lost, and where it should go instead
 
@@ -255,9 +266,8 @@ one change, or they stay.
 1. **Low risk, anytime, independent of the rest** — drift line matching by stored key
    (§2e); move the "Labour agreed in a pre-app Xero quote?" offer line out of the money
    column.
-2. **The snapshot collapse** (§4d) — pure de-duplication, no visual change, makes the
-   rest safe to attempt.
-3. **Drift card → amend sheet** (§4a) — self-contained, one call site, and it is what
-   makes step 4 possible without losing anything.
-4. **Strip the live money from an accepted Summary** (§4b, §4c) — captions, divider,
-   lock strip and pricing cards all in the one change.
+2. **Drift card → amend sheet** (§4a) — self-contained, one call site, and it is what
+   makes step 3 possible without losing anything.
+3. **Strip the live money from an accepted Summary** (§4b, §4c) — captions, divider,
+   lock strip and pricing cards all in the one change, with §4d's ternaries collapsing
+   inside it.

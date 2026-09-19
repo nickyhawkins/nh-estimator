@@ -216,8 +216,29 @@ async function seed(db) {
     invoice.labour.some(l => /Sundries/i.test(l.desc)), invoice.labour.map(l => l.desc).join(' | '));
 
   // ── Amend appends a revision and keeps the original ───────────────────────
-  await page.evaluate(() => { window.prompt = () => 'added the study'; window.confirm = () => true; });
-  await page.evaluate(() => amendAcceptedQuote());
+  // Amending is a SHEET now, not a prompt(). The drift card moved here from
+  // Summary with it: "why is this different from what we agreed?" is asked at
+  // the moment you are about to re-price and nowhere else, so this is the one
+  // place that has to answer it. See SUMMARY_SCREEN_REVIEW.md §4a.
+  const amendSheet = await page.evaluate(() => {
+    amendAcceptedQuote();
+    return { open: document.getElementById('schedule-sheet-backdrop').style.display === 'block',
+             html: document.getElementById('schedule-sheet').innerHTML };
+  });
+  check('amend opens a sheet rather than a bare prompt', amendSheet.open);
+  check('the amend sheet prices both revisions', /Revision 1/.test(amendSheet.html) && /Revision 2/.test(amendSheet.html));
+  check('the amend sheet attributes the difference', /difference is/.test(amendSheet.html));
+  check('the amend sheet names which lines moved', /Which lines moved/.test(amendSheet.html));
+  // The card's whole point is that it ATTRIBUTES the difference instead of
+  // blaming the Rates page by default. It has three verdicts and must always
+  // reach one of them: rates moved, nothing priced moved, or the figures were
+  // rebuilt from Xero and cannot say.
+  check('the amend sheet reaches a verdict on what moved the figure',
+    /Changed since acceptance|Nothing that prices this job has changed|rebuilt from the Xero record/.test(amendSheet.html));
+  await page.evaluate(() => {
+    document.getElementById('amend-note').value = 'added the study';
+    confirmAmendAcceptedQuote();
+  });
   await page.waitForFunction(() => window.quoteSnapshots.length === 2 && !window.quoteSnapshots[0].unsynced, null, { timeout: 15000 });
   const revs = await page.evaluate(() => quoteSnapshots.map(s => ({ v: s.version, note: s.note, total: s.data.totals.incVat })));
   check('amend created revision 2', revs.length === 2 && revs[0].v === 2 && /added the study/.test(revs[0].note));

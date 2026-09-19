@@ -6642,11 +6642,13 @@ function buildAcceptedQuoteSnapshot(job) {
   // bills all tie out exactly, forever.
   var workLines = (quoteModel.work ? quoteModel.work.rows : []).map(function(row) {
     return { description: row.label, note: row.sub || '', quantity: 1,
-             unitPrice: money(row.amount), lineTotal: money(row.amount) };
+             unitPrice: money(row.amount), lineTotal: money(row.amount),
+             sourceKey: row.key || '' };
   });
   var importedLines = (quoteModel.imported ? quoteModel.imported.rows : []).map(function(row) {
     return { description: row.label, note: row.sub || '', quantity: 1,
-             unitPrice: money(row.amount), lineTotal: money(row.amount) };
+             unitPrice: money(row.amount), lineTotal: money(row.amount),
+             sourceKey: row.key || '' };
   });
   // Consolidated through the same function the printed quote uses, so the
   // frozen flat lines and the frozen document can't describe the same
@@ -6894,6 +6896,14 @@ function flushPendingSnapshots() {
 // result as the next revision, leaving every earlier one exactly as written
 // and viewable. Client-facing views then show the latest, which is what
 // "the agreed quote" now means.
+// Amending is where "why is this different from what we agreed?" is actually
+// asked -- it is the one moment the answer changes what you do next. So the
+// drift card lives here rather than on Summary, where it used to sit
+// unprompted beside the agreed total it was most likely to be mistaken for.
+//
+// A sheet rather than a prompt(): a bare "was X, now Y, what changed?" told
+// you a figure had moved and left you to find out why on your own, which is
+// the whole gap quoteDriftCardHtml() was written to close.
 function amendAcceptedQuote() {
   var job = activeJob();
   if (!job) return;
@@ -6902,23 +6912,62 @@ function amendAcceptedQuote() {
     return;
   }
   var prev = latestQuoteSnapshot(job);
-  var live = buildAcceptedQuoteSnapshot(job);
+  var live;
+  try { live = buildAcceptedQuoteSnapshot(job); } catch (e) { live = null; }
   if (!live) {
-    alert('There’s nothing to price on this job right now — add the amended scope on the Measure tab first.');
+    alert('There\u2019s nothing to price on this job right now \u2014 add the amended scope on the Measure tab first.');
     return;
   }
-  var was = (prev.data && prev.data.totals) ? prev.data.totals.incVat : 0;
-  var now = live.totals.incVat;
+  var was = (prev.data && prev.data.totals) ? +prev.data.totals.incVat || 0 : 0;
+  var now = +live.totals.incVat || 0;
   var delta = now - was;
-  var note = prompt('Amend the accepted quote?\n\n'
-    + 'Revision ' + prev.version + ': ' + fmt(was) + '\n'
-    + 'Revision ' + (prev.version + 1) + ': ' + fmt(now)
-    + '  (' + (delta >= 0 ? '+' : '−') + fmt(Math.abs(delta)) + ')\n\n'
-    + 'Revision ' + prev.version + ' is kept in full and stays viewable.\n'
-    + 'What changed?', '');
-  if (note === null) return;
-  captureQuoteSnapshot(job, 'amended' + (note.trim() ? ': ' + note.trim() : ''));
-  toast('Amended — now on revision ' + (prev.version + 1));
+  var moved = Math.abs(delta) > 0.005;
+  var btn = 'border:none;border-radius:var(--rs);padding:12px 16px;font-size:14px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer';
+
+  openScheduleSheet(
+    '<div class="card">' +
+      '<div class="card-header">Amend the accepted quote</div>' +
+      '<div class="breakdown-row"><span class="breakdown-label">Revision ' + prev.version +
+        '<small style="display:block;font-weight:400;color:var(--text2)">' + escapeHtml(snapshotDateLabel(prev) || 'agreed') + '</small></span>' +
+        '<span class="breakdown-value">' + fmt(was) + '</span></div>' +
+      '<div class="breakdown-row"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Revision ' + (prev.version + 1) +
+        '<small style="display:block;font-weight:400;color:var(--text2)">priced now</small></span>' +
+        '<span class="breakdown-value" style="color:var(--accent);font-weight:700">' + fmt(now) +
+        (moved ? ' <small style="font-weight:600">(' + (delta > 0 ? '+' : '\u2212') + fmt(Math.abs(delta)) + ')</small>' : '') + '</span></div>' +
+      (moved ? '' :
+        '<div style="padding:10px 16px;font-size:12px;line-height:1.5;color:var(--text2);border-top:1px solid var(--border)">' +
+        'This job prices exactly as it was agreed \u2014 nothing has moved. Amending would append an identical revision.</div>') +
+    '</div>' +
+    // Only renders when there IS a difference; it returns '' otherwise, which
+    // is why the "nothing has moved" line above is the card's own job.
+    quoteDriftCardHtml(job, live) +
+    '<div class="card" style="margin-top:16px">' +
+      '<div class="field-row"><div class="field-label">What changed?<small>goes on the revision, and is what History shows</small></div></div>' +
+      '<div style="padding:0 16px 12px">' +
+        '<input type="text" class="field-input" id="amend-note" style="width:100%;box-sizing:border-box" placeholder="e.g. added the study" autocorrect="off"></div>' +
+      '<div style="padding:0 16px 16px;display:flex;gap:10px">' +
+        '<button onclick="closeScheduleSheet()" style="' + btn + ';background:var(--surface2);color:var(--text);flex:1">Cancel</button>' +
+        '<button onclick="confirmAmendAcceptedQuote()" style="' + btn + ';background:var(--accent);color:white;flex:2">Amend \u2192 revision ' + (prev.version + 1) + '</button>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+// The write half. Deliberately re-reads the job and the latest revision rather
+// than closing over the ones the sheet was opened with: a sheet can sit open
+// while an inward Xero sync appends a revision underneath it, and appending
+// the next version from a stale number is how two revisions end up claiming
+// to be the same one.
+function confirmAmendAcceptedQuote() {
+  var job = activeJob();
+  if (!job) return;
+  var prev = latestQuoteSnapshot(job);
+  if (!prev) { closeScheduleSheet(); return; }
+  var noteEl = document.getElementById('amend-note');
+  var note = ((noteEl && noteEl.value) || '').trim();
+  closeScheduleSheet();
+  captureQuoteSnapshot(job, 'amended' + (note ? ': ' + note : ''));
+  toast('Amended \u2014 now on revision ' + (prev.version + 1));
   renderSummary();
 }
 
@@ -7101,18 +7150,40 @@ function ratesDriftSince(snap) {
 // a diagnostic, not a figure anyone is billed from, and a renamed room
 // showing up as one line gone and one line added is a true and useful
 // statement of what happened.
-function quoteLineDrift(job, snap) {
-  var live;
-  try { live = buildAcceptedQuoteSnapshot(job); } catch (e) { return null; }
+// liveSnap: the result of buildAcceptedQuoteSnapshot(job) -- the same job
+// priced now. Passed in rather than rebuilt here so one amend preview runs the
+// whole calc pipeline ONCE, and so the line comparison and the totals
+// comparison beside it can never be built from two different runs of it.
+function quoteLineDrift(job, snap, liveSnap) {
+  var live = liveSnap;
+  if (!live) { try { live = buildAcceptedQuoteSnapshot(job); } catch (e) { return null; } }
   if (!live) return null;
+  // Pair a "was" row with the "now" row for the SAME THING. sourceKey
+  // ('room:<id>') is the reliable answer; description is what this did until
+  // now, which meant renaming a room after acceptance reported its full value
+  // twice -- once as gone, once as new -- and sorted both to the top of a list
+  // whose entire job is to name what moved.
+  //
+  // Keys are only used when BOTH sides have them. A snapshot taken before keys
+  // were stored (and every snapshot the Xero reconciliation migration rebuilt)
+  // has none, and matching a keyless "was" against a keyed "now" by key would
+  // report the whole quote as replaced -- far worse than the rename it fixes.
+  // Those fall back to the original description match, unchanged.
   var diff = function(wasRows, nowRows) {
     wasRows = wasRows || []; nowRows = nowRows || [];
     var out = [], pool = nowRows.map(function(r) { return { row: r, taken: false }; });
-    wasRows.forEach(function(w) {
-      var hit = null;
+    var keyed = function(rows) { return rows.length > 0 && rows.every(function(r) { return !!r.sourceKey; }); };
+    var useKeys = keyed(wasRows) && keyed(nowRows);
+    var claim = function(match) {
       for (var i = 0; i < pool.length; i++) {
-        if (!pool[i].taken && (pool[i].row.description || '') === (w.description || '')) { hit = pool[i]; hit.taken = true; break; }
+        if (!pool[i].taken && match(pool[i].row)) { pool[i].taken = true; return pool[i]; }
       }
+      return null;
+    };
+    wasRows.forEach(function(w) {
+      var hit = useKeys
+        ? claim(function(r) { return r.sourceKey === w.sourceKey; })
+        : claim(function(r) { return (r.description || '') === (w.description || ''); });
       var wasAmt = Math.round((+w.lineTotal || 0) * 100) / 100;
       if (!hit) { out.push({ label: w.description || '', was: wasAmt, now: null, kind: 'gone' }); return; }
       var nowAmt = Math.round((+hit.row.lineTotal || 0) * 100) / 100;
@@ -7139,10 +7210,21 @@ function quoteLineDrift(job, snap) {
 // live: { total, materials, baseline } from renderSummary's own figures. The
 // labour side is derived as total − materials − baseline rather than read from
 // plan, so it cannot disagree with how the total is actually composed.
-function quoteDriftCardHtml(job, live) {
+function quoteDriftCardHtml(job, liveSnap) {
   var snap = latestQuoteSnapshot(job);
   if (!snap || !snap.data) return '';
+  if (!liveSnap || !liveSnap.totals) return '';
   var t = snap.data.totals || {};
+  // Both sides of every row below now come from buildAcceptedQuoteSnapshot():
+  // the agreed side from the stored one, the live side from a fresh one. They
+  // were previously compared against an object renderSummary assembled by hand
+  // from its own working, which meant this card could in principle describe a
+  // total composed slightly differently from the one an amend would actually
+  // write. One builder, both sides, no room for that.
+  var lt = liveSnap.totals;
+  var live = { total: +lt.incVat || 0, materials: +lt.materials || 0,
+               baseline: +lt.importedBaseline || 0,
+               pool: (+lt.upchargeTotal || 0) + (+lt.roundingDelta || 0) };
   var agreed = +frozenQuoteTotal(job) || 0;
   var delta = live.total - agreed;
   if (Math.abs(delta) <= 0.005) return '';
@@ -7202,7 +7284,7 @@ function quoteDriftCardHtml(job, live) {
   // The lines that moved. Without these the card stops one question short:
   // "labour is £25.39 more" still leaves you opening rooms one at a time.
   var lineRows = '';
-  var drift = quoteLineDrift(job, snap);
+  var drift = quoteLineDrift(job, snap, liveSnap);
   if (drift) {
     // Biggest mover first. Every line shifts a little when the total does --
     // the markup and the adjustment pool are spread proportionally across
@@ -7251,7 +7333,7 @@ function quoteDriftCardHtml(job, live) {
         : '')
     + lineRows
     + '<div style="padding:10px 16px;font-size:12px;line-height:1.5;color:var(--text2);border-top:1px solid var(--border)">' + ratesLine + '</div>'
-    + '<div style="padding:0 16px 12px;font-size:12px;line-height:1.5;color:var(--text2)">Nothing here changes what was agreed. Use <strong>Amend</strong> above if today’s figure is the one that should stand.</div>'
+    + '<div style="padding:0 16px 12px;font-size:12px;line-height:1.5;color:var(--text2)">Amending replaces the agreed figures with the ones on the right. Revision ' + snap.version + ' is kept in full either way, and stays readable from History.</div>'
     + '</div>';
 }
 
@@ -9341,6 +9423,15 @@ function xeroImportedSectionHtml(job) {
   if (xeroImportedCardApplies(job) || (job && job.id === xeroImportedRevealJobId)) {
     return xeroImportedCardHtml(job);
   }
+  // The offer line, for the job this has never applied to. It asks a question
+  // about how a job is PRICED, which is a live decision on a job still being
+  // quoted and a settled fact on one already agreed -- so on a frozen job it
+  // is not offered at all. It used to render on every ordinary job forever,
+  // in the middle of the money column, as a standing invitation to answer a
+  // question almost no job ever asks. Jobs this genuinely applies to are
+  // caught by xeroImportedCardApplies() above and still get the full card,
+  // accepted or not.
+  if (jobQuoteIsFrozen(job)) return '';
   return '<div onclick="revealXeroImportedCard()" style="text-align:center;font-size:12px;color:var(--text2);font-weight:600;cursor:pointer;text-decoration:underline;padding:16px 16px 0">Labour agreed in a pre-app Xero quote?</div>';
 }
 
@@ -23724,11 +23815,6 @@ function renderSummary() {
       '<div class="stat-card"><div class="stat-label">On Site</div><div class="stat-value bl">'+fmtD(onSiteDays)+'</div>'+
         '<small style="display:block;font-weight:400;color:var(--text2);margin-top:2px">'+ttAll.toFixed(1)+'d working'+(hasVariations ? ' incl. variations' : '')+'</small></div>'+
     '</div>'+
-    // Why the two figures differ, attributed rather than guessed at. Sits
-    // directly under the aside that raises the question, and renders only
-    // when there is a difference to explain.
-    (frozenQuote ? quoteDriftCardHtml(statusJob, { total: quoteTotal, materials: materialsTotal,
-        baseline: importedBaseline, pool: plan.adjustmentPool }) : '')+
     // Job-level toggles, in one group: Imported from Xero sits with
     // Commercial/Standalone because it's the same kind of flag on the same
     // job record. Unlike those two it changes NO pricing at all — only which
@@ -24291,12 +24377,12 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
     tcS += c.total; ttS += c.time; sprayS += c.sprayLabour || 0;
     // scope: the short surface note for this room's line on the client's
     // copy, which showed a name and a price and nothing else.
-    return { name: r.name, emoji: r.emoji || '', raw: c.total, scope: roomScopeShort(r) };
+    return { name: r.name, emoji: r.emoji || '', raw: c.total, scope: roomScopeShort(r), key: 'room:' + r.id };
   });
   var extLines = quoteExtItems.map(function(it) {
     var c = calcExtItem(it);
     tcS += c.total; ttS += c.time; sprayS += c.sprayLabour || 0;
-    return { name: it.label || 'Exterior', emoji: '🏡', raw: c.total, scope: extScopeShort(it) };
+    return { name: it.label || 'Exterior', emoji: '🏡', raw: c.total, scope: extScopeShort(it), key: 'ext:' + it.id };
   });
   if (kitchenCalc.total > 0.005) {
     tcS += kitchenCalc.total; ttS += kitchenCalc.time;
@@ -24332,12 +24418,22 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
   // stated % of labour, and materials are real Xero sell prices: quietly
   // moving any of those would make a figure the client can check stop
   // adding up.
+  //
+  // `key` identifies WHICH thing a row is about ('room:<id>'), and exists for
+  // one purpose: comparing two snapshots of the same job to each other. It is
+  // never resolved against live data -- nothing looks a room up by it -- so
+  // the self-contained rule (ACCEPTED_SNAPSHOT_SPEC.md 1.3) still holds: a
+  // snapshot whose rooms have all been deleted renders exactly as before,
+  // because the key is only ever compared with another key. Matching by
+  // DESCRIPTION, which is what the drift card did until now, reports a renamed
+  // room as its whole value gone plus its whole value added -- the two biggest
+  // movers on a screen whose job is to say what moved.
   var workRows = [];
   roomLines.forEach(function(l) {
-    workRows.push({ emoji: l.emoji || '', label: l.name, sub: l.scope || '', amount: l.raw * lineMult, labour: true });
+    workRows.push({ emoji: l.emoji || '', label: l.name, sub: l.scope || '', amount: l.raw * lineMult, labour: true, key: l.key });
   });
   extLines.forEach(function(l) {
-    workRows.push({ emoji: l.emoji || '', label: l.name, sub: l.scope || 'exterior', amount: l.raw * lineMult, labour: true });
+    workRows.push({ emoji: l.emoji || '', label: l.name, sub: l.scope || 'exterior', amount: l.raw * lineMult, labour: true, key: l.key });
   });
   if (kitchenCalc.total > 0.005) {
     // The sub line is the client's scope note: outside-faces-only is
@@ -24345,12 +24441,12 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
     // in the price.
     workRows.push({ emoji: '🍳', label: 'Kitchen Cabinet Spraying',
                     sub: kitchenCalc.singleSide ? 'outside faces only' : '',
-                    amount: kitchenCalc.total * lineMult, labour: true });
+                    amount: kitchenCalc.total * lineMult, labour: true, key: 'kitchen:kitchen' });
   }
   // One named line per fitted unit (v2.20.0) so multiple units in the
   // same room read apart on the client's copy.
   fuQuoteAgg.units.forEach(function(e) {
-    if (e.calc.total > 0.005) workRows.push({ emoji: '📚', label: fittedUnitName(e.unit), sub: '', amount: e.calc.total * lineMult, labour: true });
+    if (e.calc.total > 0.005) workRows.push({ emoji: '📚', label: fittedUnitName(e.unit), sub: '', amount: e.calc.total * lineMult, labour: true, key: 'fittedunit:' + e.unit.id });
   });
   // Custom lines: marked ones ride the same proportional multiplier as
   // every other work line; markup-off ones print the entered price
@@ -24362,7 +24458,8 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
       emoji: '✏️',
       label: it.description || 'Custom line',
       sub: qty !== 1 ? qty + ' × ' + money(+it.unitPrice || 0) : '',
-      amount: it.applyMarkup === false ? t : t * lineMult
+      amount: it.applyMarkup === false ? t : t * lineMult,
+      key: 'custom:' + it.id
     });
   });
   // No standalone top-up line here any more: it is part of the adjustment
@@ -24370,7 +24467,7 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
   // which is the whole point — the client sees the work they asked about,
   // priced, and no line they can't account for.
   if (plan.sundries > 0.005) {
-    workRows.push({ emoji: '', label: 'Sundries & Consumables', sub: '', amount: plan.sundries * lineMult });
+    workRows.push({ emoji: '', label: 'Sundries & Consumables', sub: '', amount: plan.sundries * lineMult, key: 'sundries' });
   }
 
   // Penny-rounded here rather than at display time: these rows and the
