@@ -144,7 +144,8 @@ async function seed(db) {
     liveNow: lastSummaryTotals.estQuoteTotal,
     heroText: document.querySelector('#sum-data .hero-amount').textContent,
     heroLabel: document.querySelector('#sum-data .hero-label').textContent,
-    bodyHasDriftNote: document.getElementById('sum-data').innerHTML.includes('today’s rates')
+    body: document.getElementById('sum-data').innerHTML,
+    bodyText: document.getElementById('sum-data').innerText
   }));
   check('rate change moved the LIVE figure (so the test is real)',
     Math.abs(afterDrift.liveNow - live.estQuoteTotal) > 1, `${live.estQuoteTotal} -> ${afterDrift.liveNow}`);
@@ -153,7 +154,29 @@ async function seed(db) {
   check('Summary hero shows the AGREED total, not the live one',
     afterDrift.heroText.replace(/[^0-9.]/g, '') === agreed.toFixed(2), `hero "${afterDrift.heroText}", agreed ${agreed}`);
   check('Summary hero is labelled as the accepted quote', afterDrift.heroLabel.includes('Accepted'), afterDrift.heroLabel);
-  check('Summary discloses the live figure as an aside', afterDrift.bodyHasDriftNote);
+  // The live figure is NOT disclosed on Summary any more, and that is the
+  // point rather than an omission. Showing "the same job priced today" beside
+  // the agreed total was the DETECTOR for the silent-drift bug, from before a
+  // frozen record existed to make drift impossible. The snapshot has been that
+  // record since v2.38.0, so the display monitors a fault that can no longer
+  // happen -- while putting a rival total on the one card that states what the
+  // client owes, and needing a caption, a divider and a lock strip elsewhere
+  // to stop it being read as the answer. It moved to the amend sheet, which is
+  // the one moment the number is actionable (checked further down).
+  // See SUMMARY_SCREEN_REVIEW.md §3.
+  const liveStr = afterDrift.liveNow.toFixed(2);
+  check('Summary does NOT show the live figure beside the agreed one',
+    !afterDrift.bodyText.replace(/,/g, '').includes(liveStr), `live ${liveStr} must not appear`);
+  check('the working-figures divider is gone with it',
+    !afterDrift.body.includes('today’s rates'));
+  check('no pricing lock strip, because the controls are no longer there to lock',
+    !/Pricing controls are locked|Unlock for amending/.test(afterDrift.body));
+  check('pricing controls are absent from an accepted job',
+    !/Commercial Job|Standalone Job|Markup \/ Discount/.test(afterDrift.body));
+  check('the agreed record carries the agreed payment plan',
+    /Payment, as agreed/.test(afterDrift.body));
+  check('the agreed record carries Amend and History',
+    /Amend → revision/.test(afterDrift.body));
 
   // ── Home and Summary must never disagree ──────────────────────────────────
   // They read different sources by design: Summary the snapshot, Home the
@@ -233,6 +256,13 @@ async function seed(db) {
   // blaming the Rates page by default. It has three verdicts and must always
   // reach one of them: rates moved, nothing priced moved, or the figures were
   // rebuilt from Xero and cannot say.
+  // The three pricing controls left Summary (where they were drawn locked,
+  // beside a strip explaining the lock) and live here, where they price the
+  // revision being written and the preview above them moves with them.
+  check('the amend sheet carries the pricing controls',
+    /Commercial Job/.test(amendSheet.html) && /Standalone Job/.test(amendSheet.html) && /Markup \/ Discount/.test(amendSheet.html));
+  check('the amend sheet pricing controls are live, not locked',
+    /setJobCommercial\(/.test(amendSheet.html) && !/opacity:\.5/.test(amendSheet.html));
   check('the amend sheet reaches a verdict on what moved the figure',
     /Changed since acceptance|Nothing that prices this job has changed|rebuilt from the Xero record/.test(amendSheet.html));
   await page.evaluate(() => {

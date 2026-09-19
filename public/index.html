@@ -6920,6 +6920,18 @@ function amendAcceptedQuote() {
   }
   var was = (prev.data && prev.data.totals) ? +prev.data.totals.incVat || 0 : 0;
   var now = +live.totals.incVat || 0;
+  // The standalone rows inside the pricing controls read plan.standalone.
+  // Read straight off the live snapshot's own labour block rather than
+  // re-running computeDepositPlan() here: this file's recurring bug is a
+  // second copy of a calculation drifting from the first, and the preview
+  // above these controls is priced from exactly this object.
+  var slab = live.labour || {};
+  var plan = { standalone: {
+    on: slab.mode === 'standalone-diary-days',
+    calcDays: +slab.calculatedDays || 0,
+    diaryDays: +slab.diaryDays || 0,
+    topUp: +slab.standaloneTopUp || 0
+  } };
   var delta = now - was;
   var moved = Math.abs(delta) > 0.005;
   var btn = 'border:none;border-radius:var(--rs);padding:12px 16px;font-size:14px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer';
@@ -6941,6 +6953,13 @@ function amendAcceptedQuote() {
     // Only renders when there IS a difference; it returns '' otherwise, which
     // is why the "nothing has moved" line above is the card's own job.
     quoteDriftCardHtml(job, live) +
+    // The three pricing controls, here and nowhere else on an accepted job.
+    // They price THIS revision, and the two figures above move as they move --
+    // which is what the old lock strip on Summary was gesturing at when it
+    // said "changes price revision N+1 if you amend", beside controls that
+    // showed you nothing when you touched them.
+    '<div style="margin-top:16px;font-size:12px;color:var(--text2);padding:0 4px">How revision ' + (prev.version + 1) + ' is priced</div>' +
+    pricingControlsHtml(plan) +
     '<div class="card" style="margin-top:16px">' +
       '<div class="field-row"><div class="field-label">What changed?<small>goes on the revision, and is what History shows</small></div></div>' +
       '<div style="padding:0 16px 12px">' +
@@ -6951,6 +6970,25 @@ function amendAcceptedQuote() {
       '</div>' +
     '</div>'
   );
+}
+
+// Changing a pricing control inside the amend sheet has to re-price the
+// preview above it -- a markup that shows you nothing when you move it is what
+// the controls did on Summary, locked, for want of anywhere better to be.
+//
+// Every setter already ends in renderSummary(), so this hangs off the end of
+// that rather than being added to six of them. The half-typed note is carried
+// across by hand: a re-render would otherwise wipe it, which is this file's
+// known form-wipe class of bug (see setFreeVarMode).
+function refreshAmendSheetIfOpen() {
+  var backdrop = document.getElementById('schedule-sheet-backdrop');
+  if (!backdrop || backdrop.style.display !== 'block') return;
+  var noteEl = document.getElementById('amend-note');
+  if (!noteEl) return; // some other sheet is open (revision history, schedule)
+  var note = noteEl.value;
+  amendAcceptedQuote();
+  var again = document.getElementById('amend-note');
+  if (again) again.value = note;
 }
 
 // The write half. Deliberately re-reads the job and the latest revision rather
@@ -7048,27 +7086,24 @@ function snapshotDateLabel(snap) {
 // snapshot gets the loud version — those figures ARE drifting, and that is
 // exactly what nobody could see before.
 function acceptedQuoteBannerHtml(job) {
-  if (jobQuoteNeedsSnapshot(job)) {
-    return '<div class="card" style="margin-top:16px;border-left:4px solid var(--danger)">'
-      + '<div style="padding:12px 16px;font-size:13px;color:var(--text)">'
-      + '<strong>These figures are live, not frozen.</strong><br>'
-      + '<span style="color:var(--text2)">This job was accepted without a snapshot, so what you see below is priced at TODAY’s rates — not necessarily what the client agreed. '
-      + 'Run the Xero reconciliation migration to restore the agreed figures.</span></div></div>';
-  }
-  var snap = latestQuoteSnapshot(job);
-  if (!snap) return '';
-  var revs = quoteSnapshots.length;
-  return '<div class="card" style="margin-top:16px;border-left:4px solid var(--success)">'
+  // One banner, and only the loud one. A job accepted before snapshots shipped
+  // has no frozen record, so its figures really are being re-priced at today's
+  // rates with nothing to say so -- the original bug, still live for those
+  // jobs until the Xero reconciliation migration reaches them.
+  //
+  // The green "Agreed figures - revision N" counterpart is gone. It said three
+  // things: which revision this is, that rate changes do not move these
+  // numbers, and here is Amend/History. The first and third are on the agreed
+  // record itself now, where they act. The second no longer needs saying: it
+  // was reassurance against the live total that used to sit two cards below,
+  // and with that gone there is nothing on the screen for the agreed figures
+  // to be confused with.
+  if (!jobQuoteNeedsSnapshot(job)) return '';
+  return '<div class="card" style="margin-top:16px;border-left:4px solid var(--danger)">'
     + '<div style="padding:12px 16px;font-size:13px;color:var(--text)">'
-    + '<strong>Agreed figures — revision ' + snap.version + '</strong>'
-    + (snap.unsynced ? ' <span style="color:var(--text3)">· not yet synced</span>' : '')
-    + '<br><span style="color:var(--text2)">' + escapeHtml(snapshotLevelLabel(snap))
-    + (snapshotDateLabel(snap) ? ' · ' + escapeHtml(snapshotDateLabel(snap)) : '')
-    + '. Rate changes since then do not move these numbers.</span>'
-    + '<div style="margin-top:8px;display:flex;gap:14px;flex-wrap:wrap">'
-    + '<span onclick="amendAcceptedQuote()" style="color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline">Amend → revision ' + (snap.version + 1) + '</span>'
-    + (revs > 1 ? '<span onclick="openSnapshotHistory()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline">History (' + revs + ' revisions)</span>' : '')
-    + '</div></div></div>';
+    + '<strong>These figures are live, not frozen.</strong><br>'
+    + '<span style="color:var(--text2)">This job was accepted without a snapshot, so what you see below is priced at TODAY\u2019s rates \u2014 not necessarily what the client agreed. '
+    + 'Run the Xero reconciliation migration to restore the agreed figures.</span></div></div>';
 }
 
 // The Rates page's own label for a settings key, read off the input the page
@@ -7345,46 +7380,115 @@ function quoteDriftCardHtml(job, liveSnap) {
 // underneath reading like a breakdown of the agreed total two screens above.
 // One rule, one sentence, in the same place every time, beats a differently
 // worded hint per card.
-function workingFiguresDividerHtml() {
-  return '<div style="margin-top:22px;margin-bottom:14px;padding-top:14px;border-top:2px solid var(--border)">'
-    + '<div style="font-size:13px;line-height:1.5;color:var(--text2)">'
-    + '<strong style="color:var(--text)">Working figures — today\u2019s rates.</strong> '
-    + 'Everything below this line is the live calculation, not what the client agreed. '
-    + 'The accepted figures are at the top of this screen.</div></div>';
+// (workingFiguresDividerHtml and the acceptedPricing* lock machinery lived
+// here. Both existed to explain live figures sitting under agreed ones: the
+// divider announced where the agreed money stopped, and the lock drew three
+// pricing controls greyed out with a strip beside them saying why they could
+// not do anything. Removing the live money from an accepted Summary removed
+// the thing both were explaining. The controls' one real use -- pricing the
+// next revision -- is in the amend sheet now, unlocked, with the preview
+// above them moving as they move.)
+
+// ── The three pricing controls ─────────────────────────────────────────────
+// Commercial %, standalone diary-day rounding and markup/discount: the levers
+// that price a quote. They render on a job still being quoted, where they are
+// live decisions, and inside the amend sheet, where they price the NEXT
+// revision and the preview above them updates as they move.
+//
+// They no longer render on an accepted job's Summary. There they could not
+// move the agreed total by design, so they were drawn locked with a strip
+// beside them explaining the lock and offering an unlock -- three inert cards
+// and two paragraphs of apology for a control that had exactly one real use,
+// which was pricing an amendment. That use now has a screen of its own.
+function pricingControlsHtml(plan) {
+  return     '<div class="card" style="margin-top:16px">'+
+      '<div class="card-header">Commercial Job</div>'+
+      '<div class="toggle-row"><div class="toggle-label">Commercial job<small>Applies '+(settings.commercialPct!=null?settings.commercialPct:10)+'% before markup/discount below</small></div>'+
+        '<div class="toggle'+(activeJob()&&activeJob().commercial?' on':'')+'"'+
+        (' onclick="setJobCommercial('+(activeJob()&&activeJob().commercial?'false':'true')+')"')+'></div></div>'+
+    '</div>'+
+    // Standalone Job card -- same job-level toggle pattern and settings
+    // group as Commercial Job above; the two flags are independent (a job
+    // can be both). When on, both day figures render side by side so the
+    // calculated maths stays visible next to what's actually charged.
+    '<div class="card" style="margin-top:16px">'+
+      '<div class="card-header">Standalone Job</div>'+
+      '<div class="toggle-row"><div class="toggle-label">Standalone job<small>Charges labour for full diary days instead of calculated fractional days</small></div>'+
+        '<div class="toggle'+(activeJob()&&activeJob().standalone?' on':'')+'"'+
+        (' onclick="setJobStandalone('+(activeJob()&&activeJob().standalone?'false':'true')+')"')+'></div></div>'+
+      (plan.standalone.on?
+        '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label">Calculated labour</span>'+
+          '<span class="breakdown-value">'+plan.standalone.calcDays.toFixed(1)+' days</span></div>'+
+        '<div class="breakdown-row"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Diary days charged</span>'+
+          '<span class="breakdown-value" style="color:var(--accent)">'+(plan.standalone.diaryDays%1===0?plan.standalone.diaryDays.toFixed(0):plan.standalone.diaryDays.toFixed(1))+' days</span></div>'+
+        '<div style="padding:0 16px 12px;font-size:12px;color:var(--text2)">Standalone jobs are charged for full diary days since the remaining time can\'t be filled with other work. Rounding up to the nearest '+(settings.standaloneRounding==='half'?'half day':'full day')+' — change in Settings.</div>'
+      :'')+
+    '</div>'+
+    '<div class="card" style="margin-top:16px">'+
+      '<div class="card-header">Markup / Discount</div>'+
+      '<div class="field-row"><div class="field-label">This quote<small>'+(activeJob()&&activeJob().markupOverride!=null?'overridden, default is '+settings.mu+'%':'default, from Settings')+(activeJob()&&activeJob().commercial?' — applied after the commercial adjustment above':'')+'</small></div>'+
+        '<div style="display:flex;align-items:center;gap:10px">'+
+        (activeJob()&&activeJob().markupOverride!=null?'<div onclick="resetJobMarkup()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;text-decoration:underline">Reset</div>':'')+
+        '<div class="seg" style="width:76px'+''+'">'+
+          '<button type="button" class="seg-btn'+(effectiveMarkupType()==='percent'?' active':'')+'"'+(' onclick="setJobMarkupType(\'percent\')"')+'>%</button>'+
+          '<button type="button" class="seg-btn'+(effectiveMarkupType()==='fixed'?' active':'')+'"'+(' onclick="setJobMarkupType(\'fixed\')"')+'>£</button>'+
+        '</div>'+
+        '<input type="number" class="field-input" style="width:70px'+''+'" value="'+effectiveMarkup()+'" step="1" inputmode="'+(effectiveMarkupType()==='fixed'?'decimal':'numeric')+'"'+(' onchange="setJobMarkup(this.value)"')+'>'+
+        '</div></div>'+
+      '<div style="padding:0 16px 12px;font-size:12px;color:var(--text2)">Enter a negative number for a discount.</div>'+
+    '</div>';
 }
 
-// Commercial / Standalone / Markup on an accepted job are locked by default.
-// They cannot move the agreed total, and nudging one only to watch every
-// working figure shift while the headline stays put is exactly the confusion
-// the divider above exists to remove.
-//
-// Locked, though, and not removed: they DO still price the next revision,
-// because amendAcceptedQuote() re-runs the calc over the job's current
-// settings. So the lock opens on request and says what opening it is for. The
-// unlock is held per job id rather than as a session flag, so switching jobs
-// cannot carry it across -- there is no reset to forget to call.
-var acceptedPricingUnlockedFor = null;
-function acceptedPricingLocked(job) {
-  return jobQuoteIsFrozen(job) && acceptedPricingUnlockedFor !== (job && job.id);
-}
-function unlockAcceptedPricing() {
-  var job = activeJob();
-  if (!job) return;
-  acceptedPricingUnlockedFor = job.id;
-  renderSummary();
-}
-function acceptedPricingLockHtml(job) {
-  if (!jobQuoteIsFrozen(job)) return '';
-  var snap = latestQuoteSnapshot(job);
-  var nextRev = snap ? snap.version + 1 : 2;
-  if (!acceptedPricingLocked(job)) {
-    return '<div style="margin-top:16px;padding:10px 14px;border:1px solid var(--warn);border-radius:var(--rs);font-size:12px;line-height:1.5;color:var(--text2)">'
-      + '<strong style="color:var(--text)">Pricing controls unlocked.</strong> Changes move the working figures below and price revision '
-      + nextRev + ' if you amend. The accepted total does not move.</div>';
-  }
-  return '<div style="margin-top:16px;padding:10px 14px;background:var(--surface2);border-radius:var(--rs);font-size:12px;line-height:1.5;color:var(--text2)">'
-    + '<strong style="color:var(--text)">Pricing controls are locked.</strong> This quote was accepted \u2014 commercial, standalone and markup can\u2019t move the agreed total. '
-    + '<span onclick="unlockAcceptedPricing()" style="color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap">Unlock for amending</span></div>';
+// The Payment card as a job still being quoted shows it: a live plan that
+// moves with the quote. On an accepted job the agreed deposit and balance are
+// rows inside the agreed record instead -- frozen figures belong with the
+// other frozen figures, not in a card that also offers toggles.
+function livePaymentCardHtml(plan, deposit, depositBasis, balance, depositRequiredNow, depositShown, paymentType, paymentWeeks, weeklyRows, statusJob) {
+  return '<div class="card" style="margin-top:16px">'+
+      '<div class="card-header">Payment</div>'+
+      // Deposit required? The toggle heads this card because every figure
+      // under it moves with it: off zeroes the deposit, hands the whole
+      // total to the balance and re-splits any weekly instalments -- and
+      // that is what reaches the Xero quote's Terms text (see
+      // computeDepositPlan / buildPaymentTermsText). It changes no price.
+      //
+      // Everything below it was agreed WITH the quote -- a deposit already
+      // taken against a 25%-of-quote basis must not re-derive itself when
+      // the quote's inputs re-price -- so on a frozen job the snapshot's own
+      // figures print and the toggle is read-only alongside them. A snapshot
+      // rebuilt from a Xero total carries no payment plan (the export
+      // doesn't have one), so those read null and print as an em dash:
+      // £0.00 beside an agreed total would state, wrongly and confidently,
+      // that no deposit was due.
+      '<div class="toggle-row"><div class="toggle-label">Deposit required<small>'+
+        (depositRequiredNow ? 'a deposit falls due when this quote is accepted'
+          : 'no deposit asked for — the full total falls due on completion')+'</small></div>'+
+        '<div class="toggle'+(depositRequiredNow?' on':'')+'"'+
+        (' onclick="setJobDepositRequired('+(depositRequiredNow?'false':'true')+')"')+'></div></div>'+
+      (depositShown
+        ? '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label">Deposit due on acceptance<small style="display:block;font-weight:400;color:var(--text2)">'+
+            escapeHtml(depositBasis)+'</small></span>'+
+            '<span class="breakdown-value" style="color:var(--accent)">'+fmt(deposit)+'</span></div>'
+        // £0.00 on a "Deposit due" row reads as a broken sum rather than a
+        // decision, so the row says the decision instead of the figure.
+        : '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="color:var(--text2)">Deposit due on acceptance<small style="display:block;font-weight:400;color:var(--text2)">'+
+            escapeHtml(depositBasis)+'</small></span>'+
+            '<span class="breakdown-value" style="color:var(--text3)">None</span></div>')+
+      '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">'+(depositShown?'Balance':'Total due on completion')+'</span>'+
+        '<span class="breakdown-value">'+fmt(balance)+'</span></div>'+
+      '<div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Payment plan</div><div class="seg" id="seg-payment-type">'+
+        '<button type="button" class="seg-btn'+(paymentType==='single'?' active':'')+'" onclick="setPaymentType(\'single\')">Single</button>'+
+        '<button type="button" class="seg-btn'+(paymentType==='multiweek'?' active':'')+'" onclick="setPaymentType(\'multiweek\')">Multi-week</button>'+
+      '</div></div>'+
+      (paymentType==='multiweek' ? (
+        '<div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Weeks<small>from on-site estimate, editable</small></div>'+
+          '<input type="number" class="field-input" style="width:70px" value="'+paymentWeeks+'" min="1" step="1" inputmode="numeric" onchange="setPaymentWeeks(this.value)"></div>'+
+        weeklyRows.map(function(amt, wi){
+          var wcDate = statusJob && statusJob.startDate ? ' <small style="color:var(--text3)">w/c '+fmtShortDate(instalmentDate(statusJob.startDate, wi))+'</small>' : '';
+          return '<div class="breakdown-sub-row"><span class="breakdown-sub-label">'+instalmentLabel(plan, wi)+wcDate+'</span><span class="breakdown-sub-value">'+fmt(amt)+'</span></div>';
+        }).join('')
+      ) : '') +
+    '</div>';
 }
 
 // The agreed line items, rendered from the snapshot and nothing else. This is
@@ -7431,7 +7535,41 @@ function frozenQuoteCardHtml(job) {
     + section('Materials', lines.materials, 'Materials subtotal', (d.materials || {}).total)
     + '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="font-weight:700;color:var(--text)">Accepted total</span>'
     + '<span class="breakdown-value" style="color:var(--accent);font-weight:700">' + fmt(frozenQuoteTotal(job) || 0) + '</span></div>'
+    // The agreed payment plan, on the agreed record rather than in a Payment
+    // card of its own further down the screen. Every figure here was settled
+    // with the quote, so a card that also offered a toggle was offering a
+    // decision that had already been made -- and printing it twice, once here
+    // as agreed and once there as live.
+    //
+    // A snapshot rebuilt from a Xero total carries no payment plan (the export
+    // has none), so those read null and print an em dash: £0.00 beside an
+    // agreed total would state, wrongly and confidently, that no deposit was
+    // due.
+    + (function() {
+        var t = d.totals || {};
+        if (t.deposit == null && t.balance == null) return '';
+        var shown = t.deposit == null || +t.deposit > 0.005 || t.depositRequired !== false;
+        return '<div class="card-header" style="border-top:1px solid var(--border)">Payment, as agreed</div>'
+          + (shown
+              ? '<div class="breakdown-row"><span class="breakdown-label">Deposit due on acceptance'
+                + '<small style="display:block;font-weight:400;color:var(--text2)">' + escapeHtml(t.depositBasis || 'not recorded in the reconciled figures') + '</small></span>'
+                + '<span class="breakdown-value" style="color:var(--accent)">' + (t.deposit == null ? '\u2014' : fmt(+t.deposit)) + '</span></div>'
+              : '<div class="breakdown-row"><span class="breakdown-label" style="color:var(--text2)">Deposit due on acceptance'
+                + '<small style="display:block;font-weight:400;color:var(--text2)">' + escapeHtml(t.depositBasis || 'No deposit required on this job') + '</small></span>'
+                + '<span class="breakdown-value" style="color:var(--text3)">None</span></div>')
+          + '<div class="breakdown-row"><span class="breakdown-label" style="font-weight:600;color:var(--text)">' + (shown ? 'Balance' : 'Total due on completion') + '</span>'
+          + '<span class="breakdown-value">' + (t.balance == null ? '\u2014' : fmt(+t.balance)) + '</span></div>';
+      })()
     + '<div style="padding:10px 16px;font-size:12px;color:var(--text2)">' + escapeHtml(modeNote) + '</div>'
+    // Amend and History: the two things you can actually do to an agreed
+    // quote, on the record they act on. They used to sit on a separate banner
+    // card above, whose other job -- saying these figures do not move with the
+    // rates -- this card now says by simply being the only figures on screen.
+    + '<div style="padding:0 16px 14px;display:flex;gap:14px;flex-wrap:wrap">'
+    + '<span onclick="amendAcceptedQuote()" style="color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline">Amend \u2192 revision ' + (snap.version + 1) + '</span>'
+    + (quoteSnapshots.length > 1 ? '<span onclick="openSnapshotHistory()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline">History (' + quoteSnapshots.length + ' revisions)</span>' : '')
+    + (snap.unsynced ? '<span style="color:var(--text3);font-size:12px">not yet synced</span>' : '')
+    + '</div>'
     + '</div>';
 }
 
@@ -23571,8 +23709,6 @@ function renderSummary() {
   // loaded and the first moment a capture is even possible.
   captureSnapshotIfOwed(statusJob);
   var frozenQuote = jobQuoteIsFrozen(statusJob);
-  // Whether the three pricing controls below the hero take taps this render.
-  var pricingLocked = acceptedPricingLocked(statusJob);
   var frozenSnapshot = frozenQuote ? latestQuoteSnapshot(statusJob) : null;
   var frozenTotal = frozenQuote ? frozenQuoteTotal(statusJob) : null;
   var frozenLab = frozenQuote ? frozenQuoteLabour(statusJob) : null;
@@ -23741,15 +23877,15 @@ function renderSummary() {
         ? depositBlockHtml(statusJob, frozenQuote && frozenTotals.deposit != null ? +frozenTotals.deposit : deposit) : '')+
     '</div>'+
     profitCard+
-    // Which of the two worlds the money below came from, said plainly. On an
-    // accepted job with nothing frozen this is the loud red version -- those
-    // figures ARE silently drifting with every rate change, and until now
-    // there was nothing on screen that could tell you.
+    // The one banner left: the loud red warning for a job accepted before
+    // snapshots shipped, whose figures genuinely ARE live and genuinely are
+    // drifting. The green "agreed figures, revision N" card that used to sit
+    // here is gone -- its revision, its provenance and its Amend/History
+    // actions are on the agreed record itself now, and its reassurance that
+    // rate changes do not move these numbers is made by the screen rather
+    // than stated on it, there being no other numbers left to confuse them
+    // with.
     acceptedQuoteBannerHtml(statusJob)+
-    // The agreed line items, straight from the snapshot. Sits above the live
-    // room breakdown further down, which stays -- relabelled as working, not
-    // as the quote.
-    (frozenQuote ? frozenQuoteCardHtml(statusJob) : '')+
     '<div class="hero" style="margin-top:16px">'+
       // Flagged jobs quote honoured labour + measured materials, and carry the
       // app's own calculated total underneath as a plain muted strap-line —
@@ -23766,18 +23902,15 @@ function renderSummary() {
         ? '<div class="hero-sub">'+escapeHtml(snapshotLevelLabel(frozenSnapshot))
             +' · revision '+frozenSnapshot.version
             +(snapshotDateLabel(frozenSnapshot) ? ' · '+escapeHtml(snapshotDateLabel(frozenSnapshot)) : '')+'</div>'
-          // The live recalculation is still worth showing -- it's how drift
-          // becomes visible at all -- but only ever as a labelled aside, never
-          // as the headline, and hidden when the two agree to the penny.
-          //
-          // It used to read "at today's RATES", which names a cause instead of
-          // stating a fact: every input feeds this figure, and when the rates
-          // have not moved (they usually have not) that caption sends you to
-          // the one page that isn't responsible. The aside now states the
-          // difference and the card below attributes it.
-          + (Math.abs(quoteTotal - agreedTotal) > 0.005
-              ? '<div class="hero-sub" style="color:rgba(255,255,255,.55)">Same job priced today: '+fmt(quoteTotal)
-                + ' — ' + fmt(Math.abs(quoteTotal - agreedTotal)) + (quoteTotal > agreedTotal ? ' more' : ' less') + ', broken down below</div>' : '')
+          // No "same job priced today" aside any more. It was the DETECTOR for
+          // the silent-drift bug, from before a frozen record existed to make
+          // drift impossible; the snapshot has been that record since v2.38.0,
+          // so what this line monitored can no longer happen. Left up, it put a
+          // second, rival total on the one card whose job is to state what the
+          // client owes -- and needed a caption, a divider and a lock strip
+          // elsewhere on the screen to keep it from being read as the answer.
+          // Today's price is still worth seeing at the one moment it is
+          // actionable, which is amending: see amendAcceptedQuote().
         : '<div class="hero-sub">'+ttAll.toFixed(1)+' days · '+
           (honouredLabour != null
             ? fmt(honouredLabour)+' labour as agreed + '+fmt(materialsTotal)+' materials as measured'
@@ -23815,6 +23948,11 @@ function renderSummary() {
       '<div class="stat-card"><div class="stat-label">On Site</div><div class="stat-value bl">'+fmtD(onSiteDays)+'</div>'+
         '<small style="display:block;font-weight:400;color:var(--text2);margin-top:2px">'+ttAll.toFixed(1)+'d working'+(hasVariations ? ' incl. variations' : '')+'</small></div>'+
     '</div>'+
+    // The agreed record: the lines behind the headline immediately above it,
+    // the payment plan agreed with them, and the two things you can do to
+    // them. Under the hero rather than over it -- it itemises a total, so the
+    // total comes first.
+    (frozenQuote ? frozenQuoteCardHtml(statusJob) : '')+
     // Job-level toggles, in one group: Imported from Xero sits with
     // Commercial/Standalone because it's the same kind of flag on the same
     // job record. Unlike those two it changes NO pricing at all — only which
@@ -23823,95 +23961,26 @@ function renderSummary() {
     // to a single offering line until it applies — see
     // xeroImportedSectionHtml.
     xeroImportedSectionHtml(statusJob)+
-    // One strip for all three pricing cards rather than a caveat on each --
-    // they are locked or unlocked together because they price together.
-    acceptedPricingLockHtml(statusJob)+
-    '<div class="card" style="margin-top:16px">'+
-      '<div class="card-header">Commercial Job</div>'+
-      '<div class="toggle-row"><div class="toggle-label">Commercial job<small>Applies '+(settings.commercialPct!=null?settings.commercialPct:10)+'% before markup/discount below</small></div>'+
-        '<div class="toggle'+(activeJob()&&activeJob().commercial?' on':'')+'"'+
-        (pricingLocked ? ' style="opacity:.5"' : ' onclick="setJobCommercial('+(activeJob()&&activeJob().commercial?'false':'true')+')"')+'></div></div>'+
-    '</div>'+
-    // Standalone Job card -- same job-level toggle pattern and settings
-    // group as Commercial Job above; the two flags are independent (a job
-    // can be both). When on, both day figures render side by side so the
-    // calculated maths stays visible next to what's actually charged.
-    '<div class="card" style="margin-top:16px">'+
-      '<div class="card-header">Standalone Job</div>'+
-      '<div class="toggle-row"><div class="toggle-label">Standalone job<small>Charges labour for full diary days instead of calculated fractional days</small></div>'+
-        '<div class="toggle'+(activeJob()&&activeJob().standalone?' on':'')+'"'+
-        (pricingLocked ? ' style="opacity:.5"' : ' onclick="setJobStandalone('+(activeJob()&&activeJob().standalone?'false':'true')+')"')+'></div></div>'+
-      (plan.standalone.on?
-        '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label">Calculated labour</span>'+
-          '<span class="breakdown-value">'+plan.standalone.calcDays.toFixed(1)+' days</span></div>'+
-        '<div class="breakdown-row"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Diary days charged</span>'+
-          '<span class="breakdown-value" style="color:var(--accent)">'+(plan.standalone.diaryDays%1===0?plan.standalone.diaryDays.toFixed(0):plan.standalone.diaryDays.toFixed(1))+' days</span></div>'+
-        '<div style="padding:0 16px 12px;font-size:12px;color:var(--text2)">Standalone jobs are charged for full diary days since the remaining time can\'t be filled with other work. Rounding up to the nearest '+(settings.standaloneRounding==='half'?'half day':'full day')+' — change in Settings.</div>'
-      :'')+
-    '</div>'+
-    '<div class="card" style="margin-top:16px">'+
-      '<div class="card-header">Markup / Discount</div>'+
-      '<div class="field-row"><div class="field-label">This quote<small>'+(activeJob()&&activeJob().markupOverride!=null?'overridden, default is '+settings.mu+'%':'default, from Settings')+(activeJob()&&activeJob().commercial?' — applied after the commercial adjustment above':'')+'</small></div>'+
-        '<div style="display:flex;align-items:center;gap:10px">'+
-        (!pricingLocked&&activeJob()&&activeJob().markupOverride!=null?'<div onclick="resetJobMarkup()" style="color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;text-decoration:underline">Reset</div>':'')+
-        '<div class="seg" style="width:76px'+(pricingLocked?';opacity:.5':'')+'">'+
-          '<button type="button" class="seg-btn'+(effectiveMarkupType()==='percent'?' active':'')+'"'+(pricingLocked?' disabled':' onclick="setJobMarkupType(\'percent\')"')+'>%</button>'+
-          '<button type="button" class="seg-btn'+(effectiveMarkupType()==='fixed'?' active':'')+'"'+(pricingLocked?' disabled':' onclick="setJobMarkupType(\'fixed\')"')+'>£</button>'+
-        '</div>'+
-        '<input type="number" class="field-input" style="width:70px'+(pricingLocked?';opacity:.5':'')+'" value="'+effectiveMarkup()+'" step="1" inputmode="'+(effectiveMarkupType()==='fixed'?'decimal':'numeric')+'"'+(pricingLocked?' disabled':' onchange="setJobMarkup(this.value)"')+'>'+
-        '</div></div>'+
-      '<div style="padding:0 16px 12px;font-size:12px;color:var(--text2)">Enter a negative number for a discount.</div>'+
-    '</div>'+
-    '<div class="card" style="margin-top:16px">'+
-      '<div class="card-header">Payment</div>'+
-      // Deposit required? The toggle heads this card because every figure
-      // under it moves with it: off zeroes the deposit, hands the whole
-      // total to the balance and re-splits any weekly instalments -- and
-      // that is what reaches the Xero quote's Terms text (see
-      // computeDepositPlan / buildPaymentTermsText). It changes no price.
-      //
-      // Everything below it was agreed WITH the quote -- a deposit already
-      // taken against a 25%-of-quote basis must not re-derive itself when
-      // the quote's inputs re-price -- so on a frozen job the snapshot's own
-      // figures print and the toggle is read-only alongside them. A snapshot
-      // rebuilt from a Xero total carries no payment plan (the export
-      // doesn't have one), so those read null and print as an em dash:
-      // £0.00 beside an agreed total would state, wrongly and confidently,
-      // that no deposit was due.
-      '<div class="toggle-row"><div class="toggle-label">Deposit required<small>'+
-        (frozenQuote ? 'as agreed — accepted quotes don’t re-price'
-          : depositRequiredNow ? 'a deposit falls due when this quote is accepted'
-          : 'no deposit asked for — the full total falls due on completion')+'</small></div>'+
-        '<div class="toggle'+(depositRequiredNow?' on':'')+'"'+
-        (frozenQuote ? ' style="opacity:.5"' : ' onclick="setJobDepositRequired('+(depositRequiredNow?'false':'true')+')"')+'></div></div>'+
-      (depositShown
-        ? '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label">Deposit due on acceptance<small style="display:block;font-weight:400;color:var(--text2)">'+
-            escapeHtml(frozenQuote ? (frozenTotals.depositBasis || 'not recorded in the reconciled figures') : depositBasis)+'</small></span>'+
-            '<span class="breakdown-value" style="color:var(--accent)">'+(frozenQuote && frozenTotals.deposit == null ? '—' : fmt(frozenQuote ? +frozenTotals.deposit : deposit))+'</span></div>'
-        // £0.00 on a "Deposit due" row reads as a broken sum rather than a
-        // decision, so the row says the decision instead of the figure.
-        : '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="color:var(--text2)">Deposit due on acceptance<small style="display:block;font-weight:400;color:var(--text2)">'+
-            escapeHtml(frozenQuote ? (frozenTotals.depositBasis || 'No deposit required on this job') : depositBasis)+'</small></span>'+
-            '<span class="breakdown-value" style="color:var(--text3)">None</span></div>')+
-      '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">'+(depositShown?'Balance':'Total due on completion')+'</span>'+
-        '<span class="breakdown-value">'+(frozenQuote && frozenTotals.balance == null ? '—' : fmt(frozenQuote ? +frozenTotals.balance : balance))+'</span></div>'+
-      '<div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Payment plan</div><div class="seg" id="seg-payment-type">'+
-        '<button type="button" class="seg-btn'+(paymentType==='single'?' active':'')+'" onclick="setPaymentType(\'single\')">Single</button>'+
-        '<button type="button" class="seg-btn'+(paymentType==='multiweek'?' active':'')+'" onclick="setPaymentType(\'multiweek\')">Multi-week</button>'+
-      '</div></div>'+
-      (paymentType==='multiweek' ? (
-        '<div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Weeks<small>from on-site estimate, editable</small></div>'+
-          '<input type="number" class="field-input" style="width:70px" value="'+paymentWeeks+'" min="1" step="1" inputmode="numeric" onchange="setPaymentWeeks(this.value)"></div>'+
-        weeklyRows.map(function(amt, wi){
-          var wcDate = statusJob && statusJob.startDate ? ' <small style="color:var(--text3)">w/c '+fmtShortDate(instalmentDate(statusJob.startDate, wi))+'</small>' : '';
-          return '<div class="breakdown-sub-row"><span class="breakdown-sub-label">'+instalmentLabel(plan, wi)+wcDate+'</span><span class="breakdown-sub-value">'+fmt(amt)+'</span></div>';
-        }).join('')
-      ) : '') +
-    '</div>'+
-    // The boundary. Everything from here to the end of Summary is live: the
-    // room breakdown, the cost summary under it and the materials list under
-    // that. Only the first of the three used to say so.
-    (frozenQuote ? workingFiguresDividerHtml() : '')+
+    // Pricing controls and the payment plan are LIVE decisions about a quote
+    // still being written. On a frozen job neither is: the controls cannot
+    // move the agreed total and the plan was settled with it, so both are
+    // simply absent, and the agreed deposit/balance print as rows on the
+    // agreed record above. The controls' one remaining use -- pricing the
+    // next revision -- lives in the amend sheet, where the preview moves as
+    // they move. See SUMMARY_SCREEN_REVIEW.md 4b/4c.
+    (frozenQuote ? '' : pricingControlsHtml(plan))+
+    (frozenQuote ? '' : livePaymentCardHtml(plan, deposit, depositBasis, balance,
+        depositRequiredNow, depositShown, paymentType, paymentWeeks, weeklyRows, statusJob))+
+    // What follows is the working view -- the measured scope, the shopping
+    // list and the colours. It needed a divider announcing itself as "today's
+    // rates, not what the client agreed" only while a rival set of money sat
+    // above it. With the live money gone there is nothing here to mistake for
+    // the agreed figures, so the label is a plain one.
+    (frozenQuote
+      ? '<div style="margin-top:22px;font-size:12px;line-height:1.5;color:var(--text2)">'
+        + 'The measured scope below is the working record \u2014 what is on site, what paint it needs. '
+        + 'The money that was agreed is on the card above.</div>'
+      : '')+
     '<div><div class="section-title" style="margin-bottom:8px">Room Breakdown</div>'+
     '<div class="card">'+rows+
     (extItems.length>0?extItems.map(function(item,ei){
@@ -24166,6 +24235,10 @@ function renderSummary() {
   // at most, silent on failure, and it re-renders only if Xero's answer
   // actually changed — so it can't loop through the render it was called from.
   refreshDepositStatus();
+  // If the amend sheet is open over this screen, re-price its preview. Safe
+  // to call from here: it rebuilds the sheet only, and never calls back into
+  // renderSummary().
+  refreshAmendSheetIfOpen();
 }
 
 // ── Client-facing quote view (v2.5.0) ──────────────────────────────────────
