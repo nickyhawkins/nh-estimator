@@ -57,7 +57,12 @@ check('grey 0', 'a hue+number prefix leads with those, not mid-string hits',
 check('grey 04', 'an exact Lick name', r => r.some(x => x.brand === 'Lick' && x.name === 'Grey 04'));
 check('coal drop', 'a COAT name typed partly', r => r.length === 1 && r[0].name === 'The Coal Drop');
 check('charcoal', "a COAT shade description in `code`", r => r.some(x => x.name === 'The Coal Drop'));
-check('oaty', "a Lick shade description in `code`", r => r.some(x => x.brand === 'Lick' && x.name === 'White 05'));
+// Lick carries no descriptions any more (v2.69.3 — 29 of 136 was a ragged
+// column, and the other 107 can't be filled in honestly from here), so Lick
+// is reachable by brand and by name only. COAT's are complete, so COAT keeps
+// description search.
+check('white 0', 'Lick by name still works without a description',
+  r => r.some(x => x.brand === 'Lick' && x.name === 'White 05'));
 
 // Everything that already worked must still work.
 check('dead sal', 'the manual\'s own example still resolves',

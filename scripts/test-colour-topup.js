@@ -52,7 +52,7 @@ function check(description, fn) {
     (r1.ranSeed && r1.inserted === SEED.length - old.length) ||
     `ranSeed=${r1.ranSeed} inserted=${r1.inserted}, expected ${SEED.length - old.length}`);
   check('and the rows added are exactly the new brands', () =>
-    short.inserts === 264 || `inserted ${short.inserts}, expected 264`);
+    short.inserts === 262 || `inserted ${short.inserts}, expected 262`);
 
   // The normal case: a complete table costs one query and nothing else.
   const full = fakeDb(SEED);
@@ -99,7 +99,7 @@ function check(description, fn) {
     SEED.every(c => c.name && c.brand && typeof c.code === 'string') || 'malformed row(s)');
   check('Lick and COAT are actually in the seed', () => {
     const n = b => SEED.filter(c => c.brand === b).length;
-    return (n('Lick') === 136 && n('COAT') === 128) || `Lick=${n('Lick')} COAT=${n('COAT')}`;
+    return (n('Lick') === 136 && n('COAT') === 126) || `Lick=${n('Lick')} COAT=${n('COAT')}`;
   });
 
   console.log(failed ? '\n' + failed + ' check(s) FAILED' : '\nAll checks passed.');

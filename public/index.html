@@ -16420,10 +16420,36 @@ function pruneOrphanColour(num, live) {
 // for reading, not for billing: the client-facing product descriptions ask
 // colourIsNamed() first and leave the generic colour band alone until a
 // colour has actually been decided.
+// A library `code` holds one of two different things, and they must not be
+// printed the same way. A CODE is what gets a tin mixed at the counter --
+// Farrow & Ball "28", "W9", Dulux Heritage "1780085" -- and reads "No. 28".
+// A DESCRIPTION is the shade in words, carried by the brands whose colour
+// NAMES say nothing on their own (RAL "RAL 7016" -> "Anthracite grey", COAT
+// "The Coal Drop" -> "Charcoal Grey"): it is there so the search can find a
+// colour by what it looks like, and "No. Charcoal Grey" is nonsense.
+//
+// Every seeded brand is wholly one or the other, and the shapes don't
+// overlap: a code always contains a digit and never a space, a description
+// never does both. So one test covers all 1,485 without a per-brand list to
+// keep up to date -- and a code someone types in by hand sorts itself.
+function colourCodeIsNumber(code) {
+  return !!code && /\d/.test(code) && !/\s/.test(code);
+}
+
+// The " · No. 28" / " · Charcoal Grey" suffix under a colour's brand.
+function colourCodeSuffix(code) {
+  if (!code) return '';
+  return ' · ' + (colourCodeIsNumber(code) ? 'No. ' + code : code);
+}
+
 function colourLabelFor(num) {
   var c = colours.find(function(x){ return x.number === num; });
   if (!c || !c.label) return colourPlaceholderFor(num);
-  return [c.brand || '', c.code ? 'No. ' + c.code : '', c.label]
+  // A DESCRIPTION is deliberately left off this one. It goes on the client's
+  // quote and their Xero invoice, where the job is to say exactly which paint
+  // to re-order: "No. 28" does that, "Charcoal Grey" is decoration in front
+  // of a name that already carries it. A real code still goes on.
+  return [c.brand || '', colourCodeIsNumber(c.code) ? 'No. ' + c.code : '', c.label]
     .filter(Boolean).join(' ');
 }
 
@@ -16886,7 +16912,7 @@ function renderColours() {
     // The name is edited on the area rows above now, so this list is the
     // read side: what each colour is, where it goes, and what to buy for it.
     // An unnamed one still reads as its areas rather than as its number.
-    var brandChip = c.brand ? '<div class="chip" style="min-width:0;white-space:normal;word-break:break-word">'+escapeHtml(c.brand)+(c.code ? ' · No. '+escapeHtml(c.code) : '')+'</div>' : '';
+    var brandChip = c.brand ? '<div class="chip" style="min-width:0;white-space:normal;word-break:break-word">'+escapeHtml(c.brand)+escapeHtml(colourCodeSuffix(c.code))+'</div>' : '';
     var rowHtml = '<div class="field-row" style="flex-wrap:wrap">'+
       '<div class="room-icon" style="font-size:16px;font-weight:700">'+c.number+'</div>'+
       '<div style="flex:1;min-width:120px;font-size:15px;font-weight:500'+(c.label ? '' : ';color:var(--text2);font-style:italic')+'">'+escapeHtml(colourLabelFor(c.number))+'</div>'+
@@ -17021,7 +17047,7 @@ function colourSlotHtml(slot, num, placeholder, live) {
     +     ' onchange="commitColourSlotText(\'' + slot + '\',this.value)">'
     + '</div>'
     + '<div class="colour-dd" id="colour-dd-' + slot + '"></div>'
-    + (c.brand ? '<div class="chip">' + escapeHtml(c.brand) + (c.code ? ' · No. ' + escapeHtml(c.code) : '') + '</div>' : '')
+    + (c.brand ? '<div class="chip">' + escapeHtml(c.brand) + escapeHtml(colourCodeSuffix(c.code)) + '</div>' : '')
     + chips
     // Says what typing here will do before it does it: on a colour several
     // areas share, a new name forks onto a colour of its own rather than
@@ -17138,7 +17164,7 @@ function onColourLabelInput(slot, value) {
   var html = colourDropdownMatches.map(function(c, i){
     return '<div style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:14px" onmousedown="event.preventDefault()" onclick="selectLibraryColour(\''+slot+'\','+i+')">'
       + '<div style="font-weight:600;color:var(--text)">' + escapeHtml(c.name) + '</div>'
-      + '<div style="font-size:12px;color:var(--text2)">' + escapeHtml(c.brand) + (c.code ? ' · No. ' + escapeHtml(c.code) : '') + '</div>'
+      + '<div style="font-size:12px;color:var(--text2)">' + escapeHtml(c.brand) + escapeHtml(colourCodeSuffix(c.code)) + '</div>'
       + '</div>';
   }).join('');
   // The save option is ALWAYS offered, even when the name already exists.
@@ -17175,7 +17201,7 @@ function showSaveColourForm(slot) {
   var already = colourLibrary.filter(function(c){ return c.name.toLowerCase() === q.toLowerCase(); });
   var alreadyHtml = already.length
     ? '<div style="font-size:12px;color:var(--text2);margin-bottom:6px">Already in library as '
-      + already.map(function(c){ return escapeHtml(c.brand) + (c.code ? ' · No. ' + escapeHtml(c.code) : ''); }).join('; ')
+      + already.map(function(c){ return escapeHtml(c.brand) + escapeHtml(colourCodeSuffix(c.code)); }).join('; ')
       + '</div>'
     : '';
   dd.innerHTML =
