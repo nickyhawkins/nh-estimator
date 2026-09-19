@@ -10,7 +10,7 @@
 //   2. db/setup-debt.sql       — ONLY when DEBT_APP_ENABLED=true (the
 //                                owner's personal instance; contains
 //                                personal seed data)
-//   3. colour library seed     — ~620 trade colours, skips existing rows
+//   3. colour library seed     — ~1,500 trade colours, skips existing rows
 //
 // Needs DATABASE_URL. See docs/NEW_INSTANCE.md for the full new-customer
 // runbook this belongs to.

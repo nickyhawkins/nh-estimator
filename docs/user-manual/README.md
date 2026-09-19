@@ -377,7 +377,7 @@ Type a **Description**, a **Unit price** (ex VAT) and an optional **Quantity** (
 
 **You never have to decide a colour to finish a measure.** Every painted surface starts out named after where it is — "Lounge Feature Wall", "Bedroom 1 Main Walls" — so a colour you haven't discussed yet still reads as something you recognise weeks later, instead of as "Colour 3". When the client makes their mind up, you type the real name over the top. Same box, same place, whenever it happens.
 
-Each surface's colour is one free-text field, on the room form under **Paint & Colour** and again on this screen. Type into it and the built-in library of over 1,200 colours (Farrow & Ball, Little Greene, Dulux, Dulux Heritage, Paint & Paper Library, RAL Classic) autocompletes as you go, filling in the brand and code the merchant needs. A colour that isn't in the library is fine as free text, and can be saved to the library for next time — including the same name under a second brand.
+Each surface's colour is one free-text field, on the room form under **Paint & Colour** and again on this screen. Type into it and the built-in library of nearly 1,500 colours (Farrow & Ball, Little Greene, Dulux, Dulux Heritage, Paint & Paper Library, RAL Classic, Lick and COAT) autocompletes as you go, filling in the brand and code the merchant needs. The search reads the description as well as the name, which is what makes the brands that number their colours findable: "mid grey" brings up Lick Grey 04, "charcoal" brings up COAT's The Coal Drop. A colour that isn't in the library is fine as free text, and can be saved to the library for next time — including the same name under a second brand.
 
 Under the field are **quick-pick chips**: every other colour already on this job, one tap each. That's how a colour used in two places gets shared, so the job buys one tin between them rather than two. Typing the same name twice does the same thing — the second one joins the first rather than making a duplicate.
 
@@ -926,6 +926,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.67.1. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.69.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
