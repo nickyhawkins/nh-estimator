@@ -279,6 +279,68 @@ check('an explicit null is identical to no column at all', shape() === baseline,
 reset({ debts: app.DEBTS_INITIAL.map(d => ({ ...d, arrangement: 0 })) });
 check('and so is a stored zero — only a real figure is an agreement', shape() === baseline);
 
+// ── 9. an arrangement is still ARREARS, for anything that asks ────────────
+// Two readers used to answer this wrongly because they were reusing a figure
+// built for a different question.
+
+// (a) The projection's phase. simulate() excludes arrangement debts from the
+// opportunistic cascade — correct, their catch-up is already funded — but the
+// month's `phase` was derived from that same filtered list, so a plan whose
+// ONLY arrears were under an arrangement reported 'snowball' from month 1 and
+// the Projection tab's "Arrears Cleared" stat named the current month. On the
+// seeded plan that was five months before the instalments finished paying.
+const onlyArranged = app.DEBTS_INITIAL.map(d =>
+  d.id === UPDRAFT ? { ...d, arrangement: 150 } : { ...d, arrears: 0 });
+reset({ debts: onlyArranged });
+const simMonths = app.simulate(app.state.debts, app.state.budget);
+const firstSnowball = simMonths.find(m => m.phase === 'snowball');
+const clearedIn = (() => {
+  for (const m of simMonths) {
+    const row = m.payments.find(p => p.id === UPDRAFT);
+    if (row && row.remainingArrears <= 0.005) return m.month;
+  }
+  return null;
+})();
+check('a plan whose only arrears are under an arrangement is still in arrears',
+  simMonths[0].phase === 'arrears', simMonths[0].phase);
+check('and it leaves that phase the month the arrangement finishes paying, not before',
+  firstSnowball && clearedIn && firstSnowball.month === clearedIn,
+  { snowball: firstSnowball && firstSnowball.month, cleared: clearedIn });
+check('the arrangement debt is still kept OUT of the opportunistic cascade',
+  app.getCurrentTarget() === null || app.getCurrentTarget().id !== UPDRAFT,
+  app.getCurrentTarget() && app.getCurrentTarget().id);
+
+// A plan with nothing overdue anywhere must still reach snowball at once —
+// the fix must not make every plan look permanently in arrears.
+reset({ debts: app.DEBTS_INITIAL.map(d => ({ ...d, arrears: 0, arrangement: null })) });
+check('a plan with no arrears at all starts on snowball',
+  app.simulate(app.state.debts, app.state.budget)[0].phase === 'snowball');
+
+// (b) What the cycle still has to find. getCycleStatus() skipped a payment
+// only when it was FULLY covered, then added the whole commitment — so a
+// part-payment moved the figure by nothing at all.
+reset({ debts: withArrangement(150), bizPot: 0, perPot: 0 });
+const owedBefore = app.getCycleStatus().outstandingPer;
+reset({ debts: withArrangement(150), bizPot: 0, perPot: 0, minPaidThisCycle: [UPDRAFT] });
+const afterMin = app.getCycleStatus();
+const rowPaid = app.paidAmountOf(rowFor(UPDRAFT));
+check('paying the minimum on an arrangement debt reduces what is still owed',
+  near(owedBefore - afterMin.outstandingPer, rowPaid),
+  { before: owedBefore, after: afterMin.outstandingPer, paid: rowPaid });
+check('and what is left is exactly the instalment, not the whole commitment',
+  near(afterMin.outstandingPer, owedBefore - rowPaid), afterMin.outstandingPer);
+// The three readers of "what does this cycle still need" must agree.
+const queueLeft = app.commitmentQueue().find(q => q.id === UPDRAFT);
+check('the outstanding figure agrees with the funding queue',
+  near(queueLeft.amount, 150), queueLeft);
+
+// A missed debt still sets nothing aside, and a fully covered one still drops
+// out — the guard above the fix is unchanged.
+reset({ debts: withArrangement(150), bizPot: 0, perPot: 0, missedThisCycle: [UPDRAFT] });
+const missedOwed = app.getCycleStatus().outstandingPer;
+check('a deliberately missed debt still sets nothing aside',
+  near(missedOwed, owedBefore - 414.66), missedOwed);
+
 // ── report ─────────────────────────────────────────────────────────────────
 console.log('\n── Agreed arrangements ──\n');
 for (const p of pass) console.log('  ✓ ' + p);
