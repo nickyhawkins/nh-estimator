@@ -2,6 +2,13 @@ const express = require('express');
 const crypto = require('crypto');
 const db = require('../db');
 const { ensureClientQuoteSchema, ensureClientToken, VARIATION_KINDS, VARIATION_STATUSES } = require('../lib/clientQuote');
+const {
+  ensureSpecSchema, ensureSpecToken, specSheetPath, normaliseSpecModel,
+  readSpecTicks, writeSpecTick, SPEC_STEPS, SPEC_TICK_STATUSES, ITEM_KEY_MAX,
+} = require('../lib/specSheet');
+// Aliased so the import loop below reads like its neighbours (SNAG_STATUSES,
+// VARIATION_KINDS) rather than shadowing the step set's name with a local.
+const SPEC_STEPS_SET = SPEC_STEPS;
 const router = express.Router();
 
 // The build number the app shows in its menu, read from package.json so it
@@ -134,12 +141,14 @@ router.delete('/jobs/:id', async (req, res) => {
       db.query('DELETE FROM quote_snapshots WHERE job_id = $1', [id]).catch(err => {
         if (err.code !== '42P01') throw err;
       }),
-      // NB job_variations is NOT in this list and must not be added: it is
-      // the one table here with a real foreign key (see db/setup.sql), so
-      // deleting the job below cascades its published client-facing lines
-      // away automatically. Deleting them here first would work too, but the
-      // cascade is what guarantees a live public URL can never outlive the
-      // job behind it -- including on paths that never come through here.
+      // NB job_variations is NOT in this list and must not be added, and
+      // neither are spec_ticks or job_spec_sheets: those three are the tables
+      // here with a real foreign key (see db/setup.sql and lib/specSheet.js),
+      // so deleting the job below cascades the published client-facing lines,
+      // the spec sheet's ticks and its published model away automatically.
+      // Deleting them here first would work too, but the cascade is what
+      // guarantees a live public URL can never outlive the job behind it --
+      // including on paths that never come through here.
     ]);
     await db.query('DELETE FROM jobs WHERE id = $1', [id]);
     res.json({ ok: true });
@@ -1111,6 +1120,127 @@ router.delete('/snag-rooms/:id', async (req, res) => {
   }
 });
 
+
+// ── Job spec sheet: ticks and the live link ───────────────────────────────
+// JOB_SPEC_SHEET_SPEC.md. The sheet's ROWS are derived in the browser and
+// never stored (they are rebuilt from the rooms every time it is opened, the
+// same principle as colourAreas(), so they cannot drift from what is actually
+// being painted). What IS stored is the ticks, and -- while a job has a live
+// link -- the finished model the public page displays.
+//
+// The schema and the token live in lib/specSheet.js rather than here, for the
+// reason lib/clientQuote.js exists: routes/publicSpec.js writes the same
+// spec_ticks table from outside the login gate, and two lazy creators for one
+// table would be two answers to one question. It is still created lazily on
+// first use, once per process, memoised -- db/setup.sql is not run on deploy.
+//
+// The save strategy is material_actuals' and snags': one row per PUT, no
+// collection-level replace-all, so each tick queues and replays independently
+// through the client's offline queue. Unlike snags there IS a natural key
+// here -- a row's key is built from the record's id, not its name -- so the
+// upsert targets (job_id, item_key, step), the pattern material_actuals uses.
+
+router.use(['/spec-ticks', '/jobs/:id/spec-sheet'], async (req, res, next) => {
+  try {
+    await ensureSpecSchema();
+    next();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/spec-ticks', async (req, res) => {
+  const jobId = requireJobId(req, res); if (!jobId) return;
+  try {
+    res.json(await readSpecTicks(jobId));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// One tick. Un-ticking is this same PUT with status = 'open', exactly as
+// snags does it -- there is no DELETE, because "not done" is a state the row
+// records rather than the absence of a row.
+router.put('/spec-ticks', async (req, res) => {
+  const jobId = requireJobId(req, res); if (!jobId) return;
+  const { itemKey, step, status, completedAt } = req.body || {};
+  const key = String(itemKey == null ? '' : itemKey).trim();
+  if (!key || key.length > ITEM_KEY_MAX) {
+    return res.status(400).json({ error: 'itemKey is required' });
+  }
+  if (!SPEC_STEPS.has(step)) return res.status(400).json({ error: 'step must be prep or done' });
+  if (!SPEC_TICK_STATUSES.has(status)) return res.status(400).json({ error: 'status must be open or done' });
+  try {
+    // source 'app': this route is behind the login gate, so the tick came
+    // from Nicky's phone. The public page's own route stamps 'link', which is
+    // what puts the "ticked via link" marker on the row in the app.
+    const tick = await writeSpecTick({ jobId, itemKey: key, step, status, completedAt, source: 'app' });
+    res.json({ ok: true, tick });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// The link and when it was last published. Both null on a job that has never
+// shared its sheet.
+router.get('/jobs/:id/spec-sheet', async (req, res) => {
+  const jobId = req.params.id;
+  try {
+    const [jobResult, sheetResult] = await Promise.all([
+      db.query('SELECT spec_token FROM jobs WHERE id = $1', [jobId]),
+      db.query('SELECT published_at FROM job_spec_sheets WHERE job_id = $1', [jobId]),
+    ]);
+    if (!jobResult.rows.length) return res.status(404).json({ error: 'job not found' });
+    const token = jobResult.rows[0].spec_token || null;
+    res.json({
+      token,
+      path: token ? specSheetPath(token) : null,
+      publishedAt: sheetResult.rows[0] ? sheetResult.rows[0].published_at : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Publish or refresh. Mints the token on first use and replaces the WHOLE
+// model, so a retry of a queued publish is always safe: last write wins and
+// there is no partial state to reconcile. The ticks are untouched -- they are
+// not part of the model, which is the whole reason a tick never triggers a
+// republish and a republish never disturbs a tick.
+router.put('/jobs/:id/spec-sheet', async (req, res) => {
+  const jobId = req.params.id;
+  const model = normaliseSpecModel(req.body && req.body.model);
+  if (!model) return res.status(400).json({ error: 'a model with rows and stages is required' });
+  try {
+    const token = await ensureSpecToken(jobId);
+    if (!token) return res.status(404).json({ error: 'job not found' });
+    const saved = await db.query(`
+      INSERT INTO job_spec_sheets (job_id, model, published_at)
+      VALUES ($1, $2, NOW())
+      ON CONFLICT (job_id) DO UPDATE SET model = $2, published_at = NOW()
+      RETURNING published_at
+    `, [jobId, model]);
+    res.json({ ok: true, token, path: specSheetPath(token), publishedAt: saved.rows[0].published_at });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Stop sharing: the token and the model both go, so the link is dead for
+// everyone holding it. IT LEAVES THE TICKS ALONE -- they belong to the job,
+// not to the link, and the work they record happened whether or not anybody
+// is still allowed to look at the page.
+router.delete('/jobs/:id/spec-sheet', async (req, res) => {
+  const jobId = req.params.id;
+  try {
+    await db.query('DELETE FROM job_spec_sheets WHERE job_id = $1', [jobId]);
+    await db.query('UPDATE jobs SET spec_token = NULL WHERE id = $1', [jobId]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Calibration suggestions ────────────────────────────────────────────────
 // CALIBRATION_SPEC.md Phase C — the payoff for the labour log (Phase A) and
 // the actuals log. Across the last N finished jobs: what the accepted quote
@@ -1662,6 +1792,17 @@ router.delete('/all', async (req, res) => {
       db.query('DELETE FROM snag_rooms WHERE job_id = $1', [jobId]).catch(err => {
         if (err.code !== '42P01') throw err;
       }),
+      // Spec-sheet ticks and the published model. Both cascade away with the
+      // JOB (they carry real foreign keys -- see lib/specSheet.js), but this
+      // route clears a job's DATA without deleting the job, so they have to
+      // go by hand here: the rows the ticks belong to are about to stop
+      // existing. Tolerates the tables not existing yet, like the snags above.
+      db.query('DELETE FROM spec_ticks WHERE job_id = $1', [jobId]).catch(err => {
+        if (err.code !== '42P01') throw err;
+      }),
+      db.query('DELETE FROM job_spec_sheets WHERE job_id = $1', [jobId]).catch(err => {
+        if (err.code !== '42P01') throw err;
+      }),
     ]);
     res.json({ ok: true });
   } catch (err) {
@@ -1752,6 +1893,21 @@ router.get('/backup/export', async (req, res) => {
       if (err.code === '42P01') return { rows: [] };
       throw err;
     });
+    // Spec-sheet ticks (jobs[].specTicks), additive on the same v1 shape.
+    // Prep and Painted against every surface in the house is a record of what
+    // was done and when, it regenerates from nothing exactly like actuals and
+    // snags, and a restore that brought back a job's rooms without it would
+    // lose the only copy. The published MODEL is deliberately not exported,
+    // for the reason client_token isn't: it is a cache of what a public URL
+    // is currently showing, that URL doesn't survive a restore, and the rows
+    // rebuild themselves from the job the moment the sheet is opened.
+    const specTicksResult = await db.query(
+      `SELECT job_id, item_key, step, status, completed_at, source
+         FROM spec_ticks ORDER BY job_id ASC, item_key ASC, step ASC`
+    ).catch(err => {
+      if (err.code === '42P01') return { rows: [] };
+      throw err;
+    });
 
     // One pass per table to bucket rows by job_id, rather than filtering
     // each job's rows out of the full result N times.
@@ -1769,6 +1925,7 @@ router.get('/backup/export', async (req, res) => {
     const snagRoomsByJob = byJob(snagRoomsResult.rows);
     const snapshotsByJob = byJob(snapshotsResult.rows);
     const clientVariationsByJob = byJob(clientVariationsResult.rows);
+    const specTicksByJob = byJob(specTicksResult.rows);
 
     const jobs = jobsResult.rows.map(j => ({
       job: { id: j.id, name: j.name, data: j.data || {} },
@@ -1825,6 +1982,13 @@ router.get('/backup/export', async (req, res) => {
         status: r.status,
         approvedAt: r.approved_at,
         declinedAt: r.declined_at,
+      })),
+      specTicks: (specTicksByJob[j.id] || []).map(r => ({
+        itemKey: r.item_key,
+        step: r.step,
+        status: r.status,
+        completedAt: r.completed_at,
+        source: r.source || 'app',
       })),
     }));
 
@@ -1923,6 +2087,37 @@ async function copyJobRows(entry, newJobId) {
       [crypto.randomUUID(), newJobId, String(sr.roomLabel).trim(),
         SNAG_ROOM_ROLES.has(sr.role) ? sr.role : 'all',
         sr.colourNumber == null ? null : +sr.colourNumber]
+    );
+  }
+  // Spec-sheet ticks, keyed by the row key the app rebuilds (built from record
+  // ids, never names). The ids inside those keys are the SOURCE job's room and
+  // unit ids, and copyJobRows re-inserts every child row under a fresh id --
+  // so a restored job's keys would point at rooms that no longer exist and
+  // every tick would read as an orphan.
+  //
+  // They are carried anyway, and deliberately: the import path is a restore of
+  // a whole database (BACKUP_SPEC.md), where the job's own rows come back from
+  // the same file and the app's key set is rebuilt from them. What this
+  // preserves is the record -- "the landing ceiling was painted on the 4th" --
+  // which is the half of a spec sheet that cannot be re-derived. An orphaned
+  // tick is ignored and never counted by the sheet (see the spec's Orphans
+  // note), so the worst case of a key that no longer resolves is a dead row in
+  // a table, not a wrong number on a screen.
+  //
+  // Duplicate omits this key, like materialActuals, labourLog and the snags: a
+  // copy is a fresh draft, and inheriting another house's progress would be
+  // worse than useless.
+  const specTickRows = (entry.specTicks || []).filter(t => t && t.itemKey && SPEC_STEPS_SET.has(t.step));
+  if (specTickRows.length) await ensureSpecSchema();
+  for (const t of specTickRows) {
+    const status = SPEC_TICK_STATUSES.has(t.status) ? t.status : 'open';
+    await db.query(
+      `INSERT INTO spec_ticks (job_id, item_key, step, status, completed_at, source)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (job_id, item_key, step) DO NOTHING`,
+      [newJobId, String(t.itemKey).slice(0, ITEM_KEY_MAX), t.step, status,
+        status === 'done' ? (t.completedAt || new Date().toISOString()) : null,
+        t.source === 'link' ? 'link' : 'app']
     );
   }
   // Snapshots keep their ORIGINAL version numbers and accepted_at rather than

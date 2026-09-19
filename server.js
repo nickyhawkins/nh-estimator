@@ -142,6 +142,13 @@ if (!DEBT_APP_ENABLED) {
 // that token; nothing else on the instance is reachable through it.
 app.use(require('./routes/publicQuote'));
 
+// The job spec sheet's live link (JOB_SPEC_SHEET_SPEC.md), ahead of the gate
+// for the same reason and on the same terms: a helper on site holding a
+// texted link has no account either. Its own token, never the client one --
+// that page carries Approve and Decline buttons, and this reader must not
+// have them.
+app.use(require('./routes/publicSpec'));
+
 // App login gate (MULTI_INSTANCE_PILOT_SPEC.md WS1). Mounted after the
 // session (it needs req.session) and before EVERYTHING else that serves
 // data — including express.static, which would otherwise hand out

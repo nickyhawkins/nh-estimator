@@ -838,7 +838,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       <div class="card-body" id="sec-extras">
         <div class="field-row"><div class="field-label">Windows<small>total m² — woodwork; comes off wall area, painted only when Woodwork coats &gt; 0</small></div><input type="number" class="field-input" id="r-win" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
         <div class="field-row"><div class="field-label">Window sills<small>count — painted wooden sills on unpainted (plastic) windows</small></div><input type="number" class="field-input" id="r-sills" placeholder="0" min="0" step="1" inputmode="numeric" oninput="previewRoom()"></div>
-        <div class="field-row"><div class="field-label">Radiators<small>m²</small></div><input type="number" class="field-input" id="r-rads" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
+        <div class="field-row"><div class="field-label">Radiators<small>m²</small></div><input type="number" class="field-input" id="r-rads" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom();renderRadiatorColourRow()"></div>
       </div>
     </div>
     <div class="card searchable-card">
@@ -1064,6 +1064,18 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
         <div class="field-row colour-slot-row"><div class="field-label">Wall<small>leave blank to decide later</small></div><div class="colour-slot" id="seg-colour-wall"></div></div>
         <div class="field-row colour-slot-row" style="border-top:1px solid var(--border)"><div class="field-label">Ceiling<small>leave blank to decide later</small></div><div class="colour-slot" id="seg-colour-ceiling"></div></div>
         <div class="field-row colour-slot-row" style="border-top:1px solid var(--border)"><div class="field-label">Woodwork<small>leave blank to decide later</small></div><div class="colour-slot" id="seg-colour-woodwork"></div></div>
+        <!-- Radiator colour (JOB_SPEC_SHEET_SPEC.md). Only shown once the
+             room has radiators. "Same as woodwork" is ON by default and is a
+             DIFFERENT state from undecided: the chip means follow the
+             woodwork, a blank field means nobody has decided yet. Radiators
+             carry no litres either way, so this never moves a tin. -->
+        <div id="r-radiator-colour-row" style="display:none">
+          <div class="field-row" style="border-top:1px solid var(--border)">
+            <div class="field-label">Radiators<small>they follow the woodwork unless you say otherwise</small></div>
+            <button id="r-radiator-same-chip" onclick="toggleRadiatorFollowsWoodwork()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:20px;padding:6px 12px;font-size:12px;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer">Same as woodwork</button>
+          </div>
+          <div class="field-row colour-slot-row" id="r-radiator-colour-field" style="display:none"><div class="field-label">Colour<small>leave blank to decide later</small></div><div class="colour-slot" id="seg-colour-radiator"></div></div>
+        </div>
         <div class="subsection-label">Wall Paint</div>
         <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-wall-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('wall')" onfocus="onRoomRangeSearchInput('wall')"><div id="r-wall-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
         <div class="field-row" id="r-wall-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-wall-band" onchange="onRoomOverrideBandSelect('wall')"></select></div>
@@ -1193,6 +1205,42 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
             <button class="btn" style="width:100%;padding:12px;background:var(--accent);color:#fff" onclick="openSnagImportPreview()">Preview import</button>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ JOB SPEC SHEET ══ (JOB_SPEC_SHEET_SPEC.md)
+       A full-screen sheet rather than a bottom sheet: it is the thing being
+       read for a while, not a form being filled in, and half its value is
+       being able to scroll a whole house without a card's worth of the screen
+       given over to whatever it is sitting on top of. Lives inside the On
+       Site screen so it can only ever open over it. -->
+  <div id="spec-panel" style="display:none;position:fixed;inset:0;z-index:310;background:var(--bg);overflow-y:auto;-webkit-overflow-scrolling:touch">
+    <div style="max-width:720px;margin:0 auto;padding:calc(var(--st) + 10px) 14px calc(var(--sb) + 24px)">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding-bottom:6px">
+        <div style="min-width:0">
+          <div style="font-size:17px;font-weight:700">Spec sheet</div>
+          <div id="spec-title" style="font-size:12.5px;color:var(--text2);margin-top:1px"></div>
+        </div>
+        <div onclick="closeSpecSheet()" style="font-size:14px;font-weight:700;color:var(--accent);cursor:pointer;padding:4px 2px;flex:none">Done</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin:8px 0">
+        <div class="seg" style="flex:1;min-width:0">
+          <button class="seg-btn active" id="spec-seg-room" style="padding:6px 4px;font-size:13px" onclick="setSpecView('room')">By room</button>
+          <button class="seg-btn" id="spec-seg-stage" style="padding:6px 4px;font-size:13px" onclick="setSpecView('stage')">By stage</button>
+        </div>
+        <button id="spec-fold" onclick="setAllSpecGroups(document.getElementById('spec-fold').textContent === 'Fold all')" style="flex:none;background:var(--surface2);border:1px solid var(--border);color:var(--text2);border-radius:20px;padding:6px 12px;font-size:12px;font-weight:700;font-family:'DM Sans',sans-serif;cursor:pointer">Fold all</button>
+      </div>
+      <!-- Quick find, instant as you type, in the pattern of the price lookup
+           tool: row label, colour name, room name and product. "radiator"
+           lists every room's radiator row with its colour; a colour name lists
+           everywhere that colour is used. -->
+      <input type="search" id="spec-find" class="field-input" style="width:100%;text-align:left;margin-bottom:10px;font-family:'DM Sans',sans-serif;font-size:15px" placeholder="Find a room, surface or colour" autocorrect="off" autocomplete="off" oninput="onSpecFilterInput()">
+      <div id="spec-body"></div>
+      <div id="spec-share-row" style="display:flex;gap:8px;margin-top:14px"></div>
+      <div style="font-size:11.5px;color:var(--text3);line-height:1.6;padding:10px 2px 0">
+        Read-only apart from the ticks — colours, coats and prep are edited where they live.
+        A shared link shows the sheet as of this phone's last sync, and anyone holding it can tick.
       </div>
     </div>
   </div>
@@ -2269,7 +2317,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
        comment saying to remember; it still read v2.37.0 three releases
        later, which is precisely the question this line exists to answer.
        Bump it if you like, but nothing depends on remembering any more. -->
-  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.67.1</div>
+  <div id="build-version" style="padding:0 14px 10px;font-size:11px;color:var(--text3)">Build: v2.72.0</div>
 </div>
 
 <!-- ══ CLIENT QUOTE PREVIEW ══
@@ -2514,6 +2562,17 @@ function queueOfflineWrite(method, path, body, dedupeKey) {
 }
 function hasQueuedWrite(method, path) {
   return offlineQueue.some(function(q) { return q.method === method && q.path === path; });
+}
+// The same question asked of an explicit dedupe key, for a route where the
+// PATH is not the identity. The spec sheet's ticks are the case: every tick
+// on a job PUTs to /api/spec-ticks and says which row and step it is in the
+// body, so path alone would make forty queued ticks look like one -- and
+// dedupe them down to one, which is data loss, not deduplication. It is also
+// what lets a refetch tell "this key has a local write still waiting" from
+// "this key is as the server says", so a fetch can never swallow the tick
+// made thirty seconds ago in a cellar.
+function hasQueuedKey(key) {
+  return offlineQueue.some(function(q) { return (q.key || (q.method + ' ' + q.path)) === key; });
 }
 
 // Last KNOWN server copy of each job-scoped collection — separate from the
@@ -2833,9 +2892,13 @@ async function apiDelete(path) {
 // is the delivery guarantee now. The strictness these helpers exist for is
 // preserved where it matters: a reachable server that REJECTS the write
 // (non-2xx) still throws so the caller alerts, and is never queued.
-async function apiPutStrict(path, data) {
-  if (hasQueuedWrite('PUT', path)) {
-    queueOfflineWrite('PUT', path, data);
+// dedupeKey is optional and defaults to method+path, exactly as the queue's
+// own default does. Pass one where several distinct writes share a path (see
+// hasQueuedKey): last-write-wins then means "the last write to THIS row",
+// which is what it should have meant all along.
+async function apiPutStrict(path, data, dedupeKey) {
+  if (dedupeKey ? hasQueuedKey(dedupeKey) : hasQueuedWrite('PUT', path)) {
+    queueOfflineWrite('PUT', path, data, dedupeKey);
     flushOfflineQueue();
     return { ok: true, queued: true };
   }
@@ -2850,7 +2913,7 @@ async function apiPutStrict(path, data) {
       }, NET_WRITE_TIMEOUT_MS);
     } catch (netErr) {
       serverAvailable = false;
-      queueOfflineWrite('PUT', path, data);
+      queueOfflineWrite('PUT', path, data, dedupeKey);
       return { ok: true, queued: true };
     }
     if (apiAuthExpired(r)) throw new Error('login required');
@@ -2908,6 +2971,10 @@ var pendingSaves = { rooms: null, colours: null, extItems: null, materials: null
 
 function saveRooms() {
   invalidateColourPlaceholders();
+  // While a job has a live spec-sheet link, the page it serves has to keep up
+  // with this edit. Debounced and hash-skipped inside, and a no-op on a job
+  // that has never shared its sheet -- see scheduleSpecPublish().
+  scheduleSpecPublish();
   localStorage.setItem('pe-rooms', JSON.stringify(rooms));
   // ...and the per-job copy alongside it, so switching away and back in a
   // dead spot finds this edit rather than the last successful fetch.
@@ -5463,6 +5530,15 @@ async function initApp() {
       Promise.all([loadSnags(), loadSnagRooms()]).catch(function(e) {
         console.log('Snags fetch failed — the snag list and its colours load when On Site is opened:', e.message);
       }),
+      // Spec-sheet ticks and the link's state, eagerly for the badge-ish
+      // reason: the On Site entry's "Spec sheet (n)" is a count of open rows,
+      // and it paints before anyone opens the sheet. The link is loaded here
+      // too so scheduleSpecPublish() knows from the first edit whether there
+      // is a page out there to keep current.
+      loadSpecTicks().catch(function(e) {
+        console.log('Spec ticks fetch failed — the sheet loads them when it is opened:', e.message);
+      }),
+      refreshSpecLink(),
       // Accepted-quote snapshots, eagerly for the same reason and a sharper
       // one: on an accepted job every money figure Summary paints comes from
       // here, and a late arrival would mean the first paint shows live
@@ -5909,6 +5985,11 @@ async function loadActiveJobData() {
     // memory would put another house's snags on this job's On Site screen.
     loadSnags().catch(function() { snags = []; }),
     loadSnagRooms().catch(function() { snagRooms = []; }),
+    // Spec-sheet ticks get the same job-scoped, no-mirror treatment: leaving
+    // the OLD job's ticks in memory would put another house's progress on
+    // this job's sheet, and the keys are room ids, so they would not even
+    // read as obviously wrong.
+    loadSpecTicks().catch(function() { specTicks = []; }),
     // Accepted-quote snapshots, same job-scoped no-mirror treatment. This one
     // has to land before renderSummary() below or an accepted job would flash
     // its LIVE figures -- today's rates on a quote the client already signed
@@ -5925,6 +6006,15 @@ async function loadActiveJobData() {
   // have a Landing -- carrying the map over would fold the new job's rooms on
   // the strength of a tap made in the old one.
   snagCollapsed = {};
+  // Same story for the spec sheet's folds, which are keyed by view and area
+  // key. Its filter and its "all done" card go too -- both are per visit --
+  // and the published-model hash is per job, so carrying it over would let a
+  // new job's first edit decide nothing had changed.
+  specCollapsed = {};
+  specFilter = '';
+  specPublishedHash = null;
+  specLink = { token: null, path: null, publishedAt: null };
+  refreshSpecLink();
   matReorderMode = false; // reorder mode is per-visit, not per-job state
   measureReorderMode = false; // ditto, for the Measure lists
   // Undo is scoped to one job's materials/actuals, and the lists it restores
@@ -11473,8 +11563,9 @@ function goScreen(name) {
     document.querySelectorAll('#seg-hsl-s1-walls .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===0);});
     document.querySelectorAll('#seg-hsl-s2-walls .seg-btn').forEach(function(b,i){b.classList.toggle('active',i===0);});
     document.querySelectorAll('#seg-hsl-swc .seg-btn').forEach(function(b,i){b.classList.toggle('active',i+1===2);});
-    roomColourNumbers = { wall:1, ceiling:1, woodwork:1, featurewall:1, panel:1 };
+    roomColourNumbers = { wall:1, ceiling:1, woodwork:1, featurewall:1, panel:1, radiator:null };
     ['wall','ceiling','woodwork','featurewall','panel'].forEach(populateRoomColourChips);
+    renderRadiatorColourRow();
     roomOverrides = {
       wall: { range:'', band:'' }, ceiling: { range:'', band:'' },
       topcoat: { range:'', band:'' }, primer: { range:'', band:'', none:false },
@@ -15646,6 +15737,1105 @@ async function commitSnagImport() {
   renderActuals();
 }
 
+// ── Job spec sheet (the per-job quick reference) ──────────────────────────
+// JOB_SPEC_SHEET_SPEC.md. On site the questions are small and constant:
+// "which walls am I painting in here", "what colour is the radiator going",
+// "what have I still not touched". The information is all in the app already,
+// spread across screens built for entering data rather than for looking
+// things up. This is one sheet per job that answers all three without opening
+// a room, and lets every line be ticked off, Prep then Painted.
+//
+// A DERIVED VIEW PLUS A SET OF TICKS. The rows are rebuilt from the rooms,
+// exterior items, kitchen, fitted units and custom items every time the sheet
+// is opened -- the same principle as colourAreas(), so they cannot drift from
+// what is actually being painted. Only the TICKS are stored.
+//
+// READ-ONLY apart from ticking. No editing colours, coats or prep from here:
+// a second place to edit colours is what COLOUR_HANDLING_SPEC.md was written
+// to get away from. And NO MONEY anywhere on it -- no prices, quantities,
+// tins, markup or site notes, on screen, in the PDF or on the live page.
+
+// The working sequence in a room, and the ONE constant that decides it.
+// Ceiling, panelling, woodwork (radiators ride with it), walls, and the
+// feature wall always last -- its rank is the highest, so it is last in a
+// room and last among the surface sections in By Stage. 'other' is the tail:
+// kitchen, fitted units, exterior items and custom lines, which have nothing
+// to batch together and so keep their areas as blocks in both views.
+var SPEC_STAGES = [
+  { key: 'ceiling',     label: 'Ceilings' },
+  { key: 'panel',       label: 'Panelling' },
+  { key: 'woodwork',    label: 'Woodwork' },
+  { key: 'wall',        label: 'Walls' },
+  { key: 'featurewall', label: 'Feature walls' },
+  { key: 'other',       label: 'Other areas' }
+];
+function specStageRank(key) {
+  for (var i = 0; i < SPEC_STAGES.length; i++) if (SPEC_STAGES[i].key === key) return i;
+  return SPEC_STAGES.length;
+}
+
+// The general prep line per surface, used where the job records no prep of
+// its own for it. One constant, so a change is a one-line edit. Fixed
+// built-in wording by decision -- editable prep is explicitly out of scope.
+var SPEC_PREP_LINES = {
+  ceiling:     'Fill and sand. Mask edges and fittings.',
+  panel:       'Fill and sand. Caulk joints. Mask adjoining surfaces.',
+  woodwork:    'Sand and key. Fill and caulk. Mask adjoining surfaces.',
+  radiators:   'Clean and key. Mask the wall and pipework.',
+  wall:        'Fill and sand. Tape switches, sockets and edges.',
+  featurewall: 'Fill and sand. Tape switches, sockets and edges.',
+  kitchen:     'Degrease, sand and key. Mask hardware and walls.',
+  fittedunit:  'Degrease, sand and key. Mask adjoining surfaces.',
+  masonry:     'Wash down and treat. Mask adjoining surfaces.',
+  extwoodwork: 'Scrape and sand back. Fill and prime bare timber.'
+};
+
+// The variation tags, in one place for the same reason. A PENDING variation
+// is shown on purpose and tagged so it cannot be read as a go-ahead: Nicky's
+// rule is that approval comes before starting the work, and the tag is the
+// warning. A DECLINED one is omitted entirely.
+var SPEC_TAGS = { pending: 'Variation, awaiting approval', approved: 'Variation ✓' };
+function specTagFor(carrier) {
+  if (!carrier || !carrier.isVariation) return '';
+  return SPEC_TAGS[variationStatusOf(carrier)] || '';
+}
+function specDeclined(carrier) {
+  return !!(carrier && carrier.isVariation && variationStatusOf(carrier) === 'declined');
+}
+
+// Extra work added INSIDE an already-measured area (VARIATIONS_SPEC.md Part 2).
+// The flag is per-CARRIER, never per-field, so the job knows this room has
+// grown beyond the scope that was agreed but NOT which surface it grew on --
+// there is no row to tag. So it is said once against the area instead, and
+// deliberately not as a row tag: "Variation" on five rows, four of which have
+// nothing to do with the extra, is a worse lie than saying nothing.
+//
+// The DECLINED case is what earns this its place on the sheet. That work is
+// still measured on the job -- the radiators are typed into the room, which is
+// why the delta exists at all -- so its row is still here to be painted, and
+// nothing else on this screen would say the client has refused to pay for it.
+var SPEC_AREA_NOTES = {
+  pending:  'includes extra work, awaiting approval',
+  approved: 'includes extra work ✓',
+  declined: 'includes extra work the client declined'
+};
+function specAreaNote(kind, carrier) {
+  if (!carrier || carrier.isVariation || !carrier.variationDelta) return '';
+  var d = variationDeltaOf(kind, carrier);
+  // variationDeltaScan()'s own rule: classified only counts while the extra is
+  // still POSITIVE. A carrier that has since shrunk back below its baseline is
+  // not extra work any more, it is an open question, and the card says so.
+  if (!d || !d.classified || !(d.raw > 0.005)) return '';
+  return SPEC_AREA_NOTES[variationStatusOf(carrier)] || SPEC_AREA_NOTES.pending;
+}
+
+function specCoatsLabel(n) {
+  n = +n || 0;
+  return n > 0 ? n + ' coat' + (n === 1 ? '' : 's') : '';
+}
+
+// THE model. One function returning plain data, like snagPdfModel(): the
+// screen, the PDF and the published live model all come from it, so they
+// cannot disagree about a colour or a row.
+//
+// Every row is one SURFACE in one AREA, and carries a stable key
+// '<kind>:<id>:<role>' built from the record's ID, never its name -- so
+// renaming a room keeps its ticks. That is the opposite of snags, whose ticks
+// belong to a place on site (a text label) rather than to a database row.
+// The roles here are the sheet's own and deliberately do not depend on
+// colourAreas()' roles: a radiators row has to exist before any radiator
+// colour override does.
+function jobSpecModel() {
+  var job = activeJob();
+  var contact = (job && job.contact) || {};
+  var rows = [];
+  var add = function(row) { rows.push(row); };
+
+  rooms.forEach(function(r) {
+    if (specDeclined(r)) return;
+    var areaKey = 'room:' + r.id;
+    var area = r.name || 'Room';
+    var tag = specTagFor(r);
+    var areaNote = specAreaNote('room', r);
+    var key = function(role) { return 'room:' + r.id + ':' + role; };
+    var f = scopeFacts([r]);            // per ROOM -- scopeFacts is a job-level
+                                        // union by design, so it is called with
+                                        // a single room, as roomScopeSentence does
+    var c = calcRoom(r);
+    var base = { areaKey: areaKey, area: area, tag: tag, areaNote: areaNote, steps: ['prep', 'done'] };
+    var row = function(role, stage, label, extra) {
+      var o = { key: key(role), stage: stage, label: label };
+      for (var k in base) o[k] = base[k];
+      for (var k2 in (extra || {})) o[k2] = extra[k2];
+      return o;
+    };
+    // A PAPERED surface shows "Papered" with no colour and no prep line, and
+    // has a single Done tick: there is nothing to prep separately and no
+    // colour to look up, and pretending otherwise would put "To be confirmed"
+    // beside a roll of wallpaper.
+    var papered = function(role, stage, label) {
+      return { key: key(role), stage: stage, label: label, areaKey: areaKey,
+               area: area, tag: tag, areaNote: areaNote, steps: ['done'] };
+    };
+
+    // 1 · Ceiling
+    if (+r.cc > 0) {
+      add(row('ceiling', 'ceiling', 'Ceiling', {
+        coats: specCoatsLabel(r.cc),
+        colour: colourScheduleLabel(r.ceilingColourNumber || 1),
+        product: effectiveRoleRange(r, 'ceiling'),
+        prep: r.mistCeil ? specPrepMist(r) : SPEC_PREP_LINES.ceiling
+      }));
+    }
+    if (f.wpCeiling) add(papered('ceilingpaper', 'ceiling', 'Ceiling — papered'));
+
+    // 2 · Panelling. Coats are typed per wall, so they are only stated when
+    // every panelled wall agrees; where they differ there is no one answer
+    // and the sheet gives none rather than picking one.
+    if (f.panelling) {
+      var panelCoats = {};
+      (r.panelItems || []).forEach(function(p) {
+        if (Math.max(+p.width || 0, 0) * Math.max(+p.height || 0, 0) > 0 && +p.coats > 0) panelCoats[+p.coats] = true;
+      });
+      var panelKeys = Object.keys(panelCoats);
+      add(row('panel', 'panel', 'Panelling', {
+        coats: panelKeys.length === 1 ? specCoatsLabel(panelKeys[0]) : '',
+        colour: colourScheduleLabel(r.panelColourNumber || 1),
+        product: effectiveRoleRange(r, 'panel'),
+        prep: SPEC_PREP_LINES.panel
+      }));
+    }
+
+    // 3 · Woodwork, with its "including" list, then Radiators as their own
+    // row directly under it. The gate is any woodwork actually having coats:
+    // skirtings and the rest ride r.xc, but doors and frames carry their own
+    // counts and a room can legitimately have one without the other.
+    var woodwork = +r.xc > 0 || (+r.doorQty > 0 && +r.doorCoats > 0) || (+r.frameQty > 0 && +r.frameCoats > 0);
+    if (woodwork) {
+      var incl = [];
+      if (f.skirtings) incl.push('skirtings');
+      if (f.frames)    incl.push('door frames');
+      if (f.doors)     incl.push('doors');
+      if (f.windows)   incl.push('window frames');
+      if (f.sills)     incl.push('sills');
+      add(row('woodwork', 'woodwork', 'Woodwork', {
+        coats: specCoatsLabel(r.xc),
+        colour: colourScheduleLabel(r.woodworkColourNumber || 1),
+        product: effectiveRoleRange(r, 'topcoat'),
+        includes: englishJoin(incl),
+        // Primer, where the room actually buys one. calcRoom()'s own figure
+        // is the gate rather than a re-reading of the toggles it resolves --
+        // self-priming products, primerNone and the door/frame flags all feed
+        // it, and guessing at them here is how the sheet would start
+        // promising a primer coat the job never bought.
+        prep: c.primerL > 0 ? specPrepPrimer(r) : SPEC_PREP_LINES.woodwork
+      }));
+    }
+    if (+r.rads > 0) {
+      add(row('radiators', 'woodwork', 'Radiators', {
+        // Radiators follow the woodwork colour unless the room sets their
+        // own -- see roomRadiatorColourNumber().
+        colour: colourScheduleLabel(roomRadiatorColourNumber(r)),
+        product: effectiveRoleRange(r, 'topcoat'),
+        prep: SPEC_PREP_LINES.radiators
+      }));
+    }
+
+    // 4 · Walls
+    if (+r.wc > 0) {
+      add(row('wall', 'wall', f.fwPaper || f.fwPaint ? 'Walls (excl. feature wall)' : 'Walls', {
+        coats: specCoatsLabel(r.wc),
+        colour: colourScheduleLabel(r.colourNumber || 1),
+        product: effectiveRoleRange(r, 'wall'),
+        prep: r.mistWall ? specPrepMist(r) : SPEC_PREP_LINES.wall
+      }));
+    }
+    if (f.wpWalls) add(papered('wallpaper', 'wall', 'Walls — papered'));
+
+    // 5 · Feature wall, always last
+    if (f.fwPaint) {
+      add(row('featurewall', 'featurewall', 'Feature wall', {
+        coats: specCoatsLabel(r.wc),
+        colour: colourScheduleLabel(r.featureWallColourNumber || 1),
+        product: effectiveRoleRange(r, 'featurewall'),
+        prep: SPEC_PREP_LINES.featurewall
+      }));
+    }
+    if (f.fwPaper) add(papered('featurewallpaper', 'featurewall', 'Feature wall — papered'));
+  });
+
+  // Exterior items, through the same gates colourAreas() uses.
+  extItems.forEach(function(it) {
+    if (specDeclined(it)) return;
+    var areaKey = 'ext:' + it.id, area = it.label || 'Exterior', tag = specTagFor(it);
+    var areaNote = specAreaNote('ext', it);
+    var mc = it.coats || {};
+    if (extMasonryLitres(it) > 0) {
+      rows.push({ key: 'ext:' + it.id + ':masonry', areaKey: areaKey, area: area, tag: tag, areaNote: areaNote,
+        stage: 'other', label: it.texturedRender ? 'Masonry — textured render' : 'Masonry',
+        steps: ['prep', 'done'], coats: specCoatsLabel(mc['ex-masonry'] || 2),
+        colour: colourScheduleLabel(it.masonryColourNumber || 1),
+        product: effectiveRoleRange(it, 'masonry'), prep: SPEC_PREP_LINES.masonry });
+    }
+    if (extWoodworkLitres(it) > 0) {
+      var ef = extScopeFacts([it]);
+      var wood = [];
+      if (ef.fascia)  wood.push('fascias and soffits');
+      if (ef.windows) wood.push('window frames');
+      if (ef.sash)    wood.push('sash windows');
+      if (ef.frames)  wood.push('door frames');
+      if (ef.doors)   wood.push('doors');
+      if (ef.garage)  wood.push('garage doors');
+      if (ef.porch)   wood.push('porch');
+      // Each exterior element carries its own coat count, so the figure is
+      // only stated where they all agree -- same rule as the panelling above
+      // and as buildExtScopeSentence's own.
+      var coatKeys = Object.keys(ef.coats);
+      rows.push({ key: 'ext:' + it.id + ':woodwork', areaKey: areaKey, area: area, tag: tag, areaNote: areaNote,
+        stage: 'other', label: 'Exterior woodwork', steps: ['prep', 'done'],
+        coats: coatKeys.length === 1 ? specCoatsLabel(coatKeys[0]) : '',
+        colour: colourScheduleLabel(it.extWoodworkColourNumber || 1),
+        product: effectiveRoleRange(it, 'extTopcoat'),
+        includes: englishJoin(wood), prep: SPEC_PREP_LINES.extwoodwork });
+    }
+  });
+
+  var job2 = activeJob();
+  if (job2) {
+    var k = ensureKitchenShape(job2);
+    if (!specDeclined(k) && calcKitchen(k).total > 0.005) {
+      rows.push({ key: 'kitchen:kitchen:kitchen', areaKey: 'kitchen', area: 'Kitchen Cabinets',
+        tag: specTagFor(k), areaNote: specAreaNote('kitchen', k), stage: 'other', label: 'Cabinet doors, drawer fronts and frames',
+        steps: ['prep', 'done'], coats: specCoatsLabel(k.coats),
+        colour: colourScheduleLabel(+k.colourNumber || 1),
+        product: k.range || ((settings.materials || {}).topcoat || {}).range || '',
+        // Strip Original Coating is recorded prep and wins where it is on.
+        // The STATE, never the minutes -- the minutes are a price, and there
+        // is no money on this sheet.
+        prep: k.stripCoating ? 'Strip original coating' : SPEC_PREP_LINES.kitchen });
+    }
+    fittedUnitList(job2).forEach(function(fu) {
+      if (specDeclined(fu)) return;
+      if (calcFittedUnit(fu).total <= 0.005) return;
+      rows.push({ key: 'unit:' + fu.id + ':unit', areaKey: 'unit:' + fu.id, area: fittedUnitName(fu),
+        tag: specTagFor(fu), areaNote: specAreaNote('fittedunit', fu), stage: 'other', label: 'Fitted unit', steps: ['prep', 'done'],
+        // calcFittedUnit hardcodes two topcoats (the bare unit's third pass is
+        // the primer, which the prep line covers), so the figure is not a guess.
+        coats: specCoatsLabel(2),
+        colour: colourScheduleLabel(+fu.colourNumber || 1),
+        product: fu.range || ((settings.materials || {}).topcoat || {}).range || '',
+        // A unit's prep level is always set, so it always wins here. The
+        // wording is the Fitted Unit screen's own.
+        prep: (fu.prepLevel || 'bare') === 'painted'
+          ? 'Existing painted — light key-sand, topcoat only'
+          : 'Bare / Primed — full prime, then 2 coats' });
+    });
+    // Custom line items, under "Other work", with their DESCRIPTION ONLY --
+    // never the price. One Done tick: there is no separate prep step to a
+    // line somebody typed in.
+    jobCustomItems(job2).forEach(function(it) {
+      if (specDeclined(it)) return;
+      rows.push({ key: 'custom:' + it.id + ':item', areaKey: 'other-work', area: 'Other work',
+        tag: specTagFor(it), stage: 'other', label: it.description || 'Custom line',
+        steps: ['done'] });
+    });
+  }
+
+  return {
+    jobName: (job && job.name) || '',
+    address: [contact.street, contact.town, contact.postcode].filter(Boolean).join(', '),
+    stages: SPEC_STAGES.map(function(s) { return { key: s.key, label: s.label }; }),
+    rows: rows.map(function(r) {
+      // Every field present on every row, so the PDF and the published model
+      // never have to test for undefined.
+      return {
+        key: r.key, steps: r.steps.slice(), stage: r.stage, areaKey: r.areaKey, area: r.area,
+        label: r.label, coats: r.coats || '', colour: r.colour || '',
+        product: r.product || '', prep: r.prep || '', includes: r.includes || '',
+        tag: r.tag || '', areaNote: r.areaNote || ''
+      };
+    })
+  };
+}
+
+// Recorded prep, where a surface has some. Both name their PRODUCT, because
+// "Mist coat" on its own doesn't tell anyone which tin to open.
+function specPrepMist(r) {
+  var p = effectiveRoleRange(r, 'mist');
+  return 'Mist coat' + (p ? ' — ' + p : '');
+}
+function specPrepPrimer(r) {
+  var p = effectiveRoleRange(r, 'primer');
+  return 'Primer' + (p ? ' — ' + p : '');
+}
+
+// ── Spec sheet: the ticks ─────────────────────────────────────────────────
+// Snags' logic, adapted because the sheet's rows are derived rather than
+// stored. TWO TICKS PER ROW -- Prep and Painted -- independent in both
+// directions: Painted can be ticked without Prep (the prep was done last
+// week, or there was none) and Prep can be ticked alone. Nothing auto-ticks
+// the other, and only PAINTED clears a row.
+//
+// No localStorage mirror, exactly as snags and actuals have none: they load
+// when the sheet opens and on every job switch, and every write goes through
+// apiPutStrict, so a dead spot queues rather than silently losing a tick
+// somebody walked the house to make.
+var specTicks = [];
+
+function specTickKey(itemKey, step) { return itemKey + '|' + step; }
+// The offline queue's dedupe key for one tick. Every tick on a job PUTs to
+// the same path and says which row and step it is in the BODY, so the key has
+// to carry the row -- see hasQueuedKey().
+function specQueueKey(itemKey, step) {
+  return 'PUT /api/spec-ticks ' + specTickKey(itemKey, step);
+}
+
+function specTickFor(itemKey, step) {
+  for (var i = 0; i < specTicks.length; i++) {
+    if (specTicks[i].itemKey === itemKey && specTicks[i].step === step) return specTicks[i];
+  }
+  return null;
+}
+function specStepDone(itemKey, step) {
+  var t = specTickFor(itemKey, step);
+  return !!(t && t.status === 'done');
+}
+// A row is CLEARED when its last step is ticked -- Painted on a two-step row,
+// Done on a single-tick one. Prep alone never clears a row: it is half the
+// work, and a list read for what is still outstanding must still be showing it.
+function specRowCleared(row) {
+  return specStepDone(row.key, row.steps[row.steps.length - 1]);
+}
+function specRowOpen(row) { return !specRowCleared(row); }
+// Was this step ticked from the public link rather than from the phone?
+// "Anyone with the link can tick" is worth being able to see, and un-ticking
+// it here is the answer to a tick that shouldn't have been made.
+function specViaLink(itemKey, step) {
+  var t = specTickFor(itemKey, step);
+  return !!(t && t.status === 'done' && t.source === 'link');
+}
+function specStepWhen(itemKey, step) {
+  var t = specTickFor(itemKey, step);
+  if (!t || t.status !== 'done' || !t.completedAt) return '';
+  var d = new Date(t.completedAt);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+async function loadSpecTicks() {
+  var fetched = await apiGet('/api/spec-ticks?job_id=' + encodeURIComponent(activeJobId));
+  // A FETCH NEVER REPLACES A KEY THAT STILL HAS A QUEUED LOCAL WRITE. The
+  // link means other people's ticks arrive here while the sheet is open, so
+  // this runs on a timer -- and without this rule a refetch would swallow the
+  // tick made thirty seconds ago in a cellar, which is the same trap the snag
+  // PDF avoids by not re-fetching at all.
+  var keep = specTicks.filter(function(t) { return hasQueuedKey(specQueueKey(t.itemKey, t.step)); });
+  var kept = {};
+  keep.forEach(function(t) { kept[specTickKey(t.itemKey, t.step)] = true; });
+  specTicks = keep.concat((fetched || []).filter(function(t) {
+    return !kept[specTickKey(t.itemKey, t.step)];
+  }));
+}
+
+// One row per PUT and no collection-level replace-all, so each tick queues
+// and replays independently with no signal. Un-ticking is the same PUT with
+// status 'open' -- there is no DELETE, because "not done" is a state the row
+// records rather than the absence of a row.
+function putSpecTick(t) {
+  return apiPutStrict('/api/spec-ticks', {
+    jobId: activeJobId,
+    itemKey: t.itemKey,
+    step: t.step,
+    status: t.status,
+    completedAt: t.completedAt || null
+  }, specQueueKey(t.itemKey, t.step));
+}
+
+async function toggleSpecTick(itemKey, step) {
+  var t = specTickFor(itemKey, step);
+  if (!t) { t = { itemKey: itemKey, step: step, status: 'open', completedAt: null, source: 'app' }; specTicks.push(t); }
+  if (t.status === 'done') { t.status = 'open'; t.completedAt = null; }
+  else { t.status = 'done'; t.completedAt = new Date().toISOString(); }
+  // A tick made here is Nicky's, whichever way the last one arrived -- so
+  // un-ticking something a helper ticked on the link clears its marker too.
+  t.source = 'app';
+  renderSpecSheet();          // instant tick; the write repaints again when it lands
+  try {
+    await putSpecTick(t);
+  } catch (e) {
+    alert('Could not save that tick: ' + e.message + '\n\nCheck the connection and tap again.');
+    try { await loadSpecTicks(); } catch (e2) {}
+  }
+  renderSpecSheet();
+  renderActuals();            // the On Site entry's counts move with it
+}
+
+// ── Spec sheet: ordering, grouping and folding ────────────────────────────
+// Cleared last, applied at BOTH levels in BOTH views, exactly as the snag
+// list does it. No state is stored for any of it: it is one comparison key
+// derived from the ticks.
+//
+// A consequence worth knowing: cleared-last outranks stage order, so a
+// feature wall that is still open sits ABOVE a ticked-off ceiling. The
+// feature wall is last in the room's sequence, not last on the screen once
+// the others are cleared. That is the same behaviour snags have and it is
+// what "same logic" means.
+function specSortRows(list, order) {
+  return list.slice().sort(function(a, b) {
+    var da = specRowCleared(a) ? 1 : 0, db = specRowCleared(b) ? 1 : 0;
+    if (da !== db) return da - db;
+    var sa = specStageRank(a.stage), sb = specStageRank(b.stage);
+    if (sa !== sb) return sa - sb;
+    if (order[a.key] !== order[b.key]) return order[a.key] - order[b.key];
+    return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
+  });
+}
+
+// Row label, colour name, room name and product. "radiator" lists every
+// room's radiator row with its colour; a colour name lists everywhere that
+// colour is used.
+function specRowMatches(row, needle) {
+  if (!needle) return true;
+  return (row.label + ' ' + row.colour + ' ' + row.area + ' ' + row.product)
+    .toLowerCase().indexOf(needle) >= 0;
+}
+
+// The groups for a view. By Room: one block per area in the job's own order.
+// By Stage: the job flattened, one section per stage with the room name
+// alongside every row -- except 'other' (kitchen, fitted units, exterior,
+// custom lines), which keeps its areas as blocks because they have nothing to
+// batch together.
+//
+// A group with nothing left open sinks below every group that still has work
+// in it, job order preserved within each band -- the same rule as the rows.
+function specGroups(model, view, needle) {
+  var order = {};
+  model.rows.forEach(function(r, i) { order[r.key] = i; });
+  var matching = model.rows.filter(function(r) { return specRowMatches(r, needle); });
+  var groups = [], byKey = {};
+  var push = function(key, label, row) {
+    if (!byKey[key]) { byKey[key] = { key: key, label: label, rows: [] }; groups.push(byKey[key]); }
+    byKey[key].rows.push(row);
+  };
+  if (view === 'stage') {
+    SPEC_STAGES.forEach(function(s) {
+      matching.forEach(function(r) {
+        if (r.stage !== s.key) return;
+        if (s.key === 'other') push('other:' + r.areaKey, r.area, r);
+        else push('stage:' + s.key, s.label, r);
+      });
+    });
+  } else {
+    matching.forEach(function(r) { push(r.areaKey, r.area, r); });
+  }
+  groups.forEach(function(g) {
+    g.rows = specSortRows(g.rows, order);
+    g.open = g.rows.filter(specRowOpen).length;
+    // The note belongs to an AREA, so a group only carries it when the group
+    // IS one area -- always true in By Room and in By Stage's per-area blocks,
+    // never true of a stage section spanning the house.
+    var one = g.rows.every(function(r) { return r.areaKey === g.rows[0].areaKey; });
+    g.note = one ? (g.rows[0].areaNote || '') : '';
+  });
+  return groups.filter(function(g) { return g.open > 0; })
+    .concat(groups.filter(function(g) { return g.open === 0; }));
+}
+
+// Which groups the user has folded shut, by VIEW and group key. Per visit and
+// never stored, for the same reason the snag list's map isn't: the answer to
+// "is this room folded" is worth about as much tomorrow as where you last
+// scrolled to. Only groups actually tapped appear here -- everything else
+// falls through to the default below, so the map stays a record of choices.
+var specCollapsed = {};
+var specView = 'room';        // 'room' | 'stage' -- per visit, not stored
+var specFilter = '';
+var specGroupsCache = [];
+
+function specGroupStateKey(g) { return specView + ':' + g.key; }
+
+// Untapped, a group is open while it still has work in it and folded once it
+// hasn't. The exception is a job with nothing open anywhere: that sheet is
+// only ever on screen because someone opened the cleared record deliberately,
+// and handing them a column of shut headings would be answering a question
+// they already asked. A tap is remembered and beats the default in both
+// directions, so ticking a room's last row cannot fold it out from under the
+// person who opened it.
+function specGroupCollapsed(g, anyOpen) {
+  var k = specGroupStateKey(g);
+  if (Object.prototype.hasOwnProperty.call(specCollapsed, k)) return !!specCollapsed[k];
+  return anyOpen && g.open === 0;
+}
+
+function setSpecView(v) { specView = v; renderSpecSheet(); }
+// Whether anything anywhere on the sheet is still open -- the one input the
+// fold default takes besides the group itself. It has to be the REAL answer
+// here and not a convenient `true`: on a job with nothing open the default is
+// "open every group", so flipping against `true` would write "not folded"
+// over a group that was already showing and the tap would do nothing.
+function specAnyOpen() { return jobSpecModel().rows.some(specRowOpen); }
+function toggleSpecGroup(i) {
+  var g = specGroupsCache[i];
+  if (!g) return;
+  specCollapsed[specGroupStateKey(g)] = !specGroupCollapsed(g, specAnyOpen());
+  renderSpecSheet();
+}
+function setAllSpecGroups(collapsed) {
+  specGroupsCache.forEach(function(g) { specCollapsed[specGroupStateKey(g)] = collapsed; });
+  renderSpecSheet();
+}
+
+// The counts, spelled out. The count of ROWS, so a row with Prep ticked and
+// Painted not is still open.
+function specCounts(model) {
+  var c = { total: model.rows.length, open: 0, painted: 0, prepTotal: 0, prepDone: 0 };
+  model.rows.forEach(function(r) {
+    if (specRowCleared(r)) c.painted++; else c.open++;
+    if (r.steps.indexOf('prep') >= 0) {
+      c.prepTotal++;
+      if (specStepDone(r.key, 'prep')) c.prepDone++;
+    }
+  });
+  return c;
+}
+
+// ── Spec sheet: the screen ────────────────────────────────────────────────
+// A full-screen sheet over On Site, opened from the entry next to Snags. It
+// works offline because everything it reads is job data already on the device.
+var specSheetOpen = false;
+// Other people's ticks reach the phone because the link lets them tick: the
+// sheet refetches on open, on returning to the app, and about every 30
+// seconds while it is visible. loadSpecTicks() is what makes that safe.
+var specPollTimer = null;
+
+async function openSpecSheet() {
+  specSheetOpen = true;
+  specFilter = '';
+  var el = document.getElementById('spec-panel');
+  if (el) el.style.display = 'block';
+  var box = document.getElementById('spec-find');
+  if (box) box.value = '';
+  renderSpecSheet();
+  try { await loadSpecTicks(); } catch (e) { /* offline: the in-memory copy stands */ }
+  renderSpecSheet();
+  refreshSpecLink();
+  if (specPollTimer) clearInterval(specPollTimer);
+  specPollTimer = setInterval(function() {
+    if (!specSheetOpen || document.hidden) return;
+    loadSpecTicks().then(renderSpecSheet).catch(function() {});
+  }, 30000);
+}
+
+function closeSpecSheet() {
+  specSheetOpen = false;
+  if (specPollTimer) { clearInterval(specPollTimer); specPollTimer = null; }
+  var el = document.getElementById('spec-panel');
+  if (el) el.style.display = 'none';
+  renderActuals();
+}
+
+function onSpecFilterInput() {
+  var box = document.getElementById('spec-find');
+  specFilter = box ? box.value.trim().toLowerCase() : '';
+  renderSpecSheet();
+}
+
+// One surface in one area. The COLOUR is the largest thing on it, because it
+// is the thing being looked up -- "what colour is the radiator going" is the
+// question this sheet exists to answer without opening a room.
+function specRowHtml(row, showArea) {
+  var cleared = specRowCleared(row);
+  var prepDone = specStepDone(row.key, 'prep');
+  var meta = [row.coats, showArea ? row.area : ''].filter(Boolean).join(' · ');
+  var ticks = row.steps.map(function(step) {
+    var done = specStepDone(row.key, step);
+    var when = done ? specStepWhen(row.key, step) : '';
+    var label = step === 'prep' ? 'Prep' : (row.steps.length > 1 ? 'Painted' : 'Done');
+    return '<button onclick="toggleSpecTick(\'' + escapeHtml(row.key) + '\',\'' + step + '\')"'
+      + ' style="flex:1;display:flex;align-items:center;gap:7px;background:' + (done ? 'var(--accent-soft-bg)' : 'var(--surface2)')
+      + ';border:1px solid ' + (done ? 'var(--accent-soft-border)' : 'var(--border)')
+      + ';color:' + (done ? 'var(--accent)' : 'var(--text2)')
+      + ';border-radius:10px;padding:7px 10px;font-family:\'DM Sans\',sans-serif;font-size:12px;font-weight:700;cursor:pointer;text-align:left">'
+      + '<span style="flex:none;width:17px;height:17px;border-radius:5px;border:1.5px solid '
+        + (done ? 'var(--accent)' : 'var(--text3)') + ';background:' + (done ? 'var(--accent)' : 'transparent')
+        + ';color:#fff;font-size:11px;line-height:15px;text-align:center">' + (done ? '✓' : '') + '</span>'
+      + '<span style="min-width:0">' + label
+        + (when ? ' <span style="font-weight:400;opacity:.8">' + escapeHtml(when) + '</span>' : '')
+        // "Anyone with the link can tick" is the deal; this is what makes it
+        // visible, and un-ticking here is the answer to one that shouldn't
+        // have been made.
+        + (specViaLink(row.key, step) ? ' <span style="font-weight:400;opacity:.75">· via link</span>' : '')
+      + '</span></button>';
+  }).join('');
+  return '<div style="padding:12px 16px;border-bottom:1px solid var(--border)' + (cleared ? ';opacity:.55' : '') + '">'
+    + '<div style="font-size:13.5px;font-weight:600' + (cleared ? ';text-decoration:line-through' : '') + '">'
+      + escapeHtml(row.label)
+      + (meta ? ' <span style="font-weight:400;color:var(--text2)">' + escapeHtml(meta) + '</span>' : '')
+      + (row.tag ? ' <span style="font-size:10px;font-weight:700;letter-spacing:.03em;border:1px solid var(--accent);color:var(--accent);border-radius:8px;padding:1px 6px;white-space:nowrap">'
+          + escapeHtml(row.tag) + '</span>' : '')
+    + '</div>'
+    + (row.colour ? '<div style="font-size:19px;font-weight:700;line-height:1.25;margin-top:1px'
+        + (cleared ? ';text-decoration:line-through' : '') + '">' + escapeHtml(row.colour) + '</div>' : '')
+    + (row.includes ? '<div style="font-size:12px;color:var(--text2);margin-top:2px">Including ' + escapeHtml(row.includes) + '</div>' : '')
+    + (row.product ? '<div style="font-size:12px;color:var(--text2);margin-top:2px">' + escapeHtml(row.product) + '</div>' : '')
+    + (row.prep ? '<div style="font-size:12px;color:var(--text2);margin-top:5px'
+        + (prepDone ? ';text-decoration:line-through;opacity:.65' : '') + '">' + escapeHtml(row.prep) + '</div>' : '')
+    + '<div style="display:flex;gap:8px;margin-top:9px">' + ticks + '</div>'
+    + '</div>';
+}
+
+function specGroupHeadHtml(g, i, collapsed) {
+  return '<div class="subsection-label" style="display:flex;align-items:center;gap:10px;padding-bottom:10px;cursor:pointer;user-select:none"'
+      + ' onclick="toggleSpecGroup(' + i + ')">'
+    + '<span style="flex:1;min-width:0">' + escapeHtml(g.label)
+      + (g.note ? ' <span style="text-transform:none;letter-spacing:0;font-weight:600;color:var(--accent)">— '
+          + escapeHtml(g.note) + '</span>' : '')
+    + '</span>'
+    + '<span style="flex:none;text-transform:none;letter-spacing:0;font-weight:600;color:var(--text3)">'
+      + (g.open ? g.open + ' open' : 'all done ✓') + '</span>'
+    + '<span class="sec-chev' + (collapsed ? '' : ' open') + '" style="font-size:16px">›</span>'
+    + '</div>';
+}
+
+function specListHtml(model) {
+  var groups = specGroups(model, specView, specFilter);
+  specGroupsCache = groups;
+  if (!groups.length) {
+    return '<div class="card" style="padding:16px;color:var(--text2)">Nothing matches that.</div>';
+  }
+  var anyOpen = model.rows.some(specRowOpen);
+  return '<div class="card" style="overflow:visible">' + groups.map(function(g, i) {
+    // While the filter is running everything stays open: folding a group the
+    // reader has just searched into would hide the answer they asked for.
+    var collapsed = specFilter ? false : specGroupCollapsed(g, anyOpen);
+    return specGroupHeadHtml(g, i, collapsed)
+      + (collapsed ? '' : g.rows.map(function(r) {
+          return specRowHtml(r, specView === 'stage' || !!specFilter);
+        }).join(''));
+  }).join('') + '</div>';
+}
+
+function renderSpecSheet() {
+  var body = document.getElementById('spec-body');
+  if (!body) return;
+  invalidateColourPlaceholders();
+  var model = jobSpecModel();
+  var c = specCounts(model);
+  var title = document.getElementById('spec-title');
+  if (title) {
+    title.textContent = c.open
+      ? c.open + ' outstanding · Prep ' + c.prepDone + '/' + c.prepTotal + ' · Painted ' + c.painted + '/' + c.total
+      : 'All ' + c.total + ' done ✓';
+  }
+  // The list first: it is what fills specGroupsCache, and the Fold all / Open
+  // all label is a question about the groups that just rendered. Asking
+  // specGroups() a second time would be the same walk over the same rows for
+  // an answer the render already has.
+  body.innerHTML = specListHtml(model);
+  var anyOpen = c.open > 0;
+  var anyExpanded = specGroupsCache.some(function(g) { return !specGroupCollapsed(g, anyOpen); });
+  var fold = document.getElementById('spec-fold');
+  if (fold) fold.textContent = anyExpanded ? 'Fold all' : 'Open all';
+  document.getElementById('spec-seg-room').classList.toggle('active', specView === 'room');
+  document.getElementById('spec-seg-stage').classList.toggle('active', specView === 'stage');
+}
+
+// ── Spec sheet: the On Site entry ─────────────────────────────────────────
+// Mirrors the snag section, with one deliberate difference: there is NO
+// "no sheet" state. The sheet exists whenever the job has any rows, so a job
+// with none shows no entry at all rather than an empty card.
+function specSectionHtml(model) {
+  // The model is handed in by renderActuals so the entry and the quiet card
+  // below it are not two full rebuilds of the same job on every repaint of a
+  // screen that repaints on every keystroke.
+  model = model || jobSpecModel();
+  if (!model.rows.length) return '';
+  var c = specCounts(model);
+  if (!c.open) return '';
+  return '<div class="section-title" style="margin:16px 0 8px;display:flex;align-items:center;justify-content:space-between;gap:10px">'
+      + '<span>Spec sheet (' + c.open + ')</span>'
+      + '<button onclick="openSpecSheet()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:20px;padding:5px 12px;font-size:12px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;text-transform:none;letter-spacing:0">Open ›</button>'
+    + '</div>'
+    + '<div class="card" style="padding:12px 16px;cursor:pointer" onclick="openSpecSheet()">'
+      + '<div style="font-size:13px;color:var(--text2)">Prep ' + c.prepDone + '/' + c.prepTotal
+        + ' · Painted ' + c.painted + '/' + c.total + '</div>'
+    + '</div>';
+}
+
+// The quiet half, at the bottom of the screen: once everything is done the
+// sheet drops to one collapsed line rather than staying front and centre.
+function specQuietHtml(model) {
+  model = model || jobSpecModel();
+  if (!model.rows.length) return '';
+  var c = specCounts(model);
+  if (c.open) return '';
+  // One line, and a tap opens the full struck-through sheet. There is no
+  // separate expanded state here as there is for snags, because the sheet IS
+  // a screen of its own -- expanding in place would be a second copy of it
+  // with its own fold state to keep straight.
+  return '<div class="section-title" style="margin:18px 0 8px">Spec sheet</div>'
+    + '<div class="card">'
+      + '<div class="card-header sec-toggle" onclick="openSpecSheet()">'
+        + '<span>All ' + c.total + ' done ✓</span>'
+        + '<span class="sec-chev">›</span>'
+      + '</div>'
+    + '</div>';
+}
+
+// ── Spec sheet: the PDF ───────────────────────────────────────────────────
+// The sheet as a document, for the decorator who isn't holding the phone.
+// Same hand-rolled writer as the quote and the snag list, same header band, so
+// all three obviously come from the same business.
+//
+// Like the snag PDF it renders the IN-MEMORY state and deliberately does not
+// re-fetch first: specTicks already carries every tick made on this phone,
+// including the ones still sitting in the offline queue waiting for signal,
+// and a GET at this moment would replace those with the server's older answer.
+//
+// It prints THE VIEW THE SCREEN IS SHOWING, in the order the screen is
+// showing it -- cleared rows at the bottom of their group, cleared groups at
+// the bottom of the list -- so the file is checkable against the screen.
+function specPdfModel() {
+  var job = activeJob();
+  var contact = (job && job.contact) || {};
+  var model = jobSpecModel();
+  var c = specCounts(model);
+  var now = new Date();
+  return {
+    jobName: (job && job.name) || '',
+    address: [contact.street, contact.town, contact.postcode].filter(Boolean).join(', '),
+    today: now.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+    // "Correct as of" rather than a bare date: this is a snapshot of a moving
+    // list, and the time is half of what makes two exports tellable apart.
+    correctAs: now.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+      + ' at ' + now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+    view: specView === 'stage' ? 'By stage' : 'By room',
+    counts: c,
+    groups: specGroups(model, specView, specFilter).map(function(g) {
+      return {
+        label: g.label,
+        open: g.open,
+        rows: g.rows.map(function(r) {
+          return {
+            label: r.label, coats: r.coats, colour: r.colour, product: r.product,
+            prep: r.prep, includes: r.includes, tag: r.tag,
+            area: specView === 'stage' ? r.area : '',
+            cleared: specRowCleared(r),
+            steps: r.steps.map(function(step) {
+              return {
+                label: step === 'prep' ? 'Prep' : (r.steps.length > 1 ? 'Painted' : 'Done'),
+                done: specStepDone(r.key, step),
+                when: specStepWhen(r.key, step)
+              };
+            })
+          };
+        })
+      };
+    })
+  };
+}
+
+function specPdfFilename(m) {
+  var base = (m.jobName || 'Job').replace(/[^A-Za-z0-9 _-]+/g, '').trim().replace(/\s+/g, '-');
+  // Dated by the day it was exported, like the snag list and for the same
+  // reason: two exports a week apart SHOULD be two differently-named files.
+  return 'NH-Spec-' + (base || 'Job') + '-' + new Date().toISOString().slice(0, 10) + '.pdf';
+}
+
+async function buildSpecPdf(m) {
+  var logo = await pdfLoadLogo();
+  var d = pdfDoc();
+  var L = PDF_MARGIN, R = PDF_PAGE_W - PDF_MARGIN, W = R - L;
+  var BOX = 9;
+
+  // Two boxes per row, Prep and Painted, outlined if open and filled if
+  // ticked. Boxes rather than a tick glyph, because the standard-14 fonts
+  // have no tick glyph (pdfSanitise drops it) and filled-against-outlined
+  // survives a photocopy.
+  var stepBoxes = function(steps, top) {
+    var x = L;
+    steps.forEach(function(s) {
+      if (s.done) d.rect(x, top, BOX, BOX, PDF_STEEL);
+      else { d.rect(x, top, BOX, BOX, PDF_MUT); d.rect(x + 1, top - 1, BOX - 2, BOX - 2, PDF_WHITE); }
+      d.text(s.label + (s.when ? ' ' + s.when : ''), x + BOX + 5, top - BOX + 1.5,
+             { size: 7.5, rgb: PDF_MUT });
+      x += BOX + 6 + pdfTextWidth(pdfSanitise(s.label + (s.when ? ' ' + s.when : '')), false, 7.5) + 14;
+    });
+  };
+
+  var specRow = function(it) {
+    var headText = [it.label, it.coats, it.area].filter(Boolean).join(' · ')
+      + (it.tag ? '  [' + it.tag + ']' : '');
+    var headLines = pdfWrap(pdfSanitise(headText), true, 10, W);
+    var colourLines = it.colour ? pdfWrap(pdfSanitise(it.colour), true, 13, W) : [];
+    var subs = []
+      .concat(it.includes ? pdfWrap(pdfSanitise('Including ' + it.includes), false, 8.5, W) : [])
+      .concat(it.product ? pdfWrap(pdfSanitise(it.product), false, 8.5, W) : [])
+      .concat(it.prep ? pdfWrap(pdfSanitise(it.prep), false, 8.5, W) : []);
+    var h = headLines.length * 12.5 + colourLines.length * 16 + subs.length * 10.5 + BOX + 14;
+    d.need(h);
+    var top = d.y, yy = top - 10;
+    headLines.forEach(function(ln) {
+      d.text(ln, L, yy, { size: 10, bold: true, rgb: it.cleared ? PDF_MUT : PDF_INK });
+      // PDF has no strike-through, but it does have a horizontal rule, and a
+      // line drawn through the text at x-height is the same mark the screen
+      // puts on a cleared row.
+      if (it.cleared) d.rule(L, yy + 3, L + pdfTextWidth(pdfSanitise(ln), true, 10), PDF_MUT);
+      yy -= 12.5;
+    });
+    colourLines.forEach(function(ln) {
+      d.text(ln, L, yy - 2, { size: 13, bold: true, rgb: it.cleared ? PDF_MUT : PDF_INK });
+      if (it.cleared) d.rule(L, yy + 2, L + pdfTextWidth(pdfSanitise(ln), true, 13), PDF_MUT);
+      yy -= 16;
+    });
+    subs.forEach(function(ln) { d.text(ln, L, yy, { size: 8.5, rgb: PDF_MUT }); yy -= 10.5; });
+    stepBoxes(it.steps, yy - 2);
+    d.y = top - h;
+    d.rule(L, d.y + 3, R, PDF_RULE);
+  };
+
+  // Header band
+  var headH = 74;
+  d.rect(L, d.y, W, headH, PDF_STEEL);
+  var titleX = L + 20;
+  if (logo) {
+    d.rect(L + 14, d.y - 13, 48, 48, PDF_WHITE);
+    var iw = 40, ih = iw * logo.h / logo.w;
+    d.image(L + 18, d.y - 13 - (48 - ih) / 2, iw, ih);
+    titleX = L + 76;
+  }
+  d.text(quoteBusinessName(), titleX, d.y - 33, { size: 19, bold: true, rgb: PDF_WHITE });
+  d.text('Spec sheet — ' + m.view, titleX, d.y - 50, { size: 10, rgb: PDF_WHITE });
+  d.y -= headH + 18;
+
+  // The client's name, phone and email are deliberately NOT on it: this is a
+  // working document for whoever is holding a brush.
+  [['Job', m.jobName], ['At', m.address], ['Correct as of', m.correctAs]].forEach(function(pair) {
+    if (!pair[1]) return;
+    d.need(16);
+    d.text(pair[0] + ':', L, d.y - 10, { size: 10, bold: true });
+    d.text(pair[1], L + 74, d.y - 10, { size: 10, rgb: PDF_MUT });
+    d.y -= 15;
+  });
+  d.y -= 6;
+
+  d.need(24);
+  var c = m.counts;
+  d.text(c.open === 0
+      ? 'All ' + c.total + ' done'
+      : c.open + ' outstanding, ' + c.painted + ' done'
+        + (c.prepTotal ? '. Prep ' + c.prepDone + ' of ' + c.prepTotal : ''),
+    L, d.y - 11, { size: 11, bold: true, rgb: PDF_STEEL });
+  d.y -= 22;
+
+  m.groups.forEach(function(g) {
+    // Keep a heading with at least its first row: a heading stranded at the
+    // foot of a page reads as a room with nothing in it.
+    d.need(80);
+    var right = g.open ? g.open + ' open' : 'all done';
+    var rightW = pdfTextWidth(pdfSanitise(right), false, 9) + 12;
+    var headLines = pdfWrap(pdfSanitise(g.label), true, 10.5, W - rightW);
+    var top = d.y, yy = top - 11;
+    headLines.forEach(function(ln) { d.text(ln, L, yy, { size: 10.5, bold: true, rgb: PDF_STEEL }); yy -= 13; });
+    d.text(right, R, top - 11, { size: 9, rgb: PDF_MUT, align: 'right' });
+    d.y = yy - 3;
+    d.rule(L, d.y + 6, R, PDF_RULE);
+    g.rows.forEach(specRow);
+    d.y -= 14;
+  });
+
+  d.need(26);
+  d.y -= 6;
+  d.text('Prepared ' + m.today + ' · ' + quoteBusinessName(),
+    L + W / 2, d.y - 9, { size: 8, rgb: PDF_MUT, align: 'center' });
+
+  return pdfSerialise(d, logo);
+}
+
+// The button. Same three visible outcomes as the snag PDF's: the share sheet,
+// a download, or a toast saying what went wrong -- never a tap with no result.
+async function saveSpecPdf() {
+  var btn = document.getElementById('spec-pdf-btn');
+  var label = btn ? btn.textContent : '';
+  if (btn) { btn.textContent = 'Working…'; btn.disabled = true; }
+  try {
+    var m = specPdfModel();
+    if (!m.counts.total) { toast('Nothing on the spec sheet to export yet.'); return; }
+    var bytes = await buildSpecPdf(m);
+    var blob = new Blob([bytes], { type: 'application/pdf' });
+    var filename = specPdfFilename(m);
+    var file = null;
+    try { file = new File([blob], filename, { type: 'application/pdf' }); } catch (e) { file = null; }
+    var canShareFile = false;
+    try { canShareFile = !!(file && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })); } catch (e) { canShareFile = false; }
+    if (canShareFile) {
+      try {
+        await navigator.share({ files: [file], title: (m.jobName || 'Job') + ' — spec sheet' });
+        return;
+      } catch (e) {
+        if (e && (e.name === 'AbortError' || e.name === 'NotAllowedError')) return;
+        console.warn('Share sheet refused the spec PDF, falling back to download', e);
+      }
+    }
+    downloadBlob(blob, filename);
+    toast('Spec sheet saved as ' + filename);
+  } catch (err) {
+    reportFailure('Couldn\'t generate the spec sheet PDF', err);
+  } finally {
+    if (btn) { btn.textContent = label; btn.disabled = false; }
+  }
+}
+
+// ── Spec sheet: the live link ─────────────────────────────────────────────
+// A link that always shows the current sheet, for a helper or a client, and
+// that anyone holding it can tick things off on.
+//
+// TWO KINDS OF DATA, PUBLISHED DIFFERENTLY. The ROWS come from a published
+// model -- the server has no calc engine, so the phone publishes the finished
+// model and the server stores and serves it, current as of the phone's last
+// sync. The TICKS are not part of the model: they live in spec_ticks, the one
+// table both the app and the page write to, and the page reads them fresh on
+// every load. So a tick from either side shows on the other without a
+// republish, and ticking never triggers one.
+var specLink = { token: null, path: null, publishedAt: null };
+// The last model hash actually published, so an edit that changes nothing the
+// sheet shows never spends a request. The hash is of the MODEL, which does not
+// contain the ticks -- that is what keeps ticking from triggering a publish.
+var specPublishedHash = null;
+var specPublishTimer = null;
+
+function specModelHash(model) {
+  var s = JSON.stringify(model), h = 5381;
+  for (var i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+  return h.toString(36) + ':' + s.length;
+}
+
+async function refreshSpecLink() {
+  if (!activeJobId) return;
+  try {
+    var d = await apiGet('/api/jobs/' + encodeURIComponent(activeJobId) + '/spec-sheet');
+    specLink = { token: d.token || null, path: d.path || null, publishedAt: d.publishedAt || null };
+  } catch (e) {
+    // Offline, or a database that has never had the table. Either way the
+    // Share menu simply offers to start a link, which is what it would do for
+    // a job that has none.
+    specLink = { token: null, path: null, publishedAt: null };
+  }
+  renderSpecShareRow();
+}
+
+function specLinkUrl() {
+  return specLink.path ? location.origin + specLink.path : '';
+}
+
+// Publish or refresh. A PUT replaces the whole model, so last write wins and
+// a retry is always safe -- which is what lets this go through the ordinary
+// offline queue with the rest of the On Site writes.
+async function publishSpecSheet(force) {
+  if (!activeJobId) return null;
+  var model = jobSpecModel();
+  var hash = specModelHash(model);
+  if (!force && specPublishedHash === hash) return specLink;
+  var res = await apiPutStrict('/api/jobs/' + encodeURIComponent(activeJobId) + '/spec-sheet', { model: model });
+  specPublishedHash = hash;
+  if (res && res.token) {
+    specLink = { token: res.token, path: res.path, publishedAt: res.publishedAt || new Date().toISOString() };
+  }
+  return specLink;
+}
+
+// While a job HAS a link, the phone republishes after any edit that changes
+// the model: debounced, hash-skipped, and through the same queue as
+// everything else. A job with no link publishes nothing -- there is nobody
+// looking at a page that does not exist.
+function scheduleSpecPublish() {
+  if (!specLink.token) return;
+  if (specPublishTimer) clearTimeout(specPublishTimer);
+  specPublishTimer = setTimeout(function() {
+    specPublishTimer = null;
+    publishSpecSheet(false).catch(function(e) {
+      console.warn('Spec sheet could not be republished', e && e.message);
+    });
+  }, 2000);
+}
+
+function renderSpecShareRow() {
+  var el = document.getElementById('spec-share-row');
+  if (!el) return;
+  var live = !!specLink.token;
+  el.innerHTML = '<button id="spec-pdf-btn" onclick="saveSpecPdf()" style="flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text2);border-radius:20px;padding:7px 12px;font-size:12px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer">Share PDF</button>'
+    + '<button id="spec-link-btn" onclick="shareSpecLink()" style="flex:1;background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:20px;padding:7px 12px;font-size:12px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer">'
+      + (live ? 'Share link' : 'Start a link') + '</button>'
+    + (live ? '<button onclick="stopSpecSharing()" style="flex:none;background:none;border:1px solid var(--border);color:var(--text3);border-radius:20px;padding:7px 12px;font-size:12px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer">Stop sharing</button>' : '');
+}
+
+// Mints and publishes on first use, then hands the URL to the share sheet.
+async function shareSpecLink() {
+  var btn = document.getElementById('spec-link-btn');
+  var label = btn ? btn.textContent : '';
+  if (btn) { btn.textContent = 'Working…'; btn.disabled = true; }
+  try {
+    // force: a Share tap must publish whatever is current even if the hash
+    // says nothing has moved -- the first one has nothing published behind it
+    // at all, and a later one is somebody asking for the page to be right now.
+    await publishSpecSheet(true);
+    var url = specLinkUrl();
+    if (!url) { toast('Could not start the link — check the connection and tap again.'); return; }
+    renderSpecShareRow();
+    var shared = false;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: (activeJob() && activeJob().name) || 'Spec sheet', url: url });
+        shared = true;
+      }
+    } catch (e) {
+      if (e && (e.name === 'AbortError' || e.name === 'NotAllowedError')) return;
+    }
+    if (!shared) {
+      try { await navigator.clipboard.writeText(url); toast('Link copied — ' + url); }
+      catch (e) { prompt('Spec sheet link:', url); }
+    }
+  } catch (err) {
+    reportFailure('Couldn\'t share the spec sheet link', err);
+  } finally {
+    if (btn) { btn.textContent = label; btn.disabled = false; }
+  }
+}
+
+// Stop sharing kills the link for everyone holding it. IT LEAVES THE TICKS
+// ALONE -- they belong to the job, not to the link, and the work they record
+// happened whether or not anybody is still allowed to look at the page.
+async function stopSpecSharing() {
+  if (!confirm('Stop sharing this spec sheet?\n\nThe link stops working for everyone who has it. The ticks stay.')) return;
+  try {
+    await apiDeleteStrict('/api/jobs/' + encodeURIComponent(activeJobId) + '/spec-sheet');
+    specLink = { token: null, path: null, publishedAt: null };
+    specPublishedHash = null;
+    renderSpecShareRow();
+    toast('Link stopped. The ticks are still here.');
+  } catch (e) {
+    alert('Could not stop the link: ' + e.message);
+  }
+}
+
+// ── Radiator colour ───────────────────────────────────────────────────────
+// A radiator row shows the WOODWORK colour by default -- radiators are priced
+// as labour only (rRad minutes each) and add no paint litres, and they ride
+// the woodwork tin. A room can set its own when it needs to, and when it does
+// that colour shows here, on the Colours tab and on the client quote's colour
+// schedule.
+//
+// "Same as woodwork" is a DIFFERENT STATE from "undecided". A blank field
+// means undecided; the chip means follow the woodwork. So the carrier is null
+// for "follows woodwork" rather than reusing the placeholder-first blank rule,
+// and old jobs (which have no override at all) need no migration.
+function roomHasRadiatorColour(r) {
+  return !!(r && r.radiatorColourNumber);
+}
+function roomRadiatorColourNumber(r) {
+  if (!r) return 1;
+  return r.radiatorColourNumber || r.woodworkColourNumber || 1;
+}
+
 // The reconciliation: estimate (rolled up) LEFT JOIN actuals, plus any actual
 // with no estimate line -- the case that loses money if it's missed, since it's
 // something bought for the job that was never quoted.
@@ -15742,7 +16932,11 @@ async function openActuals() {
       // that has material_actuals but not yet snags (the table is created
       // lazily on first use) must still show the materials screen.
       loadSnags().catch(function(e) { if (!isNetworkFailure(e)) snags = []; }),
-      loadSnagRooms().catch(function(e) { if (!isNetworkFailure(e)) snagRooms = []; })
+      loadSnagRooms().catch(function(e) { if (!isNetworkFailure(e)) snagRooms = []; }),
+      // Tolerant for the same reason as the snags: spec_ticks is created
+      // lazily on first use, and a database that has never had one must still
+      // show the materials screen.
+      loadSpecTicks().catch(function(e) { if (!isNetworkFailure(e)) specTicks = []; })
     ]);
   } catch (e) {
     // Offline (fetch itself failed, not the server refusing): the copies
@@ -15953,13 +17147,15 @@ function renderActuals() {
   // Snags go above everything materials, and only while something is still
   // open (snagsSectionHtml returns '' otherwise). The cleared/empty list has
   // its own quiet home at the bottom -- see snagsQuietHtml.
-  el.innerHTML = onSiteJobHeader() + snagsSectionHtml() + head + renderTimeOnSiteCard()
+  var specModel = jobSpecModel();
+  el.innerHTML = onSiteJobHeader() + snagsSectionHtml() + specSectionHtml(specModel) + head + renderTimeOnSiteCard()
     + '<div class="section-title" style="margin:16px 0 8px;display:flex;align-items:center;justify-content:space-between;gap:14px">Materials'
       + undoChipHtml()
     + '</div>'
     + rowsHtml + add
     + variationsSection
-    + snagsQuietHtml();
+    + snagsQuietHtml()
+    + specQuietHtml(specModel);
   restoreFields(pendingAdd);
   // Reuses the Summary picker wholesale -- same onMaterialProductInput
   // function, same materialItemIndex, just mounted with the 'act-add' prefix.
@@ -17035,6 +18231,10 @@ var colourLibrary = [];
 
 function saveColours() {
   invalidateColourPlaceholders();
+  // While a job has a live spec-sheet link, the page it serves has to keep up
+  // with this edit. Debounced and hash-skipped inside, and a no-op on a job
+  // that has never shared its sheet -- see scheduleSpecPublish().
+  scheduleSpecPublish();
   localStorage.setItem('pe-colours', JSON.stringify(colours));
   writeJobMirror('colours', activeJobId, colours);
   var jobId = activeJobId;
@@ -17091,6 +18291,10 @@ function ensureDefaultColour() {
 var AREA_ROLE_WORDS = {
   wall: 'Main Walls', ceiling: 'Ceiling', woodwork: 'Woodwork',
   featurewall: 'Feature Wall', panel: 'Panelling',
+  // Radiators are an area ONLY when a room has set a colour of its own for
+  // them (see colourAreas). By default they ride the woodwork colour and buy
+  // no litres of their own, so they are not an area at all.
+  radiator: 'Radiators',
   masonry: 'Masonry', extwoodwork: 'Woodwork'
 };
 
@@ -17127,11 +18331,21 @@ function colourAreas(live) {
     var n = editing ? live.roomNums : {
       wall: r.colourNumber || 1, ceiling: r.ceilingColourNumber || 1,
       woodwork: r.woodworkColourNumber || 1,
-      featurewall: r.featureWallColourNumber || 1, panel: r.panelColourNumber || 1
+      featurewall: r.featureWallColourNumber || 1, panel: r.panelColourNumber || 1,
+      // null means "follows the woodwork", which is a different state from
+      // "undecided" -- so this one is NOT defaulted to colour 1.
+      radiator: r.radiatorColourNumber || null
     };
     if (+r.wc > 0) add(name, 'wall', n.wall, { kind: 'room', id: r.id, role: 'wall' });
     if (+r.cc > 0) add(name, 'ceiling', n.ceiling, { kind: 'room', id: r.id, role: 'ceiling' });
     if (+r.xc > 0) add(name, 'woodwork', n.woodwork, { kind: 'room', id: r.id, role: 'woodwork' });
+    // Radiators join the areas ONLY where the room has overridden their
+    // colour. Without the override they follow the woodwork, which is what
+    // they have always done and what the tins already assume -- so no room
+    // gets a new "to decide" item unless it asked for one, and a colour whose
+    // only area is a radiator still buys nothing (radiators carry no litres;
+    // computeRoleGroups has no radiator role and must not gain one).
+    if (+r.rads > 0 && n.radiator) add(name, 'radiator', n.radiator, { kind: 'room', id: r.id, role: 'radiator' });
     if (+r.featureWallArea > 0 && (r.featureWallMode || 'paint') === 'paint') {
       add(name, 'featurewall', n.featurewall, { kind: 'room', id: r.id, role: 'featurewall' });
     }
@@ -17141,6 +18355,11 @@ function colourAreas(live) {
     ['wall', 'ceiling', 'woodwork', 'featurewall', 'panel'].forEach(function(role) {
       add(live.roomName || 'Room', role, live.roomNums[role]);
     });
+    // Radiators only when the room being added has actually overridden them:
+    // every role above is taken on trust because which surfaces end up with
+    // coats is not settled until Save, but "follows the woodwork" is a
+    // decision already made, not an unknown.
+    if (live.roomNums.radiator) add(live.roomName || 'Room', 'radiator', live.roomNums.radiator);
   }
   var liveExtSeen = false;
   extItems.forEach(function(it) {
@@ -17413,6 +18632,17 @@ function roomColourSchedule(r) {
   if (+r.wc > 0) parts.push({ role: 'Walls', num: r.colourNumber || 1 });
   if (+r.cc > 0) parts.push({ role: 'Ceiling', num: r.ceilingColourNumber || 1 });
   if (+r.xc > 0) parts.push({ role: 'Woodwork', num: r.woodworkColourNumber || 1 });
+  // Radiators get a part of their own ONLY where the room has overridden
+  // their colour and there are radiators to paint. Without the override they
+  // ride the woodwork clause, exactly as the scope sentence already has them
+  // do -- that sentence names paint, not colour, and is unchanged.
+  //
+  // The merge below does the rest: a radiator colour identical to the
+  // woodwork's reads "Woodwork/Radiators: X", and a room where every part is
+  // the same still collapses to one label. An override not yet decided reads
+  // "Radiators: To be confirmed", which is correct. THIS one function feeds
+  // every schedule there is, so the change is here and nowhere else.
+  if (+r.rads > 0 && r.radiatorColourNumber) parts.push({ role: 'Radiators', num: r.radiatorColourNumber });
   if (+r.featureWallArea > 0 && (r.featureWallMode||'paint')==='paint') parts.push({ role: 'Feature wall', num: r.featureWallColourNumber || 1 });
   if (!parts.length) return null;
   if (parts.every(function(p){ return p.num === parts[0].num; })) {
@@ -17893,6 +19123,7 @@ function setAreaColourNumber(ref, num) {
     else if (ref.role === 'woodwork') r.woodworkColourNumber = num;
     else if (ref.role === 'featurewall') r.featureWallColourNumber = num;
     else if (ref.role === 'panel') r.panelColourNumber = num;
+    else if (ref.role === 'radiator') r.radiatorColourNumber = num;
     saveRooms();
     return;
   }
@@ -18416,6 +19647,86 @@ function populateRoomColourChips(role) {
     }
   });
   seg.innerHTML = colourSlotHtml(slot, cur, areaPlaceholderForRole(role), liveColourState());
+}
+
+// ── The room screen's Radiator colour row ─────────────────────────────────
+// JOB_SPEC_SHEET_SPEC.md. Radiators ride the woodwork colour by default --
+// they are priced as labour only (rRad minutes each) and buy no litres, so
+// they have never needed a colour of their own. A room can set one when it
+// needs to, and then it shows on the spec sheet, the Colours tab and the
+// client quote's colour schedule.
+//
+// TWO STATES, NOT ONE. "Same as woodwork" (the chip, on by default) is
+// roomColourNumbers.radiator === null. "Undecided" is a NUMBER pointing at a
+// colour with no name -- the app's ordinary undecided. They are deliberately
+// not the same state, so switching the chip off mints an unnamed colour for
+// the radiators rather than leaving a blank that reads as "follow the
+// woodwork" to every consumer.
+function renderRadiatorColourRow() {
+  var row = document.getElementById('r-radiator-colour-row');
+  if (!row) return;
+  var radsEl = document.getElementById('r-rads');
+  var hasRads = !!(radsEl && +radsEl.value > 0);
+  row.style.display = hasRads ? 'block' : 'none';
+  if (!hasRads) return;
+  var follows = !roomColourNumbers.radiator;
+  var chip = document.getElementById('r-radiator-same-chip');
+  if (chip) {
+    chip.style.background = follows ? 'var(--accent-soft-bg)' : 'var(--surface2)';
+    chip.style.borderColor = follows ? 'var(--accent-soft-border)' : 'var(--border)';
+    chip.style.color = follows ? 'var(--accent)' : 'var(--text2)';
+  }
+  var field = document.getElementById('r-radiator-colour-field');
+  if (field) field.style.display = follows ? 'none' : 'flex';
+  if (follows) return;
+  // The standard area colour field: free text, quick-pick chips, library
+  // autocomplete -- and applyAreaColourName's rules unchanged, so naming a
+  // radiator colour renames in place, joins or forks exactly as naming any
+  // other area does.
+  var cur = roomColourNumbers.radiator;
+  registerColourSlot('a-radiator', {
+    apply: function(label, brand, code) {
+      var next = applyAreaColourName(cur, label, brand, code, liveColourState());
+      if (next !== cur) { roomColourNumbers.radiator = next; pruneOrphanColour(cur, liveColourState()); }
+      saveColours();
+      refreshColourSlots();
+      renderRadiatorColourRow();
+    },
+    pick: function(picked) {
+      if (picked === cur) return;
+      roomColourNumbers.radiator = picked;
+      pruneOrphanColour(cur, liveColourState());
+      saveColours();
+      refreshColourSlots();
+      renderRadiatorColourRow();
+    }
+  });
+  var seg = document.getElementById('seg-colour-radiator');
+  if (seg) {
+    var nameEl = document.getElementById('r-name');
+    seg.innerHTML = colourSlotHtml('a-radiator', cur,
+      areaPlaceholder((nameEl && nameEl.value.trim()) || 'Room', 'radiator'), liveColourState());
+  }
+}
+
+function toggleRadiatorFollowsWoodwork() {
+  if (roomColourNumbers.radiator) {
+    // Back to following the woodwork. The colour it was on may now be an
+    // unnamed orphan with nothing left on it, which is exactly what
+    // pruneOrphanColour is for.
+    var was = roomColourNumbers.radiator;
+    roomColourNumbers.radiator = null;
+    pruneOrphanColour(was, liveColourState());
+  } else {
+    // Off the chip and onto a colour of its own, starting UNDECIDED: a fresh
+    // unnamed entry, which every consumer already reads as "To be confirmed"
+    // and which the field below ghosts with where it goes.
+    ensureDefaultColour();
+    roomColourNumbers.radiator = addColourEntry('', '', '');
+  }
+  saveColours();
+  refreshColourSlots();
+  renderRadiatorColourRow();
 }
 
 // Every slot on screen, re-read. A rename or a re-pick changes what the
@@ -19276,6 +20587,10 @@ function saveKitchenJob() {
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   persistJobData(job);
   updateKitchenTotals();
+  // While a job has a live spec-sheet link, the page it serves has to keep up
+  // with this edit. Debounced and hash-skipped inside, and a no-op on a job
+  // that has never shared its sheet -- see scheduleSpecPublish().
+  scheduleSpecPublish();
 }
 
 function onKitchenQtyChange(typeKey, size, field, value) {
@@ -19815,6 +21130,8 @@ function saveFittedUnitJob() {
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   persistJobData(job);
   updateFittedUnitTotals();
+  // See saveRooms(): keep a live shared sheet current with this edit.
+  scheduleSpecPublish();
 }
 
 function onFittedUnitFieldChange(field, value) {
@@ -20228,6 +21545,10 @@ function clearExteriorItems() {
 
 function saveExtItems() {
   invalidateColourPlaceholders();
+  // While a job has a live spec-sheet link, the page it serves has to keep up
+  // with this edit. Debounced and hash-skipped inside, and a no-op on a job
+  // that has never shared its sheet -- see scheduleSpecPublish().
+  scheduleSpecPublish();
   localStorage.setItem('pe-extitems', JSON.stringify(extItems));
   writeJobMirror('extitems', activeJobId, extItems);
   var jobId = activeJobId, payload = extItems;
@@ -20402,6 +21723,10 @@ function saveCustomItems() {
   if (!job) return;
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   persistJobData(job);
+  // While a job has a live spec-sheet link, the page it serves has to keep up
+  // with this edit. Debounced and hash-skipped inside, and a no-op on a job
+  // that has never shared its sheet -- see scheduleSpecPublish().
+  scheduleSpecPublish();
 }
 
 var editCustomId = null;
@@ -22825,8 +24150,12 @@ function editRoom(id) {
   if(!r)return;
   resetFormSections();
   editId=id; coats={wc:+r.wc,cc:+r.cc,xc:+r.xc};
-  roomColourNumbers = { wall: r.colourNumber || 1, ceiling: r.ceilingColourNumber || 1, woodwork: r.woodworkColourNumber || 1, featurewall: r.featureWallColourNumber || 1, panel: r.panelColourNumber || 1 };
+  // radiator is NOT defaulted to 1: null means "follows the woodwork", which
+  // is a different state from undecided and is what every room saved before
+  // the override existed means.
+  roomColourNumbers = { wall: r.colourNumber || 1, ceiling: r.ceilingColourNumber || 1, woodwork: r.woodworkColourNumber || 1, featurewall: r.featureWallColourNumber || 1, panel: r.panelColourNumber || 1, radiator: r.radiatorColourNumber || null };
   ['wall','ceiling','woodwork','featurewall','panel'].forEach(populateRoomColourChips);
+  renderRadiatorColourRow();
   roomOverrides = {
     // wallBandOverride is the current field name; bandOverride is read too
     // for backward compatibility with rooms saved before this rename.
@@ -23059,6 +24388,9 @@ function buildRoomFromForm() {
     ceilingColourNumber:roomColourNumbers.ceiling,
     woodworkColourNumber:roomColourNumbers.woodwork,
     featureWallColourNumber:roomColourNumbers.featurewall,
+    // null (dropped by ||undefined) means "follows the woodwork". A NUMBER
+    // means this room has said otherwise -- see renderRadiatorColourRow().
+    radiatorColourNumber:roomColourNumbers.radiator || undefined,
     wallRangeOverride:roomOverrides.wall.range||undefined, wallBandOverride:roomOverrides.wall.band||undefined,
     ceilingRangeOverride:roomOverrides.ceiling.range||undefined, ceilingBandOverride:roomOverrides.ceiling.band||undefined,
     topcoatRangeOverride:roomOverrides.topcoat.range||undefined, topcoatBandOverride:roomOverrides.topcoat.band||undefined,
