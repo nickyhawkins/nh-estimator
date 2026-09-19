@@ -169,6 +169,11 @@ function specGroups(model, tmap, view, needle) {
   groups.forEach(function (g) {
     g.rows = specSortRows(g.rows, tmap, stageRank, order);
     g.open = g.rows.filter(function (r) { return !specRowCleared(r, tmap); }).length;
+    // The note belongs to an AREA, so a group only carries it when the group
+    // IS one area -- always true By Room and in By Stage's per-area blocks,
+    // never true of a stage section spanning the house.
+    var one = g.rows.every(function (r) { return r.areaKey === g.rows[0].areaKey; });
+    g.note = one ? (g.rows[0].areaNote || '') : '';
   });
   var live = groups.filter(function (g) { return g.open > 0; });
   var done = groups.filter(function (g) { return g.open === 0; });
@@ -230,7 +235,9 @@ function specSheetHtml(model, tmap, view, needle, collapsed) {
     var shut = needle ? false : specGroupCollapsed(g, collapsed, anyOpen);
     return '<div class="grp">'
       + '<button class="grp-head' + (shut ? ' shut' : '') + '" type="button" data-group="' + specEsc(g.key) + '">'
-        + '<span class="grp-name">' + specEsc(g.label) + '</span>'
+        + '<span class="grp-name">' + specEsc(g.label)
+          + (g.note ? ' <span class="grp-note">' + specEsc(g.note) + '</span>' : '')
+        + '</span>'
         + '<span class="grp-count">' + (g.open ? g.open + ' open' : 'all done &#10003;') + '</span>'
         + '<span class="chev">&#8250;</span>'
       + '</button>'
@@ -299,6 +306,8 @@ body{font-family:"Barlow",system-ui,-apple-system,sans-serif;background:var(--gr
 .grp-name{flex:1;min-width:0;font-family:"Barlow Semi Condensed","Barlow",sans-serif;font-size:14px;
           font-weight:700;letter-spacing:.06em;text-transform:uppercase}
 .grp-count{flex:none;font-size:12.5px;font-weight:600;color:var(--mut)}
+.grp-note{text-transform:none;letter-spacing:0;font-weight:600}
+.grp-note:before{content:"\\2014  "}
 .chev{flex:none;font-size:17px;color:var(--mut);transform:rotate(90deg);transition:transform .15s}
 .grp-head.shut .chev{transform:none}
 .grp-rows{background:#fff;border-radius:14px;box-shadow:0 1px 3px rgba(0,0,0,.06);overflow:hidden}

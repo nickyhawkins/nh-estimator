@@ -367,6 +367,39 @@ Watch out: `scopeFacts()` and the quote builders filter with `!isVariation`
 because they describe the original quote. The sheet does **not** inherit that
 filter. It needs the variation work too.
 
+### Extra work added inside an already-measured area
+
+`VARIATIONS_SPEC.md` Part 2 (v2.71.0) landed after this spec was written, and
+it is the one case the tag vocabulary above cannot express. That flag is
+per-**carrier** and never per-field: the job knows a room has grown beyond the
+scope that was agreed, but not which surface it grew on. There is no row to
+tag, and tagging all five of a room's rows "Variation" would be a worse lie
+than saying nothing.
+
+So it is said once against the **area** instead — `specAreaNote()`, rendered on
+the group heading in both the app and on the live page, in the same one
+constant as the row tags:
+
+- classified and still pending: *includes extra work, awaiting approval*
+- approved: *includes extra work ✓*
+- declined: *includes extra work the client declined*
+
+The **declined** case is what earns it its place. That work is still measured
+on the job — the radiators are typed into the room, which is why the delta
+exists at all — so its row is still on the sheet to be painted, and nothing
+else on this screen would say the client has refused to pay for it. The rows
+stay either way: the sheet describes what is measured, and taking work off it
+is done by re-measuring the room, not by the client's answer.
+
+A carrier whose classified extra has since shrunk back below its baseline
+carries no note, which is `variationDeltaScan()`'s own rule.
+
+**Known limit.** A group only carries the note when the group IS one area, so
+it shows throughout By Room and on By Stage's per-area blocks, and is dropped
+on a stage section spanning several rooms. There is nowhere honest to put it
+there: the section is a list of ceilings across the house, and the note belongs
+to one of the rooms in it.
+
 ## Quick find
 
 A filter box, instant as you type, in the pattern of the price lookup tool. It
@@ -526,15 +559,16 @@ data the page displays, never markup.
 
 ## Verification
 
-- `npm run test:spec` — 68 cases on the real `jobSpecModel()` and the real
+- `npm run test:spec` — 75 cases on the real `jobSpecModel()` and the real
   `lib/specSheet.js`: the rows a job produces and their order, papered
   surfaces and their single Done tick, Prep alone not clearing a row,
   cleared-last at row and group level in both views (feature wall still last
   within each band), fold defaults including "nothing open anywhere", key
   stability across a room rename, orphaned ticks ignored, the other-areas
-  block, a refetch never swallowing a tick still in the offline queue, and
-  the public tick route rejecting keys and steps that are not in the published
-  model.
+  block, a refetch never swallowing a tick still in the offline queue, extra
+  work inside a measured area being noted against the area and never as a row
+  tag (the declined case included), and the public tick route rejecting keys
+  and steps that are not in the published model.
 - `npm run test:radiator` — the override's blast radius, in a real browser
   against the real `computeMaterials()`: **the tins do not move**, before or
   after switching it on and whichever colour it is switched to; the area

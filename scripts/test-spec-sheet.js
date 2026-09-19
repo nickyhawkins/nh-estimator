@@ -103,6 +103,10 @@ const sandbox = {
   legacyWindowList: () => [],
   extWindowCount: () => 0,
   variationStatusOf: (x) => (x && x.variationStatus) || 'pending',
+  // Extra work inside an already-measured carrier (VARIATIONS_SPEC.md Part 2).
+  // Stubbed to the shape variationDeltaOf() returns; what is under test is what
+  // the sheet SAYS about it, not how the delta is priced.
+  variationDeltaOf: (kind, obj) => (obj && obj._delta) || null,
   // The real ones: an undecided colour reads "To be confirmed", a decided one
   // reads its name.
   colourScheduleLabel: (num) => (sandbox.colourNames[num] || 'To be confirmed'),
@@ -407,7 +411,46 @@ sandbox.job.kitchen = null; sandbox.job.fittedUnits = []; sandbox.job.customItem
     ['room:ab12:ceiling|prep', 'room:ab12:radiators|prep']);
   sandbox.specTicks = [];
 
-  // 11 · The published model, and the public tick route's rule
+  // 11 · Extra work added INSIDE an already-measured room
+  // The flag is per-carrier and never names a surface, so there is no row to
+  // tag -- it is said once against the AREA. The declined case is the one that
+  // earns it: that work is still measured on the job, so its row is still on
+  // the sheet to be painted, and nothing else here would say the client has
+  // refused to pay for it.
+  sandbox.specTicks = [];
+  sandbox.rooms[1].variationDelta = true;
+  sandbox.rooms[1]._delta = { raw: 48, classified: true };
+  let delta = sandbox.jobSpecModel();
+  const landing = () => sandbox.specGroups(delta, 'room', '').find(g => g.key === 'room:cd34');
+  eq('a pending extra is noted against the area',
+    landing().note, 'includes extra work, awaiting approval');
+  check('and never as a row tag',
+    delta.rows.filter(r => r.areaKey === 'room:cd34').every(r => r.tag === ''));
+  sandbox.rooms[1].variationStatus = 'declined';
+  delta = sandbox.jobSpecModel();
+  eq('a DECLINED extra says so, and the rows stay on the sheet',
+    landing().note, 'includes extra work the client declined');
+  check('the room is still painted -- the work is measured on the job',
+    delta.rows.some(r => r.areaKey === 'room:cd34'));
+  sandbox.rooms[1].variationStatus = 'approved';
+  eq('an approved extra reads as agreed',
+    (delta = sandbox.jobSpecModel(), landing().note), 'includes extra work ✓');
+  // A classified extra whose carrier has since shrunk back below its baseline
+  // is not extra work any more -- variationDeltaScan()'s own rule.
+  sandbox.rooms[1]._delta = { raw: -12, classified: true };
+  eq('an extra that has shrunk back below its baseline says nothing',
+    (delta = sandbox.jobSpecModel(), landing().note), '');
+  // A stage section spanning the house is not one area, so it carries none.
+  sandbox.rooms[1]._delta = { raw: 48, classified: true };
+  delta = sandbox.jobSpecModel();
+  const wallsSection = sandbox.specGroups(delta, 'stage', '').find(g => g.key === 'stage:wall');
+  check('a stage section spanning several rooms carries no area note',
+    wallsSection.rows.length > 1 && wallsSection.note === '');
+  delete sandbox.rooms[1].variationDelta;
+  delete sandbox.rooms[1]._delta;
+  delete sandbox.rooms[1].variationStatus;
+
+  // 12 · The published model, and the public tick route's rule
   const published = normaliseSpecModel(renamed);
   check('the model survives the server-side whitelist', !!published);
   check('the published model carries no money', !/price|amount|£|markup/i.test(JSON.stringify(published)));
