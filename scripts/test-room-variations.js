@@ -335,6 +335,51 @@ async function seed(db) {
       rows.rows.some(r => /delta$/.test(r.source_kind)),
       rows.rows.map(r => r.source_kind).join(',') || 'no rows');
 
+    // ── A room that lost its baseline heals itself ────────────────────────
+    // The job-level stamp and the rooms are two separate writes to two
+    // different tables. They can come apart — the job PUT lands, the rooms PUT
+    // is lost to a dead spot — leaving a job marked "baselined" whose rooms
+    // carry none. Keyed on the job flag, nothing ever healed that, so no room
+    // on the job could report a delta again, silently and permanently.
+    // Reported from the field: adding radiators did nothing at all.
+    const healed = await page.evaluate(async () => {
+      // Strip the baselines the way a lost rooms-write would, flag intact.
+      rooms.forEach(r => { delete r.variationBaseline; r.variationDelta = false; });
+      saveRooms();
+      const before = { flag: !!activeJob().variationBaselinesAt,
+                       baselined: rooms.filter(r => r.variationBaseline).length };
+      goTab('summary'); renderSummary();
+      return { before, after: rooms.filter(r => r.variationBaseline).length };
+    });
+    check('a job whose rooms lost their baselines is detected despite the flag',
+      healed.before.flag === true && healed.before.baselined === 0, healed.before);
+    check('and every room gets one back', healed.after === 3, healed.after);
+
+    // ...and the feature works again from there.
+    const worksAgain = await page.evaluate(() => {
+      // Add to whatever the healed baseline just froze, so this is an increase
+      // whatever earlier steps left on the room.
+      rooms[1].rads = (+rooms[1].rads || 0) + 1.4;
+      const d = variationDeltaOf('room', rooms[1]);
+      return { delta: d && Math.round(d.raw * 100) / 100 };
+    });
+    check('a delta is reported again once healed', worksAgain.delta > 0, worksAgain);
+
+    // Healing must never touch a carrier that already has a baseline — doing so
+    // would re-stamp at today's scope and forgive a real extra.
+    const preserved = await page.evaluate(() => {
+      const keptAt = rooms[1].variationBaseline.at;
+      delete rooms[0].variationBaseline;           // only ONE room loses it
+      saveRooms(); renderSummary();
+      return { otherRoomUntouched: rooms[1].variationBaseline.at === keptAt,
+               stillSeesDelta: !!variationDeltaOf('room', rooms[1]),
+               missingOneHealed: !!rooms[0].variationBaseline };
+    });
+    check('healing one room leaves the others\u2019 baselines exactly as they were',
+      preserved.otherRoomUntouched === true && preserved.missingOneHealed === true, preserved);
+    check('so an extra already recorded against another room is not forgiven',
+      preserved.stillSeesDelta === true);
+
     // ── A DECLINED extra survives an amend rather than being absorbed ─────
     // Amending re-agrees the current scope, and the extra is still measured on
     // the job -- the radiators are typed into the room. Folding a declined one

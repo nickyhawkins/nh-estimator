@@ -8726,6 +8726,10 @@ function stampVariationBaselines(job, opts) {
   var n = 0, touchedRooms = false, touchedExt = false;
   eachVariationCarrier(job, function(kind, obj) {
     if (obj.isVariation) return;
+    // Healing a carrier that never got one must NEVER touch a carrier that
+    // has one: re-stamping a live baseline at today's scope would forgive a
+    // real extra, which is the exact loss this whole feature exists to stop.
+    if (opts.onlyMissing && obj.variationBaseline) return;
     // A DECLINED extra is work the client said no to. It is still measured on
     // the job -- the radiators are typed into the room, which is why the delta
     // exists at all -- but re-baselining would fold it into the new revision's
@@ -8916,9 +8920,23 @@ function dismissLateBaselineNotice() {
 function stampVariationBaselinesIfOwed(job) {
   if (!job || job.id !== activeJobId) return;
   if (!variationApplies()) return;
-  if (job.variationBaselinesAt) return;
   if (!jobHasMeasuredScope(job)) return;
-  stampVariationBaselines(job, { late: true });
+  // Asks the CARRIERS, not the job-level flag. The flag and the rooms are two
+  // separate writes to two different tables, and they can come apart: the job
+  // PUT lands, the rooms PUT is lost to a dead spot, and the next load finds a
+  // job marked "baselined" whose rooms carry no baseline at all. Keyed on the
+  // flag, this bailed out and nothing ever healed it — so no room on that job
+  // could report a delta again, silently and permanently. Reported from the
+  // field on a job where adding radiators did nothing whatsoever.
+  //
+  // Only the carriers that are actually missing one are stamped, so this can
+  // never overwrite a baseline that is already holding a real extra.
+  var owed = false;
+  eachVariationCarrier(job, function(kind, obj) {
+    if (!obj.isVariation && !obj.variationBaseline) owed = true;
+  });
+  if (!owed) return;
+  stampVariationBaselines(job, { late: !job.variationBaselinesAt, onlyMissing: true });
 }
 
 // The VARIATION chip, everywhere it already appears (Measure/Exterior/
@@ -24743,8 +24761,13 @@ function renderSummary() {
         + '<div style="padding:12px 16px;font-size:13px;line-height:1.5;color:var(--text)">'
         + '<strong>Scope baselines set from this job as it stands today.</strong><br>'
         + '<span style="color:var(--text2)">This job was accepted before the app started recording what each room '
-        + 'was measured as, so anything already on it counts as agreed. Changes from here are tracked as extra '
-        + 'work or corrections. <span onclick="dismissLateBaselineNotice()" style="color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline">Got it</span></span>'
+        + 'was measured as, so <strong>everything already measured on it now counts as agreed</strong> \u2014 including '
+        + 'any extra you had already typed in but not yet billed. Changes from here are tracked as extra work '
+        + 'or corrections.<br><br>'
+        + '<strong>Already added work that should be billed?</strong> Open that room, take the extra back out and '
+        + 'save (choose <em>A correction</em>), then put it back in and save again (choose <em>Extra work</em>). '
+        + 'It then prices as a variation like any other. '
+        + '<span onclick="dismissLateBaselineNotice()" style="color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline">Got it</span></span>'
         + '</div></div>'
       : '')+
     // The agreed record: the lines behind the headline immediately above it,
