@@ -6184,8 +6184,11 @@ function setJobStatusById(jobId, newStatus, confirmMsg, opts) {
     }
   } else if (!keepsAccepted) {
     // Un-answering (draft/quoted/declined) withdraws the acceptance, so the
-    // frozen estimate goes with it -- a later re-accept re-stamps fresh.
+    // frozen estimate goes with it -- a later re-accept re-stamps fresh. The
+    // frozen SCOPE goes the same way: with no accepted quote there is nothing
+    // for a variation to be a variation OF.
     job.acceptedSnapshot = null;
+    if (jobId === activeJobId) clearVariationBaselines(job);
   }
   // THE ACCEPTED-QUOTE FREEZE (see the Accepted-quote snapshots section).
   // acceptedSnapshot above is a handful of comparison figures for the labour
@@ -6209,6 +6212,12 @@ function setJobStatusById(jobId, newStatus, confirmMsg, opts) {
   if (newStatus === 'accepted' && !isUncomplete) {
     if (jobId === activeJobId) {
       if (!latestQuoteSnapshot(job)) captureQuoteSnapshot(job, 'accepted');
+      // The agreed SCOPE, frozen beside the agreed money (VARIATIONS_SPEC.md
+      // Part 2). Same conditions and the same reason: the calc can only run
+      // over the loaded job's carriers, so a job accepted from the list or
+      // from the inward Xero sync records the debt and stamps on first open
+      // (stampVariationBaselinesIfOwed), exactly as the snapshot does.
+      stampVariationBaselines(job);
     } else {
       job.snapshotOwed = true;
     }
@@ -6953,6 +6962,24 @@ function amendAcceptedQuote() {
     // Only renders when there IS a difference; it returns '' otherwise, which
     // is why the "nothing has moved" line above is the card's own job.
     quoteDriftCardHtml(job, live) +
+    // Amending re-agrees the CURRENT scope, so every baseline re-stamps and
+    // every classified extra stops being extra -- it becomes part of revision
+    // N+1's original scope. That is what amending means, but it is not
+    // obvious, and it silently retires money that was awaiting a client's yes.
+    // So it is said out loud, with the count and the total, before anything
+    // is written.
+    (function() {
+      var absorb = classifiedDeltaSummary(job);
+      if (!absorb.count) return '';
+      return '<div class="card" style="margin-top:16px;border-left:4px solid var(--warn,#f39c12)">'
+        + '<div style="padding:12px 16px;font-size:13px;line-height:1.5;color:var(--text)">'
+        + '<strong>This absorbs ' + absorb.count + ' extra' + (absorb.count === 1 ? '' : 's')
+        + ' worth ' + fmt(absorb.total) + '.</strong><br>'
+        + '<span style="color:var(--text2)">' + escapeHtml(absorb.names.join(', '))
+        + ' \u2014 flagged as extra work on top of revision ' + prev.version
+        + '. Revision ' + (prev.version + 1) + ' re-agrees the scope as it stands, so they become part of it '
+        + 'and stop being billed separately.</span></div></div>';
+    })() +
     // The three pricing controls, here and nowhere else on an accepted job.
     // They price THIS revision, and the two figures above move as they move --
     // which is what the old lock strip on Summary was gesturing at when it
@@ -7005,6 +7032,10 @@ function confirmAmendAcceptedQuote() {
   var note = ((noteEl && noteEl.value) || '').trim();
   closeScheduleSheet();
   captureQuoteSnapshot(job, 'amended' + (note ? ': ' + note : ''));
+  // Re-freeze the agreed SCOPE against the new revision, absorbing any
+  // classified extras into it (VARIATIONS_SPEC.md Part 2). Ordered after the
+  // capture so the baselines record the revision they belong to.
+  stampVariationBaselines(job);
   toast('Amended \u2014 now on revision ' + (prev.version + 1));
   renderSummary();
 }
@@ -8518,6 +8549,232 @@ function renderScheduleMoveBanner() {
 // invoice do, Pending just gets called out for checking.
 function variationStatusOf(x) { return (x && x.variationStatus) || 'pending'; }
 
+// ── Part 2: extra work added INSIDE an already-measured carrier ────────────
+// (VARIATIONS_SPEC.md Part 2.) The isVariation flag above is per-CARRIER --
+// a whole room, exterior item, kitchen or fitted unit. It has no answer for
+// the commonest extra of all: three radiators added to two rooms that were
+// measured and quoted months ago. Typed into those rooms they simply re-priced
+// them, reaching no client-facing figure on a frozen job and no variation
+// anywhere, so the work got done and was never billed.
+//
+// Flagging the whole room is not the fix -- most of it WAS quoted, and pulling
+// the Lounge out of original scope would make the client's quote lose a room
+// and the variations line bill one. What is extra is the DIFFERENCE, so that is
+// what gets flagged: each carrier keeps a frozen copy of its own inputs as they
+// were when the quote was agreed, and the extra is the engine run over the live
+// inputs minus the engine run over that baseline.
+//
+// Both sides run at TODAY's rates, so the difference isolates the scope change
+// and cancels rate drift exactly -- a money baseline would report a scope change
+// on every room the moment a day rate moved. And the delta stays LIVE: change
+// the radiators again and the variation re-prices itself, which a frozen £
+// line could never do.
+
+// The floor for INTERRUPTING with the classification sheet. Detection has no
+// floor -- silently absorbing money is the whole bug -- so anything smaller
+// still shows up as an unclassified nag, it just doesn't throw a sheet at
+// someone on a phone on site.
+var VARIATION_DELTA_FLOOR = 5;
+
+// Price a carrier. calcRoom() and calcExtItem() MUTATE their argument
+// (migrateWPFields/migrateDoorFields/migrateExtDoorFields write normalised
+// fields back onto it), so pricing a stored baseline in place would let the act
+// of reading it rewrite it. Everything goes through a throwaway deep copy --
+// uniformly, including the two calcs that don't mutate today, because which
+// ones do is not a thing to have to remember.
+function carrierCalc(kind, obj) {
+  if (!obj) return null;
+  var copy;
+  try { copy = JSON.parse(JSON.stringify(obj)); } catch (e) { return null; }
+  if (kind === 'room') return calcRoom(copy);
+  if (kind === 'ext') return calcExtItem(copy);
+  if (kind === 'kitchen') return calcKitchen(copy);
+  if (kind === 'fittedunit') return calcFittedUnit(copy);
+  return null;
+}
+
+function carrierId(kind, obj) {
+  return kind === 'kitchen' ? 'kitchen' : String(obj && obj.id);
+}
+function carrierName(kind, obj) {
+  if (kind === 'room') return (obj && obj.name) || 'Room';
+  if (kind === 'ext') return (obj && obj.label) || 'Exterior';
+  if (kind === 'kitchen') return 'Kitchen';
+  return fittedUnitName(obj);
+}
+
+// Every carrier a baseline can ride, in one place, so the stamp, the delta scan
+// and the lines built from them can never disagree about what counts.
+function eachVariationCarrier(job, fn) {
+  rooms.forEach(function(r) { fn('room', r); });
+  extItems.forEach(function(it) { fn('ext', it); });
+  if (job && job.kitchen) fn('kitchen', job.kitchen);
+  fittedUnitList(job).forEach(function(f) { fn('fittedunit', f); });
+}
+
+// What gets stored AS the baseline: the carrier's own inputs, and nothing
+// about variations. Storing the whole object rather than a hand-picked list of
+// pricing fields is deliberate -- a field list would need updating every time
+// a new toggle is added to a room form, and the failure when someone forgets
+// is a silently unbilled extra. The object is drift-proof by construction:
+// whatever prices a carrier is in there, because it IS the carrier.
+//
+// The variation bookkeeping is stripped, above all variationBaseline itself:
+// nest that and each re-stamp buries the previous copy inside the new one and
+// the row grows without bound.
+function variationBaselineCopy(obj) {
+  var copy;
+  try { copy = JSON.parse(JSON.stringify(obj)); } catch (e) { return null; }
+  delete copy.variationBaseline;
+  delete copy.variationDelta;
+  delete copy.variationBaselineCorrectedAt;
+  delete copy.variationStatus;
+  delete copy.variationApprovedAt;
+  delete copy.variationApprovalNote;
+  return copy;
+}
+
+// The extra work sitting inside this carrier, priced, or null for none.
+// A carrier flagged isVariation is ALL extra and carries no baseline -- one
+// carrier is at most one variation line, either way, which is also why the
+// sign-off fields can be shared with no collision.
+function variationDeltaOf(kind, obj) {
+  if (!obj || obj.isVariation) return null;
+  var base = obj.variationBaseline;
+  if (!base || !base.obj) return null;
+  var now = carrierCalc(kind, obj);
+  var was = carrierCalc(kind, base.obj);
+  if (!now || !was) return null;
+  var raw = (+now.total || 0) - (+was.total || 0);
+  if (Math.abs(raw) <= 0.005) return null;
+  return {
+    raw: raw,
+    time: (+now.time || 0) - (+was.time || 0),
+    spray: (+now.sprayLabour || 0) - (+was.sprayLabour || 0),
+    classified: !!obj.variationDelta
+  };
+}
+
+// Does this job have anything worth baselining yet? A job imported from Xero
+// arrives already-accepted and ROOMLESS, then gets measured out -- stamping
+// empty baselines at import would make that entire retro-measure one enormous
+// delta, which is the same trap variationDefaultsOn() already steps around.
+function jobHasMeasuredScope(job) {
+  if (rooms.length || extItems.length) return true;
+  if (job && job.kitchen && calcKitchen(job.kitchen).total > 0.005) return true;
+  return fittedUnitList(job).some(function(f) { return calcFittedUnit(f).total > 0.005; });
+}
+
+// Freeze every non-flagged carrier's inputs as the agreed scope. Called at
+// acceptance, again on amend (revision N+1 re-agrees the current scope, so
+// every baseline re-stamps and every classified delta is absorbed), and lazily
+// on first open for jobs accepted before this shipped.
+function stampVariationBaselines(job, opts) {
+  if (!job) return 0;
+  opts = opts || {};
+  var snap = latestQuoteSnapshot(job);
+  var at = new Date().toISOString();
+  var n = 0, touchedRooms = false, touchedExt = false;
+  eachVariationCarrier(job, function(kind, obj) {
+    if (obj.isVariation) return;
+    var copy = variationBaselineCopy(obj);
+    if (!copy) return;
+    obj.variationBaseline = { at: at, rev: snap ? snap.version : null, obj: copy };
+    // Whatever was classified as extra is now part of the agreed scope.
+    obj.variationDelta = false;
+    obj.variationBaselineCorrectedAt = null;
+    n++;
+    if (kind === 'room') touchedRooms = true;
+    else if (kind === 'ext') touchedExt = true;
+  });
+  if (!n) return 0;
+  job.variationBaselinesAt = at;
+  if (opts.late) job.variationBaselinesLate = true;
+  if (touchedRooms) saveRooms();
+  if (touchedExt) saveExtItems();
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  return n;
+}
+
+// Un-answering a quote withdraws the acceptance, and the agreed scope goes with
+// it -- same rule acceptedSnapshot already follows. A later re-accept stamps
+// fresh.
+function clearVariationBaselines(job) {
+  if (!job) return;
+  var touchedRooms = false, touchedExt = false, any = false;
+  eachVariationCarrier(job, function(kind, obj) {
+    if (!obj.variationBaseline && !obj.variationDelta) return;
+    obj.variationBaseline = null;
+    obj.variationDelta = false;
+    any = true;
+    if (kind === 'room') touchedRooms = true;
+    else if (kind === 'ext') touchedExt = true;
+  });
+  job.variationBaselinesAt = null;
+  job.variationBaselinesLate = false;
+  if (!any) return;
+  if (touchedRooms) saveRooms();
+  if (touchedExt) saveExtItems();
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+}
+
+// The one multiplier every variation figure is marked up by. Percent markup
+// and commercial% stack; a FIXED-£ markup never touches a variation, because
+// that amount was the adjustment agreed on the original quote and spreading it
+// thinner would quietly change that quote's total (VARIATIONS_SPEC.md).
+function variationMarkupMult() {
+  return (1 + commercialRatio()) * (effectiveMarkupType() === 'fixed' ? 1 : 1 + (effectiveMarkup() / 100));
+}
+
+// Every carrier whose live price has moved off its baseline, classified as
+// extra work or not yet. ONE scan, shared by the variations view, the
+// unclassified nag, the chips, the amend warning and the quote builders, so
+// none of them can disagree about what counts -- the "grep every consumer"
+// gotcha, answered by there being one thing to grep.
+function variationDeltaScan(job) {
+  var out = [];
+  eachVariationCarrier(job, function(kind, obj) {
+    var d = variationDeltaOf(kind, obj);
+    if (!d) return;
+    out.push({ kind: kind, id: carrierId(kind, obj), name: carrierName(kind, obj),
+               obj: obj, raw: d.raw, time: d.time, spray: d.spray,
+               classified: d.classified, status: variationStatusOf(obj) });
+  });
+  return out;
+}
+
+// What an amend is about to absorb: the extras already classified as extra
+// work, which revision N+1 turns back into original scope.
+function classifiedDeltaSummary(job) {
+  var mk = variationMarkupMult();
+  var sPct = (settings.sundriesPct || 0) / 100;
+  var spPct = (settings.sundriesSprayPct || 0) / 100;
+  var lines = variationDeltaScan(job).filter(function(l) {
+    return l.classified && l.status !== 'declined' && l.raw > 0.005;
+  });
+  return {
+    count: lines.length,
+    names: lines.map(function(l) { return l.name; }),
+    total: lines.reduce(function(t, l) { return t + (l.raw + l.raw * sPct + Math.max(0, l.spray) * spPct) * mk; }, 0)
+  };
+}
+
+// The lazy stamp, for jobs already accepted when this shipped. Honest but
+// blunt: it takes each carrier as it stands TODAY, so an extra already typed
+// into a measured room becomes part of its baseline and is forgiven. That is
+// bounded and it is the only option -- there is no record of what those rooms
+// looked like at acceptance -- but it must not happen quietly, hence the
+// variationBaselinesLate flag and the line it puts on Summary.
+function stampVariationBaselinesIfOwed(job) {
+  if (!job || job.id !== activeJobId) return;
+  if (!variationApplies()) return;
+  if (job.variationBaselinesAt) return;
+  if (!jobHasMeasuredScope(job)) return;
+  stampVariationBaselines(job, { late: true });
+}
+
 // The VARIATION chip, everywhere it already appears (Measure/Exterior/
 // Kitchen rows, Summary breakdown): outline while the sign-off is Pending,
 // filled once Approved, struck-out outline if Declined — approval state at
@@ -8618,7 +8875,7 @@ function computeVariationsView(roomCalcs, extCalcs, kitchenCalc) {
   var varSundries = (varLabour+freeHoursRaw) * (settings.sundriesPct||0)/100 + varSpray * (settings.sundriesSprayPct||0)/100;
   // Commercial% stacks with markup here too (same order as applyMarkupAmount()) --
   // fixed-£ markup still never touches variations, only commercial does.
-  var varMk = (1+commercialRatio()) * (effectiveMarkupType()==='fixed' ? 1 : 1 + (effectiveMarkup()/100));
+  var varMk = variationMarkupMult();
   var variationsTotal = hasVariations ? (varLabour+freeHoursRaw+varSundries)*varMk + freeFlatSum : 0;
   // Same composition again over the approved-only base (profitability view).
   var appSundries = (appLabour+appHoursRaw) * (settings.sundriesPct||0)/100 + appSpray * (settings.sundriesSprayPct||0)/100;
@@ -23708,6 +23965,10 @@ function renderSummary() {
   // another job was open, so this is the first time its rooms have been
   // loaded and the first moment a capture is even possible.
   captureSnapshotIfOwed(statusJob);
+  // The same self-heal for the agreed SCOPE (VARIATIONS_SPEC.md Part 2): jobs
+  // accepted before Part 2 shipped, and jobs accepted while another was open,
+  // get their baselines the first time their carriers are loaded.
+  stampVariationBaselinesIfOwed(statusJob);
   var frozenQuote = jobQuoteIsFrozen(statusJob);
   var frozenSnapshot = frozenQuote ? latestQuoteSnapshot(statusJob) : null;
   var frozenTotal = frozenQuote ? frozenQuoteTotal(statusJob) : null;
