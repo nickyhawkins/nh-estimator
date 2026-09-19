@@ -77,5 +77,43 @@ check('farrow', 'an existing brand name now reaches its colours',
   r => r.length === 8 && r.every(x => x.brand === 'Farrow & Ball'));
 check('zzzz', 'no match is still no match', r => r.length === 0);
 
+// ── Typing a bare brand name ───────────────────────────────────────────────
+// Searching by brand made "lick" a useful thing to TYPE, and the field commits
+// what it holds on blur -- so browsing Lick and tapping elsewhere left the job
+// carrying a colour called "Lick". The real colourTextIsBareBrand(), over the
+// real library, with `colours` (the job) supplied per case.
+const bareBrandSrc = src.match(/function colourTextIsBareBrand\(label\) \{[\s\S]*?\n\}/);
+if (!bareBrandSrc) throw new Error('colourTextIsBareBrand() not found in public/index.html');
+const isBareBrand = new Function('colourLibrary', 'colours', 'label', `
+  ${bareBrandSrc[0]}
+  return colourTextIsBareBrand(label);
+`);
+
+console.log('\nTyping a bare brand name into a colour field:');
+function brand(label, jobColours, expected, description) {
+  const got = isBareBrand(colourLibrary, jobColours || [], label);
+  const ok = got === expected;
+  console.log((ok ? '  ok  ' : 'FAIL  ') + JSON.stringify(label) + ' — ' + description +
+    (ok ? '' : ` (expected ${expected}, got ${got})`));
+  if (!ok) failed++;
+}
+
+brand('Lick', [], true, 'declined — this is the one Nicky hit');
+brand('lick', [], true, 'case-insensitive');
+brand('  COAT  ', [], true, 'whitespace trimmed');
+brand('Farrow & Ball', [], true, 'an existing brand too, ampersand and all');
+brand('RAL Classic', [], true, 'and a two-word brand');
+brand('Grey 04', [], false, 'a real colour name is committed');
+brand('Lick Grey 04', [], false, "brand + colour isn't a bare brand");
+brand('Licked', [], false, 'a name that merely starts with a brand');
+brand('', [], false, 'blank is how a colour is CLEARED — never declined');
+brand('   ', [], false, 'and so is whitespace');
+brand('Hallway white', [], false, 'free text the library has never heard of still lands');
+// A colour already on the job wins: typing an existing name JOINS it, which is
+// the documented way two areas share a tin. Declining that would break it.
+brand('Lick', [{ label: 'Lick' }], false, 'a colour already on the job by that name is joined, not declined');
+// And a library colour named after its own brand would win, if one ever exists.
+brand('Dulux', [], true, 'no Dulux colour is called "Dulux", so it stays a brand');
+
 console.log(failed ? '\n' + failed + ' check(s) FAILED' : '\nAll checks passed.');
 process.exit(failed ? 1 : 0);
