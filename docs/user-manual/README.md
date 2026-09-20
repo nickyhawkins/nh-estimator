@@ -183,7 +183,7 @@ Tap it and every row swaps its cost for **▲▼** arrows; tap those to walk a r
 
 The form is in two halves, and it follows how you actually work: **walk the room** first — every card that asks you to look at something and count it — then **decide the scheme** once at the end, in the last three cards. Nothing makes you jump back and forth between measuring and pricing while you're stood there with a tape.
 
-**Every card is collapsed when the form opens**, so what you see first is a short index of the room rather than a page to scroll past — tap a heading to open that card, tap it again to fold it away. The two exceptions are at the top: **Room Details** (the room name and the Staircase / HSL toggle) is always on screen, since you touch both on every room, and **Dimensions** starts open because you fill it in every time. Dimensions is still an ordinary section, so once you've measured you can collapse it too and keep the rest of the form in view.
+**Every card is collapsed when the form opens**, so what you see first is a short index of the room rather than a page to scroll past — tap a heading to open that card, tap it again to fold it away. The two exceptions are at the top: **Room Details** (the room name, the Staircase / HSL toggle, and — once the quote is accepted — the **Variation** toggle) is always on screen, since you touch them on every room, and **Dimensions** starts open because you fill it in every time. Dimensions is still an ordinary section, so once you've measured you can collapse it too and keep the rest of the form in view.
 
 Only the top matters for a basic room:
 
@@ -205,8 +205,8 @@ The rest of the measuring cards follow in the order you'd meet them moving round
 
   ![Doors & Frames card](images/04d-doors-frames.png)
 
-  Leave a Door or Frame's quantity at 0 to price just the other one. Their prep comes from the room's **Preparation** card — there's one prep decision per room, not a separate one here. Per line you'll also find **Fire door** (an FD30/FD60 intumescent-compatible surcharge, edges included in the coverage calc), **ironmongery** (remove-and-refit, or mask-in-place — mutually exclusive), **Self-priming paint** (skips the primer coat for one extra topcoat instead — once the paint has a Coverage Rates entry in Rates with Self-priming set, that entry takes over and this toggle is replaced by a note), and **Both sides** (price the whole leaf as one line instead of just the face seen from this room — handy for a door between two painted rooms, split one face each).
-- **Extras** — windows (m²), window sills and radiators. Each adds its own time and paint.
+  Leave a Door or Frame's quantity at 0 to price just the other one. Their prep comes from the room's **Preparation** card — there's one prep decision per room, not a separate one here. Per line you'll also find **Fire door** (an FD30/FD60 intumescent-compatible surcharge, edges included in the coverage calc), **ironmongery** (remove-and-refit, or mask-in-place — mutually exclusive), and **Both sides** (price the whole leaf as one line instead of just the face seen from this room — handy for a door between two painted rooms, split one face each). **Self-priming** for doors and frames is not here — it's with the rest of the woodwork's priming, under **Paint & Colour › Woodwork Primer** ([below](#decide-the-scheme)), and the row here just says so.
+- **Extras** — windows (m²), window sills and radiators. Each adds its own time and paint. Putting a figure in **Radiators** also brings up the **Radiators** colour row in Paint & Colour below — see [Radiator colours](#radiator-colours).
 - **Feature Wall** — one wall in a different finish: paint, or wallpaper (standard, wide vinyl or mural).
 - **Wallpaper** — lining and finish paper for walls or ceiling, priced per roll with an automatic **rolls-to-order** count, plus a free-text note for the paper itself. Covered in detail in [Wallpaper](#wallpaper--rolls-to-order) below.
 - **Excluded Walls** — walls you're *not* painting (a tiled wall, wallpaper that's staying). Add its width × height and it's deducted.
@@ -227,7 +227,13 @@ Once you've stopped measuring, the last three cards are the pricing decisions �
 
   **Spray walls** is off by default (also adds the spray sundries bump for the extra masking); **Spray ceiling** and **Spray woodwork** are on by default, since ceilings and woodwork are normally sprayed. A surface's toggle adds the Rates spraying uplift % to its litres on top of the standard or per-product rate — labour time is unchanged either way.
 - **Preparation** — Minimal / Standard / Heavy, or a custom percentage. This scales labour across the whole room, doors and frames included. **Making Good** adds a fixed £ amount for repairs.
-- **Paint & Colour** — each surface takes your default product from Settings; override the product or colour band here when a room is different. The **colour** itself is a free-text box per surface (walls, ceiling, woodwork, and again on Feature Wall and Panelling), pre-filled with where it goes — leave it as it is and decide later. See [Colours](#7-colours).
+- **Paint & Colour** — each surface takes your default product from Settings; override the product or colour band here when a room is different. The **colour** itself is a free-text box per surface (walls, ceiling, woodwork, and again on Feature Wall and Panelling), pre-filled with where it goes — leave it as it is and decide later. See [Colours](#7-colours). A room with radiators measured also gets a **Radiators** colour row here — see [Radiator colours](#radiator-colours).
+
+  **Self-priming lives on this card**, under **Woodwork Primer** — both toggles, together, rather than one in Doors & Frames and the other in Preparation:
+
+  ![Self-priming under Woodwork Primer](images/04g-self-priming.png)
+
+  **Self-priming — doors & frames** and **Self-priming — other woodwork** (skirting, sills, windows) each skip the primer coat on their woodwork and add one extra topcoat in its place. Sitting them under the primer product is the point: with a toggle on, that primer isn't bought for that woodwork. The **Woodwork Topcoat** product a couple of rows above can take the decision off you entirely — give that paint a Coverage Rates entry in Rates with **Self-priming** set, and both toggles are replaced by a note reading *On — ⟨product⟩*, because the product has decided. Clear the entry and your toggles come back exactly as you left them.
 
 Two cards at the bottom sum up what you've entered:
 
@@ -674,7 +680,11 @@ Once a job is accepted, the **🛠 On Site** tab is your day-to-day companion:
 - **Time on Site** — tap **+ Log today (full day)** at the end of each day (or *Log a different day* to back-fill). This builds the true labour record for the job.
 - **Materials** — the quote's materials list becomes a shopping list. Tick items off as you buy them, and correct quantities/prices to what you actually paid — see [Materials & Undo](#materials--undo) for how edits and Recalculate interact, and Undo if something goes wrong. Any row here can also go on your **Shopping List** — see below.
 - **Add material the estimate missed** — extra sundries or a forgotten tin: search the product, set the price, done.
-- **Variations** — the client asks for "just one more room" mid-job? Add the room (or exterior item, fitted unit) on Measure and flick its **Variation** toggle. It's priced with the same engine but kept separate from the accepted quote, and appears in its own Variations card here. Each variation carries a status — tap **✓ Approved by client** to record their yes (with an optional note; the date is stamped automatically), or mark one Declined to drop it from the totals and the final invoice while keeping the record. Anything still Pending gets called out before the final invoice will let it through. For extra work added *inside* a room you already measured, see [below](#extra-work-in-a-room-you-already-measured).
+- **Variations** — the client asks for "just one more room" mid-job? Add the room (or exterior item, fitted unit) on Measure and flick its **Variation** toggle, in the **Room Details** card at the top of the form, with the room's name (it only appears once the quote has been accepted, and on a new room added after that it starts **on** — turn it off if the room is a correction to the original quote rather than extra work):
+
+  ![The Variation toggle in Room Details](images/04h-variation.png)
+
+  It's priced with the same engine but kept separate from the accepted quote, and appears in its own Variations card here. Each variation carries a status — tap **✓ Approved by client** to record their yes (with an optional note; the date is stamped automatically), or mark one Declined to drop it from the totals and the final invoice while keeping the record. Anything still Pending gets called out before the final invoice will let it through. For extra work added *inside* a room you already measured, see [below](#extra-work-in-a-room-you-already-measured).
 - **Spec sheet** — what's being done in every area, what colour each thing is going, and how far through it is. Tick Prep and Painted off as you go. See below.
 - **Snags** — the punch list for the job, above everything else once there's something on it. See below.
 - **Invoice ›** (top right) shows the materials list formatted for invoicing, with a **Copy** button.
@@ -847,10 +857,14 @@ same way.
 
 Radiators normally go out in the woodwork colour, and that's what the sheet
 shows. When a room wants something else, the room screen has a **Radiators**
-row under the colours — **Same as woodwork** is on by default, and switching it
-off gives you the ordinary colour field:
+row under the colours on the **Paint & Colour** card — **Same as woodwork** is
+on by default, and switching it off gives you the ordinary colour field:
 
 ![Setting a radiator colour on a room](images/10k-radiator-colour.png)
+
+The row appears **once the room has radiators measured** — put the figure in
+**Extras › Radiators** and it's there; a room with no radiators doesn't carry a
+radiator colour to decide.
 
 The field works exactly like every other colour field: type and your library
 offers matches with brand and number, the colours already on this job are one
@@ -1152,6 +1166,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.72.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.72.3. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

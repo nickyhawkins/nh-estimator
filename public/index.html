@@ -706,6 +706,14 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
         <div class="toggle-label">Staircase / HSL<small>Hall, stairs &amp; landing — swaps in staircase geometry below</small></div>
         <div class="toggle" id="tog-staircase" onclick="setRoomStaircase(!roomIsStaircase)"></div>
       </div>
+      <!-- Variation lives here, with the room's identity, NOT down in Coats:
+           it says what this room IS to the job (extra scope on top of an
+           accepted quote), not how it is painted. Same card position as the
+           exterior, kitchen and fitted-unit forms. -->
+      <div class="toggle-row" id="variation-row" style="border-top:1px solid var(--border);display:none">
+        <div class="toggle-label" style="color:var(--accent)">Variation<small>Extra scope on top of the accepted quote — listed under On Site › Variations. Turn off if this is a correction to the original quote</small></div>
+        <div class="toggle" id="tog-variation" onclick="toggleRoomVariation()"></div>
+      </div>
     </div>
     <div class="card" id="card-dimensions">
       <div class="card-header sec-toggle" onclick="toggleFormSection('dimensions')"><span>Dimensions</span><span class="sec-chev open" id="sec-chev-dimensions">›</span></div>
@@ -818,11 +826,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
           <div class="toggle-label">Fire door (FD30/FD60)<small>Intumescent-compatible coating surcharge; includes edges in the coat/coverage calc</small></div>
           <div class="toggle" id="tog-firedoor" onclick="toggleFireDoor()"></div>
         </div>
-        <div class="toggle-row" style="border-top:1px solid var(--border)">
-          <div class="toggle-label">Self-priming paint<small>Skips the primer coat, adds one extra topcoat instead — set per product in Rates → Paint Coverage once the woodwork paint has an entry there</small></div>
-          <div class="toggle" id="tog-doorselfpriming" onclick="toggleDoorSelfPriming()"></div>
-          <span id="driven-doorselfpriming" style="display:none;flex-shrink:0;font-size:12px;font-weight:600;color:var(--text2);text-align:right;max-width:45%"></span>
-        </div>
+        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label" style="color:var(--text2)">Self-priming paint<small>set in Paint &amp; Colour › Woodwork Primer, with the rest of the woodwork's priming</small></div></div>
         <div class="toggle-row" style="border-top:1px solid var(--border)">
           <div class="toggle-label">Remove &amp; refit ironmongery<small>Handles/hinges/locks taken off and refitted</small></div>
           <div class="toggle" id="tog-ironremove" onclick="toggleDoorIronmongery('remove')"></div>
@@ -1024,10 +1028,6 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
           <div class="toggle-label">Spray woodwork<small>On by default — woodwork is normally sprayed. Adds the spraying uplift % to topcoat &amp; primer litres; turn off for brushed woodwork</small></div>
           <div class="toggle on" id="tog-spraywood" onclick="toggleSprayWoodwork()"></div>
         </div>
-        <div class="toggle-row" id="variation-row" style="border-top:1px solid var(--border);display:none">
-          <div class="toggle-label" style="color:var(--accent)">Variation<small>Extra scope on top of the accepted quote — listed under On Site › Variations. Turn off if this is a correction to the original quote</small></div>
-          <div class="toggle" id="tog-variation" onclick="toggleRoomVariation()"></div>
-        </div>
       </div>
     </div>
     <div class="card">
@@ -1046,11 +1046,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
           <div class="field-label">Custom prep %<small>uplift on room total</small></div>
           <input type="number" class="field-input" id="r-prep-custom" placeholder="0" min="0" max="100" step="5" inputmode="numeric" oninput="previewRoom()">
         </div>
-        <div class="toggle-row" style="border-top:1px solid var(--border)">
-          <div class="toggle-label">Self-priming paint<small>Woodwork other than doors/frames (skirting, sills, windows) — skips the primer coat, adds one extra topcoat instead; set per product in Rates → Paint Coverage once the woodwork paint has an entry there</small></div>
-          <div class="toggle" id="tog-selfprimingwoodwork" onclick="toggleSelfPrimingWoodwork()"></div>
-          <span id="driven-selfprimingwoodwork" style="display:none;flex-shrink:0;font-size:12px;font-weight:600;color:var(--text2);text-align:right;max-width:45%"></span>
-        </div>
+        <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label" style="color:var(--text2)">Self-priming paint<small>set in Paint &amp; Colour › Woodwork Primer — it decides whether a primer is bought at all</small></div></div>
         <div class="field-row" style="border-top:1px solid var(--border)">
           <div class="field-label">Making Good<small>£ fixed cost for repairs</small></div>
           <input type="number" class="field-input" id="r-making-good" placeholder="0" min="0" step="5" inputmode="decimal" oninput="previewRoom()">
@@ -1088,6 +1084,22 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
         <div class="subsection-label">Woodwork Primer</div>
         <div class="field-row"><div class="field-label">Product<small>defaults to Settings, or None</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-primer-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('primer')" onfocus="onRoomRangeSearchInput('primer')"><div id="r-primer-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
         <div class="field-row" id="r-primer-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-primer-band" onchange="onRoomOverrideBandSelect('primer')"></select></div>
+        <!-- Self-priming: both toggles live HERE, under the primer product they
+             cancel, rather than one in Doors &amp; Frames and one in Preparation.
+             They are also the two rows updateSelfPrimingDrivenUI() swaps for a
+             "set by the product" note, driven by the Woodwork Topcoat product
+             chosen a few rows above -- so the cause and the effect are now on
+             the same card. -->
+        <div class="toggle-row" style="border-top:1px solid var(--border)">
+          <div class="toggle-label">Self-priming — doors &amp; frames<small>Skips the primer coat on doors and frames, adding one extra topcoat instead</small></div>
+          <div class="toggle" id="tog-doorselfpriming" onclick="toggleDoorSelfPriming()"></div>
+          <span id="driven-doorselfpriming" style="display:none;flex-shrink:0;font-size:12px;font-weight:600;color:var(--text2);text-align:right;max-width:45%"></span>
+        </div>
+        <div class="toggle-row">
+          <div class="toggle-label">Self-priming — other woodwork<small>Skirting, sills and windows — same thing for the woodwork that isn't doors or frames. Both toggles hand over to the product once the Woodwork Topcoat above has a Self-priming entry in Rates → Paint Coverage</small></div>
+          <div class="toggle" id="tog-selfprimingwoodwork" onclick="toggleSelfPrimingWoodwork()"></div>
+          <span id="driven-selfprimingwoodwork" style="display:none;flex-shrink:0;font-size:12px;font-weight:600;color:var(--text2);text-align:right;max-width:45%"></span>
+        </div>
         <div class="subsection-label">Mist Coat</div>
         <div class="field-row"><div class="field-label">Product<small>defaults to Settings</small></div><div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="r-mist-range" placeholder="Search…" autocorrect="off" autocomplete="off" oninput="onRoomRangeSearchInput('mist')" onfocus="onRoomRangeSearchInput('mist')"><div id="r-mist-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>
         <div class="field-row" id="r-mist-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="r-mist-band" onchange="onRoomOverrideBandSelect('mist')"></select></div>
@@ -11702,7 +11714,7 @@ function goScreen(name) {
     document.querySelectorAll('#seg-hsl-swc .seg-btn').forEach(function(b,i){b.classList.toggle('active',i+1===2);});
     roomColourNumbers = { wall:1, ceiling:1, woodwork:1, featurewall:1, panel:1, radiator:null };
     ['wall','ceiling','woodwork','featurewall','panel'].forEach(populateRoomColourChips);
-    renderRadiatorColourRow();
+    // As in editRoom: the radiator row is rendered after r-rads is cleared.
     roomOverrides = {
       wall: { range:'', band:'' }, ceiling: { range:'', band:'' },
       topcoat: { range:'', band:'' }, primer: { range:'', band:'', none:false },
@@ -11738,6 +11750,7 @@ function goScreen(name) {
     document.getElementById('r-door-qty').value='';
     document.getElementById('r-frame-qty').value='';
     document.getElementById('r-rads').value='';
+    renderRadiatorColourRow();
 
     document.getElementById('tog-mw').classList.remove('on');
     document.getElementById('tog-mc').classList.remove('on');
@@ -19872,6 +19885,12 @@ function toggleRadiatorFollowsWoodwork() {
 function refreshColourSlots() {
   ROOM_COLOUR_ROLES.forEach(populateRoomColourChips);
   EXT_COLOUR_ROLES.forEach(populateExtColourChips);
+  // The radiator slot is not one of ROOM_COLOUR_ROLES (it is conditional on
+  // the room having radiators and owns its "same as woodwork" chip), but it
+  // is a colour slot like the rest -- rebuild it here too so a rename on the
+  // woodwork refreshes its quick-picks. Safe to re-enter: the render only
+  // calls back into here from its own apply/pick handlers.
+  renderRadiatorColourRow();
 }
 
 // ── Exterior item colour chips ──────────────────────────────────────────────
@@ -24292,7 +24311,9 @@ function editRoom(id) {
   // the override existed means.
   roomColourNumbers = { wall: r.colourNumber || 1, ceiling: r.ceilingColourNumber || 1, woodwork: r.woodworkColourNumber || 1, featurewall: r.featureWallColourNumber || 1, panel: r.panelColourNumber || 1, radiator: r.radiatorColourNumber || null };
   ['wall','ceiling','woodwork','featurewall','panel'].forEach(populateRoomColourChips);
-  renderRadiatorColourRow();
+  // NB renderRadiatorColourRow() is deliberately NOT called here: it keys off
+  // the r-rads field, which is not filled in until further down. It is called
+  // once that value is in.
   roomOverrides = {
     // wallBandOverride is the current field name; bandOverride is read too
     // for backward compatibility with rooms saved before this rename.
@@ -24387,6 +24408,9 @@ function editRoom(id) {
   document.getElementById('tog-doorbothsides').classList.toggle('on',doorBothSides);
   document.getElementById('tog-selfprimingwoodwork').classList.toggle('on',selfPrimingWoodwork);
   document.getElementById('r-rads').value=r.rads||'';
+  // Radiator colour row: r-rads now holds this room's count, so the row can
+  // decide whether to show itself (see renderRadiatorColourRow).
+  renderRadiatorColourRow();
 
   mistWall=!!r.mistWall; mistCeil=!!r.mistCeil;
   document.getElementById('tog-mw').classList.toggle('on',mistWall);
