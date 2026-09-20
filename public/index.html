@@ -6336,7 +6336,17 @@ function setJobStatusById(jobId, newStatus, confirmMsg, opts) {
       // after a bounce must not re-baseline the job at today's scope and
       // quietly absorb extras agreed since. Amending is the explicit action
       // for that, and it says what it is absorbing first.
-      if (!job.variationBaselinesAt) stampVariationBaselines(job);
+      //
+      // That guard is stated PER CARRIER (onlyMissing), not on the job-level
+      // variationBaselinesAt flag, and the difference is not cosmetic. The flag
+      // and the rooms are two separate writes to two different tables and can
+      // come apart -- a lost job PUT, a restore -- and keyed on the flag alone,
+      // a re-accept on a job whose flag had gone re-froze every room at today's
+      // scope and absorbed every extra agreed since, silently. The rooms
+      // themselves are the record of what was agreed, so they are what is asked.
+      // On a genuine first acceptance no carrier has a baseline and this stamps
+      // all of them, exactly as before.
+      stampVariationBaselines(job, { onlyMissing: true });
     } else {
       job.snapshotOwed = true;
     }
@@ -8827,6 +8837,51 @@ function variationBaselineCopy(obj) {
   return copy;
 }
 
+// Is there extra work ON THE BOOKS inside this carrier?
+//
+// variationDelta and nothing else. It is set by classifyVariationDelta('extra')
+// and cleared by a correction or an amend, so it marks exactly the carriers
+// where somebody has ruled that part of this room is extra work -- which is
+// what makes re-freezing the carrier at today's scope destructive rather than
+// merely blunt: today's scope INCLUDES that extra, so the freeze turns money
+// somebody agreed into "this was always the quote".
+//
+// A sign-off on its own is deliberately NOT enough. A whole-item variation that
+// was approved and later UNFLAGGED keeps its status, its date and its agreed
+// figure (see classifyVariationDelta's note on inheriting them), and that room
+// genuinely is original scope now -- reading its old tick as a lost extra would
+// nag forever about money nobody is owed.
+//
+// isVariation is not in here either: a flagged carrier is wholly a variation,
+// carries no baseline by design, and is already skipped everywhere this is asked.
+function carrierVariationEvidence(obj) {
+  return !!(obj && !obj.isVariation && obj.variationDelta);
+}
+
+// What a LOST baseline can still tell us about the extra that was inside it.
+//
+// A baseline can go missing after the extra was agreed -- the rooms write is a
+// separate round trip from the job's, so a dead spot, a second device or a
+// restore can bring the carrier back without one. Until this existed, that was
+// silent and total: no baseline meant no delta, which meant no chip, no line,
+// no money, while variationStatus sat there still reading "approved". The card
+// counted two extras and showed one. Reported from the field exactly that way.
+//
+// An approved extra leaves variationApprovedRaw behind -- the raw figure frozen
+// at sign-off, which is what the client actually said yes to. That figure is
+// reported and offered, NOT billed automatically, and the difference matters:
+// with no baseline, carrierAtBaseline() has nothing to hold the carrier at, so
+// the room's own line on the final invoice still carries the extra work inside
+// it. Adding a variation line on top of that would bill the same work twice,
+// which is a worse failure than the one being fixed. The extra is put back by
+// hand instead (billLostBaselineAsLine), which re-agrees the room in the same
+// step so the two can never both be counted.
+function lostBaselineAgreedRaw(obj) {
+  if (!obj || variationStatusOf(obj) !== 'approved') return null;
+  var raw = +obj.variationApprovedRaw || 0;
+  return raw > 0.005 ? raw : null;
+}
+
 // The extra work sitting inside this carrier, priced, or null for none.
 // A carrier flagged isVariation is ALL extra and carries no baseline -- one
 // carrier is at most one variation line, either way, which is also why the
@@ -8834,6 +8889,9 @@ function variationBaselineCopy(obj) {
 function variationDeltaOf(kind, obj) {
   if (!obj || obj.isVariation) return null;
   var base = obj.variationBaseline;
+  // No baseline means no comparison, so no figure. That is NOT the same as no
+  // extra: lostBaselineCarriers() picks up what this cannot price, so it is
+  // reported rather than silently absent.
   if (!base || !base.obj) return null;
   var now = carrierCalc(kind, obj);
   var was = carrierCalc(kind, base.obj);
@@ -8846,6 +8904,23 @@ function variationDeltaOf(kind, obj) {
     spray: (+now.sprayLabour || 0) - (+was.sprayLabour || 0),
     classified: !!obj.variationDelta
   };
+}
+
+// The carriers that have extra work on the books and no longer have a baseline
+// to measure it against. They can produce no variation line -- there is nothing
+// to compare -- so without this they are simply absent from the card, which is
+// the exact silence this whole guard exists to break. `agreed` carries the
+// figure the client signed off where there is one, which is what makes putting
+// it back a one-tap job rather than an archaeology exercise.
+function lostBaselineCarriers(job) {
+  var out = [];
+  eachVariationCarrier(job, function(kind, obj) {
+    if (!carrierVariationEvidence(obj)) return;
+    if (obj.variationBaseline && obj.variationBaseline.obj) return;
+    out.push({ kind: kind, id: carrierId(kind, obj), name: carrierName(kind, obj),
+               obj: obj, status: variationStatusOf(obj), agreed: lostBaselineAgreedRaw(obj) });
+  });
+  return out;
 }
 
 // Does this job have anything worth baselining yet? A job imported from Xero
@@ -8882,6 +8957,15 @@ function stampVariationBaselines(job, opts) {
     // what makes classifiedDeltaSummary()'s "this absorbs N extras" warning
     // truthful, since it already filters declined lines out.
     if (obj.variationDelta && variationStatusOf(obj) === 'declined') return;
+    // ...and the same reasoning, generalised, for the HEAL. Healing takes the
+    // carrier as it stands today, which is the only thing it can do -- but on a
+    // carrier that has already had extra work ruled on, today's scope contains
+    // that extra, so the heal would quietly re-agree it as original scope and
+    // the money would vanish with no warning anywhere. It stays baseline-less
+    // instead, which computeVariationsView() reports as lost rather than
+    // treating as nothing to report. An AMEND still absorbs it: that is the
+    // explicit act, and it says what it is absorbing first.
+    if (opts.onlyMissing && carrierVariationEvidence(obj)) return;
     var copy = variationBaselineCopy(obj);
     if (!copy) return;
     obj.variationBaseline = { at: at, rev: snap ? snap.version : null, obj: copy };
@@ -9075,9 +9159,17 @@ function stampVariationBaselinesIfOwed(job) {
   //
   // Only the carriers that are actually missing one are stamped, so this can
   // never overwrite a baseline that is already holding a real extra.
+  //
+  // The test has to match what the stamp will actually DO, carrier for carrier.
+  // A carrier the stamp now refuses to touch (one carrying a ruled-on extra --
+  // see carrierVariationEvidence) is permanently missing a baseline, and
+  // counting it as owed would re-run a stamp that writes nothing on every
+  // render for the life of the job.
   var owed = false;
   eachVariationCarrier(job, function(kind, obj) {
-    if (!obj.isVariation && !obj.variationBaseline) owed = true;
+    if (obj.isVariation || obj.variationBaseline) return;
+    if (carrierVariationEvidence(obj)) return;
+    owed = true;
   });
   if (!owed) return;
   stampVariationBaselines(job, { late: !job.variationBaselinesAt, onlyMissing: true });
@@ -9094,8 +9186,14 @@ function stampVariationBaselinesIfOwed(job) {
 function deltaChipHtml(kind, obj) {
   if (!obj || obj.isVariation) return '';
   var d = variationDeltaOf(kind, obj);
-  if (!d) return '';
   var base = 'font-size:10px;font-weight:700;letter-spacing:.03em;border-radius:8px;padding:1px 6px;white-space:nowrap';
+  // Extra work on the books with no baseline left to price it against. The
+  // room has to stay findable from Measure -- a row that looks like every
+  // other room is how an agreed extra goes unnoticed for a fortnight.
+  if (!d && carrierVariationEvidence(obj)) {
+    return ' <span style="'+base+';border:1px solid var(--danger);color:var(--danger)" title="Extra work was recorded here, but the scope it was measured against has been lost — see the Variations card on On Site">EXTRA ?</span>';
+  }
+  if (!d) return '';
   if (!d.classified) {
     return ' <span style="'+base+';border:1px solid var(--warn,#f39c12);color:var(--warn,#f39c12)" title="Changed since the quote — extra work or a correction?">SCOPE ?</span>';
   }
@@ -9229,13 +9327,20 @@ function computeVariationsView(roomCalcs, extCalcs, kitchenCalc) {
     else { freeHoursRaw += (+fv.hours||0)*hourlyRate; freeHoursDays += (+fv.hours||0)/(settings.hpd||7);
       if (st==='approved') appHoursRaw += (+fv.hours||0)*hourlyRate; }
   });
+  // Extras whose agreed scope is gone and which cannot be priced from a
+  // sign-off either. They are money that was ruled on and can no longer be
+  // shown, so they ride the view as their own list rather than being counted
+  // into any total -- there is no figure to count.
+  var lostBaselines = lostBaselineCarriers(job);
   var hasVariations = varLines.length>0 || freeVars.length>0;
   // An unclassified extra is as unfinished as an unsigned one -- it counts
   // toward the pending total, so the Jobs-list chip stays outlined until
   // somebody has said what it is.
+  // A lost baseline is an unanswered question too -- louder than an
+  // unclassified delta, since nobody can even see what it was worth.
   var pendingCount = varLines.filter(function(l){ return l.status==='pending'; }).length
     + freeVars.filter(function(fv){ return variationStatusOf(fv)==='pending'; }).length
-    + unclassifiedDeltas.length;
+    + unclassifiedDeltas.length + lostBaselines.length;
   // Sundries % on variation labour (plus the spray bump), then markup —
   // mirroring the main plan's composition. In fixed-£ markup mode
   // variations get NO markup: the fixed amount was the adjustment agreed
@@ -9253,7 +9358,7 @@ function computeVariationsView(roomCalcs, extCalcs, kitchenCalc) {
     freeVars:freeVars, freeHoursRaw:freeHoursRaw, freeHoursDays:freeHoursDays, freeFlatSum:freeFlatSum,
     hasVariations:hasVariations, kitchenIsVar:kitchenIsVar, fittedUnitIsVar:fittedUnitIsVar,
     varSundries:varSundries, varMk:varMk, variationsTotal:variationsTotal,
-    unclassifiedDeltas:unclassifiedDeltas,
+    unclassifiedDeltas:unclassifiedDeltas, lostBaselines:lostBaselines,
     pendingCount:pendingCount, approvedTotal:approvedTotal };
 }
 
@@ -9550,6 +9655,83 @@ function openVariationDeltaSheet(kind, id) {
   );
 }
 
+// The sheet for an extra whose agreed scope is gone (lostBaselineCarriers).
+// There is no figure to offer, so this offers the two things that can honestly
+// be done instead: bill it as a priced line at whatever was agreed, or write it
+// off by re-agreeing the room as it now stands. Either one clears the warning;
+// doing neither leaves it on the card, which is the point.
+function openLostBaselineSheet(kind, id) {
+  var found = findCarrier(kind, id);
+  if (!found.obj) return;
+  var name = carrierName(found.kind, found.obj);
+  // Composed the way the figure the client SAW was composed -- sundries on the
+  // raw, then markup, through the one function every other variation amount on
+  // this card goes through. The spray share cannot be known without a baseline,
+  // so it is zero: that under-states by the masking bump at worst, and never
+  // quotes more than was agreed.
+  var rawAgreed = lostBaselineAgreedRaw(found.obj);
+  var agreed = rawAgreed == null ? null : variationDeltaAmount({ raw: rawAgreed, spray: 0 });
+  var btn = 'border:none;border-radius:var(--rs);padding:12px 14px;font-size:14px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;width:100%;text-align:left';
+  var arg = '\'' + found.kind + '\',\'' + id + '\'';
+  openScheduleSheet(
+    '<div class="card">' +
+      '<div class="card-header">' + escapeHtml(name) + ' \u2014 the agreed scope is missing</div>' +
+      '<div style="padding:10px 16px 4px;font-size:13px;line-height:1.55;color:var(--text2)">' +
+        'Extra work was recorded against ' + escapeHtml(name) + ', but the copy of what was ' +
+        'originally agreed has gone \u2014 so the app can no longer work out what the extra is worth. ' +
+        'The room itself is untouched: everything measured in it is still there and still priced. ' +
+        'What is missing is only the comparison.' +
+        (agreed != null
+          ? ' The client approved <strong>' + fmt(agreed) + '</strong> for it, which is the figure to put back.'
+          : ' It was never signed off, so there is no agreed figure to fall back on either.') +
+      '</div>' +
+      '<div style="padding:10px 16px 14px;display:flex;flex-direction:column;gap:8px">' +
+        '<button onclick="billLostBaselineAsLine(' + arg + ')" style="' + btn + ';background:var(--accent);color:white">' +
+          'Bill it as a priced line<small style="display:block;font-weight:400;opacity:.85">' +
+          (agreed != null ? 'Puts ' + fmt(agreed) + ' back as a variation' : 'Adds a variation at the figure you type') +
+          ', and re-agrees ' + escapeHtml(name) +
+          ' as it stands so the same work is never counted twice</small></button>' +
+        '<button onclick="classifyVariationDelta(' + arg + ',\'correction\')" style="' + btn + ';background:var(--surface2);color:var(--text)">' +
+          'Write it off<small style="display:block;font-weight:400;color:var(--text2)">' +
+          'Nothing is billed. ' + escapeHtml(name) + '\u2019s agreed scope becomes what it is now</small></button>' +
+        '<button onclick="closeScheduleSheet()" style="' + btn + ';background:transparent;color:var(--text2)">' +
+          'Leave it<small style="display:block;font-weight:400;color:var(--text2)">' +
+          'Stays on the card as an open question until it is answered</small></button>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+// Bill a lost extra, then close the hole it came through. The order matters:
+// the free line is added FIRST, so a correction that fails to save cannot leave
+// the job with the extra written off and nothing billed in its place.
+function billLostBaselineAsLine(kind, id) {
+  var found = findCarrier(kind, id);
+  if (!found.obj) return;
+  var name = carrierName(found.kind, found.obj);
+  var job = activeJob(); if (!job) return;
+  // Prefilled with what the client signed off, where that record survived --
+  // the figure is the one thing a lost baseline leaves behind, so it should not
+  // have to be remembered.
+  var rawAgreed = lostBaselineAgreedRaw(found.obj);
+  var suggested = rawAgreed == null ? ''
+    : String(Math.round(variationDeltaAmount({ raw: rawAgreed, spray: 0 }) * 100) / 100);
+  var typed = prompt('What was agreed for the extra work in ' + name + '?\n\n' +
+    'In \u00a3, billed exactly as typed \u2014 no markup, no sundries on top.'
+    + (suggested ? '\n\nPrefilled with the figure the client approved.' : ''), suggested);
+  if (typed === null) return;
+  var amount = +String(typed).replace(/[^0-9.\-]/g, '') || 0;
+  if (amount <= 0) { alert('Enter the agreed figure as a number.'); return; }
+  job.freeVariations = job.freeVariations || [];
+  job.freeVariations.push({ id: uid(), label: name + ' \u2014 extra work', mode: 'flat',
+    amount: amount, createdAt: new Date().toISOString() });
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  // Now the carrier: re-agreed as it stands, which is what stops the same work
+  // being counted again the moment a baseline comes back.
+  classifyVariationDelta(found.kind, id, 'correction');
+}
+
 function classifyVariationDelta(kind, id, verdict) {
   var found = findCarrier(kind, id);
   if (!found.obj) return;
@@ -9606,10 +9788,29 @@ function variationsCardHtml(v) {
   var varLines = v.varLines, freeVars = v.freeVars, varSundries = v.varSundries,
       varMk = v.varMk, variationsTotal = v.variationsTotal;
   var unclassified = v.unclassifiedDeltas || [];
-  var hasAny = varLines.length > 0 || freeVars.length > 0 || unclassified.length > 0;
+  var lost = v.lostBaselines || [];
+  var hasAny = varLines.length > 0 || freeVars.length > 0 || unclassified.length > 0 || lost.length > 0;
   if (!hasAny && !variationApplies()) return '';
   var rows = '';
   var struck = 'text-decoration:line-through;color:var(--text3)';
+  // Above everything: an extra that was ruled on and can no longer be priced,
+  // because the scope it was measured against is gone. It has no figure, so it
+  // gets no amount -- what it gets is a name and a way to put it right, which
+  // is the whole point. Silence here is what let an approved extra vanish off
+  // this card while the count still said it was there.
+  lost.forEach(function(l) {
+    rows += '<div class="breakdown-row" style="background:var(--surface2)">'
+      + '<span class="breakdown-label">' + escapeHtml(l.name)
+      + '<small style="display:block;font-weight:400;color:var(--text2)">'
+      + 'extra work was recorded here, but the scope it was measured against has been lost'
+      + (l.agreed != null
+          ? ' \u2014 the client approved ' + fmt(variationDeltaAmount({ raw: l.agreed, spray: 0 })) + ' for it'
+          : ' \u2014 it was never signed off, so there is no agreed figure either')
+      + '</small>'
+      + '<small style="display:block;font-weight:600;color:var(--danger);margin-top:3px;cursor:pointer;text-decoration:underline" '
+      + 'onclick="openLostBaselineSheet(\'' + l.kind + '\',\'' + l.id + '\')">Put this right</small></span>'
+      + '<span class="breakdown-value" style="color:var(--danger)">?</span></div>';
+  });
   // Carriers that have moved off their agreed scope and not been ruled on.
   // Billed nowhere and excluded nowhere until somebody says which they are --
   // so they sit at the TOP of the card as an open question rather than being
@@ -21210,9 +21411,7 @@ function duplicateFittedUnit(id) {
   copy.id = uid();
   copy.name = fittedUnitName(src) + ' (copy)';
   copy.isVariation = !!src.isVariation || variationDefaultsOn();
-  delete copy.variationStatus;
-  delete copy.variationApprovedAt;
-  delete copy.variationApprovalNote;
+  stripVariationState(copy);
   list.splice(idx + 1, 0, copy);
   saveFittedUnitJob();
   renderHome();
@@ -23061,9 +23260,7 @@ function duplicateRoom(id) {
   copy.id = uid();
   copy.name = rooms[idx].name + ' (copy)';
   copy.isVariation = !!rooms[idx].isVariation || variationDefaultsOn();
-  delete copy.variationStatus;
-  delete copy.variationApprovedAt;
-  delete copy.variationApprovalNote;
+  stripVariationState(copy);
   // Panelling rows carry their own ids -- refresh them so the copy never
   // shares row ids with the original.
   (copy.panelItems || []).forEach(function(p) { p.id = uid(); });
@@ -24498,15 +24695,28 @@ function editRoom(id) {
 //
 // isVariation is NOT carried here: the form owns that one and restores it into
 // roomIsVariation/exIsVariation on edit, so the toggle can be turned off.
+var VARIATION_STATE_KEYS = [
+  'variationBaseline', 'variationDelta', 'variationBaselineCorrectedAt',
+  'variationStatus', 'variationApprovedAt', 'variationApprovalNote',
+  'variationApprovedRaw', 'variationDeltaNote'
+];
 function carryVariationState(prev, next) {
   if (!prev || !next) return next;
-  ['variationBaseline', 'variationDelta', 'variationBaselineCorrectedAt',
-   'variationStatus', 'variationApprovedAt', 'variationApprovalNote',
-   'variationApprovedRaw', 'variationDeltaNote'
-  ].forEach(function(k) {
+  VARIATION_STATE_KEYS.forEach(function(k) {
     if (prev[k] !== undefined) next[k] = prev[k];
   });
   return next;
+}
+
+// The mirror image, for a COPY. A copy is new work: it inherits none of the
+// original's variation record. Stripping the sign-off alone was not enough --
+// variationBaseline and variationDelta rode across too, so a copy that was
+// later unflagged reported the ORIGINAL's extra as its own, against a baseline
+// belonging to a different room.
+function stripVariationState(obj) {
+  if (!obj) return obj;
+  VARIATION_STATE_KEYS.forEach(function(k) { delete obj[k]; });
+  return obj;
 }
 
 function saveRoom() {
@@ -26057,7 +26267,10 @@ function renderSummary() {
   // Persisted count for the Jobs list's "+N" chip — rooms/extItems only
   // load for the ACTIVE job, so the list reads this snapshot instead
   // (same reasoning as scheduledDays). Written only when it changes.
-  var varCount = varLines.length + freeVars.length;
+  // Lost extras count too: they are things on this card needing an answer, and
+  // a chip that quietly drops from +2 to +1 the day one breaks is how the loss
+  // went unnoticed in the first place.
+  var varCount = varLines.length + freeVars.length + (vView.lostBaselines || []).length;
   // variationPendingCount rides along on the same snapshot: the "+N" chip
   // renders outlined while any line still awaits the client's sign-off.
   var varPending = vView.pendingCount;

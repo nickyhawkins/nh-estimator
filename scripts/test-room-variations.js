@@ -492,6 +492,173 @@ async function seed(db) {
     check('so an extra already recorded against another room is not forgiven',
       preserved.stillSeesDelta === true);
 
+    // ── A baseline lost from UNDER an agreed extra ────────────────
+    // Reported from the field: two variations approved by the client, and
+    // later one of them simply gone from On Site while the count still said
+    // two. The room was intact -- every measurement still there, still priced
+    // -- but its EXTRA chip had gone with the line.
+    //
+    // The carrier had lost its baseline (the rooms write is a separate round
+    // trip from the job's, so a dead spot, a second device or a restore can
+    // bring a room back without one), and the heal then took the room exactly
+    // as it stood -- extra work and all -- as the scope that was agreed. The
+    // extra was forgiven in silence: no line, no chip, no money, while
+    // variationStatus sat there still reading 'approved'.
+    //
+    // The heal must REFUSE a carrier with extra work on the books, and what it
+    // cannot price it must REPORT. It deliberately does not re-price it: with
+    // no baseline, carrierAtBaseline() has nothing to hold the room at, so the
+    // room's own invoice line still carries the extra inside it and an
+    // automatic variation line on top would bill the same work twice.
+    const agreedLoss = await page.evaluate(() => {
+      rooms[1].rads = (+rooms[1].rads || 0) + 2;
+      saveRooms();
+      classifyVariationDelta('room', rooms[1].id, 'extra');
+      window.prompt = () => 'agreed on site';
+      approveVariation('roomdelta', rooms[1].id);
+      const agreedRaw = Math.round((variationDeltaOf('room', rooms[1]).raw) * 100) / 100;
+      const linesBefore = computeVariationsView().varLines.length;
+
+      // ...and now the baseline goes, exactly as a lost rooms write loses it.
+      delete rooms[1].variationBaseline;
+      saveRooms();
+      renderSummary();   // the heal runs from here
+
+      const v = computeVariationsView();
+      const inv = buildFinalInvoiceModel();
+      return {
+        agreedRaw: agreedRaw,
+        linesBefore: linesBefore,
+        healed: !!rooms[1].variationBaseline,
+        stillClassified: !!rooms[1].variationDelta,
+        lost: (v.lostBaselines || []).map((l) => ({ name: l.name, agreed: l.agreed && Math.round(l.agreed * 100) / 100 })),
+        lines: v.varLines.length,
+        pending: v.pendingCount,
+        chip: deltaChipHtml('room', rooms[1]).replace(/<[^>]*>/g, '').trim(),
+        card: variationsCardHtml(v),
+        invoiceVariations: inv.variations.filter((x) => !x.dropped).map((x) => x.desc),
+        othersBaselined: rooms.filter((r) => !r.isVariation && r.variationBaseline).length
+      };
+    });
+    check('the heal refuses a room with extra work on the books',
+      agreedLoss.healed === false && agreedLoss.stillClassified === true, agreedLoss);
+    check('the lost extra is reported by name, not silently dropped',
+      agreedLoss.lost.length === 1 && /Hallway/.test(agreedLoss.lost[0].name), agreedLoss.lost);
+    check('...carrying the figure the client actually signed off',
+      agreedLoss.lost[0] && agreedLoss.lost[0].agreed === agreedLoss.agreedRaw,
+      `${agreedLoss.lost[0] && agreedLoss.lost[0].agreed} vs ${agreedLoss.agreedRaw}`);
+    check('...said out loud on the Variations card',
+      /scope it was measured against has been lost/.test(agreedLoss.card));
+    check('...and the room keeps a chip, so it is findable from Measure',
+      /EXTRA \?/.test(agreedLoss.chip), agreedLoss.chip);
+    check('...and it counts as an unanswered question', agreedLoss.pending > 0, agreedLoss.pending);
+    check('it is NOT auto-billed, because the room line still contains the work',
+      agreedLoss.lines === agreedLoss.linesBefore - 1
+        && !agreedLoss.invoiceVariations.some((d) => /Hallway/.test(d)), agreedLoss);
+    check('losing one room\u2019s baseline does not cost the others theirs',
+      agreedLoss.othersBaselined === 2, agreedLoss.othersBaselined);
+
+    // Putting it back: one tap bills the agreed figure as a priced line AND
+    // re-agrees the room as it stands, so the same work can never be counted
+    // twice once a baseline exists again.
+    const putBack = await page.evaluate(() => {
+      const agreed = Math.round(variationDeltaAmount({ raw: lostBaselineAgreedRaw(rooms[1]), spray: 0 }) * 100) / 100;
+      window.prompt = (msg, dflt) => dflt;      // accept the prefilled figure
+      window.confirm = () => true;
+      billLostBaselineAsLine('room', rooms[1].id);
+      const v = computeVariationsView();
+      return {
+        prefilled: agreed,
+        lost: (v.lostBaselines || []).length,
+        freeLines: (activeJob().freeVariations || []).map((f) => ({ label: f.label, amount: f.amount })),
+        baselineBack: !!rooms[1].variationBaseline,
+        stillClassified: !!rooms[1].variationDelta,
+        deltaNow: variationDeltaOf('room', rooms[1])
+      };
+    });
+    check('putting it right adds the agreed figure as a priced line',
+      putBack.freeLines.some((f) => /Hallway/.test(f.label) && f.amount === putBack.prefilled),
+      JSON.stringify(putBack.freeLines));
+    check('...re-agrees the room so nothing is counted twice',
+      putBack.baselineBack === true && putBack.stillClassified === false && putBack.deltaNow === null, putBack);
+    check('...and clears the warning', putBack.lost === 0, putBack.lost);
+
+    // An extra nobody has signed off has no agreed figure to fall back on. It
+    // must not disappear for that: it goes on the card as a named open
+    // question, which is the whole point of this guard.
+    const unsignedLoss = await page.evaluate(() => {
+      rooms[2].rads = (+rooms[2].rads || 0) + 3;
+      saveRooms();
+      classifyVariationDelta('room', rooms[2].id, 'extra');
+      delete rooms[2].variationBaseline;
+      saveRooms(); renderSummary();
+      const v = computeVariationsView();
+      return {
+        healed: !!rooms[2].variationBaseline,
+        lost: (v.lostBaselines || []).map((l) => ({ name: l.name, agreed: l.agreed })),
+        card: /there is no agreed figure either/.test(variationsCardHtml(v))
+      };
+    });
+    check('an unsigned extra that loses its baseline is not healed away',
+      unsignedLoss.healed === false, unsignedLoss);
+    check('...it is reported by name with no figure claimed',
+      unsignedLoss.lost.length === 1 && /Master Bedroom/.test(unsignedLoss.lost[0].name)
+        && unsignedLoss.lost[0].agreed == null, unsignedLoss.lost);
+    check('...and the card says there is no agreed figure', unsignedLoss.card === true);
+
+    // Re-accepting must not absorb them either. The old guard was the
+    // job-level variationBaselinesAt flag, which lives in a different table
+    // from the rooms and can go missing on its own -- and when it did, the
+    // next acceptance re-froze every room at today's scope.
+    const reAcceptLoss = await page.evaluate(() => {
+      const before = variationDeltaOf('room', rooms[0]);
+      const lostBefore = computeVariationsView().lostBaselines.length;
+      const job = activeJob();
+      job.variationBaselinesAt = null;               // the flag, and only the flag
+      localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+      window.confirm = () => true;
+      setJobStatusById(activeJobId, 'accepted');
+      return { before: before && Math.round(before.raw * 100) / 100,
+               after: (function () { const d = variationDeltaOf('room', rooms[0]); return d && Math.round(d.raw * 100) / 100; })(),
+               lostBefore: lostBefore,
+               lostAfter: computeVariationsView().lostBaselines.length };
+    });
+    check('re-accepting a job whose baseline stamp went missing absorbs nothing',
+      reAcceptLoss.after === reAcceptLoss.before
+        && reAcceptLoss.lostAfter === reAcceptLoss.lostBefore, reAcceptLoss);
+
+    // A COPY is new work and inherits none of the original's variation record.
+    // Stripping the sign-off alone left variationBaseline and variationDelta on
+    // the copy, so unflagging it later reported the ORIGINAL's extra as its own.
+    const copied = await page.evaluate(() => {
+      duplicateRoom(rooms[0].id);
+      const copy = rooms.find((r) => / \(copy\)$/.test(r.name));
+      return copy ? {
+        base: !!copy.variationBaseline, delta: !!copy.variationDelta,
+        status: copy.variationStatus || null,
+        raw: copy.variationApprovedRaw == null ? null : copy.variationApprovedRaw
+      } : null;
+    });
+    check('a copied room inherits no part of the original\u2019s variation record',
+      copied && !copied.base && !copied.delta && copied.status === null && copied.raw === null, copied);
+
+    // Put the fixture back: the checks above deliberately leave rooms without
+    // baselines and drop a copy into the list, and everything below is written
+    // against a job where every room carries one.
+    await page.evaluate(() => {
+      const copyIdx = rooms.findIndex(r => / \(copy\)$/.test(r.name));
+      if (copyIdx > -1) rooms.splice(copyIdx, 1);
+      [rooms[1], rooms[2]].forEach((r) => {
+        r.rads = 0;
+        ['variationDelta','variationStatus','variationApprovedAt','variationApprovalNote',
+         'variationApprovedRaw','variationDeltaNote','variationBaselineCorrectedAt']
+          .forEach((k) => delete r[k]);
+        r.variationBaseline = { at: new Date().toISOString(), rev: null, obj: variationBaselineCopy(r) };
+      });
+      saveRooms();
+    });
+    await page.waitForTimeout(400);
+
     // ── A DECLINED extra survives an amend rather than being absorbed ─────
     // Amending re-agrees the current scope, and the extra is still measured on
     // the job -- the radiators are typed into the room. Folding a declined one

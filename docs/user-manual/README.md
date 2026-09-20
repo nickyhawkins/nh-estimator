@@ -1006,6 +1006,8 @@ Whichever you pick, **the agreed quote does not move**. The room still bills at 
 
 On Measure, a room carrying an extra is chipped **+ EXTRA**; one with a change nobody's ruled on yet is chipped **SCOPE ?**.
 
+**If the frozen scope ever goes missing.** That copy of what a room was measured as is saved with the room, and the room is saved separately from the job itself — so in rare cases (a save lost in a dead spot, a job opened on a second device before it had synced, a restore) a room can come back without it. Without the copy there is nothing to compare against, so the app can't work out what the extra was worth. It says so rather than going quiet: the room is chipped **EXTRA ?** in red on Measure, and the Variations card carries a red row at the top naming it, with the figure the client approved for it if they'd already said yes. **Put this right** gives you two answers — put the agreed figure back as a priced line (prefilled with what they approved), or write it off, which re-agrees the room as it now stands and bills nothing. It deliberately doesn't put the money back on its own: with the frozen copy gone, the room's own line on the final invoice still has that extra work inside it, so adding a variation line automatically would bill the same work twice.
+
 **If you edit that room again afterwards** — a fourth radiator, say — the extra re-prices itself. If the client had already approved it, the card says so: *"Changed since sign-off — £22.63 agreed, £29.47 now."* It doesn't quietly throw away their answer; it tells you the figure moved so you can go back to them or leave it.
 
 **Jobs accepted before this existed** get their frozen scope the first time you open them, taken from the job as it stands that day — so anything already typed in is treated as agreed, and it's changes from then on that get tracked.
@@ -1166,6 +1168,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.72.3. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.72.4. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

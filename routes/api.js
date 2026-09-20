@@ -2195,28 +2195,32 @@ function templateJobData(d) {
     keep.customItems = d.customItems;
   }
   if (d.kitchen) {
-    keep.kitchen = { ...d.kitchen };
-    delete keep.kitchen.isVariation;
+    keep.kitchen = stripVariationFlag(d.kitchen);
   }
   if (d.fittedUnit) {
-    keep.fittedUnit = { ...d.fittedUnit };
-    delete keep.fittedUnit.isVariation;
+    keep.fittedUnit = stripVariationFlag(d.fittedUnit);
   }
   // Fitted units list (v2.20.0) -- scope like the legacy single object
   // above: every unit copies (name included), each minus its variation
   // flag, same as rooms' stripVariationFlag below.
   if (Array.isArray(d.fittedUnits) && d.fittedUnits.length > 0) {
-    keep.fittedUnits = d.fittedUnits.map((u) => {
-      const copy = { ...u };
-      delete copy.isVariation;
-      return copy;
-    });
+    keep.fittedUnits = d.fittedUnits.map((u) => stripVariationFlag(u));
   }
   return keep;
 }
+// Every field the variations feature writes onto a carrier. A duplicated job is
+// a fresh draft, so a copied room inherits NONE of it: not the flag, not the
+// client's sign-off, and not variationBaseline/variationDelta -- which used to
+// ride across, so a template built from a job with extras carried another job's
+// agreed scope into every quote made from it.
+const VARIATION_STATE_KEYS = [
+  'isVariation', 'variationBaseline', 'variationDelta', 'variationBaselineCorrectedAt',
+  'variationStatus', 'variationApprovedAt', 'variationApprovalNote',
+  'variationApprovedRaw', 'variationDeltaNote',
+];
 const stripVariationFlag = (data) => {
   const copy = { ...(data || {}) };
-  delete copy.isVariation;
+  VARIATION_STATE_KEYS.forEach((k) => delete copy[k]);
   return copy;
 };
 

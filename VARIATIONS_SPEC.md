@@ -611,3 +611,59 @@ One rule governs all of them:
 4. Every other consumer in the table above, in one pass, with the grep the gotcha asks
    for.
 5. Publish/approval kinds + the re-publish-on-change rule.
+
+## As built — a baseline lost from under an agreed extra (2026-09-20, v2.72.4)
+
+Reported from the field: two variations approved by the client, and later one of them
+simply gone from On Site while the count still said two. The room was intact — every
+measurement still there, still priced — but its EXTRA chip had gone with the line.
+
+**What happened.** The carrier had lost its `variationBaseline`. The rooms write is a
+separate round trip from the job's, so a dead spot, a second device or a restore can
+bring a room back without one — the v2.71.2 heal exists precisely because those two
+writes come apart. The heal then did what it was built to do and froze the carrier **as
+it stood today**, extra work included. That turned money the client had agreed into
+"this was always the quote", and it did it in silence: `variationBaselinesLate` only
+fires when the job-level stamp is *also* missing, which it usually is not. The sign-off
+fields survived on the carrier, which is why the count still said two.
+
+**The rule now.** `carrierVariationEvidence()` — `variationDelta` and nothing else —
+marks a carrier with extra work on the books, and:
+
+- **The heal refuses it.** `stampVariationBaselines(job, { onlyMissing: true })` skips
+  any carrier with evidence, the same way it already skipped a declined extra. An
+  **amend** still absorbs it: that is the explicit act, and it says what it is absorbing
+  first.
+- **Acceptance asks the carriers, not the flag.** The acceptance-path stamp was guarded
+  on `job.variationBaselinesAt`, which lives in a different table from the rooms and can
+  go missing on its own — and when it did, the next acceptance re-froze every room at
+  today's scope. It passes `onlyMissing: true` instead, which is the same intent stated
+  per carrier. On a genuine first acceptance nothing has a baseline and it stamps all of
+  them, exactly as before.
+- **What cannot be priced is reported.** `lostBaselineCarriers()` lists every carrier
+  with evidence and no baseline, carrying `agreed` — `variationApprovedRaw`, the raw
+  figure frozen at sign-off — where the client answered. They get a row at the top of
+  the Variations card, a red `EXTRA ?` chip on the room so it stays findable from
+  Measure, and they count toward `pendingCount` and the Jobs-list `+N`.
+
+**It is deliberately NOT re-priced automatically.** With no baseline,
+`carrierAtBaseline()` has nothing to hold the carrier at, so the room's own line on the
+final invoice still carries the extra work inside it. An automatic variation line on top
+of that would bill the same work twice — a worse failure than the one being fixed. It is
+put back by hand instead (`billLostBaselineAsLine`), which adds the agreed figure as a
+flat priced line **and** re-agrees the carrier in the same step, in that order, so a
+failed second half can never leave the job written off with nothing billed in its place.
+
+**Sign-off state alone is not evidence.** A whole-item variation that was approved and
+later *unflagged* keeps its status, its date and its agreed figure (see
+`classifyVariationDelta`'s note on not inheriting them). That room genuinely is original
+scope now, so reading its old tick as a lost extra would nag forever about money nobody
+is owed. `variationDelta` is the only marker that means "a delta is on the books here".
+
+**Copies carry none of it.** `stripVariationState()` (client) and `VARIATION_STATE_KEYS`
+(`routes/api.js`, job duplicate) now strip the whole variation record, not just
+`isVariation` — `variationBaseline` and `variationDelta` used to ride across, so a copy
+that was later unflagged reported the *original's* extra as its own, against a baseline
+belonging to a different room.
+
+Held by `npm run test:room-variations`.
