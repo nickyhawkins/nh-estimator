@@ -265,6 +265,6 @@ app.listen(PORT, () => {
   // down must delay the health check by nothing, and an instance that can't
   // reach its database has a bigger problem than its colour list.
   topUpColourLibrary(db, console.log).catch(err => {
-    console.error('Colour library top-up skipped:', err.message);
+    console.error('Colour library sync skipped:', err.message);
   });
 });
