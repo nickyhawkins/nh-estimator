@@ -103,6 +103,48 @@ function check(description, fn) {
     return (n('Lick') === 100 && n('COAT') === 126) || `Lick=${n('Lick')} COAT=${n('COAT')}`;
   });
 
+  // Valspar (v2.73.0) is read off the e-paint Valspar UK chart Nicky sent --
+  // pages 2, 4, 5, 7 and 8 of it, 198 name+code pairs each. The chart lists
+  // three colours twice identically and once as "Sheepsking rug" against the
+  // same code as "Sheepskin rug", so 990 transcribed rows are 986 here.
+  //
+  // The chart is NOT fully in yet: pages 1, 3, 6 and everything after page 8
+  // are still to come, and each page Nicky printed was clipped a couple of
+  // rows short of its own header range (page 2 is headed "Blue whale to Cool
+  // tide" and stops at "Cool runnings"). So the gaps are, in order: the start
+  // of the alphabet up to "Blue whale"; "Cool runnings" to "Fare thee well";
+  // "Maple tan" to "Parrot flight"; and "Snow in June" to the end. Nothing
+  // was inferred across a gap -- that is the v2.69.4 mistake, and the reason
+  // the page boundaries are pinned below rather than described in a comment
+  // alone.
+  const valspar = SEED.filter(c => c.brand === 'Valspar');
+  check('Valspar is in the seed', () =>
+    valspar.length === 986 || `Valspar=${valspar.length}`);
+  check('every Valspar row carries its mixing code', () =>
+    valspar.every(c => c.code) || 'a Valspar colour has no code');
+  // The four shapes the chart actually uses: X144R283B, R213C, W31a, L21bW43b
+  // (some printed with upper-case suffixes), plus the two charity initials.
+  const SHAPE = /^(X\d+R\d+[A-Fa-f]|R\d+[A-Fa-f]|W\d+[A-Ea-e]|L\d+[A-Ea-e]W\d+[A-Ea-e]|PRC|PRS)$/;
+  check('every Valspar code matches a shape on the chart', () => {
+    const odd = valspar.filter(c => !SHAPE.test(c.code));
+    return !odd.length || odd.slice(0, 5).map(c => c.name + ' = ' + c.code).join('; ');
+  });
+  // The first and last colour of each page transcribed. A page that later
+  // arrives extends these spans; it must never replace one.
+  check('the transcribed chart pages are all present', () => {
+    const want = ['Blue whale', 'Cool runnings', 'Fare thee well', 'Heirloom peony',
+      'Herbes de Provence', 'Maple tan', 'Parrot flight', 'Resplendent emerald',
+      'Retro peach', 'Snow in June'];
+    const have = new Set(valspar.map(c => c.name));
+    const missing = want.filter(w => !have.has(w));
+    return !missing.length || `missing: ${missing.join(', ')}`;
+  });
+  check('the chart\'s own duplicates were folded, not carried', () => {
+    const typo = valspar.some(c => c.name === 'Sheepsking rug');
+    const kept = valspar.some(c => c.name === 'Sheepskin rug' && c.code === 'R95B');
+    return (!typo && kept) || `typo=${typo} kept=${kept}`;
+  });
+
   // Lick's range is NOT contiguous -- Beige runs 01,02,03,09,10 and stops, Grey
   // skips 05 and 09-13. v2.69.0 guessed contiguous ranges and invented 36
   // colours that don't exist. This pins the range to the chart so it can't

@@ -19005,10 +19005,19 @@ function pruneOrphanColour(num, live) {
 //
 // Every seeded brand is wholly one or the other, and the shapes don't
 // overlap: a code always contains a digit and never a space, a description
-// never does both. So one test covers all 1,485 without a per-brand list to
+// never does both. So one test covers all 2,433 without a per-brand list to
 // keep up to date -- and a code someone types in by hand sorts itself.
+//
+// Valspar (v2.73.0) added the one shape that rule missed. Its codes are
+// "X144R283B" and "R213C", which the digit test already has, but two of the
+// 986 are charity colours coded by INITIALS -- "Pink ribbon care" is PRC --
+// and a digitless PRC read as a description, so the code came off the
+// client's quote line entirely. An ALL-CAPS, spaceless token is a code too:
+// RAL's one-word descriptions are "Beige", "Ivory", "Telemagenta", written
+// the way a shade is written, so the lowercase in them keeps them out.
 function colourCodeIsNumber(code) {
-  return !!code && /\d/.test(code) && !/\s/.test(code);
+  if (!code || /\s/.test(code)) return false;
+  return /\d/.test(code) || (/[A-Z]/.test(code) && code === code.toUpperCase());
 }
 
 // The " · No. 28" / " · Charcoal Grey" suffix under a colour's brand.

@@ -67,6 +67,8 @@ is(api.fullName(find('Ash Grey')), 'Farrow & Ball No. W9 Ash Grey', 'a letter+di
 is(api.fullName(find('RAL 7016')), 'RAL Classic RAL 7016', 'RAL drops the description (bug since v2.38.5)');
 is(api.fullName(find('The Coal Drop')), 'COAT The Coal Drop', 'COAT drops the description');
 is(api.fullName(find('Grey 04')), 'Lick Grey 04', 'Lick prints clean');
+is(api.fullName(find('Campground')), 'Valspar No. X144R283B Campground', 'Valspar keeps its mixing code');
+is(api.fullName(find('Pink ribbon care')), 'Valspar No. PRC Pink ribbon care', 'and so does a code with no digit in it');
 is(api.fullName(find('Timeless')), 'Dulux Timeless', 'a brand with no code at all is unchanged');
 
 console.log('\nWhat prints under the name in the dropdown:');
@@ -90,6 +92,7 @@ check('every brand is wholly one shape — no ragged column', mixed.length === 0
 // no-space half of the test is what saves.
 const EXPECTED = {
   'Farrow & Ball': 'code', 'Little Greene': 'code', 'Dulux Heritage': 'code',
+  'Valspar': 'code',
   'RAL Classic': 'desc', 'COAT': 'desc',
   'Dulux': 'blank', 'Paint & Paper Library': 'blank', 'Lick': 'blank'
 };
@@ -103,6 +106,18 @@ check('every brand classifies the way that brand actually works',
 check('a description carrying a digit is still a description (RAL "Telegrey 1")',
   api.colourCodeIsNumber('Telegrey 1') === false && api.colourCodeIsNumber('W9') === true,
   'the digit/space rule misclassifies one of them');
+// Valspar is the brand that found the hole in the digit half of the rule: two
+// of its 986 are coded by INITIALS, with no digit in them at all, and read as
+// descriptions -- which took the code off the client's quote line. All-caps
+// carries them; RAL's one-word descriptions are written like shades, and the
+// lowercase in them is what keeps the two apart.
+check('an all-caps code with no digit is a code (Valspar "PRC")',
+  api.colourCodeIsNumber('PRC') === true && api.colourCodeIsNumber('PRS') === true,
+  'a charity code still reads as a description');
+check('a one-word description is still a description (RAL "Telemagenta")',
+  ['Beige', 'Ivory', 'Curry', 'Vermilion', 'Rose', 'Telemagenta', 'Cream']
+    .every(d => api.colourCodeIsNumber(d) === false),
+  'a RAL shade name flipped to a code');
 check('every seeded brand is covered by the expectation above',
   Object.keys(byBrand).every(b => EXPECTED[b]),
   Object.keys(byBrand).filter(b => !EXPECTED[b]).join(', '));
