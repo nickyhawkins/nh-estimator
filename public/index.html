@@ -19008,13 +19008,15 @@ function pruneOrphanColour(num, live) {
 // never does both. So one test covers all 3,376 without a per-brand list to
 // keep up to date -- and a code someone types in by hand sorts itself.
 //
-// Valspar (v2.73.0) added the one shape that rule missed. Its codes are
-// "X144R283B" and "R213C", which the digit test already has, but two of the
-// 1,929 are charity colours coded by INITIALS -- "Pink ribbon care" is PRC --
-// and a digitless PRC read as a description, so the code came off the
-// client's quote line entirely. An ALL-CAPS, spaceless token is a code too:
-// RAL's one-word descriptions are "Beige", "Ivory", "Telemagenta", written
-// the way a shade is written, so the lowercase in them keeps them out.
+// The ALL-CAPS arm came from Valspar (v2.73.0), whose two charity colours
+// were coded PRC and PRS: no digit, so they read as descriptions and the code
+// came off the client's quote line entirely. Valspar's codes were dropped
+// wholesale in v2.73.2 -- the chart carries four incompatible formats and B&Q
+// tints to the NAME -- so nothing in the seed exercises this arm today. It
+// stays because a code typed in by hand can be initials just as easily, and
+// it costs one clause: RAL's one-word descriptions ("Beige", "Telemagenta")
+// are written the way a shade is written, and the lowercase in them is what
+// keeps the two apart.
 function colourCodeIsNumber(code) {
   if (!code || /\s/.test(code)) return false;
   return /\d/.test(code) || (/[A-Z]/.test(code) && code === code.toUpperCase());

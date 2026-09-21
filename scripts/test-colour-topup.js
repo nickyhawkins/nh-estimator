@@ -109,7 +109,15 @@ function check(description, fn) {
   // code with two spellings: "Sheepsking rug" and "Cozy cacoon" are dropped
   // (neither is a word, and on a client's quote a misspelling reads as OUR
   // bug), while "Tranquil sea"/"Tranquil seas" are both kept, because both
-  // are words and the shared code orders the same tin either way. 1,929 here.
+  // are words. 1,929 here.
+  //
+  // The CODES are deliberately not (v2.73.2). The chart carries four
+  // incompatible formats -- "X144R283B", "R213C", "W31a", "L21bW43b", plus
+  // two charity colours coded by initials -- so a Valspar code identifies no
+  // single system, and B&Q tints by NAME at the counter. A code that can't be
+  // ordered from is noise on a client's quote, so the name carries the colour
+  // on its own and every Valspar `code` is blank, as Dulux and Lick already
+  // are. The transcription is what's pinned below, not the codes.
   //
   // Still missing, and NOT guessed at: each page printed from the phone was
   // clipped two rows short by the PDF's 14400pt page limit -- page 2 is
@@ -124,40 +132,41 @@ function check(description, fn) {
   const valspar = SEED.filter(c => c.brand === 'Valspar');
   check('Valspar is in the seed', () =>
     valspar.length === 1929 || `Valspar=${valspar.length}`);
-  check('every Valspar row carries its mixing code', () =>
-    valspar.every(c => c.code) || 'a Valspar colour has no code');
-  // The four shapes the chart actually uses: X144R283B, R213C, W31a, L21bW43b
-  // (some printed with upper-case suffixes), plus the two charity initials.
-  const SHAPE = /^(X\d+R\d+[A-Fa-f]|R\d+[A-Fa-f]|W\d+[A-Ea-e]|L\d+[A-Ea-e]W\d+[A-Ea-e]|PRC|PRS)$/;
-  check('every Valspar code matches a shape on the chart', () => {
-    const odd = valspar.filter(c => !SHAPE.test(c.code));
-    return !odd.length || odd.slice(0, 5).map(c => c.name + ' = ' + c.code).join('; ');
+  check('no Valspar row carries a code — the chart\'s formats don\'t agree', () => {
+    const coded = valspar.filter(c => c.code);
+    return !coded.length || `${coded.length} still coded, e.g. ${coded[0].name} = ${coded[0].code}`;
+  });
+  // Every word starts with a capital (v2.73.2). An apostrophe does not start
+  // a word -- "P's And Q's", never "P'S" -- and a token that is already all
+  // caps is left alone, so "KAPOW!" and "XOXOXO" are not counted against it.
+  check('every Valspar name is capitalised word by word', () => {
+    const bad = valspar.filter(c => c.name.split(/[\s-]+/).some(w => {
+      const first = w.match(/[A-Za-zÀ-ÿ]/);
+      return first && first[0] !== first[0].toUpperCase();
+    }));
+    return !bad.length || bad.slice(0, 5).map(c => c.name).join('; ');
   });
   // The first and last colour transcribed off each of the ten pages. If the
   // clipped rows ever arrive they extend these spans; they must never replace
   // one, and a page span going missing means a page was dropped wholesale.
   check('all ten chart pages are present', () => {
-    const want = ['18 Holes', 'Blue topaz', 'Blue whale', 'Cool runnings',
-      'Cool vapour', 'Fait accompli', 'Fare thee well', 'Heirloom peony',
-      'Herbes de Provence', 'Maple tan', 'Mariana Trench', 'Parisian purple',
-      'Parrot flight', 'Resplendent emerald', 'Retro peach', 'Snow in June',
-      'Snug as a bug', 'Twilight shadow', 'Ultra calm', 'Ziggy'];
+    const want = ['18 Holes', 'Blue Topaz', 'Blue Whale', 'Cool Runnings',
+      'Cool Vapour', 'Fait Accompli', 'Fare Thee Well', 'Heirloom Peony',
+      'Herbes De Provence', 'Maple Tan', 'Mariana Trench', 'Parisian Purple',
+      'Parrot Flight', 'Resplendent Emerald', 'Retro Peach', 'Snow In June',
+      'Snug As A Bug', 'Twilight Shadow', 'Ultra Calm', 'Ziggy'];
     const have = new Set(valspar.map(c => c.name));
     const missing = want.filter(w => !have.has(w));
     return !missing.length || `missing: ${missing.join(', ')}`;
   });
   check('the chart\'s own duplicates were folded, not carried', () => {
     const has = n => valspar.some(c => c.name === n);
-    const typos = ['Sheepsking rug', 'Cozy cacoon'].filter(has);
-    const kept = ['Sheepskin rug', 'Cozy cocoon', 'Tranquil sea', 'Tranquil seas'].filter(n => !has(n));
+    const typos = ['Sheepsking Rug', 'Cozy Cacoon'].filter(has);
+    // Both spellings of the pair that are both words stay, as do the two
+    // different colours the chart gave one code (R130C, pages apart).
+    const kept = ['Sheepskin Rug', 'Cozy Cocoon', 'Tranquil Sea', 'Tranquil Seas',
+      'Tropical Smoothie', 'Vivid Imagination'].filter(n => !has(n));
     return (!typos.length && !kept.length) || `carried: ${typos.join(', ')} | lost: ${kept.join(', ')}`;
-  });
-  // Two different colours sharing one code is the chart's own doing, not a
-  // transcription slip -- they are pages apart. Both stay.
-  check('two names on one code are both kept (chart lists R130C twice)', () => {
-    const r130c = valspar.filter(c => c.code === 'R130C').map(c => c.name).sort();
-    return (r130c.length === 2 && r130c[0] === 'Tropical smoothie' && r130c[1] === 'Vivid imagination')
-      || r130c.join(', ');
   });
 
   // Lick's range is NOT contiguous -- Beige runs 01,02,03,09,10 and stops, Grey
