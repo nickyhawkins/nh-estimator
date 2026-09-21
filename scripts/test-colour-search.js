@@ -67,6 +67,14 @@ check('charcoal', "a COAT shade description in `code`", r => r.some(x => x.name 
 check('white 0', 'Lick by name still works without a description',
   r => r.some(x => x.brand === 'Lick' && x.name === 'White 05'));
 
+// Valspar (v2.73.0). Its colour names are whole phrases -- "Bohemian bliss",
+// "Cool runnings" -- so a name search is the normal way in; the brand search
+// matters for browsing, and the code search is what a decorator standing at
+// the B&Q counter with a code on a lid has.
+check('valspar', 'the brand reaches its colours', r => r.length === 8 && r.every(x => x.brand === 'Valspar'));
+check('bohemian', 'a Valspar name typed partly', r => r.some(x => x.brand === 'Valspar' && x.name === 'Bohemian bliss'));
+check('x144r283b', 'a Valspar mixing code off a tin lid', r => r.some(x => x.name === 'Campground'));
+
 // Everything that already worked must still work.
 check('dead sal', 'the manual\'s own example still resolves',
   r => r.length === 1 && r[0].brand === 'Farrow & Ball' && r[0].name === 'Dead Salmon');
@@ -114,6 +122,7 @@ brand('Hallway white', [], false, 'free text the library has never heard of stil
 brand('Lick', [{ label: 'Lick' }], false, 'a colour already on the job by that name is joined, not declined');
 // And a library colour named after its own brand would win, if one ever exists.
 brand('Dulux', [], true, 'no Dulux colour is called "Dulux", so it stays a brand');
+brand('Valspar', [], true, 'a brand added later is guarded by the same rule, with no list to update');
 
 console.log(failed ? '\n' + failed + ' check(s) FAILED' : '\nAll checks passed.');
 process.exit(failed ? 1 : 0);

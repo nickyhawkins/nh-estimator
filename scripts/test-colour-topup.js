@@ -103,6 +103,63 @@ function check(description, fn) {
     return (n('Lick') === 100 && n('COAT') === 126) || `Lick=${n('Lick')} COAT=${n('COAT')}`;
   });
 
+  // Valspar is read off the e-paint Valspar UK chart Nicky sent as PDFs --
+  // all ten pages of it, 200 name+code pairs to a page, 1,934 transcribed.
+  // The chart lists three colours twice identically, and four times under one
+  // code with two spellings: "Sheepsking rug" and "Cozy cacoon" are dropped
+  // (neither is a word, and on a client's quote a misspelling reads as OUR
+  // bug), while "Tranquil sea"/"Tranquil seas" are both kept, because both
+  // are words and the shared code orders the same tin either way. 1,929 here.
+  //
+  // Still missing, and NOT guessed at: each page printed from the phone was
+  // clipped two rows short by the PDF's 14400pt page limit -- page 2 is
+  // headed "Blue whale to Cool tide" and stops at "Cool runnings". Page 10
+  // is the only complete one (152 rows, and its own footer under them), which
+  // is what makes the shortfall exactly 2 x 9 = 18 of 1,947. Nine of the
+  // eighteen are named by the page headers -- Blue wash, Cool tide, Far and
+  // wide, Herb garland, Margaritaville, Parrish blue, Retro chic, Snowflake,
+  // Twinkle twinkle -- and the row before each is unknown. A colour that is
+  // absent gets typed as free text; an invented one gets quoted and ordered,
+  // which is the v2.69.4 lesson and the reason these stay out.
+  const valspar = SEED.filter(c => c.brand === 'Valspar');
+  check('Valspar is in the seed', () =>
+    valspar.length === 1929 || `Valspar=${valspar.length}`);
+  check('every Valspar row carries its mixing code', () =>
+    valspar.every(c => c.code) || 'a Valspar colour has no code');
+  // The four shapes the chart actually uses: X144R283B, R213C, W31a, L21bW43b
+  // (some printed with upper-case suffixes), plus the two charity initials.
+  const SHAPE = /^(X\d+R\d+[A-Fa-f]|R\d+[A-Fa-f]|W\d+[A-Ea-e]|L\d+[A-Ea-e]W\d+[A-Ea-e]|PRC|PRS)$/;
+  check('every Valspar code matches a shape on the chart', () => {
+    const odd = valspar.filter(c => !SHAPE.test(c.code));
+    return !odd.length || odd.slice(0, 5).map(c => c.name + ' = ' + c.code).join('; ');
+  });
+  // The first and last colour transcribed off each of the ten pages. If the
+  // clipped rows ever arrive they extend these spans; they must never replace
+  // one, and a page span going missing means a page was dropped wholesale.
+  check('all ten chart pages are present', () => {
+    const want = ['18 Holes', 'Blue topaz', 'Blue whale', 'Cool runnings',
+      'Cool vapour', 'Fait accompli', 'Fare thee well', 'Heirloom peony',
+      'Herbes de Provence', 'Maple tan', 'Mariana Trench', 'Parisian purple',
+      'Parrot flight', 'Resplendent emerald', 'Retro peach', 'Snow in June',
+      'Snug as a bug', 'Twilight shadow', 'Ultra calm', 'Ziggy'];
+    const have = new Set(valspar.map(c => c.name));
+    const missing = want.filter(w => !have.has(w));
+    return !missing.length || `missing: ${missing.join(', ')}`;
+  });
+  check('the chart\'s own duplicates were folded, not carried', () => {
+    const has = n => valspar.some(c => c.name === n);
+    const typos = ['Sheepsking rug', 'Cozy cacoon'].filter(has);
+    const kept = ['Sheepskin rug', 'Cozy cocoon', 'Tranquil sea', 'Tranquil seas'].filter(n => !has(n));
+    return (!typos.length && !kept.length) || `carried: ${typos.join(', ')} | lost: ${kept.join(', ')}`;
+  });
+  // Two different colours sharing one code is the chart's own doing, not a
+  // transcription slip -- they are pages apart. Both stay.
+  check('two names on one code are both kept (chart lists R130C twice)', () => {
+    const r130c = valspar.filter(c => c.code === 'R130C').map(c => c.name).sort();
+    return (r130c.length === 2 && r130c[0] === 'Tropical smoothie' && r130c[1] === 'Vivid imagination')
+      || r130c.join(', ');
+  });
+
   // Lick's range is NOT contiguous -- Beige runs 01,02,03,09,10 and stops, Grey
   // skips 05 and 09-13. v2.69.0 guessed contiguous ranges and invented 36
   // colours that don't exist. This pins the range to the chart so it can't
