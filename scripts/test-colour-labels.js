@@ -67,8 +67,7 @@ is(api.fullName(find('Ash Grey')), 'Farrow & Ball No. W9 Ash Grey', 'a letter+di
 is(api.fullName(find('RAL 7016')), 'RAL Classic RAL 7016', 'RAL drops the description (bug since v2.38.5)');
 is(api.fullName(find('The Coal Drop')), 'COAT The Coal Drop', 'COAT drops the description');
 is(api.fullName(find('Grey 04')), 'Lick Grey 04', 'Lick prints clean');
-is(api.fullName(find('Campground')), 'Valspar No. X144R283B Campground', 'Valspar keeps its mixing code');
-is(api.fullName(find('Pink ribbon care')), 'Valspar No. PRC Pink ribbon care', 'and so does a code with no digit in it');
+is(api.fullName(find('Campground')), 'Valspar Campground', 'Valspar prints clean — its codes were dropped in v2.73.2');
 is(api.fullName(find('Timeless')), 'Dulux Timeless', 'a brand with no code at all is unchanged');
 
 console.log('\nWhat prints under the name in the dropdown:');
@@ -92,7 +91,7 @@ check('every brand is wholly one shape — no ragged column', mixed.length === 0
 // no-space half of the test is what saves.
 const EXPECTED = {
   'Farrow & Ball': 'code', 'Little Greene': 'code', 'Dulux Heritage': 'code',
-  'Valspar': 'code',
+  'Valspar': 'blank',
   'RAL Classic': 'desc', 'COAT': 'desc',
   'Dulux': 'blank', 'Paint & Paper Library': 'blank', 'Lick': 'blank'
 };
@@ -106,11 +105,14 @@ check('every brand classifies the way that brand actually works',
 check('a description carrying a digit is still a description (RAL "Telegrey 1")',
   api.colourCodeIsNumber('Telegrey 1') === false && api.colourCodeIsNumber('W9') === true,
   'the digit/space rule misclassifies one of them');
-// Valspar is the brand that found the hole in the digit half of the rule: two
-// of its 986 are coded by INITIALS, with no digit in them at all, and read as
-// descriptions -- which took the code off the client's quote line. All-caps
-// carries them; RAL's one-word descriptions are written like shades, and the
-// lowercase in them is what keeps the two apart.
+// The all-caps arm of the rule came from Valspar, whose two charity colours
+// were coded PRC and PRS -- no digit, so they read as descriptions and the
+// code came off the client's quote line. Valspar's codes were dropped
+// wholesale in v2.73.2 (four incompatible formats, none of them orderable),
+// so no seeded brand exercises this today. It stays because a code TYPED by
+// hand can be initials just as easily, and because RAL's one-word
+// descriptions -- written like shades, and lower-case for it -- are what the
+// rule has to keep on the other side.
 check('an all-caps code with no digit is a code (Valspar "PRC")',
   api.colourCodeIsNumber('PRC') === true && api.colourCodeIsNumber('PRS') === true,
   'a charity code still reads as a description');

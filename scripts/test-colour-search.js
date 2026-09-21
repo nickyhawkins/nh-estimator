@@ -67,13 +67,13 @@ check('charcoal', "a COAT shade description in `code`", r => r.some(x => x.name 
 check('white 0', 'Lick by name still works without a description',
   r => r.some(x => x.brand === 'Lick' && x.name === 'White 05'));
 
-// Valspar (v2.73.0). Its colour names are whole phrases -- "Bohemian bliss",
-// "Cool runnings" -- so a name search is the normal way in; the brand search
-// matters for browsing, and the code search is what a decorator standing at
-// the B&Q counter with a code on a lid has.
+// Valspar. Its colour names are whole phrases -- "Bohemian Bliss", "Cool
+// Runnings" -- and it carries no codes at all since v2.73.2, so name and
+// brand are the two ways in. That is how B&Q's counter works too: it tints
+// to the NAME, which is the reason the codes went.
 check('valspar', 'the brand reaches its colours', r => r.length === 8 && r.every(x => x.brand === 'Valspar'));
-check('bohemian', 'a Valspar name typed partly', r => r.some(x => x.brand === 'Valspar' && x.name === 'Bohemian bliss'));
-check('x144r283b', 'a Valspar mixing code off a tin lid', r => r.some(x => x.name === 'Campground'));
+check('bohemian', 'a Valspar name typed partly', r => r.some(x => x.brand === 'Valspar' && x.name === 'Bohemian Bliss'));
+check('cool runn', 'a two-word Valspar name mid-phrase', r => r.some(x => x.name === 'Cool Runnings'));
 
 // Everything that already worked must still work.
 check('dead sal', 'the manual\'s own example still resolves',
