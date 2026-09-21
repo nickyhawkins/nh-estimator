@@ -534,19 +534,34 @@ rather spell out which room gets which.
 Xero line carries its own price, so the block opens *"Painting of Lounge:"* and
 describes the Lounge — not a list of every room in the job on a line priced for
 one of them. The protection and completion paragraphs are true of every room, so
-they appear once and the later lines just point back at them:
+they appear once and the later lines just point back at them. Here are the Xero
+line descriptions the app writes, one after the other:
 
 ```
-Lounge        Painting of Lounge:
-              [protection · the Lounge's scope · completion]
-Kitchen       same as above
-Bedroom 1     same as above
-Bathroom      Ceilings finished in Tikkurila Anti Reflex 2 and walls in
-              Tikkurila Optiva 5, each applied in 2 coats.
-              Preparation and completion as above.
-W.C.          Walls in Tikkurila Optiva 5, applied in 2 coats.
-              Preparation and completion as above.
+Painting of Lounge:
+[protection · the Lounge's scope · completion]
+
+Kitchen - same as above
+
+Bedroom 1 - same as above
+
+Bathroom
+Ceilings finished in Tikkurila Anti Reflex 2 and walls in
+Tikkurila Optiva 5, each applied in 2 coats.
+Preparation and completion as above.
+
+W.C.
+Walls in Tikkurila Optiva 5, applied in 2 coats.
+Preparation and completion as above.
 ```
+
+**The first line isn't labelled twice.** The block already opens by naming the
+room it sits on, so the room name is no longer put above it as well — that line
+used to read *"Lounge"*, then *"Painting of Lounge:"* one line below it. The
+label is still added wherever the block *doesn't* name the line: your own edited
+wording that never mentions the room, an exterior template with a fixed heading,
+or a line the block has moved onto because you dropped the room it was written
+for.
 
 **"Same as above" now means exactly that** — same as the first line. A room
 matching it collapses, so identical bedrooms stay tidy and the detail appears
@@ -1046,6 +1061,14 @@ On a **Completed** job, On Site shows **Build final invoice**. The builder assem
 - plus the **actual materials** used (from your ticked-off list),
 - minus any **deposit already recorded and synced to Xero**.
 
+The invoice's lines are worded the same way the quote's are (see §9): the
+invoice version of your template block rides the **first work line**, and the
+work lines after it read *"Bedroom - same as above"* or carry their own scope
+where they differ. **Lines that aren't measured work are left to speak for
+themselves** — *Sundries & Consumables*, a custom line you typed a price into,
+and the diary-day/price rounding line. They're a percentage or a price of their
+own, not painting, so they never get the block and never read "same as above".
+
 Review the lines, adjust anything, then send — the app writes **one draft invoice into Xero** and marks the job **Invoiced**. You approve and send the invoice from Xero as usual, so nothing goes to the client without your say-so. Applying the recorded deposit to this invoice, once it exists in Xero, is still done in Xero.
 
 Once a job is Invoiced, Summary shows a read-only **Job Profitability** card telling three separate stories: **Billing** (quoted vs invoiced, with a note if they differ), **Schedule** (days quoted vs days actually logged), and **Materials** (quoted materials vs the real trade cost of what was used, with your markup on materials banked as its own figure). It's reference only — nothing here feeds back into pricing.
@@ -1168,6 +1191,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.72.4. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.72.5. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

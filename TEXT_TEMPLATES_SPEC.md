@@ -195,6 +195,35 @@ the placeholder in, or Reset to defaults. Verified by `npm run test:scope`,
    IS its own text, and the top-up is a pricing note, not scope. A quote
    with ONLY custom/standalone lines gets no block at all.
 
+7. **v2.72.5 — the invoice's chain was not the quote's.** Point 6's rule
+   ("a custom item's description IS its own text") had only ever been
+   applied on the quote side. The final invoice gave every labour line
+   after the first a `- same as above`, and its labour lines are wider than
+   the quote's: on a FROZEN job they are the accepted snapshot's work rows
+   replayed whole, which include the client's own **"Sundries &
+   Consumables"** row (a stated % of labour), typed-in custom lines and the
+   rounding row — so a real invoice went out reading *"Sundries &
+   Consumables - same as above"*. Lines now carry `ownText` and sit the
+   chain out entirely: set from the snapshot's `sourceKey` (anything not
+   `room:`/`ext:`/`kitchen:`/`fittedunit:`), falling back to the label for
+   snapshots frozen before `sourceKey` existed, and set directly on the
+   live path's custom and `Price adjustment` lines. The block lands on the
+   first line that IS work, and the collapse baseline is that line's scope,
+   so an `ownText` line arriving first cannot swallow either.
+8. **v2.72.5 — the block's line names itself, once.** Once the block began
+   describing the line it sits on (see above), its first line opened by
+   naming that line — `Painting — Lounge` — while the composer still
+   prefixed `{label}\n\n` as point 2 of the decisions specifies, so the
+   client read the room's name twice, one line apart.
+   `blockLineDescription()` drops the label only when the block's own first
+   line ENDS with it (punctuation and case forgiven, word-bounded, so
+   "Bedroom" does not match a header naming "Bedroom 1"). Where the block
+   names something else the label stays: a hand-edited block, an exterior
+   template's fixed header, or a block that has moved onto another line
+   because the first room was dropped from the invoice. Both send paths use
+   the one helper. Held by `npm run test:invoice-lines` (33 checks), which
+   runs the real compose loop extracted from `public/index.html`.
+
 Verified: 97-check node harness on the extracted renderer (pair/prefix/
 placeholder mechanics, gold renders of the Painting template against Nicky's
 original quote AND invoice worked example, all 8 seeds × both modes clean,

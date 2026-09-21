@@ -4050,6 +4050,31 @@ function templateTextHandEdited(mode) {
   return text.trim() !== (renderJobTemplate(mode) || '').trim();
 }
 
+// ── The block's own line names itself ──────────────────────────────────────
+// The rendered block describes the ONE Xero line it sits on and opens by
+// naming it ("Painting of Lounge:" on a quote, "Painting — Lounge" on an
+// invoice) — see buildTemplateValues' subject note. Prefixing that same line
+// with the bare label as well printed the room's name twice, one line apart,
+// on the document a client actually reads.
+//
+// The label is dropped ONLY when the block's first line already ends with it.
+// A hand-edited block that never names the room, an exterior template whose
+// header is fixed text, or a block whose line has moved (the first room
+// dropped from the invoice) all keep the label above them — there the label
+// is the only thing saying what the line is for.
+function blockNamesItsLine(block, label) {
+  var tidy = function(v) { return String(v == null ? '' : v).trim().replace(/[\s:;.,\u2013\u2014-]+$/, ''); };
+  var head = tidy(String(block || '').split('\n')[0]);
+  var name = tidy(label);
+  if (!name || head.length < name.length) return false;
+  if (head.slice(-name.length).toLowerCase() !== name.toLowerCase()) return false;
+  var before = head.charAt(head.length - name.length - 1);
+  return !before || !/[A-Za-z0-9]/.test(before);
+}
+function blockLineDescription(label, block) {
+  return blockNamesItsLine(block, label) ? block : label + '\n\n' + block;
+}
+
 // ── Template card on the Summary quote panel ───────────────────────────────
 function populateTemplateCard() {
   var sel = document.getElementById('xero-template-select');
@@ -5089,7 +5114,7 @@ async function createXeroQuote(forceNew) {
       var withBlock = function(label) {
         if (blockAttached) return label + ' - same as above';
         blockAttached = true;
-        return label + '\n\n' + quoteBlock;
+        return blockLineDescription(label, quoteBlock);
       };
       // A later room's line carries THAT ROOM's scope instead of a bare
       // "same as above" — see roomScopeSentence. Every Xero line has a
@@ -18100,13 +18125,18 @@ function buildFinalInvoiceModel() {
       desc: standaloneInv.topUp > 0.005
         ? 'Standalone job — diary day rounding (' + standaloneInv.calcDays.toFixed(1) + ' → ' + (standaloneInv.diaryDays % 1 === 0 ? standaloneInv.diaryDays.toFixed(0) : standaloneInv.diaryDays.toFixed(1)) + ' days)'
         : 'Price adjustment',
-      raw: standaloneInv.topUp, amount: Math.round(invPlan.adjustmentPool * 100) / 100, dropped: false });
+      raw: standaloneInv.topUp, amount: Math.round(invPlan.adjustmentPool * 100) / 100, dropped: false,
+      ownText: true });
   }
   jobCustomItems(job).forEach(function(it, i) {
     var t = customItemTotal(it);
     if (t <= 0.005) return;
+    // A custom item's description IS its own text -- the quote path leaves
+    // these out of the block chain for exactly that reason (see
+    // createXeroQuote), and a typed-in price has no painted scope to be the
+    // same as anything.
     labour.push({ id: 'cu' + i, desc: (it.description || 'Custom line') + (it.applyMarkup === false ? ' (fixed price)' : ''),
-      raw: t, amount: it.applyMarkup === false ? t : t * muInv, dropped: false });
+      raw: t, amount: it.applyMarkup === false ? t : t * muInv, dropped: false, ownText: true });
   });
   // A job honoured at a pre-app Xero labour price (jobIsXeroImported) bills
   // that ONE figure for labour, and every engine labour line assembled above
@@ -18134,6 +18164,20 @@ function buildFinalInvoiceModel() {
   // Sundries below take the same treatment: they were quoted as a % of raw
   // labour, so re-deriving them from today's sundriesPct would reopen the
   // same hole one line further down.
+  // Not every frozen row is measured work. The snapshot's work rows ARE the
+  // client's own quote lines, so they also carry "Sundries & Consumables" (a
+  // stated % of labour), typed-in custom lines and the rounding adjustment.
+  // Those describe themselves and must never be handed the description block
+  // or a bare "- same as above": a percentage line reading "same as above"
+  // under a block that enumerates ceilings, walls and woodwork bills a client
+  // beside a claim about work that line is not about. sourceKey is the
+  // snapshot's own record of WHAT a row is; rows frozen before it existed
+  // fall back to the label, which is fixed text for every one of them.
+  var frozenRowOwnText = function(row) {
+    var key = row.sourceKey || '';
+    if (key) return !/^(room|ext|kitchen|fittedunit):/.test(key);
+    return /^\s*(sundries|price adjustment|standalone job)\b/i.test(row.description || '');
+  };
   var frozenInvLabour = jobQuoteIsFrozen(job) ? latestQuoteSnapshot(job) : null;
   var frozenLabourApplied = false;
   if (frozenInvLabour) {
@@ -18143,7 +18187,8 @@ function buildFinalInvoiceModel() {
       labour.length = 0;
       frozenWorkRows.forEach(function(row, i) {
         labour.push({ id: 'fz' + i, desc: row.description || 'Labour',
-                      raw: +row.lineTotal || 0, amount: +row.lineTotal || 0, dropped: false });
+                      raw: +row.lineTotal || 0, amount: +row.lineTotal || 0, dropped: false,
+                      ownText: frozenRowOwnText(row) });
       });
       frozenImportedRows.forEach(function(row, i) {
         labour.push({ id: 'fzi' + i, desc: row.description || 'Original quote',
@@ -18493,16 +18538,27 @@ async function createFinalInvoice() {
   // labour line's own scope -- whatever kind of line that is -- and a line
   // of a different kind can never match it, which is right: the block
   // carries no scope of that other kind to be the same as.
+  //
+  // Lines that carry their own text (ownText -- sundries, typed-in custom
+  // lines, the rounding adjustment: see buildFinalInvoiceModel) sit this out
+  // entirely. They are not measured work, so there is no scope of theirs for
+  // the block to describe and nothing of theirs that can be "the same as"
+  // it -- a frozen job put "Sundries & Consumables - same as above" on a real
+  // invoice, which claims a percentage line is the same painting work as the
+  // Lounge. The block therefore lands on the first line that IS work.
   var invBaseline = null;
   if (!invHandEdited) {
-    var firstScoped = s.labour.filter(function(l) { return !l.dropped; })[0];
+    var firstScoped = s.labour.filter(function(l) { return !l.dropped && !l.ownText; })[0];
     invBaseline = (firstScoped && firstScoped.scope) || null;
   }
   s.labour.forEach(function(l) {
     if (l.dropped) return;
     var desc = l.desc;
-    if (invBlock) {
-      if (!invAttached) desc = l.desc + '\n\n' + invBlock;
+    if (invBlock && !l.ownText) {
+      // The block already opens by naming this line ("Painting — Lounge"),
+      // so the label goes above it only where it doesn't -- see
+      // blockLineDescription().
+      if (!invAttached) desc = blockLineDescription(l.desc, invBlock);
       else if (!invHandEdited && l.scope && l.scope !== invBaseline)
         desc = l.desc + '\n\n' + l.scope + '\n\nPreparation and completion as above.';
       else desc = l.desc + ' - same as above';

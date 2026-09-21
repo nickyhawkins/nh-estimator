@@ -226,7 +226,8 @@ async function seed(db) {
   // ── Final invoice bills the agreed labour, not a re-calculation ───────────
   const invoice = await page.evaluate(() => {
     const m = buildFinalInvoiceModel();
-    return { labour: m.labour.map(l => ({ desc: l.desc, amount: Math.round(l.amount * 100) / 100 })),
+    return { labour: m.labour.map(l => ({ desc: l.desc, amount: Math.round(l.amount * 100) / 100,
+                                          ownText: !!l.ownText })),
              sundriesLine: m.sundries.amount };
   });
   const invLabourTotal = invoice.labour.reduce((s, l) => s + l.amount, 0);
@@ -237,6 +238,13 @@ async function seed(db) {
     invoice.sundriesLine === 0, 'separate sundries line = ' + invoice.sundriesLine);
   check('the frozen work rows include the agreed sundries line',
     invoice.labour.some(l => /Sundries/i.test(l.desc)), invoice.labour.map(l => l.desc).join(' | '));
+  // ...and it is marked as carrying its own text, so the send path can't hand
+  // it the description block or a "- same as above" (v2.72.5 — it did, and a
+  // client got an invoice line reading "Sundries & Consumables - same as
+  // above"). The measured rooms beside it must stay eligible for the block.
+  check('the frozen sundries row is marked as carrying its own text',
+    invoice.labour.every(l => l.ownText === /Sundries/i.test(l.desc)),
+    invoice.labour.map(l => l.desc + (l.ownText ? ' [ownText]' : '')).join(' | '));
 
   // ── Amend appends a revision and keeps the original ───────────────────────
   // Amending is a SHEET now, not a prompt(). The drift card moved here from
