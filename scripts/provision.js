@@ -10,7 +10,9 @@
 //   2. db/setup-debt.sql       — ONLY when DEBT_APP_ENABLED=true (the
 //                                owner's personal instance; contains
 //                                personal seed data)
-//   3. colour library seed     — ~1,500 trade colours, skips existing rows
+//   3. colour library seed     — ~3,400 trade colours: inserts what is
+//                                missing, and corrects rows the seed has
+//                                since renamed or de-coded
 //
 // Needs DATABASE_URL. See docs/NEW_INSTANCE.md for the full new-customer
 // runbook this belongs to.
@@ -18,6 +20,7 @@
 const fs = require('fs');
 const path = require('path');
 const db = require('../db');
+const { topUpColourLibrary } = require('../lib/colourLibrarySeed');
 
 const ROOT = path.join(__dirname, '..');
 
@@ -27,21 +30,18 @@ async function runSqlFile(rel) {
   console.log('applied ' + rel);
 }
 
+// The seed is applied by the same function the server runs on boot, so the
+// two paths cannot drift: it inserts what is missing, drops rows a rename has
+// superseded, and clears codes the seed has dropped. See
+// lib/colourLibrarySeed.js for why an insert-only seed was not enough.
 async function seedColours() {
-  const entries = JSON.parse(
-    fs.readFileSync(path.join(ROOT, 'db', 'colour-library-seed.json'), 'utf8')
-  );
-  let inserted = 0;
-  for (const { name, brand, code } of entries) {
-    const result = await db.query(
-      `INSERT INTO colour_library (name, brand, code)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (name, brand) DO NOTHING`,
-      [name, brand, code || '']
-    );
-    if (result.rowCount > 0) inserted++;
+  const r = await topUpColourLibrary(db, null);
+  if (!r.ranSeed) {
+    console.log(`colour library: already in step (${r.before} rows, seed holds ${r.checked})`);
+    return;
   }
-  console.log(`colour library: ${inserted} of ${entries.length} seeded (rest already present)`);
+  console.log(`colour library: ${r.inserted} added, ${r.removed} superseded row(s) removed,`
+    + ` ${r.cleared} stale code(s) cleared (seed holds ${r.checked})`);
 }
 
 (async () => {

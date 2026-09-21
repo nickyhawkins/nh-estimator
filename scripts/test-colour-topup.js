@@ -1,34 +1,61 @@
-// Colour library boot top-up (lib/colourLibrarySeed.js) against a fake db.
+// Colour library seed applied to the table (lib/colourLibrarySeed.js),
+// against a fake db.
 //
-// The failure this exists for: v2.69.0 added 264 colours to the seed file and
-// merged, the server deployed and reported the new version, and the colours
-// were not there -- because the seed only ever ran from the preDeployCommand,
-// which an instance configured by hand doesn't have. A release whose whole
-// content is data must not be able to ship without its data.
+// Two failures this exists for. v2.69.0 added 264 colours to the seed file
+// and merged, the server deployed and reported the new version, and the
+// colours were not there -- because the seed only ever ran from the
+// preDeployCommand, which an instance configured by hand doesn't have. A
+// release whose whole content is data must not be able to ship without its
+// data.
+//
+// Then v2.73.2 re-cased 1,709 Valspar names and blanked every Valspar code,
+// and the insert-only seed put the new names in ALONGSIDE the old ones
+// ("Blue whale" and "Blue Whale" both in the dropdown, UNIQUE(name, brand)
+// being case-sensitive) while leaving the codes on the 220 whose casing had
+// not changed. The COUNT gate made it permanent: the table was now above the
+// seed's length, so it would never look again. The seed CONVERGES the table
+// now, and the cases below are that table, rebuilt.
 //
 //   npm run test:colour-topup
-const { topUpColourLibrary, readSeed } = require('../lib/colourLibrarySeed');
+const { topUpColourLibrary, planColourLibrary, readSeed } = require('../lib/colourLibrarySeed');
 
 const SEED = readSeed();
 
-// Minimal stand-in for db: counts the INSERTs and answers the COUNT with
-// whatever the test says is already in the table.
+// Stand-in for db: a real little table of {id, name, brand, code} rows, since
+// the sync DELETEs and UPDATEs and a set of keys can't show that. It answers
+// only the four statements the module issues, and throws on anything else so
+// a new query can't pass the test by being ignored.
 function fakeDb(existingRows, opts) {
   opts = opts || {};
-  const present = new Set(existingRows.map(c => c.name + '|' + c.brand));
-  const db = { inserts: 0, conflicts: 0, queries: 0 };
+  let nextId = 1;
+  const rows = existingRows.map(c => ({ id: nextId++, name: c.name, brand: c.brand, code: c.code || '' }));
+  const db = { inserts: 0, conflicts: 0, queries: 0, deletes: 0, updates: 0, rows: rows };
   db.query = async (sql, params) => {
     db.queries++;
-    if (/COUNT/i.test(sql)) {
-      if (opts.countThrows) throw new Error('relation "colour_library" does not exist');
-      return { rows: [{ n: present.size }] };
+    if (/^SELECT id, name, brand, code/i.test(sql.trim())) {
+      if (opts.readThrows) throw new Error('relation "colour_library" does not exist');
+      return { rows: rows.map(r => ({ id: r.id, name: r.name, brand: r.brand, code: r.code })) };
     }
-    const key = params[0] + '|' + params[1];
-    if (present.has(key)) { db.conflicts++; return { rowCount: 0 }; }
-    present.add(key); db.inserts++;
-    return { rowCount: 1 };
+    if (/^DELETE/i.test(sql.trim())) {
+      const ids = new Set(params[0]);
+      for (let i = rows.length - 1; i >= 0; i--) if (ids.has(rows[i].id)) { rows.splice(i, 1); db.deletes++; }
+      return { rowCount: ids.size };
+    }
+    if (/^UPDATE/i.test(sql.trim())) {
+      const ids = new Set(params[0]);
+      for (const r of rows) if (ids.has(r.id)) { r.code = ''; db.updates++; }
+      return { rowCount: ids.size };
+    }
+    if (/^INSERT/i.test(sql.trim())) {
+      const [name, brand, code] = params;
+      if (rows.some(r => r.name === name && r.brand === brand)) { db.conflicts++; return { rowCount: 0 }; }
+      rows.push({ id: nextId++, name: name, brand: brand, code: code || '' });
+      db.inserts++;
+      return { rowCount: 1 };
+    }
+    throw new Error('fakeDb got a statement it does not model: ' + sql.slice(0, 60));
   };
-  db.present = present;
+  db.valspar = () => rows.filter(r => r.brand === 'Valspar');
   return db;
 }
 
@@ -55,12 +82,15 @@ function check(description, fn) {
   check('and the rows added are exactly the new brands', () =>
     short.inserts === newBrandRows || `inserted ${short.inserts}, expected ${newBrandRows}`);
 
-  // The normal case: a complete table costs one query and nothing else.
+  // The normal case: a table already in step costs ONE read and no writes.
+  // The read is the whole table now rather than a COUNT (v2.73.3) -- 3,376
+  // rows of four short columns, which is the price of the seed being able to
+  // correct a row it has renamed.
   const full = fakeDb(SEED);
   const r2 = await topUpColourLibrary(full);
-  check('a complete table runs the COUNT and stops', () =>
-    (!r2.ranSeed && full.queries === 1 && full.inserts === 0) ||
-    `ranSeed=${r2.ranSeed} queries=${full.queries} inserts=${full.inserts}`);
+  check('a table already in step costs one read and no writes', () =>
+    (!r2.ranSeed && full.queries === 1 && full.inserts === 0 && full.deletes === 0 && full.updates === 0) ||
+    `ranSeed=${r2.ranSeed} queries=${full.queries} inserts=${full.inserts} deletes=${full.deletes} updates=${full.updates}`);
 
   // Colours saved from the app push the count ABOVE the seed. That must not
   // be read as "short" on every boot thereafter.
@@ -70,7 +100,8 @@ function check(description, fn) {
   ]));
   const r3 = await topUpColourLibrary(withExtras);
   check("a library with the user's own colours in it is left alone", () =>
-    (!r3.ranSeed && withExtras.inserts === 0) || `ranSeed=${r3.ranSeed} inserts=${withExtras.inserts}`);
+    (!r3.ranSeed && withExtras.inserts === 0 && withExtras.deletes === 0 && withExtras.updates === 0) ||
+    `ranSeed=${r3.ranSeed} inserts=${withExtras.inserts} deletes=${withExtras.deletes} updates=${withExtras.updates}`);
 
   // Re-running must never duplicate: same name+brand hits ON CONFLICT.
   const again = fakeDb(old);
@@ -89,8 +120,85 @@ function check(description, fn) {
   // A database that isn't there must reject, for the caller to swallow --
   // never take the web server down with it.
   let threw = false;
-  try { await topUpColourLibrary(fakeDb([], { countThrows: true })); } catch (e) { threw = true; }
+  try { await topUpColourLibrary(fakeDb([], { readThrows: true })); } catch (e) { threw = true; }
   check('a missing table rejects rather than throwing synchronously', () => threw === true || 'did not reject');
+
+  // ── A seed row that CHANGED, not one that was added (v2.73.3) ───────────
+  // v2.73.2's Valspar rebuild, replayed: the table holds the v2.73.1 rows
+  // (sentence case, every one carrying a code) and the deploy inserts the
+  // current seed on top of them.
+  const V = SEED.filter(c => c.brand === 'Valspar');
+  const sentenceCase = n => n.charAt(0) + n.slice(1).toLowerCase();
+  const oldValspar = V.map((c, i) => ({ name: sentenceCase(c.name), brand: 'Valspar', code: 'X' + i + 'R' + i + 'A' }));
+  const reCased = oldValspar.filter((c, i) => c.name !== V[i].name).length;
+  const unchanged = V.length - reCased;
+  check('the fixture is the real shape: most names re-cased, some not', () =>
+    (reCased > 1500 && unchanged > 100) || `reCased=${reCased} unchanged=${unchanged}`);
+
+  const doubled = fakeDb(SEED.filter(c => c.brand !== 'Valspar').concat(oldValspar));
+  for (const c of V) await doubled.query('INSERT', [c.name, c.brand, c.code]); // the v2.73.2 deploy
+  check('the v2.73.2 deploy really did double the re-cased rows', () =>
+    doubled.valspar().length === V.length + reCased ||
+    `${doubled.valspar().length} Valspar rows, expected ${V.length + reCased}`);
+
+  const fix = await topUpColourLibrary(doubled);
+  check('the superseded rows are removed', () =>
+    (fix.removed === reCased && doubled.valspar().length === V.length) ||
+    `removed=${fix.removed} (expected ${reCased}), left ${doubled.valspar().length} of ${V.length}`);
+  check('and the codes the insert could not reach are cleared', () =>
+    (fix.cleared === unchanged && doubled.valspar().every(r => !r.code)) ||
+    `cleared=${fix.cleared} (expected ${unchanged}), ${doubled.valspar().filter(r => r.code).length} still coded`);
+  check('what is left is exactly the seed', () => {
+    const got = doubled.valspar().map(r => r.name).sort();
+    const want = V.map(c => c.name).sort();
+    const bad = got.find((n, i) => n !== want[i]);
+    return !bad || `first mismatch: ${bad}`;
+  });
+  const settled = await topUpColourLibrary(doubled);
+  check('and the boot after that does nothing at all', () =>
+    (!settled.ranSeed && doubled.deletes === reCased) ||
+    `ranSeed=${settled.ranSeed} deletes=${doubled.deletes}`);
+
+  // The case the COUNT gate could never have caught, and the reason it went:
+  // a table holding ONLY the old names is exactly the seed's LENGTH, so "is
+  // it short?" answers no while every Valspar row in it is wrong.
+  const renamedOnly = fakeDb(SEED.filter(c => c.brand !== 'Valspar').concat(oldValspar));
+  check('a table the right size but the wrong content is not "complete"', () =>
+    renamedOnly.rows.length === SEED.length || `${renamedOnly.rows.length} rows vs seed ${SEED.length}`);
+  const r9 = await topUpColourLibrary(renamedOnly);
+  check('...and one pass fixes it, not two', () => {
+    const v = renamedOnly.valspar();
+    return (r9.inserted === reCased && r9.removed === reCased && v.length === V.length && v.every(r => !r.code))
+      || `inserted=${r9.inserted} removed=${r9.removed} rows=${v.length} coded=${v.filter(r => r.code).length}`;
+  });
+
+  // What it must NOT touch. A colour saved from the app is only ever caught
+  // when it IS a seed colour -- same brand, same name bar the casing, or the
+  // same name exactly on a brand the seed carries no codes for.
+  const mine = [
+    { name: 'Hallway White', brand: 'Nicky', code: 'MINE-1' },       // a brand the seed has never heard of
+    { name: 'Skip Yellow', brand: 'Valspar', code: 'SY1' },          // my own colour under a seeded brand
+    { name: 'Dead Salmon', brand: 'Farrow & Ball', code: '28-MINE' } // a hand-edited code on a CODED brand
+  ];
+  const guarded = fakeDb(SEED.concat(mine));
+  const r6 = await topUpColourLibrary(guarded);
+  check('a colour of my own is never removed or de-coded', () => {
+    const lost = mine.filter(m => !guarded.rows.some(r => r.name === m.name && r.brand === m.brand && r.code === m.code));
+    return (!r6.ranSeed && !lost.length) ||
+      `ranSeed=${r6.ranSeed} removed=${r6.removed} cleared=${r6.cleared} lost=${lost.map(m => m.name).join(', ')}`;
+  });
+  // The plan on its own, so the rule is readable without a db in the way.
+  check('a sibling that differs only in case is superseded only when the seed knows the other one', () => {
+    const rows = [
+      { id: 1, name: 'Blue whale', brand: 'Valspar', code: 'R213C' },  // superseded by the seed's "Blue Whale"
+      { id: 2, name: 'Blue Whale', brand: 'Valspar', code: '' },
+      { id: 3, name: 'blue whale', brand: 'Nicky', code: 'X' },        // a brand the seed doesn't carry
+      { id: 4, name: 'Blue Whale', brand: 'Nicky', code: '' }
+    ];
+    const plan = planColourLibrary(SEED, rows);
+    const ids = plan.superseded.map(r => r.id);
+    return (ids.length === 1 && ids[0] === 1) || `superseded ids: ${ids.join(', ') || 'none'}`;
+  });
 
   // The seed itself: the constraint the inserts rely on is UNIQUE(name, brand).
   const keys = new Set(SEED.map(c => c.name + '|' + c.brand));
