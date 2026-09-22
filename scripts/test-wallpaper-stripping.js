@@ -48,7 +48,15 @@ function findChrome(){
   }
   throw new Error('No Chrome/Chromium found. Install one, or point CHROME_PATH at the executable.');
 }
+// The Xero send is captured rather than mocked in the page: the payload is
+// the actual thing the server turns into line items, and the description
+// chain that builds it (which line carries the quote-text block, which says
+// "same as above") is exactly what a stripping line has to stay out of.
+let lastQuotePayload = null;
 function serve(){return new Promise(r=>{const s=http.createServer((req,res)=>{const rel=decodeURIComponent(req.url.split('?')[0]);
+ if(req.method==='POST'&&rel==='/auth/create-quote'){let b='';req.on('data',c=>b+=c);req.on('end',()=>{
+   try{lastQuotePayload=JSON.parse(b);}catch(e){lastQuotePayload=null;}
+   res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:false,error:'captured by the test'}));});return;}
  const f=path.join(PUBLIC,rel==='/'?'index.html':rel);
  if(!f.startsWith(PUBLIC)||!fs.existsSync(f)||fs.statSync(f).isDirectory()){res.writeHead(404);res.end('nf');return;}
  res.writeHead(200,{'Content-Type':TYPES[path.extname(f)]||'application/octet-stream'});res.end(fs.readFileSync(f));});
@@ -114,6 +122,7 @@ const SEED=()=>{
     settings.stripWpTexturedMins = 12;
     settings.stripWpLiningMins = 3;
     settings.stripWpStandardMins = 6;
+    settings.stripWpLayersMins = 18;
   });
   const rateInfo = await page.evaluate(() => ({ rpm: rpm(), hpd: settings.hpd }));
 
@@ -353,6 +362,202 @@ const SEED=()=>{
   check('and its label is distinct from the £-per-roll wallpaper rates',
     realDrift.label === 'Strip — textured / woodchip' && realDrift.label !== realDrift.hungLabel,
     realDrift);
+
+  // ── 8. Its own line on the quote and the invoice ────────────────────────
+  // The client has to see WHY the labour costs what it does, and a room
+  // line reading "Back Bedroom £480" with nothing painted looks like a
+  // mistake rather than a day with a steamer. The £ is CARVED OUT of the
+  // room's line, never added to it: the two lines must sum to exactly what
+  // the room summed to before, or the split has quietly re-priced the job.
+  await page.evaluate(() => {
+    settings.stripWpTexturedMins = 12; settings.stripWpLiningMins = 3;
+    const base = (o) => Object.assign({
+      wc: 0, cc: 0, xc: 0, rads: 0, win: 0, sills: 0, doorQty: 0, frameQty: 0,
+      doorCoats: 0, frameCoats: 0, panelItems: [], excludedWalls: [],
+      featureWallArea: 0, featureWallMode: 'paint',
+      colourNumber: 1, ceilingColourNumber: 1, woodworkColourNumber: 1,
+      featureWallColourNumber: 1, panelColourNumber: 1,
+      l: 4, w: 3.5, h: 2.4, prepPct: 10 }, o);
+    rooms = [
+      // Painted AND stripped — two lines.
+      base({ id: 'mix1', name: 'Lounge', wc: 2, cc: 2, xc: 2,
+             stripWall: true, stripWallType: 'textured' }),
+      // Stripped ONLY — the headline case: one line, and no £0 paint row.
+      base({ id: 'str1', name: 'Back Bedroom',
+             stripWall: true, stripWallType: 'textured',
+             stripCeil: true, stripCeilType: 'lining' }),
+      // Neither — untouched by any of this.
+      base({ id: 'pnt1', name: 'Hall', wc: 2, cc: 2 })
+    ];
+    materialsSnapshot = [];
+  });
+
+  const quote = await page.evaluate(() => {
+    var job = activeJob();
+    var model = buildClientQuoteModel(job, rooms, [], null, calcKitchen(null),
+      calcFittedUnitsAgg([]),
+      { hasVariations: false, varLines: [], freeVars: [], varSundries: 0, varMk: 1,
+        variationsTotal: 0, approvedTotal: 0, pendingCount: 0 }, 0, null);
+    return {
+      rows: model.work.rows.map(function(r){ return { label: r.label, sub: r.sub, amount: r.amount, key: r.key }; }),
+      workTotal: model.work.subtotal,
+      roomTotals: rooms.map(function(r){ return calcRoom(r).total; }),
+      stripCharged: rooms.map(function(r){ return calcRoom(r).stripChargedCost; })
+    };
+  });
+  const rowFor = (k) => quote.rows.filter(function(r){ return r.key === k; })[0];
+
+  check('a painted-and-stripped room gets two lines on the client quote',
+    !!rowFor('room:mix1') && !!rowFor('roomstrip:mix1'), quote.rows);
+  check('a strip-only room gets ONE line, not a £0.00 paint line beside it',
+    !rowFor('room:str1') && !!rowFor('roomstrip:str1'), quote.rows);
+  check('a room with no stripping is untouched',
+    !!rowFor('room:pnt1') && !rowFor('roomstrip:pnt1'), quote.rows);
+  check('the stripping line names the room and the paper type',
+    rowFor('roomstrip:str1').label === 'Wallpaper Stripping — Back Bedroom' &&
+    /walls \(textured \/ woodchip\)/.test(rowFor('roomstrip:str1').sub) &&
+    /ceiling \(lining paper\)/.test(rowFor('roomstrip:str1').sub),
+    rowFor('roomstrip:str1'));
+
+  // The invariant the whole carve-out rests on.
+  const mixPair = rowFor('room:mix1').amount + rowFor('roomstrip:mix1').amount;
+  const mixRatio = mixPair / quote.roomTotals[0];
+  const strRatio = rowFor('roomstrip:str1').amount / quote.roomTotals[1];
+  const pntRatio = rowFor('room:pnt1').amount / quote.roomTotals[2];
+  check('the two lines sum to what the room billed as one — same markup, no drift',
+    near(mixRatio, pntRatio, 0.0005) && near(strRatio, pntRatio, 0.0005),
+    { mixRatio: mixRatio, strRatio: strRatio, pntRatio: pntRatio });
+
+  // The same job with stripping OFF, to prove the grand total only moves by
+  // the stripping itself and not by the act of splitting the lines.
+  const totals = await page.evaluate(() => {
+    var job = activeJob();
+    var vv = { hasVariations: false, varLines: [], freeVars: [], varSundries: 0, varMk: 1,
+               variationsTotal: 0, approvedTotal: 0, pendingCount: 0 };
+    var withStrip = buildClientQuoteModel(job, rooms, [], null, calcKitchen(null), calcFittedUnitsAgg([]), vv, 0, null);
+    var sumRows = function(m) {
+      return Math.round(m.work.rows.reduce(function(t, r){ return t + r.amount; }, 0) * 100) / 100;
+    };
+    return { rowsSum: sumRows(withStrip), workTotal: withStrip.work.subtotal };
+  });
+  check('the printed stripping rows still add up to the printed work total',
+    near(totals.rowsSum, totals.workTotal, 0.011), totals);
+
+  // The final invoice bills it the same way, from live figures.
+  const inv = await page.evaluate(() => {
+    var m = buildFinalInvoiceModel();
+    return m.labour.map(function(l){ return { id: l.id, desc: l.desc, amount: l.amount, ownText: !!l.ownText, scope: l.scope || '' }; });
+  });
+  const invStrip = inv.filter(function(l){ return /^Wallpaper Stripping/.test(l.desc); });
+  check('the final invoice bills stripping on its own line too',
+    invStrip.length === 2, inv);
+  check('and those lines carry their own past-tense sentence, not the block',
+    invStrip.every(function(l){ return l.ownText && /^Existing wallpaper stripped from the /.test(l.scope); }),
+    invStrip);
+  check('a strip-only room leaves no £0.00 paint line on the invoice either',
+    !inv.some(function(l){ return l.desc === 'Back Bedroom'; }), inv);
+
+  // An accepted quote freezes the split, so the frozen invoice reproduces it.
+  const frozen = await page.evaluate(() => {
+    var snap = buildAcceptedQuoteSnapshot(activeJob());
+    var work = snap.lines.work;
+    return { keys: work.map(function(r){ return r.sourceKey; }),
+             labels: work.map(function(r){ return r.description; }),
+             sum: Math.round(work.reduce(function(t, r){ return t + r.lineTotal; }, 0) * 100) / 100,
+             agreed: snap.labour.labourTotal };
+  });
+  check('an accepted quote freezes the stripping lines as their own rows',
+    frozen.keys.indexOf('roomstrip:mix1') !== -1 && frozen.keys.indexOf('roomstrip:str1') !== -1 &&
+    frozen.keys.indexOf('room:str1') === -1, frozen);
+  check('and the frozen rows still sum to the agreed labour figure',
+    near(frozen.sum, frozen.agreed, 0.005), frozen);
+
+  // ── 9. The Xero quote, and which line carries the description block ─────
+  // The block is the quote's wording — protection, preparation, standards,
+  // completion — and it rides ONE line, describing that line. A stripping
+  // line must not be it (the block enumerates ceilings, walls and woodwork)
+  // and must not say "- same as above" either.
+  page.on('dialog', function(d){ d.accept(); });
+  const sendQuote = async (spec) => {
+    lastQuotePayload = null;
+    await page.evaluate((s) => {
+      var B = function(o){ return Object.assign({
+        wc:0, cc:0, xc:0, rads:0, win:0, sills:0, doorQty:0, frameQty:0, doorCoats:0, frameCoats:0,
+        panelItems:[], excludedWalls:[], featureWallArea:0, featureWallMode:'paint',
+        colourNumber:1, ceilingColourNumber:1, woodworkColourNumber:1,
+        featureWallColourNumber:1, panelColourNumber:1,
+        l:4, w:3.5, h:2.4, prepPct:10 }, o); };
+      rooms = s.map(B); extItems = []; materialsSnapshot = [];
+      jobs[0].xeroClient = 'Mrs Smith'; jobs[0].quoteText = null; jobs[0].xeroQuoteId = null;
+    }, spec);
+    await page.evaluate(async () => {
+      var orig = blockIfOffline;            // the test server is the "Xero" here
+      blockIfOffline = function(){ return false; };
+      try { await createXeroQuote(true); } catch (e) { /* captured server-side */ }
+      blockIfOffline = orig;
+    });
+    await page.waitForTimeout(400);
+    return lastQuotePayload;
+  };
+  const hasBlock = (d) => /PROTECTION & PREPARATION/.test(d || '');
+
+  // A room stripped AND painted, then a room only stripped.
+  let sent = await sendQuote([
+    { id: 'q1', name: 'Lounge', wc: 2, cc: 2, xc: 2, stripWall: true, stripWallType: 'textured' },
+    { id: 'q2', name: 'Back Bedroom', stripWall: true, stripWallType: 'textured' }
+  ]);
+  check('the Xero quote gets a stripping line of its own', !!sent &&
+    sent.rooms.filter(function(r){ return /^Wallpaper Stripping/.test(r.name); }).length === 2,
+    sent && sent.rooms.map(function(r){ return r.name; }));
+  check('the Xero payload carries only name/total/description per line',
+    !!sent && sent.rooms.every(function(r){
+      return Object.keys(r).sort().join(',') === 'description,name,total'; }),
+    sent && Object.keys(sent.rooms[0]));
+  const stripLines = (sent.rooms || []).filter(function(r){ return /^Wallpaper Stripping/.test(r.name); });
+  check('a stripping line takes neither the block nor "same as above"',
+    stripLines.every(function(r){ return !hasBlock(r.description) && !/same as above/.test(r.description); }),
+    stripLines.map(function(r){ return r.description; }));
+  check('and states which surfaces are being stripped',
+    stripLines.every(function(r){ return /Existing wallpaper to be stripped from the /.test(r.description); }),
+    stripLines.map(function(r){ return r.description; }));
+
+  // A strip-only room FIRST. The block has to skip it and land on the first
+  // room that is actually being painted — and name THAT room, not the one
+  // that is only having paper taken off. Two identical painted rooms after
+  // it must still collapse to "same as above".
+  sent = await sendQuote([
+    { id: 'q1', name: 'Back Bedroom', stripWall: true, stripWallType: 'textured' },
+    { id: 'q2', name: 'Bedroom 1', wc: 2, cc: 2, xc: 2 },
+    { id: 'q3', name: 'Bedroom 2', wc: 2, cc: 2, xc: 2 }
+  ]);
+  const blockLine = (sent.rooms || []).filter(function(r){ return hasBlock(r.description); })[0];
+  check('the block skips a strip-only first room and lands on the first painted one',
+    !!blockLine && blockLine.name === 'Bedroom 1', sent && sent.rooms.map(function(r){ return r.name; }));
+  check('and the block names the room whose line it is on',
+    !!blockLine && /Painting of Bedroom 1/.test(blockLine.description),
+    blockLine && blockLine.description.slice(0, 120));
+  check('an identical room after it still collapses to "same as above"',
+    (sent.rooms || []).some(function(r){ return r.name === 'Bedroom 2' && /same as above/.test(r.description); }),
+    sent && sent.rooms.map(function(r){ return r.description.slice(0, 60); }));
+
+  // A job that is NOTHING but stripping. This threw while the feature was
+  // being built: with no painted room to take the block, the exterior
+  // baseline branch ran for the first time on a job with no exterior items
+  // and read `.coats` off undefined, and the whole send died.
+  sent = await sendQuote([
+    { id: 'q1', name: 'Back Bedroom', stripWall: true, stripWallType: 'textured' },
+    { id: 'q2', name: 'Landing', stripWall: true, stripWallType: 'layers' }
+  ]);
+  check('a job that is nothing but stripping still sends',
+    !!sent && sent.rooms.length === 2 &&
+    sent.rooms.every(function(r){ return /^Wallpaper Stripping/.test(r.name); }),
+    sent && sent.rooms.map(function(r){ return r.name; }));
+  check('and the quote text is not lost — it rides under the first strip line',
+    !!sent && hasBlock(sent.rooms[0].description) &&
+    sent.rooms[0].description.indexOf('Existing wallpaper to be stripped') <
+      sent.rooms[0].description.indexOf('PROTECTION & PREPARATION') &&
+    !hasBlock(sent.rooms[1].description),
+    sent && sent.rooms.map(function(r){ return r.description.slice(0, 80); }));
 
   check('nothing threw along the way', errors.length === 0, errors);
 

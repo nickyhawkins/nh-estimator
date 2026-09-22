@@ -3951,6 +3951,101 @@ function roomScopeShort(room) {
   return englishJoin(parts);
 }
 
+// ── Wallpaper stripping as its own quote/invoice line ──────────────────────
+// Stripping is the one prep task the client has to SEE. Every other prep
+// step (mist coat, prep %, making good) is absorbed into the room's price
+// because the client is buying a painted room and the prep is how it gets
+// painted. Stripping is different: the job is often the stripping — "take
+// the woodchip off" on its own, or strip-and-repaper — and a room line
+// reading "Back Bedroom £480" with no ceiling or walls painted looks like
+// a mistake on the client's copy rather than a day's work with a steamer.
+//
+// So the £ is CARVED OUT of the room's line, never added on top: the room
+// line bills `total - stripChargedCost` and the stripping line bills
+// `stripChargedCost`. The two sum to exactly what the room summed to
+// before, so nothing downstream of the total moves -- markup, sundries,
+// the deposit plan, the diary days and the rounding pool all see the same
+// job they always did. This is presentation, not pricing.
+//
+// Deliberately NOT split: variations. A variation's lines are keyed by
+// carrier (kind + id) and drive its own approve/decline UI, so a second
+// line against the same room would grow a second approval button for work
+// that has only one decision behind it. A variation room still bills its
+// strip inside its one line -- see FEATURES.md.
+function roomStripSurfaces(room) {
+  var out = [];
+  if (room.stripWall) out.push({ surface: 'walls',   tier: wallpaperStripTier(room.stripWallType) });
+  if (room.stripCeil) out.push({ surface: 'ceiling', tier: wallpaperStripTier(room.stripCeilType) });
+  return out;
+}
+// The sub-note under the stripping line on the client's copy. Names the
+// paper type because that is the whole reason two stripping lines on one
+// quote can be priced differently, and a client comparing them deserves
+// the answer on the page rather than having to ask. Both surfaces on one
+// tier collapse to a single mention -- "walls and ceiling (woodchip)"
+// beats saying woodchip twice.
+function roomStripShort(room) {
+  var s = roomStripSurfaces(room);
+  if (!s.length) return '';
+  var lower = function(t) { return t.label.toLowerCase(); };
+  if (s.length === 2 && s[0].tier.key === s[1].tier.key) {
+    return 'walls and ceiling (' + lower(s[0].tier) + ')';
+  }
+  return englishJoin(s.map(function(x) { return x.surface + ' (' + lower(x.tier) + ')'; }));
+}
+// The full sentence for a Xero line / invoice line, which has room for one.
+// Past tense on the invoice, same as every other scope sentence here.
+// It promises stripping and nothing else: no "made good", no "ready to
+// decorate" -- making good is a separate charge on this app's own form,
+// and a sentence that implies it would bill a promise nobody priced.
+function roomStripSentence(mode, room) {
+  var short = roomStripShort(room);
+  if (!short) return '';
+  return mode === 'invoice'
+    ? 'Existing wallpaper stripped from the ' + short + '.'
+    : 'Existing wallpaper to be stripped from the ' + short + '.';
+}
+function roomStripLabel(room) {
+  return 'Wallpaper Stripping — ' + (room.name || 'Room');
+}
+// The one place that decides whether a room produces a stripping line, and
+// what the room's own line is left billing. Callers (client quote, Xero
+// quote, final invoice) each render it their own way but must never
+// re-derive the split, or the two lines stop summing to the room.
+//   strip: null, or { label, sub, sentence, raw, key }
+//   roomRaw: what the room's own line bills once the strip is carved out
+//   dropRoomLine: the room is ONLY being stripped -- its paint line would
+//     print at £0.00 beside the stripping line that carries the money,
+//     which reads as an error. A room with no strip and no money keeps
+//     printing exactly as it always has; this only suppresses the empty
+//     half of a split.
+// Does this room put a PAINTING line on a client document? A strip-only
+// room does not -- roomStripLine() drops its £0.00 half -- so it can never
+// be the room the quote's description block describes, nor the baseline
+// later rooms are compared against. A room with no strip and no money is
+// unchanged by this: it has always had a line, and still does.
+function roomHasPaintLine(room) {
+  return !roomStripLine(room, calcRoom(room)).dropRoomLine;
+}
+function firstRoomWithPaintLine(list) {
+  for (var i = 0; i < (list || []).length; i++) {
+    if (roomHasPaintLine(list[i])) return list[i];
+  }
+  return null;
+}
+function roomStripLine(room, calc) {
+  var raw = +calc.stripChargedCost || 0;
+  var roomRaw = calc.total - raw;
+  if (!(raw > 0.005)) return { strip: null, roomRaw: calc.total, dropRoomLine: false };
+  return {
+    strip: { label: roomStripLabel(room), sub: roomStripShort(room),
+             sentence: roomStripSentence('quote', room), raw: raw,
+             key: 'roomstrip:' + room.id },
+    roomRaw: roomRaw,
+    dropRoomLine: roomRaw <= 0.005
+  };
+}
+
 var LONG_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 function formatLongDate(iso) {
   var p = String(iso).slice(0, 10).split('-');
@@ -4012,7 +4107,14 @@ function buildTemplateValues(mode) {
   // only the header and the scope sentence are line-specific, which is why
   // the later lines need nothing but their own scope and "Preparation and
   // completion as above."
-  var subjectRoom = liveRooms[0] || null;
+  // The first room that actually has a painting line, not simply
+  // liveRooms[0]: a strip-only first room puts no painting line on the
+  // document (see firstRoomWithPaintLine), and its stripping line carries
+  // its own sentence rather than the block — so the block lands on the next
+  // room along and must describe THAT one. Reading liveRooms[0] here opened
+  // the block "Painting of Back Bedroom:" on Bedroom 1's line, crediting a
+  // room that is only having paper taken off with the painting.
+  var subjectRoom = firstRoomWithPaintLine(liveRooms);
   var subjectExt = subjectRoom ? null : liveExt.filter(function(it) { return calcExtItem(it).total > 0.005; })[0] || null;
   var liveUnits = fittedUnitList(job).filter(function(f) { return !f.isVariation; });
   var subjectUnit = (subjectRoom || subjectExt) ? null
@@ -5112,10 +5214,23 @@ async function createXeroQuote(forceNew) {
       .map(function(f) { return originalScopeCarrier('fittedunit', f); });
 
     var tcS = 0, ttS = 0, sprayLabourS = 0;
-    var roomData = quoteRooms.map(function(r) {
+    // One entry per line the server will push. A room being stripped
+    // produces TWO (see roomStripLine): the painting, and the wallpaper
+    // stripping carved out of it. routes/xero.js is a passthrough over this
+    // array -- each entry becomes its own AccountCode 201 line and joins the
+    // adjustment spread -- so a stripping line needs nothing on the server.
+    // `strip` marks the extra entries for the description chain below;
+    // `room` carries the source room so the chain can still index into it.
+    var roomData = [];
+    quoteRooms.forEach(function(r) {
       var c = calcRoom(r);
       tcS += c.total; ttS += c.time; sprayLabourS += c.sprayLabour || 0;
-      return { name: r.name, total: c.total };
+      var split = roomStripLine(r, c);
+      if (!split.dropRoomLine) roomData.push({ name: r.name, total: split.roomRaw, room: r });
+      if (split.strip) {
+        roomData.push({ name: split.strip.label, total: split.strip.raw, room: r,
+                        strip: true, stripSentence: split.strip.sentence });
+      }
     });
     var clientName = document.getElementById('xero-client').value.trim() || 'Client';
     var xeroRef = document.getElementById('xero-ref').value.trim();
@@ -5233,20 +5348,61 @@ async function createXeroQuote(forceNew) {
       // the exterior lines on a job whose block sits on a room, say — and
       // then no line of that kind may claim to be the same as it.
       var tplValues = handEdited ? null : buildTemplateValues('quote');
-      var roomBaseline = (handEdited || !quoteRooms.length) ? null
-        : roomScopeSentence('quote', quoteRooms[0]);
-      var extBaseline = (handEdited || quoteRooms.length) ? null
-        : extItemScopeSentence('quote', quoteExtItems.filter(function(it) { return calcExtItem(it).total > 0.005; })[0], tplValues);
-      var fuBaseline = (handEdited || quoteRooms.length || quoteExtItems.length) ? null
+      // Which room ACTUALLY carries the block: the first room that produces
+      // a painting line, not simply quoteRooms[0]. A strip-only first room
+      // has no painting line of its own (roomStripLine drops the £0 half)
+      // and its stripping line never takes the block, so the block lands on
+      // the next room along -- and the baseline every later room is compared
+      // against has to be THAT room's scope. Reading quoteRooms[0] here
+      // would compare later rooms against a room whose line the client
+      // never sees, and two identical bedrooms would stop collapsing to
+      // "same as above". `blockRooms` is also what tells the exterior and
+      // fitted-unit baselines below whether a room took the block at all.
+      var blockRooms = roomData.filter(function(rd) { return !rd.strip; });
+      var roomBaseline = (handEdited || !blockRooms.length) ? null
+        : roomScopeSentence('quote', blockRooms[0].room);
+      // `|| null` on the first exterior item, not just its index: with no
+      // room painting line to take the block (a strip-out job) this branch
+      // now runs on jobs that have no exterior items either, and
+      // extItemScopeSentence() reads `it.coats` straight off its argument.
+      // The fitted-unit line below has always guarded the same way.
+      var firstExtItem = quoteExtItems.filter(function(it) { return calcExtItem(it).total > 0.005; })[0] || null;
+      var extBaseline = (handEdited || blockRooms.length || !firstExtItem) ? null
+        : extItemScopeSentence('quote', firstExtItem, tplValues);
+      var fuBaseline = (handEdited || blockRooms.length || quoteExtItems.length) ? null
         : buildFuScopeSentence('quote', [quoteFittedUnits.filter(function(f) { return calcFittedUnit(f).total > 0.005; })[0]].filter(Boolean), tplValues);
       var scopedLine = function(label, own, baseline) {
         return (!own || own === baseline)
           ? label + ' - same as above'
           : label + '\n\n' + own + '\n\nPreparation and completion as above.';
       };
-      roomData.forEach(function(rd, i) {
+      // A stripping line always describes ITSELF -- never the block, never
+      // "same as above". Both would point at wording that enumerates
+      // ceilings, walls and woodwork, and the client would be reading that
+      // claim beside a price for taking paper off a wall. Same rule the
+      // frozen invoice applies to sundries and custom lines.
+      //
+      // The one exception is a job with nothing BUT stripping lines: the
+      // block has no other line to live on, and dropping the quote's whole
+      // description text (protection, working hours, what's excluded)
+      // because the job happens to be a strip-out would be a worse loss.
+      // There it rides under the stripping line's own sentence, so the line
+      // still says what it is first.
+      var hasPaintLine = blockRooms.length > 0 ||
+                         exteriorData.some(function(ed) { return ed.total > 0; }) ||
+                         kitchenTotal > 0 ||
+                         fittedUnitData.some(function(fd) { return fd.total > 0; });
+      roomData.forEach(function(rd) {
+        if (rd.strip) {
+          rd.description = rd.name + '\n\n' + rd.stripSentence;
+          if (!blockAttached && !hasPaintLine && !handEdited) {
+            rd.description += '\n\n' + quoteBlock;
+            blockAttached = true;
+          }
+          return;
+        }
         if (!blockAttached || handEdited) { rd.description = withBlock(rd.name); return; }
-        rd.description = scopedLine(rd.name, roomScopeSentence('quote', quoteRooms[i]), roomBaseline);
+        rd.description = scopedLine(rd.name, roomScopeSentence('quote', rd.room), roomBaseline);
       });
       exteriorData.forEach(function(ed, i) {
         if (ed.total <= 0) return;
@@ -5303,7 +5459,14 @@ async function createXeroQuote(forceNew) {
         clientName: clientName,
         jobName: (activeJob() && activeJob().name) || '',
         xeroRef: xeroRef,
-        rooms: roomData,
+        // name/total/description only: `room`, `strip` and `stripSentence`
+        // are working fields for the description chain above and have no
+        // business crossing the wire (routes/xero.js reads
+        // `description || name` and `total`, and a whole room object per
+        // line would bloat every send for nothing).
+        rooms: roomData.map(function(rd) {
+          return { name: rd.name, total: rd.total, description: rd.description };
+        }),
         exterior: { cost: extTotal, items: exteriorData },
         kitchen: { cost: kitchenTotal, description: kitchenDescription },
         fittedUnit: { cost: fuTotal, items: fittedUnitData },
@@ -12944,6 +13107,16 @@ function calcRoom(r) {
            // re-deriving which area each surface used.
            stripWCost:stripWCost, stripCCost:stripCCost,
            stripWallArea:stripW ? wallArea : 0, stripCeilArea:stripC ? ceilArea : 0,
+           // What stripping actually contributes to `total` above: the raw
+           // figures WITH the room's prep uplift, because that is how they
+           // entered baseTotal. This is the number the quote/invoice carve
+           // out onto a stripping line of their own (roomStripLine()) --
+           // subtracting the raw figures instead would leave the strip's
+           // share of the prep behind on the paint line, so the two lines
+           // would still sum to the room total but each would be wrong.
+           // Correct for HSL rooms too: computeHSLOverrides() baked the
+           // strip into totalOverride at this same prep %.
+           stripChargedCost:(stripWCost + stripCCost) * (1 + prepUp/100),
            wallL:wL, ceilL:cL, glossL:gL, primerL:primerL, mistL:mL, featureWallL:fwL, wallLCombined:wLCombined,
            wpwCost:wpwCost, wpcCost:wpcCost, wpwRolls:wpwRolls, wpcRolls:wpcRolls,
            featureWallMode:featureWallMode, featureWallWpCost:featureWallWpCost, featureWallWpRolls:featureWallWpRolls,
@@ -18202,9 +18375,23 @@ function buildFinalInvoiceModel() {
     // scope: this room's own past-tense sentence, for the invoice line it
     // ends up on — the same treatment the quote gives its room lines.
     // Kitchen and fitted-unit lines have no scope builder and get none.
+    //
+    // Wallpaper stripping is carved onto its own line here exactly as the
+    // quote carves it (roomStripLine), so a job billed from live figures
+    // reads the same way as one billed from a frozen snapshot — which
+    // already carries the split, because the snapshot's rows ARE the
+    // client's quote rows. ownText: a stripping line says what it is and
+    // must never be handed the description block or "as above".
     if (c.total > 0.005) {
       rawOrig += c.total;
-      labour.push({ id: 'r' + i, desc: r.name, raw: c.total, scope: roomScopeSentence('invoice', r) });
+      var split = roomStripLine(r, c);
+      if (!split.dropRoomLine) {
+        labour.push({ id: 'r' + i, desc: r.name, raw: split.roomRaw, scope: roomScopeSentence('invoice', r) });
+      }
+      if (split.strip) {
+        labour.push({ id: 'rs' + i, desc: split.strip.label, raw: split.strip.raw,
+                      scope: roomStripSentence('invoice', r), ownText: true });
+      }
     }
   });
   extItems.forEach(function(it, i) {
@@ -18320,10 +18507,16 @@ function buildFinalInvoiceModel() {
   // beside a claim about work that line is not about. sourceKey is the
   // snapshot's own record of WHAT a row is; rows frozen before it existed
   // fall back to the label, which is fixed text for every one of them.
+  // 'roomstrip:' is deliberately NOT in the painted-work list: a wallpaper
+  // stripping line describes itself (its label names the room and the
+  // frozen row carries its own sub-note), and handing it the block or a
+  // bare "- same as above" would put a claim about ceilings, walls and
+  // woodwork beside a price for taking paper off. Same reasoning as
+  // sundries, one kind of line further along.
   var frozenRowOwnText = function(row) {
     var key = row.sourceKey || '';
     if (key) return !/^(room|ext|kitchen|fittedunit):/.test(key);
-    return /^\s*(sundries|price adjustment|standalone job)\b/i.test(row.description || '');
+    return /^\s*(sundries|price adjustment|standalone job|wallpaper stripping)\b/i.test(row.description || '');
   };
   var frozenInvLabour = jobQuoteIsFrozen(job) ? latestQuoteSnapshot(job) : null;
   var frozenLabourApplied = false;
@@ -18701,6 +18894,14 @@ async function createFinalInvoice() {
   s.labour.forEach(function(l) {
     if (l.dropped) return;
     var desc = l.desc;
+    // An own-text line that HAS a scope of its own still states it on the
+    // Xero line -- wallpaper stripping is the case: it sits out the block
+    // chain (it is not the painting the block describes) but the client
+    // still needs the sentence saying which surfaces were stripped, and
+    // the preview above deliberately shows labels only. Sundries, custom
+    // lines and the rounding adjustment carry no scope, so nothing moves
+    // for them.
+    if (l.ownText && l.scope) desc = l.desc + '\n\n' + l.scope;
     if (invBlock && !l.ownText) {
       // The block already opens by naming this line ("Painting — Lounge"),
       // so the label goes above it only where it doesn't -- see
@@ -26204,12 +26405,16 @@ function renderSummary() {
     // includes), rather than recomputing via the old area x mins/m2 path.
     var wpwC = c.wpwCost;
     var wpcC = c.wpcCost;
-    // Stripping shows as its own row here for the same reason the mist coat
-    // does: this breakdown is Nicky's own working view of where a room's
-    // labour went. It is NOT a quote/invoice line -- the £ is already
-    // inside the room's total, absorbed into labour like every other prep
-    // task, exactly as calcRoom() prices it.
-    if(r.stripWall && c.stripWCost>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Strip wallpaper — walls ('+wallpaperStripTier(r.stripWallType).label+')</span><span class="breakdown-sub-value">'+fmt(c.stripWCost*mk)+'</span></div>';
+    // Stripping shows as its own row here because this breakdown is Nicky's
+    // own working view of where a room's labour went. The "own quote line"
+    // note matters: this list is organised BY ROOM (it feeds the room cards,
+    // the diary and the spec sheet) and so keeps the strip inside the room's
+    // headline figure, while the client's copy carves it onto a line of its
+    // own (roomStripLine). Without the note, reconciling this screen against
+    // the Xero quote looks like a discrepancy. The pre-prep figure shown
+    // here is the same one the quote line grosses up.
+    var stripNote = ' · own quote line';
+    if(r.stripWall && c.stripWCost>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Strip wallpaper — walls ('+wallpaperStripTier(r.stripWallType).label+')'+stripNote+'</span><span class="breakdown-sub-value">'+fmt(c.stripWCost*mk)+'</span></div>';
     if(r.mistWall) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Mist coat (walls)</span><span class="breakdown-sub-value">'+fmt(mwC*mk)+'</span></div>';
     if(wpwC>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Wallpaper (walls)</span><span class="breakdown-sub-value">'+fmt(wpwC*mk)+'</span></div>';
     if(c.featureWallWpCost>0) {
@@ -26225,7 +26430,7 @@ function renderSummary() {
       if(panelPrepUp2>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Panelling prep ('+panelPrepLabel+')</span><span class="breakdown-sub-value">'+fmt((c.panelCost-c.panelRawCost)*mk)+'</span></div>';
     }
     if(cc>0)  subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ceiling</span><span class="breakdown-sub-value">'+fmt(dispCeilCost*mk)+'</span></div>';
-    if(r.stripCeil && c.stripCCost>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Strip wallpaper — ceiling ('+wallpaperStripTier(r.stripCeilType).label+')</span><span class="breakdown-sub-value">'+fmt(c.stripCCost*mk)+'</span></div>';
+    if(r.stripCeil && c.stripCCost>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Strip wallpaper — ceiling ('+wallpaperStripTier(r.stripCeilType).label+')'+stripNote+'</span><span class="breakdown-sub-value">'+fmt(c.stripCCost*mk)+'</span></div>';
     if(r.mistCeil) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Mist coat (ceiling)</span><span class="breakdown-sub-value">'+fmt(mcC*mk)+'</span></div>';
     if(wpcC>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Wallpaper (ceiling)</span><span class="breakdown-sub-value">'+fmt(wpcC*mk)+'</span></div>';
     if(c.wpMinTopUp>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Wallpaper minimum charge</span><span class="breakdown-sub-value">'+fmt(c.wpMinTopUp*mk)+'</span></div>';
@@ -27297,12 +27502,29 @@ function quotePdfFilename(m) {
 // to the honoured total. The app's own calculated total never appears here.
 function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kitchenCalc, fuQuoteAgg, vv, importedBaseline, honouredLabour) {
   var tcS = 0, ttS = 0, sprayS = 0;
-  var roomLines = quoteRooms.map(function(r) {
+  // A room can produce TWO rows: the painting, and the wallpaper stripping
+  // carved out of it (roomStripLine()). tcS still takes the room's whole
+  // total -- the split is presentation, and every figure derived from the
+  // labour subtotal must be blind to it.
+  var roomLines = [];
+  quoteRooms.forEach(function(r) {
     var c = calcRoom(r);
     tcS += c.total; ttS += c.time; sprayS += c.sprayLabour || 0;
+    var split = roomStripLine(r, c);
     // scope: the short surface note for this room's line on the client's
     // copy, which showed a name and a price and nothing else.
-    return { name: r.name, emoji: r.emoji || '', raw: c.total, scope: roomScopeShort(r), key: 'room:' + r.id };
+    if (!split.dropRoomLine) {
+      roomLines.push({ name: r.name, emoji: r.emoji || '', raw: split.roomRaw,
+                       scope: roomScopeShort(r), key: 'room:' + r.id });
+    }
+    if (split.strip) {
+      // The ROOM's emoji, not one of its own: the two lines are about the
+      // same room and read as a pair on the client's copy. (The PDF drops
+      // emoji anyway — WinAnsi has no glyph — which is why the label
+      // carries the room name in words rather than leaning on the icon.)
+      roomLines.push({ name: split.strip.label, emoji: r.emoji || '', raw: split.strip.raw,
+                       scope: split.strip.sub, key: split.strip.key });
+    }
   });
   var extLines = quoteExtItems.map(function(it) {
     var c = calcExtItem(it);
