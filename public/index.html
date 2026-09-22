@@ -1010,6 +1010,38 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
         <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Manual area override<small>m² — for when only part is new plaster; blank uses the selected surface(s) above</small></div><input type="number" class="field-input" id="r-mist-area" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
       </div>
     </div>
+    <!-- Wallpaper Stripping: sits beside Mist Coat because it is the same
+         shape of thing -- a per-surface prep task priced off the room's
+         already-measured wall/ceiling m², independently toggleable because
+         a room is very often papered on the walls and painted on the
+         ceiling. Each surface carries its OWN difficulty tier: lining paper
+         on a ceiling above woodchip walls is an ordinary find. -->
+    <div class="card">
+      <div class="card-header sec-toggle" onclick="toggleFormSection('wpstrip')"><span>Wallpaper Stripping</span><span class="sec-chev" id="sec-chev-wpstrip">›</span></div>
+      <div class="card-body" id="sec-wpstrip">
+        <div class="toggle-row">
+          <div class="toggle-label">Strip Wallpaper — Walls<small>Prices stripping the existing paper off this room's wall m², at the tier's minutes per m² from Rates</small></div>
+          <div class="toggle" id="tog-sw" onclick="toggleWpStrip('sw')"></div>
+        </div>
+        <!-- The tier sits UNDER its label rather than beside it (the
+             field-row shape used everywhere else on this form): four words
+             of this length in a seg need the full card width on a phone,
+             and beside a label they run off the right-hand edge. -->
+        <div id="wpstrip-wall-type-row" style="display:none;padding:0 16px 14px">
+          <div class="subsection-label" style="border-top:none;padding:0 0 8px">Wall paper type<small>How hard it is to get off — the rate for each is on Rates › Wallpaper Stripping</small></div>
+          <div class="seg" id="seg-wpstrip-wall"></div>
+        </div>
+        <div class="toggle-row" style="border-top:1px solid var(--border)">
+          <div class="toggle-label">Strip Wallpaper — Ceiling<small>Same, against this room's ceiling m²</small></div>
+          <div class="toggle" id="tog-sc" onclick="toggleWpStrip('sc')"></div>
+        </div>
+        <div id="wpstrip-ceil-type-row" style="display:none;padding:0 16px 14px">
+          <div class="subsection-label" style="border-top:none;padding:0 0 8px">Ceiling paper type<small>Set independently — a lining-paper ceiling over woodchip walls is an ordinary find</small></div>
+          <div class="seg" id="seg-wpstrip-ceil"></div>
+        </div>
+        <div id="wpstrip-summary" style="display:none;padding:0 16px 14px;font-size:12px;color:var(--text2);line-height:1.5"></div>
+      </div>
+    </div>
     <div class="card">
       <div class="card-header sec-toggle" onclick="toggleFormSection('coats')"><span>Coats</span><span class="sec-chev" id="sec-chev-coats">›</span></div>
       <div class="card-body" id="sec-coats">
@@ -1675,6 +1707,30 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       <div class="field-row"><div class="field-label">Staircase — newel time<small>minutes per newel post, per coat</small></div><input type="number" class="field-input" id="s-wpstair-newel-mins" value="5" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Staircase — string time<small>minutes per metre, per coat</small></div><input type="number" class="field-input" id="s-wpstair-string-mins" value="2" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Staircase — handrail time<small>minutes per metre, per coat</small></div><input type="number" class="field-input" id="s-wpstair-handrail-mins" value="3" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+    </div>
+    <!-- Wallpaper stripping: an AREA-based prep time, unlike the Kitchen's
+         Strip original coating (mins per piece, up in Kitchen Rates) — the
+         room's walls/ceiling are already measured in m² for paint, so
+         stripping prices straight off that figure with no new measuring.
+         Four difficulty tiers because "wallpaper" covers everything from a
+         single skim of lining paper to four layers of woodchip over
+         distemper, and those are not the same morning's work.
+         Shipped at 0 deliberately: these are Nicky's own calibration
+         figures and a guessed default would quietly price real jobs. The
+         room form says so where the toggle is, rather than pricing the
+         strip at £0 in silence. -->
+    <div class="card">
+      <div class="card-header">Wallpaper Stripping</div>
+      <div class="settings-note">Minutes per m² to strip existing paper, by how hard it is to get off. Applied to the room's measured wall/ceiling m² when that surface's Strip Wallpaper toggle is on — see a room's Wallpaper Stripping card. <strong>Set these before using the toggle</strong>: they ship at 0 (no guessed defaults), so stripping adds no time until you fill in your own figures.</div>
+      <!-- Labels read "Strip — …" rather than just "Lining paper": the
+           Wallpaper Rates card above already has a "Lining paper" row (£
+           per roll HUNG), and settingsFieldLabel() reads these labels
+           verbatim into the accepted-quote drift line, where two rows
+           called the same thing would be unreadable. -->
+      <div class="field-row"><div class="field-label">Strip — lining paper<small>mins/m² — a single skim of lining, comes off in sheets</small></div><input type="number" class="field-input" id="s-wpstrip-lining" value="0" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Strip — standard / vinyl<small>mins/m² — ordinary patterned or vinyl paper</small></div><input type="number" class="field-input" id="s-wpstrip-standard" value="0" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Strip — textured / woodchip<small>mins/m² — woodchip, blown vinyl, heavy embossed</small></div><input type="number" class="field-input" id="s-wpstrip-textured" value="0" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Strip — multiple layers<small>mins/m² — papered over more than once, steamer job</small></div><input type="number" class="field-input" id="s-wpstrip-layers" value="0" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
     </div>
     <div class="card">
       <div class="card-header">Exterior Rates</div>
@@ -3026,6 +3082,40 @@ var KITCHEN_RATE_DEFAULTS = {
 // or coat dimension to them: a Medium door and a Medium end panel strip at
 // the same rate, once, whatever the coat count.
 var KITCHEN_STRIP_SETTING = { small:'stripTimeSmall', medium:'stripTimeMedium', large:'stripTimeLarge', xlarge:'stripTimeXLarge' };
+
+// ── Wallpaper stripping tiers ──────────────────────────────────────────────
+// Room walls/ceiling only. Deliberately NOT the Kitchen's per-piece model
+// above: a room's wall and ceiling m² are already measured for paint, so
+// stripping prices off that same figure (area x mins/m² x rate-per-minute)
+// with nothing extra to count on site -- the mist coat's shape exactly, and
+// it lands in the same place in calcRoom's baseTotal so it carries the
+// room's prep uplift and feeds `time` (the diary-day labour model) like
+// every other prep task, rather than becoming its own line-item type.
+// Four tiers because "wallpaper" spans a skim of lining paper to four
+// layers of woodchip, which are not the same morning's work.
+// `short` is what fits a seg button on a phone; `label` is what the
+// summary line and the Rates card say in full.
+var WALLPAPER_STRIP_TIERS = [
+  { key:'lining',   short:'Lining',   label:'Lining paper',        setting:'stripWpLiningMins' },
+  { key:'standard', short:'Standard', label:'Standard / vinyl',    setting:'stripWpStandardMins' },
+  { key:'textured', short:'Textured', label:'Textured / woodchip', setting:'stripWpTexturedMins' },
+  { key:'layers',   short:'Layers',   label:'Multiple layers',     setting:'stripWpLayersMins' }
+];
+var WALLPAPER_STRIP_DEFAULT_TIER = 'standard';
+function wallpaperStripTier(key) {
+  var found = WALLPAPER_STRIP_TIERS.filter(function(t){ return t.key===key; })[0];
+  // An unknown/missing tier (an older room, a hand-edited blob) reads as
+  // the default tier rather than throwing or silently costing 0 -- the
+  // toggle being ON is the real signal that stripping was priced.
+  return found || WALLPAPER_STRIP_TIERS.filter(function(t){ return t.key===WALLPAPER_STRIP_DEFAULT_TIER; })[0];
+}
+// Minutes per m² for a tier. 0 is a legitimate answer (the shipped
+// default, meaning "Nicky hasn't calibrated this tier yet") -- callers that
+// care about the difference between "no rate set" and "priced at nothing"
+// check the figure themselves; see renderWpStripSummary().
+function wallpaperStripMins(key) {
+  return Math.max(0, +settings[wallpaperStripTier(key).setting] || 0);
+}
 
 function populateKitchenRatesTable() {
   var body = document.getElementById('kitchen-rates-body');
@@ -5677,6 +5767,15 @@ var SETTINGS_FIELDS = [
   ['rSill',        's-rsill',         15],
   ['rMist',        's-rmist',         2],
   ['rPanel',       's-rpanel',        6],
+  // Wallpaper stripping (mins/m² per difficulty tier). Default 0 on
+  // purpose — see the Rates card's note: no figure is better than a wrong
+  // one here, and the room form flags an unset tier rather than pricing
+  // the strip at nothing in silence. Keys must match
+  // WALLPAPER_STRIP_TIERS' `setting` below.
+  ['stripWpLiningMins',   's-wpstrip-lining',   0],
+  ['stripWpStandardMins', 's-wpstrip-standard', 0],
+  ['stripWpTexturedMins', 's-wpstrip-textured', 0],
+  ['stripWpLayersMins',   's-wpstrip-layers',   0],
   ['wpLiningRate',   's-wplining-rate', 30],
   ['wpFinishRate',   's-wpfinish-rate', 40],
   ['wpCeilMultPct',  's-wpceil-mult',   15],
@@ -5848,6 +5947,13 @@ var editId   = null;
 var coats    = {wc:2, cc:2, xc:2};
 var mistWall = false;
 var mistCeil = false;
+// Wallpaper stripping -- per-surface toggle plus that surface's own
+// difficulty tier (see WALLPAPER_STRIP_TIERS). The tier survives the
+// toggle going off and on again within one visit to the form, so a
+// mis-tap doesn't silently reset a chosen tier to Standard mid-measure;
+// buildRoomFromForm only persists it where the toggle is on.
+var stripWall = false, stripCeil = false;
+var stripWallType = WALLPAPER_STRIP_DEFAULT_TIER, stripCeilType = WALLPAPER_STRIP_DEFAULT_TIER;
 var sprayWalls = false;
 // Per-surface spray toggles (PRODUCT_COVERAGE_SPEC.md spraying section):
 // ceilings and woodwork are sprayed BY DEFAULT (that's the normal method),
@@ -7351,6 +7457,15 @@ function ratesDriftSince(snap) {
   var named = [];
   SETTINGS_FIELDS.forEach(function(f) {
     var k = f[0], a = was[k], b = settings[k];
+    // A key the snapshot predates is not a change -- the same rule the
+    // PRICED_SETTINGS_OBJECTS loop below already applies, and for the same
+    // reason: the field did not exist when this quote was frozen, so it
+    // cannot have moved its figures. Without this, every rate added to
+    // SETTINGS_FIELDS makes every previously-accepted quote report a drift
+    // it never had ("Strip — lining paper undefined → 0"), which is exactly the
+    // noise that teaches people to ignore this line. `was[k] === undefined`
+    // rather than `== null`: a genuinely saved null is a value.
+    if (a === undefined) return;
     if (a == null && b == null) return;
     if (typeof a === 'object' || typeof b === 'object') return;
     if (+a === +b || a === b) return;
@@ -11916,6 +12031,10 @@ function goScreen(name) {
   if (name==='room') {
     resetFormSections();
     editId=null; coats={wc:2,cc:2,xc:2}; mistWall=false; mistCeil=false; sprayWalls=false; sprayCeiling=true; sprayWoodwork=true; prepPct=10;
+    stripWall=false; stripCeil=false;
+    stripWallType=WALLPAPER_STRIP_DEFAULT_TIER; stripCeilType=WALLPAPER_STRIP_DEFAULT_TIER;
+    applyWpStripUI();
+    document.getElementById('wpstrip-summary').style.display='none';
     doorCoats=2; frameCoats=2;
     doorFireDoor=false; doorSelfPriming=false; doorIronRemove=false; doorIronMask=false;
     doorBothSides=false; selfPrimingWoodwork=false;
@@ -12524,6 +12643,21 @@ function calcRoom(r) {
   var hpd      = settings.hpd;
   var mistWCost = mistW ? wallArea*settings.rMist*r2 : 0;
   var mistCCost = mistC ? ceilArea*settings.rMist*r2 : 0;
+  // Wallpaper stripping: the mist coat's shape exactly -- the surface's
+  // already-measured m² x that surface's tier rate (mins/m², from Rates) x
+  // the rate per minute. Each surface carries its own tier, so walls in
+  // woodchip and a ceiling in lining paper price at their own figures.
+  // Deliberately reads the SAME wallArea/ceilArea the paint does, net of
+  // excluded walls and panelling deductions: a wall that isn't being
+  // touched isn't being stripped either, and an HSL room's overridden
+  // areas flow through here for free. No separate manual override (the
+  // mist coat's "only part is new plaster" problem doesn't arise -- paper
+  // comes off the whole surface or the surface isn't ticked).
+  // A tier still at its shipped 0 min/m² prices at £0 by construction;
+  // the room form's summary line says so rather than leaving it silent.
+  var stripW = !!r.stripWall, stripC = !!r.stripCeil;
+  var stripWCost = stripW ? wallArea*wallpaperStripMins(r.stripWallType)*r2 : 0;
+  var stripCCost = stripC ? ceilArea*wallpaperStripMins(r.stripCeilType)*r2 : 0;
   // Feature wall: width x height (its own measured wall, not a guessed
   // m²), carved out of the general wall area above. No longer capped to
   // wallArea -- it's an independently measured wall now, not a hand-typed
@@ -12664,7 +12798,14 @@ function calcRoom(r) {
       panelArea = panelResult.panelArea, panelMinsCost = panelResult.panelRawCost,
       panelPrepUp = panelResult.panelPrepUp;
 
-  var baseTotal = wallCost+ceilCost+winCost+woodCost+radCost+sillCost+featureWallOwnCost+mistWCost+mistCCost+wpwCost+wpcCost+featureWallWpCost;
+  // Stripping joins baseTotal alongside the mist coat rather than being
+  // added post-multiplier like panelling/doors: it is prep on the room's
+  // own surfaces, so it takes the room's prep uplift and feeds `time`
+  // (preFloorTotal / rate / 60 / hrs-per-day) the same way every other
+  // prep task does -- which is what "adds to the job's total labour time"
+  // means in this engine. It is NOT a line-item type: nothing downstream
+  // of `total`/`time` treats it separately.
+  var baseTotal = wallCost+ceilCost+winCost+woodCost+radCost+sillCost+featureWallOwnCost+mistWCost+mistCCost+stripWCost+stripCCost+wpwCost+wpcCost+featureWallWpCost;
   var makingGood = +r.makingGood||0;
   // panelCost already carries its own prep multiplier (panelPrepUp above)
   // and is added AFTER the room's own prep/totalOverride branch, not
@@ -12797,6 +12938,12 @@ function calcRoom(r) {
            doorFrameRawCost:doorFrameLabour.total, doorFramePrepUp:doorFramePrepUp,
            winCost:winCost, radCost:radCost, sillCost:sillCost,
            mistWCost:mistWCost, mistCCost:mistCCost,
+           // Stripping, raw (pre-prep, pre-markup) like the rest here.
+           // The areas ride along so the room form's summary line and
+           // Summary's breakdown can state the m² x mins/m² sum without
+           // re-deriving which area each surface used.
+           stripWCost:stripWCost, stripCCost:stripCCost,
+           stripWallArea:stripW ? wallArea : 0, stripCeilArea:stripC ? ceilArea : 0,
            wallL:wL, ceilL:cL, glossL:gL, primerL:primerL, mistL:mL, featureWallL:fwL, wallLCombined:wLCombined,
            wpwCost:wpwCost, wpcCost:wpcCost, wpwRolls:wpwRolls, wpcRolls:wpcRolls,
            featureWallMode:featureWallMode, featureWallWpCost:featureWallWpCost, featureWallWpRolls:featureWallWpRolls,
@@ -24203,6 +24350,71 @@ function toggleMist(key) {
   if(key==='mc') { mistCeil=!mistCeil; document.getElementById('tog-mc').classList.toggle('on',mistCeil); }
   previewRoom();
 }
+
+// ── Wallpaper stripping (room form) ────────────────────────────────────────
+// The tier buttons are built from WALLPAPER_STRIP_TIERS rather than written
+// out in the HTML, so adding a fifth tier is a one-line change to that
+// array and the Rates card, with no markup to keep in step.
+function renderWpStripTierSegs() {
+  [['seg-wpstrip-wall','wall'],['seg-wpstrip-ceil','ceil']].forEach(function(pair){
+    var el = document.getElementById(pair[0]);
+    if (!el) return;
+    var surface = pair[1];
+    var current = surface==='wall' ? stripWallType : stripCeilType;
+    el.innerHTML = WALLPAPER_STRIP_TIERS.map(function(t){
+      return '<button class="seg-btn'+(t.key===current?' active':'')+'" onclick="setWpStripType(\''+surface+'\',\''+t.key+'\')">'+t.short+'</button>';
+    }).join('');
+  });
+}
+function toggleWpStrip(key) {
+  if(key==='sw') { stripWall=!stripWall; document.getElementById('tog-sw').classList.toggle('on',stripWall); }
+  if(key==='sc') { stripCeil=!stripCeil; document.getElementById('tog-sc').classList.toggle('on',stripCeil); }
+  applyWpStripUI();
+  previewRoom();
+}
+function setWpStripType(surface, tier) {
+  if (surface==='wall') stripWallType = tier; else stripCeilType = tier;
+  renderWpStripTierSegs();
+  previewRoom();
+}
+// DOM-only (no previewRoom() call) so editRoom() can restore the card's
+// state before the room's dimensions are in place -- same reasoning as
+// applyRoomShapeUI().
+function applyWpStripUI() {
+  document.getElementById('tog-sw').classList.toggle('on', stripWall);
+  document.getElementById('tog-sc').classList.toggle('on', stripCeil);
+  document.getElementById('wpstrip-wall-type-row').style.display = stripWall ? 'block' : 'none';
+  document.getElementById('wpstrip-ceil-type-row').style.display = stripCeil ? 'block' : 'none';
+  renderWpStripTierSegs();
+}
+// The live "what this just added" line under the toggles, mirroring the
+// Kitchen strip summary. It exists mainly for the unset-rate case: the
+// tiers ship at 0 (Nicky's own figures, not guessed ones), and a strip
+// toggled on against a 0 rate would otherwise add nothing at all with
+// nothing on screen to say why. `c` is calcRoom()'s result for the room
+// being previewed, so the m² and the £ here are the figures the total was
+// actually built from, never a re-derivation.
+function renderWpStripSummary(c) {
+  var el = document.getElementById('wpstrip-summary');
+  if (!el) return;
+  if (!stripWall && !stripCeil) { el.style.display='none'; el.innerHTML=''; return; }
+  var parts = [], unset = [];
+  [[stripWall, stripWallType, c.stripWallArea, c.stripWCost, 'Walls'],
+   [stripCeil, stripCeilType, c.stripCeilArea, c.stripCCost, 'Ceiling']].forEach(function(row){
+    if (!row[0]) return;
+    var tier = wallpaperStripTier(row[1]);
+    var mins = wallpaperStripMins(row[1]);
+    if (mins <= 0) { unset.push(tier.label); return; }
+    parts.push(row[4]+': '+fmtM(row[2] || 0)+' × '+mins+' min/m² = '+Math.round((row[2]||0)*mins)+' min ('+fmt(row[3] || 0)+')');
+  });
+  var html = parts.map(function(p){ return '<div>'+p+'</div>'; }).join('');
+  if (unset.length) {
+    html += '<div style="color:var(--warn);font-weight:600">No minutes/m² set for '+unset.join(' or ')+
+            ' — add it under Rates › Wallpaper Stripping, or this strip prices at £0.</div>';
+  }
+  el.innerHTML = html;
+  el.style.display = 'block';
+}
 function toggleSprayWalls() {
   sprayWalls=!sprayWalls; document.getElementById('tog-spray').classList.toggle('on',sprayWalls);
   previewRoom();
@@ -24358,7 +24570,9 @@ function previewRoomNow() {
   if (roomShapeModeForm==='perimeter') dimsOK = perimVal>0 && H>0;
   else if (roomShapeModeForm==='segments') dimsOK = H>0 && segmentsForm.some(function(z){ return +z.l>0 && +z.w>0; });
   else dimsOK = L>0 && W>0 && H>0;
-  if(!dimsOK && !(fwWidthVal>0 && fwHeightVal>0) && !(doorQtyVal>0 || frameQtyVal>0)) { document.getElementById('room-preview').style.display='none'; hideRoomPaintLitres(); return; }
+  // No dimensions yet means no m² for the stripping summary to multiply,
+  // so it hides with the rest of the preview rather than showing 0 m².
+  if(!dimsOK && !(fwWidthVal>0 && fwHeightVal>0) && !(doorQtyVal>0 || frameQtyVal>0)) { document.getElementById('room-preview').style.display='none'; hideRoomPaintLitres(); document.getElementById('wpstrip-summary').style.display='none'; return; }
   var r={l:L,w:W,h:H,wc:coats.wc,cc:coats.cc,xc:coats.xc,
     shapeMode:roomShapeModeForm,
     perimeterLM:perimVal,
@@ -24379,6 +24593,8 @@ function previewRoomNow() {
     rads:+document.getElementById('r-rads').value,
     mistWall:mistWall, mistCeil:mistCeil, sprayWalls:sprayWalls,
     sprayCeiling:sprayCeiling, sprayWoodwork:sprayWoodwork,
+    stripWall:stripWall, stripCeil:stripCeil,
+    stripWallType:stripWallType, stripCeilType:stripCeilType,
     wpWallLining:wpWallLining, wpWallFinish:wpWallFinish,
     wpCeilLining:wpCeilLining, wpCeilFinish:wpCeilFinish,
     wpRollLen:+document.getElementById('r-wp-roll-len').value||10.05,
@@ -24425,6 +24641,7 @@ function previewRoomNow() {
   document.getElementById('prev-cost').textContent=fmt(c.total);
   document.getElementById('prev-time').textContent=fmtD(c.time);
   renderRoomPaintLitres(r, c);
+  renderWpStripSummary(c);
 
   // Wallpaper labour -- reads c.wpwCost/c.wpcCost straight from calcRoom()
   // (same numbers, single source of truth, already summed across whichever
@@ -24679,6 +24896,14 @@ function editRoom(id) {
   mistWall=!!r.mistWall; mistCeil=!!r.mistCeil;
   document.getElementById('tog-mw').classList.toggle('on',mistWall);
   document.getElementById('tog-mc').classList.toggle('on',mistCeil);
+  // Stripping -- applyWpStripUI() is DOM-only, so it is safe here while
+  // r-l/r-w/r-h still hold the previous room's dimensions (same reasoning
+  // as the feature-wall/mist restores in this function). A room saved
+  // before this feature has neither flag and reads as off.
+  stripWall=!!r.stripWall; stripCeil=!!r.stripCeil;
+  stripWallType = wallpaperStripTier(r.stripWallType).key;
+  stripCeilType = wallpaperStripTier(r.stripCeilType).key;
+  applyWpStripUI();
   sprayWalls=!!r.sprayWalls;
   document.getElementById('tog-spray').classList.toggle('on',sprayWalls);
   // Missing on old rooms = the default (sprayed) -- see the globals' comment.
@@ -24887,6 +25112,13 @@ function buildRoomFromForm() {
     doorBothSides:doorBothSides, selfPrimingWoodwork:selfPrimingWoodwork,
     mistWall:mistWall, mistCeil:mistCeil, sprayWalls:sprayWalls,
     sprayCeiling:sprayCeiling, sprayWoodwork:sprayWoodwork,
+    // The tier is only stored where its toggle is on -- a room that isn't
+    // being stripped has no wallpaper type to remember, and storing one
+    // would make every room in the file carry a field about work it isn't
+    // having done.
+    stripWall:stripWall, stripCeil:stripCeil,
+    stripWallType:stripWall?stripWallType:undefined,
+    stripCeilType:stripCeil?stripCeilType:undefined,
     isVariation:roomIsVariation,
     wpWallLining:wpWallLining, wpWallFinish:wpWallFinish,
     wpCeilLining:wpCeilLining, wpCeilFinish:wpCeilFinish,
@@ -25270,6 +25502,15 @@ function calcHSLNow() {
   var mistAreaDisp = mistAreaFieldDisp>0 ? mistAreaFieldDisp : ((mistWall?totalWall:0)+(mistCeil?totalCeil:0));
   var mistCostDisp = mistAreaDisp>0 ? mistAreaDisp*settings.rMist*r2 : 0;
 
+  // Wallpaper stripping -- same shared toggles/tiers as a normal room,
+  // against this preview's own staircase wall/ceiling totals. A hall,
+  // stairs and landing is one of the likeliest places to find woodchip,
+  // so leaving it out of the staircase path would be the gap that matters.
+  var stripWCostDisp = stripWall ? totalWall*wallpaperStripMins(stripWallType)*r2 : 0;
+  var stripCCostDisp = stripCeil ? totalCeil*wallpaperStripMins(stripCeilType)*r2 : 0;
+  renderWpStripSummary({ stripWCost:stripWCostDisp, stripCCost:stripCCostDisp,
+                         stripWallArea:stripWall?totalWall:0, stripCeilArea:stripCeil?totalCeil:0 });
+
   // Windows/radiators -- same shared Extras fields as a normal room.
   var winDisp  = +document.getElementById('r-win').value||0;
   var radsDisp = +document.getElementById('r-rads').value||0;
@@ -25285,7 +25526,7 @@ function calcHSLNow() {
   // doorFramePrepUpDisp above -- the room's own prep), same reasoning as
   // calcRoom()'s doorFrameCost
   // -- added AFTER the room's own prep, not inside the bracket it applies to.
-  var totalCostDisp = (wallCostDisp+ceilCostDisp+skirtCostDisp+calcWoodCost+wpwCostDisp+wpcCostDisp+mistCostDisp+winCostDisp+radCostDisp) * (1+prepUpDisp/100) + makingGoodDisp + doorCostDisp;
+  var totalCostDisp = (wallCostDisp+ceilCostDisp+skirtCostDisp+calcWoodCost+wpwCostDisp+wpcCostDisp+mistCostDisp+stripWCostDisp+stripCCostDisp+winCostDisp+radCostDisp) * (1+prepUpDisp/100) + makingGoodDisp + doorCostDisp;
   var totalTimeDisp = totalCostDisp/r2/60/hpd;
 
   // Update results display
@@ -25514,6 +25755,12 @@ function computeHSLOverrides() {
   var mistArea = mistAreaField>0 ? mistAreaField : ((mistWall?totalWall:0)+(mistCeil?totalCeil:0));
   var mistCost = mistArea>0 ? mistArea*settings.rMist*r2 : 0;
 
+  // Wallpaper stripping -- shared toggles/tiers, against this room's own
+  // overridden wall/ceiling areas. Must match calcHSLNow()'s preview figure
+  // exactly, or the saved staircase total drifts below what the form said.
+  var stripWCost = stripWall ? totalWall*wallpaperStripMins(stripWallType)*r2 : 0;
+  var stripCCost = stripCeil ? totalCeil*wallpaperStripMins(stripCeilType)*r2 : 0;
+
   // Windows/radiators -- same shared Extras fields as a normal room.
   // Window painting is woodwork, gated on woodwork coats like doors/skirting.
   var rads = +document.getElementById('r-rads').value||0;
@@ -25527,7 +25774,7 @@ function computeHSLOverrides() {
   // rooms, since the dedicated HSL screen never had a Making Good field).
   // Door/frame cost is NOT part of this -- calcRoom() adds it separately,
   // post-total, with its own independent prep, same as panelling.
-  var baseTotal = wallCost+ceilCost+skirtCost+stairWoodStore+wpwCost+wpcCost+mistCost+winCost+radCost;
+  var baseTotal = wallCost+ceilCost+skirtCost+stairWoodStore+wpwCost+wpcCost+mistCost+stripWCost+stripCCost+winCost+radCost;
   var prepUp = prepPct>=0 ? prepPct : (+document.getElementById('r-prep-custom').value||0);
   var makingGood = +document.getElementById('r-making-good').value||0;
   var totalOverride = baseTotal*(1+prepUp/100) + makingGood;
@@ -25957,6 +26204,12 @@ function renderSummary() {
     // includes), rather than recomputing via the old area x mins/m2 path.
     var wpwC = c.wpwCost;
     var wpcC = c.wpcCost;
+    // Stripping shows as its own row here for the same reason the mist coat
+    // does: this breakdown is Nicky's own working view of where a room's
+    // labour went. It is NOT a quote/invoice line -- the £ is already
+    // inside the room's total, absorbed into labour like every other prep
+    // task, exactly as calcRoom() prices it.
+    if(r.stripWall && c.stripWCost>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Strip wallpaper — walls ('+wallpaperStripTier(r.stripWallType).label+')</span><span class="breakdown-sub-value">'+fmt(c.stripWCost*mk)+'</span></div>';
     if(r.mistWall) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Mist coat (walls)</span><span class="breakdown-sub-value">'+fmt(mwC*mk)+'</span></div>';
     if(wpwC>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Wallpaper (walls)</span><span class="breakdown-sub-value">'+fmt(wpwC*mk)+'</span></div>';
     if(c.featureWallWpCost>0) {
@@ -25972,6 +26225,7 @@ function renderSummary() {
       if(panelPrepUp2>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Panelling prep ('+panelPrepLabel+')</span><span class="breakdown-sub-value">'+fmt((c.panelCost-c.panelRawCost)*mk)+'</span></div>';
     }
     if(cc>0)  subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ceiling</span><span class="breakdown-sub-value">'+fmt(dispCeilCost*mk)+'</span></div>';
+    if(r.stripCeil && c.stripCCost>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Strip wallpaper — ceiling ('+wallpaperStripTier(r.stripCeilType).label+')</span><span class="breakdown-sub-value">'+fmt(c.stripCCost*mk)+'</span></div>';
     if(r.mistCeil) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Mist coat (ceiling)</span><span class="breakdown-sub-value">'+fmt(mcC*mk)+'</span></div>';
     if(wpcC>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Wallpaper (ceiling)</span><span class="breakdown-sub-value">'+fmt(wpcC*mk)+'</span></div>';
     if(c.wpMinTopUp>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Wallpaper minimum charge</span><span class="breakdown-sub-value">'+fmt(c.wpMinTopUp*mk)+'</span></div>';

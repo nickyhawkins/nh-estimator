@@ -216,6 +216,15 @@ The rest of the measuring cards follow in the order you'd meet them moving round
 
   The **Skirt** chip is for skirting painted in the panelling's paint and colour, which it usually is. With it on, that wall's skirting comes off the room's woodwork (both the time and the woodwork paint) and is priced as part of the panelling instead: the wall's width × a 0.15 m skirting board, at the panelling's coats, time rate and prep, out of the panelling tin. **Skirting painted with panelling** under the rows shows how many metres have moved, and on Summary the room's line reads **Panelling (incl. skirting)**. Both chips start on for a new wall; tap **Skirt** off where the skirting is a different colour and it stays with the rest of the woodwork. Rooms saved before this chip existed keep their skirting as woodwork until you tap it on. It works on staircase rooms too.
 - **Mist Coat** — for fresh plaster; tick walls and/or ceiling, with a manual area override for "only part of it is new plaster".
+- **Wallpaper Stripping** — paper coming off before you paint. Tick **Walls** and **Ceiling** separately (a room papered on the walls with a painted ceiling is the usual case), and give each surface its own **paper type**:
+
+  ![Wallpaper Stripping card](images/04i-wallpaper-stripping.png)
+
+  The four types are **Lining** (a single skim of lining paper), **Standard** (ordinary patterned or vinyl), **Textured** (woodchip, blown vinyl, heavy embossed) and **Layers** (papered over more than once — a steamer job). Each carries its own minutes per m², set once on [Rates › Wallpaper Stripping](#14-rates). The room's walls and ceiling are already measured for the paint, so there's nothing extra to measure: the time is *that surface's m² × its type's minutes per m²*, and the line under the toggles shows the sum it just priced. Walls you've put in **Excluded Walls** aren't stripped either — paper that's staying isn't work.
+
+  The time joins the room's labour like any other prep step, so it lifts the room's price *and* its days on the Schedule. It doesn't appear as a separate line on the client's quote.
+
+  > **Set the rates before you use it.** The four minutes-per-m² figures ship at **0** — they're yours to calibrate, and the app won't guess a number for work it has never watched you do. With a type still at 0 the card says so in orange rather than quietly pricing the strip at nothing.
 
 #### Decide the scheme
 
@@ -1086,6 +1095,7 @@ Menu (☰) → **Rates** — every number the calculator uses, grouped by what i
 | Paint Coverage | **Coverage Rates** | Standard m²/litre per surface, the spraying uplift %, and per-product rates that beat the standard figure for a specific paint range |
 | Paint Coverage | **Exterior Paint Coverage & Areas** | Assumed areas and coverages behind exterior litres |
 | Labour Times | **Time Rates** | Minutes per m² (or per item) for every surface, doors/frames, sills, mist, panelling, staircase parts |
+| Labour Times | **Wallpaper Stripping** | Minutes per m² to strip paper off, one figure per difficulty — lining, standard/vinyl, textured/woodchip, multiple layers. **These ship at 0 and are yours to fill in** — see [Walk the room](#walk-the-room) |
 | Labour Times | **Exterior Rates** | Minutes per coat for masonry, fascias, windows, doors, garage, sash extras, access uplifts |
 | Item & Job-Type | **Doors & Frames** | Paintable areas per face, fire-door surcharge, ironmongery prices |
 | Item & Job-Type | **Wallpaper Rates** | Per-roll rates, ceiling/staircase multipliers, minimum price, wide vinyl & mural rates |
@@ -1191,6 +1201,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.73.3. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.74.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
