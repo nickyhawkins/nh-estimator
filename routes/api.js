@@ -477,8 +477,9 @@ router.put('/jobs/:id/client-variations', async (req, res) => {
 //
 // The SERVER decides the figures. The builder previews them offline, but the
 // cumulative % already billed, the variations already billed and the deposit
-// already applied are all read here, inside a transaction holding the job's
-// row lock, so two devices issuing at once can't both bill the same 40%.
+// already applied, and the materials quantities already billed, are all read
+// here inside a transaction holding the job's row lock, so two devices issuing
+// at once can't both bill the same 40% or the same tins.
 router.use('/jobs/:id/invoices', async (req, res, next) => {
   try {
     await ensureInvoiceSchema();
@@ -488,9 +489,9 @@ router.use('/jobs/:id/invoices', async (req, res, next) => {
   }
 });
 
-const INVOICE_COLUMNS = `id, job_id, type, sequence, labour_pct_cumulative, materials_pct_cumulative,
-  quoted_labour, quoted_materials, labour_amount, materials_amount, variations_amount, subtotal,
-  deposit_applied, amount_due, stage_ref, variation_lines, line_items, xero_invoice_id,
+const INVOICE_COLUMNS = `id, job_id, type, sequence, labour_pct_cumulative,
+  quoted_labour, labour_amount, materials_amount, variations_amount, subtotal,
+  deposit_applied, amount_due, stage_ref, material_lines, variation_lines, line_items, xero_invoice_id,
   xero_invoice_number, sync_state, synced_at, last_attempt_at, last_error, idempotency_key, created_at`;
 
 router.get('/jobs/:id/invoices', async (req, res) => {
@@ -541,21 +542,22 @@ router.post('/jobs/:id/invoices/interim', async (req, res) => {
     const plan = planInterimInvoice({ existing, depositTotal, body });
     if (plan.error) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: plan.error });
+      return res.status(plan.conflict ? 409 : 400).json({ error: plan.error });
     }
     const r = plan.row;
     const id = crypto.randomUUID();
     const inserted = await client.query(
-      `INSERT INTO invoices (id, job_id, type, sequence, labour_pct_cumulative, materials_pct_cumulative,
-              quoted_labour, quoted_materials, labour_amount, materials_amount, variations_amount, subtotal,
-              deposit_applied, amount_due, stage_ref, variation_lines, line_items,
+      `INSERT INTO invoices (id, job_id, type, sequence, labour_pct_cumulative,
+              quoted_labour, labour_amount, materials_amount, variations_amount, subtotal,
+              deposit_applied, amount_due, stage_ref, material_lines, variation_lines, line_items,
               xero_contact_id, xero_client_name, xero_reference, sync_state, idempotency_key)
-       VALUES ($1, $2, 'interim', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-               $17, $18, $19, 'notSynced', $20)
+       VALUES ($1, $2, 'interim', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+               $16, $17, $18, 'notSynced', $19)
        RETURNING ${INVOICE_COLUMNS}`,
-      [id, jobId, r.sequence, r.labourPctCumulative, r.materialsPctCumulative,
-       r.quotedLabour, r.quotedMaterials, r.labourAmount, r.materialsAmount, r.variationsAmount, r.subtotal,
-       r.depositApplied, r.amountDue, r.stageRef, JSON.stringify(r.variationLines), JSON.stringify(r.lineItems),
+      [id, jobId, r.sequence, r.labourPctCumulative,
+       r.quotedLabour, r.labourAmount, r.materialsAmount, r.variationsAmount, r.subtotal,
+       r.depositApplied, r.amountDue, r.stageRef, JSON.stringify(r.materialLines),
+       JSON.stringify(r.variationLines), JSON.stringify(r.lineItems),
        // Same contact and reference the final invoice uses, captured now so
        // the Xero write sends exactly what was recorded.
        job.xeroContactId || null, job.xeroClient || job.name || null,
@@ -604,15 +606,15 @@ router.post('/jobs/:id/invoices/final', async (req, res) => {
       row = (await client.query(
         `UPDATE invoices SET subtotal = $2, deposit_applied = $3, amount_due = $4, xero_invoice_id = $5,
                 xero_invoice_number = $6, sync_state = 'synced', synced_at = NOW(), idempotency_key = $7,
-                labour_pct_cumulative = 100, materials_pct_cumulative = 100, updated_at = NOW()
+                labour_pct_cumulative = 100, updated_at = NOW()
           WHERE id = $1 RETURNING ${INVOICE_COLUMNS}`,
         [prior.rows[0].id, ...values, key])).rows[0];
     } else {
       row = (await client.query(
-        `INSERT INTO invoices (id, job_id, type, sequence, labour_pct_cumulative, materials_pct_cumulative,
+        `INSERT INTO invoices (id, job_id, type, sequence, labour_pct_cumulative,
                 subtotal, deposit_applied, amount_due, xero_invoice_id, xero_invoice_number,
                 sync_state, synced_at, idempotency_key)
-         VALUES ($1, $2, 'final', $3, 100, 100, $4, $5, $6, $7, $8, 'synced', NOW(), $9)
+         VALUES ($1, $2, 'final', $3, 100, $4, $5, $6, $7, $8, 'synced', NOW(), $9)
          RETURNING ${INVOICE_COLUMNS}`,
         [crypto.randomUUID(), jobId, +maxSeq.rows[0].m + 1, ...values, key])).rows[0];
     }

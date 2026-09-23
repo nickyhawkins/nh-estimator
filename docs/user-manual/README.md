@@ -1073,18 +1073,17 @@ Review the lines, adjust anything, then send — the app writes **one draft invo
 
 ### Billing part way through: interim invoices
 
-On a long job you don't have to wait until the end to invoice. While a job is **Accepted**, the Summary status card has an **Invoices** line with **Interim invoice ›**. Each interim bills a share of the quoted work, and the final invoice later deducts everything the interims already billed.
+On a long job you don't have to wait until the end to invoice. While a job is **Accepted**, the Summary status card has an **Invoices** line with **Interim invoice ›**. Each interim bills a share of the quoted labour plus the materials you've bought so far. The final invoice then bills only what's left.
 
 ![The interim invoice builder](images/25a-interim-invoice-builder.png)
 
-- **Percentages are cumulative.** Enter how far through the job is **in total**, not how much more has been done since the last invoice. If the first interim was at 40% and you now enter 70%, this invoice bills the 30% in between. The app won't let a figure go down, or go above 100%.
-- **Labour % complete.** Type a figure, or use **Match quote stage** to fill in the cumulative % through one of the stages in the quote's payment plan (deposit, weekly instalments, balance). You can still change the figure after picking a stage.
-- **Materials %** are always billed at the **quoted** price, as a share of it, never at what the materials actually cost. The **Purchases logged** chip shows how much of the quoted materials you've ticked as bought on the On Site list (at the same prices the quote used). Tap it to use that figure.
+- **Labour % complete is cumulative.** Enter how far through the job is **in total**, not how much more has been done since the last invoice. If the first interim was at 40% and you now enter 70%, this invoice bills the 30% in between. The app won't let the figure go down, or go above 100%. You can type it, or use **Match quote stage** to fill in the cumulative % through one of the stages in the quote's payment plan (deposit, weekly instalments, balance). You can still change the figure after picking a stage.
+- **Materials are itemised.** Every product you've ticked as **bought** on the On Site list and haven't invoiced yet is listed, with its quantity and price. These are the same lines and prices the final invoice uses. They're all ticked to start with; untick anything you'd rather hold back until later. If you bought 2 tins, invoiced them, then bought a third, the next interim offers just the one. A product with no price is shown in red and can't be billed until you set its price on the On Site screen.
 - **Approved variations.** Tick any to bill them in full on this invoice. Once an extra has been billed it's greyed out, so it can't go on a second interim.
 
 ![Preview, running totals and Issue](images/25c-interim-invoice-preview.png)
 
-The **Preview** shows the invoice line by line, then **Less deposit** (taken off the first interim) and the **Amount due**. Below that are the running totals: already billed, this invoice, and what's left to bill against the quote plus approved variations. The app won't issue an invoice with nothing to pay, and it warns you before issuing one that would take billing past the quote.
+The **Preview** shows the invoice line by line (labour, variations, then a **MATERIALS** heading with each product, just as the final invoice lays them out), then **Less deposit** (taken off the first interim) and the **Amount due**. Below that are the running totals: already billed, this invoice, and what's left to bill against the quote plus approved variations. The app won't issue an invoice with nothing to pay, and it warns you before issuing one that would take billing past the quote.
 
 You can fill the builder in with no signal; it saves as you go. **Issue interim invoice** needs a connection. It records the invoice, then creates it in Xero as a **draft** with its own number, the same contact and the same accounts as the final invoice. The deposit is **not** a line on the Xero invoice, because it's already in Xero as a prepayment. Allocate the prepayment to the first interim in Xero, as you would for the final invoice.
 
@@ -1092,7 +1091,12 @@ You can fill the builder in with no signal; it saves as you go. **Issue interim 
 
 Each invoice then appears on the status card with its Xero state. If the send to Xero failed, you'll see the reason in red, and **Try again** is safe: it can never create the invoice twice. **Discard** removes an interim that never reached Xero, and only works on the most recent one. Once an interim is in Xero, correct or void it **in Xero**. The app doesn't edit or void invoices it has already sent.
 
-**The final invoice with interims.** When the job is completed, the final invoice is built exactly as before: every quote line, the materials and each approved variation (including ones an interim already billed). Then comes one **"Less: interim invoice INV-…"** line per interim, for that interim's subtotal. If an interim billed both work and materials, it gets two deduction lines, so each amount comes back off the same Xero account it was posted to. The deposit box on the final invoice now shows only the part of the deposit that hasn't already been set against an interim. The final invoice can't be created until every interim is in Xero.
+**The final invoice with interims.** When the job is completed, the final invoice is built as before, with two differences:
+
+- **Materials already invoiced are left off.** The final lists only what no interim has billed. A product that was part-billed shows just the remainder, with a note of how many were already invoiced. Materials are never billed twice and never need a deduction line.
+- **Labour and variations are billed in full, then each interim's share comes off.** Every quote line and approved variation appears as usual (including extras an interim already billed). Then comes one **"Less: interim invoice INV-…"** line per interim, for the labour and variations it billed. An interim that only billed materials has no deduction line.
+
+If you've since returned a tin that an interim already billed, the final invoice flags it so you can credit the difference in Xero. The deposit box now shows only the part of the deposit that hasn't already been set against an interim. The final invoice can't be created until every interim is in Xero.
 
 Once a job is Invoiced, Summary shows a read-only **Job Profitability** card telling three separate stories: **Billing** (quoted vs invoiced, with a note if they differ), **Schedule** (days quoted vs days actually logged), and **Materials** (quoted materials vs the real trade cost of what was used, with your markup on materials banked as its own figure). On a job billed in stages, the **Billing** section shows the quoted total (including approved variations), what has been invoiced to date across the interim and final invoices, what's left to bill, and each invoice listed underneath. It's reference only — nothing here feeds back into pricing.
 

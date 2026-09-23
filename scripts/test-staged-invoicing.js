@@ -9,15 +9,17 @@
 //      three shared functions exist twice -- lib/invoices.js decides, the copy
 //      in public/index.html previews offline -- and the two sources must be
 //      identical character for character.
-//   2. Cumulative %: each interim bills only the difference from what was
-//      already billed, and billing to 100% over any number of interims comes
-//      to exactly the quoted figure, to the penny.
-//   3. The guards: no going backwards, nothing above 100%, nothing billed
-//      twice, nothing issued with nothing to pay.
+//   2. Labour is a cumulative %: each interim bills only the difference from
+//      what was already billed, and billing to 100% over any number of
+//      interims comes to exactly the quoted figure, to the penny. Materials
+//      are itemised, with billed quantities recorded per product.
+//   3. The guards: no going backwards, nothing above 100%, no variation or
+//      tin billed twice, nothing issued with nothing to pay.
 //   4. The deposit comes off the first interim and only what it can't absorb
 //      carries on.
 //   5. The line text that goes on the client's invoice.
-//   6. The final invoice's "Less: interim" lines net each account back out.
+//   6. The final invoice's "Less: interim" lines take back labour and extras
+//      only -- the interims' materials are left off its list instead.
 //
 // Pure node: no database, no browser, no server.
 //
@@ -71,17 +73,18 @@ const sandbox = {};
 vm.createContext(sandbox);
 vm.runInContext(SHARED.concat(['interimDeductionLines']).map(n => extractFn(SRC, n, 'public/index.html')).join('\n'), sandbox);
 
-// ── 2. Cumulative percentages ───────────────────────────────────────────────
-const base = { quotedLabour: 4000, quotedMaterials: 1000, depositTotal: 0, depositAppliedSoFar: 0, variations: [] };
+// ── 2. Labour: cumulative percentages ───────────────────────────────────────
+const base = { quotedLabour: 4000, depositTotal: 0, depositAppliedSoFar: 0, materials: [], variations: [] };
+const TINS = [{ amount: 180 }, { amount: 320 }];
 {
-  const first = lib.interimInvoiceMath(Object.assign({}, base, { labourPct: 40, materialsPct: 50, prevLabourPct: 0, prevMaterialsPct: 0 }));
+  const first = lib.interimInvoiceMath(Object.assign({}, base, { labourPct: 40, prevLabourPct: 0, materials: TINS }));
   eq('first interim: 40% labour', first.labourAmount, 1600);
-  eq('first interim: 50% materials at the QUOTED price', first.materialsAmount, 500);
+  eq('first interim: materials are the itemised lines, summed', first.materialsAmount, 500);
   eq('first interim: subtotal', first.subtotal, 2100);
   eq('first interim: no errors', first.errors, []);
-  const second = lib.interimInvoiceMath(Object.assign({}, base, { labourPct: 70, materialsPct: 50, prevLabourPct: 40, prevMaterialsPct: 50 }));
+  const second = lib.interimInvoiceMath(Object.assign({}, base, { labourPct: 70, prevLabourPct: 40 }));
   eq('second interim bills only the difference (30% labour)', second.labourAmount, 1200);
-  eq('materials unchanged since last time bill nothing', second.materialsAmount, 0);
+  eq('no new materials bill nothing', second.materialsAmount, 0);
 }
 {
   // Thirds of an awkward figure: rounding the DIFFERENCE would leave a penny
@@ -89,8 +92,8 @@ const base = { quotedLabour: 4000, quotedMaterials: 1000, depositTotal: 0, depos
   const q = 1000.01;
   let prev = 0, billed = 0;
   [33.33, 66.67, 100].forEach(pct => {
-    const r = lib.interimInvoiceMath({ quotedLabour: q, quotedMaterials: 0, labourPct: pct, materialsPct: 0,
-      prevLabourPct: prev, prevMaterialsPct: 0, variations: [], depositTotal: 0, depositAppliedSoFar: 0 });
+    const r = lib.interimInvoiceMath({ quotedLabour: q, labourPct: pct, prevLabourPct: prev,
+      materials: [], variations: [], depositTotal: 0, depositAppliedSoFar: 0 });
     billed = Math.round((billed + r.labourAmount) * 100) / 100;
     prev = pct;
   });
@@ -99,75 +102,92 @@ const base = { quotedLabour: 4000, quotedMaterials: 1000, depositTotal: 0, depos
 
 // ── 3. Guards ───────────────────────────────────────────────────────────────
 {
-  const back = lib.interimInvoiceMath(Object.assign({}, base, { labourPct: 30, materialsPct: 50, prevLabourPct: 40, prevMaterialsPct: 50 }));
+  const back = lib.interimInvoiceMath(Object.assign({}, base, { labourPct: 30, prevLabourPct: 40, materials: TINS }));
   check('labour below what was already invoiced is refused', back.errors.some(e => /cannot go below the 40%/.test(e)), back.errors);
-  const over = lib.interimInvoiceMath(Object.assign({}, base, { labourPct: 101, materialsPct: 0, prevLabourPct: 0, prevMaterialsPct: 0 }));
+  const over = lib.interimInvoiceMath(Object.assign({}, base, { labourPct: 101, prevLabourPct: 0 }));
   check('above 100% is refused', over.errors.some(e => /above 100%/.test(e)), over.errors);
-  const nothing = lib.interimInvoiceMath(Object.assign({}, base, { labourPct: 40, materialsPct: 50, prevLabourPct: 40, prevMaterialsPct: 50 }));
+  const nothing = lib.interimInvoiceMath(Object.assign({}, base, { labourPct: 40, prevLabourPct: 40 }));
   check('nothing new to bill is refused', nothing.errors.some(e => /Nothing to bill/.test(e)), nothing.errors);
+  const matsOnly = lib.interimInvoiceMath(Object.assign({}, base, { labourPct: 40, prevLabourPct: 40, materials: TINS }));
+  eq('an interim of materials alone is allowed', matsOnly.errors, []);
 }
 
 // ── 4. Deposit ──────────────────────────────────────────────────────────────
 {
-  const r = lib.interimInvoiceMath(Object.assign({}, base, { labourPct: 40, materialsPct: 50, prevLabourPct: 0, prevMaterialsPct: 0, depositTotal: 500 }));
+  const r = lib.interimInvoiceMath(Object.assign({}, base, { labourPct: 40, prevLabourPct: 0, materials: TINS, depositTotal: 500 }));
   eq('deposit comes off the first interim', r.depositApplied, 500);
   eq('amount due is subtotal less deposit', r.amountDue, 1600);
-  const later = lib.interimInvoiceMath(Object.assign({}, base, { labourPct: 70, materialsPct: 50, prevLabourPct: 40, prevMaterialsPct: 50, depositTotal: 500, depositAppliedSoFar: 500 }));
+  const later = lib.interimInvoiceMath(Object.assign({}, base, { labourPct: 70, prevLabourPct: 40, depositTotal: 500, depositAppliedSoFar: 500 }));
   eq('an applied deposit is not applied again', later.depositApplied, 0);
-  const covers = lib.interimInvoiceMath(Object.assign({}, base, { labourPct: 5, materialsPct: 0, prevLabourPct: 0, prevMaterialsPct: 0, depositTotal: 500 }));
+  const covers = lib.interimInvoiceMath(Object.assign({}, base, { labourPct: 5, prevLabourPct: 0, depositTotal: 500 }));
   eq('a deposit larger than the invoice is applied only up to the subtotal', covers.depositApplied, 200);
   check('...and the zero-due invoice is blocked', covers.errors.some(e => /covers this whole invoice/.test(e)), covers.errors);
-  const carried = lib.interimInvoiceMath(Object.assign({}, base, { labourPct: 20, materialsPct: 0, prevLabourPct: 0, prevMaterialsPct: 0, depositTotal: 1000, depositAppliedSoFar: 700 }));
+  const carried = lib.interimInvoiceMath(Object.assign({}, base, { labourPct: 20, prevLabourPct: 0, depositTotal: 1000, depositAppliedSoFar: 700 }));
   eq('an unallocated remainder carries to the next invoice', carried.depositApplied, 300);
 }
 
 // ── Browser copy agrees on live inputs ──────────────────────────────────────
 [
-  { labourPct: 40, materialsPct: 50, prevLabourPct: 0, prevMaterialsPct: 0, depositTotal: 500 },
-  { labourPct: 33.33, materialsPct: 12.5, prevLabourPct: 10, prevMaterialsPct: 0, variations: [{ amount: 320.5 }] },
-  { labourPct: 30, materialsPct: 0, prevLabourPct: 40, prevMaterialsPct: 0 }
+  { labourPct: 40, prevLabourPct: 0, materials: TINS, depositTotal: 500 },
+  { labourPct: 33.33, prevLabourPct: 10, materials: [{ amount: 41.99 }], variations: [{ amount: 320.5 }] },
+  { labourPct: 30, prevLabourPct: 40 }
 ].forEach((c, i) => {
   const input = Object.assign({}, base, c);
   eq('browser preview matches the server record, case ' + (i + 1),
     JSON.parse(JSON.stringify(sandbox.interimInvoiceMath(input))), lib.interimInvoiceMath(input));
 });
 
-// ── 5. Line text ────────────────────────────────────────────────────────────
+// ── 5. Line text and layout ─────────────────────────────────────────────────
 {
   const lines = lib.interimInvoiceLineItems({
     labourPct: 40, prevLabourPct: 0, labourAmount: 1600,
-    materialsPct: 50, prevMaterialsPct: 0, materialsAmount: 500,
-    variations: [{ description: 'Variation: Bedroom 3', amount: 320 }]
+    variations: [{ description: 'Variation: Bedroom 3', amount: 320 }],
+    materials: [{ itemCode: 'TIK-OPT7-10', description: 'Tikkurila Optiva 7 10L — Hague Blue', quantity: 2, unitAmount: 90 },
+                { itemCode: '', description: 'Masking tape', quantity: 3, unitAmount: 4.5 }]
   });
   eq('labour line text', lines[0].description, 'Labour: 40% of quoted works (previously invoiced 0%)');
   eq('labour posts to 201', lines[0].accountCode, '201');
-  eq('materials line text', lines[1].description, 'Materials: 50% of quoted materials (previously invoiced 0%)');
-  eq('materials post to 202', lines[1].accountCode, '202');
-  eq('a variation keeps its own description', lines[2].description, 'Variation: Bedroom 3');
-  eq('no deposit line on the Xero invoice', lines.length, 3);
-  const noMats = lib.interimInvoiceLineItems({ labourPct: 70, prevLabourPct: 40, labourAmount: 1200, materialsPct: 50, prevMaterialsPct: 50, materialsAmount: 0, variations: [] });
-  eq('a share that bills nothing gets no line', noMats.map(l => l.description), ['Labour: 70% of quoted works (previously invoiced 40%)']);
+  eq('a variation keeps its own description, at 201', [lines[1].description, lines[1].accountCode], ['Variation: Bedroom 3', '201']);
+  eq('materials sit under a MATERIALS heading, as on the final invoice', lines[2], { description: 'MATERIALS' });
+  eq('each product is its own line: quantity, sell price, item code, 202', lines[3],
+    { description: 'Tikkurila Optiva 7 10L — Hague Blue', quantity: 2, unitAmount: 90, accountCode: '202', itemCode: 'TIK-OPT7-10' });
+  eq('a free-text product carries no item code', lines[4].itemCode, undefined);
+  eq('no deposit line on the Xero invoice', lines.length, 5);
+  const noMats = lib.interimInvoiceLineItems({ labourPct: 70, prevLabourPct: 40, labourAmount: 1200, materials: [], variations: [] });
+  eq('no materials, no MATERIALS heading', noMats.map(l => l.description), ['Labour: 70% of quoted works (previously invoiced 40%)']);
   eq('percentages print as people write them', [lib.fmtInvoicePct(33.333), lib.fmtInvoicePct(40), lib.fmtInvoicePct(12.5)], ['33.33', '40', '12.5']);
 }
 
 // ── Server-side planning (what the route records) ───────────────────────────
 {
-  const body = { idempotencyKey: 'abcdef0123456789', quotedLabour: 4000, quotedMaterials: 1000, labourPct: 40, materialsPct: 50,
+  const tin = { key: 'code:TIK-OPT7-10', itemCode: 'TIK-OPT7-10', description: 'Optiva 7 10L', quantity: 2, unitAmount: 90, billedBefore: 0 };
+  const body = { idempotencyKey: 'abcdef0123456789', quotedLabour: 4000, labourPct: 40, materials: [tin],
                  variations: [{ kind: 'room', sourceId: 'r1', description: 'Variation: Bedroom 3', amount: 320 }] };
   const first = lib.planInterimInvoice({ existing: [], depositTotal: 500, body });
   eq('plan: first interim is sequence 1', first.row && first.row.sequence, 1);
-  eq('plan: subtotal includes the ticked variation', first.row && first.row.subtotal, 2420);
+  eq('plan: subtotal = labour + tins + variation', first.row && first.row.subtotal, 1600 + 180 + 320);
+  eq('plan: the billed quantity is recorded per product', first.row && first.row.materialLines.map(m => [m.key, m.quantity, m.amount]), [['code:TIK-OPT7-10', 2, 180]]);
   eq('plan: deposit applied', first.row && first.row.depositApplied, 500);
-  const existing = [Object.assign({ id: 'x', jobId: 'j', type: 'interim', variationLines: first.row.variationLines,
-    labourPctCumulative: 40, materialsPctCumulative: 50 }, first.row)];
-  const again = lib.planInterimInvoice({ existing, depositTotal: 500, body: Object.assign({}, body, { idempotencyKey: 'bcdef01234567890', labourPct: 70 }) });
+  const existing = [Object.assign({ id: 'x', jobId: 'j' }, first.row)];
+  const so = lib.billingSoFar(existing);
+  eq('billed quantities add up per product', so.billedQty, { 'code:TIK-OPT7-10': 2 });
+  const again = lib.planInterimInvoice({ existing, depositTotal: 500, body: Object.assign({}, body, { idempotencyKey: 'bcdef01234567890', labourPct: 70, materials: [] }) });
   check('plan: a variation already billed cannot be billed again', /already been billed/.test(again.error || ''), again.error);
-  const second = lib.planInterimInvoice({ existing, depositTotal: 500, body: Object.assign({}, body, { idempotencyKey: 'bcdef01234567890', labourPct: 70, variations: [] }) });
+  // A third tin bought since: the builder offers 1, stating 2 were billed before.
+  const second = lib.planInterimInvoice({ existing, depositTotal: 500, body: Object.assign({}, body,
+    { idempotencyKey: 'bcdef01234567890', labourPct: 70, variations: [], materials: [Object.assign({}, tin, { quantity: 1, billedBefore: 2 })] }) });
   eq('plan: second interim is sequence 2', second.row && second.row.sequence, 2);
   eq('plan: second interim bills the 30% difference only', second.row && second.row.labourAmount, 1200);
+  eq('plan: ...and just the extra tin', second.row && second.row.materialsAmount, 90);
   eq('plan: its line says what was billed before', second.row && second.row.lineItems[0].description, 'Labour: 70% of quoted works (previously invoiced 40%)');
   eq('plan: no second deposit deduction', second.row && second.row.depositApplied, 0);
-  const afterFinal = lib.planInterimInvoice({ existing: existing.concat([{ type: 'final', sequence: 2, depositApplied: 0, variationLines: [] }]), depositTotal: 0, body });
+  // Built from a stale view (another device billed the two tins meanwhile).
+  const stale = lib.planInterimInvoice({ existing, depositTotal: 500, body: Object.assign({}, body,
+    { idempotencyKey: 'cdef012345678901', labourPct: 70, variations: [] }) });
+  check('plan: materials billed since the builder opened are refused as a conflict', stale.conflict === true && /reopen the builder/.test(stale.error || ''), stale);
+  const unpriced = lib.planInterimInvoice({ existing: [], depositTotal: 0, body: Object.assign({}, body, { materials: [Object.assign({}, tin, { unitAmount: 0 })] }) });
+  check('plan: an unpriced material is refused', /price/.test(unpriced.error || ''), unpriced.error);
+  const afterFinal = lib.planInterimInvoice({ existing: existing.concat([{ type: 'final', sequence: 2, depositApplied: 0, variationLines: [], materialLines: [] }]), depositTotal: 0, body });
   check('plan: no interim after the final invoice', /already has its final invoice/.test(afterFinal.error || ''), afterFinal.error);
   const noKey = lib.planInterimInvoice({ existing: [], depositTotal: 0, body: Object.assign({}, body, { idempotencyKey: '' }) });
   check('plan: an idempotency key is required', /idempotencyKey/.test(noKey.error || ''), noKey.error);
@@ -176,27 +196,29 @@ const base = { quotedLabour: 4000, quotedMaterials: 1000, depositTotal: 0, depos
 // ── 6. The final invoice's deductions ───────────────────────────────────────
 {
   const lines = JSON.parse(JSON.stringify(sandbox.interimDeductionLines([
-    { sequence: 1, number: 'INV-0042', work: 1920, materials: 500 },
-    { sequence: 2, number: 'INV-0047', work: 1200, materials: 0 }
+    { sequence: 1, number: 'INV-0042', work: 1920 },
+    { sequence: 2, number: 'INV-0047', work: 0 },
+    { sequence: 3, number: 'INV-0051', work: 1200 }
   ])));
-  eq('one deduction per interim, split by the account it posted to', lines, [
+  eq('one labour-and-extras deduction per interim, none for materials, none for a materials-only interim', lines, [
     { description: 'Less: interim invoice INV-0042', quantity: 1, unitAmount: -1920, accountCode: '201' },
-    { description: 'Less: interim invoice INV-0042 (materials)', quantity: 1, unitAmount: -500, accountCode: '202' },
-    { description: 'Less: interim invoice INV-0047', quantity: 1, unitAmount: -1200, accountCode: '201' }
+    { description: 'Less: interim invoice INV-0051', quantity: 1, unitAmount: -1200, accountCode: '201' }
   ]);
-  const total = lines.reduce((t, l) => t + l.unitAmount, 0);
-  eq('the deductions total the interims\' subtotals (before deposit)', total, -(2420 + 1200));
 }
 
 // ── The Xero payload ────────────────────────────────────────────────────────
 {
   const payload = lib.buildInterimXeroInvoice({ xeroContactId: 'c-1', xeroReference: 'Smith — interim 1',
-    lineItems: [{ description: 'Labour: 40% of quoted works (previously invoiced 0%)', quantity: 1, unitAmount: 1600, accountCode: '201' }] });
+    lineItems: [{ description: 'Labour: 40% of quoted works (previously invoiced 0%)', quantity: 1, unitAmount: 1600, accountCode: '201' },
+                { description: 'MATERIALS' },
+                { description: 'Optiva 7 10L', quantity: 2, unitAmount: 90, accountCode: '202', itemCode: 'TIK-OPT7-10' }] });
   const inv = payload.Invoices[0];
   eq('ACCREC, like the completion invoice', inv.Type, 'ACCREC');
   eq('always a DRAFT', inv.Status, 'DRAFT');
   eq('not VAT registered: NoTax', inv.LineAmountTypes, 'NoTax');
   eq('the linked contact', inv.Contact, { ContactID: 'c-1' });
+  eq('the MATERIALS heading is a description-only row', inv.LineItems[1], { Description: 'MATERIALS' });
+  eq('a product line carries its item code', inv.LineItems[2], { Description: 'Optiva 7 10L', Quantity: 2, UnitAmount: 90, AccountCode: '202', ItemCode: 'TIK-OPT7-10' });
 }
 
 pass.forEach(n => console.log('  ✓ ' + n));

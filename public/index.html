@@ -17974,6 +17974,9 @@ function buildInvoiceList() {
     var confirmed = !!(r.actual && r.actual.bought);
     var qty = actualsRowQuantity(r);
     var entry = {
+      // key: materialKey() of the row -- what interim invoices record billed
+      // quantities against (STAGED_INVOICING_SPEC.md).
+      key: r.key,
       itemCode: r.itemCode || '', description: materialDescriptionWithColour(r),
       quantity: qty, unitAmount: price, lineTotal: qty * price,
       onEstimate: r.onEstimate, estimated: r.estimated, logged: !!r.actual
@@ -18001,9 +18004,11 @@ function invoiceListAsText() {
 }
 
 // ── Staged invoicing: interim invoices (STAGED_INVOICING_SPEC.md) ──────────
-// One or more interim invoices part way through an accepted job, each billing
-// a CUMULATIVE share of the quoted labour and quoted materials (plus any
-// approved extras ticked in full), then the final invoice deducts them all.
+// One or more interim invoices part way through an accepted job. Each bills a
+// CUMULATIVE share of the quoted labour, the materials bought so far that no
+// invoice has billed yet (itemised, as the final invoice does), and any
+// approved extras ticked in full. The final invoice then lists only the
+// materials still unbilled and deducts the interims' labour and extras.
 // A job with no interims behaves exactly as it always has.
 //
 // The server decides what is recorded (lib/invoices.js); the three pure
@@ -18050,15 +18055,22 @@ function jobInterimInvoices(job) {
   return jobInvoiceList(job).filter(function(i) { return i.type === 'interim'; });
 }
 
-// What the job has billed so far, the same four figures the server reads.
+// What the job has billed so far -- the same figures the server reads.
+// billedQty: quantity of each product (by materialKey) already on an invoice.
 function interimBillingSoFar(job) {
   var all = jobInvoiceList(job);
   var interims = all.filter(function(i) { return i.type === 'interim'; });
+  var billedQty = {};
+  all.forEach(function(i) {
+    (i.materialLines || []).forEach(function(m) {
+      billedQty[m.key] = Math.round(((billedQty[m.key] || 0) + (+m.quantity || 0)) * 10000) / 10000;
+    });
+  });
   return {
     count: interims.length,
     hasFinal: all.some(function(i) { return i.type === 'final'; }),
     labourPct: interims.reduce(function(m, i) { return Math.max(m, +i.labourPctCumulative || 0); }, 0),
-    materialsPct: interims.reduce(function(m, i) { return Math.max(m, +i.materialsPctCumulative || 0); }, 0),
+    billedQty: billedQty,
     depositApplied: all.reduce(function(t, i) { return t + (+i.depositApplied || 0); }, 0),
     subtotal: all.reduce(function(t, i) { return t + (+i.subtotal || 0); }, 0),
     interimSubtotal: interims.reduce(function(t, i) { return t + (+i.subtotal || 0); }, 0)
@@ -18125,18 +18137,27 @@ function interimVariationCandidates(job) {
     });
 }
 
-// Materials ticked as BOUGHT on the On Site list, valued at the same sell
-// prices the quote used, so the % beside it compares like with like (purchase
-// cost against a sell-price quote would read ~20% behind on every job).
-function interimPurchasesLogged() {
-  var at;
-  try { at = actualsTotals(); } catch (e) { return null; }
-  var v = 0;
-  at.rows.forEach(function(r) {
-    if (!(r.actual && r.actual.bought)) return;
-    v += actualsRowQuantity(r) * materialPriceFor({ itemCode: r.itemCode, unitAmount: r.unitAmount });
+// Materials for the next interim: the lines the final invoice would bill
+// (buildInvoiceList -- ticked as bought on the On Site list, colour on the
+// description, live Xero sell prices), less whatever quantity of each an
+// earlier invoice already billed. So two tins billed and a third bought since
+// offers just the one. A line with no price can't be billed (a silent £0 on a
+// real invoice is the lost money this app exists to prevent) and says so.
+function interimMaterialCandidates(job) {
+  var list;
+  try { list = buildInvoiceList(); } catch (e) { return { lines: [], unconfirmed: 0, overBilled: [] }; }
+  var billedQty = interimBillingSoFar(job).billedQty;
+  var lines = [], overBilled = [];
+  list.billed.forEach(function(l) {
+    var before = billedQty[l.key] || 0;
+    var qty = Math.round((l.quantity - before) * 10000) / 10000;
+    if (qty < -0.00005) overBilled.push({ description: l.description, billed: before, used: l.quantity });
+    if (!(qty > 0.00005)) return;
+    lines.push({ key: l.key, itemCode: l.itemCode || '', description: l.description, quantity: qty,
+                 unitAmount: Math.round(l.unitAmount * 100) / 100, billedBefore: before,
+                 amount: Math.round(qty * l.unitAmount * 100) / 100, priced: l.unitAmount > 0.005 });
   });
-  return Math.round(v * 100) / 100;
+  return { lines: lines, unconfirmed: list.unconfirmed.length, overBilled: overBilled };
 }
 
 function interimInvoiceLabel(inv) {
@@ -18152,35 +18173,32 @@ function fmtInvoicePct(n) {
 }
 
 // The whole money story of one interim invoice. Pure: the caller supplies the
-// quoted bases and the job's billing so far, and gets back every figure plus
+// quoted labour and the job's billing so far, and gets back every figure plus
 // the reasons (if any) it can't be issued.
 //
-//   quotedLabour / quotedMaterials  the accepted quote's figures (materials
-//                                   at quoted sell prices, markup in)
-//   labourPct / materialsPct        the NEW cumulative % complete
-//   prevLabourPct / prevMaterialsPct  the cumulative % already invoiced
-//   variations                      ticked extras, billed in full: [{amount}]
-//   depositTotal                    the deposit actually received
-//   depositAppliedSoFar             deposit already set against earlier invoices
+//   quotedLabour                the accepted quote's labour
+//   labourPct / prevLabourPct   the NEW cumulative % complete / % already invoiced
+//   materials                   bought products not yet billed: [{amount}]
+//   variations                  ticked extras, billed in full: [{amount}]
+//   depositTotal                the deposit actually received
+//   depositAppliedSoFar         deposit already set against earlier invoices
 //
-// Amounts bill the difference between two ROUNDED cumulative figures rather
+// Labour bills the difference between two ROUNDED cumulative figures rather
 // than rounding the difference, so however many interims a job takes, the
 // labour billed at 100% is exactly the quoted labour to the penny.
 function interimInvoiceMath(p) {
   var money = function(n) { return Math.round((+n || 0) * 100) / 100; };
   var pct = function(n) { return Math.round((+n || 0) * 100) / 100; };
-  var qL = money(p.quotedLabour), qM = money(p.quotedMaterials);
-  var newL = pct(p.labourPct), newM = pct(p.materialsPct);
-  var prevL = pct(p.prevLabourPct), prevM = pct(p.prevMaterialsPct);
+  var sum = function(list) { return money((list || []).reduce(function(t, v) { return t + (+v.amount || 0); }, 0)); };
+  var qL = money(p.quotedLabour);
+  var newL = pct(p.labourPct), prevL = pct(p.prevLabourPct);
   var errors = [];
-  if (newL < 0 || newM < 0) errors.push('A percentage cannot be negative.');
+  if (newL < 0) errors.push('A percentage cannot be negative.');
   if (newL > 100) errors.push('Labour cannot go above 100% complete.');
-  if (newM > 100) errors.push('Materials cannot go above 100% complete.');
   if (newL < prevL) errors.push('Labour is cumulative — it cannot go below the ' + fmtInvoicePct(prevL) + '% already invoiced.');
-  if (newM < prevM) errors.push('Materials are cumulative — they cannot go below the ' + fmtInvoicePct(prevM) + '% already invoiced.');
   var labourAmount = money(money(qL * newL / 100) - money(qL * prevL / 100));
-  var materialsAmount = money(money(qM * newM / 100) - money(qM * prevM / 100));
-  var variationsAmount = money((p.variations || []).reduce(function(t, v) { return t + (+v.amount || 0); }, 0));
+  var materialsAmount = sum(p.materials);
+  var variationsAmount = sum(p.variations);
   var subtotal = money(labourAmount + materialsAmount + variationsAmount);
   // The deposit comes off the first interim; whatever that invoice can't
   // absorb carries forward to the next one (interim or final).
@@ -18190,7 +18208,7 @@ function interimInvoiceMath(p) {
   if (!errors.length && !(amountDue > 0)) {
     errors.push(subtotal > 0
       ? 'The deposit still to be applied (' + depositLeft.toFixed(2) + ') covers this whole invoice — there is nothing for the client to pay yet. Bill a larger share first.'
-      : 'Nothing to bill — raise a percentage or tick a variation.');
+      : 'Nothing to bill — raise the labour percentage, or tick materials or a variation.');
   }
   return {
     labourAmount: labourAmount, materialsAmount: materialsAmount,
@@ -18200,57 +18218,63 @@ function interimInvoiceMath(p) {
   };
 }
 
-// The Xero lines for one interim. Labour and variations post to 201 and
-// materials to 202 -- the same accounts the final invoice uses, so the
-// "Less: interim" lines on the final net revenue back out of the right place.
-// A share that bills nothing gets no line (a £0.00 "Materials: 0%" row reads
-// like an error on a client's document). The deposit is NOT a line: it is a
-// Xero prepayment, allocated to this invoice by hand in Xero.
+// The Xero lines for one interim, laid out like the final invoice: labour,
+// then variations (both 201), then a MATERIALS heading over one line per
+// product (202, item code carried). A labour share that bills nothing gets no
+// line (a £0.00 "Labour: 40% (previously invoiced 40%)" reads like an error
+// on a client's document). The deposit is NOT a line: it is a Xero
+// prepayment, allocated to this invoice by hand in Xero.
 function interimInvoiceLineItems(p) {
   var lines = [];
   if (Math.abs(+p.labourAmount || 0) > 0.005) {
     lines.push({ description: 'Labour: ' + fmtInvoicePct(p.labourPct) + '% of quoted works (previously invoiced ' + fmtInvoicePct(p.prevLabourPct) + '%)',
                  quantity: 1, unitAmount: +p.labourAmount, accountCode: '201' });
   }
-  if (Math.abs(+p.materialsAmount || 0) > 0.005) {
-    lines.push({ description: 'Materials: ' + fmtInvoicePct(p.materialsPct) + '% of quoted materials (previously invoiced ' + fmtInvoicePct(p.prevMaterialsPct) + '%)',
-                 quantity: 1, unitAmount: +p.materialsAmount, accountCode: '202' });
-  }
   (p.variations || []).forEach(function(v) {
     lines.push({ description: v.description, quantity: 1, unitAmount: +v.amount || 0, accountCode: '201' });
   });
+  if ((p.materials || []).length) {
+    lines.push({ description: 'MATERIALS' });
+    p.materials.forEach(function(m) {
+      var line = { description: m.description, quantity: +m.quantity || 0, unitAmount: +m.unitAmount || 0, accountCode: '202' };
+      if (m.itemCode) line.itemCode = m.itemCode;
+      lines.push(line);
+    });
+  }
   return lines;
 }
 
-// The final invoice's deduction lines, one per interim: that invoice's
-// subtotal (before deposit -- the deposit is a Xero prepayment, not a line),
-// split by account the way the interim itself posted it, so revenue nets out
-// of 201 and 202 exactly as it went in. An interim that billed only one kind
-// of thing gets one line.
+// The final invoice's deduction lines, one per interim, for the labour and
+// variations it billed (201, before deposit -- the deposit is a Xero
+// prepayment, not a line). Materials are NOT deducted: an interim itemises the
+// tins it bills, and the final invoice simply leaves those quantities off its
+// own materials list (see buildFinalInvoiceModel), so there is nothing to
+// take back. An interim that billed only materials has no deduction line.
 function interimDeductionLines(interims) {
   var lines = [];
   (interims || []).forEach(function(inv) {
     var label = 'Less: interim invoice ' + (inv.number || ('interim ' + inv.sequence));
     var work = Math.round((+inv.work || 0) * 100) / 100;
-    var mats = Math.round((+inv.materials || 0) * 100) / 100;
     if (work > 0.005) lines.push({ description: label, quantity: 1, unitAmount: -work, accountCode: '201' });
-    if (mats > 0.005) lines.push({ description: label + (work > 0.005 ? ' (materials)' : ''), quantity: 1, unitAmount: -mats, accountCode: '202' });
   });
   return lines;
 }
 
 // ── The builder ──────────────────────────────────────────────────────────────
-// Filled in freely offline: the draft (percentages, stage, ticked extras AND
-// the idempotency key) lives on job.interimDraft, which rides persistJobData
+// Filled in freely offline: the draft (labour %, stage, unticked materials,
+// ticked extras AND the idempotency key) lives on job.interimDraft, which rides persistJobData
 // and the offline queue like any other job field. Issuing needs a connection
 // (it records the invoice and writes it to Xero), and every attempt at issuing
 // THIS draft sends the same key -- so an attempt whose reply was lost, retried
 // later, finds the invoice it already made instead of making a second one.
 function interimDraftFor(job) {
   if (!job.interimDraft || !job.interimDraft.idempotencyKey) {
-    job.interimDraft = { idempotencyKey: newIdempotencyKey(), labourPct: null, materialsPct: null,
-                         stageRef: null, variationKeys: [] };
+    job.interimDraft = { idempotencyKey: newIdempotencyKey(), labourPct: null,
+                         stageRef: null, variationKeys: [], materialExcludeKeys: [] };
   }
+  // Materials are held back by UNticking, so anything bought after the draft
+  // was started is on the invoice by default.
+  if (!Array.isArray(job.interimDraft.materialExcludeKeys)) job.interimDraft.materialExcludeKeys = [];
   return job.interimDraft;
 }
 function saveInterimDraft() {
@@ -18271,8 +18295,9 @@ async function openInterimInvoice() {
   var el = document.getElementById('interiminvoice-body');
   el.innerHTML = '<div class="card" style="padding:16px;color:var(--text2)">Loading…</div>';
   // Best-effort freshness: the latest invoices (another device may have
-  // issued one) and the actuals behind the purchases hint. Offline, both fall
-  // back to what is in memory / the local mirror, and the builder still opens.
+  // issued one) and the On Site actuals the materials list is built from.
+  // Offline, both fall back to what is in memory / the local mirror, and the
+  // builder still opens.
   await Promise.all([
     loadJobInvoices(job.id),
     loadMaterialActuals().catch(function() {})
@@ -18281,7 +18306,6 @@ async function openInterimInvoice() {
   var so = interimBillingSoFar(job);
   var d = interimDraftFor(job);
   if (d.labourPct == null) d.labourPct = so.labourPct;
-  if (d.materialsPct == null) d.materialsPct = so.materialsPct;
   renderInterimInvoice();
 }
 
@@ -18292,23 +18316,23 @@ function interimPreviewModel(job) {
   var d = interimDraftFor(job);
   var cands = interimVariationCandidates(job);
   var ticked = cands.filter(function(c) { return !c.billedOn && d.variationKeys.indexOf(c.key) !== -1; });
+  var mat = interimMaterialCandidates(job);
+  var mats = mat.lines.filter(function(l) { return l.priced && d.materialExcludeKeys.indexOf(l.key) === -1; });
   var math = interimInvoiceMath({
-    quotedLabour: basis ? basis.labour : 0, quotedMaterials: basis ? basis.materials : 0,
-    labourPct: d.labourPct, materialsPct: d.materialsPct,
-    prevLabourPct: so.labourPct, prevMaterialsPct: so.materialsPct,
-    variations: ticked, depositTotal: recordedDepositAmount(job), depositAppliedSoFar: so.depositApplied
+    quotedLabour: basis ? basis.labour : 0, labourPct: d.labourPct, prevLabourPct: so.labourPct,
+    materials: mats, variations: ticked,
+    depositTotal: recordedDepositAmount(job), depositAppliedSoFar: so.depositApplied
   });
   var lines = interimInvoiceLineItems({
     labourPct: d.labourPct, prevLabourPct: so.labourPct, labourAmount: math.labourAmount,
-    materialsPct: d.materialsPct, prevMaterialsPct: so.materialsPct, materialsAmount: math.materialsAmount,
-    variations: ticked
+    materials: mats, variations: ticked
   });
   // The ceiling: everything this job could ever bill -- the quote plus every
   // approved extra, billed or not.
   var approvedVars = cands.reduce(function(t, c) { return t + (+c.amount || 0); }, 0);
   var ceiling = Math.round(((basis ? basis.total : 0) + approvedVars) * 100) / 100;
   var afterThis = Math.round((so.subtotal + math.subtotal) * 100) / 100;
-  return { basis: basis, so: so, draft: d, cands: cands, ticked: ticked, math: math, lines: lines,
+  return { basis: basis, so: so, draft: d, cands: cands, ticked: ticked, mat: mat, mats: mats, math: math, lines: lines,
            ceiling: ceiling, afterThis: afterThis, overCeiling: afterThis > ceiling + 0.005 };
 }
 
@@ -18320,8 +18344,13 @@ function interimPreviewHtml(m) {
       '<span style="font-size:' + (opts.big ? '17' : '13') + 'px;white-space:nowrap;' + (opts.bold ? 'font-weight:700' : '') + '">' + value + '</span></div>';
   };
   var html = '';
-  if (!m.lines.length) html += '<div style="font-size:13px;color:var(--text2);padding:4px 0">Nothing billed yet — set a percentage or tick a variation.</div>';
-  m.lines.forEach(function(l) { html += row(escapeHtml(l.description), fmt(l.unitAmount)); });
+  if (!m.lines.length) html += '<div style="font-size:13px;color:var(--text2);padding:4px 0">Nothing billed yet — set the labour percentage, or tick materials or a variation.</div>';
+  m.lines.forEach(function(l) {
+    // The MATERIALS divider carries no figures, same as on the Xero invoice.
+    if (l.quantity == null) { html += '<div style="font-size:11px;font-weight:600;letter-spacing:.8px;color:var(--text2);padding:8px 0 2px">' + escapeHtml(l.description) + '</div>'; return; }
+    var qty = l.accountCode === '202' ? '<small style="display:block;color:var(--text3)">' + (+l.quantity) + ' × ' + fmt(+l.unitAmount) + '</small>' : '';
+    html += row(escapeHtml(l.description) + qty, fmt(Math.round(l.quantity * l.unitAmount * 100) / 100));
+  });
   html += row('Subtotal', fmt(m.math.subtotal), { rule: true, bold: true });
   if (m.math.depositApplied > 0.005) {
     html += row('Less deposit' + (m.so.depositApplied > 0.005 ? ' (remainder)' : ''), '− ' + fmt(m.math.depositApplied));
@@ -18380,16 +18409,20 @@ function renderInterimInvoice() {
     '<div class="field-row" style="padding:8px 0"><div class="field-label">Labour % complete<small>cumulative · ' + fmtInvoicePct(m.so.labourPct) + '% invoiced so far · quoted ' + fmt(m.basis.labour) + '</small></div>' +
       pctInput('ii-labour', d.labourPct, 'setInterimLabourPct') + '</div>' + stageHtml;
 
-  var logged = interimPurchasesLogged();
-  var hint = '';
-  if (logged != null && m.basis.materials > 0.005) {
-    var loggedPct = Math.min(100, Math.round(logged / m.basis.materials * 10000) / 100);
-    hint = '<div onclick="fillInterimMaterialsFromPurchases(' + loggedPct + ')" style="display:inline-block;margin-top:4px;border:1px solid var(--accent);color:var(--accent);border-radius:10px;padding:3px 10px;font-size:12px;font-weight:600;cursor:pointer">' +
-      'Purchases logged: ' + fmt(logged) + ' of ' + fmt(m.basis.materials) + ' quoted (' + fmtInvoicePct(loggedPct) + '%)</div>';
+  var materialsHtml = m.mat.lines.length ? m.mat.lines.map(function(l) {
+    var on = l.priced && d.materialExcludeKeys.indexOf(l.key) === -1;
+    var detail = (l.itemCode ? escapeHtml(l.itemCode) + ' · ' : '') + (+l.quantity) + ' × ' + fmt(l.unitAmount) +
+      (l.billedBefore > 0 ? ' · ' + (+l.billedBefore) + ' already invoiced' : '');
+    return '<label style="display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);' + (l.priced ? 'cursor:pointer' : 'opacity:.6') + '">' +
+      '<input type="checkbox" ' + (on ? 'checked ' : '') + (l.priced ? '' : 'disabled ') + 'data-key="' + escapeHtml(l.key) + '" onchange="toggleInterimMaterial(this.dataset.key,this.checked)">' +
+      '<span style="flex:1;min-width:0;font-size:14px">' + escapeHtml(l.description) +
+        '<small style="display:block;color:' + (l.priced ? 'var(--text2)' : 'var(--danger)') + '">' + detail +
+          (l.priced ? '' : ' · NO PRICE — set one on the On Site screen') + '</small></span>' +
+      '<span style="font-size:14px;font-weight:600;white-space:nowrap">' + (l.priced ? fmt(l.amount) : '—') + '</span></label>';
+  }).join('') : '<div style="font-size:13px;color:var(--text2)">Nothing bought and not yet invoiced. Tick materials as bought on the On Site list to bill them here.</div>';
+  if (m.mat.unconfirmed > 0) {
+    materialsHtml += '<div style="font-size:12px;color:var(--text2);padding-top:8px">' + m.mat.unconfirmed + ' item' + (m.mat.unconfirmed === 1 ? '' : 's') + ' on the list not yet ticked as bought — not included.</div>';
   }
-  var materialsHtml =
-    '<div class="field-row" style="padding:8px 0"><div class="field-label">Materials % (cumulative)<small>' + fmtInvoicePct(m.so.materialsPct) + '% invoiced so far · always billed at the <strong>quoted</strong> ' + fmt(m.basis.materials) + ', pro rata</small></div>' +
-      pctInput('ii-materials', d.materialsPct, 'setInterimMaterialsPct') + '</div>' + hint;
 
   var varHtml = m.cands.length ? m.cands.map(function(c) {
     var billed = !!c.billedOn;
@@ -18404,10 +18437,10 @@ function renderInterimInvoice() {
   var blocked = m.math.errors.length > 0;
   el.innerHTML =
     '<div style="font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.5">Interim invoice ' + (m.so.count + 1) +
-      ' · percentages are <strong>cumulative</strong> (how far through the job is in total) — this invoice bills only the difference from what was already invoiced. ' +
+      ' · labour % is <strong>cumulative</strong> (how far through the job is in total) — this invoice bills only the difference from what was already invoiced. Materials are itemised: what has been bought and not yet invoiced. ' +
       escapeHtml(m.basis.source) + '.</div>' +
     section('Labour', labourHtml) +
-    section('Materials', materialsHtml) +
+    section('Materials bought — not yet invoiced', materialsHtml) +
     section('Approved variations — billed in full', varHtml) +
     section('Preview', '<div id="ii-preview">' + interimPreviewHtml(m) + '</div>') +
     '<button id="ii-issue" onclick="issueInterimInvoice()" ' + (blocked ? 'disabled ' : '') + 'style="width:100%;background:' + (blocked ? 'var(--surface2)' : 'var(--accent)') + ';color:' + (blocked ? 'var(--text3)' : '#fff') + ';border:none;border-radius:var(--rs);padding:14px;font-size:15px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer">Issue interim invoice</button>' +
@@ -18435,11 +18468,6 @@ function setInterimLabourPct(v) {
   interimDraftFor(job).labourPct = parseFloat(v) || 0;
   refreshInterimPreview();
 }
-function setInterimMaterialsPct(v) {
-  var job = activeJob(); if (!job) return;
-  interimDraftFor(job).materialsPct = parseFloat(v) || 0;
-  refreshInterimPreview();
-}
 function setInterimStage(ref) {
   var job = activeJob(); if (!job) return;
   var d = interimDraftFor(job);
@@ -18454,11 +18482,11 @@ function setInterimStage(ref) {
   saveInterimDraft();
   refreshInterimPreview();
 }
-function fillInterimMaterialsFromPurchases(pct) {
+function toggleInterimMaterial(key, on) {
   var job = activeJob(); if (!job) return;
-  interimDraftFor(job).materialsPct = pct;
-  var input = document.getElementById('ii-materials');
-  if (input) input.value = fmtInvoicePct(pct);
+  var d = interimDraftFor(job);
+  d.materialExcludeKeys = d.materialExcludeKeys.filter(function(k) { return k !== key; });
+  if (!on) d.materialExcludeKeys.push(key);
   saveInterimDraft();
   refreshInterimPreview();
 }
@@ -18492,8 +18520,12 @@ async function issueInterimInvoice() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         idempotencyKey: d.idempotencyKey,
-        labourPct: +d.labourPct || 0, materialsPct: +d.materialsPct || 0, stageRef: d.stageRef || null,
-        quotedLabour: m.basis.labour, quotedMaterials: m.basis.materials,
+        labourPct: +d.labourPct || 0, stageRef: d.stageRef || null,
+        quotedLabour: m.basis.labour,
+        materials: m.mats.map(function(l) {
+          return { key: l.key, itemCode: l.itemCode, description: l.description, quantity: l.quantity,
+                   unitAmount: l.unitAmount, billedBefore: l.billedBefore };
+        }),
         variations: m.ticked.map(function(v) { return { kind: v.kind, sourceId: v.sourceId, description: v.description, amount: v.amount }; })
       })
     });
@@ -18583,7 +18615,8 @@ function interimInvoicesBlockHtml(job, jobStatus) {
         ? '<span style="color:var(--danger)">Xero send failed' + (inv.lastError ? ' — ' + escapeHtml(inv.lastError) : '') + '</span>'
         : '<span style="color:var(--warn,#f39c12)">not in Xero yet</span>';
     var detail = inv.type === 'interim'
-      ? 'labour ' + fmtInvoicePct(inv.labourPctCumulative) + '% · materials ' + fmtInvoicePct(inv.materialsPctCumulative) + '%' +
+      ? 'labour ' + fmtInvoicePct(inv.labourPctCumulative) + '%' +
+        ((inv.materialLines || []).length ? ' · materials ' + fmt(+inv.materialsAmount || 0) + ' (' + inv.materialLines.length + ' item' + (inv.materialLines.length === 1 ? '' : 's') + ')' : '') +
         ((inv.variationLines || []).length ? ' · ' + inv.variationLines.length + ' variation' + (inv.variationLines.length === 1 ? '' : 's') : '')
       : 'balancing invoice';
     var actions = '';
@@ -18957,10 +18990,30 @@ function buildFinalInvoiceModel() {
   // BLOCKED red — a silent £0 on a real invoice is exactly the lost money
   // this app exists to prevent.
   var inv = buildInvoiceList();
-  var materials = inv.billed.map(function(l, i) {
-    return { id: 'm' + i, desc: l.description, itemCode: l.itemCode, qty: l.quantity,
-      unitAmount: l.unitAmount, amount: l.lineTotal, dropped: false,
-      blocked: l.quantity > 0 && l.unitAmount <= 0.005 };
+  // Staged invoicing: an interim invoice itemises the tins it bills, so the
+  // final lists only what no interim has billed -- the quantity already
+  // invoiced comes off each line, and a line billed in full drops out. With no
+  // interims billedQty is empty and every line is exactly as it always was.
+  // A product used in SMALLER quantity than was already billed (a tin returned
+  // after an interim) can't go negative here; it is reported instead.
+  var billedQtyInv = interimBillingSoFar(job).billedQty;
+  var materialsBilledOnInterims = 0, materialsOverBilled = [];
+  var usedByKey = {};
+  inv.billed.forEach(function(l) { usedByKey[l.key] = (usedByKey[l.key] || 0) + l.quantity; });
+  Object.keys(billedQtyInv).forEach(function(k) {
+    var used = usedByKey[k] || 0;
+    if (billedQtyInv[k] - used > 0.00005) materialsOverBilled.push({ key: k, billed: billedQtyInv[k], used: used });
+  });
+  var materials = [];
+  inv.billed.forEach(function(l, i) {
+    var already = Math.min(billedQtyInv[l.key] || 0, l.quantity);
+    var qty = Math.round((l.quantity - already) * 10000) / 10000;
+    if (already > 0) materialsBilledOnInterims++;
+    if (!(qty > 0.00005)) return;
+    materials.push({ id: 'm' + i, desc: l.description, itemCode: l.itemCode, qty: qty,
+      unitAmount: l.unitAmount, amount: qty * l.unitAmount, dropped: false,
+      alreadyInvoiced: already,
+      blocked: qty > 0 && l.unitAmount <= 0.005 });
   });
 
   // Deduction prefills from the plan: what SHOULD have been invoiced.
@@ -18971,15 +19024,16 @@ function buildFinalInvoiceModel() {
   var plan = invPlan;
   // Staged invoicing (STAGED_INVOICING_SPEC.md). With no interims this is an
   // empty list and nothing below changes: the invoice is exactly what it was.
-  // With them, the itemised invoice above stays whole -- quote lines, extras
-  // (including ones an interim already billed), materials -- and each interim
-  // comes off it as a "Less: interim invoice" line for its subtotal. The
+  // With them, the quote lines and extras above stay whole (including extras
+  // an interim already billed) and each interim comes off as a "Less: interim
+  // invoice" line for the labour and extras it billed. Its materials need no
+  // deduction: they were left off the materials list above instead. The
   // deposit field then prefills with only what the interims have NOT already
   // had set against them, which is usually nothing.
   var interimsInv = jobInterimInvoices(job).map(function(inv) {
     return { sequence: inv.sequence, number: inv.xeroInvoiceNumber || null,
              work: (+inv.labourAmount || 0) + (+inv.variationsAmount || 0),
-             materials: +inv.materialsAmount || 0, subtotal: +inv.subtotal || 0,
+             subtotal: +inv.subtotal || 0,
              depositApplied: +inv.depositApplied || 0,
              inXero: inv.syncState === 'synced' && !!inv.xeroInvoiceNumber };
   });
@@ -18987,6 +19041,8 @@ function buildFinalInvoiceModel() {
     interimsInv.reduce(function(t, i) { return t + i.depositApplied; }, 0)) * 100) / 100);
   return {
     interims: interimsInv,
+    materialsBilledOnInterims: materialsBilledOnInterims,
+    materialsOverBilled: materialsOverBilled,
     depositReceived: recordedDepositAmount(job),
     labour: labour, sundries: { amount: sundries, dropped: false },
     // Set (a number) only on a job honoured at a pre-app labour price — the
@@ -19016,8 +19072,9 @@ function finalInvTotals() {
   s.materials.forEach(function(l) { if (!l.dropped) sum += l.amount; });
   // Interim deductions are LINES on this invoice, so they come off the total
   // Xero will show -- unlike the deposit/instalments below, which are
-  // reference-only payments applied in Xero.
-  (s.interims || []).forEach(function(i) { sum -= i.subtotal; });
+  // reference-only payments applied in Xero. Labour and extras only: the
+  // interims' materials were left off the materials list instead.
+  (s.interims || []).forEach(function(i) { sum -= Math.round(i.work * 100) / 100; });
   var deductions = (+s.deposit || 0) + (+s.instalments || 0);
   return { gross: sum, deductions: deductions, balance: sum - deductions };
 }
@@ -19125,23 +19182,39 @@ function renderFinalInvoice() {
   var matHtml = s.materials.length
     ? s.materials.map(function(l) {
         var detail = (l.itemCode ? escapeHtml(l.itemCode) + ' · ' : '') + l.qty + ' × ' + fmt(l.unitAmount)
+          + (l.alreadyInvoiced > 0 ? ' · ' + l.alreadyInvoiced + ' more already invoiced on an interim' : '')
           + (l.blocked && !l.dropped ? ' · NO PRICE — set a price on the On Site screen or drop this line' : '');
         return lineRow('materials', l, detail);
       }).join('')
-    : '<div style="font-size:13px;color:var(--danger)">⚠ No materials were ticked as bought — this invoice bills labour only. If that\'s wrong, log actuals on the On Site screen first.</div>';
+    : s.materialsBilledOnInterims > 0
+      ? '<div style="font-size:13px;color:var(--text2);padding:4px 0">Every material ticked as bought has already been invoiced on an interim — none left to bill here.</div>'
+      : '<div style="font-size:13px;color:var(--danger)">⚠ No materials were ticked as bought — this invoice bills labour only. If that\'s wrong, log actuals on the On Site screen first.</div>';
   var unconfirmedNote = s.unconfirmedCount > 0
     ? '<div style="font-size:12px;color:var(--text2);padding-top:8px">'+s.unconfirmedCount+' item'+(s.unconfirmedCount===1?'':'s')+' never ticked as bought — not included (see the Invoice list).</div>'
     : '';
+  // Staged invoicing: say that materials already invoiced were left off, and
+  // flag anything an interim billed more of than is now logged as used (a tin
+  // returned after it was invoiced) -- the one case this invoice can't net
+  // off, since a materials line can't go below zero here.
+  if (s.materialsBilledOnInterims > 0 && s.materials.length) {
+    unconfirmedNote += '<div style="font-size:12px;color:var(--text2);padding-top:8px">Quantities already invoiced on interim invoices are left off.</div>';
+  }
+  (s.materialsOverBilled || []).forEach(function(o) {
+    unconfirmedNote += '<div style="font-size:12px;color:var(--warn,#f39c12);font-weight:600;padding-top:8px">⚠ ' + escapeHtml(o.key.replace(/^(code|desc):/, '')) +
+      ': ' + o.billed + ' invoiced on interims but only ' + o.used + ' now logged as bought. Credit the difference in Xero if it was returned.</div>';
+  });
 
   var interims = s.interims || [];
-  var interimHtml = interims.map(function(i) {
+  // Only interims that billed labour or extras get a line (materials were left
+  // off the list above instead) -- plus any not yet in Xero, which block.
+  var interimHtml = interims.filter(function(i) { return i.work > 0.005 || !i.inXero; }).map(function(i) {
     return '<div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">'+
       '<div style="flex:1;min-width:0">'+
         '<div style="font-size:14px;font-weight:600">Less: interim invoice '+escapeHtml(i.number || ('interim ' + i.sequence))+'</div>'+
         '<div style="font-size:12px;color:'+(i.inXero ? 'var(--text2)' : 'var(--danger)')+';margin-top:1px">'+
-          (i.inXero ? 'its subtotal, before deposit' : 'NOT IN XERO YET — send or discard it on Summary first')+'</div>'+
+          (i.inXero ? 'the labour and variations it billed, before deposit' : 'NOT IN XERO YET — send or discard it on Summary first')+'</div>'+
       '</div>'+
-      '<div style="font-size:14px;font-weight:600;white-space:nowrap">− '+fmt(i.subtotal)+'</div>'+
+      '<div style="font-size:14px;font-weight:600;white-space:nowrap">'+(i.work > 0.005 ? '− '+fmt(i.work) : '')+'</div>'+
     '</div>';
   }).join('');
   var interimsPending = interims.some(function(i) { return !i.inXero; });
@@ -19164,8 +19237,8 @@ function renderFinalInvoice() {
     section(isHonouredInv ? 'Labour — as agreed (pre-app quote)' : 'Labour — as quoted', labourHtml)+
     section('Variations', varHtml)+
     section('Materials — as used', matHtml + unconfirmedNote)+
-    (interims.length ? section('Interim invoices — deducted', interimHtml +
-      '<div style="font-size:12px;color:var(--text2);padding-top:8px;line-height:1.45">Everything above is billed in full, extras an interim already covered included; each interim then comes off as its own line.</div>') : '')+
+    (interimHtml ? section('Interim invoices — deducted', interimHtml +
+      '<div style="font-size:12px;color:var(--text2);padding-top:8px;line-height:1.45">Labour and variations above are billed in full, extras an interim already covered included; the labour and extras each interim billed then come off as its own line. Materials an interim billed are simply left off the list above.</div>') : '')+
     '<div class="card" style="padding:12px 14px;margin-bottom:12px">'+
       '<div class="card-header" style="padding:0 0 4px">Already received — apply in Xero</div>'+
       '<div style="font-size:12px;color:var(--text2);padding:4px 0 8px;line-height:1.45">Reference only — <strong>not deducted from the invoice</strong>. The draft goes out at the full amount; apply these payments against it in Xero as usual.</div>'+
@@ -26501,7 +26574,8 @@ function profitabilityCardHtml(p, vView, job) {
         (remaining < 0 ? '−' : '') + fmt(Math.abs(remaining)), remaining < -0.005 ? { colour: 'var(--danger)' } : null)+
       (p.invoices || []).map(function(i) {
         var small = i.type === 'interim'
-          ? 'labour ' + fmtInvoicePct(i.labourPctCumulative) + '% · materials ' + fmtInvoicePct(i.materialsPctCumulative) + '% cumulative'
+          ? 'labour ' + fmtInvoicePct(i.labourPctCumulative) + '% cumulative'
+            + (i.materialsAmount > 0.005 ? ' · materials ' + fmt(i.materialsAmount) : '')
             + (i.variationsAmount > 0.005 ? ' · variations ' + fmt(i.variationsAmount) : '')
           : 'balancing invoice, net of the interims';
         return row('&nbsp;&nbsp;' + escapeHtml(interimInvoiceLabel(i)), small, fmt(+i.subtotal || 0));

@@ -521,9 +521,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS jobs_spec_token ON jobs (spec_token) WHERE spe
 -- use by lib/invoices.js (ensureInvoiceSchema) like the tables above -- this
 -- is the documentation copy.
 --
--- Interims are CUMULATIVE: each records the % complete for labour and for
--- materials to date, and bills only the difference from what was already
--- billed, so the final invoice simply deducts every interim's subtotal.
+-- Labour on an interim is CUMULATIVE: each records the % complete to date and
+-- bills only the difference from what was already billed. Materials are
+-- ITEMISED -- the products ticked as bought and not yet billed, with the
+-- quantities recorded in material_lines -- so the final invoice lists only
+-- what no interim has billed and deducts the interims' labour and variations.
 --
 -- Recorded first, sent to Xero second (routes/xero.js /sync-invoice), with the
 -- row's idempotency_key reused as Xero's Idempotency-Key on every attempt --
@@ -539,9 +541,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   type VARCHAR NOT NULL,                          -- interim | final
   sequence INTEGER NOT NULL,                      -- 1, 2, 3 per job
   labour_pct_cumulative NUMERIC NOT NULL DEFAULT 0,
-  materials_pct_cumulative NUMERIC NOT NULL DEFAULT 0,
-  quoted_labour NUMERIC NOT NULL DEFAULT 0,       -- the bases the % applied to
-  quoted_materials NUMERIC NOT NULL DEFAULT 0,
+  quoted_labour NUMERIC NOT NULL DEFAULT 0,       -- the base the % applied to
   labour_amount NUMERIC NOT NULL DEFAULT 0,
   materials_amount NUMERIC NOT NULL DEFAULT 0,
   variations_amount NUMERIC NOT NULL DEFAULT 0,
@@ -549,6 +549,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   deposit_applied NUMERIC NOT NULL DEFAULT 0,     -- in-app only; Xero allocates by hand
   amount_due NUMERIC NOT NULL DEFAULT 0,
   stage_ref VARCHAR,                              -- quote payment stage used to pre-fill labour
+  material_lines JSONB NOT NULL DEFAULT '[]',     -- [{key, itemCode, description, quantity, unitAmount, amount}] billed here
   variation_lines JSONB NOT NULL DEFAULT '[]',    -- [{kind, sourceId, description, amount}] billed in full here
   line_items JSONB NOT NULL DEFAULT '[]',         -- exactly what is sent to Xero
   xero_contact_id VARCHAR,

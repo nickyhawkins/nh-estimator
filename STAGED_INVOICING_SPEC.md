@@ -5,40 +5,69 @@ The first real interim should be watched in Xero the same way the first deposit 
 (see `DEPOSITS_SPEC.md`).
 
 This feature lets a job have one or more **interim invoices** while it is in progress. Each
-one bills a share of the quoted labour and a share of the quoted materials. The existing
-completion invoice becomes a **balancing final invoice** that deducts everything already
-billed. **A job with no interims behaves exactly as it did before.** Its final invoice,
-deposit handling and profitability card are all unchanged.
+one bills a share of the quoted labour, plus the materials bought so far, listed product by
+product. The existing completion invoice becomes a **balancing final invoice**. It lists only
+the materials no interim has billed, and deducts the labour and variations the interims billed.
+**A job with no interims behaves exactly as it did before.** Its final invoice, deposit handling and profitability card are all unchanged.
 
-## Core principle: cumulative percentages
+## Labour: cumulative percentages
 
-Each interim records a **cumulative** % complete for labour and for materials, and bills only
-the difference from what was already billed:
+Each interim records a **cumulative** % complete for labour, and bills only the difference
+from what was already billed:
 
 ```
-labour_to_bill    = round2(quoted_labour    × new%) − round2(quoted_labour    × prev%)
-materials_to_bill = round2(quoted_materials × new%) − round2(quoted_materials × prev%)
+labour_to_bill = round2(quoted_labour × new%) − round2(quoted_labour × prev%)
 ```
 
 The two cumulative figures are rounded first and then subtracted, rather than rounding the
 difference. That way, billing to 100% over any number of interims comes to exactly the quoted
-figure, to the penny. `scripts/test-staged-invoicing.js` checks this with thirds of £1,000.01.
-Percentages are capped at 100 and can never go down.
+labour, to the penny. `scripts/test-staged-invoicing.js` checks this with thirds of £1,000.01.
+The percentage is capped at 100 and can never go down.
 
-- **Quoted labour** comes from the latest accepted snapshot: `totals.labour + totals.importedBaseline`.
-  On a Standalone Job the snapshot's work rows already include the diary-day upcharge, spread
-  across them exactly as on the client's quote, so the "diary-day labour figure the quote used"
-  is used automatically. Honoured jobs bill their honoured line the same way.
-- **Quoted materials** is `totals.materials`, at quoted sell prices with markup included. Materials
-  are always billed at the quoted price, pro rata, and never at actual cost.
-- A job accepted before snapshots existed falls back to `acceptedSnapshot.estLabourTotal /
-  estMaterialsTotal`. A job with neither can't have an interim, and the builder says why.
+**Quoted labour** comes from the latest accepted snapshot: `totals.labour + totals.importedBaseline`.
+On a Standalone Job the snapshot's work rows already include the diary-day upcharge, spread
+across them exactly as on the client's quote, so the "diary-day labour figure the quote used" is
+used automatically. Honoured jobs bill their honoured line the same way. A job accepted before
+snapshots existed falls back to `acceptedSnapshot.estLabourTotal`. A job with neither can't have
+an interim, and the builder says why.
+
+## Materials: itemised, what has been bought
+
+**Changed from the original handoff on 2026-09-23, at Nicky's request.** The handoff billed
+materials as a cumulative % of the quoted materials. Instead, interims now itemise the materials
+bought so far, which is how Nicky invoices by hand today.
+
+- **The lines** are exactly the ones the final invoice would bill (`buildInvoiceList()`): On Site
+  rows ticked as **bought**, with the colour on the description and live Xero **sell** prices.
+  That means the materials markup is billed, not trade cost. Rows that aren't ticked as bought are
+  counted and not included, the same as on the final invoice.
+- **Billed quantities are recorded per product.** Each interim stores `material_lines`:
+  `[{key, itemCode, description, quantity, unitAmount, amount}]`, where `key` is `materialKey()`
+  (`code:<item>` or `desc:<text>`). The builder offers each product's quantity bought **minus the
+  quantity already invoiced**. So if 2 tins were billed and a third was bought since, the next
+  interim offers 1.
+- **All lines are ticked by default.** Unticking one holds it back for a later invoice. The draft
+  stores the *excluded* keys, so anything bought after the draft was started is included
+  automatically.
+- **Unpriced lines** (no Xero price, or free text with no price) are shown in red and can't be
+  ticked. The server also refuses a zero price.
+- **Layout on the invoice:** labour, then variations, then a description-only `MATERIALS` heading
+  and one line per product (quantity × unit price, item code, account 202). This is the same
+  layout as the final invoice.
+- **Double-billing guard:** each material line sent to the server states `billedBefore`, the
+  quantity the builder believed had already been invoiced. The server checks this against its own
+  invoice rows while holding the job's row lock. If they don't match (another invoice landed in
+  between), it returns **409** and the builder has to be reopened.
+
+The **ceiling** used by the over-billing warning is still the quote plus approved variations. If
+more materials are used than were quoted, billing can legitimately go over it; the warning is a
+confirm step, not a block.
 
 ## Where the logic lives
 
 | Piece | File |
 |---|---|
-| The maths, line text, validation and Xero payload | `lib/invoices.js` |
+| The maths, line layout, validation and Xero payload | `lib/invoices.js` |
 | Record / list / discard / record-final routes | `routes/api.js` (`/api/jobs/:id/invoices…`) |
 | Send a recorded interim to Xero | `routes/xero.js` (`POST /auth/sync-invoice`) |
 | Builder, Summary block, final-invoice deductions, Billing | `public/index.html` |
@@ -51,19 +80,22 @@ be made to both.
 
 **The server decides the figures.** When an interim is issued, the server reads the previous
 cumulative %, the variations already billed and the deposit already applied from the job's own
-invoice rows. It does this inside a transaction that holds a lock on the job's row, so two
-devices issuing at the same moment can't both bill the same 40%. The unique index on
+invoice rows, along with the material quantities already invoiced. It does this inside a
+transaction that holds a lock on the job's row, so two devices issuing at the same moment can't
+both bill the same 40% or the same tins. The unique index on
 `(job_id, sequence)` backs this up.
 
 ## Data model
 
 A new `invoices` table. The columns are listed in `db/setup.sql`, and the main ones are:
-`type` (interim|final), `sequence`, `labour_pct_cumulative`, `materials_pct_cumulative`,
-the `*_amount` columns, `subtotal`, `deposit_applied`, `amount_due`, `stage_ref`,
-`variation_lines` (what was billed in full), `line_items` (exactly what goes to Xero),
+`type` (interim|final), `sequence`, `labour_pct_cumulative`, `quoted_labour`, the
+`*_amount` columns, `subtotal`, `deposit_applied`, `amount_due`, `stage_ref`,
+`material_lines` (products and quantities billed), `variation_lines` (extras billed in full),
+`line_items` (exactly what goes to Xero),
 `xero_invoice_id/number`, `sync_state/synced_at/last_attempt_at/last_error`, and
 `idempotency_key` (unique). `job_id` is a real foreign key with `ON DELETE CASCADE`, the same
-as `job_variations`.
+as `job_variations`. The handoff's `materials_pct_cumulative` column is gone, because
+materials are no longer a percentage.
 
 `job_variations` gets `invoiced_on_invoice_id`. **The app's own record of which extras have
 been billed is `invoices.variation_lines`.** Many approved extras are never published to the
@@ -80,10 +112,10 @@ rows that nothing reads, and would give the table two different meanings.
 
 ## Flow
 
-1. **Builder (works offline).** Enter labour % (typed, or **Match quote stage**), materials %
-   (typed, or tap the **Purchases logged** hint), and tick approved extras that haven't been
-   billed. The preview shows each line, the subtotal, "Less deposit" and the amount due, plus
-   running totals (previously billed, this invoice, remaining). Every change saves to
+1. **Builder (works offline).** Enter labour % (typed, or **Match quote stage**), check the list
+   of bought-but-not-invoiced materials (all ticked; untick to hold one back), and tick approved
+   extras that haven't been billed. The preview shows each line, the subtotal, "Less deposit"
+   and the amount due, plus running totals (previously billed, this invoice, remaining). Every change saves to
    `job.interimDraft`.
 2. **Issue (needs a connection, blocked offline and never queued).** `POST
    /api/jobs/:id/invoices/interim` records the row using the draft's key. If the same key is
@@ -125,22 +157,23 @@ write never fires later from the offline queue without someone watching.
 
 ## Final invoice with interims
 
-The itemised invoice is unchanged: quote lines, materials as used, every approved variation
-(including those an interim already billed, which the interim deduction covers), sundries and
-the invoice text. After those lines comes a **"Less: interim invoice INV-xxxx"** line for each
-interim's subtotal (before deposit):
-
-- **Deviation from the handoff, flagged:** if an interim billed both work and materials, it gets
-  **two** negative lines. One is at 201 for labour and variations, and one at 202 for materials,
-  labelled `… (materials)`. One line can only carry one account code, and the handoff also asked
-  for revenue to net out of the same accounts the positive lines used. An interim that billed
-  only one kind of thing still gets a single line.
+- **Materials:** the final invoice lists only what no interim has billed. For each product, the
+  quantity already invoiced comes off the line, and a line billed in full drops out. A part-billed
+  line notes how many were already invoiced. If a product is now logged in a *smaller* quantity
+  than was already billed (a tin returned after an interim), the line can't go negative. It is
+  flagged instead, so the difference can be credited in Xero.
+- **Labour and variations** are billed in full as before (quote lines, every approved variation
+  including those an interim already billed, and sundries). They are followed by one
+  **"Less: interim invoice INV-xxxx"** line per interim, for the labour and variations it billed
+  (account 201, before deposit). An interim that billed only materials has no deduction line.
+  Revenue therefore nets out of 201 and 202 correctly, with no split lines needed.
 - The final invoice can't be built until every interim is in Xero, because it needs each
   interim's INV number.
 - If the interims already add up to more than the final invoice's total, creation is blocked
   (Xero rejects negative invoices) and the message suggests a credit note instead.
 - After the final is created, a `final` row is recorded (best-effort). `job.finalInvoiceTotal`
-  is the **net** total that goes to Xero.
+  is the **net** total that goes to Xero, so the interim subtotals plus the final total equal
+  labour + variations + materials used.
 
 ## Profitability (Billing)
 
@@ -156,9 +189,6 @@ While the job is in progress, the Summary status card shows the same running tot
   final invoice's wording. On the final invoice, variations and their sundries are itemised
   separately (sundries at 202). The interim folds that sundries share into a 201 line, so the
   per-account net can differ by that share. The total is unaffected.
-- **Purchases logged** values the bought-ticked rows at the same **sell** prices the quote used,
-  so that the % compares like with like. The handoff mentioned "actual purchase cost". Comparing
-  cost against a sell-price quote would always read about 20% behind.
 - The interim's Xero **Reference** is `<job ref> — interim N`.
 
 ## Open questions (not resolved here)
@@ -166,8 +196,8 @@ While the job is in progress, the Summary status card shows the same running tot
 1. **Deposit on the interim in Xero.** Is manual prepayment allocation, with no negative line,
    right? Or should the app try to allocate the prepayment to the first interim automatically?
    (Xero refuses to allocate against a DRAFT, and the app only ever creates drafts.)
-2. **Match quote stage.** Stages are a % of the whole job. Should picking a stage also pre-fill
-   materials %? At the moment it only fills labour.
+2. ~~**Match quote stage** — should it pre-fill materials % too?~~ Resolved: materials are
+   itemised now, so there's no materials % to fill.
 3. **Void or edit an issued interim.** Not built. The app only discards an interim that never
    reached Xero. If voiding or editing is ever added, it has to roll back the cumulative %, the
    `variation_lines` and `deposit_applied`, and probably needs to be limited to the latest interim.
