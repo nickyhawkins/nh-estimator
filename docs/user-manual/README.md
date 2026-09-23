@@ -1073,17 +1073,23 @@ Review the lines, adjust anything, then send — the app writes **one draft invo
 
 ### Billing part way through: interim invoices
 
-On a long job you don't have to wait until the end to invoice. While a job is **Accepted**, the Summary status card has an **Invoices** line with **Interim invoice ›**. Each interim bills a share of the quoted labour plus the materials you've bought so far. The final invoice then bills only what's left.
+On a long job you don't have to wait until the end to invoice. While a job is **Accepted**, the Summary status card has an **Invoices** line with **Interim invoice ›**. Each interim bills the rooms (or parts of rooms) finished so far, plus the materials you've bought. The final invoice then bills only what's left.
 
 ![The interim invoice builder](images/25a-interim-invoice-builder.png)
 
-- **Labour % complete is cumulative.** Enter how far through the job is **in total**, not how much more has been done since the last invoice. If the first interim was at 40% and you now enter 70%, this invoice bills the 30% in between. The app won't let the figure go down, or go above 100%. You can type it, or use **Match quote stage** to fill in the cumulative % through one of the stages in the quote's payment plan (deposit, weekly instalments, balance). You can still change the figure after picking a stage.
+- **Labour is billed room by room.** Every line from the accepted quote (each room, exterior item, fitted unit or custom line) has its own % box and a **Done** button.
+  - Tap **Done** when a room is finished, and the whole of its quoted price goes on this invoice.
+  - Type a % when it's part-done, e.g. **50** when half the room is painted.
+  - The % is **cumulative**: how far through that room is **in total**. If the Hall went on the last invoice at 50% and you now tap Done, this invoice bills the other 50% and reads *"Hall — complete (previously invoiced 50%)"*.
+  - A room already invoiced in full shows **✓ invoiced in full**. A % can't go down or above 100.
+  - **Set every line to** sets all rooms to the same % in one go, handy for "40% of everything". **Match quote stage** does the same using a stage from the quote's payment plan (deposit, weekly instalments, balance). Neither pulls down a room you've already set higher.
+  - **Sundries & Consumables** aren't on interims. They're billed in full on the final invoice.
 - **Materials are itemised.** Every product you've ticked as **bought** on the On Site list and haven't invoiced yet is listed, with its quantity and price. These are the same lines and prices the final invoice uses. They're all ticked to start with; untick anything you'd rather hold back until later. If you bought 2 tins, invoiced them, then bought a third, the next interim offers just the one. A product with no price is shown in red and can't be billed until you set its price on the On Site screen.
-- **Approved variations.** Tick any to bill them in full on this invoice. Once an extra has been billed it's greyed out, so it can't go on a second interim.
+- **Approved variations** work the same way as rooms: a % box and **Done** for each one, so you can bill half an extra now and the rest later.
 
 ![Preview, running totals and Issue](images/25c-interim-invoice-preview.png)
 
-The **Preview** shows the invoice line by line (labour, variations, then a **MATERIALS** heading with each product, just as the final invoice lays them out), then **Less deposit** (taken off the first interim) and the **Amount due**. Below that are the running totals: already billed, this invoice, and what's left to bill against the quote plus approved variations. The app won't issue an invoice with nothing to pay, and it warns you before issuing one that would take billing past the quote.
+The **Preview** shows the invoice line by line (each room that bills something, e.g. *"Lounge — complete"* or *"Hall, stairs & landing — 50% complete"*, then variations, then a **MATERIALS** heading with each product, just as the final invoice lays them out), then **Less deposit** (taken off the first interim) and the **Amount due**. Below that are the running totals: already billed, this invoice, and what's left to bill against the quote plus approved variations. The app won't issue an invoice with nothing to pay, and it warns you before issuing one that would take billing past the quote.
 
 You can fill the builder in with no signal; it saves as you go. **Issue interim invoice** needs a connection. It records the invoice, then creates it in Xero as a **draft** with its own number, the same contact and the same accounts as the final invoice. The deposit is **not** a line on the Xero invoice, because it's already in Xero as a prepayment. Allocate the prepayment to the first interim in Xero, as you would for the final invoice.
 
@@ -1094,7 +1100,7 @@ Each invoice then appears on the status card with its Xero state. If the send to
 **The final invoice with interims.** When the job is completed, the final invoice is built as before, with two differences:
 
 - **Materials already invoiced are left off.** The final lists only what no interim has billed. A product that was part-billed shows just the remainder, with a note of how many were already invoiced. Materials are never billed twice and never need a deduction line.
-- **Labour and variations are billed in full, then each interim's share comes off.** Every quote line and approved variation appears as usual (including extras an interim already billed). Then comes one **"Less: interim invoice INV-…"** line per interim, for the labour and variations it billed. An interim that only billed materials has no deduction line.
+- **Labour and variations are billed in full, then each interim's share comes off.** Every quote line, the sundries and every approved variation appear as usual. Then comes one **"Less: interim invoice INV-…"** line per interim, for the labour and variations it billed. An interim that only billed materials has no deduction line. What's left to pay is the rooms that weren't invoiced, the unbilled parts of the rest, and the sundries.
 
 If you've since returned a tin that an interim already billed, the final invoice flags it so you can credit the difference in Xero. The deposit box now shows only the part of the deposit that hasn't already been set against an interim. The final invoice can't be created until every interim is in Xero.
 

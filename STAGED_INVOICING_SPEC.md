@@ -5,31 +5,51 @@ The first real interim should be watched in Xero the same way the first deposit 
 (see `DEPOSITS_SPEC.md`).
 
 This feature lets a job have one or more **interim invoices** while it is in progress. Each
-one bills a share of the quoted labour, plus the materials bought so far, listed product by
-product. The existing completion invoice becomes a **balancing final invoice**. It lists only
+one bills the quote's labour room by room (each line complete, or a % of it), approved extras
+the same way, and the materials bought so far, listed product by product. The existing completion invoice becomes a **balancing final invoice**. It lists only
 the materials no interim has billed, and deducts the labour and variations the interims billed.
 **A job with no interims behaves exactly as it did before.** Its final invoice, deposit handling and profitability card are all unchanged.
 
-## Labour: cumulative percentages
+## Labour: line by line, each with its own cumulative %
 
-Each interim records a **cumulative** % complete for labour, and bills only the difference
-from what was already billed:
+**Changed from the original handoff on 2026-09-23, at Nicky's request.** The handoff billed one
+cumulative % of the whole labour total. Instead, every labour line on the accepted quote carries
+its own cumulative % complete, so a finished room can be invoiced in full and a half-done room at
+50%.
 
 ```
-labour_to_bill = round2(quoted_labour × new%) − round2(quoted_labour × prev%)
+line_to_bill = round2(line_total × new%) − £ already billed on that line
 ```
 
-The two cumulative figures are rounded first and then subtracted, rather than rounding the
-difference. That way, billing to 100% over any number of interims comes to exactly the quoted
-labour, to the penny. `scripts/test-staged-invoicing.js` checks this with thirds of £1,000.01.
-The percentage is capped at 100 and can never go down.
+- **The lines** are the accepted snapshot's work rows (a room, an exterior item, the kitchen, a
+  fitted unit, a custom line, the rounding-adjustment row if there is one) plus any Xero-imported
+  baseline row. They're at the prices on the client's copy, so any Standalone diary-day upcharge
+  and rounding are already spread through them. **"Sundries & Consumables" is left off interims
+  entirely** (Nicky, 2026-09-23). It's a % of the whole job's labour and is billed in full on the
+  final invoice.
+- **Line identity** is the snapshot row's `sourceKey` (`room:<id>`, `custom:<id>`...), which
+  survives an amendment. Rows from before `sourceKey` existed key on their description. Honoured
+  jobs, and snapshots rebuilt from Xero totals alone, have a single labour line. Jobs accepted
+  before snapshots existed have one line, "Labour as quoted" (`acceptedSnapshot.estLabourTotal`),
+  which includes their sundries.
+- **Billing against £ already billed**, rather than against the previous %, means a line comes to
+  exactly its price at 100% however many invoices it took (tested with thirds of £1,000.01). If an
+  amendment re-priced the line in between, the next invoice bills the new price less what was
+  actually billed. A line re-priced *below* what was already billed is refused, and the
+  difference is left for the final invoice.
+- The % can't go down and can't go above 100. A line already at 100% shows "✓ invoiced in full".
+- **Builder:** each line has a % box and a **Done** button (100%, or back again if tapped twice).
+  **"Set every line to"** and **Match quote stage** (the quote's payment plan as a running % of
+  the job total) set every line at once. They only ever *raise* a line, so a room already marked
+  done isn't pulled back down.
+- **Invoice text:** only lines that bill something appear. They read
+  `Lounge — complete (previously invoiced 50%)` or `Hall, stairs & landing — 50% complete`, at 201.
+- `labour_pct_cumulative` on the row is the overall % (labour £ billed to date against the
+  labour lines' total). It's for display only.
 
-**Quoted labour** comes from the latest accepted snapshot: `totals.labour + totals.importedBaseline`.
-On a Standalone Job the snapshot's work rows already include the diary-day upcharge, spread
-across them exactly as on the client's quote, so the "diary-day labour figure the quote used" is
-used automatically. Honoured jobs bill their honoured line the same way. A job accepted before
-snapshots existed falls back to `acceptedSnapshot.estLabourTotal`. A job with neither can't have
-an interim, and the builder says why.
+**Approved variations** work the same way: each has a % and **Done**, and is billed as
+`Variation: <description> — 50% complete`. The published client-facing row is stamped
+`invoiced_on_invoice_id` by the invoice that takes it to 100%.
 
 ## Materials: itemised, what has been bought
 
@@ -78,9 +98,11 @@ The browser copy previews the invoice offline, and the server copy decides what 
 The test fails if the two copies are not identical character for character, so any edit has to
 be made to both.
 
-**The server decides the figures.** When an interim is issued, the server reads the previous
-cumulative %, the variations already billed and the deposit already applied from the job's own
-invoice rows, along with the material quantities already invoiced. It does this inside a
+**The server decides the figures.** When an interim is issued, the server reads each labour
+and variation line's % and £ already invoiced, the material quantities already invoiced and the
+deposit already applied, all from the job's own invoice rows. Every line in the request states
+what the builder believed was invoiced before. If that doesn't match, the request is a stale view
+and gets a 409. It does this inside a
 transaction that holds a lock on the job's row, so two devices issuing at the same moment can't
 both bill the same 40% or the same tins. The unique index on
 `(job_id, sequence)` backs this up.
@@ -90,7 +112,8 @@ both bill the same 40% or the same tins. The unique index on
 A new `invoices` table. The columns are listed in `db/setup.sql`, and the main ones are:
 `type` (interim|final), `sequence`, `labour_pct_cumulative`, `quoted_labour`, the
 `*_amount` columns, `subtotal`, `deposit_applied`, `amount_due`, `stage_ref`,
-`material_lines` (products and quantities billed), `variation_lines` (extras billed in full),
+`labour_lines` and `variation_lines` (`[{key, description, lineTotal, pct, prevPct, amount}]`
+for each line that billed something), `material_lines` (products and quantities billed),
 `line_items` (exactly what goes to Xero),
 `xero_invoice_id/number`, `sync_state/synced_at/last_attempt_at/last_error`, and
 `idempotency_key` (unique). `job_id` is a real foreign key with `ON DELETE CASCADE`, the same
@@ -112,9 +135,9 @@ rows that nothing reads, and would give the table two different meanings.
 
 ## Flow
 
-1. **Builder (works offline).** Enter labour % (typed, or **Match quote stage**), check the list
-   of bought-but-not-invoiced materials (all ticked; untick to hold one back), and tick approved
-   extras that haven't been billed. The preview shows each line, the subtotal, "Less deposit"
+1. **Builder (works offline).** Mark rooms **Done** or give them a % (or set every line at once /
+   **Match quote stage**), check the list of bought-but-not-invoiced materials (all ticked;
+   untick to hold one back), and set the approved extras the same way as rooms. The preview shows each line, the subtotal, "Less deposit"
    and the amount due, plus running totals (previously billed, this invoice, remaining). Every change saves to
    `job.interimDraft`.
 2. **Issue (needs a connection, blocked offline and never queued).** `POST
@@ -185,8 +208,7 @@ While the job is in progress, the Summary status card shows the same running tot
 ## Deliberate choices worth knowing
 
 - **Variations** use the price published to the client (`buildClientVariationLines`, sundries
-  share and markup included), with the line text `Variation: <description>`, which matches the
-  final invoice's wording. On the final invoice, variations and their sundries are itemised
+  share and markup included), with the line text `Variation: <description> — N% complete`. On the final invoice, variations and their sundries are itemised
   separately (sundries at 202). The interim folds that sundries share into a 201 line, so the
   per-account net can differ by that share. The total is unaffected.
 - The interim's Xero **Reference** is `<job ref> — interim N`.

@@ -491,7 +491,7 @@ router.use('/jobs/:id/invoices', async (req, res, next) => {
 
 const INVOICE_COLUMNS = `id, job_id, type, sequence, labour_pct_cumulative,
   quoted_labour, labour_amount, materials_amount, variations_amount, subtotal,
-  deposit_applied, amount_due, stage_ref, material_lines, variation_lines, line_items, xero_invoice_id,
+  deposit_applied, amount_due, stage_ref, labour_lines, material_lines, variation_lines, line_items, xero_invoice_id,
   xero_invoice_number, sync_state, synced_at, last_attempt_at, last_error, idempotency_key, created_at`;
 
 router.get('/jobs/:id/invoices', async (req, res) => {
@@ -549,22 +549,23 @@ router.post('/jobs/:id/invoices/interim', async (req, res) => {
     const inserted = await client.query(
       `INSERT INTO invoices (id, job_id, type, sequence, labour_pct_cumulative,
               quoted_labour, labour_amount, materials_amount, variations_amount, subtotal,
-              deposit_applied, amount_due, stage_ref, material_lines, variation_lines, line_items,
+              deposit_applied, amount_due, stage_ref, labour_lines, material_lines, variation_lines, line_items,
               xero_contact_id, xero_client_name, xero_reference, sync_state, idempotency_key)
-       VALUES ($1, $2, 'interim', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-               $16, $17, $18, 'notSynced', $19)
+       VALUES ($1, $2, 'interim', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+               $17, $18, $19, 'notSynced', $20)
        RETURNING ${INVOICE_COLUMNS}`,
       [id, jobId, r.sequence, r.labourPctCumulative,
        r.quotedLabour, r.labourAmount, r.materialsAmount, r.variationsAmount, r.subtotal,
-       r.depositApplied, r.amountDue, r.stageRef, JSON.stringify(r.materialLines),
+       r.depositApplied, r.amountDue, r.stageRef, JSON.stringify(r.labourLines), JSON.stringify(r.materialLines),
        JSON.stringify(r.variationLines), JSON.stringify(r.lineItems),
        // Same contact and reference the final invoice uses, captured now so
        // the Xero write sends exactly what was recorded.
        job.xeroContactId || null, job.xeroClient || job.name || null,
        (job.xeroRef || job.name || '') + ' — interim ' + r.sequence, r.idempotencyKey]
     );
-    // Stamp the published client-facing rows too, where they exist.
-    for (const v of r.variationLines) {
+    // Stamp the published client-facing rows too, where they exist -- on the
+    // invoice that takes the extra to 100%, i.e. the one that finishes billing it.
+    for (const v of r.variationLines.filter(v => v.pct >= 100)) {
       await client.query(
         `UPDATE job_variations SET invoiced_on_invoice_id = $1, updated_at = NOW()
           WHERE job_id = $2 AND source_kind = $3 AND source_id = $4`,
