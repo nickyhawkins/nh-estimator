@@ -182,6 +182,33 @@ const TINS = [{ amount: 180 }, { amount: 320 }];
   eq('percentages print as people write them', [lib.fmtInvoicePct(33.333), lib.fmtInvoicePct(40), lib.fmtInvoicePct(12.5)], ['33.33', '40', '12.5']);
 }
 
+// ── A whole-job % reads as one labour line ──────────────────────────────────
+{
+  const at = (pct, prevPct) => [
+    { description: 'Lounge', pct, prevPct, amount: 600 * (pct - prevPct) / 40 },
+    { description: 'Hall', pct, prevPct, amount: 720 * (pct - prevPct) / 40 },
+    { description: 'Front bedroom', pct, prevPct, amount: 200 * (pct - prevPct) / 40 }];
+  const one = lib.interimInvoiceLineItems({ labour: at(40, 0), variations: [{ description: 'Variation: Door', pct: 100, prevPct: 0, amount: 180 }] });
+  eq('every room at the same % prints one labour line', one[0], { description: 'Labour: 40% of quoted works (previously invoiced 0%)', quantity: 1, unitAmount: 1520, accountCode: '201' });
+  eq('...variations still listed after it', one.map(l => l.description), ['Labour: 40% of quoted works (previously invoiced 0%)', 'Variation: Door — complete']);
+  const again = lib.interimInvoiceLineItems({ labour: at(70, 40) });
+  eq('a second whole-job step says what went before', again[0].description, 'Labour: 70% of quoted works (previously invoiced 40%)');
+  const mixed = lib.interimInvoiceLineItems({ labour: [
+    { description: 'Lounge', pct: 100, prevPct: 0, amount: 1500 },
+    { description: 'Hall', pct: 40, prevPct: 0, amount: 720 },
+    { description: 'Front bedroom', pct: 40, prevPct: 0, amount: 200 }] });
+  eq('rooms at different %s stay room by room', mixed.map(l => l.description), ['Lounge — complete', 'Hall — 40% complete', 'Front bedroom — 40% complete']);
+  const doneBefore = lib.interimInvoiceLineItems({ labour: [
+    { description: 'Lounge', pct: 100, prevPct: 100, amount: 0 },
+    { description: 'Hall', pct: 60, prevPct: 0, amount: 1080 },
+    { description: 'Front bedroom', pct: 60, prevPct: 0, amount: 300 }] });
+  eq('a room already finished earlier keeps it room by room', doneBefore.map(l => l.description), ['Hall — 60% complete', 'Front bedroom — 60% complete']);
+  const single = lib.interimInvoiceLineItems({ labour: [{ description: 'Labour as quoted', pct: 40, prevPct: 0, amount: 1600 }] });
+  eq('a one-line quote keeps its own wording', single[0].description, 'Labour as quoted — 40% complete');
+  const nothing = lib.interimInvoiceLineItems({ labour: at(40, 40).map(l => Object.assign(l, { amount: 0 })), materials: [{ description: 'Tape', quantity: 1, unitAmount: 4 }] });
+  eq('no labour moving, no labour line', nothing.map(l => l.description), ['MATERIALS', 'Tape']);
+}
+
 // ── Server-side planning (what the route records) ───────────────────────────
 {
   const tin = { key: 'code:TIK-OPT7-10', itemCode: 'TIK-OPT7-10', description: 'Optiva 7 10L', quantity: 2, unitAmount: 90, billedBefore: 0 };
@@ -212,6 +239,11 @@ const TINS = [{ amount: 180 }, { amount: 320 }];
   eq('plan: the rest of the extra', second.row && second.row.variationsAmount, 90);
   eq('plan: ...and just the extra tin', second.row && second.row.materialsAmount, 90);
   eq('plan: no second deposit deduction', second.row && second.row.depositApplied, 0);
+  const whole = lib.planInterimInvoice({ existing: [], depositTotal: 0, body: Object.assign({}, body, { materials: [], variations: [],
+    labour: [Object.assign({}, lounge, { pct: 40 }), Object.assign({}, hall, { pct: 40 })] }) });
+  eq('plan: a whole-job % is recorded per line but invoiced as one line',
+    [whole.row && whole.row.labourLines.length, whole.row && whole.row.lineItems.map(l => [l.description, l.unitAmount])],
+    [2, [['Labour: 40% of quoted works (previously invoiced 0%)', 1520]]]);
   const staleLabour = lib.planInterimInvoice({ existing, depositTotal: 500, body: next({ labour: [Object.assign({}, hall, { pct: 100 })], variations: [] }) });
   check('plan: a labour line built from a stale view is refused as a conflict', staleLabour.conflict === true, staleLabour);
   const staleTin = lib.planInterimInvoice({ existing, depositTotal: 500, body: next({ labour: [], variations: [], materials: [tin] }) });

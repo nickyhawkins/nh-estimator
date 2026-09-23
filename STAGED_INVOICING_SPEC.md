@@ -44,6 +44,12 @@ line_to_bill = round2(line_total × new%) − £ already billed on that line
   done isn't pulled back down.
 - **Invoice text:** only lines that bill something appear. They read
   `Lounge — complete (previously invoiced 50%)` or `Hall, stairs & landing — 50% complete`, at 201.
+- **A whole-job % prints as one line** (Nicky, 2026-09-23). When *every* labour line on the quote
+  moves from the same % to the same % (Set every line to 40%, or a quote stage), labour is printed
+  as a single `Labour: 40% of quoted works (previously invoiced 0%)` line for the lines' total.
+  `labour_lines` still records each line, so a later invoice can go room by room and carry on
+  from 40%. A one-line quote keeps its own wording. If any line differs (one room already Done, or
+  set higher), the invoice lists room by room.
 - `labour_pct_cumulative` on the row is the overall % (labour £ billed to date against the
   labour lines' total). It's for display only.
 
