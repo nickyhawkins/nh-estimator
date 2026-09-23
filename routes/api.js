@@ -6,7 +6,7 @@ const {
   ensureSpecSchema, ensureSpecToken, specSheetPath, normaliseSpecModel,
   readSpecTicks, writeSpecTick, SPEC_STEPS, SPEC_TICK_STATUSES, ITEM_KEY_MAX,
 } = require('../lib/specSheet');
-const { ensureInvoiceSchema, mapInvoiceRow, planInterimInvoice } = require('../lib/invoices');
+const { ensureInvoiceSchema, mapInvoiceRow, planInterimInvoice, DEAD_STATUSES } = require('../lib/invoices');
 // Aliased so the import loop below reads like its neighbours (SNAG_STATUSES,
 // VARIATION_KINDS) rather than shadowing the step set's name with a local.
 const SPEC_STEPS_SET = SPEC_STEPS;
@@ -492,7 +492,8 @@ router.use('/jobs/:id/invoices', async (req, res, next) => {
 const INVOICE_COLUMNS = `id, job_id, type, sequence, labour_pct_cumulative,
   quoted_labour, labour_amount, materials_amount, variations_amount, subtotal,
   deposit_applied, amount_due, stage_ref, labour_lines, material_lines, variation_lines, line_items, xero_invoice_id,
-  xero_invoice_number, sync_state, synced_at, last_attempt_at, last_error, idempotency_key, created_at`;
+  xero_invoice_number, sync_state, synced_at, last_attempt_at, last_error, idempotency_key, created_at,
+  xero_status, xero_date, xero_total, xero_amount_paid, xero_amount_due, xero_checked_at`;
 
 router.get('/jobs/:id/invoices', async (req, res) => {
   try {
@@ -629,12 +630,13 @@ router.post('/jobs/:id/invoices/final', async (req, res) => {
   }
 });
 
-// Discard an interim that never reached Xero -- a failed send that is not
-// going to be retried (wrong figures, contact problem). Refused once it is in
-// Xero: voiding or editing an issued invoice is an open question
-// (STAGED_INVOICING_SPEC.md), and until it is answered the app does not unwind
-// a financial document it has already written. Only the LATEST interim can go,
-// so the cumulative % of every invoice after it stays true.
+// Discard an interim: one that never reached Xero (a failed send that is not
+// going to be retried), or one that has since been VOIDED or DELETED in Xero.
+// The second is how an issued interim is corrected: void it in Xero, discard
+// it here, issue it again. The app never voids anything itself -- Xero stays
+// the place financial documents are unwound -- but once Xero says an invoice
+// no longer stands, the app stops counting it. Only the LATEST interim can
+// go, so the "previously invoiced" figures on every invoice after it stay true.
 router.delete('/jobs/:id/invoices/:invoiceId', async (req, res) => {
   const { id: jobId, invoiceId } = req.params;
   const client = await db.pool.connect();
@@ -642,13 +644,14 @@ router.delete('/jobs/:id/invoices/:invoiceId', async (req, res) => {
     await client.query('BEGIN');
     await client.query('SELECT id FROM jobs WHERE id = $1 FOR UPDATE', [jobId]);
     const rows = (await client.query(
-      'SELECT id, type, sequence, sync_state, xero_invoice_id FROM invoices WHERE job_id = $1 ORDER BY sequence DESC', [jobId])).rows;
+      'SELECT id, type, sequence, sync_state, xero_invoice_id, xero_status FROM invoices WHERE job_id = $1 ORDER BY sequence DESC', [jobId])).rows;
     const target = rows.find(r => r.id === invoiceId);
     if (!target) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'invoice not found' }); }
     if (target.type !== 'interim') { await client.query('ROLLBACK'); return res.status(400).json({ error: 'Only an interim invoice can be discarded here' }); }
-    if (target.sync_state === 'synced' || target.xero_invoice_id) {
+    const deadInXero = DEAD_STATUSES.includes(target.xero_status);
+    if ((target.sync_state === 'synced' || target.xero_invoice_id) && !deadInXero) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'This invoice is already in Xero — correct or void it there.' });
+      return res.status(400).json({ error: 'This invoice is in Xero — void or delete it there first, then discard it here.' });
     }
     if (rows[0].id !== invoiceId) {
       await client.query('ROLLBACK');

@@ -1587,6 +1587,52 @@ router.post('/sync-invoice', async (req, res) => {
   }
 });
 
+// Read-back of a job's invoices from Xero (STAGED_INVOICING_SPEC.md): status,
+// date, total and what has been paid. Same contract as /prepayment-status --
+// a poll, one-way, Xero always wins, and a failure changes nothing. What it
+// reads decides two things: whether an invoice has left draft (only then may
+// it appear on the client's page), and whether it has been voided or deleted
+// in Xero (only then may the app discard an invoice it has already sent).
+router.post('/invoice-statuses', async (req, res) => {
+  const { jobId } = req.body || {};
+  if (!jobId) return res.status(400).json({ error: 'jobId is required' });
+  try {
+    await ensureInvoiceSchema();
+    const rows = (await db.query(
+      `SELECT id, xero_invoice_id FROM invoices WHERE job_id = $1 AND xero_invoice_id IS NOT NULL`, [jobId])).rows;
+    if (!rows.length) return res.json({ ok: true, checked: 0 });
+    const accessToken = await getAccessToken();
+    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    const tenantId = result.rows[0]?.xero_tenant_id;
+    if (!tenantId) return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
+    // One request for the lot: GET /Invoices takes a comma-separated IDs list.
+    const ids = rows.map(r => r.xero_invoice_id);
+    const invRes = await axios.get(`${XERO_API_URL}/Invoices?IDs=${encodeURIComponent(ids.join(','))}`, {
+      headers: { Authorization: `Bearer ${accessToken}`, 'Xero-Tenant-Id': tenantId, Accept: 'application/json' }
+    });
+    const byId = {};
+    (invRes.data.Invoices || []).forEach(inv => { byId[inv.InvoiceID] = inv; });
+    let checked = 0;
+    for (const r of rows) {
+      const inv = byId[r.xero_invoice_id];
+      if (!inv) continue;   // not returned: leave what we knew, the next poll retries
+      const date = xeroDateOnly(inv.DateString, inv.Date);
+      await db.query(
+        `UPDATE invoices SET xero_status = $2, xero_date = $3, xero_total = $4, xero_amount_paid = $5,
+                xero_amount_due = $6, xero_invoice_number = COALESCE($7, xero_invoice_number),
+                xero_checked_at = NOW()
+          WHERE id = $1`,
+        [r.id, inv.Status || null, date || null, inv.Total ?? null, inv.AmountPaid ?? null,
+         inv.AmountDue ?? null, inv.InvoiceNumber || null]);
+      checked++;
+    }
+    res.json({ ok: true, checked });
+  } catch (err) {
+    console.error('Invoice statuses error:', err.response?.data || err.message);
+    res.status(500).json({ error: xeroErrorMessage(err) });
+  }
+});
+
 // Inward half of the quote-status sync (JOB_PIPELINE_SPEC.md Part 3) --
 // batch-reads the given quotes so the app can learn about answers given
 // through Xero's own portal/email without them being re-typed. Read-only.
