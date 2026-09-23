@@ -3376,13 +3376,13 @@ var DEFAULT_TEXT_TEMPLATES = [
     'Q: {stripped}',
     'Q:',
     'Q: WALLPAPERING',
-    'Q: [X] lengths of [paper name/supplier] to be hung to {papered}, with seams carefully matched and trimmed for a consistent pattern throughout. All work carried out to a high standard using professional techniques and quality trade materials.',
+    'Q: {lengths} lengths of [paper name/supplier] to be hung to {papered}, with seams carefully matched and trimmed for a consistent pattern throughout. All work carried out to a high standard using professional techniques and quality trade materials.',
     'Q:',
     'Q: COMPLETION',
     'Q: On completion all protection will be removed, all trimmings cleared away and the areas left clean and tidy. A final inspection will be carried out to ensure you are completely happy with the finished result.',
     'I: Walls prepared including filling, sanding and caulking, sized/lined prior to hanging.',
     'I: {stripped}',
-    'I: [X] lengths of [paper name/supplier] hung to {papered}, seams matched and trimmed for a consistent pattern throughout.',
+    'I: {lengths} lengths of [paper name/supplier] hung to {papered}, seams matched and trimmed for a consistent pattern throughout.',
     'I: Work completed on {completedDate}. Protection removed, trimmings cleared and area left clean on completion.'
   ].join('\n') },
   { id: 'paint-paper', name: 'Painting & Papering', body: [
@@ -3395,13 +3395,13 @@ var DEFAULT_TEXT_TEMPLATES = [
     'Q: {surfaces}',
     'Q:',
     'Q: WALLPAPERING',
-    'Q: [X] lengths of [paper name/supplier] to be hung to {papered}, with seams carefully matched and trimmed for a consistent pattern throughout. All work carried out to a high standard using professional techniques and quality trade materials.',
+    'Q: {lengths} lengths of [paper name/supplier] to be hung to {papered}, with seams carefully matched and trimmed for a consistent pattern throughout. All work carried out to a high standard using professional techniques and quality trade materials.',
     'Q:',
     'Q: COMPLETION',
     'Q: On completion all protection will be removed, all trimmings cleared away and the areas left clean and tidy. A final inspection will be carried out to ensure you are completely happy with the finished result.',
     'I: Surfaces prepared including filling, sanding and caulking, walls sized prior to hanging.',
     'I: {surfaces}',
-    'I: [X] lengths of [paper name/supplier] hung to {papered}, seams matched and trimmed for a consistent pattern throughout.',
+    'I: {lengths} lengths of [paper name/supplier] hung to {papered}, seams matched and trimmed for a consistent pattern throughout.',
     'I: Work completed on {completedDate}. Protection removed, trimmings cleared and area left clean on completion.'
   ].join('\n') },
   { id: 'fitted-units', name: 'Fitted Units & Shelving', body: [
@@ -3777,6 +3777,34 @@ function buildScopeSentence(mode, liveRooms, vals) {
   body += '.';
   if (extras.length) body += ' ' + extras.join(' ');
   return body;
+}
+
+// How many lengths get hung, for the "[X] lengths of ... to be hung to
+// {papered}" line — the number Nicky used to type in by hand.
+//
+// LENGTHS, not rolls: a length is one strip cut and hung, which is what
+// that sentence is counting. Rolls are what gets ordered and are already
+// the Rolls-to-order figure on the room form and the materials list.
+//
+// Whole-job, like {papered} beside it in the same sentence — "23 lengths
+// to be hung to the walls and the ceiling" has to cover everything that
+// phrase names, and {papered} has always been whole-job even though
+// {surfaces} is subject-room-only.
+//
+// Falls back to the seeded square-bracket marker, exactly as
+// buildPaperedPhrase() does: with no papering measured, or with a figure
+// that can't be known (see sumWallpaperDrops), the template shows the same
+// edit-me marker it always did rather than a wrong number or a stray token.
+function buildLengthsValue(liveRooms) {
+  var total = 0;
+  var known = (liveRooms || []).every(function(r) {
+    var c = calcRoom(r);
+    var parts = [c.wpwDrops, c.wpcDrops, c.featureWallWpDrops];
+    if (parts.some(function(d) { return d == null; })) return false;
+    parts.forEach(function(d) { total += +d || 0; });
+    return true;
+  });
+  return (known && total > 0) ? String(total) : '[X]';
 }
 
 // What is being papered, for the wallpapering templates' "hung to ..."
@@ -4233,6 +4261,7 @@ function buildTemplateValues(mode) {
   vals.kitchenCoats = (job.kitchen && !job.kitchen.isVariation)
     ? Math.max(1, Math.min(4, +job.kitchen.coats || 2)) : null;
   vals.papered = buildPaperedPhrase(liveRooms);
+  vals.lengths = buildLengthsValue(liveRooms);
   if (mode === 'invoice') {
     // Last day actually on site beats the day the Completed button was
     // tapped; labour_log is already loaded per active job.
@@ -13052,12 +13081,17 @@ function calcRoom(r) {
   // see wpSurfaceResult()/roomWallpaperRolls(). isHSL rooms pick up the
   // staircase multiplier automatically via roomWallpaperRolls()'s
   // override read and wallpaperLabourCost()'s isStaircase argument.
-  var wpwResult = wpSurfaceResult(r.wpWallLining, r.wpWallFinish, false, !!r.isHSL, function(t){ return { rolls: roomWallpaperRolls(r, false, t) }; });
-  var wpcResult = wpSurfaceResult(r.wpCeilLining, r.wpCeilFinish, true, !!r.isHSL, function(t){ return { rolls: roomWallpaperRolls(r, true, t) }; });
+  var wpwResult = wpSurfaceResult(r.wpWallLining, r.wpWallFinish, false, !!r.isHSL, function(t){ return roomWallpaperCount(r, false, t); });
+  var wpcResult = wpSurfaceResult(r.wpCeilLining, r.wpCeilFinish, true, !!r.isHSL, function(t){ return roomWallpaperCount(r, true, t); });
   var wpwCost  = wpwResult.cost;
   var wpcCost  = wpcResult.cost;
   var wpwRolls = wpwResult.parts.reduce(function(sum,p){ return sum + p.rolls; }, 0);
   var wpcRolls = wpcResult.parts.reduce(function(sum,p){ return sum + p.rolls; }, 0);
+  // Drops (= lengths hung), summed the same way. A surface papered with
+  // BOTH lining and finish counts each pass: two sets of strips really are
+  // hung. See sumWallpaperDrops() for the not-recorded case.
+  var wpwDrops = sumWallpaperDrops(wpwResult.parts);
+  var wpcDrops = sumWallpaperDrops(wpcResult.parts);
   // Feature wall wallpaper -- SAME wpSurfaceResult()/calcWallpaperRolls()
   // machinery as walls/ceiling above, just fed the feature wall's own
   // width/height via featureWallWallpaperRolls() instead of the room's l/w/h.
@@ -13073,11 +13107,12 @@ function calcRoom(r) {
   var featureWallVinylResult = fwCommercialType==='wideVinyl' ? vinylCost(r) : null;
   var featureWallMuralResult = fwCommercialType==='mural'     ? muralCost(r) : null;
   var featureWallWpResult = (fwWallpaper && fwCommercialType==='none') ? wpSurfaceResult(r.fwWpLining, r.fwWpFinish, false, !!r.isHSL,
-    function(t){ return { rolls: featureWallWallpaperRolls(r, t) }; }) : { cost: 0, parts: [] };
+    function(t){ return featureWallWallpaperCount(r, t); }) : { cost: 0, parts: [] };
   var featureWallWpCost  = featureWallVinylResult ? featureWallVinylResult.cost
                           : featureWallMuralResult ? featureWallMuralResult.cost
                           : featureWallWpResult.cost;
   var featureWallWpRolls = featureWallWpResult.parts.reduce(function(sum,p){ return sum + p.rolls; }, 0);
+  var featureWallWpDrops = sumWallpaperDrops(featureWallWpResult.parts);
   // Panelling: an array of independently-measured walls, never folded into
   // wallArea/wallCost/baseTotal above (though rows flagged deduct DO shrink
   // wallArea -- see panelDeductArea near the top -- the panelling pricing
@@ -13251,6 +13286,7 @@ function calcRoom(r) {
            stripChargedCost:(stripWCost + stripCCost) * (1 + prepUp/100),
            wallL:wL, ceilL:cL, glossL:gL, primerL:primerL, mistL:mL, featureWallL:fwL, wallLCombined:wLCombined,
            wpwCost:wpwCost, wpcCost:wpcCost, wpwRolls:wpwRolls, wpcRolls:wpcRolls,
+           wpwDrops:wpwDrops, wpcDrops:wpcDrops, featureWallWpDrops:featureWallWpDrops,
            featureWallMode:featureWallMode, featureWallWpCost:featureWallWpCost, featureWallWpRolls:featureWallWpRolls,
            fwCommercialType:fwCommercialType, featureWallVinylMetres:featureWallVinylResult?featureWallVinylResult.metres:0,
            featureWallMuralArea:featureWallMuralResult?featureWallMuralResult.area:0,
@@ -24907,6 +24943,26 @@ function wpSurfaceResult(liningOn, finishOn, isCeil, isStaircase, rollsForType) 
   return { cost: totalCost, parts: parts };
 }
 
+// Total drops (= lengths hung) across a surface's active paper types.
+// Lining and finish on the same wall both count: two passes, two sets of
+// strips actually cut and hung.
+//
+// A part whose drops were never RECORDED returns null for the whole
+// figure, not a short total. That case is real — a staircase room saved
+// before computeHSLOverrides() froze its drops has rolls and no drops —
+// and a quote reading "8 lengths" when the staircase's own drops are
+// missing would be a made-up number on a client document. Null travels up
+// to {lengths}, which falls back to the [X] marker Nicky already fills in
+// by hand.
+function sumWallpaperDrops(parts) {
+  var total = 0, known = true;
+  (parts || []).forEach(function(p) {
+    if (p.drops == null) { known = false; return; }
+    total += +p.drops || 0;
+  });
+  return known ? total : null;
+}
+
 // Wallpaper labour = rolls x per-roll rate x (1 + applicable multiplier(s)).
 // Replaces the old area x mins/m2 path entirely -- the roll count already
 // captures the extra work of a demanding paper (more match waste -> more
@@ -24934,9 +24990,25 @@ function wallpaperLabourCost(type, rolls, isCeil, isStaircase) {
 // staircase room, same reason wallAreaOverride/ceilAreaOverride exist).
 // Normal rooms compute fresh from their real l/w/h, same pattern as
 // wallArea/ceilArea. Called once per active type via wpSurfaceResult().
-function roomWallpaperRolls(r, isCeil, type) {
-  var overrideField = (isCeil ? 'ceilRollsOverride' : 'wallRollsOverride') + (type==='lining' ? 'Lining' : 'Finish');
-  if (r[overrideField] != null) return +r[overrideField];
+// Rolls AND drops, from one walk of the geometry. Split out of
+// roomWallpaperRolls() (kept below as the one-line wrapper its existing
+// callers still use) when the quote description started stating the number
+// of lengths hung: every branch here already computed dropsNeeded and threw
+// it away, and a parallel roomWallpaperDrops() would have been a second
+// copy of this branching to keep in step -- exactly the drift this file's
+// comments keep warning about.
+function roomWallpaperCount(r, isCeil, type) {
+  var suffix = type==='lining' ? 'Lining' : 'Finish';
+  var overrideField = (isCeil ? 'ceilRollsOverride' : 'wallRollsOverride') + suffix;
+  if (r[overrideField] != null) {
+    // Staircase/HSL: computeHSLOverrides() freezes both figures at save
+    // time (the dummy l=w=h=1 dims here can't re-derive either). A room
+    // saved before the drops override existed has rolls but no drops --
+    // null, not 0, so a caller can tell "none" from "not recorded".
+    var dropsField = (isCeil ? 'ceilDropsOverride' : 'wallDropsOverride') + suffix;
+    return { rolls: +r[overrideField],
+             drops: r[dropsField] != null ? +r[dropsField] : null };
+  }
   var L=+r.l, W=+r.w, H=+r.h;
   var rollLen=+r.wpRollLen||10.05, rollWidth=+r.wpRollWidth||0.53;
   var effectiveMatch = type==='lining' ? 'none' : (r.wpMatch||'none');
@@ -24948,12 +25020,13 @@ function roomWallpaperRolls(r, isCeil, type) {
   // actually hung. Sloped ceilings fall through to the typed-area path
   // below instead (zone l×w no longer describes the real surface).
   if (isCeil && shapeMode === 'segments' && !r.slopedCeiling) {
-    return (r.segments || []).reduce(function(sum, z){
+    return (r.segments || []).reduce(function(acc, z){
       var zl = Math.max(+z.l||0, 0), zw = Math.max(+z.w||0, 0);
-      if (zl <= 0 || zw <= 0) return sum;
+      if (zl <= 0 || zw <= 0) return acc;
       var zc = calcWallpaperRolls(Math.max(zl,zw), Math.min(zl,zw), rollLen, rollWidth, effectiveMatch, repeatMm, settings.wpTrimCm, !!r.wpSpareRoll);
-      return sum + (zc ? zc.rolls : 0);
-    }, 0);
+      if (zc) { acc.rolls += zc.rolls; acc.drops += zc.dropsNeeded; }
+      return acc;
+    }, { rolls: 0, drops: 0 });
   }
   var dropH, widthToCover;
   if (isCeil) {
@@ -24973,26 +25046,34 @@ function roomWallpaperRolls(r, isCeil, type) {
   // their override, so this is normal rooms only.
   else {
     var wallCalc = calcWallpaperRollsAroundPanels(H, roomShapePerimeter(r), r.panelItems, rollLen, rollWidth, effectiveMatch, repeatMm, settings.wpTrimCm, !!r.wpSpareRoll);
-    return wallCalc ? wallCalc.rolls : 0;
+    return { rolls: wallCalc ? wallCalc.rolls : 0, drops: wallCalc ? wallCalc.dropsNeeded : 0 };
   }
   var calc = calcWallpaperRolls(dropH, widthToCover, rollLen, rollWidth, effectiveMatch, repeatMm, settings.wpTrimCm, !!r.wpSpareRoll);
-  return calc ? calc.rolls : 0;
+  return { rolls: calc ? calc.rolls : 0, drops: calc ? calc.dropsNeeded : 0 };
+}
+// The roll count alone, for the callers that only ever wanted that.
+function roomWallpaperRolls(r, isCeil, type) {
+  return roomWallpaperCount(r, isCeil, type).rolls;
 }
 
-// Rolls needed for the FEATURE WALL's wallpaper of one explicit type --
-// same shape as roomWallpaperRolls() above and reuses the same
+// Rolls and drops for the FEATURE WALL's wallpaper of one explicit type --
+// same shape as roomWallpaperCount() above and reuses the same
 // calcWallpaperRolls(), just fed the feature wall's own directly-measured
 // width/height instead of the room's l/w/h. No HSL override field needed
-// here (unlike roomWallpaperRolls()'s wallRollsOverride*) -- featureWallWidth/
-// Height are always real measurements, never a dummy l=w=h=1 placeholder,
-// for a normal room or a staircase room alike.
-function featureWallWallpaperRolls(r, type) {
+// here (unlike roomWallpaperCount()'s wallRollsOverride*/wallDropsOverride*)
+// -- featureWallWidth/Height are always real measurements, never a dummy
+// l=w=h=1 placeholder, for a normal room or a staircase room alike, so both
+// figures can always be computed fresh.
+// No rolls-only wrapper beside this one (roomWallpaperRolls() has one for
+// the ceiling rolls-to-order preview): nothing asks the feature wall for
+// its rolls alone.
+function featureWallWallpaperCount(r, type) {
   var w = +r.featureWallWidth || 0, h = +r.featureWallHeight || 0;
   var rollLen = +r.wpRollLen || 10.05, rollWidth = +r.wpRollWidth || 0.53;
   var effectiveMatch = type==='lining' ? 'none' : (r.wpMatch || 'none');
   var repeatMm = +r.wpRepeatMm || 0;
   var calc = calcWallpaperRolls(h, w, rollLen, rollWidth, effectiveMatch, repeatMm, settings.wpTrimCm, !!r.wpSpareRoll);
-  return calc ? calc.rolls : 0;
+  return { rolls: calc ? calc.rolls : 0, drops: calc ? calc.dropsNeeded : 0 };
 }
 
 // Wide Vinyl and Mural -- commercial coverings for the feature wall only
@@ -25347,6 +25428,10 @@ function computeHSLWallpaperRolls(isCeil, wpType, rollLen, rollWidth, repeatMm, 
   if (!dropLengths.length) return null;
   return {
     rolls: packWallpaperRolls(dropLengths, rollLen, spareRoll),
+    // One entry per drop actually hung — the staircase's answer to
+    // calcWallpaperRolls()'s dropsNeeded, and what the quote description
+    // states as the number of lengths.
+    drops: dropLengths.length,
     minDrop: Math.min.apply(null, dropLengths),
     maxDrop: Math.max.apply(null, dropLengths)
   };
@@ -27076,14 +27161,23 @@ function computeHSLOverrides() {
       0, 0, 0, 0, s1v2?l1l:0, s1v2?l1w:0, 0,
       0, 0, 0, 0, s2v2?l2l:0, s2v2?l2w:0, 0);
   });
-  function hslRollsFor(result, type) {
+  function hslPartFor(result, type, field) {
     var p = result.parts.filter(function(x){ return x.type===type; })[0];
-    return p ? p.rolls : 0;
+    return p ? (+p[field] || 0) : 0;
   }
-  var wallRollsOverrideLining = wpWallLining ? hslRollsFor(wallRollsHSLResult, 'lining') : undefined;
-  var wallRollsOverrideFinish = wpWallFinish ? hslRollsFor(wallRollsHSLResult, 'finish') : undefined;
-  var ceilRollsOverrideLining = wpCeilLining ? hslRollsFor(ceilRollsHSLResult, 'lining') : undefined;
-  var ceilRollsOverrideFinish = wpCeilFinish ? hslRollsFor(ceilRollsHSLResult, 'finish') : undefined;
+  var wallRollsOverrideLining = wpWallLining ? hslPartFor(wallRollsHSLResult, 'lining', 'rolls') : undefined;
+  var wallRollsOverrideFinish = wpWallFinish ? hslPartFor(wallRollsHSLResult, 'finish', 'rolls') : undefined;
+  var ceilRollsOverrideLining = wpCeilLining ? hslPartFor(ceilRollsHSLResult, 'lining', 'rolls') : undefined;
+  var ceilRollsOverrideFinish = wpCeilFinish ? hslPartFor(ceilRollsHSLResult, 'finish', 'rolls') : undefined;
+  // Drops are frozen here for the same reason the rolls are: a staircase
+  // room carries dummy l=w=h=1 dims, so calcRoom() can never re-derive
+  // either figure afterwards. Without these the quote description would
+  // have no number of lengths to state on the one kind of room where the
+  // drops vary most (a stair wall's drops all differ across the rake).
+  var wallDropsOverrideLining = wpWallLining ? hslPartFor(wallRollsHSLResult, 'lining', 'drops') : undefined;
+  var wallDropsOverrideFinish = wpWallFinish ? hslPartFor(wallRollsHSLResult, 'finish', 'drops') : undefined;
+  var ceilDropsOverrideLining = wpCeilLining ? hslPartFor(ceilRollsHSLResult, 'lining', 'drops') : undefined;
+  var ceilDropsOverrideFinish = wpCeilFinish ? hslPartFor(ceilRollsHSLResult, 'finish', 'drops') : undefined;
   var wpwCost = wallRollsHSLResult.cost;
   var wpcCost = ceilRollsHSLResult.cost;
 
@@ -27128,6 +27222,8 @@ function computeHSLOverrides() {
     stairWoodStore: stairWoodStore, totalOverride: totalOverride, prepAmountOverride: prepAmountOverride,
     wallRollsOverrideLining: wallRollsOverrideLining, wallRollsOverrideFinish: wallRollsOverrideFinish,
     ceilRollsOverrideLining: ceilRollsOverrideLining, ceilRollsOverrideFinish: ceilRollsOverrideFinish,
+    wallDropsOverrideLining: wallDropsOverrideLining, wallDropsOverrideFinish: wallDropsOverrideFinish,
+    ceilDropsOverrideLining: ceilDropsOverrideLining, ceilDropsOverrideFinish: ceilDropsOverrideFinish,
     hslInputs: {
       floors: hslFloors,
       h1l: document.getElementById('hsl-h1-l').value, h1w: document.getElementById('hsl-h1-w').value, h1h: document.getElementById('hsl-h1-h').value,

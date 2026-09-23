@@ -73,8 +73,9 @@ const code = `
   function coverageRateFor() { return null; }
   function coverageSelfPrimingFor() { return null; }
   function wpSurfaceResult() { return { cost: 0, parts: [] }; }
-  function roomWallpaperRolls() { return 0; }
-  function featureWallWallpaperRolls() { return 0; }
+  function roomWallpaperCount() { return { rolls: 0, drops: 0 }; }
+  function featureWallWallpaperCount() { return { rolls: 0, drops: 0 }; }
+  function sumWallpaperDrops() { return 0; }
   function vinylCost() { return { cost: 0, metres: 0 }; }
   function muralCost() { return { cost: 0, area: 0 }; }
   ${['rpm', 'wallMins', 'ceilMins', 'skirtMins', 'doorMins', 'frameMins', 'winMins', 'radMins', 'sillMins'].map(extractOneLiner).join('\n')}

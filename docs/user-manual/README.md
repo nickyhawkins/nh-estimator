@@ -308,6 +308,8 @@ Below the inputs the app shows its working, batch-book style: the **drop length*
 
 ![Rolls to order, and the cards that follow it](images/13b-wallpaper-rolls.png)
 
+**The drops-needed figure now writes itself onto the quote.** The Wallpapering and Painting & Papering templates open their wallpapering paragraph with *"[X] lengths of [paper name/supplier] to be hung to…"* — that `[X]` used to be yours to type, and is now filled in. It's the **lengths** (strips hung, added up across the whole job, counting lining and finish separately where a wall gets both), not the rolls: rolls are what you order, and they're the figure above. The paper name is still yours to fill in.
+
 Two things worth knowing:
 
 - The rolls figure is a **buying guide, not a charge** — the labour feeds the quote; the client buys the paper — and the app deliberately doesn't supply it.
@@ -537,16 +539,28 @@ line instead, which names what's being papered.
 paint nothing, and the description is the stripping — not an empty paragraph
 under a heading about painting.
 
-> **If you've edited your templates**, one case needs a hand. The stripping
-> sentence rides the `{surfaces}` placeholder, so every template that has one
-> picks it up automatically. The **Wallpapering** template is the exception —
-> it has no `{surfaces}`, because nothing is being painted — so it carries a
-> `{stripped}` placeholder instead, added on its own line under PROTECTION &
-> PREPARATION. If you customised that template before this shipped, your copy
-> won't have it: add `{stripped}` on its own line where you want the sentence,
-> or use **Reset all** to take the new default (which loses your other edits).
-> Don't put `{stripped}` in a template that already has `{surfaces}` — the
-> quote would then say it twice.
+**The number of lengths fills itself in too.** The wallpapering paragraph's
+`[X]` is now `{lengths}` — the strips being hung across the job. See
+[Wallpaper](#wallpaper--rolls-to-order). With no paper measured it goes back to
+`[X]` for you to fill in, exactly as before.
+
+> **If you've edited your templates**, two placeholders are new and your copy
+> won't have them — `settings.textTemplates` takes a copy of the whole set the
+> first time you edit any of it, and never re-reads the built-in ones.
+>
+> - **`{stripped}`** — the wallpaper-stripping sentence. It rides `{surfaces}`
+>   in every template that has one, so those pick it up with no work from you.
+>   The **Wallpapering** template is the exception (no `{surfaces}`, because
+>   nothing is painted), so it carries `{stripped}` on its own line under
+>   PROTECTION & PREPARATION. **Don't put `{stripped}` in a template that
+>   already has `{surfaces}`** — the quote would say it twice.
+> - **`{lengths}`** — the number of lengths, in **Wallpapering** and
+>   **Painting & Papering**: replace the `[X]` in *"[X] lengths of [paper
+>   name/supplier]"* with `{lengths}`.
+>
+> Add whichever you want by hand, or use **Reset all** to take the new
+> defaults (which loses your other edits). Leave them out and nothing breaks —
+> you just keep typing those bits yourself, as you do now.
 
 **It never states a paint the job doesn't use.** It's a whole-job sentence, so
 woodwork measured in one room puts woodwork in the wording for the job — and
@@ -1284,6 +1298,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.76.1. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.76.2. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

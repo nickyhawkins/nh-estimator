@@ -130,7 +130,16 @@ const sandbox = `
                    f.wpCeiling || f.panelling || f.skirtings || f.doors ||
                    f.frames || f.windows || f.sills || f.rads) ? 1 : 0;
     var stripped = (r.stripWall || r.stripCeil) ? 1 : 0;
-    return { total: painted + stripped, stripChargedCost: stripped };
+    // Wallpaper drops, for buildLengthsValue: ONE per active paper type per
+    // papered surface. The fixture only needs "is there a figure and does
+    // it add up across rooms" -- the real drop geometry (match allowance,
+    // trim, panelling, stair rake) is exercised against the real calc in
+    // scripts/test-wallpaper-lengths.js.
+    var d = function(a, b) { return (a ? 1 : 0) + (b ? 1 : 0); };
+    return { total: painted + stripped, stripChargedCost: stripped,
+             wpwDrops: d(r.wpWallLining, r.wpWallFinish),
+             wpcDrops: d(r.wpCeilLining, r.wpCeilFinish),
+             featureWallWpDrops: d(r.fwWpLining, r.fwWpFinish) };
   }
 `;
 
@@ -141,6 +150,7 @@ new Function('exports', sandbox + [
   extractFn('strippedSentence'),
   extractFn('buildScopeSentence'),
   extractFn('buildPaperedPhrase'),
+  extractFn('buildLengthsValue'),
   extractFn('scopeProductValues'),
   extractFn('roomScopeSentence'),
   extractFn('roomScopeShort'),
@@ -171,6 +181,7 @@ new Function('exports', sandbox + [
   extractVar('DEFAULT_TEXT_TEMPLATES'),
   'exports.buildScopeSentence = buildScopeSentence;',
   'exports.buildPaperedPhrase = buildPaperedPhrase;',
+  'exports.buildLengthsValue = buildLengthsValue;',
   'exports.renderTemplateText = renderTemplateText;',
   'exports.scopeFacts = scopeFacts;',
   'exports.strippedSentence = strippedSentence;',
@@ -436,6 +447,7 @@ const values = rooms => Object.assign({
   rooms: 'Living Room',
   masonryProduct: 'Dulux Weathershield', extWoodProduct: 'Dulux Weathershield Gloss'
 }, PRODUCTS, { surfaces: scope('quote', rooms), papered: api.buildPaperedPhrase(rooms),
+   lengths: api.buildLengthsValue(rooms),
    stripped: api.strippedSentence('quote', api.scopeFacts(rooms)),
    extSurfaces: api.buildExtScopeSentence('quote', [EXT_FULL], EXT_PRODUCTS),
    unitSurfaces: api.buildFuScopeSentence('quote', [FU_FULL], PRODUCTS), kitchenCoats: 2 });
@@ -850,6 +862,40 @@ const wpPlain = api.renderTemplateText(wpBody, 'quote',
     { stripped: '' }));
 check('a papering job with no stripping leaves no blank line behind',
   !/wallpaper will be stripped/.test(wpPlain) && !/\n{3,}/.test(wpPlain), JSON.stringify(wpPlain));
+
+// ── {lengths}: the number of lengths hung ──────────────────────────────────
+// Nicky typed this in by hand. It is LENGTHS (strips hung), not rolls
+// (what you order) — the sentence it sits in is counting strips. Whole-job
+// like {papered} beside it, because "23 lengths to be hung to the walls and
+// the ceiling" has to cover everything that phrase names.
+// The fixture's calcRoom gives one drop per active paper type, so these
+// assert the plumbing and the fallback; the real geometry is held in
+// scripts/test-wallpaper-lengths.js.
+api.DEFAULT_TEXT_TEMPLATES.forEach(t => {
+  if (!/lengths of/.test(t.body)) return;
+  check(t.id + ' fills the lengths in rather than leaving [X]',
+    t.body.includes('{lengths} lengths of'), t.id);
+});
+eq('one papered surface is one length in this fixture',
+  api.buildLengthsValue([{ name: 'Lounge', wpWallFinish: true }]), '1');
+eq('lining AND finish on one wall counts both passes',
+  api.buildLengthsValue([{ name: 'Lounge', wpWallLining: true, wpWallFinish: true }]), '2');
+eq('it totals across the whole job, like {papered}',
+  api.buildLengthsValue([{ name: 'Lounge', wpWallFinish: true },
+                         { name: 'Hall', wpWallFinish: true, wpCeilFinish: true }]), '3');
+eq('nothing papered falls back to the marker Nicky fills in by hand',
+  api.buildLengthsValue([{ name: 'Lounge', wc: 2 }]), '[X]');
+eq('and so does a job with no rooms at all', api.buildLengthsValue([]), '[X]');
+// The "figure cannot be known" path (a staircase room saved before its
+// drops were frozen reports null) needs the real calc engine to produce a
+// null, so it is held in scripts/test-wallpaper-lengths.js rather than
+// faked here — a fixture that returns null on demand would be asserting
+// against itself.
+const wpLengths = api.renderTemplateText(tpl('wallpapering').body, 'quote',
+  Object.assign({ completedDate: '7 August 2026' },
+    values([{ name: 'Lounge', wpWallFinish: true }])));
+check('the rendered Wallpapering line reads the number, not [X]',
+  /1 lengths of \[paper name\/supplier\] to be hung to the walls/.test(wpLengths), wpLengths);
 
 // ── Report ─────────────────────────────────────────────────────────────────
 pass.forEach(n => console.log('  ok   ' + n));
