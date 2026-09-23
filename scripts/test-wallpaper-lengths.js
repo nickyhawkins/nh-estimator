@@ -16,8 +16,10 @@
 //
 // What it pins:
 //   1. The figure is drops, and it differs from rolls on a real room.
-//   2. Lining AND finish on one wall counts both passes — two sets of
-//      strips really are hung.
+//   2. Lining AND finish on one wall is ONE set of lengths, not two. The
+//      sentence names one paper, and lining is prep in the same template.
+//      (v2.76.2 shipped this wrong — 58 where 29 was true.) Wide vinyl is
+//      hung in drops and counts; a mural is one printed piece and does not.
 //   3. It totals the WHOLE JOB, because {papered} beside it in the same
 //      sentence always has.
 //   4. Panelling taken out of the papered walls takes its drops with it.
@@ -93,14 +95,45 @@ const eq=(n,got,want)=>check(n,got===want,{got:got,want:want});
     one.drops !== one.rolls && one.drops > one.rolls, one);
   check('29 drops off a 15m perimeter at 0.53m', one.perim === 15 && one.drops === 29, one);
 
-  // ── 2. Lining AND finish is two passes ──────────────────────────────────
+  // ── 2. Lining AND finish is ONE set of lengths ──────────────────────────
+  // How many strips go round a wall is ceil(width / roll width), and that
+  // is the same whether the paper is lining or finish — a pattern match
+  // changes each drop's LENGTH, never how many there are. The sentence
+  // names ONE paper ("[X] lengths of [paper name/supplier]"), and on a
+  // lined-and-papered wall only the finish paper's drops are lengths OF
+  // that paper; the Wallpapering template's PREPARATION paragraph already
+  // says the walls are "sized/lined prior to hanging".
+  // This shipped wrong in v2.76.2 — it printed 58 where 29 was true.
   const both = await page.evaluate(() => {
     var lining = calcRoom(B({ id:'b', name:'L', wpWallLining:true }));
     var finish = calcRoom(B({ id:'c', name:'F', wpWallFinish:true }));
     var pair   = calcRoom(B({ id:'d', name:'B', wpWallLining:true, wpWallFinish:true }));
     return { lining:lining.wpwDrops, finish:finish.wpwDrops, pair:pair.wpwDrops };
   });
-  eq('lining then finish counts both sets of strips', both.pair, both.lining + both.finish);
+  eq('lining and finish are the same count on the same wall', both.lining, both.finish);
+  eq('so lining under finish is ONE set of lengths, not two', both.pair, both.finish);
+  check('and that is not the sum of the two', both.pair !== both.lining + both.finish, both);
+
+  // ── 2b. Wide vinyl counts; a mural does not ─────────────────────────────
+  // Vinyl comes off a wide continuous roll but is still hung in drops. A
+  // mural is one printed piece, so it has no lengths to state.
+  const fw = await page.evaluate(() => {
+    var base = { featureWallMode:'wallpaper', featureWallWidth:4, featureWallHeight:2.4,
+                 featureWallArea:9.6 };
+    var vinyl = calcRoom(B(Object.assign({ id:'v', name:'V', fwWpCommercialType:'wideVinyl',
+                                           fwVinylRollWidthCm:137 }, base)));
+    var mural = calcRoom(B(Object.assign({ id:'m', name:'M', fwWpCommercialType:'mural' }, base)));
+    var paper = calcRoom(B(Object.assign({ id:'p', name:'P', fwWpCommercialType:'none',
+                                           fwWpFinish:true }, base)));
+    return { vinyl:vinyl.featureWallWpDrops, mural:mural.featureWallWpDrops,
+             paper:paper.featureWallWpDrops,
+             vinylLengths: buildLengthsValue([B(Object.assign({ id:'v2', name:'V',
+               fwWpCommercialType:'wideVinyl', fwVinylRollWidthCm:137 }, base))]) };
+  });
+  eq('4m of 1.37m wide vinyl is 3 drops', fw.vinyl, 3);
+  eq('and it reaches the quote', fw.vinylLengths, '3');
+  eq('a mural has no lengths at all', fw.mural, 0);
+  check('ordinary feature-wall paper still counts', fw.paper > 0, fw);
 
   // ── 3. Whole job, like {papered} ────────────────────────────────────────
   const job = await page.evaluate(() => {

@@ -13087,11 +13087,10 @@ function calcRoom(r) {
   var wpcCost  = wpcResult.cost;
   var wpwRolls = wpwResult.parts.reduce(function(sum,p){ return sum + p.rolls; }, 0);
   var wpcRolls = wpcResult.parts.reduce(function(sum,p){ return sum + p.rolls; }, 0);
-  // Drops (= lengths hung), summed the same way. A surface papered with
-  // BOTH lining and finish counts each pass: two sets of strips really are
-  // hung. See sumWallpaperDrops() for the not-recorded case.
-  var wpwDrops = sumWallpaperDrops(wpwResult.parts);
-  var wpcDrops = sumWallpaperDrops(wpcResult.parts);
+  // Drops (= lengths hung) for each surface, counted ONCE however many
+  // paper types are on it -- see surfaceWallpaperDrops().
+  var wpwDrops = surfaceWallpaperDrops(wpwResult.parts);
+  var wpcDrops = surfaceWallpaperDrops(wpcResult.parts);
   // Feature wall wallpaper -- SAME wpSurfaceResult()/calcWallpaperRolls()
   // machinery as walls/ceiling above, just fed the feature wall's own
   // width/height via featureWallWallpaperRolls() instead of the room's l/w/h.
@@ -13112,7 +13111,12 @@ function calcRoom(r) {
                           : featureWallMuralResult ? featureWallMuralResult.cost
                           : featureWallWpResult.cost;
   var featureWallWpRolls = featureWallWpResult.parts.reduce(function(sum,p){ return sum + p.rolls; }, 0);
-  var featureWallWpDrops = sumWallpaperDrops(featureWallWpResult.parts);
+  // The feature wall's lengths. Wide vinyl is hung in drops and counts;
+  // a mural is one printed piece and never does, which is why this reads
+  // the commercial type rather than the roll-model parts alone.
+  var featureWallWpDrops = fwCommercialType==='wideVinyl' ? featureWallVinylDrops(r)
+                         : fwCommercialType==='mural' ? 0
+                         : surfaceWallpaperDrops(featureWallWpResult.parts);
   // Panelling: an array of independently-measured walls, never folded into
   // wallArea/wallCost/baseTotal above (though rows flagged deduct DO shrink
   // wallArea -- see panelDeductArea near the top -- the panelling pricing
@@ -24943,24 +24947,37 @@ function wpSurfaceResult(liningOn, finishOn, isCeil, isStaircase, rollsForType) 
   return { cost: totalCost, parts: parts };
 }
 
-// Total drops (= lengths hung) across a surface's active paper types.
-// Lining and finish on the same wall both count: two passes, two sets of
-// strips actually cut and hung.
+// Drops (= lengths hung) for ONE surface, across whichever paper types are
+// active on it.
+//
+// Counted ONCE, not once per type. A drop count is how many strips go
+// round the wall -- ceil(width / roll width) -- and that is the same
+// whether the paper is lining or finish: a pattern match changes each
+// drop's LENGTH, never how many of them there are. So the parts of one
+// surface all carry the same figure and the surface contributes it once.
+//
+// Summing per type was wrong on a client document, not just untidy. The
+// sentence reads "[X] lengths of [paper name/supplier]" and names ONE
+// paper; on a lined-and-papered wall only the finish paper's drops are
+// lengths OF that paper, and the Wallpapering template's own PREPARATION
+// paragraph already says the walls are "sized/lined prior to hanging".
+// Counting both passes printed 58 where 29 was true.
 //
 // A part whose drops were never RECORDED returns null for the whole
 // figure, not a short total. That case is real — a staircase room saved
 // before computeHSLOverrides() froze its drops has rolls and no drops —
 // and a quote reading "8 lengths" when the staircase's own drops are
-// missing would be a made-up number on a client document. Null travels up
-// to {lengths}, which falls back to the [X] marker Nicky already fills in
-// by hand.
-function sumWallpaperDrops(parts) {
-  var total = 0, known = true;
+// missing would be a made-up number. Null travels up to {lengths}, which
+// falls back to the [X] marker Nicky already fills in by hand.
+function surfaceWallpaperDrops(parts) {
+  var most = 0, known = true, any = false;
   (parts || []).forEach(function(p) {
+    any = true;
     if (p.drops == null) { known = false; return; }
-    total += +p.drops || 0;
+    most = Math.max(most, +p.drops || 0);
   });
-  return known ? total : null;
+  if (!any) return 0;
+  return known ? most : null;
 }
 
 // Wallpaper labour = rolls x per-roll rate x (1 + applicable multiplier(s)).
@@ -25084,12 +25101,20 @@ function featureWallWallpaperCount(r, type) {
 // match math at all. Both are mutually exclusive with the normal
 // fwWpLining/fwWpFinish roll path -- selected via r.fwWpCommercialType,
 // branched in calcRoom() where featureWallWpResult is built.
-function featureWallVinylMetres(r) {
+// Drops of wide vinyl across the feature wall. Hoisted out of
+// featureWallVinylMetres() below (still drops x drop height, to the metre)
+// so the quote description can count vinyl lengths without re-deriving the
+// roll width. Vinyl comes off a wide continuous roll rather than a domestic
+// one, but it is still hung in drops, so it counts as lengths; a mural is
+// one printed piece with no drops at all, so it never does.
+function featureWallVinylDrops(r) {
   var w = +r.featureWallWidth || 0, h = +r.featureWallHeight || 0;
   if (w<=0 || h<=0) return 0;
   var rollWidthM = (+r.fwVinylRollWidthCm || 137) / 100;
-  var drops = Math.ceil(w / rollWidthM);
-  return drops * h;
+  return rollWidthM>0 ? Math.ceil(w / rollWidthM) : 0;
+}
+function featureWallVinylMetres(r) {
+  return featureWallVinylDrops(r) * (+r.featureWallHeight || 0);
 }
 function vinylCost(r) {
   var metres = featureWallVinylMetres(r);

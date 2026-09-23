@@ -75,7 +75,8 @@ const code = `
   function wpSurfaceResult() { return { cost: 0, parts: [] }; }
   function roomWallpaperCount() { return { rolls: 0, drops: 0 }; }
   function featureWallWallpaperCount() { return { rolls: 0, drops: 0 }; }
-  function sumWallpaperDrops() { return 0; }
+  function surfaceWallpaperDrops() { return 0; }
+  function featureWallVinylDrops() { return 0; }
   function vinylCost() { return { cost: 0, metres: 0 }; }
   function muralCost() { return { cost: 0, area: 0 }; }
   ${['rpm', 'wallMins', 'ceilMins', 'skirtMins', 'doorMins', 'frameMins', 'winMins', 'radMins', 'sillMins'].map(extractOneLiner).join('\n')}

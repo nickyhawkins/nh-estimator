@@ -308,7 +308,7 @@ Below the inputs the app shows its working, batch-book style: the **drop length*
 
 ![Rolls to order, and the cards that follow it](images/13b-wallpaper-rolls.png)
 
-**The drops-needed figure now writes itself onto the quote.** The Wallpapering and Painting & Papering templates open their wallpapering paragraph with *"[X] lengths of [paper name/supplier] to be hung to…"* — that `[X]` used to be yours to type, and is now filled in. It's the **lengths** (strips hung, added up across the whole job, counting lining and finish separately where a wall gets both), not the rolls: rolls are what you order, and they're the figure above. The paper name is still yours to fill in.
+**The drops-needed figure now writes itself onto the quote.** The Wallpapering and Painting & Papering templates open their wallpapering paragraph with *"[X] lengths of [paper name/supplier] to be hung to…"* — that `[X]` used to be yours to type, and is now filled in. It's the **lengths** (strips hung, added up across the whole job), not the rolls: rolls are what you order, and they're the figure above. A wall that's lined *and* papered counts **once** — how many strips go round a wall doesn't change with the paper, and the lining is already described as prep a paragraph earlier. A wide-vinyl feature wall counts (still hung in drops); a mural doesn't (one printed piece). The paper name is still yours to fill in.
 
 Two things worth knowing:
 
@@ -1298,6 +1298,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.76.2. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.76.3. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
