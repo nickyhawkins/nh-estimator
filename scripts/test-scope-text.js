@@ -138,6 +138,7 @@ const api = {};
 new Function('exports', sandbox + [
   extractFn('englishJoin'),
   extractFn('scopeFacts'),
+  extractFn('strippedSentence'),
   extractFn('buildScopeSentence'),
   extractFn('buildPaperedPhrase'),
   extractFn('scopeProductValues'),
@@ -172,6 +173,7 @@ new Function('exports', sandbox + [
   'exports.buildPaperedPhrase = buildPaperedPhrase;',
   'exports.renderTemplateText = renderTemplateText;',
   'exports.scopeFacts = scopeFacts;',
+  'exports.strippedSentence = strippedSentence;',
   'exports.DEFAULT_TEXT_TEMPLATES = DEFAULT_TEXT_TEMPLATES;',
   'exports.roomScopeSentence = roomScopeSentence;',
   'exports.roomScopeShort = roomScopeShort;',
@@ -434,6 +436,7 @@ const values = rooms => Object.assign({
   rooms: 'Living Room',
   masonryProduct: 'Dulux Weathershield', extWoodProduct: 'Dulux Weathershield Gloss'
 }, PRODUCTS, { surfaces: scope('quote', rooms), papered: api.buildPaperedPhrase(rooms),
+   stripped: api.strippedSentence('quote', api.scopeFacts(rooms)),
    extSurfaces: api.buildExtScopeSentence('quote', [EXT_FULL], EXT_PRODUCTS),
    unitSurfaces: api.buildFuScopeSentence('quote', [FU_FULL], PRODUCTS), kitchenCoats: 2 });
 const wallsOnly = api.renderTemplateText(tpl('painting').body, 'quote', values([{ name: 'Living Room', wc: 2 }]));
@@ -460,6 +463,7 @@ api.DEFAULT_TEXT_TEMPLATES.forEach(t => {
   ['quote', 'invoice'].forEach(mode => {
     const out = api.renderTemplateText(t.body, mode, Object.assign({ completedDate: '7 August 2026' },
       values([FULL]), { surfaces: scope(mode, [FULL]),
+        stripped: api.strippedSentence(mode, api.scopeFacts([FULL])),
         extSurfaces: api.buildExtScopeSentence(mode, [EXT_FULL], EXT_PRODUCTS),
         unitSurfaces: api.buildFuScopeSentence(mode, [FU_FULL], PRODUCTS), kitchenCoats: 2 }));
     check(t.id + ' / ' + mode + ' — no unresolved placeholder',
@@ -767,16 +771,85 @@ eq('and the block carries THAT room\'s scope',
 eq('a room that is stripped AND painted is still a subject',
   vf('quote', [Object.assign({ stripWall: true, stripWallType: 'textured' }, HOUSE[0])].concat(HOUSE.slice(1))).rooms,
   'Lounge');
-// Nothing painted anywhere: no subject room, so {rooms} falls back to the
-// job name (its documented fallback) and {surfaces} drops out rather than
-// claiming painted surfaces the job hasn't got.
+// Nothing painted anywhere — a strip-out job. The block rides the first
+// STRIPPING line, so that room is the subject: {rooms} names it rather than
+// falling back to the job name, and {surfaces} describes the stripping
+// rather than going blank. Before stripping became a scope fact this job
+// got "Painting of <job name>:" over an empty PAINTING & DECORATING
+// paragraph — no description at all of the only work being done.
 const STRIP_ONLY = [
   { name: 'Back Bedroom', stripWall: true, stripWallType: 'textured' },
   { name: 'Landing', stripWall: true, stripWallType: 'layers' }
 ];
-eq('a strip-out job falls back to the job name, not a room it isn\'t painting',
-  vf('quote', STRIP_ONLY).rooms, 'Test Job');
-eq('and claims no painted surfaces at all', vf('quote', STRIP_ONLY).surfaces, '');
+eq('a strip-out job names the room the block actually sits on',
+  vf('quote', STRIP_ONLY).rooms, 'Back Bedroom');
+eq('and describes the stripping instead of saying nothing',
+  vf('quote', STRIP_ONLY).surfaces,
+  'Existing wallpaper will be stripped from the walls prior to decoration.');
+eq('past tense on the invoice', vf('invoice', STRIP_ONLY).surfaces,
+  'Existing wallpaper was stripped from the walls prior to decoration.');
+// It still claims no PAINTING: a strip-out job that said "walls in <paint>"
+// would be quoting work nobody measured.
+check('and claims no painted surface',
+  !/finished in|walls in |woodwork/.test(vf('quote', STRIP_ONLY).surfaces),
+  vf('quote', STRIP_ONLY).surfaces);
+
+// ── Stripping in the quote description ─────────────────────────────────────
+// Nicky: "The wallpaper stripping needs to be mentioned in the quote
+// description if selected." It rides {surfaces}, beside the mist coat —
+// both are prep the client is paying for and has to be able to read.
+const STRIPPED_ROOM = { name: 'Lounge', wc: 2, cc: 2, xc: 2, rads: 2,
+                        stripWall: true, stripWallType: 'textured' };
+check('a painted room being stripped says so in the scope sentence',
+  scope('quote', [STRIPPED_ROOM]).includes(
+    'Existing wallpaper will be stripped from the walls prior to decoration.'),
+  scope('quote', [STRIPPED_ROOM]));
+check('and still describes the painting first',
+  scope('quote', [STRIPPED_ROOM]).indexOf('ceilings finished in') <
+  scope('quote', [STRIPPED_ROOM]).indexOf('Existing wallpaper'),
+  scope('quote', [STRIPPED_ROOM]));
+eq('a room NOT being stripped says nothing about it',
+  scope('quote', [HOUSE[0]]).includes('wallpaper'), false);
+// Both surfaces collapse to one mention, and the ceiling reads on its own.
+eq('walls and ceilings collapse to one sentence',
+  api.strippedSentence('quote', api.scopeFacts([{ stripWall: true, stripCeil: true }])),
+  'Existing wallpaper will be stripped from the walls and ceilings prior to decoration.');
+eq('a ceiling-only strip says ceilings',
+  api.strippedSentence('quote', api.scopeFacts([{ stripCeil: true }])),
+  'Existing wallpaper will be stripped from the ceilings prior to decoration.');
+// Order of the two prep sentences follows the order of the work.
+const STRIP_AND_MIST = [{ name: 'Lounge', wc: 2, stripWall: true, mistWall: true }];
+check('stripping is stated before the mist coat — the order it happens in',
+  scope('quote', STRIP_AND_MIST).indexOf('Existing wallpaper') <
+  scope('quote', STRIP_AND_MIST).indexOf('mist coated'),
+  scope('quote', STRIP_AND_MIST));
+// The mist coat could always hit the no-painted-scope case too (0 coats
+// with a mist coat ticked) and silently said nothing. Same hoist fixed it.
+eq('a mist coat with nothing painted is no longer silent',
+  scope('quote', [{ name: 'Lounge', mistWall: true }]),
+  'Newly plastered walls will be mist coated prior to finishing.');
+
+// The Wallpapering template is the one seeded body with no {surfaces} — the
+// "strip it and re-paper it" job — so it carries {stripped} instead. No
+// template may have both, or the quote states the stripping twice.
+const wpBody = tpl('wallpapering').body;
+check('the Wallpapering template carries {stripped}', wpBody.includes('{stripped}'), wpBody);
+api.DEFAULT_TEXT_TEMPLATES.forEach(t => {
+  check(t.id + ' does not carry both {stripped} and {surfaces}',
+    !(t.body.includes('{stripped}') && t.body.includes('{surfaces}')), t.id);
+});
+const wpStripped = api.renderTemplateText(wpBody, 'quote',
+  Object.assign({ completedDate: '7 August 2026' }, values([STRIPPED_ROOM]),
+    { stripped: api.strippedSentence('quote', api.scopeFacts([STRIPPED_ROOM])) }));
+check('a strip-and-repaper job reads the stripping on the Wallpapering template',
+  wpStripped.includes('Existing wallpaper will be stripped from the walls prior to decoration.'),
+  wpStripped);
+// And a papering job with no stripping drops the line rather than leaving a gap.
+const wpPlain = api.renderTemplateText(wpBody, 'quote',
+  Object.assign({ completedDate: '7 August 2026' }, values([{ name: 'Lounge', wpWallFinish: true }]),
+    { stripped: '' }));
+check('a papering job with no stripping leaves no blank line behind',
+  !/wallpaper will be stripped/.test(wpPlain) && !/\n{3,}/.test(wpPlain), JSON.stringify(wpPlain));
 
 // ── Report ─────────────────────────────────────────────────────────────────
 pass.forEach(n => console.log('  ok   ' + n));

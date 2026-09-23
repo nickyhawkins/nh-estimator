@@ -3370,6 +3370,10 @@ var DEFAULT_TEXT_TEMPLATES = [
     '',
     'Q: PROTECTION & PREPARATION',
     'Q: All furniture and flooring will be fully protected prior to any work commencing. Walls will be thoroughly prepared including filling, sanding and caulking all joints and edges as required. All surfaces will be sized/lined prior to hanging to ensure correct adhesion and a quality finish throughout.',
+    // {stripped} only appears in THIS template: it is the one seeded body
+    // with no {surfaces}, which carries the same sentence everywhere else.
+    // A body with both would say it twice.
+    'Q: {stripped}',
     'Q:',
     'Q: WALLPAPERING',
     'Q: [X] lengths of [paper name/supplier] to be hung to {papered}, with seams carefully matched and trimmed for a consistent pattern throughout. All work carried out to a high standard using professional techniques and quality trade materials.',
@@ -3377,6 +3381,7 @@ var DEFAULT_TEXT_TEMPLATES = [
     'Q: COMPLETION',
     'Q: On completion all protection will be removed, all trimmings cleared away and the areas left clean and tidy. A final inspection will be carried out to ensure you are completely happy with the finished result.',
     'I: Walls prepared including filling, sanding and caulking, sized/lined prior to hanging.',
+    'I: {stripped}',
     'I: [X] lengths of [paper name/supplier] hung to {papered}, seams matched and trimmed for a consistent pattern throughout.',
     'I: Work completed on {completedDate}. Protection removed, trimmings cleared and area left clean on completion.'
   ].join('\n') },
@@ -3586,7 +3591,13 @@ function scopeFacts(liveRooms) {
   var f = { ceiling:false, walls:false, skirtings:false, doors:false, frames:false,
             windows:false, sills:false, rads:false, panelling:false,
             fwPaint:false, fwPaper:false, wpWalls:false, wpCeiling:false,
-            mistWalls:false, mistCeiling:false, coats:{},
+            mistWalls:false, mistCeiling:false,
+            // Wallpaper stripping. Unlike every other flag here it is NOT
+            // gated on a coat count: stripping is the job on a strip-out,
+            // and a room with 0 coats everywhere is still having its paper
+            // taken off. It is priced, it takes a day, and the client has
+            // to read it on the quote — so it is a scope fact.
+            stripWalls:false, stripCeiling:false, coats:{},
             // Every DISTINCT product seen, not the first: two rooms whose
             // panelling is in different paints have no single answer, and
             // the sentence names none rather than picking one. Same rule
@@ -3632,8 +3643,33 @@ function scopeFacts(liveRooms) {
     if (r.wpCeilLining || r.wpCeilFinish) f.wpCeiling = true;
     if (r.mistWall) f.mistWalls = true;
     if (r.mistCeil) f.mistCeiling = true;
+    // No coat gate — see the flags' comment above.
+    if (r.stripWall) f.stripWalls = true;
+    if (r.stripCeil) f.stripCeiling = true;
   });
   return f;
+}
+
+// The stripping sentence, shared by the scope sentence below and the
+// {stripped} placeholder. Its own function because the two callers must say
+// the same thing: a Wallpapering job reads it via {stripped} (that template
+// has no {surfaces} to carry it) and every other template reads it inside
+// {surfaces}, and a client comparing two of Nicky's quotes should not find
+// two different sentences for the same work.
+//
+// Surfaces only, no paper type: the tier is named on the priced
+// "Wallpaper Stripping — <room>" line, where it explains the money. Here it
+// would be detail in the middle of a paragraph about something else.
+// It promises stripping and nothing more — no "made good", no "ready to
+// decorate": making good is a separate charge on this app's own form, and a
+// sentence implying it would bill a promise nobody priced.
+function strippedSentence(mode, f) {
+  if (!f.stripWalls && !f.stripCeiling) return '';
+  var where = f.stripWalls && f.stripCeiling ? 'the walls and ceilings'
+            : f.stripWalls ? 'the walls' : 'the ceilings';
+  return mode === 'invoice'
+    ? 'Existing wallpaper was stripped from ' + where + ' prior to decoration.'
+    : 'Existing wallpaper will be stripped from ' + where + ' prior to decoration.';
 }
 
 // The painted scope. Returns '' when nothing is painted -- NOT the literal
@@ -3700,7 +3736,24 @@ function buildScopeSentence(mode, liveRooms, vals) {
       ? (inv ? '' : 'all ') + 'woodwork including ' + englishJoin(wood) + ' in ' + product('woodProduct')
       : englishJoin(wood) + ' in ' + product('woodProduct'));
   }
-  if (!parts.length) return '';
+  // The prep sentences (stripping, mist coat) that follow the painted
+  // scope. Hoisted above the no-parts return because a room can have them
+  // with nothing painted at all: a strip-out room measures 0 coats
+  // everywhere, and returning '' there left the quote's PAINTING &
+  // DECORATING paragraph empty on exactly the job the client most needed
+  // describing. Where there IS painted scope nothing moves — the sentences
+  // land after it, in the order the work happens: strip, then mist, then
+  // paint. (The mist coat has always been able to hit the same empty case
+  // — 0 coats with a mist coat ticked — and silently said nothing; it is
+  // fixed by the same hoist rather than left half-mended.)
+  var extras = [strippedSentence(mode, f)];
+  if (f.mistWalls || f.mistCeiling) {
+    var newPlaster = f.mistWalls && f.mistCeiling ? 'Newly plastered walls and ceilings'
+                   : f.mistWalls ? 'Newly plastered walls' : 'Newly plastered ceilings';
+    extras.push(newPlaster + (inv ? ' were' : ' will be') + ' mist coated prior to finishing.');
+  }
+  extras = extras.filter(Boolean);
+  if (!parts.length) return extras.join(' ');
   // Quote keeps the seeded sentence's Oxford comma before "and"; the
   // invoice line never had an "and" at all. Both reproduced exactly.
   // Two parts normally join with a bare "and" -- but not when a clause has
@@ -3722,11 +3775,7 @@ function buildScopeSentence(mode, liveRooms, vals) {
                 : ', ' + (parts.length > 1 ? 'each applied in ' : 'applied in ') + coats[0] + ' coats';
   }
   body += '.';
-  if (f.mistWalls || f.mistCeiling) {
-    var newPlaster = f.mistWalls && f.mistCeiling ? 'Newly plastered walls and ceilings'
-                   : f.mistWalls ? 'Newly plastered walls' : 'Newly plastered ceilings';
-    body += ' ' + newPlaster + (inv ? ' were' : ' will be') + ' mist coated prior to finishing.';
-  }
+  if (extras.length) body += ' ' + extras.join(' ');
   return body;
 }
 
@@ -4133,7 +4182,14 @@ function buildTemplateValues(mode) {
   // room along and must describe THAT one. Reading liveRooms[0] here opened
   // the block "Painting of Back Bedroom:" on Bedroom 1's line, crediting a
   // room that is only having paper taken off with the painting.
-  var subjectRoom = firstRoomWithPaintLine(liveRooms);
+  //
+  // Nothing painted ANYWHERE (a strip-out job) is the one case with no such
+  // room, and the block then rides the first stripping line — so that room
+  // is the subject. Without this fallback {rooms} dropped to the job name
+  // and {surfaces} to nothing, on precisely the job whose whole description
+  // is the stripping.
+  var subjectRoom = firstRoomWithPaintLine(liveRooms) ||
+    (liveRooms || []).filter(function(r) { return r.stripWall || r.stripCeil; })[0] || null;
   var subjectExt = subjectRoom ? null : liveExt.filter(function(it) { return calcExtItem(it).total > 0.005; })[0] || null;
   var liveUnits = fittedUnitList(job).filter(function(f) { return !f.isVariation; });
   var subjectUnit = (subjectRoom || subjectExt) ? null
@@ -4166,6 +4222,12 @@ function buildTemplateValues(mode) {
   vals.surfaces = subjectRoom ? buildScopeSentence(mode, [subjectRoom], vals) : '';
   vals.extSurfaces = subjectExt ? buildExtScopeSentence(mode, [subjectExt], vals) : '';
   vals.unitSurfaces = subjectUnit ? buildFuScopeSentence(mode, [subjectUnit], vals) : '';
+  // {stripped}: the wallpaper-stripping sentence on its own, for the one
+  // seeded template with no {surfaces} to carry it — Wallpapering, which is
+  // exactly the "strip it and re-paper it" job. EVERY other template must
+  // keep using {surfaces} (which already contains this sentence): a body
+  // carrying both tokens would state the stripping twice.
+  vals.stripped = subjectRoom ? strippedSentence(mode, scopeFacts([subjectRoom])) : '';
   // Kitchen coats ARE tracked (calcKitchen clamps 1-4, default 2); its
   // product and colour are not, and stay [markers] — declined 2026-07-16.
   vals.kitchenCoats = (job.kitchen && !job.kitchen.isVariation)

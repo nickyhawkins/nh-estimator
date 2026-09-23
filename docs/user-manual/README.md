@@ -226,6 +226,8 @@ The rest of the measuring cards follow in the order you'd meet them moving round
 
   **On the client's copy it gets a line of its own** — *"Wallpaper Stripping — Back Bedroom"*, with the paper type underneath. That's the point of it: on a strip-out, or a strip-and-repaper, a room line reading *"Back Bedroom £480"* with nothing painted looks like a mistake rather than a day with a steamer. The money is **carved out** of the room's line, never added on top, so the total is exactly what it was — and a room that's *only* being stripped shows the one line rather than a £0.00 paint line beside it. Summary still counts it inside the room (that's the view that feeds the diary and the spec sheet) and marks the row *own quote line* so the two reconcile.
 
+  **It's named in the [quote description](#the-quote-description) too**, beside the mist coat: *"Existing wallpaper will be stripped from the walls prior to decoration."* (past tense on the invoice). It says the surfaces, not the paper type — the type is on the priced line, where it's what explains the figure. A job where **nothing is being painted** now reads properly as well: the description describes the stripping instead of leaving the painting paragraph empty.
+
   > **Set the rates before you use it.** The four minutes-per-m² figures ship at **0** — they're yours to calibrate, and the app won't guess a number for work it has never watched you do. With a type still at 0 the card says so in orange rather than quietly pricing the strip at nothing.
 
 #### Decide the scheme
@@ -522,10 +524,29 @@ you gave it one:
 > *Ceilings finished in Tikkurila Anti Reflex 2, walls in Tikkurila Optiva 5, the
 > feature wall in Farrow & Ball Estate Emulsion, and all woodwork including
 > skirtings, window sills and radiators in Tikkurila Helmi 30, each applied in 2
-> coats. Newly plastered walls will be mist coated prior to finishing.*
+> coats. Existing wallpaper will be stripped from the walls prior to decoration.
+> Newly plastered walls will be mist coated prior to finishing.*
+
+The two prep sentences at the end appear only where you ticked them, and in the
+order the work happens — [strip](#walk-the-room) first, then the mist coat.
 
 A papered feature wall isn't listed as painted — it moves to the wallpapering
 line instead, which names what's being papered.
+
+**A job with no painting at all still gets described.** Strip a room out and
+paint nothing, and the description is the stripping — not an empty paragraph
+under a heading about painting.
+
+> **If you've edited your templates**, one case needs a hand. The stripping
+> sentence rides the `{surfaces}` placeholder, so every template that has one
+> picks it up automatically. The **Wallpapering** template is the exception —
+> it has no `{surfaces}`, because nothing is being painted — so it carries a
+> `{stripped}` placeholder instead, added on its own line under PROTECTION &
+> PREPARATION. If you customised that template before this shipped, your copy
+> won't have it: add `{stripped}` on its own line where you want the sentence,
+> or use **Reset all** to take the new default (which loses your other edits).
+> Don't put `{stripped}` in a template that already has `{surfaces}` — the
+> quote would then say it twice.
 
 **It never states a paint the job doesn't use.** It's a whole-job sentence, so
 woodwork measured in one room puts woodwork in the wording for the job — and
@@ -1263,6 +1284,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.76.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.76.1. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
