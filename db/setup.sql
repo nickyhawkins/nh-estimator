@@ -514,3 +514,58 @@ CREATE TABLE IF NOT EXISTS job_spec_sheets (
 -- same reason as jobs_client_token: every job without a link shares a NULL.
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS spec_token VARCHAR;
 CREATE UNIQUE INDEX IF NOT EXISTS jobs_spec_token ON jobs (spec_token) WHERE spec_token IS NOT NULL;
+
+-- ── Staged invoicing (STAGED_INVOICING_SPEC.md) ───────────────────────────
+-- One row per invoice the app raises on a job: any number of 'interim'
+-- invoices part way through, then the 'final' one. Created lazily on first
+-- use by lib/invoices.js (ensureInvoiceSchema) like the tables above -- this
+-- is the documentation copy.
+--
+-- Interims are CUMULATIVE: each records the % complete for labour and for
+-- materials to date, and bills only the difference from what was already
+-- billed, so the final invoice simply deducts every interim's subtotal.
+--
+-- Recorded first, sent to Xero second (routes/xero.js /sync-invoice), with the
+-- row's idempotency_key reused as Xero's Idempotency-Key on every attempt --
+-- the deposit pattern. sync_state is that send's state and is independent of
+-- the app's offline sync-dot.
+--
+-- No backfill: jobs invoiced before this shipped keep their history on
+-- jobs.data (xeroInvoiceNumber, finalInvoiceTotal) exactly as before, and a
+-- 'final' row is only written for a job that has interims to deduct.
+CREATE TABLE IF NOT EXISTS invoices (
+  id VARCHAR PRIMARY KEY,
+  job_id VARCHAR NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  type VARCHAR NOT NULL,                          -- interim | final
+  sequence INTEGER NOT NULL,                      -- 1, 2, 3 per job
+  labour_pct_cumulative NUMERIC NOT NULL DEFAULT 0,
+  materials_pct_cumulative NUMERIC NOT NULL DEFAULT 0,
+  quoted_labour NUMERIC NOT NULL DEFAULT 0,       -- the bases the % applied to
+  quoted_materials NUMERIC NOT NULL DEFAULT 0,
+  labour_amount NUMERIC NOT NULL DEFAULT 0,
+  materials_amount NUMERIC NOT NULL DEFAULT 0,
+  variations_amount NUMERIC NOT NULL DEFAULT 0,
+  subtotal NUMERIC NOT NULL DEFAULT 0,            -- the Xero invoice total
+  deposit_applied NUMERIC NOT NULL DEFAULT 0,     -- in-app only; Xero allocates by hand
+  amount_due NUMERIC NOT NULL DEFAULT 0,
+  stage_ref VARCHAR,                              -- quote payment stage used to pre-fill labour
+  variation_lines JSONB NOT NULL DEFAULT '[]',    -- [{kind, sourceId, description, amount}] billed in full here
+  line_items JSONB NOT NULL DEFAULT '[]',         -- exactly what is sent to Xero
+  xero_contact_id VARCHAR,
+  xero_client_name VARCHAR,
+  xero_reference VARCHAR,
+  xero_invoice_id VARCHAR,
+  xero_invoice_number VARCHAR,
+  sync_state VARCHAR NOT NULL DEFAULT 'notSynced', -- notSynced | failed | synced
+  synced_at TIMESTAMP,
+  last_attempt_at TIMESTAMP,
+  last_error VARCHAR,
+  idempotency_key VARCHAR NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS invoices_job_sequence ON invoices (job_id, sequence);
+CREATE UNIQUE INDEX IF NOT EXISTS invoices_idempotency_key ON invoices (idempotency_key);
+CREATE INDEX IF NOT EXISTS invoices_job ON invoices (job_id);
+-- Which invoice a published variation line was billed on (NULL = not yet).
+ALTER TABLE job_variations ADD COLUMN IF NOT EXISTS invoiced_on_invoice_id VARCHAR;

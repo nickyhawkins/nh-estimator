@@ -6,6 +6,7 @@ const {
   ensureSpecSchema, ensureSpecToken, specSheetPath, normaliseSpecModel,
   readSpecTicks, writeSpecTick, SPEC_STEPS, SPEC_TICK_STATUSES, ITEM_KEY_MAX,
 } = require('../lib/specSheet');
+const { ensureInvoiceSchema, mapInvoiceRow, planInterimInvoice } = require('../lib/invoices');
 // Aliased so the import loop below reads like its neighbours (SNAG_STATUSES,
 // VARIATION_KINDS) rather than shadowing the step set's name with a local.
 const SPEC_STEPS_SET = SPEC_STEPS;
@@ -142,10 +143,11 @@ router.delete('/jobs/:id', async (req, res) => {
         if (err.code !== '42P01') throw err;
       }),
       // NB job_variations is NOT in this list and must not be added, and
-      // neither are spec_ticks or job_spec_sheets: those three are the tables
-      // here with a real foreign key (see db/setup.sql and lib/specSheet.js),
-      // so deleting the job below cascades the published client-facing lines,
-      // the spec sheet's ticks and its published model away automatically.
+      // neither are spec_ticks, job_spec_sheets or invoices: those are the
+      // tables here with a real foreign key (see db/setup.sql, lib/specSheet.js
+      // and lib/invoices.js), so deleting the job below cascades the published
+      // client-facing lines, the spec sheet's ticks, its published model and
+      // the job's invoice records away automatically.
       // Deleting them here first would work too, but the cascade is what
       // guarantees a live public URL can never outlive the job behind it --
       // including on paths that never come through here.
@@ -449,6 +451,210 @@ router.put('/jobs/:id/client-variations', async (req, res) => {
     await client.query('COMMIT');
     const out = await readClientVariations(jobId);
     res.json(Object.assign({ ok: true }, out));
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (e) {}
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ── Staged invoicing (STAGED_INVOICING_SPEC.md) ────────────────────────────
+// A job's invoices: any number of interims part way through, then the final.
+//
+//   GET    /api/jobs/:id/invoices               every invoice, in sequence
+//   POST   /api/jobs/:id/invoices/interim       record an interim (idempotent)
+//   POST   /api/jobs/:id/invoices/final         record the final (after Xero)
+//   DELETE /api/jobs/:id/invoices/:invoiceId    discard an interim that never
+//                                               reached Xero
+//
+// Recording and sending are two steps on purpose, the deposit pattern again:
+// the row is written first, holding the idempotency key, and /auth/sync-invoice
+// then sends THAT row to Xero with that key. A lost reply, a second tap or a
+// "Try again" therefore always resolves to the same row and the same Xero
+// invoice, never a second one.
+//
+// The SERVER decides the figures. The builder previews them offline, but the
+// cumulative % already billed, the variations already billed and the deposit
+// already applied are all read here, inside a transaction holding the job's
+// row lock, so two devices issuing at once can't both bill the same 40%.
+router.use('/jobs/:id/invoices', async (req, res, next) => {
+  try {
+    await ensureInvoiceSchema();
+    next();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const INVOICE_COLUMNS = `id, job_id, type, sequence, labour_pct_cumulative, materials_pct_cumulative,
+  quoted_labour, quoted_materials, labour_amount, materials_amount, variations_amount, subtotal,
+  deposit_applied, amount_due, stage_ref, variation_lines, line_items, xero_invoice_id,
+  xero_invoice_number, sync_state, synced_at, last_attempt_at, last_error, idempotency_key, created_at`;
+
+router.get('/jobs/:id/invoices', async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT ${INVOICE_COLUMNS} FROM invoices WHERE job_id = $1 ORDER BY sequence ASC`, [req.params.id]);
+    res.json(result.rows.map(mapInvoiceRow));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/jobs/:id/invoices/interim', async (req, res) => {
+  const jobId = req.params.id;
+  const body = req.body || {};
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
+    // A replay of an issue that already landed (the reply was lost, or the
+    // button was tapped twice) answers with the row it made -- whatever the
+    // job's billing looks like now.
+    const replay = await client.query(`SELECT ${INVOICE_COLUMNS} FROM invoices WHERE idempotency_key = $1`,
+      [String(body.idempotencyKey || '')]);
+    if (replay.rows.length) {
+      await client.query('ROLLBACK');
+      if (replay.rows[0].job_id !== jobId) return res.status(409).json({ error: 'That key belongs to another job' });
+      return res.json({ ok: true, replayed: true, invoice: mapInvoiceRow(replay.rows[0]) });
+    }
+    // The row lock serialises issuing per job -- see the section comment.
+    const jobRes = await client.query('SELECT data FROM jobs WHERE id = $1 FOR UPDATE', [jobId]);
+    if (!jobRes.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'job not found — if it was created offline, let it sync first' });
+    }
+    const job = jobRes.rows[0].data || {};
+    // Interims belong to a job that is under way. Once it is completed the
+    // final invoice is the one to build (it deducts everything billed here).
+    if (job.status !== 'accepted') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Interim invoices are for accepted jobs in progress — this one is ' + (job.status || 'a draft') + '.' });
+    }
+    const existing = (await client.query(
+      `SELECT ${INVOICE_COLUMNS} FROM invoices WHERE job_id = $1 ORDER BY sequence ASC`, [jobId]
+    )).rows.map(mapInvoiceRow);
+    // The deposit actually RECEIVED (job.deposit), never the plan's forecast:
+    // a deposit that was asked for but never paid must not be deducted.
+    const depositTotal = job.deposit && +job.deposit.amount > 0 ? +job.deposit.amount : 0;
+    const plan = planInterimInvoice({ existing, depositTotal, body });
+    if (plan.error) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: plan.error });
+    }
+    const r = plan.row;
+    const id = crypto.randomUUID();
+    const inserted = await client.query(
+      `INSERT INTO invoices (id, job_id, type, sequence, labour_pct_cumulative, materials_pct_cumulative,
+              quoted_labour, quoted_materials, labour_amount, materials_amount, variations_amount, subtotal,
+              deposit_applied, amount_due, stage_ref, variation_lines, line_items,
+              xero_contact_id, xero_client_name, xero_reference, sync_state, idempotency_key)
+       VALUES ($1, $2, 'interim', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+               $17, $18, $19, 'notSynced', $20)
+       RETURNING ${INVOICE_COLUMNS}`,
+      [id, jobId, r.sequence, r.labourPctCumulative, r.materialsPctCumulative,
+       r.quotedLabour, r.quotedMaterials, r.labourAmount, r.materialsAmount, r.variationsAmount, r.subtotal,
+       r.depositApplied, r.amountDue, r.stageRef, JSON.stringify(r.variationLines), JSON.stringify(r.lineItems),
+       // Same contact and reference the final invoice uses, captured now so
+       // the Xero write sends exactly what was recorded.
+       job.xeroContactId || null, job.xeroClient || job.name || null,
+       (job.xeroRef || job.name || '') + ' — interim ' + r.sequence, r.idempotencyKey]
+    );
+    // Stamp the published client-facing rows too, where they exist.
+    for (const v of r.variationLines) {
+      await client.query(
+        `UPDATE job_variations SET invoiced_on_invoice_id = $1, updated_at = NOW()
+          WHERE job_id = $2 AND source_kind = $3 AND source_id = $4`,
+        [id, jobId, v.kind, v.sourceId]);
+    }
+    await client.query('COMMIT');
+    res.json({ ok: true, invoice: mapInvoiceRow(inserted.rows[0]) });
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (e) {}
+    // Another device took this sequence number between our read and write.
+    if (err.code === '23505') return res.status(409).json({ error: 'Another invoice was issued on this job at the same moment — reopen the builder and check the figures.' });
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// The final invoice is still written to Xero by /auth/create-invoice, exactly
+// as it always was; this only records it alongside the interims it deducted,
+// so the Billing view can add the job's invoices up. Rebuilding the final
+// replaces the row (newest draft wins, same as the job's own xeroInvoiceId).
+router.post('/jobs/:id/invoices/final', async (req, res) => {
+  const jobId = req.params.id;
+  const b = req.body || {};
+  const money = (v) => Math.round((+v || 0) * 100) / 100;
+  const key = String(b.idempotencyKey || '');
+  if (!/^[A-Za-z0-9-]{8,128}$/.test(key)) return res.status(400).json({ error: 'idempotencyKey is required' });
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
+    const jobRes = await client.query('SELECT id FROM jobs WHERE id = $1 FOR UPDATE', [jobId]);
+    if (!jobRes.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'job not found' }); }
+    const prior = await client.query(`SELECT id, sequence FROM invoices WHERE job_id = $1 AND type = 'final'`, [jobId]);
+    const maxSeq = await client.query('SELECT COALESCE(MAX(sequence), 0) AS m FROM invoices WHERE job_id = $1', [jobId]);
+    const values = [money(b.subtotal), money(b.depositApplied), money(b.amountDue),
+                    b.xeroInvoiceId || null, b.xeroInvoiceNumber || null];
+    let row;
+    if (prior.rows.length) {
+      row = (await client.query(
+        `UPDATE invoices SET subtotal = $2, deposit_applied = $3, amount_due = $4, xero_invoice_id = $5,
+                xero_invoice_number = $6, sync_state = 'synced', synced_at = NOW(), idempotency_key = $7,
+                labour_pct_cumulative = 100, materials_pct_cumulative = 100, updated_at = NOW()
+          WHERE id = $1 RETURNING ${INVOICE_COLUMNS}`,
+        [prior.rows[0].id, ...values, key])).rows[0];
+    } else {
+      row = (await client.query(
+        `INSERT INTO invoices (id, job_id, type, sequence, labour_pct_cumulative, materials_pct_cumulative,
+                subtotal, deposit_applied, amount_due, xero_invoice_id, xero_invoice_number,
+                sync_state, synced_at, idempotency_key)
+         VALUES ($1, $2, 'final', $3, 100, 100, $4, $5, $6, $7, $8, 'synced', NOW(), $9)
+         RETURNING ${INVOICE_COLUMNS}`,
+        [crypto.randomUUID(), jobId, +maxSeq.rows[0].m + 1, ...values, key])).rows[0];
+    }
+    await client.query('COMMIT');
+    res.json({ ok: true, invoice: mapInvoiceRow(row) });
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (e) {}
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// Discard an interim that never reached Xero -- a failed send that is not
+// going to be retried (wrong figures, contact problem). Refused once it is in
+// Xero: voiding or editing an issued invoice is an open question
+// (STAGED_INVOICING_SPEC.md), and until it is answered the app does not unwind
+// a financial document it has already written. Only the LATEST interim can go,
+// so the cumulative % of every invoice after it stays true.
+router.delete('/jobs/:id/invoices/:invoiceId', async (req, res) => {
+  const { id: jobId, invoiceId } = req.params;
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SELECT id FROM jobs WHERE id = $1 FOR UPDATE', [jobId]);
+    const rows = (await client.query(
+      'SELECT id, type, sequence, sync_state, xero_invoice_id FROM invoices WHERE job_id = $1 ORDER BY sequence DESC', [jobId])).rows;
+    const target = rows.find(r => r.id === invoiceId);
+    if (!target) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'invoice not found' }); }
+    if (target.type !== 'interim') { await client.query('ROLLBACK'); return res.status(400).json({ error: 'Only an interim invoice can be discarded here' }); }
+    if (target.sync_state === 'synced' || target.xero_invoice_id) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'This invoice is already in Xero — correct or void it there.' });
+    }
+    if (rows[0].id !== invoiceId) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Only the most recent invoice can be discarded — later invoices were billed on top of it.' });
+    }
+    await client.query('UPDATE job_variations SET invoiced_on_invoice_id = NULL WHERE job_id = $1 AND invoiced_on_invoice_id = $2', [jobId, invoiceId]);
+    await client.query('DELETE FROM invoices WHERE id = $1', [invoiceId]);
+    await client.query('COMMIT');
+    res.json({ ok: true });
   } catch (err) {
     try { await client.query('ROLLBACK'); } catch (e) {}
     res.status(500).json({ error: err.message });

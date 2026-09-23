@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const db = require('../db');
+const { ensureInvoiceSchema, buildInterimXeroInvoice } = require('../lib/invoices');
 const router = express.Router();
 
 const XERO_AUTH_URL = 'https://login.xero.com/identity/connect/authorize';
@@ -1499,6 +1500,90 @@ router.post('/create-invoice', async (req, res) => {
       ? ' — this can mean Xero needs reconnecting once to grant invoice permission (Summary → Connect Xero)'
       : '';
     res.status(500).json({ error: xeroErrorMessage(err) + hint });
+  }
+});
+
+// ── Interim invoices (STAGED_INVOICING_SPEC.md) ─────────────────────────────
+// Sends ONE recorded interim to Xero as its own ACCREC draft. The row is read
+// from the database, never from the request: POST /api/jobs/:id/invoices/
+// interim already decided the figures and the line text, and what lands in
+// Xero has to be exactly that record.
+//
+// The deposit pattern, deliberately: the row's own idempotency key goes to
+// Xero as Idempotency-Key on every attempt, so "Try again" after a lost reply
+// replays the original invoice rather than writing a second one, and the sync
+// state (notSynced | failed | synced + lastError) is separate from the app's
+// offline sync-dot. Blocked offline in the app, never queued -- same rule as
+// every other Xero write.
+router.post('/sync-invoice', async (req, res) => {
+  const { invoiceId } = req.body || {};
+  if (!invoiceId) return res.status(400).json({ error: 'invoiceId is required' });
+  let row;
+  try {
+    await ensureInvoiceSchema();
+    const found = await db.query(
+      `SELECT id, job_id, type, sequence, line_items, xero_contact_id, xero_client_name, xero_reference,
+              xero_invoice_id, xero_invoice_number, sync_state, idempotency_key
+         FROM invoices WHERE id = $1`, [invoiceId]);
+    if (!found.rows.length) return res.status(404).json({ error: 'invoice not found' });
+    row = found.rows[0];
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+  if (row.type !== 'interim') return res.status(400).json({ error: 'Only interim invoices are sent from here' });
+  // Already landed: answer with what Xero gave us rather than writing again.
+  if (row.sync_state === 'synced' && row.xero_invoice_id) {
+    return res.json({ ok: true, invoiceId: row.xero_invoice_id, invoiceNumber: row.xero_invoice_number, alreadySynced: true });
+  }
+
+  const markFailed = (message) => db.query(
+    `UPDATE invoices SET sync_state = 'failed', last_error = $2, updated_at = NOW() WHERE id = $1`,
+    [row.id, String(message || 'Sync failed').slice(0, 300)]).catch(() => {});
+
+  try {
+    await db.query('UPDATE invoices SET last_attempt_at = NOW(), updated_at = NOW() WHERE id = $1', [row.id]);
+    const accessToken = await getAccessToken();
+    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    const tenantId = result.rows[0]?.xero_tenant_id;
+    if (!tenantId) {
+      await markFailed('No Xero tenant found — please reconnect Xero');
+      return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
+    }
+    const invRes = await axios.put(
+      `${XERO_API_URL}/Invoices`,
+      buildInterimXeroInvoice({
+        xeroContactId: row.xero_contact_id, xeroClientName: row.xero_client_name,
+        xeroReference: row.xero_reference, lineItems: row.line_items
+      }),
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Xero-Tenant-Id': tenantId,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'Idempotency-Key': String(row.idempotency_key).slice(0, 128)
+        }
+      }
+    );
+    const invoice = invRes.data.Invoices && invRes.data.Invoices[0];
+    if (!invoice || !invoice.InvoiceID) throw new Error('Xero did not return an invoice');
+    await db.query(
+      `UPDATE invoices SET sync_state = 'synced', synced_at = NOW(), last_error = NULL,
+              xero_invoice_id = $2, xero_invoice_number = $3, updated_at = NOW()
+        WHERE id = $1`,
+      [row.id, invoice.InvoiceID, invoice.InvoiceNumber || null]);
+    res.json({ ok: true, invoiceId: invoice.InvoiceID, invoiceNumber: invoice.InvoiceNumber || null });
+  } catch (err) {
+    console.error('Sync interim invoice error:', err.response?.data || err.message);
+    const status = err.response?.status;
+    // Same hint as /create-invoice: a token granted before invoice writing
+    // joined SCOPES needs Xero reconnecting once.
+    const hint = (status === 401 || status === 403)
+      ? ' — this can mean Xero needs reconnecting once to grant invoice permission (Summary → Connect Xero)'
+      : '';
+    const message = xeroErrorMessage(err) + hint;
+    await markFailed(message);
+    res.status(500).json({ error: message });
   }
 });
 
