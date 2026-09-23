@@ -110,6 +110,12 @@ try {
      height once the DOM is up, so an OS text-size setting that makes the
      labels taller can't hide content underneath it. */
   --navh: calc(56px + max(var(--sb), 8px));
+  /* How far pinNav() has translated the bar up from where CSS put it. The
+     translate moves the bar but nothing positioned off --navh, so anything
+     floating above the bar (the + buttons, notes button, toast) adds this
+     too -- without it they stay put while the bar rides up over them, which
+     is how the + ended up half-hidden behind the bar on iOS. */
+  --navlift: 0px;
 }
 /* Dark palette (v2.0) — same ~12 vars, flipped. Applied via data-theme on
    <html>, set by the head boot snippet before first paint and by
@@ -356,11 +362,11 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
 /* Misc */
 .section-title{font-size:13px;font-weight:700;color:var(--text2);letter-spacing:.5px;text-transform:uppercase;padding:0 4px;margin-top:4px}
 .chip{display:inline-flex;align-items:center;gap:4px;background:var(--accent-soft-bg);color:var(--accent);border:1px solid var(--accent-soft-border);border-radius:20px;padding:4px 10px;font-size:12px;font-weight:600}
-.fab{position:fixed;bottom:calc(var(--navh) + 16px);right:20px;width:56px;height:56px;border-radius:50%;background:var(--accent);border:none;color:#fff;font-size:28px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(26,82,118,.4);cursor:pointer;z-index:50;transition:all .15s}
+.fab{position:fixed;bottom:calc(var(--navh) + var(--navlift) + 16px);right:20px;width:56px;height:56px;border-radius:50%;background:var(--accent);border:none;color:#fff;font-size:28px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(26,82,118,.4);cursor:pointer;z-index:50;transition:all .15s}
 .fab:active{transform:scale(.92)}
-.fab-quick{position:fixed;bottom:calc(var(--navh) + 28px);right:88px;height:36px;padding:0 14px;border-radius:18px;background:var(--surface);border:1px solid var(--border);color:var(--accent);font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;box-shadow:0 2px 12px rgba(0,0,0,.12);cursor:pointer;z-index:50;transition:all .15s}
+.fab-quick{position:fixed;bottom:calc(var(--navh) + var(--navlift) + 28px);right:88px;height:36px;padding:0 14px;border-radius:18px;background:var(--surface);border:1px solid var(--border);color:var(--accent);font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;box-shadow:0 2px 12px rgba(0,0,0,.12);cursor:pointer;z-index:50;transition:all .15s}
 .fab-quick:active{transform:scale(.95)}
-.notes-fab{position:fixed;bottom:calc(var(--navh) + 24px);left:20px;width:40px;height:40px;border-radius:50%;background:var(--surface);border:1px solid var(--border);font-size:18px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 12px rgba(0,0,0,.12);cursor:pointer;z-index:50;transition:all .15s}
+.notes-fab{position:fixed;bottom:calc(var(--navh) + var(--navlift) + 24px);left:20px;width:40px;height:40px;border-radius:50%;background:var(--surface);border:1px solid var(--border);font-size:18px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 12px rgba(0,0,0,.12);cursor:pointer;z-index:50;transition:all .15s}
 .notes-fab:active{transform:scale(.92)}
 .notes-fab-dot{position:absolute;top:2px;right:2px;width:9px;height:9px;border-radius:50%;background:var(--accent);border:1.5px solid var(--surface);display:none}
 .note-card{background:rgba(245,166,35,.06);border:1px solid rgba(245,166,35,.25);border-radius:var(--r);overflow:hidden}
@@ -2430,7 +2436,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
 <!-- One shared toast for "that didn't work" messages — see toast() /
      reportFailure(). Above every overlay so a failure inside one is still
      readable. -->
-<div id="app-toast" style="display:none;position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--navh) + 12px);z-index:600;max-width:calc(100% - 32px);min-width:min(300px, calc(100% - 32px));background:#2b2b2b;color:#fff;font-size:14px;line-height:1.4;padding:11px 16px;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.28);text-align:left;align-items:center;gap:14px">
+<div id="app-toast" style="display:none;position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--navh) + var(--navlift) + 12px);z-index:600;max-width:calc(100% - 32px);min-width:min(300px, calc(100% - 32px));background:#2b2b2b;color:#fff;font-size:14px;line-height:1.4;padding:11px 16px;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.28);text-align:left;align-items:center;gap:14px">
   <span id="app-toast-msg" style="flex:1;min-width:0"></span>
   <button id="app-toast-action" onclick="runToastAction()" style="display:none;flex:none;background:none;border:none;color:#7fc0ef;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;padding:2px 0;text-transform:uppercase;letter-spacing:.04em"></button>
 </div>
@@ -29824,6 +29830,8 @@ function pinNav() {
   if (shift === _navShift) return;
   _navShift = shift;
   nav.style.transform = shift ? 'translateY(' + shift + 'px)' : '';
+  // Carry everything floating above the bar along with it (see --navlift).
+  document.documentElement.style.setProperty('--navlift', (-shift) + 'px');
 }
 
 // One pin per frame however many events land in it: the read forces layout,
