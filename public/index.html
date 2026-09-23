@@ -18794,6 +18794,58 @@ async function discardInterimInvoice(invoiceId) {
   renderSummary();
 }
 
+// Void & reissue. Takes the latest interim out of Xero (deleted if still a
+// draft, voided if approved with nothing paid or allocated against it --
+// /auth/void-invoice refuses anything else, with the reason), discards the
+// app's record so its rooms, extras, tins and deposit share become billable
+// again, then opens the builder with the voided invoice's percentages and
+// deposit share already filled in, so the correction is an edit, not a
+// re-type. The new invoice gets a new number and a new idempotency key.
+async function voidAndReissueInterim(invoiceId) {
+  if (blockIfOffline('Voiding an invoice')) return;
+  var job = activeJob();
+  var inv = jobInvoiceList(job).find(function(i) { return i.id === invoiceId; });
+  if (!job || !inv) return;
+  if (!confirm('Void ' + interimInvoiceLabel(inv) + ' (' + fmt(inv.subtotal) + ') and issue a corrected one?\n\n' +
+      'In Xero it is deleted if still a draft, or marked VOID if approved. It stays in Xero as a record, and drops off the client\'s page.\n\n' +
+      'If a payment or the deposit has been allocated to it in Xero, remove that there first — the app won\'t unwind money.\n\n' +
+      'The builder then opens with this invoice\'s figures filled in, ready to correct.')) return;
+  try {
+    var resp = await fetch('/auth/void-invoice', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                  body: JSON.stringify({ invoiceId: invoiceId }) });
+    var result = await resp.json();
+    if (!result.ok) throw new Error(result.error || 'Xero refused');
+  } catch (err) {
+    await loadJobInvoices(job.id);
+    reportFailure('Could not void the invoice', err);
+    renderSummary();
+    return;
+  }
+  try {
+    var del = await fetch('/api/jobs/' + encodeURIComponent(job.id) + '/invoices/' + encodeURIComponent(invoiceId), { method: 'DELETE' });
+    var delRes = await del.json();
+    if (!del.ok || !delRes.ok) throw new Error(delRes.error || ('HTTP ' + del.status));
+  } catch (err) {
+    // Voided in Xero but still counted here: Summary shows it as voided with
+    // a Discard link, so nothing is lost -- say so rather than fail silently.
+    await loadJobInvoices(job.id);
+    reportFailure('Voided in Xero, but the app could not discard its record — tap Discard on it', err);
+    renderSummary();
+    return;
+  }
+  // The corrected invoice starts from the voided one's figures.
+  var d = { idempotencyKey: newIdempotencyKey(), labourPcts: {}, variationPcts: {},
+            materialExcludeKeys: [], stageRef: inv.stageRef || null,
+            depositToApply: +inv.depositApplied || 0 };
+  (inv.labourLines || []).forEach(function(l) { d.labourPcts[l.key] = +l.pct || 0; });
+  (inv.variationLines || []).forEach(function(l) { d.variationPcts[l.key] = +l.pct || 0; });
+  job.interimDraft = d;
+  saveInterimDraft();
+  await loadJobInvoices(job.id);
+  toast((inv.xeroInvoiceNumber || 'The invoice') + ' ' + (result.status === 'DELETED' ? 'deleted' : 'voided') + ' in Xero ✓ — correct the figures and issue it again.');
+  openInterimInvoice();
+}
+
 // Summary status card: the invoices raised so far, each with its Xero state,
 // plus the entry point while the job is under way. Renders nothing at all on a
 // job that is past acceptance and never had an interim -- those jobs look
@@ -18831,6 +18883,15 @@ function interimInvoicesBlockHtml(job, jobStatus) {
         ((inv.variationLines || []).length ? ' · ' + inv.variationLines.length + ' variation' + (inv.variationLines.length === 1 ? '' : 's') : '')
       : 'balancing invoice';
     var actions = '';
+    // Void & reissue: only on the most recent interim, once it's in Xero,
+    // and never after the final invoice (which deducts it by number).
+    var isLatest = list[list.length - 1] === inv;
+    var hasFinal = list.some(function(i) { return i.type === 'final'; });
+    if (inv.type === 'interim' && inv.syncState === 'synced' && inv.xeroInvoiceId && isLatest && !hasFinal &&
+        xs !== 'VOIDED' && xs !== 'DELETED' && xs !== 'PAID') {
+      actions = '<div style="display:flex;gap:12px;margin-top:4px">' +
+        '<span class="xero-live-btn" onclick="voidAndReissueInterim(\'' + inv.id + '\')" style="' + link + ';color:var(--danger)">Void &amp; reissue</span></div>';
+    }
     if (inv.type === 'interim' && (xs === 'VOIDED' || xs === 'DELETED')) {
       actions = '<div style="display:flex;gap:12px;margin-top:4px">' +
         '<span onclick="discardInterimInvoice(\'' + inv.id + '\')" style="' + link + ';color:var(--danger)">Discard</span></div>';

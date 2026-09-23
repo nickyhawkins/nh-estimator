@@ -1109,7 +1109,13 @@ Each invoice then appears on the status card with its Xero state, which the app 
 
 If the send to Xero failed, you'll see the reason in red, and **Try again** is safe: it can never create the invoice twice. **Discard** removes the most recent interim if it never reached Xero.
 
-**Correcting an interim that's already in Xero:** void (or delete) it in Xero, open Summary so the app sees that, then tap **Discard**. Its rooms, variations, materials and deposit share all become billable again, ready for a corrected invoice. The app never voids anything in Xero itself, and it won't discard an invoice that Xero still has as live.
+**Correcting an interim that's already in Xero:** tap **Void & reissue** on the most recent interim.
+- If it's still a draft in Xero, it's deleted. If it's been approved, it's marked **VOID**, so it stays in Xero as a record and drops off the client's page.
+- The builder then opens with that invoice's figures already filled in (each room's %, the extras, the deposit share), so you only change what was wrong and issue it again. The corrected invoice gets a new number.
+- If a payment or the deposit has been allocated to the invoice in Xero, the app won't void it. Remove the payment or allocation in Xero first, then try again. The app never unwinds money.
+- It only works on the **most recent** interim, and not once the final invoice exists, because later invoices refer back to it.
+
+If you void an invoice directly in Xero instead, open Summary and tap **Discard** on it. That has the same effect, without the pre-filled builder.
 
 **The client sees what's been invoiced.** Once an interim (or the final invoice) is **approved in Xero**, it appears on the client's link under **Invoices so far**, with its number, date, amount, and whether it's paid. There's also a running *"Invoiced so far"* against the job total. Drafts are never shown, so nothing reaches the client's page before you've checked and sent it.
 

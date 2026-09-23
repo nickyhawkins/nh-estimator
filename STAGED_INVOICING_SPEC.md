@@ -236,11 +236,23 @@ While the job is in progress, the Summary status card shows the same running tot
   never reaches the client. The public page never calls Xero itself; it reads what the app last
   recorded, so an invoice appears once Summary has been opened after approving it in Xero. A
   voided invoice drops off.
-- **Correcting an issued interim:** void or delete it **in Xero**, and once the read-back sees that,
-  **Discard** it in the app (latest interim only). Its lines, materials and deposit share become
-  billable again. The app still never voids anything in Xero itself, and it refuses to discard an
-  invoice Xero still has as live. The final invoice won't build while an interim is voided but not
-  yet discarded.
+- **Void & reissue** (Nicky, 2026-09-23). `POST /auth/void-invoice` takes the **latest** interim out
+  of Xero. It is refused once a final invoice exists, since the final deducts interims by number.
+  It reads Xero's live status first:
+  - DRAFT/SUBMITTED → **DELETED**.
+  - AUTHORISED with nothing paid or allocated → **VOIDED**, which keeps the record in Xero.
+  - Anything with `AmountPaid` or `AmountCredited` > 0 (a payment, or the deposit prepayment
+    allocated to it) → **refused**, with the amount named. Unwinding money stays a person's job in
+    Xero.
+
+  The app then discards its record (the DELETE route accepts a dead invoice) and opens the builder
+  with a new draft pre-filled from the voided invoice: each labour and variation line's %, and its
+  deposit share. Materials come back ticked, and a new idempotency key is issued. If the discard
+  fails after Xero succeeded, Summary shows the invoice as voided with a **Discard** link, so
+  nothing is lost.
+- **Voiding directly in Xero** works too. Once the read-back sees VOIDED/DELETED, Summary flags it
+  and **Discard** rolls its lines, materials and deposit share back. The final invoice won't build
+  while an interim is voided but not yet discarded.
 
 ## Open questions
 
@@ -248,9 +260,8 @@ While the job is in progress, the Summary status card shows the same running tot
    Xero. The app only says how much to allocate.
 2. ~~**Match quote stage** — should it pre-fill materials % too?~~ Resolved: materials are
    itemised now, so there's no materials % to fill.
-3. **Void or edit an issued interim from the app.** Partly answered: voiding happens in Xero, and
-   the app then discards (see above). Having the app send the void itself is not built. Nicky
-   hasn't said whether he wants it.
+3. ~~**Void or edit an issued interim from the app.**~~ Built as void & reissue (see above): latest
+   interim only, never once money is allocated to it, and never after the final invoice.
 4. ~~**Client-facing variations page shows invoices?**~~ Built: yes, once approved in Xero.
 5. ~~**Deposit vs the "amount due ≤ 0" guard.**~~ Resolved: the deposit share is chosen per
    invoice, and a fully covered (£0 due) invoice is allowed.
