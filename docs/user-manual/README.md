@@ -104,7 +104,7 @@ picks up from there.
 
 ![Home screen](images/01-home.png)
 
-The **Home** screen is your morning glance: the current job and its status, a **Materials to buy** count, **Next on site** — the client you're due at next and the date — and shortcut links. When something needs chasing — a quote that's gone unanswered too long, a finished job you haven't invoiced — it appears at the top of Home as an attention strip.
+The **Home** screen is your morning glance: the current job and its status, a **Materials to buy** count, **Next on site** — the client you're due at next and the date — and shortcut links. The **`+`** button in the bottom corner starts a new job, the same as the one on the Jobs screen: type a name and you land back on Home with the new job as current. When something needs chasing — a quote that's gone unanswered too long, a finished job you haven't invoiced — it appears at the top of Home as an attention strip.
 
 The **bottom bar** is always visible and follows the life of a job, left to right:
 
