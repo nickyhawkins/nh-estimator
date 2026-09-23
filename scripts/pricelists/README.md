@@ -35,8 +35,10 @@ historical record and a worked example of the tools' output.
 | `dulux.json`, `johnstones.json`, `crown.json`, `zinsser.json`, `isomat.json`, `little_greene.json`, `farrow_ball.json`, `benjamin_moore.json`, `tikkurila.json` | One structured price-list lookup per supplier: `category → band → {size_in_litres: ex-VAT price}`. |
 | `restore_inventory.py` | Restores truncated sizes and standardises naming across a Xero export, using the JSON lookups. Covers all 9 suppliers above. |
 | `verify_pricelists.py` | Cross-checks the 8 Brewers-format lookups against a Xero export's non-truncated rows (items that already show an explicit size), to catch transcription errors in the JSON *before* trusting it for a restoration run. Tikkurila has its own equivalent check (see the Tikkurila section below) since its price list has a different table format. |
+| `check_pdf_columns.py` | Checks a JSON lookup against its PDF by *column position* (each price is assigned to the size heading it sits under), which catches a row keyed one size too big or small — the error `verify_pricelists.py` can't see on items whose size was lost. Needs `pip install pymupdf`. Only trusted on `dulux.json` so far; see its docstring. |
 | `source_pdfs/` | The supplier price-list PDFs the JSON files were transcribed from. |
 | `data/` | The CSVs and reports from the restoration runs (2026-07-09): input, output, verification report, flag list. |
+| `data/InventoryItems-DUL-size-fix-20260923.csv` | Xero import that corrects the 19 Dulux items the restoration named one size too big (see below). |
 
 ## JSON lookup format
 
@@ -182,6 +184,25 @@ Two other things specific to `tikkurila.json`:
   small-quantity rate; they aren't. Each is its range's 10ltr tin price
   divided by the tin's contents — see "The `(per litre)` SKUs are priced off
   the *nominal* tin" above, which is the section to read before touching them.
+
+### Dulux rows that skip the 10LT column (fixed 2026-09-23)
+
+The Dulux PDF has one row of `10LT / 5LT / 2.5LT / 1LT` headings over each
+table, and a product that isn't made in 10L just leaves that column empty.
+Nine rows were transcribed as if their first price were the 10LT one, so
+every size was one step too big: Weathershield Masonry High Gloss (both
+bands), Weathershield Gloss & Undercoat (all three), Weathershield Quick
+Drying Gloss & Undercoat (both), and Diamond Glaze Varnish Colours (satin),
+which starts at 2.5LT. The restoration then put those wrong sizes back on
+the truncated Xero names — DUL134–DUL150 and DUL229–DUL230 — so e.g. the
+£30.49 **1ltr** WS Gloss & UC tin was called **2.5ltr**. The JSON is
+corrected, and `data/InventoryItems-DUL-size-fix-20260923.csv` is the Xero
+import that renames those 19 items. It is the 14 July export with only
+`ItemName` changed on those rows, so if prices have moved in Xero since then,
+re-export and copy the new names across instead of importing it as-is.
+`verify_pricelists.py` couldn't catch this, because it takes its ground truth
+from items that kept their size and these ones hadn't. Run
+`check_pdf_columns.py dulux.json` after any edit to the Dulux lookup.
 
 ## What's deliberately left alone
 
