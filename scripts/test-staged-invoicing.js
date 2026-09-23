@@ -16,8 +16,8 @@
 //   3. The guards: no line going backwards, nothing above 100%, nothing
 //      billed twice (a stale view is refused), nothing issued with nothing
 //      to pay.
-//   4. The deposit comes off the first interim and only what it can't absorb
-//      carries on.
+//   4. The deposit: all of what's left comes off by default, a smaller share
+//      can be chosen to keep a float, and whatever isn't used carries on.
 //   5. The line text that goes on the client's invoice.
 //   6. The final invoice's "Less: interim" lines take back labour and extras
 //      only -- the interims' materials are left off its list instead.
@@ -143,7 +143,18 @@ const TINS = [{ amount: 180 }, { amount: 320 }];
   eq('an applied deposit is not applied again', later.depositApplied, 0);
   const covers = lib.interimInvoiceMath(Object.assign({}, base, { labour: [L('Lounge', 4000, 5)], depositTotal: 500 }));
   eq('a deposit larger than the invoice is applied only up to the subtotal', covers.depositApplied, 200);
-  check('...and the zero-due invoice is blocked', covers.errors.some(e => /covers this whole invoice/.test(e)), covers.errors);
+  eq('...and an invoice the deposit covers entirely is allowed (£0 to pay)', [covers.amountDue, covers.errors], [0, []]);
+  // Splitting the deposit to keep a float: take £600 of £1,250 now.
+  const split = lib.interimInvoiceMath(Object.assign({}, base, { labour: [L('Lounge', 4000, 40)], depositTotal: 1250, depositToApply: 600 }));
+  eq('a chosen share of the deposit comes off', [split.depositApplied, split.amountDue], [600, 1000]);
+  const rest = lib.interimInvoiceMath(Object.assign({}, base, { labour: [L('Lounge', 4000, 70, 40, 1600)], depositTotal: 1250, depositAppliedSoFar: 600 }));
+  eq('the rest is taken by default on the next invoice', rest.depositApplied, 650);
+  const none = lib.interimInvoiceMath(Object.assign({}, base, { labour: [L('Lounge', 4000, 40)], depositTotal: 1250, depositToApply: 0 }));
+  eq('none of it can be taken, keeping it all back', [none.depositApplied, none.errors], [0, []]);
+  const tooMuch = lib.interimInvoiceMath(Object.assign({}, base, { labour: [L('Lounge', 4000, 10)], depositTotal: 1250, depositToApply: 500 }));
+  check('no more than the invoice total can come off', tooMuch.errors.some(e => /Only 400.00 of the deposit/.test(e)), tooMuch.errors);
+  const overLeft = lib.interimInvoiceMath(Object.assign({}, base, { labour: [L('Lounge', 4000, 40)], depositTotal: 1250, depositAppliedSoFar: 1000, depositToApply: 300 }));
+  check('no more than what is left of the deposit', overLeft.errors.some(e => /Only 250.00 of the deposit.*what is left/.test(e)), overLeft.errors);
   const carried = lib.interimInvoiceMath(Object.assign({}, base, { labour: [L('Lounge', 4000, 20)], depositTotal: 1000, depositAppliedSoFar: 700 }));
   eq('an unallocated remainder carries to the next invoice', carried.depositApplied, 300);
 }
@@ -244,6 +255,8 @@ const TINS = [{ amount: 180 }, { amount: 320 }];
   eq('plan: a whole-job % is recorded per line but invoiced as one line',
     [whole.row && whole.row.labourLines.length, whole.row && whole.row.lineItems.map(l => [l.description, l.unitAmount])],
     [2, [['Labour: 40% of quoted works (previously invoiced 0%)', 1520]]]);
+  const kept = lib.planInterimInvoice({ existing: [], depositTotal: 1250, body: Object.assign({}, body, { depositToApply: 600 }) });
+  eq('plan: the chosen deposit share is recorded', [kept.row && kept.row.depositApplied, kept.row && kept.row.amountDue], [600, 2470]);
   const staleLabour = lib.planInterimInvoice({ existing, depositTotal: 500, body: next({ labour: [Object.assign({}, hall, { pct: 100 })], variations: [] }) });
   check('plan: a labour line built from a stale view is refused as a conflict', staleLabour.conflict === true, staleLabour);
   const staleTin = lib.planInterimInvoice({ existing, depositTotal: 500, body: next({ labour: [], variations: [], materials: [tin] }) });

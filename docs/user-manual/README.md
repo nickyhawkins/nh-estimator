@@ -1090,13 +1090,36 @@ On a long job you don't have to wait until the end to invoice. While a job is **
 
 ![Preview, running totals and Issue](images/25c-interim-invoice-preview.png)
 
-The **Preview** shows the invoice line by line (each room that bills something, e.g. *"Lounge — complete"* or *"Hall, stairs & landing — 50% complete"*, then variations, then a **MATERIALS** heading with each product, just as the final invoice lays them out), then **Less deposit** (taken off the first interim) and the **Amount due**. Below that are the running totals: already billed, this invoice, and what's left to bill against the quote plus approved variations. The app won't issue an invoice with nothing to pay, and it warns you before issuing one that would take billing past the quote.
+- **Deposit to take off.** While some of the deposit hasn't been set against an invoice yet, a **Deposit** box appears. It starts at all of what's left, up to the invoice total. Lower it to keep a float for materials on the next invoice. For example, take £600 of a £1,250 deposit now, and the other £650 is offered on the next invoice. Whatever's still unused comes off the final invoice. If the deposit covers the whole invoice, that's allowed; there's just nothing for the client to pay on it.
+
+![Taking part of the deposit, and the preview](images/25d-interim-deposit-split.png)
+
+The **Preview** shows the invoice line by line (each room that bills something, e.g. *"Lounge — complete"* or *"Hall, stairs & landing — 50% complete"*, then variations, then a **MATERIALS** heading with each product, just as the final invoice lays them out), then **Less deposit** and the **Amount due**. Underneath, it tells you exactly how much of the deposit prepayment to allocate to this invoice in Xero, and how much stays unallocated. Below that are the running totals: already billed, this invoice, and what's left to bill against the quote plus approved variations. The app warns you before issuing an invoice that would take billing past the quote.
 
 You can fill the builder in with no signal; it saves as you go. **Issue interim invoice** needs a connection. It records the invoice, then creates it in Xero as a **draft** with its own number, the same contact and the same accounts as the final invoice. The deposit is **not** a line on the Xero invoice, because it's already in Xero as a prepayment. Allocate the prepayment to the first interim in Xero, as you would for the final invoice.
 
 ![Invoices so far, on the Summary status card](images/25b-interim-invoices-summary.png)
 
-Each invoice then appears on the status card with its Xero state. If the send to Xero failed, you'll see the reason in red, and **Try again** is safe: it can never create the invoice twice. **Discard** removes an interim that never reached Xero, and only works on the most recent one. Once an interim is in Xero, correct or void it **in Xero**. The app doesn't edit or void invoices it has already sent.
+Each invoice then appears on the status card with its Xero state, which the app reads back from Xero whenever you open Summary:
+
+- *in Xero (draft)*: not on the client's page yet.
+- *approved in Xero · awaiting payment*: now on the client's page.
+- *paid ✓*.
+- *voided in Xero*.
+
+If the send to Xero failed, you'll see the reason in red, and **Try again** is safe: it can never create the invoice twice. **Discard** removes the most recent interim if it never reached Xero.
+
+**Correcting an interim that's already in Xero:** tap **Void & reissue** on the most recent interim.
+- If it's still a draft in Xero, it's deleted. If it's been approved, it's marked **VOID**, so it stays in Xero as a record and drops off the client's page.
+- The builder then opens with that invoice's figures already filled in (each room's %, the extras, the deposit share), so you only change what was wrong and issue it again. The corrected invoice gets a new number.
+- If a payment or the deposit has been allocated to the invoice in Xero, the app won't void it. Remove the payment or allocation in Xero first, then try again. The app never unwinds money.
+- It only works on the **most recent** interim, and not once the final invoice exists, because later invoices refer back to it.
+
+If you void an invoice directly in Xero instead, open Summary and tap **Discard** on it. That has the same effect, without the pre-filled builder.
+
+**The client sees what's been invoiced.** Once an interim (or the final invoice) is **approved in Xero**, it appears on the client's link under **Invoices so far**, with its number, date, amount, and whether it's paid. There's also a running *"Invoiced so far"* against the job total. Drafts are never shown, so nothing reaches the client's page before you've checked and sent it.
+
+![What the client sees on their link](images/25e-client-invoices.png)
 
 **The final invoice with interims.** When the job is completed, the final invoice is built as before, with two differences:
 
@@ -1225,6 +1248,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.74.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.75.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

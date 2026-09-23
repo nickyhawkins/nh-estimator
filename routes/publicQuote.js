@@ -16,7 +16,9 @@
 //
 // Nothing in this file touches Xero. Approved variations reach Xero exactly
 // as they always have: as line items built into the final invoice
-// (FINAL_INVOICE_SPEC.md), at invoicing time.
+// (FINAL_INVOICE_SPEC.md), at invoicing time. The "Invoices so far" card reads
+// Xero's status as the APP last recorded it (/auth/invoice-statuses), never
+// by calling Xero from this public page.
 
 const express = require('express');
 const db = require('../db');
@@ -111,6 +113,14 @@ button:disabled{opacity:.55;cursor:default}
 .flash{background:#e4f0e8;border:1px solid #b9d9c6;color:var(--ok);border-radius:12px;
        padding:11px 14px;margin-top:14px;font-size:14px;font-weight:600}
 .empty{font-size:14px;color:var(--mut)}
+.inv{padding:11px 0;border-bottom:1px solid var(--line)}
+.inv-top{display:flex;justify-content:space-between;align-items:baseline;gap:14px}
+.inv-name{font-weight:600}
+.inv-amt{font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums}
+.inv-sub{font-size:13px;color:var(--mut);margin-top:3px}
+.inv-sub .paid{color:var(--ok);font-weight:600}
+.inv-sum{display:flex;justify-content:space-between;gap:14px;padding-top:10px;
+         border-top:2px solid var(--line);font-size:14px;font-weight:600}
 .foot{font-size:12px;color:var(--mut);text-align:center;margin-top:26px;line-height:1.6}
 `;
 
@@ -213,13 +223,39 @@ function quotePage(view, base, flash) {
     + '<div class="breakdown" id="total-breakdown">' + esc(breakdownText(view)) + '</div></div>'
     + '<div class="amount" id="running-total">' + money(view.runningTotal) + '</div></div>';
 
+  // Invoices issued so far (STAGED_INVOICING_SPEC.md): what has been billed,
+  // and whether each is paid, so the client can see where the money stands.
+  // Only invoices Xero has approved or marked paid ever reach this list (see
+  // loadClientQuote), and the card is left out entirely until there is one.
+  const shortDate = (d) => {
+    if (!d) return '';
+    const dt = new Date(String(d).length === 10 ? d + 'T00:00:00' : d);
+    return isNaN(dt) ? '' : dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  };
+  const invoicesCard = !(view.invoices && view.invoices.length) ? ''
+    : '<div class="card"><h2>Invoices so far</h2>'
+      + view.invoices.map(i => {
+          const name = (i.type === 'final' ? 'Final invoice' : 'Interim invoice') + (i.number ? ' ' + i.number : '');
+          const state = i.paid ? '<span class="paid">Paid</span>'
+            : i.amountPaid > 0.005 && i.amountDue != null
+              ? money(i.amountPaid) + ' paid · ' + money(i.amountDue) + ' to pay'
+              : 'Awaiting payment';
+          const when = shortDate(i.date);
+          return '<div class="inv"><div class="inv-top"><div class="inv-name">' + esc(name) + '</div>'
+            + '<div class="inv-amt">' + money(i.total) + '</div></div>'
+            + '<div class="inv-sub">' + (when ? esc(when) + ' · ' : '') + state + '</div></div>';
+        }).join('')
+      + '<div class="inv-sum"><span>Invoiced so far</span><span>' + money(view.invoicedTotal)
+      + (view.originalTotal != null ? ' of ' + money(view.runningTotal) : '') + '</span></div>'
+      + '</div>';
+
   const foot = '<div class="foot">Approved extras are added to your final invoice.<br>'
     + 'Any questions, just reply to the message this link came in.</div>';
 
   return shell('Quote — ' + (b.name || 'Quote'),
     '<div class="page">' + head
     + (flash ? '<div class="flash" id="flash">' + esc(flash) + '</div>' : '')
-    + original + variations + total + foot + '</div>'
+    + original + variations + total + invoicesCard + foot + '</div>'
     // Progressive enhancement only: each form is submitted with fetch so the
     // answer lands without a page reload (this is opened on a phone, mid-job,
     // often on poor signal — a full navigation is where a tap goes missing

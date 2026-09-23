@@ -18043,6 +18043,35 @@ function loadJobInvoices(jobId) {
       jobInvoicesJobId = jobId;
     });
 }
+// Xero's view of the job's invoices -- draft, approved, paid, voided --
+// read back into the invoice rows. A poll with the same contract as the
+// deposit read-back: silent on failure, skipped offline, at most every 15
+// minutes per job, and only while some invoice could still change (a paid or
+// voided one is settled). This is what moves an invoice onto the client's
+// page once it's approved in Xero, so Summary asks each time it opens.
+var invoiceStatusChecked = {};
+function refreshInvoiceStatuses(job, force) {
+  if (!job || job.id !== jobInvoicesJobId) return;
+  var open = jobInvoices.some(function(i) {
+    return i.xeroInvoiceId && ['PAID', 'VOIDED', 'DELETED'].indexOf(i.xeroStatus) === -1;
+  });
+  if (!open || !navigator.onLine || !serverAvailable) return;
+  var last = invoiceStatusChecked[job.id] || 0;
+  if (!force && Date.now() - last < 15 * 60 * 1000) return;
+  invoiceStatusChecked[job.id] = Date.now();
+  var jobId = job.id;
+  fetch('/auth/invoice-statuses', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ jobId: jobId }) })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (!res || !res.ok || !res.checked) return;
+      var before = JSON.stringify(jobInvoices);
+      return loadJobInvoices(jobId).then(function() {
+        if (jobId === activeJobId && JSON.stringify(jobInvoices) !== before && curTab === 'summary') renderSummary();
+      });
+    })
+    .catch(function() {});
+}
 function adoptJobInvoice(inv) {
   if (!inv || inv.jobId !== activeJobId) return;
   jobInvoices = jobInvoices.filter(function(x) { return x.id !== inv.id; }).concat([inv])
@@ -18215,6 +18244,10 @@ function fmtInvoicePct(n) {
 //   materials   bought products not yet billed: [{amount}]
 //   depositTotal / depositAppliedSoFar   the deposit received / already set
 //               against earlier invoices
+//   depositToApply  how much of what's left to take off THIS invoice; null
+//               means all of it (up to the invoice total). Less keeps a float
+//               back for a later invoice -- the rest carries forward, and the
+//               final invoice takes whatever is still unused.
 //
 // Every labour and variation line carries its OWN cumulative % complete and
 // bills the difference: its line total at the new % (rounded) less what it
@@ -18251,15 +18284,23 @@ function interimInvoiceMath(p) {
   var variationsAmount = sum(variationLines);
   var materialsAmount = sum(p.materials);
   var subtotal = money(labourAmount + materialsAmount + variationsAmount);
-  // The deposit comes off the first interim; whatever that invoice can't
-  // absorb carries forward to the next one (interim or final).
+  // The deposit: all of what's left by default (up to this invoice's total),
+  // or the share chosen. An invoice the deposit covers entirely (£0 to pay)
+  // is allowed -- that is a choice, not a mistake.
   var depositLeft = Math.max(0, money((+p.depositTotal || 0) - (+p.depositAppliedSoFar || 0)));
-  var depositApplied = subtotal > 0 ? money(Math.min(depositLeft, subtotal)) : 0;
+  var depositMax = subtotal > 0 ? money(Math.min(depositLeft, subtotal)) : 0;
+  var depositApplied = depositMax;
+  if (p.depositToApply != null && p.depositToApply !== '') {
+    var asked = money(p.depositToApply);
+    if (asked < 0) errors.push('The deposit to take off cannot be negative.');
+    else if (asked > depositMax + 0.005) {
+      errors.push('Only ' + depositMax.toFixed(2) + ' of the deposit can come off this invoice' +
+        (depositLeft > depositMax + 0.005 ? ' (its total).' : ' (what is left of it).'));
+    } else depositApplied = asked;
+  }
   var amountDue = money(subtotal - depositApplied);
-  if (!errors.length && !(amountDue > 0)) {
-    errors.push(subtotal > 0
-      ? 'The deposit still to be applied (' + depositLeft.toFixed(2) + ') covers this whole invoice — there is nothing for the client to pay yet. Bill a larger share first.'
-      : 'Nothing to bill — raise a percentage, mark a room done, or tick materials.');
+  if (!errors.length && !(subtotal > 0)) {
+    errors.push('Nothing to bill — raise a percentage, mark a room done, or tick materials.');
   }
   return {
     labourLines: labourLines, variationLines: variationLines,
@@ -18356,6 +18397,9 @@ function interimDraftFor(job) {
   // was started is on the invoice by default.
   if (!Array.isArray(d.materialExcludeKeys)) d.materialExcludeKeys = [];
   if (d.stageRef === undefined) d.stageRef = null;
+  // null = take all of the deposit that's left (up to this invoice's total);
+  // a number = the share chosen, keeping the rest back as a float.
+  if (d.depositToApply === undefined) d.depositToApply = null;
   return d;
 }
 function saveInterimDraft() {
@@ -18408,7 +18452,8 @@ function interimPreviewModel(job) {
   var mats = mat.lines.filter(function(l) { return l.priced && d.materialExcludeKeys.indexOf(l.key) === -1; });
   var math = interimInvoiceMath({
     labour: labour, variations: variations, materials: mats,
-    depositTotal: recordedDepositAmount(job), depositAppliedSoFar: so.depositApplied
+    depositTotal: recordedDepositAmount(job), depositAppliedSoFar: so.depositApplied,
+    depositToApply: d.depositToApply == null ? null : d.depositToApply
   });
   var amounts = function(lines, billed) {
     return lines.map(function(l, i) { return Object.assign({}, l, { amount: billed[i].amount }); });
@@ -18452,7 +18497,9 @@ function interimPreviewHtml(m) {
     '<div style="font-size:11px;color:var(--text2);padding-top:2px">of ' + fmt(m.ceiling) + ' — the quote plus approved variations</div>' +
   '</div>';
   if (m.math.depositApplied > 0.005) {
-    html += '<div style="font-size:11px;color:var(--text2);margin-top:8px;line-height:1.45">The deposit is <strong>not</strong> a line on the Xero invoice — it is already in Xero as a prepayment. Allocate it to this invoice there, as you do on the final one.</div>';
+    var keptBack = Math.round((m.math.depositLeftBefore - m.math.depositApplied) * 100) / 100;
+    html += '<div style="font-size:11px;color:var(--text2);margin-top:8px;line-height:1.45">The deposit is <strong>not</strong> a line on the Xero invoice — it is already in Xero as a prepayment. Allocate <strong>' + fmt(m.math.depositApplied) + '</strong> of it to this invoice there.' +
+      (keptBack > 0.005 ? ' ' + fmt(keptBack) + ' stays unallocated for the next invoice.' : '') + '</div>';
   }
   if (m.math.errors.length) {
     html += '<div style="font-size:13px;color:var(--danger);margin-top:10px;line-height:1.45">' + m.math.errors.map(escapeHtml).join('<br>') + '</div>';
@@ -18536,6 +18583,20 @@ function renderInterimInvoice() {
   var varHtml = m.variations.length ? m.variations.map(function(l) { return lineRow('var', l); }).join('')
     : '<div style="font-size:13px;color:var(--text2)">No approved variations on this job.</div>';
 
+  // Deposit: only when some of it is still to be set against an invoice. The
+  // box starts at all of it (up to this invoice's total); lowering it keeps a
+  // float back, which carries to the next invoice and, in the end, the final.
+  var depositHtml = '';
+  if (m.math.depositLeftBefore > 0.005) {
+    var depLabel = 'Deposit to take off<small>' + fmt(recordedDepositAmount(job)) + ' received' +
+      (m.so.depositApplied > 0.005 ? ', ' + fmt(m.so.depositApplied) + ' already set against earlier invoices' : '') +
+      ' · ' + fmt(m.math.depositLeftBefore) + ' left. Take less to keep a float for the next invoice.</small>';
+    depositHtml = section('Deposit',
+      '<div class="field-row" style="padding:4px 0"><div class="field-label">' + depLabel + '</div>' +
+        '<input type="number" class="field-input" id="ii-deposit" value="' + (d.depositToApply == null ? m.math.depositApplied : d.depositToApply) + '" min="0" step="0.01" inputmode="decimal" ' +
+          'oninput="setInterimDeposit(this.value)" onchange="saveInterimDraft()" style="width:96px;text-align:right"></div>' +
+      (d.depositToApply != null ? '<div onclick="setInterimDeposit(null,true)" style="font-size:12px;color:var(--accent);font-weight:600;cursor:pointer;padding-top:4px">↺ Take all that\'s left</div>' : ''));
+  }
   var blocked = m.math.errors.length > 0;
   el.innerHTML =
     '<div style="font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.5">Interim invoice ' + (m.so.count + 1) +
@@ -18544,6 +18605,7 @@ function renderInterimInvoice() {
     section('Labour', labourHtml) +
     section('Materials bought — not yet invoiced', materialsHtml) +
     section('Approved variations', varHtml) +
+    depositHtml +
     section('Preview', '<div id="ii-preview">' + interimPreviewHtml(m) + '</div>') +
     '<button id="ii-issue" onclick="issueInterimInvoice()" ' + (blocked ? 'disabled ' : '') + 'style="width:100%;background:' + (blocked ? 'var(--surface2)' : 'var(--accent)') + ';color:' + (blocked ? 'var(--text3)' : '#fff') + ';border:none;border-radius:var(--rs);padding:14px;font-size:15px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer">Issue interim invoice</button>' +
     '<div style="font-size:12px;color:var(--text2);text-align:center;margin-top:8px;line-height:1.45">Fill this in anywhere — it saves as you go. Issuing needs a connection: it goes to Xero as a DRAFT, to review and send from there.</div>';
@@ -18557,6 +18619,10 @@ function refreshInterimPreview() {
   if (!job || !box) return;
   var m = interimPreviewModel(job);
   box.innerHTML = interimPreviewHtml(m);
+  // While the deposit is on "all that's left", its box follows the invoice
+  // total as lines change -- unless it's the box being typed in.
+  var dep = document.getElementById('ii-deposit');
+  if (dep && m.draft.depositToApply == null && document.activeElement !== dep) dep.value = m.math.depositApplied;
   var btn = document.getElementById('ii-issue');
   if (btn) {
     var blocked = m.math.errors.length > 0;
@@ -18564,6 +18630,14 @@ function refreshInterimPreview() {
     btn.style.background = blocked ? 'var(--surface2)' : 'var(--accent)';
     btn.style.color = blocked ? 'var(--text3)' : '#fff';
   }
+}
+// The deposit box. Blank, or the reset link, goes back to "all that's left".
+function setInterimDeposit(v, reset) {
+  var job = activeJob(); if (!job) return;
+  var d = interimDraftFor(job);
+  d.depositToApply = (reset || v === '' || v == null) ? null : Math.max(0, parseFloat(v) || 0);
+  if (reset) { saveInterimDraft(); renderInterimInvoice(); return; }
+  refreshInterimPreview();
 }
 // A line's % box. kind is 'labour' or 'var'.
 function setInterimLinePct(kind, key, v) {
@@ -18623,7 +18697,7 @@ async function issueInterimInvoice() {
   if (m.math.errors.length) { alert(m.math.errors.join('\n')); return; }
   if (m.overCeiling && !confirm('⚠ This takes billing on this job to ' + fmt(m.afterThis) + ' — more than the quote plus approved variations (' + fmt(m.ceiling) + ').\n\nIssue it anyway?')) return;
   if (!confirm('Issue interim invoice ' + (m.so.count + 1) + ' for ' + fmt(m.math.subtotal) + '?' +
-      (m.math.depositApplied > 0.005 ? '\n\nLess deposit ' + fmt(m.math.depositApplied) + ' → ' + fmt(m.math.amountDue) + ' due. The deposit is NOT put on the Xero invoice — allocate the prepayment to it in Xero.' : '') +
+      (m.math.depositApplied > 0.005 ? '\n\nLess deposit ' + fmt(m.math.depositApplied) + ' → ' + fmt(m.math.amountDue) + ' due. The deposit is NOT put on the Xero invoice — allocate ' + fmt(m.math.depositApplied) + ' of the prepayment to it in Xero.' : '') +
       '\n\nIt is created as a DRAFT in Xero — review and send it from there.')) return;
   var btn = document.getElementById('ii-issue');
   if (btn) { btn.disabled = true; btn.textContent = 'Issuing…'; }
@@ -18636,6 +18710,7 @@ async function issueInterimInvoice() {
       body: JSON.stringify({
         idempotencyKey: d.idempotencyKey,
         stageRef: d.stageRef || null,
+        depositToApply: d.depositToApply == null ? null : +d.depositToApply,
         // Every line goes, changed or not: the server checks each one's
         // "invoiced before" against its own record (a stale view is refused)
         // and records only the lines that bill something.
@@ -18703,8 +18778,11 @@ async function discardInterimInvoice(invoiceId) {
   var job = activeJob();
   var inv = jobInvoiceList(job).find(function(i) { return i.id === invoiceId; });
   if (!inv) return;
-  if (!confirm('Discard ' + interimInvoiceLabel(inv) + ' (' + fmt(inv.subtotal) + ')?\n\nIt never reached Xero as far as the app knows, so it is removed here and its percentages and variations become billable again.' +
-      (inv.lastAttemptAt ? '\n\nA send WAS attempted — check Xero for a draft first, and delete it there if it is.' : ''))) return;
+  var dead = inv.xeroStatus === 'VOIDED' || inv.xeroStatus === 'DELETED';
+  if (!confirm(dead
+      ? 'Discard ' + interimInvoiceLabel(inv) + ' (' + fmt(inv.subtotal) + ')?\n\nIt has been ' + inv.xeroStatus.toLowerCase() + ' in Xero, so the app stops counting it: its rooms, variations, materials and deposit share become billable again, ready to go on a corrected invoice.'
+      : 'Discard ' + interimInvoiceLabel(inv) + ' (' + fmt(inv.subtotal) + ')?\n\nIt never reached Xero as far as the app knows, so it is removed here and its percentages and variations become billable again.' +
+        (inv.lastAttemptAt ? '\n\nA send WAS attempted — check Xero for a draft first, and delete it there if it is.' : ''))) return;
   try {
     var resp = await fetch('/api/jobs/' + encodeURIComponent(job.id) + '/invoices/' + encodeURIComponent(invoiceId), { method: 'DELETE' });
     var result = await resp.json();
@@ -18716,12 +18794,65 @@ async function discardInterimInvoice(invoiceId) {
   renderSummary();
 }
 
+// Void & reissue. Takes the latest interim out of Xero (deleted if still a
+// draft, voided if approved with nothing paid or allocated against it --
+// /auth/void-invoice refuses anything else, with the reason), discards the
+// app's record so its rooms, extras, tins and deposit share become billable
+// again, then opens the builder with the voided invoice's percentages and
+// deposit share already filled in, so the correction is an edit, not a
+// re-type. The new invoice gets a new number and a new idempotency key.
+async function voidAndReissueInterim(invoiceId) {
+  if (blockIfOffline('Voiding an invoice')) return;
+  var job = activeJob();
+  var inv = jobInvoiceList(job).find(function(i) { return i.id === invoiceId; });
+  if (!job || !inv) return;
+  if (!confirm('Void ' + interimInvoiceLabel(inv) + ' (' + fmt(inv.subtotal) + ') and issue a corrected one?\n\n' +
+      'In Xero it is deleted if still a draft, or marked VOID if approved. It stays in Xero as a record, and drops off the client\'s page.\n\n' +
+      'If a payment or the deposit has been allocated to it in Xero, remove that there first — the app won\'t unwind money.\n\n' +
+      'The builder then opens with this invoice\'s figures filled in, ready to correct.')) return;
+  try {
+    var resp = await fetch('/auth/void-invoice', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                  body: JSON.stringify({ invoiceId: invoiceId }) });
+    var result = await resp.json();
+    if (!result.ok) throw new Error(result.error || 'Xero refused');
+  } catch (err) {
+    await loadJobInvoices(job.id);
+    reportFailure('Could not void the invoice', err);
+    renderSummary();
+    return;
+  }
+  try {
+    var del = await fetch('/api/jobs/' + encodeURIComponent(job.id) + '/invoices/' + encodeURIComponent(invoiceId), { method: 'DELETE' });
+    var delRes = await del.json();
+    if (!del.ok || !delRes.ok) throw new Error(delRes.error || ('HTTP ' + del.status));
+  } catch (err) {
+    // Voided in Xero but still counted here: Summary shows it as voided with
+    // a Discard link, so nothing is lost -- say so rather than fail silently.
+    await loadJobInvoices(job.id);
+    reportFailure('Voided in Xero, but the app could not discard its record — tap Discard on it', err);
+    renderSummary();
+    return;
+  }
+  // The corrected invoice starts from the voided one's figures.
+  var d = { idempotencyKey: newIdempotencyKey(), labourPcts: {}, variationPcts: {},
+            materialExcludeKeys: [], stageRef: inv.stageRef || null,
+            depositToApply: +inv.depositApplied || 0 };
+  (inv.labourLines || []).forEach(function(l) { d.labourPcts[l.key] = +l.pct || 0; });
+  (inv.variationLines || []).forEach(function(l) { d.variationPcts[l.key] = +l.pct || 0; });
+  job.interimDraft = d;
+  saveInterimDraft();
+  await loadJobInvoices(job.id);
+  toast((inv.xeroInvoiceNumber || 'The invoice') + ' ' + (result.status === 'DELETED' ? 'deleted' : 'voided') + ' in Xero ✓ — correct the figures and issue it again.');
+  openInterimInvoice();
+}
+
 // Summary status card: the invoices raised so far, each with its Xero state,
 // plus the entry point while the job is under way. Renders nothing at all on a
 // job that is past acceptance and never had an interim -- those jobs look
 // exactly as they did before this existed.
 function interimInvoicesBlockHtml(job, jobStatus) {
   var list = jobInvoiceList(job);
+  refreshInvoiceStatuses(job);
   var canIssue = jobStatus === 'accepted';
   if (!canIssue && !list.some(function(i) { return i.type === 'interim'; })) return '';
   var link = 'color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;white-space:nowrap';
@@ -18733,8 +18864,16 @@ function interimInvoicesBlockHtml(job, jobStatus) {
       (canIssue ? '<div onclick="openInterimInvoice()" style="' + link + '">Interim invoice ›</div>' : '') +
     '</div>';
   list.forEach(function(inv) {
-    var state = inv.type === 'final' || inv.syncState === 'synced'
-      ? '<span style="color:var(--success)">in Xero (draft)</span>'
+    // Xero's own status once read back (refreshInvoiceStatuses): a draft is
+    // held off the client's page; approved and paid ones are on it.
+    var xs = inv.xeroStatus;
+    var state = xs === 'VOIDED' || xs === 'DELETED'
+      ? '<span style="color:var(--danger)">' + (xs === 'VOIDED' ? 'voided' : 'deleted') + ' in Xero — discard it here to bill that work again</span>'
+      : xs === 'PAID' ? '<span style="color:var(--success)">paid ✓ · on the client\'s page</span>'
+      : xs === 'AUTHORISED' ? '<span style="color:var(--success)">approved in Xero' +
+          (inv.xeroAmountPaid > 0.005 && inv.xeroAmountDue != null ? ' · ' + fmt(inv.xeroAmountDue) + ' still to pay' : ' · awaiting payment') + ' · on the client\'s page</span>'
+      : inv.type === 'final' || inv.syncState === 'synced'
+      ? '<span style="color:var(--success)">in Xero (draft)</span> <span style="color:var(--text2)">· not on the client\'s page until approved in Xero</span>'
       : inv.syncState === 'failed'
         ? '<span style="color:var(--danger)">Xero send failed' + (inv.lastError ? ' — ' + escapeHtml(inv.lastError) : '') + '</span>'
         : '<span style="color:var(--warn,#f39c12)">not in Xero yet</span>';
@@ -18744,7 +18883,19 @@ function interimInvoicesBlockHtml(job, jobStatus) {
         ((inv.variationLines || []).length ? ' · ' + inv.variationLines.length + ' variation' + (inv.variationLines.length === 1 ? '' : 's') : '')
       : 'balancing invoice';
     var actions = '';
-    if (inv.type === 'interim' && inv.syncState !== 'synced') {
+    // Void & reissue: only on the most recent interim, once it's in Xero,
+    // and never after the final invoice (which deducts it by number).
+    var isLatest = list[list.length - 1] === inv;
+    var hasFinal = list.some(function(i) { return i.type === 'final'; });
+    if (inv.type === 'interim' && inv.syncState === 'synced' && inv.xeroInvoiceId && isLatest && !hasFinal &&
+        xs !== 'VOIDED' && xs !== 'DELETED' && xs !== 'PAID') {
+      actions = '<div style="display:flex;gap:12px;margin-top:4px">' +
+        '<span class="xero-live-btn" onclick="voidAndReissueInterim(\'' + inv.id + '\')" style="' + link + ';color:var(--danger)">Void &amp; reissue</span></div>';
+    }
+    if (inv.type === 'interim' && (xs === 'VOIDED' || xs === 'DELETED')) {
+      actions = '<div style="display:flex;gap:12px;margin-top:4px">' +
+        '<span onclick="discardInterimInvoice(\'' + inv.id + '\')" style="' + link + ';color:var(--danger)">Discard</span></div>';
+    } else if (inv.type === 'interim' && inv.syncState !== 'synced') {
       actions = '<div style="display:flex;gap:12px;margin-top:4px">' +
         '<span class="xero-live-btn" onclick="syncInterimInvoice(\'' + inv.id + '\')" style="' + link + '">' + (inv.syncState === 'failed' ? 'Try again' : 'Send to Xero') + '</span>' +
         '<span onclick="discardInterimInvoice(\'' + inv.id + '\')" style="' + link + ';color:var(--danger)">Discard</span></div>';
@@ -19159,7 +19310,12 @@ function buildFinalInvoiceModel() {
              work: (+inv.labourAmount || 0) + (+inv.variationsAmount || 0),
              subtotal: +inv.subtotal || 0,
              depositApplied: +inv.depositApplied || 0,
-             inXero: inv.syncState === 'synced' && !!inv.xeroInvoiceNumber };
+             // Voided/deleted in Xero: no longer an invoice to deduct -- it has
+             // to be discarded on Summary (which re-opens its work for billing)
+             // before the final can be built, same block as an unsent one.
+             dead: inv.xeroStatus === 'VOIDED' || inv.xeroStatus === 'DELETED',
+             inXero: inv.syncState === 'synced' && !!inv.xeroInvoiceNumber &&
+                     inv.xeroStatus !== 'VOIDED' && inv.xeroStatus !== 'DELETED' };
   });
   var depositUnallocated = Math.max(0, Math.round((recordedDepositAmount(job) -
     interimsInv.reduce(function(t, i) { return t + i.depositApplied; }, 0)) * 100) / 100);
@@ -19336,7 +19492,7 @@ function renderFinalInvoice() {
       '<div style="flex:1;min-width:0">'+
         '<div style="font-size:14px;font-weight:600">Less: interim invoice '+escapeHtml(i.number || ('interim ' + i.sequence))+'</div>'+
         '<div style="font-size:12px;color:'+(i.inXero ? 'var(--text2)' : 'var(--danger)')+';margin-top:1px">'+
-          (i.inXero ? 'the labour and variations it billed, before deposit' : 'NOT IN XERO YET — send or discard it on Summary first')+'</div>'+
+          (i.inXero ? 'the labour and variations it billed, before deposit' : i.dead ? 'VOIDED IN XERO — discard it on Summary first' : 'NOT IN XERO YET — send or discard it on Summary first')+'</div>'+
       '</div>'+
       '<div style="font-size:14px;font-weight:600;white-space:nowrap">'+(i.work > 0.005 ? '− '+fmt(i.work) : '')+'</div>'+
     '</div>';
@@ -19379,7 +19535,7 @@ function renderFinalInvoice() {
       '<div style="display:flex;justify-content:space-between;padding:4px 0"><span style="color:var(--text2)">Balance the client will owe</span><span id="fi-balance" style="color:var(--text2)">'+fmt(t.balance)+'</span></div>'+
     '</div>'+
     (blockedLive ? '<div style="font-size:13px;color:var(--danger);margin-bottom:12px">⚠ Unpriced lines in red must be priced or dropped before the invoice can be created.</div>' : '')+
-    (interimsPending ? '<div style="font-size:13px;color:var(--danger);margin-bottom:12px">⚠ An interim invoice isn\'t in Xero yet — send or discard it on Summary first, so this invoice can name the one it deducts.</div>' : '')+
+    (interimsPending ? '<div style="font-size:13px;color:var(--danger);margin-bottom:12px">⚠ An interim invoice isn\'t live in Xero (not sent yet, or voided there) — send or discard it on Summary first, so this invoice deducts only invoices that stand.</div>' : '')+
     '<button id="fi-create-btn" onclick="createFinalInvoice()" '+(blockedLive || interimsPending ? 'disabled' : '')+' style="width:100%;background:'+(blockedLive || interimsPending ? 'var(--surface2)' : 'var(--accent)')+';color:'+(blockedLive || interimsPending ? 'var(--text3)' : '#fff')+';border:none;border-radius:var(--rs);padding:14px;font-size:15px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer">Create draft invoice in Xero</button>'+
     '<div style="font-size:12px;color:var(--text2);text-align:center;margin-top:8px">Created as a DRAFT — review in Xero before sending.</div>';
 }
@@ -19398,7 +19554,7 @@ async function createFinalInvoice() {
   if (pendingLive && !confirm(pendingLive + ' variation line' + (pendingLive === 1 ? ' is' : 's are') + ' still Pending — never marked "Approved by client" on the On Site screen.\n\nInclude ' + (pendingLive === 1 ? 'it' : 'them') + ' on the invoice anyway?')) return;
   var interimsFi = s.interims || [];
   if (interimsFi.some(function(i) { return !i.inXero; })) {
-    alert('An interim invoice on this job isn\'t in Xero yet.\n\nSend it (or discard it) from Summary first — this invoice has to name the interim it deducts.');
+    alert('An interim invoice on this job isn\'t live in Xero — not sent yet, or voided there.\n\nSend it (or discard it) from Summary first — this invoice deducts only interims that stand.');
     return;
   }
   // Xero refuses an invoice whose total is below zero. Only reachable with

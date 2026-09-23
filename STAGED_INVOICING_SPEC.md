@@ -173,11 +173,13 @@ write never fires later from the offline queue without someone watching.
 
 - The deposit used is **the deposit actually received** (`job.deposit.amount`). It is never the
   plan's forecast.
-- It is taken off the first interim. If it is larger than that interim's subtotal, only the
-  subtotal is used and the rest carries forward (`deposit_applied` is tracked on each row).
-  **Note:** with the "block if amount due ≤ 0" guard, the first interim can only be issued once
-  it is larger than the deposit. So in practice any remainder only carries forward if the deposit
-  is recorded or increased after an interim has been issued. See open questions.
+- **Nicky chooses how much comes off each interim** (2026-09-23: "if there are more materials
+  needed I tend to split the deposit between multiple invoices so there is a float"). The
+  builder's **Deposit to take off** box defaults to all of what's left, capped at the invoice
+  total, and can be lowered to keep a float. The rest carries forward, and the final takes any
+  remainder. `deposit_applied` is tracked on each row. An invoice the deposit covers entirely
+  (£0 due) is allowed, since it's a deliberate choice. The preview says exactly how much of the
+  prepayment to allocate to the invoice in Xero, and how much stays unallocated.
 - **Xero:** there is no negative deposit line on the interim invoice. The deposit is already a
   RECEIVE-PREPAYMENT and is allocated by hand in Xero. "Less deposit" only appears in the
   in-app preview and Summary.
@@ -219,17 +221,47 @@ While the job is in progress, the Summary status card shows the same running tot
   per-account net can differ by that share. The total is unaffected.
 - The interim's Xero **Reference** is `<job ref> — interim N`.
 
-## Open questions (not resolved here)
+## Xero status read-back, the client's page, and corrections
 
-1. **Deposit on the interim in Xero.** Is manual prepayment allocation, with no negative line,
-   right? Or should the app try to allocate the prepayment to the first interim automatically?
-   (Xero refuses to allocate against a DRAFT, and the app only ever creates drafts.)
+- **`POST /auth/invoice-statuses`** reads every Xero invoice on a job in one request
+  (`GET /Invoices?IDs=`) and stores Xero's status, date, total, amount paid and amount due on the
+  rows (`xero_status`, `xero_date`, `xero_total`, `xero_amount_paid`, `xero_amount_due`,
+  `xero_checked_at`, added with `ALTER TABLE` since the table was already live). Summary asks at
+  most every 15 minutes per job, only while an invoice could still change, silently and never
+  offline. It works like the deposit read-back: Xero is the authority.
+- **The client's page** (`routes/publicQuote.js`) gets an **Invoices so far** card: number, date,
+  amount, and *Paid* / *£X paid · £Y to pay* / *Awaiting payment*, with *Invoiced so far £X of
+  £Y* against the job's running total. **Only invoices Xero reports as AUTHORISED or PAID are
+  shown** (Nicky, 2026-09-23: "hold it while it's in drafts"). A draft is still being checked and
+  never reaches the client. The public page never calls Xero itself; it reads what the app last
+  recorded, so an invoice appears once Summary has been opened after approving it in Xero. A
+  voided invoice drops off.
+- **Void & reissue** (Nicky, 2026-09-23). `POST /auth/void-invoice` takes the **latest** interim out
+  of Xero. It is refused once a final invoice exists, since the final deducts interims by number.
+  It reads Xero's live status first:
+  - DRAFT/SUBMITTED → **DELETED**.
+  - AUTHORISED with nothing paid or allocated → **VOIDED**, which keeps the record in Xero.
+  - Anything with `AmountPaid` or `AmountCredited` > 0 (a payment, or the deposit prepayment
+    allocated to it) → **refused**, with the amount named. Unwinding money stays a person's job in
+    Xero.
+
+  The app then discards its record (the DELETE route accepts a dead invoice) and opens the builder
+  with a new draft pre-filled from the voided invoice: each labour and variation line's %, and its
+  deposit share. Materials come back ticked, and a new idempotency key is issued. If the discard
+  fails after Xero succeeded, Summary shows the invoice as voided with a **Discard** link, so
+  nothing is lost.
+- **Voiding directly in Xero** works too. Once the read-back sees VOIDED/DELETED, Summary flags it
+  and **Discard** rolls its lines, materials and deposit share back. The final invoice won't build
+  while an interim is voided but not yet discarded.
+
+## Open questions
+
+1. ~~**Deposit on the interim in Xero.**~~ Settled (Nicky, 2026-09-23): allocation stays manual in
+   Xero. The app only says how much to allocate.
 2. ~~**Match quote stage** — should it pre-fill materials % too?~~ Resolved: materials are
    itemised now, so there's no materials % to fill.
-3. **Void or edit an issued interim.** Not built. The app only discards an interim that never
-   reached Xero. If voiding or editing is ever added, it has to roll back the cumulative %, the
-   `variation_lines` and `deposit_applied`, and probably needs to be limited to the latest interim.
-4. **Client-facing variations page.** Should it also show the invoices issued so far?
-5. **Deposit vs the "amount due ≤ 0" guard.** Together these mean a deposit larger than the first
-   interim blocks that interim, so the remainder rarely carries forward. Should an interim that
-   the deposit fully covers be allowed (amount due £0)?
+3. ~~**Void or edit an issued interim from the app.**~~ Built as void & reissue (see above): latest
+   interim only, never once money is allocated to it, and never after the final invoice.
+4. ~~**Client-facing variations page shows invoices?**~~ Built: yes, once approved in Xero.
+5. ~~**Deposit vs the "amount due ≤ 0" guard.**~~ Resolved: the deposit share is chosen per
+   invoice, and a fully covered (£0 due) invoice is allowed.
