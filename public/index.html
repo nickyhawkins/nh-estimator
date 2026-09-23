@@ -635,8 +635,13 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       <div class="field-row" style="cursor:pointer" onclick="goTab('rates')"><div class="field-label">Rates</div><span class="nav-menu-arrow">›</span></div>
       <div class="field-row" style="cursor:pointer" onclick="goTab('settings')"><div class="field-label">Settings</div><span class="nav-menu-arrow">›</span></div>
     </div>
-    <div id="dash-sync" style="text-align:center;font-size:12px;color:var(--text2);padding:4px 0 12px"></div>
+    <!-- Bottom padding clears the + button so it never sits over the last
+         "Go to" row's arrow once scrolled to the end. -->
+    <div id="dash-sync" style="text-align:center;font-size:12px;color:var(--text2);padding:4px 0 72px"></div>
   </div>
+  <!-- Same + as Jobs (v2.75.1): new job straight from Home. createJob()
+       switches to it and lands back here on the new job. -->
+  <button class="fab" onclick="promptNewJob()">+</button>
 </div>
 
 <!-- ══ SCHEDULE (calendar — SCHEDULING_SPEC.md) ══ -->
@@ -11630,6 +11635,47 @@ function jobMatchesSearch(j, terms) {
   return terms.every(function(t) { return hay.indexOf(t) !== -1; });
 }
 
+// Recently invoiced at a glance (on Jobs, above the Invoiced group — it
+// lived on Home until v2.75.1). Reads each job's persisted
+// profitSnapshot (written by the Summary profitability card), never other
+// jobs' labour logs/actuals directly, same reasoning as scheduledDays.
+// Shows the schedule story (day variance) + materials markup banked, the
+// two real profit signals — NOT the old blended margin, which netted the
+// day rate off as if it were a cost. Jobs invoiced before that rework
+// still carry the old snapshot shape until their Summary is next opened,
+// so the right-hand figures render only for the new shape.
+function recentlyInvoicedCard() {
+  var DAY = 86400000;
+  var recentInvoiced = jobs.filter(function(j) {
+    return j.status === 'invoiced' && j.invoicedAt && j.profitSnapshot
+      && (Date.now() - new Date(j.invoicedAt).getTime()) < 60 * DAY;
+  }).sort(function(a, b) { return a.invoicedAt < b.invoicedAt ? 1 : -1; }).slice(0, 3);
+  return recentInvoiced.length
+    ? '<div class="card">'
+      + '<div class="card-header">Recently invoiced</div>'
+      + recentInvoiced.map(function(j) {
+          var s = j.profitSnapshot;
+          var right = '';
+          if (s.markupBanked != null) {
+            var v = s.dayVariance;
+            var schedStr, col;
+            if (v == null) { schedStr = '—'; col = 'var(--text2)'; }
+            else if (v === 0) { schedStr = 'On schedule'; col = 'var(--success)'; }
+            else if (v < 0) { schedStr = Math.abs(v) + 'd under'; col = 'var(--success)'; }
+            else { schedStr = v + 'd over'; col = 'var(--danger)'; }
+            right = '<div style="text-align:right"><div style="font-weight:700;color:' + col + '">' + schedStr + '</div>'
+              + '<div style="font-size:12px;color:var(--text2)">' + fmt(s.markupBanked) + ' markup banked</div></div>';
+          }
+          return '<div class="field-row" style="cursor:pointer" onclick="attentionOpenJob(\'' + j.id + '\')">'
+            + '<div style="flex:1;min-width:0"><div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(j.name) + '</div>'
+            + '<div style="font-size:12px;color:var(--text2)">Invoiced ' + fmt(s.revenue) + ' · ' + new Date(j.invoicedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + '</div></div>'
+            + right
+          + '</div>';
+        }).join('')
+      + '</div>'
+    : '';
+}
+
 function renderJobs() {
   var container = document.getElementById('jobs-cards');
   if (!container) return;
@@ -11660,7 +11706,8 @@ function renderJobs() {
   }
 
   container.innerHTML = section('Accepted', accepted) + section('Quoted', quoted) + section('Draft', drafts)
-    + section('Completed', completed) + section('Invoiced', invoiced) + section('Declined', declined);
+    + section('Completed', completed) + (terms.length ? '' : recentlyInvoicedCard())
+    + section('Invoiced', invoiced) + section('Declined', declined);
   if (terms.length && !shown.length) {
     container.innerHTML = '<div style="padding:20px 16px;color:var(--text2);font-size:14px;text-align:center">'+
       'No jobs match &ldquo;'+escapeHtml(jobSearchQuery)+'&rdquo;</div>';
@@ -23641,43 +23688,6 @@ function renderDash() {
     ? '📅 ' + fmtShortDate(job.startDate) + ' · ' + job.scheduledDays + 'd' : 'Not scheduled';
   var outstanding = null;
   try { outstanding = actualsTotals().outstanding; } catch (e) { /* actuals not loaded yet */ }
-  // Recently invoiced at a glance — reads each job's persisted
-  // profitSnapshot (written by the Summary profitability card), never other
-  // jobs' labour logs/actuals directly, same reasoning as scheduledDays.
-  // Shows the schedule story (day variance) + materials markup banked, the
-  // two real profit signals — NOT the old blended margin, which netted the
-  // day rate off as if it were a cost. Jobs invoiced before that rework
-  // still carry the old snapshot shape until their Summary is next opened,
-  // so the right-hand figures render only for the new shape.
-  var DAY = 86400000;
-  var recentInvoiced = jobs.filter(function(j) {
-    return j.status === 'invoiced' && j.invoicedAt && j.profitSnapshot
-      && (Date.now() - new Date(j.invoicedAt).getTime()) < 60 * DAY;
-  }).sort(function(a, b) { return a.invoicedAt < b.invoicedAt ? 1 : -1; }).slice(0, 3);
-  var profitLines = recentInvoiced.length
-    ? '<div class="card" style="margin-top:12px">'
-      + '<div class="card-header">Recently invoiced</div>'
-      + recentInvoiced.map(function(j) {
-          var s = j.profitSnapshot;
-          var right = '';
-          if (s.markupBanked != null) {
-            var v = s.dayVariance;
-            var schedStr, col;
-            if (v == null) { schedStr = '—'; col = 'var(--text2)'; }
-            else if (v === 0) { schedStr = 'On schedule'; col = 'var(--success)'; }
-            else if (v < 0) { schedStr = Math.abs(v) + 'd under'; col = 'var(--success)'; }
-            else { schedStr = v + 'd over'; col = 'var(--danger)'; }
-            right = '<div style="text-align:right"><div style="font-weight:700;color:' + col + '">' + schedStr + '</div>'
-              + '<div style="font-size:12px;color:var(--text2)">' + fmt(s.markupBanked) + ' markup banked</div></div>';
-          }
-          return '<div class="field-row" style="cursor:pointer" onclick="attentionOpenJob(\'' + j.id + '\')">'
-            + '<div style="flex:1;min-width:0"><div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(j.name) + '</div>'
-            + '<div style="font-size:12px;color:var(--text2)">Invoiced ' + fmt(s.revenue) + ' · ' + new Date(j.invoicedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + '</div></div>'
-            + right
-          + '</div>';
-        }).join('')
-      + '</div>'
-    : '';
   body.innerHTML =
     '<div class="card" style="cursor:pointer" onclick="goTab(\'summary\')">'
     + '<div style="padding:16px">'
@@ -23694,8 +23704,7 @@ function renderDash() {
         + '<div class="stat-value' + (outstanding > 0 ? ' ac' : '') + '">' + (outstanding === null ? '—' : outstanding) + '</div></div>'
       + '<div class="stat-card" style="cursor:pointer" onclick="goTab(\'schedule\')"><div class="stat-label">Next on site</div>'
         + '<div class="stat-value" style="font-size:14px;line-height:1.4">' + nextScheduledGlance() + '</div></div>'
-    + '</div>'
-    + profitLines;
+    + '</div>';
 }
 
 // Earliest accepted+scheduled job across ALL jobs, not just the active one

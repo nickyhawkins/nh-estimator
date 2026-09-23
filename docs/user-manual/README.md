@@ -104,7 +104,7 @@ picks up from there.
 
 ![Home screen](images/01-home.png)
 
-The **Home** screen is your morning glance: the current job and its status, a **Materials to buy** count, **Next on site** — the client you're due at next and the date — and shortcut links. When something needs chasing — a quote that's gone unanswered too long, a finished job you haven't invoiced — it appears at the top of Home as an attention strip.
+The **Home** screen is your morning glance: the current job and its status, a **Materials to buy** count, **Next on site** — the client you're due at next and the date — and shortcut links. The **`+`** button in the bottom corner starts a new job, the same as the one on the Jobs screen: type a name and you land back on Home with the new job as current. When something needs chasing — a quote that's gone unanswered too long, a finished job you haven't invoiced — it appears at the top of Home as an attention strip.
 
 The **bottom bar** is always visible and follows the life of a job, left to right:
 
@@ -635,6 +635,7 @@ Menu (☰) → **Jobs**. The app holds any number of jobs; the one you're workin
 ![Searching the jobs list](images/08b-jobs-search.png)
 
 - Jobs group by status: **Draft → Quoted → Accepted / Declined → Completed → Invoiced**.
+- **Recently invoiced** sits just above the Invoiced group: up to three jobs invoiced in the last 60 days, each with what was invoiced, whether it came in on, under or over its quoted days, and the markup banked on materials. Tap one to open its Summary and the full **Job Profitability** card. It's hidden while you're searching.
 - **`+`** starts a new job. **✎** renames one. **⧉** duplicates a job as a quick template (notes aren't copied). Each job is fully separate — its own rooms, kitchen, colours and materials.
 - **Import an accepted quote from Xero** — took the job on before the app existed? Import the Xero quote and it becomes a job here, with the agreed price as the record (adjustable via the **Agreed figures** card, or the **Imported from Xero** toggle on Summary — see [The quote](#9-the-quote-summary)). If a listed quote actually belongs to a job already in the app, use **"Already a job in the app? Link it ›"** instead of importing a duplicate.
 
@@ -1248,6 +1249,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.75.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.75.1. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
