@@ -208,7 +208,7 @@ The rest of the measuring cards follow in the order you'd meet them moving round
   Leave a Door or Frame's quantity at 0 to price just the other one. Their prep comes from the room's **Preparation** card — there's one prep decision per room, not a separate one here. Per line you'll also find **Fire door** (an FD30/FD60 intumescent-compatible surcharge, edges included in the coverage calc), **ironmongery** (remove-and-refit, or mask-in-place — mutually exclusive), and **Both sides** (price the whole leaf as one line instead of just the face seen from this room — handy for a door between two painted rooms, split one face each). **Self-priming** for doors and frames is not here — it's with the rest of the woodwork's priming, under **Paint & Colour › Woodwork Primer** ([below](#decide-the-scheme)), and the row here just says so.
 - **Extras** — windows (m²), window sills and radiators. Each adds its own time and paint. Putting a figure in **Radiators** also brings up the **Radiators** colour row in Paint & Colour below — see [Radiator colours](#radiator-colours).
 - **Feature Wall** — one wall in a different finish: paint, or wallpaper (standard, wide vinyl or mural).
-- **Wallpaper** — lining and finish paper for walls or ceiling, priced per roll with an automatic **rolls-to-order** count, plus a free-text note for the paper itself. Covered in detail in [Wallpaper](#wallpaper--rolls-to-order) below.
+- **Wallpaper** — lining and finish paper for walls or ceiling, priced per roll with an automatic **rolls-to-order** count, plus a free-text note for the paper itself. **Finish paper takes that surface out of the paint** — no emulsion bought, no painting time charged, whatever the Coats card says. Lining on its own still paints (it's hung *to be* painted over). Covered in detail in [Wallpaper](#wallpaper--rolls-to-order) below.
 - **Excluded Walls** — walls you're *not* painting (a tiled wall, wallpaper that's staying). Add its width × height and it's deducted.
 - **Panelling** — wall panelling by area with its own coats (up to 4), prep and colour, independent of the room's own settings. Leave a wall's **−m²** chip on when the panelling sits on the room's own walls: its area comes off the painted walls *and* the wallpapered walls, so you can paper a room and paint its panelling without paying for either twice. For half-height panelling enter just the panelled part — the wall above keeps its paint or paper.
 
@@ -311,6 +311,8 @@ Below the inputs the app shows its working, batch-book style: the **drop length*
 **The drops-needed figure now writes itself onto the quote.** The Wallpapering and Painting & Papering templates open their wallpapering paragraph with *"[X] lengths of [paper name/supplier] to be hung to…"* — that `[X]` used to be yours to type, and is now filled in. It's the **lengths** (strips hung, added up across the whole job), not the rolls: rolls are what you order, and they're the figure above. A wall that's lined *and* papered counts **once** — how many strips go round a wall doesn't change with the paper, and the lining is already described as prep a paragraph earlier. A wide-vinyl feature wall counts (still hung in drops); a mural doesn't (one printed piece). The paper name is still yours to fill in.
 
 Two things worth knowing:
+
+**Papering a surface stops it being painted.** Measure a room the ordinary way — coats default to 2 — then tick **Finish** on the walls, and the wall emulsion and the wall painting time both come off: the paper is going over them. A note on the card says so, because the Coats card still reads 2 and the Paint Needed card just quietly drops a row. **Lining alone changes nothing** — lining is hung to be painted over, so a lined wall keeps its coats, its litres and its time. Setting coats to 0 by hand is still how you say "don't paint this" for anything else. A **painted feature wall** in a papered room keeps its paint and picks up its own labour line.
 
 - The rolls figure is a **buying guide, not a charge** — the labour feeds the quote; the client buys the paper — and the app deliberately doesn't supply it.
 - On a staircase/HSL room, wallpaper labour automatically picks up the **staircase multiplier**. Ceilings get their own multiplier the same way.
@@ -1298,6 +1300,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.76.3. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.77.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

@@ -928,6 +928,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
           </div>
         </div>
         <div class="breakdown-row" id="wp-r-wall-labour-row" style="display:none"><span class="breakdown-label">Wall wallpaper labour</span><span class="breakdown-value" id="wp-r-wall-labour">—</span></div>
+        <div class="settings-note" id="wp-wall-nopaint-note" style="display:none;padding:2px 16px 10px">Finish paper covers the walls, so they aren't painted — no wall emulsion and no wall painting time, whatever the Walls coats say. Lining on its own still paints.</div>
         <div class="field-row" id="wp-rolls-header-row" style="display:none;border-top:1px solid var(--border)"><div class="field-label" style="color:var(--text2);font-weight:600">Rolls to order<small>does not feed the quote total — client buys the paper</small></div></div>
         <div class="field-row" id="wp-roll-len-row" style="display:none">
           <div class="field-label">Roll length<small>metres — check the label</small></div>
@@ -964,6 +965,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
           </div>
         </div>
         <div class="breakdown-row" id="wp-r-ceil-labour-row" style="display:none"><span class="breakdown-label">Ceiling wallpaper labour</span><span class="breakdown-value" id="wp-r-ceil-labour">—</span></div>
+        <div class="settings-note" id="wp-ceil-nopaint-note" style="display:none;padding:2px 16px 10px">Finish paper covers the ceiling, so it isn't painted — no ceiling emulsion and no ceiling painting time, whatever the Ceiling coats say.</div>
         <div class="breakdown-row" id="wp-r-ceil-droplen-row" style="display:none"><span class="breakdown-label">Ceiling drop length</span><span class="breakdown-value" id="wp-r-ceil-droplen">—</span></div>
         <div class="breakdown-row" id="wp-r-ceil-drops-row" style="display:none"><span class="breakdown-label">Ceiling drops per roll / needed</span><span class="breakdown-value" id="wp-r-ceil-drops">—</span></div>
         <div class="breakdown-row" id="wp-r-ceil-rolls-row" style="display:none;background:var(--accent-faint)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">Ceiling rolls to order</span><span class="breakdown-value" style="color:var(--accent);font-weight:700" id="wp-r-ceil-rolls">—</span></div>
@@ -1603,7 +1605,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     </div>
     <div class="card">
       <div class="card-header">Quote &amp; Invoice Text</div>
-      <div class="settings-note">One template per job type — nine seeded, including <strong>Interior &amp; Exterior</strong> for a job with rooms and exterior items in it. The quote version describes the FIRST line of the Xero quote — that room — with each other line stating its own scope underneath, or reading "same as above" where it matches the first (until you edit the text by hand, which turns those off); the invoice version prefills the final-invoice builder when the job's done. Syntax: <strong>{quote wording|invoice wording}</strong> where the two differ, lines starting <strong>Q:&nbsp;</strong> are quote-only, <strong>I:&nbsp;</strong> invoice-only, and {rooms}, {wallProduct}, {ceilingProduct}, {woodProduct}, {wallCoats}, {completedDate} fill in from the job automatically. <strong>{surfaces}</strong> writes the scope sentence from what you actually measured — only the surfaces with coats on them, plus a feature wall, panelling, radiators, sills or a mist coat where they were measured, each naming its own paint where it differs — and <strong>{papered}</strong> names what is being papered, <strong>{extSurfaces}</strong> and <strong>{unitSurfaces}</strong> do the same job as {surfaces} for the exterior items and the fitted units, and <strong>{kitchenCoats}</strong> is the kitchen&rsquo;s coat count.</div>
+      <div class="settings-note">One template per job type — nine seeded, including <strong>Interior &amp; Exterior</strong> for a job with rooms and exterior items in it. The quote version describes the FIRST line of the Xero quote — that room — with each other line stating its own scope underneath, or reading "same as above" where it matches the first (until you edit the text by hand, which turns those off); the invoice version prefills the final-invoice builder when the job's done. Syntax: <strong>{quote wording|invoice wording}</strong> where the two differ, lines starting <strong>Q:&nbsp;</strong> are quote-only, <strong>I:&nbsp;</strong> invoice-only, and {rooms}, {wallProduct}, {ceilingProduct}, {woodProduct}, {wallCoats}, {completedDate} fill in from the job automatically. <strong>{surfaces}</strong> writes the scope sentence from what you actually measured — only the surfaces with coats on them, plus a feature wall, panelling, radiators, sills or a mist coat where they were measured, each naming its own paint where it differs — and <strong>{papered}</strong> names what is being papered with <strong>{lengths}</strong> counting the lengths of paper it takes, <strong>{stripped}</strong> states any wallpaper being stripped (only where there is no {surfaces} to carry it &mdash; the Wallpapering template), <strong>{extSurfaces}</strong> and <strong>{unitSurfaces}</strong> do the same job as {surfaces} for the exterior items and the fitted units, and <strong>{kitchenCoats}</strong> is the kitchen&rsquo;s coat count.</div>
       <div id="text-templates-list"></div>
       <div style="padding:12px 16px;display:flex;gap:8px;border-top:1px solid var(--border)">
         <button onclick="addTextTemplate()" style="flex:1;background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">+ Add template</button>
@@ -3613,11 +3615,19 @@ function scopeFacts(liveRooms) {
     // (calcRoom's fwWallpaper branch zeroes its labour AND its litres), so
     // it can never count as painted wall here either.
     var fwPapered = fwArea > 0 && (r.featureWallMode || 'paint') === 'wallpaper';
-    if (cc > 0) { f.ceiling = true; f.coats[cc] = true; }
+    // Finish paper on the walls or ceiling does the same to those surfaces
+    // as wallpaper mode does to a feature wall -- calcRoom zeroes both the
+    // labour and the litres -- so neither may be claimed as painted here.
+    // Lining alone is hung to be painted over, so it changes nothing.
+    var wallsPapered = !!r.wpWallFinish, ceilPapered = !!r.wpCeilFinish;
+    if (cc > 0 && !ceilPapered) { f.ceiling = true; f.coats[cc] = true; }
     if (wc > 0) {
-      f.walls = true; f.coats[wc] = true;
+      if (!wallsPapered) { f.walls = true; f.coats[wc] = true; }
+      // A painted feature wall standing in a papered room is still painted
+      // (calcRoom keeps its litres and gives it its own labour line), so it
+      // keeps its clause and its coat count even where the walls lost both.
       if (fwArea > 0 && !fwPapered) {
-        f.fwPaint = true;
+        f.fwPaint = true; f.coats[wc] = true;
         noteProduct(f.fwProducts, effectiveRoleRange(r, 'featurewall'));
       }
     }
@@ -12998,8 +13008,27 @@ function calcRoom(r) {
   // both zeroed) -- not just a relabelling. wL (main colour litres) already
   // used mainWallPaintArea unconditionally so it needs no change here.
   var fwWallpaper = featureWallMode === 'wallpaper' && featureWallArea > 0;
-  var wallCost = wc>0 ? (fwWallpaper ? mainWallPaintArea : wallArea)*wallMins(wc)*r2 : 0;
-  var ceilCost = cc>0 ? ceilArea*ceilMins(cc)*r2 : 0;
+  // FINISH paper covers the surface it is hung on, so there is nothing left
+  // to paint there: no emulsion bought and no painting labour charged --
+  // exactly the carve-out a papered FEATURE wall has always had (fwWallpaper
+  // above), extended to the room's own walls and ceiling. Before this, a
+  // room measured the ordinary way (coats default to 2) and then papered
+  // quoted the client for painting walls nobody was going to paint, and
+  // bought the tins to do it with.
+  // Deliberately finish paper ONLY. Lining is hung to BE painted over --
+  // "line out, then hang finish paper" is both toggles on, and lining on its
+  // own means paint next -- so a lined wall keeps its coats, its litres and
+  // its labour. Setting the coats to 0 is still how you say "don't paint
+  // this" for anything the finish-paper rule doesn't cover.
+  var wallsPapered = !!r.wpWallFinish;
+  var ceilPapered  = !!r.wpCeilFinish;
+  // The area the room's own wall colour actually goes on -- nothing, once
+  // the walls are papered. A PAINTED feature wall in a papered room is not
+  // caught by this: it is its own measured wall with its own paint, and
+  // picks up the labour wallCost no longer carries via featureWallOwnCost.
+  var wallPaintArea = wallsPapered ? 0 : mainWallPaintArea;
+  var wallCost = (wc>0 && !wallsPapered) ? (fwWallpaper ? mainWallPaintArea : wallArea)*wallMins(wc)*r2 : 0;
+  var ceilCost = (cc>0 && !ceilPapered) ? ceilArea*ceilMins(cc)*r2 : 0;
   // Windows are woodwork -- painting them is gated on woodwork coats like
   // doors/skirting/sills. With 0 woodwork coats the window m² still comes
   // off the wall area above (a hole in the wall either way), it just isn't
@@ -13060,22 +13089,26 @@ function calcRoom(r) {
   // product's rate -- a different product knows nothing of the wall paint's
   // spread.
   var fwCov = coverageRateFor(effectiveRoleRange(r, 'featurewall'), 'wall') || settings.cw;
-  var wL  = wc>0 ? Math.ceil(mainWallPaintArea*wc/wallCov*sprayMult*2)/2 : 0;
+  var wL  = wc>0 ? Math.ceil(wallPaintArea*wc/wallCov*sprayMult*2)/2 : 0;
   var fwL = (!fwWallpaper && featureWallArea>0 && wc>0) ? Math.ceil(featureWallArea*wc/fwCov*sprayMult*2)/2 : 0;
   // Litres for main walls + painted feature wall as ONE bucket of paint --
   // used by computeMaterials() instead of wL/fwL when the feature wall is
   // the same colour AND product as the main walls (see
   // featureWallSharesWallPaint), so the half-litre round-up happens once
   // over the combined area rather than once per part.
-  var wLCombined = (!fwWallpaper && wc>0) ? Math.ceil((mainWallPaintArea+featureWallArea)*wc/wallCov*sprayMult*2)/2 : wL;
+  var wLCombined = (!fwWallpaper && wc>0) ? Math.ceil((wallPaintArea+featureWallArea)*wc/wallCov*sprayMult*2)/2 : wL;
   // Normally painting the feature wall is already covered by wallCost
   // above, since that's costed on the FULL wallArea regardless of the
   // colour carve-out -- no extra labour needed for a real room. But a
   // feature-wall-only job (room dimensions left at 0x0x0, just this
   // wall) has no general wallArea to absorb that labour, so it needs its
-  // own line -- otherwise a feature-wall-only room prices at £0. Not
-  // applicable when wallpapered -- see featureWallWpCost below instead.
-  var featureWallOwnCost = (!fwWallpaper && wallArea<=0 && featureWallArea>0 && wc>0) ? featureWallArea*wallMins(wc)*r2 : 0;
+  // own line -- otherwise a feature-wall-only room prices at £0. A room
+  // whose walls are PAPERED is the same story for the same reason: wallCost
+  // is zero there too, so a painted feature wall standing in a papered room
+  // would otherwise be hung, described and never charged for. Not
+  // applicable when the feature wall itself is wallpapered -- see
+  // featureWallWpCost below instead.
+  var featureWallOwnCost = (!fwWallpaper && (wallArea<=0 || wallsPapered) && featureWallArea>0 && wc>0) ? featureWallArea*wallMins(wc)*r2 : 0;
   // Wallpaper labour = rolls x per-roll rate x (1 + multiplier), summed
   // across whichever of {lining, finish} are active for this surface --
   // see wpSurfaceResult()/roomWallpaperRolls(). isHSL rooms pick up the
@@ -13185,7 +13218,7 @@ function calcRoom(r) {
   // Ceiling/woodwork/mist litres: same product-coverage-then-flat resolution
   // as wallCov above, per role.
   var ceilCov = coverageRateFor(effectiveRoleRange(r, 'ceiling'), 'ceiling') || settings.cc;
-  var cL  = cc>0 ? Math.ceil(ceilArea*cc/ceilCov*ceilSprayMult*2)/2 : 0;
+  var cL  = (cc>0 && !ceilPapered) ? Math.ceil(ceilArea*cc/ceilCov*ceilSprayMult*2)/2 : 0;
   // woodAreaOverride: same pattern as wallAreaOverride/ceilAreaOverride above
   // -- staircase/HSL rooms set this to the REAL skirting+spindle+newel
   // surface area (computeHSLOverrides()), since the generic perim*0.15
@@ -25171,6 +25204,17 @@ function updateWPRollSpecVisibility() {
   document.getElementById('wp-repeat-row').style.display = (isTopPaper && wpMatch!=='none') ? 'flex' : 'none';
 }
 
+// Finish paper takes the surface out of the paint (see calcRoom()'s
+// wallsPapered/ceilPapered), which is invisible on the form otherwise: the
+// Coats seg still reads 2 and the paint quantities card simply drops a row.
+// Said out loud here instead, on whichever surface it applies to.
+function updateWPNoPaintNotes() {
+  var wall = document.getElementById('wp-wall-nopaint-note');
+  var ceil = document.getElementById('wp-ceil-nopaint-note');
+  if (wall) wall.style.display = (wpWallFinish && coats.wc > 0) ? 'block' : 'none';
+  if (ceil) ceil.style.display = (wpCeilFinish && coats.cc > 0) ? 'block' : 'none';
+}
+
 // Lining and finish are independent toggles per surface now (checkbox
 // semantics via button styling, not radio) -- clicking one only flips its
 // own boolean, the sibling button's state is untouched, so both can be on
@@ -25184,6 +25228,7 @@ function toggleWP(key, type) {
     b.classList.toggle('active', i===0 ? liningOn : finishOn);
   });
   updateWPRollSpecVisibility();
+  updateWPNoPaintNotes();
   previewRoom();
 }
 
@@ -26100,6 +26145,7 @@ function previewRoomNow() {
   if (wpwOn) document.getElementById('wp-r-wall-labour').textContent = fmt(c.wpwCost);
   document.getElementById('wp-r-ceil-labour-row').style.display = wpcOn ? 'flex' : 'none';
   if (wpcOn) document.getElementById('wp-r-ceil-labour').textContent = fmt(c.wpcCost);
+  updateWPNoPaintNotes();
 
   // Rolls-to-order live preview -- walls only. Wall width here means the
   // linear metres of wall to paper (room perimeter). Doors aren't
@@ -26966,8 +27012,12 @@ function calcHSLNow() {
   var radCostDisp  = radsDisp>0 ? radsDisp*radMins()*r2 : 0;
 
   // Total cost and time for display
-  var wallCostDisp = wc>0 ? totalWall*wallMins(wc)*r2 : 0;
-  var ceilCostDisp = cc>0 ? totalCeil*ceilMins(cc)*r2 : 0;
+  // Finish paper takes the surface out of the paint here exactly as it does
+  // in calcRoom() -- a papered staircase is the commonest papering job there
+  // is, and this preview has to agree with the price computeHSLOverrides()
+  // is about to save.
+  var wallCostDisp = (wc>0 && !wpWallFinish) ? totalWall*wallMins(wc)*r2 : 0;
+  var ceilCostDisp = (cc>0 && !wpCeilFinish) ? totalCeil*ceilMins(cc)*r2 : 0;
   var prepUpDisp = prepPct >= 0 ? prepPct : (+document.getElementById('r-prep-custom').value||0);
   var makingGoodDisp = +document.getElementById('r-making-good').value||0;
   // doorCostDisp already carries its own independent prep multiplier (see
@@ -27013,6 +27063,9 @@ function calcHSLNow() {
   // will buy from the moment it IS saved.
   var hslRoom = buildRoomFromForm();
   renderRoomPaintLitres(hslRoom, calcRoom(hslRoom));
+  // Same note a normal room gets -- the wallpaper card is shared, and a
+  // papered staircase is where this bites hardest.
+  updateWPNoPaintNotes();
 
   // Rolls to order -- reuses the SAME shared result elements a normal
   // room's Wallpaper card populates (wp-r-*); drop length shows as a
@@ -27124,8 +27177,12 @@ function computeHSLOverrides() {
   var wMins   =(spindles>0||newels>0)?(spindles*settings.wpStairSpindleMins+newels*settings.wpStairNewelMins+strLm*settings.wpStairStringMinsPerM+hrLm*settings.wpStairHandrailMinsPerM)*swc:0;
   var stairWoodStore = wMins*r2;
 
-  var wallCost = wc>0 ? totalWall*wallMins(wc)*r2 : 0;
-  var ceilCost = cc>0 ? totalCeil*ceilMins(cc)*r2 : 0;
+  // Finish paper carves the surface out of the paint -- same rule and same
+  // reasoning as calcRoom()'s wallsPapered/ceilPapered, applied here too
+  // because an HSL room's wall/ceiling labour is computed in this function
+  // and reaches calcRoom() only as a baked totalOverride.
+  var wallCost = (wc>0 && !wpWallFinish) ? totalWall*wallMins(wc)*r2 : 0;
+  var ceilCost = (cc>0 && !wpCeilFinish) ? totalCeil*ceilMins(cc)*r2 : 0;
 
   // Skirting from hall + landing perimeters -- same real geometry feeds
   // BOTH the cost (skirtCost below) AND, via woodAreaOverride,
