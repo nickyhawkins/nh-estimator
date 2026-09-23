@@ -120,7 +120,7 @@ function load(server, opts) {
     noteServerCopy: () => {},
     loadLabourLog: async () => {}, loadSnags: async () => {}, loadSnagRooms: async () => {},
     loadSpecTicks: async () => {}, refreshSpecLink: async () => {},
-    loadQuoteSnapshots: async () => {}, loadClientVariations: async () => {},
+    loadQuoteSnapshots: async () => {}, loadClientVariations: async () => {}, loadJobInvoices: async () => {},
     applyClientVariationAnswers: () => {}, ensureDefaultColour: () => {},
     clearUndoStack: () => {}, restoreJobIdentityFields: () => {}, updateNavBadge: () => {},
     renderHome: () => {}, renderExterior: () => {}, renderColours: () => {},

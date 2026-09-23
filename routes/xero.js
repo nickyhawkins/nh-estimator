@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const db = require('../db');
+const { ensureInvoiceSchema, buildInterimXeroInvoice } = require('../lib/invoices');
 const router = express.Router();
 
 const XERO_AUTH_URL = 'https://login.xero.com/identity/connect/authorize';
@@ -1499,6 +1500,212 @@ router.post('/create-invoice', async (req, res) => {
       ? ' — this can mean Xero needs reconnecting once to grant invoice permission (Summary → Connect Xero)'
       : '';
     res.status(500).json({ error: xeroErrorMessage(err) + hint });
+  }
+});
+
+// ── Interim invoices (STAGED_INVOICING_SPEC.md) ─────────────────────────────
+// Sends ONE recorded interim to Xero as its own ACCREC draft. The row is read
+// from the database, never from the request: POST /api/jobs/:id/invoices/
+// interim already decided the figures and the line text, and what lands in
+// Xero has to be exactly that record.
+//
+// The deposit pattern, deliberately: the row's own idempotency key goes to
+// Xero as Idempotency-Key on every attempt, so "Try again" after a lost reply
+// replays the original invoice rather than writing a second one, and the sync
+// state (notSynced | failed | synced + lastError) is separate from the app's
+// offline sync-dot. Blocked offline in the app, never queued -- same rule as
+// every other Xero write.
+router.post('/sync-invoice', async (req, res) => {
+  const { invoiceId } = req.body || {};
+  if (!invoiceId) return res.status(400).json({ error: 'invoiceId is required' });
+  let row;
+  try {
+    await ensureInvoiceSchema();
+    const found = await db.query(
+      `SELECT id, job_id, type, sequence, line_items, xero_contact_id, xero_client_name, xero_reference,
+              xero_invoice_id, xero_invoice_number, sync_state, idempotency_key
+         FROM invoices WHERE id = $1`, [invoiceId]);
+    if (!found.rows.length) return res.status(404).json({ error: 'invoice not found' });
+    row = found.rows[0];
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+  if (row.type !== 'interim') return res.status(400).json({ error: 'Only interim invoices are sent from here' });
+  // Already landed: answer with what Xero gave us rather than writing again.
+  if (row.sync_state === 'synced' && row.xero_invoice_id) {
+    return res.json({ ok: true, invoiceId: row.xero_invoice_id, invoiceNumber: row.xero_invoice_number, alreadySynced: true });
+  }
+
+  const markFailed = (message) => db.query(
+    `UPDATE invoices SET sync_state = 'failed', last_error = $2, updated_at = NOW() WHERE id = $1`,
+    [row.id, String(message || 'Sync failed').slice(0, 300)]).catch(() => {});
+
+  try {
+    await db.query('UPDATE invoices SET last_attempt_at = NOW(), updated_at = NOW() WHERE id = $1', [row.id]);
+    const accessToken = await getAccessToken();
+    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    const tenantId = result.rows[0]?.xero_tenant_id;
+    if (!tenantId) {
+      await markFailed('No Xero tenant found — please reconnect Xero');
+      return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
+    }
+    const invRes = await axios.put(
+      `${XERO_API_URL}/Invoices`,
+      buildInterimXeroInvoice({
+        xeroContactId: row.xero_contact_id, xeroClientName: row.xero_client_name,
+        xeroReference: row.xero_reference, lineItems: row.line_items
+      }),
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Xero-Tenant-Id': tenantId,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'Idempotency-Key': String(row.idempotency_key).slice(0, 128)
+        }
+      }
+    );
+    const invoice = invRes.data.Invoices && invRes.data.Invoices[0];
+    if (!invoice || !invoice.InvoiceID) throw new Error('Xero did not return an invoice');
+    await db.query(
+      `UPDATE invoices SET sync_state = 'synced', synced_at = NOW(), last_error = NULL,
+              xero_invoice_id = $2, xero_invoice_number = $3, updated_at = NOW()
+        WHERE id = $1`,
+      [row.id, invoice.InvoiceID, invoice.InvoiceNumber || null]);
+    res.json({ ok: true, invoiceId: invoice.InvoiceID, invoiceNumber: invoice.InvoiceNumber || null });
+  } catch (err) {
+    console.error('Sync interim invoice error:', err.response?.data || err.message);
+    const status = err.response?.status;
+    // Same hint as /create-invoice: a token granted before invoice writing
+    // joined SCOPES needs Xero reconnecting once.
+    const hint = (status === 401 || status === 403)
+      ? ' — this can mean Xero needs reconnecting once to grant invoice permission (Summary → Connect Xero)'
+      : '';
+    const message = xeroErrorMessage(err) + hint;
+    await markFailed(message);
+    res.status(500).json({ error: message });
+  }
+});
+
+// Read-back of a job's invoices from Xero (STAGED_INVOICING_SPEC.md): status,
+// date, total and what has been paid. Same contract as /prepayment-status --
+// a poll, one-way, Xero always wins, and a failure changes nothing. What it
+// reads decides two things: whether an invoice has left draft (only then may
+// it appear on the client's page), and whether it has been voided or deleted
+// in Xero (only then may the app discard an invoice it has already sent).
+router.post('/invoice-statuses', async (req, res) => {
+  const { jobId } = req.body || {};
+  if (!jobId) return res.status(400).json({ error: 'jobId is required' });
+  try {
+    await ensureInvoiceSchema();
+    const rows = (await db.query(
+      `SELECT id, xero_invoice_id FROM invoices WHERE job_id = $1 AND xero_invoice_id IS NOT NULL`, [jobId])).rows;
+    if (!rows.length) return res.json({ ok: true, checked: 0 });
+    const accessToken = await getAccessToken();
+    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    const tenantId = result.rows[0]?.xero_tenant_id;
+    if (!tenantId) return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
+    // One request for the lot: GET /Invoices takes a comma-separated IDs list.
+    const ids = rows.map(r => r.xero_invoice_id);
+    const invRes = await axios.get(`${XERO_API_URL}/Invoices?IDs=${encodeURIComponent(ids.join(','))}`, {
+      headers: { Authorization: `Bearer ${accessToken}`, 'Xero-Tenant-Id': tenantId, Accept: 'application/json' }
+    });
+    const byId = {};
+    (invRes.data.Invoices || []).forEach(inv => { byId[inv.InvoiceID] = inv; });
+    let checked = 0;
+    for (const r of rows) {
+      const inv = byId[r.xero_invoice_id];
+      if (!inv) continue;   // not returned: leave what we knew, the next poll retries
+      const date = xeroDateOnly(inv.DateString, inv.Date);
+      await db.query(
+        `UPDATE invoices SET xero_status = $2, xero_date = $3, xero_total = $4, xero_amount_paid = $5,
+                xero_amount_due = $6, xero_invoice_number = COALESCE($7, xero_invoice_number),
+                xero_checked_at = NOW()
+          WHERE id = $1`,
+        [r.id, inv.Status || null, date || null, inv.Total ?? null, inv.AmountPaid ?? null,
+         inv.AmountDue ?? null, inv.InvoiceNumber || null]);
+      checked++;
+    }
+    res.json({ ok: true, checked });
+  } catch (err) {
+    console.error('Invoice statuses error:', err.response?.data || err.message);
+    res.status(500).json({ error: xeroErrorMessage(err) });
+  }
+});
+
+// Void & reissue, the Xero half (STAGED_INVOICING_SPEC.md). Takes the job's
+// most recent interim out of Xero so a corrected one can be issued:
+//
+//   DRAFT / SUBMITTED  -> DELETED   (never sent: nothing to keep a record of)
+//   AUTHORISED, nothing paid or allocated -> VOIDED  (stays in Xero, marked void)
+//   anything paid, part-paid, or with the deposit prepayment allocated to it
+//                      -> refused. Unwinding money is done in Xero by a person:
+//                         remove the payment/allocation there, then try again.
+//
+// Only the LATEST interim, and never once the final invoice exists: every
+// later invoice says what went before, and the final deducts each interim by
+// number, so voiding one in the middle would make those documents wrong.
+// Xero's live status is read first rather than trusting the app's cached one
+// -- the invoice may have been approved or paid since the last read-back.
+// The app's own record is discarded by the caller afterwards (DELETE
+// /api/jobs/:id/invoices/:id), which now accepts it because Xero says void.
+router.post('/void-invoice', async (req, res) => {
+  const { invoiceId } = req.body || {};
+  if (!invoiceId) return res.status(400).json({ error: 'invoiceId is required' });
+  try {
+    await ensureInvoiceSchema();
+    const found = await db.query(
+      'SELECT id, job_id, type, sequence, xero_invoice_id FROM invoices WHERE id = $1', [invoiceId]);
+    const row = found.rows[0];
+    if (!row) return res.status(404).json({ error: 'invoice not found' });
+    if (row.type !== 'interim') return res.status(400).json({ error: 'Only an interim invoice can be voided here' });
+    if (!row.xero_invoice_id) return res.status(400).json({ error: 'This invoice is not in Xero — discard it instead' });
+    const others = (await db.query(
+      'SELECT id, type, sequence FROM invoices WHERE job_id = $1 ORDER BY sequence DESC', [row.job_id])).rows;
+    if (others.some(r => r.type === 'final')) {
+      return res.status(400).json({ error: 'The final invoice has been built — it deducts this interim by number, so it can no longer be voided from the app. Correct it in Xero.' });
+    }
+    if (others[0].id !== row.id) {
+      return res.status(400).json({ error: 'Only the most recent invoice can be voided — later invoices were billed on top of it.' });
+    }
+
+    const accessToken = await getAccessToken();
+    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    const tenantId = result.rows[0]?.xero_tenant_id;
+    if (!tenantId) return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
+    const headers = {
+      Authorization: `Bearer ${accessToken}`, 'Xero-Tenant-Id': tenantId,
+      'Content-Type': 'application/json', Accept: 'application/json'
+    };
+    const cur = (await axios.get(`${XERO_API_URL}/Invoices/${encodeURIComponent(row.xero_invoice_id)}`, { headers })).data.Invoices?.[0];
+    if (!cur) return res.status(404).json({ error: 'Xero no longer has this invoice' });
+
+    let target;
+    if (cur.Status === 'VOIDED' || cur.Status === 'DELETED') {
+      target = cur.Status;   // already gone in Xero -- just record it
+    } else if (cur.Status === 'DRAFT' || cur.Status === 'SUBMITTED') {
+      target = 'DELETED';
+    } else if (cur.Status === 'AUTHORISED') {
+      const settled = (+cur.AmountPaid || 0) + (+cur.AmountCredited || 0);
+      if (settled > 0.005) {
+        return res.status(400).json({ error: `Xero has ${settled.toFixed(2)} paid or allocated against ${cur.InvoiceNumber || 'this invoice'} (the deposit prepayment counts). Remove that payment or allocation in Xero first, then void it here. Nothing was changed.` });
+      }
+      target = 'VOIDED';
+    } else {
+      return res.status(400).json({ error: `${cur.InvoiceNumber || 'This invoice'} is ${cur.Status} in Xero and can't be voided. Nothing was changed.` });
+    }
+
+    if (target !== cur.Status) {
+      await axios.post(`${XERO_API_URL}/Invoices/${encodeURIComponent(row.xero_invoice_id)}`,
+        { Invoices: [{ InvoiceID: row.xero_invoice_id, Status: target }] }, { headers });
+    }
+    await db.query(
+      `UPDATE invoices SET xero_status = $2, xero_checked_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      [row.id, target]);
+    res.json({ ok: true, status: target, invoiceNumber: cur.InvoiceNumber || null });
+  } catch (err) {
+    console.error('Void invoice error:', err.response?.data || err.message);
+    res.status(500).json({ error: xeroErrorMessage(err) });
   }
 });
 

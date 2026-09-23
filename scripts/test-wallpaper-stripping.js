@@ -559,6 +559,43 @@ const SEED=()=>{
     !hasBlock(sent.rooms[1].description),
     sent && sent.rooms.map(function(r){ return r.description.slice(0, 80); }));
 
+  // ── 10. Interim invoices can bill the stripping on its own ──────────────
+  // Staged invoicing bills the accepted quote's work rows line by line, each
+  // at its own %, keyed on sourceKey. Because stripping is one of those rows
+  // it becomes separately billable — "the paper is off, the painting isn't"
+  // is a real halfway point on a strip-and-repaper, and it now has a line to
+  // be billed against instead of a percentage of the whole room.
+  const interim = await page.evaluate(() => {
+    var job = activeJob();
+    job.status = 'accepted';
+    // Re-seed: the Xero sends above left the strip-only fixture in place,
+    // and this check needs a room with BOTH halves to prove they stay apart.
+    var B = function(o){ return Object.assign({
+      wc:0, cc:0, xc:0, rads:0, win:0, sills:0, doorQty:0, frameQty:0, doorCoats:0, frameCoats:0,
+      panelItems:[], excludedWalls:[], featureWallArea:0, featureWallMode:'paint',
+      colourNumber:1, ceilingColourNumber:1, woodworkColourNumber:1,
+      featureWallColourNumber:1, panelColourNumber:1,
+      l:4, w:3.5, h:2.4, prepPct:10 }, o); };
+    rooms = [
+      B({ id:'mix1', name:'Lounge', wc:2, cc:2, xc:2, stripWall:true, stripWallType:'textured' }),
+      B({ id:'str1', name:'Back Bedroom', stripWall:true, stripWallType:'textured',
+          stripCeil:true, stripCeilType:'lining' })
+    ];
+    var snap = buildAcceptedQuoteSnapshot(job);
+    if (!snap) return { error: 'snapshot was null' };
+    // The store latestQuoteSnapshot() actually reads.
+    quoteSnapshotsJobId = job.id;
+    quoteSnapshots = [{ version: 1, capturedAt: new Date().toISOString(), data: snap }];
+    var basis = interimQuoteBasis(job);
+    return { keys: ((basis && basis.lines) || []).map(function(l){ return l.key; }),
+             descs: ((basis && basis.lines) || []).map(function(l){ return l.description; }) };
+  });
+  check('an interim invoice can bill a stripping line on its own',
+    !interim.error && interim.keys.indexOf('roomstrip:mix1') !== -1 &&
+    interim.keys.indexOf('roomstrip:str1') !== -1, interim);
+  check('and the room\'s painting stays a separate billable line beside it',
+    !interim.error && interim.keys.indexOf('room:mix1') !== -1, interim);
+
   check('nothing threw along the way', errors.length === 0, errors);
 
   await browser.close(); srv.close();
