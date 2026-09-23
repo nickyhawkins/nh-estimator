@@ -62,6 +62,14 @@ function extractVar(name) {
   if (at < 0) throw new Error('var ' + name + ' not found in public/index.html');
   return sliceBalanced(SRC, at + 1, '[', ']') + ';';
 }
+// A one-line scalar `var X = ...;` — extractVar above only knows how to
+// balance an array literal. Taken from the file rather than retyped here so
+// the fixture can't drift from the app's own value.
+function extractScalarVar(name) {
+  const m = new RegExp('\\nvar ' + name + ' = ([^\\n;]+);').exec(SRC);
+  if (!m) throw new Error('scalar var ' + name + ' not found in public/index.html');
+  return 'var ' + name + ' = ' + m[1] + ';';
+}
 
 // ── Sandbox ────────────────────────────────────────────────────────────────
 // effectiveRoleRange is the calc engine's, reproduced here as the two-line
@@ -110,6 +118,20 @@ const sandbox = `
   function calcFittedUnit(u) {
     return { total: ((+u.bayCount || 0) + (+u.shelfCount || 0) + (+u.doorCount || 0)) ? 1 : 0 };
   }
+  // Same stand-in idea: buildTemplateValues only asks whether a room puts a
+  // PAINTING line on the document, which is "is anything measured, once its
+  // wallpaper stripping is carved off" (see roomStripLine in the app). So a
+  // room prices at 1 for any measured painting, and carries its stripping as
+  // a separate 1 — enough for firstRoomWithPaintLine to tell a strip-only
+  // room from a painted one, which is the whole question here.
+  function calcRoom(r) {
+    var f = scopeFacts([r]);
+    var painted = (f.ceiling || f.walls || f.fwPaint || f.fwPaper || f.wpWalls ||
+                   f.wpCeiling || f.panelling || f.skirtings || f.doors ||
+                   f.frames || f.windows || f.sills || f.rads) ? 1 : 0;
+    var stripped = (r.stripWall || r.stripCeil) ? 1 : 0;
+    return { total: painted + stripped, stripChargedCost: stripped };
+  }
 `;
 
 const api = {};
@@ -121,6 +143,20 @@ new Function('exports', sandbox + [
   extractFn('scopeProductValues'),
   extractFn('roomScopeSentence'),
   extractFn('roomScopeShort'),
+  // Wallpaper stripping: buildTemplateValues picks the block's subject with
+  // firstRoomWithPaintLine, which walks this chain. Extracted rather than
+  // stubbed so the fixture tests the app's real "is this room only being
+  // stripped?" answer.
+  extractFn('roomStripSurfaces'),
+  extractFn('roomStripShort'),
+  extractFn('roomStripSentence'),
+  extractFn('roomStripLabel'),
+  extractFn('roomStripLine'),
+  extractFn('roomHasPaintLine'),
+  extractFn('firstRoomWithPaintLine'),
+  extractFn('wallpaperStripTier'),
+  extractVar('WALLPAPER_STRIP_TIERS'),
+  extractScalarVar('WALLPAPER_STRIP_DEFAULT_TIER'),
   extractFn('extScopeFacts'),
   extractFn('buildExtScopeSentence'),
   extractFn('extItemScopeSentence'),
@@ -709,6 +745,38 @@ check('int-ext leaves no stray token or blank run where the exterior scope was',
   !/\{[a-zA-Z]/.test(mixedBlock) && !/\n{3,}/.test(mixedBlock), JSON.stringify(mixedBlock));
 check('int-ext header names the subject room only',
   mixedBlock.startsWith('Painting of Lounge:'), mixedBlock.split('\n')[0]);
+
+// ── Wallpaper stripping and the block's subject ────────────────────────────
+// A room that is ONLY being stripped puts no painting line on the document
+// — its stripping line carries its own sentence and never the block — so
+// the block lands on the next room along and must describe THAT room.
+// Taking rooms[0] regardless opened the block "Painting of Back Bedroom:"
+// on Bedroom 1's line, crediting a room having paper taken off with the
+// painting of a room it isn't.
+const STRIP_FIRST = [
+  { name: 'Back Bedroom', stripWall: true, stripWallType: 'textured' },
+  { name: 'Bedroom 1', wc: 2, cc: 2, xc: 2 },
+  { name: 'Bedroom 2', wc: 2, cc: 2, xc: 2 }
+];
+eq('a strip-only first room is not the block\'s subject',
+  vf('quote', STRIP_FIRST).rooms, 'Bedroom 1');
+eq('and the block carries THAT room\'s scope',
+  vf('quote', STRIP_FIRST).surfaces, api.roomScopeSentence('quote', STRIP_FIRST[1]));
+// A room being stripped AND painted still has a painting line, so it stays
+// the subject exactly as it was before stripping existed.
+eq('a room that is stripped AND painted is still a subject',
+  vf('quote', [Object.assign({ stripWall: true, stripWallType: 'textured' }, HOUSE[0])].concat(HOUSE.slice(1))).rooms,
+  'Lounge');
+// Nothing painted anywhere: no subject room, so {rooms} falls back to the
+// job name (its documented fallback) and {surfaces} drops out rather than
+// claiming painted surfaces the job hasn't got.
+const STRIP_ONLY = [
+  { name: 'Back Bedroom', stripWall: true, stripWallType: 'textured' },
+  { name: 'Landing', stripWall: true, stripWallType: 'layers' }
+];
+eq('a strip-out job falls back to the job name, not a room it isn\'t painting',
+  vf('quote', STRIP_ONLY).rooms, 'Test Job');
+eq('and claims no painted surfaces at all', vf('quote', STRIP_ONLY).surfaces, '');
 
 // ── Report ─────────────────────────────────────────────────────────────────
 pass.forEach(n => console.log('  ok   ' + n));

@@ -1015,6 +1015,38 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
         <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Manual area override<small>m² — for when only part is new plaster; blank uses the selected surface(s) above</small></div><input type="number" class="field-input" id="r-mist-area" placeholder="0" min="0" step="0.1" inputmode="decimal" oninput="previewRoom()"></div>
       </div>
     </div>
+    <!-- Wallpaper Stripping: sits beside Mist Coat because it is the same
+         shape of thing -- a per-surface prep task priced off the room's
+         already-measured wall/ceiling m², independently toggleable because
+         a room is very often papered on the walls and painted on the
+         ceiling. Each surface carries its OWN difficulty tier: lining paper
+         on a ceiling above woodchip walls is an ordinary find. -->
+    <div class="card">
+      <div class="card-header sec-toggle" onclick="toggleFormSection('wpstrip')"><span>Wallpaper Stripping</span><span class="sec-chev" id="sec-chev-wpstrip">›</span></div>
+      <div class="card-body" id="sec-wpstrip">
+        <div class="toggle-row">
+          <div class="toggle-label">Strip Wallpaper — Walls<small>Prices stripping the existing paper off this room's wall m², at the tier's minutes per m² from Rates</small></div>
+          <div class="toggle" id="tog-sw" onclick="toggleWpStrip('sw')"></div>
+        </div>
+        <!-- The tier sits UNDER its label rather than beside it (the
+             field-row shape used everywhere else on this form): four words
+             of this length in a seg need the full card width on a phone,
+             and beside a label they run off the right-hand edge. -->
+        <div id="wpstrip-wall-type-row" style="display:none;padding:0 16px 14px">
+          <div class="subsection-label" style="border-top:none;padding:0 0 8px">Wall paper type<small>How hard it is to get off — the rate for each is on Rates › Wallpaper Stripping</small></div>
+          <div class="seg" id="seg-wpstrip-wall"></div>
+        </div>
+        <div class="toggle-row" style="border-top:1px solid var(--border)">
+          <div class="toggle-label">Strip Wallpaper — Ceiling<small>Same, against this room's ceiling m²</small></div>
+          <div class="toggle" id="tog-sc" onclick="toggleWpStrip('sc')"></div>
+        </div>
+        <div id="wpstrip-ceil-type-row" style="display:none;padding:0 16px 14px">
+          <div class="subsection-label" style="border-top:none;padding:0 0 8px">Ceiling paper type<small>Set independently — a lining-paper ceiling over woodchip walls is an ordinary find</small></div>
+          <div class="seg" id="seg-wpstrip-ceil"></div>
+        </div>
+        <div id="wpstrip-summary" style="display:none;padding:0 16px 14px;font-size:12px;color:var(--text2);line-height:1.5"></div>
+      </div>
+    </div>
     <div class="card">
       <div class="card-header sec-toggle" onclick="toggleFormSection('coats')"><span>Coats</span><span class="sec-chev" id="sec-chev-coats">›</span></div>
       <div class="card-body" id="sec-coats">
@@ -1694,6 +1726,30 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       <div class="field-row"><div class="field-label">Staircase — newel time<small>minutes per newel post, per coat</small></div><input type="number" class="field-input" id="s-wpstair-newel-mins" value="5" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Staircase — string time<small>minutes per metre, per coat</small></div><input type="number" class="field-input" id="s-wpstair-string-mins" value="2" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Staircase — handrail time<small>minutes per metre, per coat</small></div><input type="number" class="field-input" id="s-wpstair-handrail-mins" value="3" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+    </div>
+    <!-- Wallpaper stripping: an AREA-based prep time, unlike the Kitchen's
+         Strip original coating (mins per piece, up in Kitchen Rates) — the
+         room's walls/ceiling are already measured in m² for paint, so
+         stripping prices straight off that figure with no new measuring.
+         Four difficulty tiers because "wallpaper" covers everything from a
+         single skim of lining paper to four layers of woodchip over
+         distemper, and those are not the same morning's work.
+         Shipped at 0 deliberately: these are Nicky's own calibration
+         figures and a guessed default would quietly price real jobs. The
+         room form says so where the toggle is, rather than pricing the
+         strip at £0 in silence. -->
+    <div class="card">
+      <div class="card-header">Wallpaper Stripping</div>
+      <div class="settings-note">Minutes per m² to strip existing paper, by how hard it is to get off. Applied to the room's measured wall/ceiling m² when that surface's Strip Wallpaper toggle is on — see a room's Wallpaper Stripping card. <strong>Set these before using the toggle</strong>: they ship at 0 (no guessed defaults), so stripping adds no time until you fill in your own figures.</div>
+      <!-- Labels read "Strip — …" rather than just "Lining paper": the
+           Wallpaper Rates card above already has a "Lining paper" row (£
+           per roll HUNG), and settingsFieldLabel() reads these labels
+           verbatim into the accepted-quote drift line, where two rows
+           called the same thing would be unreadable. -->
+      <div class="field-row"><div class="field-label">Strip — lining paper<small>mins/m² — a single skim of lining, comes off in sheets</small></div><input type="number" class="field-input" id="s-wpstrip-lining" value="0" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Strip — standard / vinyl<small>mins/m² — ordinary patterned or vinyl paper</small></div><input type="number" class="field-input" id="s-wpstrip-standard" value="0" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Strip — textured / woodchip<small>mins/m² — woodchip, blown vinyl, heavy embossed</small></div><input type="number" class="field-input" id="s-wpstrip-textured" value="0" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Strip — multiple layers<small>mins/m² — papered over more than once, steamer job</small></div><input type="number" class="field-input" id="s-wpstrip-layers" value="0" min="0" step="0.5" inputmode="decimal" onchange="saveSettings()"></div>
     </div>
     <div class="card">
       <div class="card-header">Exterior Rates</div>
@@ -3046,6 +3102,40 @@ var KITCHEN_RATE_DEFAULTS = {
 // the same rate, once, whatever the coat count.
 var KITCHEN_STRIP_SETTING = { small:'stripTimeSmall', medium:'stripTimeMedium', large:'stripTimeLarge', xlarge:'stripTimeXLarge' };
 
+// ── Wallpaper stripping tiers ──────────────────────────────────────────────
+// Room walls/ceiling only. Deliberately NOT the Kitchen's per-piece model
+// above: a room's wall and ceiling m² are already measured for paint, so
+// stripping prices off that same figure (area x mins/m² x rate-per-minute)
+// with nothing extra to count on site -- the mist coat's shape exactly, and
+// it lands in the same place in calcRoom's baseTotal so it carries the
+// room's prep uplift and feeds `time` (the diary-day labour model) like
+// every other prep task, rather than becoming its own line-item type.
+// Four tiers because "wallpaper" spans a skim of lining paper to four
+// layers of woodchip, which are not the same morning's work.
+// `short` is what fits a seg button on a phone; `label` is what the
+// summary line and the Rates card say in full.
+var WALLPAPER_STRIP_TIERS = [
+  { key:'lining',   short:'Lining',   label:'Lining paper',        setting:'stripWpLiningMins' },
+  { key:'standard', short:'Standard', label:'Standard / vinyl',    setting:'stripWpStandardMins' },
+  { key:'textured', short:'Textured', label:'Textured / woodchip', setting:'stripWpTexturedMins' },
+  { key:'layers',   short:'Layers',   label:'Multiple layers',     setting:'stripWpLayersMins' }
+];
+var WALLPAPER_STRIP_DEFAULT_TIER = 'standard';
+function wallpaperStripTier(key) {
+  var found = WALLPAPER_STRIP_TIERS.filter(function(t){ return t.key===key; })[0];
+  // An unknown/missing tier (an older room, a hand-edited blob) reads as
+  // the default tier rather than throwing or silently costing 0 -- the
+  // toggle being ON is the real signal that stripping was priced.
+  return found || WALLPAPER_STRIP_TIERS.filter(function(t){ return t.key===WALLPAPER_STRIP_DEFAULT_TIER; })[0];
+}
+// Minutes per m² for a tier. 0 is a legitimate answer (the shipped
+// default, meaning "Nicky hasn't calibrated this tier yet") -- callers that
+// care about the difference between "no rate set" and "priced at nothing"
+// check the figure themselves; see renderWpStripSummary().
+function wallpaperStripMins(key) {
+  return Math.max(0, +settings[wallpaperStripTier(key).setting] || 0);
+}
+
 function populateKitchenRatesTable() {
   var body = document.getElementById('kitchen-rates-body');
   if (!body) return;
@@ -3880,6 +3970,101 @@ function roomScopeShort(room) {
   return englishJoin(parts);
 }
 
+// ── Wallpaper stripping as its own quote/invoice line ──────────────────────
+// Stripping is the one prep task the client has to SEE. Every other prep
+// step (mist coat, prep %, making good) is absorbed into the room's price
+// because the client is buying a painted room and the prep is how it gets
+// painted. Stripping is different: the job is often the stripping — "take
+// the woodchip off" on its own, or strip-and-repaper — and a room line
+// reading "Back Bedroom £480" with no ceiling or walls painted looks like
+// a mistake on the client's copy rather than a day's work with a steamer.
+//
+// So the £ is CARVED OUT of the room's line, never added on top: the room
+// line bills `total - stripChargedCost` and the stripping line bills
+// `stripChargedCost`. The two sum to exactly what the room summed to
+// before, so nothing downstream of the total moves -- markup, sundries,
+// the deposit plan, the diary days and the rounding pool all see the same
+// job they always did. This is presentation, not pricing.
+//
+// Deliberately NOT split: variations. A variation's lines are keyed by
+// carrier (kind + id) and drive its own approve/decline UI, so a second
+// line against the same room would grow a second approval button for work
+// that has only one decision behind it. A variation room still bills its
+// strip inside its one line -- see FEATURES.md.
+function roomStripSurfaces(room) {
+  var out = [];
+  if (room.stripWall) out.push({ surface: 'walls',   tier: wallpaperStripTier(room.stripWallType) });
+  if (room.stripCeil) out.push({ surface: 'ceiling', tier: wallpaperStripTier(room.stripCeilType) });
+  return out;
+}
+// The sub-note under the stripping line on the client's copy. Names the
+// paper type because that is the whole reason two stripping lines on one
+// quote can be priced differently, and a client comparing them deserves
+// the answer on the page rather than having to ask. Both surfaces on one
+// tier collapse to a single mention -- "walls and ceiling (woodchip)"
+// beats saying woodchip twice.
+function roomStripShort(room) {
+  var s = roomStripSurfaces(room);
+  if (!s.length) return '';
+  var lower = function(t) { return t.label.toLowerCase(); };
+  if (s.length === 2 && s[0].tier.key === s[1].tier.key) {
+    return 'walls and ceiling (' + lower(s[0].tier) + ')';
+  }
+  return englishJoin(s.map(function(x) { return x.surface + ' (' + lower(x.tier) + ')'; }));
+}
+// The full sentence for a Xero line / invoice line, which has room for one.
+// Past tense on the invoice, same as every other scope sentence here.
+// It promises stripping and nothing else: no "made good", no "ready to
+// decorate" -- making good is a separate charge on this app's own form,
+// and a sentence that implies it would bill a promise nobody priced.
+function roomStripSentence(mode, room) {
+  var short = roomStripShort(room);
+  if (!short) return '';
+  return mode === 'invoice'
+    ? 'Existing wallpaper stripped from the ' + short + '.'
+    : 'Existing wallpaper to be stripped from the ' + short + '.';
+}
+function roomStripLabel(room) {
+  return 'Wallpaper Stripping — ' + (room.name || 'Room');
+}
+// The one place that decides whether a room produces a stripping line, and
+// what the room's own line is left billing. Callers (client quote, Xero
+// quote, final invoice) each render it their own way but must never
+// re-derive the split, or the two lines stop summing to the room.
+//   strip: null, or { label, sub, sentence, raw, key }
+//   roomRaw: what the room's own line bills once the strip is carved out
+//   dropRoomLine: the room is ONLY being stripped -- its paint line would
+//     print at £0.00 beside the stripping line that carries the money,
+//     which reads as an error. A room with no strip and no money keeps
+//     printing exactly as it always has; this only suppresses the empty
+//     half of a split.
+// Does this room put a PAINTING line on a client document? A strip-only
+// room does not -- roomStripLine() drops its £0.00 half -- so it can never
+// be the room the quote's description block describes, nor the baseline
+// later rooms are compared against. A room with no strip and no money is
+// unchanged by this: it has always had a line, and still does.
+function roomHasPaintLine(room) {
+  return !roomStripLine(room, calcRoom(room)).dropRoomLine;
+}
+function firstRoomWithPaintLine(list) {
+  for (var i = 0; i < (list || []).length; i++) {
+    if (roomHasPaintLine(list[i])) return list[i];
+  }
+  return null;
+}
+function roomStripLine(room, calc) {
+  var raw = +calc.stripChargedCost || 0;
+  var roomRaw = calc.total - raw;
+  if (!(raw > 0.005)) return { strip: null, roomRaw: calc.total, dropRoomLine: false };
+  return {
+    strip: { label: roomStripLabel(room), sub: roomStripShort(room),
+             sentence: roomStripSentence('quote', room), raw: raw,
+             key: 'roomstrip:' + room.id },
+    roomRaw: roomRaw,
+    dropRoomLine: roomRaw <= 0.005
+  };
+}
+
 var LONG_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 function formatLongDate(iso) {
   var p = String(iso).slice(0, 10).split('-');
@@ -3941,7 +4126,14 @@ function buildTemplateValues(mode) {
   // only the header and the scope sentence are line-specific, which is why
   // the later lines need nothing but their own scope and "Preparation and
   // completion as above."
-  var subjectRoom = liveRooms[0] || null;
+  // The first room that actually has a painting line, not simply
+  // liveRooms[0]: a strip-only first room puts no painting line on the
+  // document (see firstRoomWithPaintLine), and its stripping line carries
+  // its own sentence rather than the block — so the block lands on the next
+  // room along and must describe THAT one. Reading liveRooms[0] here opened
+  // the block "Painting of Back Bedroom:" on Bedroom 1's line, crediting a
+  // room that is only having paper taken off with the painting.
+  var subjectRoom = firstRoomWithPaintLine(liveRooms);
   var subjectExt = subjectRoom ? null : liveExt.filter(function(it) { return calcExtItem(it).total > 0.005; })[0] || null;
   var liveUnits = fittedUnitList(job).filter(function(f) { return !f.isVariation; });
   var subjectUnit = (subjectRoom || subjectExt) ? null
@@ -5041,10 +5233,23 @@ async function createXeroQuote(forceNew) {
       .map(function(f) { return originalScopeCarrier('fittedunit', f); });
 
     var tcS = 0, ttS = 0, sprayLabourS = 0;
-    var roomData = quoteRooms.map(function(r) {
+    // One entry per line the server will push. A room being stripped
+    // produces TWO (see roomStripLine): the painting, and the wallpaper
+    // stripping carved out of it. routes/xero.js is a passthrough over this
+    // array -- each entry becomes its own AccountCode 201 line and joins the
+    // adjustment spread -- so a stripping line needs nothing on the server.
+    // `strip` marks the extra entries for the description chain below;
+    // `room` carries the source room so the chain can still index into it.
+    var roomData = [];
+    quoteRooms.forEach(function(r) {
       var c = calcRoom(r);
       tcS += c.total; ttS += c.time; sprayLabourS += c.sprayLabour || 0;
-      return { name: r.name, total: c.total };
+      var split = roomStripLine(r, c);
+      if (!split.dropRoomLine) roomData.push({ name: r.name, total: split.roomRaw, room: r });
+      if (split.strip) {
+        roomData.push({ name: split.strip.label, total: split.strip.raw, room: r,
+                        strip: true, stripSentence: split.strip.sentence });
+      }
     });
     var clientName = document.getElementById('xero-client').value.trim() || 'Client';
     var xeroRef = document.getElementById('xero-ref').value.trim();
@@ -5162,20 +5367,61 @@ async function createXeroQuote(forceNew) {
       // the exterior lines on a job whose block sits on a room, say — and
       // then no line of that kind may claim to be the same as it.
       var tplValues = handEdited ? null : buildTemplateValues('quote');
-      var roomBaseline = (handEdited || !quoteRooms.length) ? null
-        : roomScopeSentence('quote', quoteRooms[0]);
-      var extBaseline = (handEdited || quoteRooms.length) ? null
-        : extItemScopeSentence('quote', quoteExtItems.filter(function(it) { return calcExtItem(it).total > 0.005; })[0], tplValues);
-      var fuBaseline = (handEdited || quoteRooms.length || quoteExtItems.length) ? null
+      // Which room ACTUALLY carries the block: the first room that produces
+      // a painting line, not simply quoteRooms[0]. A strip-only first room
+      // has no painting line of its own (roomStripLine drops the £0 half)
+      // and its stripping line never takes the block, so the block lands on
+      // the next room along -- and the baseline every later room is compared
+      // against has to be THAT room's scope. Reading quoteRooms[0] here
+      // would compare later rooms against a room whose line the client
+      // never sees, and two identical bedrooms would stop collapsing to
+      // "same as above". `blockRooms` is also what tells the exterior and
+      // fitted-unit baselines below whether a room took the block at all.
+      var blockRooms = roomData.filter(function(rd) { return !rd.strip; });
+      var roomBaseline = (handEdited || !blockRooms.length) ? null
+        : roomScopeSentence('quote', blockRooms[0].room);
+      // `|| null` on the first exterior item, not just its index: with no
+      // room painting line to take the block (a strip-out job) this branch
+      // now runs on jobs that have no exterior items either, and
+      // extItemScopeSentence() reads `it.coats` straight off its argument.
+      // The fitted-unit line below has always guarded the same way.
+      var firstExtItem = quoteExtItems.filter(function(it) { return calcExtItem(it).total > 0.005; })[0] || null;
+      var extBaseline = (handEdited || blockRooms.length || !firstExtItem) ? null
+        : extItemScopeSentence('quote', firstExtItem, tplValues);
+      var fuBaseline = (handEdited || blockRooms.length || quoteExtItems.length) ? null
         : buildFuScopeSentence('quote', [quoteFittedUnits.filter(function(f) { return calcFittedUnit(f).total > 0.005; })[0]].filter(Boolean), tplValues);
       var scopedLine = function(label, own, baseline) {
         return (!own || own === baseline)
           ? label + ' - same as above'
           : label + '\n\n' + own + '\n\nPreparation and completion as above.';
       };
-      roomData.forEach(function(rd, i) {
+      // A stripping line always describes ITSELF -- never the block, never
+      // "same as above". Both would point at wording that enumerates
+      // ceilings, walls and woodwork, and the client would be reading that
+      // claim beside a price for taking paper off a wall. Same rule the
+      // frozen invoice applies to sundries and custom lines.
+      //
+      // The one exception is a job with nothing BUT stripping lines: the
+      // block has no other line to live on, and dropping the quote's whole
+      // description text (protection, working hours, what's excluded)
+      // because the job happens to be a strip-out would be a worse loss.
+      // There it rides under the stripping line's own sentence, so the line
+      // still says what it is first.
+      var hasPaintLine = blockRooms.length > 0 ||
+                         exteriorData.some(function(ed) { return ed.total > 0; }) ||
+                         kitchenTotal > 0 ||
+                         fittedUnitData.some(function(fd) { return fd.total > 0; });
+      roomData.forEach(function(rd) {
+        if (rd.strip) {
+          rd.description = rd.name + '\n\n' + rd.stripSentence;
+          if (!blockAttached && !hasPaintLine && !handEdited) {
+            rd.description += '\n\n' + quoteBlock;
+            blockAttached = true;
+          }
+          return;
+        }
         if (!blockAttached || handEdited) { rd.description = withBlock(rd.name); return; }
-        rd.description = scopedLine(rd.name, roomScopeSentence('quote', quoteRooms[i]), roomBaseline);
+        rd.description = scopedLine(rd.name, roomScopeSentence('quote', rd.room), roomBaseline);
       });
       exteriorData.forEach(function(ed, i) {
         if (ed.total <= 0) return;
@@ -5232,7 +5478,14 @@ async function createXeroQuote(forceNew) {
         clientName: clientName,
         jobName: (activeJob() && activeJob().name) || '',
         xeroRef: xeroRef,
-        rooms: roomData,
+        // name/total/description only: `room`, `strip` and `stripSentence`
+        // are working fields for the description chain above and have no
+        // business crossing the wire (routes/xero.js reads
+        // `description || name` and `total`, and a whole room object per
+        // line would bloat every send for nothing).
+        rooms: roomData.map(function(rd) {
+          return { name: rd.name, total: rd.total, description: rd.description };
+        }),
         exterior: { cost: extTotal, items: exteriorData },
         kitchen: { cost: kitchenTotal, description: kitchenDescription },
         fittedUnit: { cost: fuTotal, items: fittedUnitData },
@@ -5699,6 +5952,15 @@ var SETTINGS_FIELDS = [
   ['rSill',        's-rsill',         15],
   ['rMist',        's-rmist',         2],
   ['rPanel',       's-rpanel',        6],
+  // Wallpaper stripping (mins/m² per difficulty tier). Default 0 on
+  // purpose — see the Rates card's note: no figure is better than a wrong
+  // one here, and the room form flags an unset tier rather than pricing
+  // the strip at nothing in silence. Keys must match
+  // WALLPAPER_STRIP_TIERS' `setting` below.
+  ['stripWpLiningMins',   's-wpstrip-lining',   0],
+  ['stripWpStandardMins', 's-wpstrip-standard', 0],
+  ['stripWpTexturedMins', 's-wpstrip-textured', 0],
+  ['stripWpLayersMins',   's-wpstrip-layers',   0],
   ['wpLiningRate',   's-wplining-rate', 30],
   ['wpFinishRate',   's-wpfinish-rate', 40],
   ['wpCeilMultPct',  's-wpceil-mult',   15],
@@ -5870,6 +6132,13 @@ var editId   = null;
 var coats    = {wc:2, cc:2, xc:2};
 var mistWall = false;
 var mistCeil = false;
+// Wallpaper stripping -- per-surface toggle plus that surface's own
+// difficulty tier (see WALLPAPER_STRIP_TIERS). The tier survives the
+// toggle going off and on again within one visit to the form, so a
+// mis-tap doesn't silently reset a chosen tier to Standard mid-measure;
+// buildRoomFromForm only persists it where the toggle is on.
+var stripWall = false, stripCeil = false;
+var stripWallType = WALLPAPER_STRIP_DEFAULT_TIER, stripCeilType = WALLPAPER_STRIP_DEFAULT_TIER;
 var sprayWalls = false;
 // Per-surface spray toggles (PRODUCT_COVERAGE_SPEC.md spraying section):
 // ceilings and woodwork are sprayed BY DEFAULT (that's the normal method),
@@ -7379,6 +7648,15 @@ function ratesDriftSince(snap) {
   var named = [];
   SETTINGS_FIELDS.forEach(function(f) {
     var k = f[0], a = was[k], b = settings[k];
+    // A key the snapshot predates is not a change -- the same rule the
+    // PRICED_SETTINGS_OBJECTS loop below already applies, and for the same
+    // reason: the field did not exist when this quote was frozen, so it
+    // cannot have moved its figures. Without this, every rate added to
+    // SETTINGS_FIELDS makes every previously-accepted quote report a drift
+    // it never had ("Strip — lining paper undefined → 0"), which is exactly the
+    // noise that teaches people to ignore this line. `was[k] === undefined`
+    // rather than `== null`: a genuinely saved null is a value.
+    if (a === undefined) return;
     if (a == null && b == null) return;
     if (typeof a === 'object' || typeof b === 'object') return;
     if (+a === +b || a === b) return;
@@ -11986,6 +12264,10 @@ function goScreen(name) {
   if (name==='room') {
     resetFormSections();
     editId=null; coats={wc:2,cc:2,xc:2}; mistWall=false; mistCeil=false; sprayWalls=false; sprayCeiling=true; sprayWoodwork=true; prepPct=10;
+    stripWall=false; stripCeil=false;
+    stripWallType=WALLPAPER_STRIP_DEFAULT_TIER; stripCeilType=WALLPAPER_STRIP_DEFAULT_TIER;
+    applyWpStripUI();
+    document.getElementById('wpstrip-summary').style.display='none';
     doorCoats=2; frameCoats=2;
     doorFireDoor=false; doorSelfPriming=false; doorIronRemove=false; doorIronMask=false;
     doorBothSides=false; selfPrimingWoodwork=false;
@@ -12594,6 +12876,21 @@ function calcRoom(r) {
   var hpd      = settings.hpd;
   var mistWCost = mistW ? wallArea*settings.rMist*r2 : 0;
   var mistCCost = mistC ? ceilArea*settings.rMist*r2 : 0;
+  // Wallpaper stripping: the mist coat's shape exactly -- the surface's
+  // already-measured m² x that surface's tier rate (mins/m², from Rates) x
+  // the rate per minute. Each surface carries its own tier, so walls in
+  // woodchip and a ceiling in lining paper price at their own figures.
+  // Deliberately reads the SAME wallArea/ceilArea the paint does, net of
+  // excluded walls and panelling deductions: a wall that isn't being
+  // touched isn't being stripped either, and an HSL room's overridden
+  // areas flow through here for free. No separate manual override (the
+  // mist coat's "only part is new plaster" problem doesn't arise -- paper
+  // comes off the whole surface or the surface isn't ticked).
+  // A tier still at its shipped 0 min/m² prices at £0 by construction;
+  // the room form's summary line says so rather than leaving it silent.
+  var stripW = !!r.stripWall, stripC = !!r.stripCeil;
+  var stripWCost = stripW ? wallArea*wallpaperStripMins(r.stripWallType)*r2 : 0;
+  var stripCCost = stripC ? ceilArea*wallpaperStripMins(r.stripCeilType)*r2 : 0;
   // Feature wall: width x height (its own measured wall, not a guessed
   // m²), carved out of the general wall area above. No longer capped to
   // wallArea -- it's an independently measured wall now, not a hand-typed
@@ -12734,7 +13031,14 @@ function calcRoom(r) {
       panelArea = panelResult.panelArea, panelMinsCost = panelResult.panelRawCost,
       panelPrepUp = panelResult.panelPrepUp;
 
-  var baseTotal = wallCost+ceilCost+winCost+woodCost+radCost+sillCost+featureWallOwnCost+mistWCost+mistCCost+wpwCost+wpcCost+featureWallWpCost;
+  // Stripping joins baseTotal alongside the mist coat rather than being
+  // added post-multiplier like panelling/doors: it is prep on the room's
+  // own surfaces, so it takes the room's prep uplift and feeds `time`
+  // (preFloorTotal / rate / 60 / hrs-per-day) the same way every other
+  // prep task does -- which is what "adds to the job's total labour time"
+  // means in this engine. It is NOT a line-item type: nothing downstream
+  // of `total`/`time` treats it separately.
+  var baseTotal = wallCost+ceilCost+winCost+woodCost+radCost+sillCost+featureWallOwnCost+mistWCost+mistCCost+stripWCost+stripCCost+wpwCost+wpcCost+featureWallWpCost;
   var makingGood = +r.makingGood||0;
   // panelCost already carries its own prep multiplier (panelPrepUp above)
   // and is added AFTER the room's own prep/totalOverride branch, not
@@ -12867,6 +13171,22 @@ function calcRoom(r) {
            doorFrameRawCost:doorFrameLabour.total, doorFramePrepUp:doorFramePrepUp,
            winCost:winCost, radCost:radCost, sillCost:sillCost,
            mistWCost:mistWCost, mistCCost:mistCCost,
+           // Stripping, raw (pre-prep, pre-markup) like the rest here.
+           // The areas ride along so the room form's summary line and
+           // Summary's breakdown can state the m² x mins/m² sum without
+           // re-deriving which area each surface used.
+           stripWCost:stripWCost, stripCCost:stripCCost,
+           stripWallArea:stripW ? wallArea : 0, stripCeilArea:stripC ? ceilArea : 0,
+           // What stripping actually contributes to `total` above: the raw
+           // figures WITH the room's prep uplift, because that is how they
+           // entered baseTotal. This is the number the quote/invoice carve
+           // out onto a stripping line of their own (roomStripLine()) --
+           // subtracting the raw figures instead would leave the strip's
+           // share of the prep behind on the paint line, so the two lines
+           // would still sum to the room total but each would be wrong.
+           // Correct for HSL rooms too: computeHSLOverrides() baked the
+           // strip into totalOverride at this same prep %.
+           stripChargedCost:(stripWCost + stripCCost) * (1 + prepUp/100),
            wallL:wL, ceilL:cL, glossL:gL, primerL:primerL, mistL:mL, featureWallL:fwL, wallLCombined:wLCombined,
            wpwCost:wpwCost, wpcCost:wpcCost, wpwRolls:wpwRolls, wpcRolls:wpcRolls,
            featureWallMode:featureWallMode, featureWallWpCost:featureWallWpCost, featureWallWpRolls:featureWallWpRolls,
@@ -19053,9 +19373,23 @@ function buildFinalInvoiceModel() {
     // scope: this room's own past-tense sentence, for the invoice line it
     // ends up on — the same treatment the quote gives its room lines.
     // Kitchen and fitted-unit lines have no scope builder and get none.
+    //
+    // Wallpaper stripping is carved onto its own line here exactly as the
+    // quote carves it (roomStripLine), so a job billed from live figures
+    // reads the same way as one billed from a frozen snapshot — which
+    // already carries the split, because the snapshot's rows ARE the
+    // client's quote rows. ownText: a stripping line says what it is and
+    // must never be handed the description block or "as above".
     if (c.total > 0.005) {
       rawOrig += c.total;
-      labour.push({ id: 'r' + i, desc: r.name, raw: c.total, scope: roomScopeSentence('invoice', r) });
+      var split = roomStripLine(r, c);
+      if (!split.dropRoomLine) {
+        labour.push({ id: 'r' + i, desc: r.name, raw: split.roomRaw, scope: roomScopeSentence('invoice', r) });
+      }
+      if (split.strip) {
+        labour.push({ id: 'rs' + i, desc: split.strip.label, raw: split.strip.raw,
+                      scope: roomStripSentence('invoice', r), ownText: true });
+      }
     }
   });
   extItems.forEach(function(it, i) {
@@ -19171,10 +19505,16 @@ function buildFinalInvoiceModel() {
   // beside a claim about work that line is not about. sourceKey is the
   // snapshot's own record of WHAT a row is; rows frozen before it existed
   // fall back to the label, which is fixed text for every one of them.
+  // 'roomstrip:' is deliberately NOT in the painted-work list: a wallpaper
+  // stripping line describes itself (its label names the room and the
+  // frozen row carries its own sub-note), and handing it the block or a
+  // bare "- same as above" would put a claim about ceilings, walls and
+  // woodwork beside a price for taking paper off. Same reasoning as
+  // sundries, one kind of line further along.
   var frozenRowOwnText = function(row) {
     var key = row.sourceKey || '';
     if (key) return !/^(room|ext|kitchen|fittedunit):/.test(key);
-    return /^\s*(sundries|price adjustment|standalone job)\b/i.test(row.description || '');
+    return /^\s*(sundries|price adjustment|standalone job|wallpaper stripping)\b/i.test(row.description || '');
   };
   var frozenInvLabour = jobQuoteIsFrozen(job) ? latestQuoteSnapshot(job) : null;
   var frozenLabourApplied = false;
@@ -19648,6 +19988,14 @@ async function createFinalInvoice() {
   s.labour.forEach(function(l) {
     if (l.dropped) return;
     var desc = l.desc;
+    // An own-text line that HAS a scope of its own still states it on the
+    // Xero line -- wallpaper stripping is the case: it sits out the block
+    // chain (it is not the painting the block describes) but the client
+    // still needs the sentence saying which surfaces were stripped, and
+    // the preview above deliberately shows labels only. Sundries, custom
+    // lines and the rounding adjustment carry no scope, so nothing moves
+    // for them.
+    if (l.ownText && l.scope) desc = l.desc + '\n\n' + l.scope;
     if (invBlock && !l.ownText) {
       // The block already opens by naming this line ("Painting — Lounge"),
       // so the label goes above it only where it doesn't -- see
@@ -25278,6 +25626,71 @@ function toggleMist(key) {
   if(key==='mc') { mistCeil=!mistCeil; document.getElementById('tog-mc').classList.toggle('on',mistCeil); }
   previewRoom();
 }
+
+// ── Wallpaper stripping (room form) ────────────────────────────────────────
+// The tier buttons are built from WALLPAPER_STRIP_TIERS rather than written
+// out in the HTML, so adding a fifth tier is a one-line change to that
+// array and the Rates card, with no markup to keep in step.
+function renderWpStripTierSegs() {
+  [['seg-wpstrip-wall','wall'],['seg-wpstrip-ceil','ceil']].forEach(function(pair){
+    var el = document.getElementById(pair[0]);
+    if (!el) return;
+    var surface = pair[1];
+    var current = surface==='wall' ? stripWallType : stripCeilType;
+    el.innerHTML = WALLPAPER_STRIP_TIERS.map(function(t){
+      return '<button class="seg-btn'+(t.key===current?' active':'')+'" onclick="setWpStripType(\''+surface+'\',\''+t.key+'\')">'+t.short+'</button>';
+    }).join('');
+  });
+}
+function toggleWpStrip(key) {
+  if(key==='sw') { stripWall=!stripWall; document.getElementById('tog-sw').classList.toggle('on',stripWall); }
+  if(key==='sc') { stripCeil=!stripCeil; document.getElementById('tog-sc').classList.toggle('on',stripCeil); }
+  applyWpStripUI();
+  previewRoom();
+}
+function setWpStripType(surface, tier) {
+  if (surface==='wall') stripWallType = tier; else stripCeilType = tier;
+  renderWpStripTierSegs();
+  previewRoom();
+}
+// DOM-only (no previewRoom() call) so editRoom() can restore the card's
+// state before the room's dimensions are in place -- same reasoning as
+// applyRoomShapeUI().
+function applyWpStripUI() {
+  document.getElementById('tog-sw').classList.toggle('on', stripWall);
+  document.getElementById('tog-sc').classList.toggle('on', stripCeil);
+  document.getElementById('wpstrip-wall-type-row').style.display = stripWall ? 'block' : 'none';
+  document.getElementById('wpstrip-ceil-type-row').style.display = stripCeil ? 'block' : 'none';
+  renderWpStripTierSegs();
+}
+// The live "what this just added" line under the toggles, mirroring the
+// Kitchen strip summary. It exists mainly for the unset-rate case: the
+// tiers ship at 0 (Nicky's own figures, not guessed ones), and a strip
+// toggled on against a 0 rate would otherwise add nothing at all with
+// nothing on screen to say why. `c` is calcRoom()'s result for the room
+// being previewed, so the m² and the £ here are the figures the total was
+// actually built from, never a re-derivation.
+function renderWpStripSummary(c) {
+  var el = document.getElementById('wpstrip-summary');
+  if (!el) return;
+  if (!stripWall && !stripCeil) { el.style.display='none'; el.innerHTML=''; return; }
+  var parts = [], unset = [];
+  [[stripWall, stripWallType, c.stripWallArea, c.stripWCost, 'Walls'],
+   [stripCeil, stripCeilType, c.stripCeilArea, c.stripCCost, 'Ceiling']].forEach(function(row){
+    if (!row[0]) return;
+    var tier = wallpaperStripTier(row[1]);
+    var mins = wallpaperStripMins(row[1]);
+    if (mins <= 0) { unset.push(tier.label); return; }
+    parts.push(row[4]+': '+fmtM(row[2] || 0)+' × '+mins+' min/m² = '+Math.round((row[2]||0)*mins)+' min ('+fmt(row[3] || 0)+')');
+  });
+  var html = parts.map(function(p){ return '<div>'+p+'</div>'; }).join('');
+  if (unset.length) {
+    html += '<div style="color:var(--warn);font-weight:600">No minutes/m² set for '+unset.join(' or ')+
+            ' — add it under Rates › Wallpaper Stripping, or this strip prices at £0.</div>';
+  }
+  el.innerHTML = html;
+  el.style.display = 'block';
+}
 function toggleSprayWalls() {
   sprayWalls=!sprayWalls; document.getElementById('tog-spray').classList.toggle('on',sprayWalls);
   previewRoom();
@@ -25433,7 +25846,9 @@ function previewRoomNow() {
   if (roomShapeModeForm==='perimeter') dimsOK = perimVal>0 && H>0;
   else if (roomShapeModeForm==='segments') dimsOK = H>0 && segmentsForm.some(function(z){ return +z.l>0 && +z.w>0; });
   else dimsOK = L>0 && W>0 && H>0;
-  if(!dimsOK && !(fwWidthVal>0 && fwHeightVal>0) && !(doorQtyVal>0 || frameQtyVal>0)) { document.getElementById('room-preview').style.display='none'; hideRoomPaintLitres(); return; }
+  // No dimensions yet means no m² for the stripping summary to multiply,
+  // so it hides with the rest of the preview rather than showing 0 m².
+  if(!dimsOK && !(fwWidthVal>0 && fwHeightVal>0) && !(doorQtyVal>0 || frameQtyVal>0)) { document.getElementById('room-preview').style.display='none'; hideRoomPaintLitres(); document.getElementById('wpstrip-summary').style.display='none'; return; }
   var r={l:L,w:W,h:H,wc:coats.wc,cc:coats.cc,xc:coats.xc,
     shapeMode:roomShapeModeForm,
     perimeterLM:perimVal,
@@ -25454,6 +25869,8 @@ function previewRoomNow() {
     rads:+document.getElementById('r-rads').value,
     mistWall:mistWall, mistCeil:mistCeil, sprayWalls:sprayWalls,
     sprayCeiling:sprayCeiling, sprayWoodwork:sprayWoodwork,
+    stripWall:stripWall, stripCeil:stripCeil,
+    stripWallType:stripWallType, stripCeilType:stripCeilType,
     wpWallLining:wpWallLining, wpWallFinish:wpWallFinish,
     wpCeilLining:wpCeilLining, wpCeilFinish:wpCeilFinish,
     wpRollLen:+document.getElementById('r-wp-roll-len').value||10.05,
@@ -25500,6 +25917,7 @@ function previewRoomNow() {
   document.getElementById('prev-cost').textContent=fmt(c.total);
   document.getElementById('prev-time').textContent=fmtD(c.time);
   renderRoomPaintLitres(r, c);
+  renderWpStripSummary(c);
 
   // Wallpaper labour -- reads c.wpwCost/c.wpcCost straight from calcRoom()
   // (same numbers, single source of truth, already summed across whichever
@@ -25754,6 +26172,14 @@ function editRoom(id) {
   mistWall=!!r.mistWall; mistCeil=!!r.mistCeil;
   document.getElementById('tog-mw').classList.toggle('on',mistWall);
   document.getElementById('tog-mc').classList.toggle('on',mistCeil);
+  // Stripping -- applyWpStripUI() is DOM-only, so it is safe here while
+  // r-l/r-w/r-h still hold the previous room's dimensions (same reasoning
+  // as the feature-wall/mist restores in this function). A room saved
+  // before this feature has neither flag and reads as off.
+  stripWall=!!r.stripWall; stripCeil=!!r.stripCeil;
+  stripWallType = wallpaperStripTier(r.stripWallType).key;
+  stripCeilType = wallpaperStripTier(r.stripCeilType).key;
+  applyWpStripUI();
   sprayWalls=!!r.sprayWalls;
   document.getElementById('tog-spray').classList.toggle('on',sprayWalls);
   // Missing on old rooms = the default (sprayed) -- see the globals' comment.
@@ -25962,6 +26388,13 @@ function buildRoomFromForm() {
     doorBothSides:doorBothSides, selfPrimingWoodwork:selfPrimingWoodwork,
     mistWall:mistWall, mistCeil:mistCeil, sprayWalls:sprayWalls,
     sprayCeiling:sprayCeiling, sprayWoodwork:sprayWoodwork,
+    // The tier is only stored where its toggle is on -- a room that isn't
+    // being stripped has no wallpaper type to remember, and storing one
+    // would make every room in the file carry a field about work it isn't
+    // having done.
+    stripWall:stripWall, stripCeil:stripCeil,
+    stripWallType:stripWall?stripWallType:undefined,
+    stripCeilType:stripCeil?stripCeilType:undefined,
     isVariation:roomIsVariation,
     wpWallLining:wpWallLining, wpWallFinish:wpWallFinish,
     wpCeilLining:wpCeilLining, wpCeilFinish:wpCeilFinish,
@@ -26345,6 +26778,15 @@ function calcHSLNow() {
   var mistAreaDisp = mistAreaFieldDisp>0 ? mistAreaFieldDisp : ((mistWall?totalWall:0)+(mistCeil?totalCeil:0));
   var mistCostDisp = mistAreaDisp>0 ? mistAreaDisp*settings.rMist*r2 : 0;
 
+  // Wallpaper stripping -- same shared toggles/tiers as a normal room,
+  // against this preview's own staircase wall/ceiling totals. A hall,
+  // stairs and landing is one of the likeliest places to find woodchip,
+  // so leaving it out of the staircase path would be the gap that matters.
+  var stripWCostDisp = stripWall ? totalWall*wallpaperStripMins(stripWallType)*r2 : 0;
+  var stripCCostDisp = stripCeil ? totalCeil*wallpaperStripMins(stripCeilType)*r2 : 0;
+  renderWpStripSummary({ stripWCost:stripWCostDisp, stripCCost:stripCCostDisp,
+                         stripWallArea:stripWall?totalWall:0, stripCeilArea:stripCeil?totalCeil:0 });
+
   // Windows/radiators -- same shared Extras fields as a normal room.
   var winDisp  = +document.getElementById('r-win').value||0;
   var radsDisp = +document.getElementById('r-rads').value||0;
@@ -26360,7 +26802,7 @@ function calcHSLNow() {
   // doorFramePrepUpDisp above -- the room's own prep), same reasoning as
   // calcRoom()'s doorFrameCost
   // -- added AFTER the room's own prep, not inside the bracket it applies to.
-  var totalCostDisp = (wallCostDisp+ceilCostDisp+skirtCostDisp+calcWoodCost+wpwCostDisp+wpcCostDisp+mistCostDisp+winCostDisp+radCostDisp) * (1+prepUpDisp/100) + makingGoodDisp + doorCostDisp;
+  var totalCostDisp = (wallCostDisp+ceilCostDisp+skirtCostDisp+calcWoodCost+wpwCostDisp+wpcCostDisp+mistCostDisp+stripWCostDisp+stripCCostDisp+winCostDisp+radCostDisp) * (1+prepUpDisp/100) + makingGoodDisp + doorCostDisp;
   var totalTimeDisp = totalCostDisp/r2/60/hpd;
 
   // Update results display
@@ -26589,6 +27031,12 @@ function computeHSLOverrides() {
   var mistArea = mistAreaField>0 ? mistAreaField : ((mistWall?totalWall:0)+(mistCeil?totalCeil:0));
   var mistCost = mistArea>0 ? mistArea*settings.rMist*r2 : 0;
 
+  // Wallpaper stripping -- shared toggles/tiers, against this room's own
+  // overridden wall/ceiling areas. Must match calcHSLNow()'s preview figure
+  // exactly, or the saved staircase total drifts below what the form said.
+  var stripWCost = stripWall ? totalWall*wallpaperStripMins(stripWallType)*r2 : 0;
+  var stripCCost = stripCeil ? totalCeil*wallpaperStripMins(stripCeilType)*r2 : 0;
+
   // Windows/radiators -- same shared Extras fields as a normal room.
   // Window painting is woodwork, gated on woodwork coats like doors/skirting.
   var rads = +document.getElementById('r-rads').value||0;
@@ -26602,7 +27050,7 @@ function computeHSLOverrides() {
   // rooms, since the dedicated HSL screen never had a Making Good field).
   // Door/frame cost is NOT part of this -- calcRoom() adds it separately,
   // post-total, with its own independent prep, same as panelling.
-  var baseTotal = wallCost+ceilCost+skirtCost+stairWoodStore+wpwCost+wpcCost+mistCost+winCost+radCost;
+  var baseTotal = wallCost+ceilCost+skirtCost+stairWoodStore+wpwCost+wpcCost+mistCost+stripWCost+stripCCost+winCost+radCost;
   var prepUp = prepPct>=0 ? prepPct : (+document.getElementById('r-prep-custom').value||0);
   var makingGood = +document.getElementById('r-making-good').value||0;
   var totalOverride = baseTotal*(1+prepUp/100) + makingGood;
@@ -27066,6 +27514,16 @@ function renderSummary() {
     // includes), rather than recomputing via the old area x mins/m2 path.
     var wpwC = c.wpwCost;
     var wpcC = c.wpcCost;
+    // Stripping shows as its own row here because this breakdown is Nicky's
+    // own working view of where a room's labour went. The "own quote line"
+    // note matters: this list is organised BY ROOM (it feeds the room cards,
+    // the diary and the spec sheet) and so keeps the strip inside the room's
+    // headline figure, while the client's copy carves it onto a line of its
+    // own (roomStripLine). Without the note, reconciling this screen against
+    // the Xero quote looks like a discrepancy. The pre-prep figure shown
+    // here is the same one the quote line grosses up.
+    var stripNote = ' · own quote line';
+    if(r.stripWall && c.stripWCost>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Strip wallpaper — walls ('+wallpaperStripTier(r.stripWallType).label+')'+stripNote+'</span><span class="breakdown-sub-value">'+fmt(c.stripWCost*mk)+'</span></div>';
     if(r.mistWall) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Mist coat (walls)</span><span class="breakdown-sub-value">'+fmt(mwC*mk)+'</span></div>';
     if(wpwC>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Wallpaper (walls)</span><span class="breakdown-sub-value">'+fmt(wpwC*mk)+'</span></div>';
     if(c.featureWallWpCost>0) {
@@ -27081,6 +27539,7 @@ function renderSummary() {
       if(panelPrepUp2>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Panelling prep ('+panelPrepLabel+')</span><span class="breakdown-sub-value">'+fmt((c.panelCost-c.panelRawCost)*mk)+'</span></div>';
     }
     if(cc>0)  subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Ceiling</span><span class="breakdown-sub-value">'+fmt(dispCeilCost*mk)+'</span></div>';
+    if(r.stripCeil && c.stripCCost>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Strip wallpaper — ceiling ('+wallpaperStripTier(r.stripCeilType).label+')'+stripNote+'</span><span class="breakdown-sub-value">'+fmt(c.stripCCost*mk)+'</span></div>';
     if(r.mistCeil) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Mist coat (ceiling)</span><span class="breakdown-sub-value">'+fmt(mcC*mk)+'</span></div>';
     if(wpcC>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Wallpaper (ceiling)</span><span class="breakdown-sub-value">'+fmt(wpcC*mk)+'</span></div>';
     if(c.wpMinTopUp>0) subRows+='<div class="breakdown-sub-row"><span class="breakdown-sub-label">Wallpaper minimum charge</span><span class="breakdown-sub-value">'+fmt(c.wpMinTopUp*mk)+'</span></div>';
@@ -28155,12 +28614,29 @@ function quotePdfFilename(m) {
 // to the honoured total. The app's own calculated total never appears here.
 function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kitchenCalc, fuQuoteAgg, vv, importedBaseline, honouredLabour) {
   var tcS = 0, ttS = 0, sprayS = 0;
-  var roomLines = quoteRooms.map(function(r) {
+  // A room can produce TWO rows: the painting, and the wallpaper stripping
+  // carved out of it (roomStripLine()). tcS still takes the room's whole
+  // total -- the split is presentation, and every figure derived from the
+  // labour subtotal must be blind to it.
+  var roomLines = [];
+  quoteRooms.forEach(function(r) {
     var c = calcRoom(r);
     tcS += c.total; ttS += c.time; sprayS += c.sprayLabour || 0;
+    var split = roomStripLine(r, c);
     // scope: the short surface note for this room's line on the client's
     // copy, which showed a name and a price and nothing else.
-    return { name: r.name, emoji: r.emoji || '', raw: c.total, scope: roomScopeShort(r), key: 'room:' + r.id };
+    if (!split.dropRoomLine) {
+      roomLines.push({ name: r.name, emoji: r.emoji || '', raw: split.roomRaw,
+                       scope: roomScopeShort(r), key: 'room:' + r.id });
+    }
+    if (split.strip) {
+      // The ROOM's emoji, not one of its own: the two lines are about the
+      // same room and read as a pair on the client's copy. (The PDF drops
+      // emoji anyway — WinAnsi has no glyph — which is why the label
+      // carries the room name in words rather than leaning on the icon.)
+      roomLines.push({ name: split.strip.label, emoji: r.emoji || '', raw: split.strip.raw,
+                       scope: split.strip.sub, key: split.strip.key });
+    }
   });
   var extLines = quoteExtItems.map(function(it) {
     var c = calcExtItem(it);
