@@ -1071,7 +1071,41 @@ own, not painting, so they never get the block and never read "same as above".
 
 Review the lines, adjust anything, then send — the app writes **one draft invoice into Xero** and marks the job **Invoiced**. You approve and send the invoice from Xero as usual, so nothing goes to the client without your say-so. Applying the recorded deposit to this invoice, once it exists in Xero, is still done in Xero.
 
-Once a job is Invoiced, Summary shows a read-only **Job Profitability** card telling three separate stories: **Billing** (quoted vs invoiced, with a note if they differ), **Schedule** (days quoted vs days actually logged), and **Materials** (quoted materials vs the real trade cost of what was used, with your markup on materials banked as its own figure). It's reference only — nothing here feeds back into pricing.
+### Billing part way through: interim invoices
+
+On a long job you don't have to wait until the end to invoice. While a job is **Accepted**, the Summary status card has an **Invoices** line with **Interim invoice ›**. Each interim bills the rooms (or parts of rooms) finished so far, plus the materials you've bought. The final invoice then bills only what's left.
+
+![The interim invoice builder](images/25a-interim-invoice-builder.png)
+
+- **Labour is billed room by room.** Every line from the accepted quote (each room, exterior item, fitted unit or custom line) has its own % box and a **Done** button.
+  - Tap **Done** when a room is finished, and the whole of its quoted price goes on this invoice.
+  - Type a % when it's part-done, e.g. **50** when half the room is painted.
+  - The % is **cumulative**: how far through that room is **in total**. If the Hall went on the last invoice at 50% and you now tap Done, this invoice bills the other 50% and reads *"Hall — complete (previously invoiced 50%)"*.
+  - A room already invoiced in full shows **✓ invoiced in full**. A % can't go down or above 100.
+  - **Set every line to** sets all rooms to the same % in one go, handy for "40% of everything". **Match quote stage** does the same using a stage from the quote's payment plan (deposit, weekly instalments, balance). Neither pulls down a room you've already set higher.
+  - When every room is at the same %, the invoice shows **one labour line**, *"Labour: 40% of quoted works (previously invoiced 0%)"*, rather than a row per room. The app still tracks each room behind the scenes, so on a later invoice you can switch to marking rooms Done and it carries on from 40% correctly.
+  - **Sundries & Consumables** aren't on interims. They're billed in full on the final invoice.
+- **Materials are itemised.** Every product you've ticked as **bought** on the On Site list and haven't invoiced yet is listed, with its quantity and price. These are the same lines and prices the final invoice uses. They're all ticked to start with; untick anything you'd rather hold back until later. If you bought 2 tins, invoiced them, then bought a third, the next interim offers just the one. A product with no price is shown in red and can't be billed until you set its price on the On Site screen.
+- **Approved variations** work the same way as rooms: a % box and **Done** for each one, so you can bill half an extra now and the rest later.
+
+![Preview, running totals and Issue](images/25c-interim-invoice-preview.png)
+
+The **Preview** shows the invoice line by line (each room that bills something, e.g. *"Lounge — complete"* or *"Hall, stairs & landing — 50% complete"*, then variations, then a **MATERIALS** heading with each product, just as the final invoice lays them out), then **Less deposit** (taken off the first interim) and the **Amount due**. Below that are the running totals: already billed, this invoice, and what's left to bill against the quote plus approved variations. The app won't issue an invoice with nothing to pay, and it warns you before issuing one that would take billing past the quote.
+
+You can fill the builder in with no signal; it saves as you go. **Issue interim invoice** needs a connection. It records the invoice, then creates it in Xero as a **draft** with its own number, the same contact and the same accounts as the final invoice. The deposit is **not** a line on the Xero invoice, because it's already in Xero as a prepayment. Allocate the prepayment to the first interim in Xero, as you would for the final invoice.
+
+![Invoices so far, on the Summary status card](images/25b-interim-invoices-summary.png)
+
+Each invoice then appears on the status card with its Xero state. If the send to Xero failed, you'll see the reason in red, and **Try again** is safe: it can never create the invoice twice. **Discard** removes an interim that never reached Xero, and only works on the most recent one. Once an interim is in Xero, correct or void it **in Xero**. The app doesn't edit or void invoices it has already sent.
+
+**The final invoice with interims.** When the job is completed, the final invoice is built as before, with two differences:
+
+- **Materials already invoiced are left off.** The final lists only what no interim has billed. A product that was part-billed shows just the remainder, with a note of how many were already invoiced. Materials are never billed twice and never need a deduction line.
+- **Labour and variations are billed in full, then each interim's share comes off.** Every quote line, the sundries and every approved variation appear as usual. Then comes one **"Less: interim invoice INV-…"** line per interim, for the labour and variations it billed. An interim that only billed materials has no deduction line. What's left to pay is the rooms that weren't invoiced, the unbilled parts of the rest, and the sundries.
+
+If you've since returned a tin that an interim already billed, the final invoice flags it so you can credit the difference in Xero. The deposit box now shows only the part of the deposit that hasn't already been set against an interim. The final invoice can't be created until every interim is in Xero.
+
+Once a job is Invoiced, Summary shows a read-only **Job Profitability** card telling three separate stories: **Billing** (quoted vs invoiced, with a note if they differ), **Schedule** (days quoted vs days actually logged), and **Materials** (quoted materials vs the real trade cost of what was used, with your markup on materials banked as its own figure). On a job billed in stages, the **Billing** section shows the quoted total (including approved variations), what has been invoiced to date across the interim and final invoices, what's left to bill, and each invoice listed underneath. It's reference only — nothing here feeds back into pricing.
 
 ---
 
@@ -1191,6 +1225,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.73.3. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.74.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
