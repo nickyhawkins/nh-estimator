@@ -1311,8 +1311,8 @@ Those stay your judgement call.
 
 Settings → **Backup**:
 
-- **Export everything** downloads a single JSON file containing every job, room, setting and colour. Do this regularly — Home will nag you when the last backup is getting old.
-- **Import backup** restores from a file, adding to what's already there — imported jobs get fresh identities, so it can never overwrite existing data. Restoring settings is a separate opt-in on the import preview, since it's the one thing an import *can* overwrite. Backup files up to 64MB are accepted, which is far more than a full job history comes to; if anything is ever wrong with a file, the app now tells you what in plain English rather than showing a syntax error.
+- **Export everything** downloads a single JSON file containing every job, room, setting and colour — and your suppliers and supplier order history. Do this regularly — Home will nag you when the last backup is getting old.
+- **Import backup** restores from a file, adding to what's already there — imported jobs get fresh identities, so it can never overwrite existing data. Restoring settings is a separate opt-in on the import preview, since it's the one thing an import *can* overwrite. Suppliers come back too (one you already have is left as it is), and each imported job brings its supplier orders with it, so its lines still read *Ordered* and the next order won't repeat them. The shopping list isn't in the backup — it's a pick-up list, not a record. Backup files up to 64MB are accepted, which is far more than a full job history comes to; if anything is ever wrong with a file, the app now tells you what in plain English rather than showing a syntax error.
 
 ---
 
@@ -1346,6 +1346,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.80.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.81.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

@@ -30976,7 +30976,12 @@ async function confirmBackupImport() {
     var jobsData = await apiGet('/api/jobs');
     if (jobsData) { jobs = jobsData; localStorage.setItem('pe-jobs', JSON.stringify(jobs)); }
     if (typeof renderJobs === 'function') renderJobs();
-    alert('Imported ' + result.jobsImported + ' job(s) and ' + result.colourLibraryEntriesAdded + ' colour library entries' + (settingsRestored ? '. Settings were also restored — reloading.' : '.'));
+    alert('Imported ' + result.jobsImported + ' job(s) and ' + result.colourLibraryEntriesAdded + ' colour library entries'
+      + (result.suppliersAdded ? ', ' + result.suppliersAdded + ' supplier(s)' : '')
+      + (result.supplierOrdersImported ? ', ' + result.supplierOrdersImported + ' supplier order(s)' : '')
+      + (settingsRestored ? '. Settings were also restored — reloading.' : '.'));
+    // New suppliers belong in the Settings list straight away.
+    if (result.suppliersAdded && typeof refreshSuppliers === 'function') refreshSuppliers();
     if (settingsRestored) window.location.reload();
   } catch (e) {
     alert('Import failed: ' + e.message);

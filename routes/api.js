@@ -2277,6 +2277,30 @@ router.get('/backup/export', async (req, res) => {
       throw err;
     });
 
+    // Suppliers and supplier orders (top-level suppliers[] / supplierOrders[],
+    // additive on the same v1 shape). Top level rather than per job: suppliers
+    // are global, and one order can span several jobs. The order log is what
+    // marks a job's lines "Ordered", so a restore without it would have the
+    // next order include everything again. Tolerates the tables not existing
+    // on a database that has never sent an order.
+    const missingTable = err => { if (err.code === '42P01') return { rows: [] }; throw err; };
+    const suppliersResult = await db.query(
+      `SELECT id, name, email, account_number, branch_name, branch_address
+         FROM suppliers ORDER BY lower(name) ASC, created_at ASC`
+    ).catch(missingTable);
+    const supplierOrdersResult = await db.query(
+      `SELECT id, supplier_id, supplier_name, delivery_method, delivery_address, delivery_notes,
+              to_char(required_by, 'YYYY-MM-DD') AS required_by, body_text, sent_at
+         FROM supplier_orders ORDER BY sent_at ASC, created_at ASC`
+    ).catch(missingTable);
+    const supplierOrderJobsResult = await db.query(
+      'SELECT order_id, job_id FROM supplier_order_jobs'
+    ).catch(missingTable);
+    const supplierOrderLinesResult = await db.query(
+      `SELECT id, order_id, line_no, product_key, job_id, description, quantity, is_extra
+         FROM supplier_order_lines ORDER BY order_id ASC, line_no ASC, id ASC`
+    ).catch(missingTable);
+
     // One pass per table to bucket rows by job_id, rather than filtering
     // each job's rows out of the full result N times.
     const byJob = (rows) => rows.reduce((acc, r) => {
@@ -2366,6 +2390,8 @@ router.get('/backup/export', async (req, res) => {
       settings: settingsResult.rows[0]?.data || {},
       colourLibrary: libraryResult.rows,
       jobs,
+      suppliers: suppliersResult.rows.map(mapSupplierRow),
+      supplierOrders: assembleOrders(supplierOrdersResult.rows, supplierOrderJobsResult.rows, supplierOrderLinesResult.rows),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2647,9 +2673,13 @@ router.post('/backup/import', async (req, res) => {
     const existingNames = new Set(existingNamesResult.rows.map(r => r.name));
 
     let jobsImported = 0;
+    // Backup job id -> the fresh id it was imported under, for the supplier
+    // orders below (the one thing in the file that points ACROSS jobs).
+    const jobIdMap = new Map();
     for (const entry of backup.jobs) {
       const srcJob = entry.job || {};
       const newJobId = crypto.randomUUID();
+      if (srcJob.id) jobIdMap.set(srcJob.id, newJobId);
       let name = srcJob.name || 'Imported Job';
       if (existingNames.has(name)) name = `${name} (imported)`;
       existingNames.add(name);
@@ -2673,6 +2703,59 @@ router.post('/backup/import', async (req, res) => {
       colourLibraryEntriesAdded++;
     }
 
+    // Suppliers: global, like the colour library, and keep their ids so a
+    // restored order still points at its supplier. A supplier already here is
+    // left exactly as it is -- it may have been edited since the backup.
+    const importSuppliers = (backup.suppliers || []).filter(s => s && s.id);
+    const importOrders = (backup.supplierOrders || []).filter(o => o && Array.isArray(o.jobIds));
+    if (importSuppliers.length || importOrders.length) await ensureSupplierSchema(db);
+    let suppliersAdded = 0;
+    for (const raw of importSuppliers) {
+      const { supplier: sp } = normaliseSupplier(raw);
+      if (!sp) continue;
+      const r = await db.query(`
+        INSERT INTO suppliers (id, name, email, account_number, branch_name, branch_address)
+        VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING
+      `, [String(raw.id), sp.name, sp.email, sp.accountNumber, sp.branchName, sp.branchAddress]);
+      suppliersAdded += r.rowCount;
+    }
+
+    // Supplier orders follow the jobs they belong to. Every imported job is a
+    // fresh copy under a new id (above), so each order is copied too, under a
+    // new id and re-pointed at those copies -- the same "adds, never
+    // overwrites" rule as everything else here: import a file twice and you
+    // get two copies of each job, each with its own order history. Only the
+    // parts of an order whose job is in this file come across; an order with
+    // none of its jobs in the file is skipped.
+    let supplierOrdersImported = 0;
+    for (const raw of importOrders) {
+      const jobIds = raw.jobIds.map(j => jobIdMap.get(j)).filter(Boolean);
+      if (!jobIds.length) continue;
+      const lines = (Array.isArray(raw.lines) ? raw.lines : [])
+        .filter(l => l && (l.isExtra || jobIdMap.has(l.jobId)))
+        .map(l => ({ ...l, id: null, jobId: l.isExtra ? null : jobIdMap.get(l.jobId) }));
+      const { order: o } = normaliseOrder({ ...raw, jobIds, lines });
+      if (!o) continue;
+      const orderId = crypto.randomUUID();
+      await db.query(`
+        INSERT INTO supplier_orders (id, supplier_id, supplier_name, delivery_method, delivery_address,
+                                     delivery_notes, required_by, body_text, sent_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9::timestamp, NOW()))
+      `, [orderId, o.supplierId, o.supplierName, o.deliveryMethod, o.deliveryAddress,
+          o.deliveryNotes, o.requiredBy, o.bodyText, o.sentAt]);
+      for (const jobId of o.jobIds) {
+        await db.query('INSERT INTO supplier_order_jobs (order_id, job_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [orderId, jobId]);
+      }
+      for (let i = 0; i < o.lines.length; i++) {
+        const l = o.lines[i];
+        await db.query(`
+          INSERT INTO supplier_order_lines (id, order_id, line_no, product_key, job_id, description, quantity, is_extra)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `, [orderId + ':' + i, orderId, l.lineNo, l.productKey, l.jobId, l.description, l.quantity, l.isExtra]);
+      }
+      supplierOrdersImported++;
+    }
+
     // The one place this import genuinely can overwrite something -- opt-in
     // only (see BACKUP_SPEC.md: overwriting live business rates/markup
     // silently is a worse surprise than a duplicate job).
@@ -2681,7 +2764,7 @@ router.post('/backup/import', async (req, res) => {
       await db.query('UPDATE settings SET data = $1, updated_at = NOW() WHERE id = 1', [backup.settings]);
     }
 
-    res.json({ ok: true, jobsImported, colourLibraryEntriesAdded, settingsRestored });
+    res.json({ ok: true, jobsImported, colourLibraryEntriesAdded, suppliersAdded, supplierOrdersImported, settingsRestored });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
