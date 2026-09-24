@@ -1184,7 +1184,11 @@ On a long job you don't have to wait until the end to invoice. While a job is **
 
 ![Taking part of the deposit, and the preview](images/25d-interim-deposit-split.png)
 
-The **Preview** shows the invoice line by line (each room that bills something, e.g. *"Lounge — complete"* or *"Hall, stairs & landing — 50% complete"*, then variations, then a **MATERIALS** heading with each product, just as the final invoice lays them out), then **Less deposit** and the **Amount due**. Underneath, it tells you exactly how much of the deposit prepayment to allocate to this invoice in Xero, and how much stays unallocated. Below that are the running totals: already billed, this invoice, and what's left to bill against the quote plus approved variations. The app warns you before issuing an invoice that would take billing past the quote.
+The **Preview** shows the invoice line by line (each room that bills something, e.g. *"Lounge — complete"* or *"Hall, stairs & landing — 50% complete"*, then variations, then a **MATERIALS** heading with each product, just as the final invoice lays them out), then **Less deposit** and the **Amount due**.
+
+**The total is always a clean £5**, like the quote. If the lines come to £2,797.60, the invoice is £2,795.00. Only the labour is trimmed (materials stay at their real prices), and it's always rounded **down**, so an interim never asks for more than the work done. The few pounds or pennies trimmed aren't lost: the next invoice that bills that room picks them up, and whatever's left at the end goes on the final invoice, which is exact to the penny. The preview tells you how much was held over.
+
+Underneath, it tells you exactly how much of the deposit prepayment to allocate to this invoice in Xero, and how much stays unallocated. Below that are the running totals: already billed, this invoice, and what's left to bill against the quote plus approved variations. The app warns you before issuing an invoice that would take billing past the quote.
 
 You can fill the builder in with no signal; it saves as you go. **Issue interim invoice** needs a connection. It records the invoice, then creates it in Xero as a **draft** with its own number, the same contact and the same accounts as the final invoice. The deposit is **not** a line on the Xero invoice, because it's already in Xero as a prepayment. Allocate the prepayment to the first interim in Xero, as you would for the final invoice.
 
@@ -1342,6 +1346,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.79.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.80.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

@@ -42,6 +42,16 @@ line_to_bill = round2(line_total × new%) − £ already billed on that line
   **"Set every line to"** and **Match quote stage** (the quote's payment plan as a running % of
   the job total) set every line at once. They only ever *raise* a line, so a room already marked
   done isn't pulled back down.
+- **Clean £5 totals** (Nicky, 2026-09-24). An interim's total (labour + variations + materials)
+  is brought **down** to the nearest £5 by trimming the **labour only**: materials stay at their
+  real prices and extras at their agreed amounts. The trim (under £5) is spread across the
+  invoice's billing labour lines in proportion, with the remainder on the largest, the same
+  spread the quote's rounding uses. It rounds down rather than up because an interim bills work
+  in progress and must never ask for more than it's worth. Each line records the £ actually
+  billed, so the trimmed amount is picked up by the next invoice to bill that line, and finally
+  by the final invoice, which isn't rounded and squares up to the penny. No trim is applied when
+  the invoice has no labour, or when trimming would leave nothing to bill. It lives in the shared
+  `interimInvoiceMath` (`roundingTrim`), so the preview and the record agree.
 - **Invoice text:** only lines that bill something appear. They read
   `Lounge — complete (previously invoiced 50%)` or `Hall, stairs & landing — 50% complete`, at 201.
 - **A whole-job % prints as one line** (Nicky, 2026-09-23). When *every* labour line on the quote

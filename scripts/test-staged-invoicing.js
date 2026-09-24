@@ -95,20 +95,48 @@ const TINS = [{ amount: 180 }, { amount: 320 }];
   eq('...and the next room starts', second.labourLines[2].amount, 225);
 }
 {
-  // Thirds of an awkward figure, one line over three invoices: exactly its price.
-  let prev = 0, billed = 0;
+  // Thirds of an awkward figure, one line over three invoices. Each interim's
+  // total is trimmed down to a clean £5; whatever that leaves unbilled is
+  // still owed, and the final invoice (full price less what was billed)
+  // squares it to the penny.
+  let prev = 0, billed = 0; const subtotals = [];
   [33.33, 66.67, 100].forEach(pct => {
     const r = lib.interimInvoiceMath(Object.assign({}, base, { labour: [L('Lounge', 1000.01, pct, prev, billed)] }));
+    subtotals.push(r.subtotal);
     billed = Math.round((billed + r.labourAmount) * 100) / 100;
     prev = pct;
   });
-  eq('a line billed in thirds comes to exactly its price', billed, 1000.01);
+  eq('every interim total is a clean £5', subtotals.map(t => Math.round(t * 100) % 500), [0, 0, 0]);
+  check('interims never bill more than the line is worth', billed <= 1000.01, billed);
+  eq('the final picks up exactly what the interims left', Math.round((1000.01 - billed) * 100) / 100, 0.01);
 }
 {
   // An amendment re-priced the room between invoices: the second bills the
   // new price less what was actually billed, never the old price twice.
   const r = lib.interimInvoiceMath(Object.assign({}, base, { labour: [L('Lounge', 2000, 100, 50, 900)] }));
   eq('a re-priced line bills new price less what was billed', r.labourAmount, 1100);
+}
+
+// ── Clean £5 totals: the labour is trimmed, never the materials ─────────────
+{
+  const r = lib.interimInvoiceMath(Object.assign({}, base, {
+    labour: [L('Lounge', 1523.47, 100), L('Hall', 1845.5, 33)],
+    materials: [{ amount: 193 }, { amount: 114.6 }] }));
+  // 1523.47 + 609.02 + 307.60 = 2440.09 -> 2440.00, trim 0.09
+  eq('the total is brought down to the nearest £5', [r.subtotal, r.roundingTrim], [2440, 0.09]);
+  eq('materials are untouched', r.materialsAmount, 307.6);
+  eq('the trim comes off the labour lines, in proportion',
+    r.labourLines.map(l => l.amount), [1523.41, 608.99]);
+  const noLabour = lib.interimInvoiceMath(Object.assign({}, base, { materials: [{ amount: 193 }, { amount: 114.6 }] }));
+  eq('no labour on the invoice: nothing to trim, exact total', [noLabour.subtotal, noLabour.roundingTrim], [307.6, 0]);
+  const tiny = lib.interimInvoiceMath(Object.assign({}, base, { labour: [L('Lounge', 30, 10)] }));
+  eq('a trim that would leave nothing to bill is skipped', [tiny.subtotal, tiny.roundingTrim, tiny.errors], [3, 0, []]);
+  const exact = lib.interimInvoiceMath(Object.assign({}, base, { labour: [L('Lounge', 4000, 40)] }));
+  eq('an already-clean total is left alone', [exact.subtotal, exact.roundingTrim], [1600, 0]);
+  const whole = lib.interimInvoiceLineItems({ labour: [
+    { description: 'Lounge', pct: 40, prevPct: 0, amount: r.labourLines[0].amount },
+    { description: 'Hall', pct: 40, prevPct: 0, amount: r.labourLines[1].amount }] });
+  eq('a whole-job line carries the trimmed labour total', whole[0].unitAmount, 2132.4);
 }
 
 // ── 3. Guards ───────────────────────────────────────────────────────────────
