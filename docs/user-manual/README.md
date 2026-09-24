@@ -774,6 +774,7 @@ When you'd rather the merchant delivered (or had it ready to collect) than go ro
 - **⚠ no colour set** — a line whose colour is still just a room name (nobody has picked the colour yet) is flagged, and a banner above the Send button counts them. It won't stop you sending; the email just shows the colour band for that line.
 - **Extra item** — anything the calculator doesn't produce (caulk, tape, filler): type it, set a quantity, **Add**. Extras belong to this order only.
 - **Already ordered** — a line you've ordered before starts **unticked** and says so: *Ordered · Brewers · 24 Sept*. Tick it again if you really do want more. If only one of the jobs on the order has had it, it starts ticked at the other job's quantity.
+- **Needs more since you ordered** — add a room after ordering and the job may now need more than you sent. That line says so — *Ordered 3 · now needs 5 · Brewers · 24 Sept* — and starts **ticked at just the difference** (2), so the next order tops it up. Ordering more than the calculation (spares) never gets flagged.
 
 Then choose the **supplier** and how it's arriving:
 
@@ -795,7 +796,9 @@ The app can't see whether you actually pressed Send in your mail app, so when yo
 
 ![Logged, with the shopping list offer](images/10p-supplier-logged.png)
 
-Every order a job was part of is listed under **Orders** on its On Site screen — supplier, date, how it's arriving and how many items. Tap one to read the email exactly as it went. Orders can't be edited or re-sent from there. Ordered rows on On Site also carry the *Ordered · supplier · date* label.
+Every order a job was part of is listed under **Orders** on its On Site screen — supplier, date, how it's arriving and how many items. Tap one to read the email exactly as it went. Orders can't be edited or re-sent from there. Ordered rows on On Site also carry the *Ordered · supplier · date* label (or *Ordered 3 · now needs 5* if the job has grown since).
+
+Tapped **Yes, mark as ordered** by mistake? Open the order under **Orders** and tap **Delete this order**. Its lines go back to not ordered — on every job the order covered — so the next order includes them again. It only removes the app's record; the email itself is still in your mail app's Sent folder.
 
 Works without signal: the order is saved on the phone and syncs when you're back online (the order shows *waiting to sync* until it has). Another job's materials can only be added offline if that job has been opened on this phone before.
 
@@ -1339,6 +1342,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.78.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.79.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

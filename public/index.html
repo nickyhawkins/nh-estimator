@@ -18056,7 +18056,7 @@ function renderActuals() {
         + '<div style="flex:1;min-width:0">'
           + '<div style="font-size:14px;font-weight:600'+(bought ? ';text-decoration:line-through' : '')+'">'+escapeHtml(r.description)+tag+'</div>'
           + (detail ? '<div style="font-size:12px;color:var(--text2);margin-top:3px">'+escapeHtml(detail)+'</div>' : '')
-          + (ordered ? '<div style="font-size:12px;color:var(--accent);font-weight:600;margin-top:3px">'+escapeHtml(orderedLabel(ordered))+'</div>' : '')
+          + (ordered ? '<div style="font-size:12px;color:var(--accent);font-weight:600;margin-top:3px">'+escapeHtml(orderedLabel(ordered, r.estimated))+'</div>' : '')
           + shopTag
           + '<div style="display:flex;align-items:center;gap:8px;margin-top:8px">'
             + '<input type="number" min="0" step="'+(r.isPerLitre ? '0.1' : '1')+'" value="'+qty+'" inputmode="decimal"'
@@ -21214,7 +21214,10 @@ function loadSupplierOrders(jobId) {
     var queued = ordersForJob(jobId).filter(function(o) {
       return hasQueuedWrite('PUT', '/api/supplier-orders/' + o.id) && !rows.some(function(r) { return r.id === o.id; });
     });
-    supplierOrdersByJob[jobId] = queued.concat(rows || []);
+    // ...and one deleted offline stays deleted until its DELETE lands.
+    supplierOrdersByJob[jobId] = queued.concat((rows || []).filter(function(r) {
+      return !hasQueuedWrite('DELETE', '/api/supplier-orders/' + r.id);
+    }));
     persistSupplierOrdersLocal();
     return supplierOrdersByJob[jobId];
   });
@@ -21228,10 +21231,23 @@ function orderedInfo(jobId, key) {
   for (var i = 0; i < list.length; i++) {
     var o = list[i];
     if ((o.lines || []).some(function(l) { return !l.isExtra && l.jobId === jobId && l.productKey === key; })) {
-      return { supplierName: o.supplierName, sentAt: o.sentAt, orderId: o.id };
+      return { supplierName: o.supplierName, sentAt: o.sentAt, orderId: o.id, quantity: orderedQtyFor(jobId, key) };
     }
   }
   return null;
+}
+
+// How much of this job's product has been ordered, across every order. Held
+// against what the job needs NOW, this is what catches a room added after the
+// order went: the line stops reading as done and asks for the difference.
+function orderedQtyFor(jobId, key) {
+  var q = 0;
+  ordersForJob(jobId).forEach(function(o) {
+    (o.lines || []).forEach(function(l) {
+      if (!l.isExtra && l.jobId === jobId && l.productKey === key) q += +l.quantity || 0;
+    });
+  });
+  return Math.round(q * 100) / 100;
 }
 
 function fmtOrderDate(iso) {
@@ -21240,14 +21256,21 @@ function fmtOrderDate(iso) {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
-function orderedLabel(info) {
-  return 'Ordered · ' + (info.supplierName || 'supplier') + ' · ' + fmtOrderDate(info.sentAt);
+// "Ordered · Brewers · 24 Sept", or -- when the job now needs more than was
+// ordered -- "Ordered 3 · now needs 5 · Brewers · 24 Sept". Only an increase
+// is flagged: ordering spares is a choice, not something to nag about.
+function orderedLabel(info, need, ordered) {
+  var got = ordered != null ? ordered : info.quantity;
+  var more = need != null && got != null && need - got > 0.001;
+  return 'Ordered' + (more ? ' ' + got + ' · now needs ' + (Math.round(need * 100) / 100) : '')
+    + ' · ' + (info.supplierName || 'supplier') + ' · ' + fmtOrderDate(info.sentAt);
 }
 
 var DELIVERY_LABELS = { site: 'Deliver to site', home: 'Deliver to home', collect: 'Collect' };
 
 // On Site's "Orders" list: supplier, date, how it's arriving, how many lines.
-// Tap one to read the email exactly as it went. Read-only; no resend in v1.
+// Tap one to read the email exactly as it went. No edit or resend in v1; an
+// order logged by mistake can be deleted, which un-marks its lines.
 var supplierOrderOpenId = null;
 function supplierOrdersHistoryHtml() {
   var list = ordersForJob(activeJobId);
@@ -21265,11 +21288,32 @@ function supplierOrdersHistoryHtml() {
       + '</div>'
       + '<div style="font-size:12px;color:var(--text2);margin-top:2px">' + escapeHtml(DELIVERY_LABELS[o.deliveryMethod] || '') + ' · '
         + count + ' item' + (count === 1 ? '' : 's') + (pending ? ' · <span style="color:var(--warn)">waiting to sync</span>' : '') + ' ' + (open ? '▾' : '▸') + '</div>'
-      + (open ? '<pre style="white-space:pre-wrap;word-break:break-word;font-family:\'DM Sans\',sans-serif;font-size:13px;line-height:1.45;background:var(--surface2);border-radius:var(--rs);padding:10px 12px;margin:10px 0 0;color:var(--text)">' + escapeHtml(o.bodyText || '') + '</pre>' : '')
+      + (open ? '<pre style="white-space:pre-wrap;word-break:break-word;font-family:\'DM Sans\',sans-serif;font-size:13px;line-height:1.45;background:var(--surface2);border-radius:var(--rs);padding:10px 12px;margin:10px 0 0;color:var(--text)">' + escapeHtml(o.bodyText || '') + '</pre>'
+          + '<button onclick="event.stopPropagation();deleteSupplierOrder(' + i + ')" style="background:none;border:none;color:var(--danger);font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;padding:10px 0 0">Delete this order</button>' : '')
       + '</div>';
   }).join('');
   return '<div class="section-title" style="margin:16px 0 8px">Orders</div>'
     + '<div class="card" style="padding:0">' + rows + '</div>';
+}
+
+// For an order logged by mistake -- "Yes, mark as ordered" is one tap, and a
+// wrong "ordered" mark makes the next order leave those lines out. Deleting
+// it un-marks its lines on EVERY job it covered. The email itself is still in
+// the mail app's Sent folder; this only removes the app's record of it.
+function deleteSupplierOrder(i) {
+  var o = ordersForJob(activeJobId)[i];
+  if (!o) return;
+  var others = (o.jobIds || []).filter(function(j) { return j !== activeJobId; }).length;
+  if (!confirm('Delete this order to ' + (o.supplierName || 'the supplier') + ' from ' + fmtOrderDate(o.sentAt) + '?\n\n'
+    + 'Its lines will show as not ordered again' + (others ? ', on this job and the ' + others + ' other job' + (others === 1 ? '' : 's') + ' it covered' : '')
+    + '. The email already sent isn\'t affected.')) return;
+  Object.keys(supplierOrdersByJob).forEach(function(jobId) {
+    supplierOrdersByJob[jobId] = supplierOrdersByJob[jobId].filter(function(x) { return x.id !== o.id; });
+  });
+  persistSupplierOrdersLocal();
+  apiDelete('/api/supplier-orders/' + encodeURIComponent(o.id));
+  if (supplierOrderOpenId === o.id) supplierOrderOpenId = null;
+  renderActuals();
 }
 
 function toggleSupplierOrderHistory(i) {
@@ -21466,27 +21510,40 @@ function sordAddress() {
 }
 
 // The merged lines with this order's state laid over them: ticked or not,
-// the quantity to send, and what's already been ordered. A line every source
-// job has already ordered starts unticked; one only SOME jobs have ordered
-// starts ticked for the rest, at their quantity -- re-sending the ordered
-// part would double it.
+// the quantity to send, and what's already been ordered. Measured per source
+// job against what each needs NOW: a line with nothing still short starts
+// unticked; one with something short -- a job that never ordered it, or one
+// that needs more since (an extra room) -- starts ticked at just the shortfall,
+// since re-sending what's already ordered would double it.
 function sordLines() {
   var lines = buildSupplierOrderLines(sord.jobIds, sord.data);
   lines.forEach(function(l) {
-    var orderedJobs = [], latest = null;
+    var latest = null, anyOrdered = false;
     l.jobs.forEach(function(j) {
       var info = orderedInfo(j.jobId, l.key);
+      j.ordered = info ? info.quantity : 0;
+      j.short = Math.max(0, Math.round((j.quantity - j.ordered) * 100) / 100);
       if (info) {
-        orderedJobs.push(j);
+        anyOrdered = true;
         if (!latest || info.sentAt > latest.sentAt) latest = info;
       }
     });
     l.ordered = latest;
-    l.fullyOrdered = orderedJobs.length && orderedJobs.length === l.jobs.length;
-    l.orderedJobIds = orderedJobs.map(function(j) { return j.jobId; });
-    l.unorderedJobs = l.jobs.filter(function(j) { return l.orderedJobIds.indexOf(j.jobId) === -1; });
-    var unorderedQty = Math.round(l.unorderedJobs.reduce(function(s, j) { return s + j.quantity; }, 0) * 100) / 100;
-    l.defaultQty = orderedJobs.length && !l.fullyOrdered ? unorderedQty : l.quantity;
+    l.orderedTotal = Math.round(l.jobs.reduce(function(s, j) { return s + j.ordered; }, 0) * 100) / 100;
+    l.shortJobs = l.jobs.filter(function(j) { return j.short > 0.001; });
+    l.fullyOrdered = anyOrdered && !l.shortJobs.length;
+    // Some job had ordered it and now needs more than it got.
+    l.increased = l.jobs.some(function(j) { return j.ordered > 0 && j.short > 0.001; });
+    l.orderedJobIds = l.jobs.filter(function(j) { return j.ordered > 0; }).map(function(j) { return j.jobId; });
+    // Who an order of this line is FOR, and in what proportion: the jobs still
+    // short by their shortfall, or -- nothing ordered yet, or re-ordering a
+    // line that's all done -- every job by what it needs.
+    l.forJobs = anyOrdered && l.shortJobs.length
+      ? l.shortJobs.map(function(j) { return { jobId: j.jobId, jobName: j.jobName, weight: j.short }; })
+      : l.jobs.map(function(j) { return { jobId: j.jobId, jobName: j.jobName, weight: j.quantity }; });
+    // A line that's all done still defaults to its full quantity if ticked
+    // again: that's a deliberate re-order, not a top-up.
+    l.defaultQty = anyOrdered && l.shortJobs.length ? Math.round(l.shortJobs.reduce(function(s, j) { return s + j.short; }, 0) * 100) / 100 : l.quantity;
     var st = sord.lineState[l.key];
     l.included = st && st.included != null ? st.included : !l.fullyOrdered;
     l.sendQty = st && st.qty != null ? st.qty : l.defaultQty;
@@ -21699,13 +21756,12 @@ function confirmSupplierOrder(sent) {
   var lineNo = 0;
   a.included.forEach(function(l) {
     var description = supplierOrderLineDesc(l);
-    // Which jobs this line was ordered FOR: the ones that hadn't ordered it
-    // yet when only some had, otherwise every source job. The quantity sent
-    // is split across them by their calculated share.
-    var forJobs = l.orderedJobIds.length && !l.fullyOrdered ? l.unorderedJobs : l.jobs;
-    var calc = forJobs.reduce(function(s, j) { return s + j.quantity; }, 0);
+    // Split the quantity sent across the jobs it was for (see sordLines),
+    // in proportion to what each was short.
+    var forJobs = l.forJobs;
+    var calc = forJobs.reduce(function(s, j) { return s + j.weight; }, 0);
     forJobs.forEach(function(j) {
-      var share = calc > 0 ? j.quantity / calc : 1 / forJobs.length;
+      var share = calc > 0 ? j.weight / calc : 1 / forJobs.length;
       rows.push({ id: id + ':' + rows.length, lineNo: lineNo, productKey: l.key, jobId: j.jobId,
                   description: description, quantity: Math.round(l.sendQty * share * 100) / 100, isExtra: false });
     });
@@ -21726,12 +21782,12 @@ function confirmSupplierOrder(sent) {
   });
   persistSupplierOrdersLocal();
   apiPut('/api/supplier-orders/' + encodeURIComponent(id), order);
-  // What's left for the shopping-list offer: lines left unticked that
-  // somebody still hasn't ordered, per job that hasn't.
+  // What's left for the shopping-list offer: lines left unticked that some
+  // job is still short of, per job that is.
   var leftover = [];
   a.lines.forEach(function(l) {
-    if (l.included) return;
-    var need = l.jobs.filter(function(j) { return l.orderedJobIds.indexOf(j.jobId) === -1; });
+    if (l.included || l.fullyOrdered) return;
+    var need = l.forJobs;
     if (need.length) leftover.push({ line: l, jobs: need });
   });
   sord.logged = { supplierName: a.supplier.name, leftover: leftover, addedToList: false };
@@ -21829,7 +21885,7 @@ function renderSupplierOrder() {
   var rows = lines.map(function(l, i) {
     var ordered = l.ordered
       ? '<div style="margin-top:4px"><span style="' + chip + ';background:var(--accent-soft-bg);color:var(--accent)">'
-        + escapeHtml(l.fullyOrdered ? orderedLabel(l.ordered)
+        + escapeHtml(l.fullyOrdered || l.increased ? orderedLabel(l.ordered, l.quantity, l.orderedTotal)
             : 'Ordered for ' + l.jobs.filter(function(j) { return l.orderedJobIds.indexOf(j.jobId) !== -1; }).map(function(j) { return j.jobName; }).join(', ') + ' · ' + (l.ordered.supplierName || '') + ' · ' + fmtOrderDate(l.ordered.sentAt))
         + '</span></div>' : '';
     var warn = l.placeholder ? '<span style="' + chip + ';background:var(--danger-soft-bg);color:var(--danger);margin-left:6px">⚠ no colour set</span>' : '';

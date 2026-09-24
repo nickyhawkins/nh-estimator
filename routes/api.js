@@ -1787,9 +1787,10 @@ router.delete('/shopping/:id', async (req, res) => {
 //   DELETE /api/suppliers/:id                 history keeps its name snapshot
 //   GET    /api/supplier-orders?job_id=X      orders X was part of, newest first
 //   PUT    /api/supplier-orders/:id           create-once (replays are no-ops)
+//   DELETE /api/supplier-orders/:id           an order logged by mistake
 //
-// There is no order DELETE and no edit: whether a mistaken order should be
-// removable (and so un-mark its lines) is an open question, not a default.
+// No edit. Deleting removes the order from every job it covered (its jobs and
+// lines cascade), which is what un-marks those lines as ordered.
 
 router.use(['/suppliers', '/supplier-orders'], async (req, res, next) => {
   try {
@@ -1904,6 +1905,15 @@ router.put('/supplier-orders/:id', async (req, res) => {
     res.status(500).json({ error: err.message });
   } finally {
     client.release();
+  }
+});
+
+router.delete('/supplier-orders/:id', async (req, res) => {
+  try {
+    await db.query('DELETE FROM supplier_orders WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

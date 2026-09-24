@@ -27,6 +27,11 @@
 //   9. Editing a quantity or an address on the order changes nothing on the
 //      job or in Settings.
 //  10. On Site shows the ordered label and the job's Orders history.
+//  11. A job that needs MORE since its order (a room added) stops reading as
+//      done: "Ordered 3 · now needs 5", ticked at the shortfall, and the
+//      next order is logged for just that. Ordering spares never nags.
+//  12. An order logged by mistake can be deleted: its lines read as not
+//      ordered again on every job it covered, and the DELETE queues offline.
 //
 // Served off disk with no server, like test-onsite-shoplist.js, and every API
 // call is cut off on the way out: reads fall back to this phone's copies and
@@ -332,6 +337,45 @@ const SEED = () => {
   // ── Offline copies survive a reload ──────────────────────────────────────
   const orderCount = await page.evaluate(() => JSON.parse(localStorage.getItem('pe-supplier-orders')).j1.length);
   eq('orders are kept on the phone for offline', orderCount, 2);
+
+  // ── 11. Needs more since the order ──────────────────────────────────────
+  await page.evaluate(() => {
+    // An extra room on Ermine Street: two more tins of the same Optiva.
+    materialsSnapshot.push({ id: 'm7', itemCode: 'OPT5-C3', description: 'Tikkurila Optiva 5 - Colours 3ltr', quantity: 2, unitAmount: 60, isPerLitre: false, colourNumber: 1, role: 'wall' });
+    renderActuals();
+  });
+  check('11. On Site says the job now needs more than was ordered',
+    /Ordered 3 · now needs 5 · Brewers/.test(await page.evaluate(() => document.getElementById('actuals-body').innerText)));
+  check('11. and an over-ordered line (5 sent, 4 needed) does not nag',
+    !/Ordered 5 · now needs/.test(await page.evaluate(() => document.getElementById('actuals-body').innerText)));
+  await page.evaluate(() => { openSupplierOrder(); });
+  await page.waitForTimeout(100);
+  eq('11. the topped-up line starts ticked at the shortfall; the over-ordered one unticked', await page.evaluate(() =>
+    sordLines().filter(l => l.key === 'code:OPT5-C3' || l.key === 'code:SUN001').map(l => [l.key, l.included, l.sendQty, l.increased, l.fullyOrdered])), [
+    ['code:OPT5-C3', true, 2, true, false], ['code:SUN001', false, 4, false, true]
+  ]);
+  check('11. the order screen says so too', (await html()).includes('Ordered 3 · now needs 5 · Brewers'));
+  await page.evaluate(() => { sord.lineState = {}; sordLines().forEach(l => { if (l.key !== 'code:OPT5-C3') sordSetLine(l.key, { included: false }); }); sendSupplierOrder(); confirmSupplierOrder(true); });
+  eq('11. the top-up is logged for the shortfall only', await page.evaluate(() => ordersForJob('j1')[0].lines.map(l => [l.productKey, l.jobId, l.quantity])),
+    [['code:OPT5-C3', 'j1', 2]]);
+  eq('11. after which it reads as done again', await page.evaluate(() => sordLines().find(l => l.key === 'code:OPT5-C3').fullyOrdered), true);
+
+  // ── 12. Deleting an order logged by mistake ─────────────────────────────
+  await page.evaluate(() => { goTab('actuals'); renderActuals(); });
+  const firstId = await page.evaluate(() => ordersForJob('j1')[2].id);   // the first order, oldest
+  await page.evaluate(() => { supplierOrderOpenId = null; toggleSupplierOrderHistory(2); });
+  check('12. an opened order offers Delete', (await page.evaluate(() => document.getElementById('act-orders').innerText)).includes('Delete this order'));
+  await page.evaluate(() => deleteSupplierOrder(2));
+  eq('12. gone from the job\'s history', await page.evaluate((id) => ordersForJob('j1').some(o => o.id === id), firstId), false);
+  eq('12. its lines are no longer ordered', await page.evaluate(() => [orderedQtyFor('j1', 'code:HEL10-P3'), orderedQtyFor('j1', 'code:OPT5-C3')]), [0, 2]);
+  check('12. the DELETE is queued for the server', await page.evaluate((id) => hasQueuedWrite('DELETE', '/api/supplier-orders/' + id), firstId));
+  eq('12. On Site re-reads the Helmi as not ordered', await page.evaluate(() =>
+    /Helmi[^\n]*\n[^\n]*\n[^\n]*Ordered/.test(document.getElementById('actuals-body').innerText)), false);
+  // An order covering two jobs goes from both.
+  const twoJobId = await page.evaluate(() => ordersForJob('j2')[0].id);
+  await page.evaluate((id) => deleteSupplierOrder(ordersForJob('j1').findIndex(o => o.id === id)), twoJobId);
+  eq('12. a two-job order goes from both jobs', await page.evaluate((id) =>
+    [ordersForJob('j1').some(o => o.id === id), ordersForJob('j2').some(o => o.id === id)], twoJobId), [false, false]);
 
   check('no page errors', errors.length === 0, errors);
 
