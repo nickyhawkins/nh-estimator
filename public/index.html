@@ -1365,6 +1365,23 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
   </div>
 </div>
 
+<!-- ══ SEND TO SUPPLIER ══
+     Builds a materials order from one or more jobs' calculated materials and
+     opens it as a prefilled email in the phone's mail app (mailto:). Separate
+     from the shopping list, which is for standing in the shop; the only link
+     is the opt-in "Add unordered to shopping list" after an order is logged.
+     No prices anywhere on it. -->
+<div id="screen-supplierorder" class="screen">
+  <div class="topbar">
+    <button class="back-btn" onclick="openActuals()">←</button>
+    <div class="topbar-title">Send to supplier</div>
+    <span class="sync-dot" title="Sync status"></span>
+  </div>
+  <div class="content">
+    <div id="supplierorder-body"></div>
+  </div>
+</div>
+
 <!-- ══ FINAL INVOICE BUILDER (FINAL_INVOICE_SPEC.md) ══
      Assembles labour-as-quoted + variations + actuals-based materials −
      deductions into one reviewable list, then writes a DRAFT invoice to
@@ -1492,6 +1509,21 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
         </div>
         <input type="file" id="s-logo-file" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="onLogoFileChange(this)">
       </div>
+      <!-- Contact details for supplier orders (the email's sign-off) and the
+           Deliver to home address. All optional: an empty one just leaves its
+           line off the email. -->
+      <div class="field-row"><div class="field-label">Your name<small>signs off supplier orders</small></div><input type="text" class="field-input" id="s-owner-name" placeholder="e.g. Jo Smith" autocapitalize="words" autocomplete="name" style="width:170px;text-align:left;font-family:'DM Sans',sans-serif" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Business phone<small>under your name on supplier orders</small></div><input type="tel" class="field-input" id="s-business-phone" placeholder="07…" autocomplete="tel" style="width:170px;text-align:left;font-family:'DM Sans',sans-serif" onchange="saveSettings()"></div>
+      <div class="field-row"><div class="field-label">Business address</div><textarea class="field-input" id="s-business-address" rows="2" placeholder="Street, town, postcode" style="width:170px;text-align:left;font-family:'DM Sans',sans-serif;resize:vertical" onchange="saveSettings()"></textarea></div>
+      <div class="field-row"><div class="field-label">Home delivery address<small>for supplier orders sent to Deliver to home — blank uses the business address</small></div><textarea class="field-input" id="s-home-delivery-address" rows="2" placeholder="Same as business address" style="width:170px;text-align:left;font-family:'DM Sans',sans-serif;resize:vertical" onchange="saveSettings()"></textarea></div>
+    </div>
+    <!-- Suppliers (materials orders): an address book, not a rate -- so it
+         sits with the business details rather than on Rates. Rows live in
+         their own table (GET/PUT/DELETE /api/suppliers), not in the settings
+         blob, and write through the offline queue like everything else. -->
+    <div class="card" style="overflow:visible">
+      <div class="card-header">Suppliers</div>
+      <div id="suppliers-body"></div>
     </div>
     <div class="card">
       <!-- Was "Your Rates" until v2.29.0 -- with a Rates screen in the menu
@@ -3213,6 +3245,11 @@ function saveSettings() {
   var bnEl = document.getElementById('s-business-name');
   next.businessName = bnEl ? bnEl.value.trim() : (settings.businessName || '');
   next.logoDataUri = settings.logoDataUri || null;
+  [['ownerName', 's-owner-name'], ['businessPhone', 's-business-phone'],
+   ['businessAddress', 's-business-address'], ['homeDeliveryAddress', 's-home-delivery-address']].forEach(function(f) {
+    var el = document.getElementById(f[1]);
+    next[f[0]] = el ? el.value.trim() : (settings[f[0]] || '');
+  });
   settings = next;
   localStorage.setItem('pe-settings', JSON.stringify(settings));
   apiPut('/api/settings', settings);
@@ -6207,6 +6244,12 @@ function mergeSettings(raw) {
   // Branding (WS3): both empty = stock logo.png, today's look.
   out.businessName = raw.businessName || '';
   out.logoDataUri = raw.logoDataUri || null;
+  // Supplier orders: the email's sign-off and the Deliver to home address.
+  // Strings with their own inputs, read in saveSettings like businessName.
+  out.ownerName = raw.ownerName || '';
+  out.businessPhone = raw.businessPhone || '';
+  out.businessAddress = raw.businessAddress || '';
+  out.homeDeliveryAddress = raw.homeDeliveryAddress || '';
   return out;
 }
 
@@ -12260,7 +12303,7 @@ function goTab(tab) {
   // Calibration reads across every finished job's logs, so it can't be
   // painted from memory at startup like the rest of Settings -- it's a
   // server round-trip taken when the screen is actually opened.
-  if (tab==='settings') renderCalibration();
+  if (tab==='settings') { renderCalibration(); refreshSuppliers(); }
   // NB no renderActuals() here — actuals live only on the server, so the
   // screen is entered via openActuals(), which loads before it renders.
   // goTab('actuals') on its own would paint a stale or empty list.
@@ -12588,6 +12631,12 @@ function loadSettings() {
   });
   var bnEl = document.getElementById('s-business-name');
   if (bnEl) bnEl.value = settings.businessName || '';
+  [['ownerName', 's-owner-name'], ['businessPhone', 's-business-phone'],
+   ['businessAddress', 's-business-address'], ['homeDeliveryAddress', 's-home-delivery-address']].forEach(function(f) {
+    var el = document.getElementById(f[1]);
+    if (el) el.value = settings[f[0]] || '';
+  });
+  renderSuppliersSettings();
   applyBranding();
   var togSat = document.getElementById('tog-worksat');
   if (togSat) togSat.classList.toggle('on', !!settings.workSaturdays);
@@ -17837,7 +17886,11 @@ async function openActuals() {
       // Tolerant for the same reason as the snags: spec_ticks is created
       // lazily on first use, and a database that has never had one must still
       // show the materials screen.
-      loadSpecTicks().catch(function(e) { if (!isNetworkFailure(e)) specTicks = []; })
+      loadSpecTicks().catch(function(e) { if (!isNetworkFailure(e)) specTicks = []; }),
+      // Supplier orders: tolerant too -- the tables are created lazily, and
+      // offline the per-job cache (see supplierOrdersByJob) still labels
+      // what's been ordered.
+      loadSupplierOrders(activeJobId).catch(function() {})
     ]);
   } catch (e) {
     // Offline (fetch itself failed, not the server refusing): the copies
@@ -17964,6 +18017,9 @@ function renderActuals() {
     // The id is keyed on the render index, not r.key: that key carries the
     // free-text description, which can hold spaces and is no use in an id.
     var jobNameForTag = (activeJob() && activeJob().name) || '';
+    // Sent to a supplier already (Send to supplier). Estimate rows only: the
+    // order is built from the calculated materials, keyed the same way.
+    var ordered = r.onEstimate ? orderedInfo(activeJobId, r.key) : null;
     // Best-effort read-only state: shopList may simply not have been fetched
     // yet this session, in which case the chip reads "Add to list" and
     // tapping it is a harmless re-add (shopListAdd dedupes).
@@ -18000,6 +18056,7 @@ function renderActuals() {
         + '<div style="flex:1;min-width:0">'
           + '<div style="font-size:14px;font-weight:600'+(bought ? ';text-decoration:line-through' : '')+'">'+escapeHtml(r.description)+tag+'</div>'
           + (detail ? '<div style="font-size:12px;color:var(--text2);margin-top:3px">'+escapeHtml(detail)+'</div>' : '')
+          + (ordered ? '<div style="font-size:12px;color:var(--accent);font-weight:600;margin-top:3px">'+escapeHtml(orderedLabel(ordered, r.estimated))+'</div>' : '')
           + shopTag
           + '<div style="display:flex;align-items:center;gap:8px;margin-top:8px">'
             + '<input type="number" min="0" step="'+(r.isPerLitre ? '0.1' : '1')+'" value="'+qty+'" inputmode="decimal"'
@@ -18053,7 +18110,12 @@ function renderActuals() {
     + '<div class="section-title" style="margin:16px 0 8px;display:flex;align-items:center;justify-content:space-between;gap:14px">Materials'
       + undoChipHtml()
     + '</div>'
-    + rowsHtml + add
+    // Send to supplier: an order emailed from the phone's mail app. Separate
+    // from the per-row 🛒 chips, which are for the shop run.
+    + '<button onclick="openSupplierOrder()" style="display:flex;align-items:center;justify-content:center;gap:6px;width:100%;margin:0 0 10px;background:var(--accent-soft-bg);color:var(--accent);border:1px solid var(--accent-soft-border);border-radius:12px;padding:10px;font-size:14px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer">✉ Send to supplier</button>'
+    + rowsHtml
+    + '<div id="act-orders">' + supplierOrdersHistoryHtml() + '</div>'
+    + add
     + variationsSection
     + snagsQuietHtml()
     + specQuietHtml(specModel);
@@ -21004,6 +21066,929 @@ function clearShopTicked() {
   shopList = (shopList || []).filter(function(i) { return !i.ticked; });
   apiDelete('/api/shopping/ticked');
   renderShopList();
+}
+
+// ── Suppliers (Settings) ────────────────────────────────────────────────────
+// The address book supplier orders are sent to. Server table is the truth;
+// this copy is mirrored to localStorage so the order screen can still pick a
+// supplier in a dead spot, and every write goes through apiPut/apiDelete so it
+// queues offline like the shopping list does.
+var suppliers = [];
+try { suppliers = JSON.parse(localStorage.getItem('pe-suppliers') || '[]') || []; } catch (e) { suppliers = []; }
+var supplierEditId = null;      // row showing its edit form; 'new' = the add form
+
+function persistSuppliersLocal() {
+  try { localStorage.setItem('pe-suppliers', JSON.stringify(suppliers)); } catch (e) {}
+}
+
+function sortSuppliers() {
+  suppliers.sort(function(a, b) { return a.name.toLowerCase() < b.name.toLowerCase() ? -1 : a.name.toLowerCase() > b.name.toLowerCase() ? 1 : 0; });
+}
+
+function refreshSuppliers() {
+  return apiGet('/api/suppliers').then(function(rows) {
+    // A supplier added offline and still queued isn't on the server yet --
+    // keep it rather than letting the fetch make it vanish until the flush.
+    var queued = suppliers.filter(function(s) { return hasQueuedWrite('PUT', '/api/suppliers/' + s.id)
+      && !rows.some(function(r) { return r.id === s.id; }); });
+    suppliers = (rows || []).filter(function(r) { return !hasQueuedWrite('DELETE', '/api/suppliers/' + r.id); }).concat(queued);
+    sortSuppliers();
+    persistSuppliersLocal();
+    renderSuppliersSettings();
+    if (curTab === 'supplierorder') renderSupplierOrder();
+  }).catch(function() { /* offline: the mirrored copy stands */ });
+}
+
+function findSupplier(id) {
+  return suppliers.find(function(s) { return s.id === id; }) || null;
+}
+
+function supplierFormHtml(s) {
+  var v = function(k) { return escapeHtml((s && s[k]) || ''); };
+  var inp = 'class="field-input" style="width:100%;text-align:left;font-family:\'DM Sans\',sans-serif;margin-top:4px"';
+  var lbl = function(t, sub) { return '<div style="font-size:13px;font-weight:600;margin-top:10px">' + t + (sub ? ' <span style="font-weight:400;color:var(--text2)">' + sub + '</span>' : '') + '</div>'; };
+  return '<div style="padding:12px 16px;border-bottom:1px solid var(--border)">'
+    + lbl('Name') + '<input type="text" id="sup-name" ' + inp + ' value="' + v('name') + '" placeholder="e.g. Brewers" autocapitalize="words">'
+    + lbl('Email') + '<input type="email" id="sup-email" ' + inp + ' value="' + v('email') + '" placeholder="orders@…" autocapitalize="off" autocorrect="off">'
+    + lbl('Account number', 'optional') + '<input type="text" id="sup-account" ' + inp + ' value="' + v('accountNumber') + '" autocorrect="off">'
+    + lbl('Branch name', 'optional') + '<input type="text" id="sup-branch" ' + inp + ' value="' + v('branchName') + '" placeholder="e.g. Cambridge" autocapitalize="words">'
+    + lbl('Branch address', 'optional — used for Collect') + '<textarea id="sup-branch-address" rows="2" ' + inp + ' style="width:100%;text-align:left;font-family:\'DM Sans\',sans-serif;margin-top:4px;resize:vertical">' + v('branchAddress') + '</textarea>'
+    + '<div id="sup-form-error" style="color:var(--danger);font-size:13px;margin-top:8px;display:none"></div>'
+    + '<div style="display:flex;gap:8px;margin-top:12px">'
+      + '<button onclick="saveSupplierForm()" style="background:var(--accent);color:#fff;border:none;border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;flex:1">Save</button>'
+      + '<button onclick="cancelSupplierForm()" style="background:var(--surface2);color:var(--text);border:none;border-radius:12px;padding:10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;flex:1">Cancel</button>'
+    + '</div>'
+    + '</div>';
+}
+
+function renderSuppliersSettings() {
+  var el = document.getElementById('suppliers-body');
+  if (!el) return;
+  if (!suppliers) return; // loadSettings can run before this section's vars are set
+  var rows = suppliers.map(function(s, i) {
+    if (supplierEditId === s.id) return supplierFormHtml(s);
+    var sub = [s.email, s.accountNumber ? 'Acc ' + s.accountNumber : '', s.branchName].filter(Boolean).join(' · ');
+    return '<div class="field-row" style="gap:8px">'
+      + '<div style="flex:1;min-width:0"><div style="font-size:15px;font-weight:600">' + escapeHtml(s.name) + '</div>'
+      + '<div style="font-size:12px;color:var(--text2);margin-top:2px;overflow:hidden;text-overflow:ellipsis">' + escapeHtml(sub) + '</div></div>'
+      + '<button onclick="editSupplier(' + i + ')" title="Edit" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:4px">✎</button>'
+      + '<button onclick="deleteSupplier(' + i + ')" title="Delete" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:4px">✕</button>'
+      + '</div>';
+  }).join('');
+  if (!suppliers.length && supplierEditId !== 'new') {
+    rows = '<div style="padding:14px 16px;font-size:13px;color:var(--text2)">No suppliers yet. Add the merchants you order materials from — orders are emailed to them from On Site.</div>';
+  }
+  el.innerHTML = rows + (supplierEditId === 'new'
+    ? supplierFormHtml(null)
+    : '<div style="padding:10px 16px"><button class="btn btn-ghost" style="padding:8px 0;font-size:15px;width:auto" onclick="editSupplier(-1)">+ Add supplier</button></div>');
+}
+
+function editSupplier(i) {
+  supplierEditId = i < 0 ? 'new' : (suppliers[i] && suppliers[i].id);
+  renderSuppliersSettings();
+  var n = document.getElementById('sup-name');
+  if (n && i < 0) n.focus();
+}
+
+function cancelSupplierForm() {
+  supplierEditId = null;
+  renderSuppliersSettings();
+}
+
+function saveSupplierForm() {
+  var val = function(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; };
+  var s = {
+    id: supplierEditId === 'new' ? uid() : supplierEditId,
+    name: val('sup-name'), email: val('sup-email'), accountNumber: val('sup-account'),
+    branchName: val('sup-branch'), branchAddress: val('sup-branch-address')
+  };
+  // Same rules the server enforces (lib/supplierOrders.js): a PUT it would
+  // refuse would otherwise be queued, sent, rejected and dropped in silence.
+  var err = !s.name ? 'Enter the supplier\'s name.'
+          : !s.email ? 'Enter the email address orders go to.'
+          : !/^[^\s@]+@[^\s@]+$/.test(s.email) ? 'That email address doesn\'t look right.' : '';
+  if (err) {
+    var e = document.getElementById('sup-form-error');
+    if (e) { e.textContent = err; e.style.display = 'block'; }
+    return;
+  }
+  var idx = suppliers.findIndex(function(x) { return x.id === s.id; });
+  if (idx === -1) suppliers.push(s); else suppliers[idx] = s;
+  sortSuppliers();
+  persistSuppliersLocal();
+  apiPut('/api/suppliers/' + encodeURIComponent(s.id), s);
+  supplierEditId = null;
+  renderSuppliersSettings();
+}
+
+function deleteSupplier(i) {
+  var s = suppliers[i];
+  if (!s) return;
+  if (!confirm('Delete ' + s.name + '?\n\nOrders already sent to them stay in each job\'s order history.')) return;
+  suppliers.splice(i, 1);
+  persistSuppliersLocal();
+  apiDelete('/api/suppliers/' + encodeURIComponent(s.id));
+  if (supplierEditId === s.id) supplierEditId = null;
+  renderSuppliersSettings();
+}
+
+// ── Supplier orders: the log ────────────────────────────────────────────────
+// Every order a job was part of, newest first, cached per job in memory and
+// localStorage so the "Ordered" labels and the history still read offline. An
+// order logged in a dead spot sits in the offline queue (PUT by its own id, so
+// it never collapses into another) and is kept in the cache until the server
+// has it -- a refetch must not make it disappear before the flush.
+var supplierOrdersByJob = {};
+try { supplierOrdersByJob = JSON.parse(localStorage.getItem('pe-supplier-orders') || '{}') || {}; } catch (e) { supplierOrdersByJob = {}; }
+
+function persistSupplierOrdersLocal() {
+  try { localStorage.setItem('pe-supplier-orders', JSON.stringify(supplierOrdersByJob)); } catch (e) {}
+}
+
+function ordersForJob(jobId) {
+  return (supplierOrdersByJob && supplierOrdersByJob[jobId]) || [];
+}
+
+function loadSupplierOrders(jobId) {
+  return apiGet('/api/supplier-orders?job_id=' + encodeURIComponent(jobId)).then(function(rows) {
+    var queued = ordersForJob(jobId).filter(function(o) {
+      return hasQueuedWrite('PUT', '/api/supplier-orders/' + o.id) && !rows.some(function(r) { return r.id === o.id; });
+    });
+    // ...and one deleted offline stays deleted until its DELETE lands.
+    supplierOrdersByJob[jobId] = queued.concat((rows || []).filter(function(r) {
+      return !hasQueuedWrite('DELETE', '/api/supplier-orders/' + r.id);
+    }));
+    persistSupplierOrdersLocal();
+    return supplierOrdersByJob[jobId];
+  });
+}
+
+// The most recent order that covered this job's product, or null. "Ordered"
+// is per job AND product (the key the On Site roll-up merges on): ordering
+// one job's tins says nothing about another job's.
+function orderedInfo(jobId, key) {
+  var list = ordersForJob(jobId);
+  for (var i = 0; i < list.length; i++) {
+    var o = list[i];
+    if ((o.lines || []).some(function(l) { return !l.isExtra && l.jobId === jobId && l.productKey === key; })) {
+      return { supplierName: o.supplierName, sentAt: o.sentAt, orderId: o.id, quantity: orderedQtyFor(jobId, key) };
+    }
+  }
+  return null;
+}
+
+// How much of this job's product has been ordered, across every order. Held
+// against what the job needs NOW, this is what catches a room added after the
+// order went: the line stops reading as done and asks for the difference.
+function orderedQtyFor(jobId, key) {
+  var q = 0;
+  ordersForJob(jobId).forEach(function(o) {
+    (o.lines || []).forEach(function(l) {
+      if (!l.isExtra && l.jobId === jobId && l.productKey === key) q += +l.quantity || 0;
+    });
+  });
+  return Math.round(q * 100) / 100;
+}
+
+function fmtOrderDate(iso) {
+  var d = new Date(iso);
+  if (isNaN(d)) return '';
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+// "Ordered · Brewers · 24 Sept", or -- when the job now needs more than was
+// ordered -- "Ordered 3 · now needs 5 · Brewers · 24 Sept". Only an increase
+// is flagged: ordering spares is a choice, not something to nag about.
+function orderedLabel(info, need, ordered) {
+  var got = ordered != null ? ordered : info.quantity;
+  var more = need != null && got != null && need - got > 0.001;
+  return 'Ordered' + (more ? ' ' + got + ' · now needs ' + (Math.round(need * 100) / 100) : '')
+    + ' · ' + (info.supplierName || 'supplier') + ' · ' + fmtOrderDate(info.sentAt);
+}
+
+var DELIVERY_LABELS = { site: 'Deliver to site', home: 'Deliver to home', collect: 'Collect' };
+
+// On Site's "Orders" list: supplier, date, how it's arriving, how many lines.
+// Tap one to read the email exactly as it went. No edit or resend in v1; an
+// order logged by mistake can be deleted, which un-marks its lines.
+var supplierOrderOpenId = null;
+function supplierOrdersHistoryHtml() {
+  var list = ordersForJob(activeJobId);
+  if (!list.length) return '';
+  var rows = list.map(function(o, i) {
+    var lineNos = {};
+    (o.lines || []).forEach(function(l) { lineNos[l.lineNo] = true; });
+    var count = Object.keys(lineNos).length;
+    var open = supplierOrderOpenId === o.id;
+    var pending = hasQueuedWrite('PUT', '/api/supplier-orders/' + o.id);
+    return '<div style="padding:12px 14px;border-bottom:1px solid var(--border);cursor:pointer" onclick="toggleSupplierOrderHistory(' + i + ')">'
+      + '<div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline">'
+        + '<div style="font-size:14px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(o.supplierName || 'Supplier') + '</div>'
+        + '<div style="font-size:12px;color:var(--text2);white-space:nowrap">' + escapeHtml(fmtOrderDate(o.sentAt)) + '</div>'
+      + '</div>'
+      + '<div style="font-size:12px;color:var(--text2);margin-top:2px">' + escapeHtml(DELIVERY_LABELS[o.deliveryMethod] || '') + ' · '
+        + count + ' item' + (count === 1 ? '' : 's') + (pending ? ' · <span style="color:var(--warn)">waiting to sync</span>' : '') + ' ' + (open ? '▾' : '▸') + '</div>'
+      + (open ? '<pre style="white-space:pre-wrap;word-break:break-word;font-family:\'DM Sans\',sans-serif;font-size:13px;line-height:1.45;background:var(--surface2);border-radius:var(--rs);padding:10px 12px;margin:10px 0 0;color:var(--text)">' + escapeHtml(o.bodyText || '') + '</pre>'
+          + '<button onclick="event.stopPropagation();deleteSupplierOrder(' + i + ')" style="background:none;border:none;color:var(--danger);font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;padding:10px 0 0">Delete this order</button>' : '')
+      + '</div>';
+  }).join('');
+  return '<div class="section-title" style="margin:16px 0 8px">Orders</div>'
+    + '<div class="card" style="padding:0">' + rows + '</div>';
+}
+
+// For an order logged by mistake -- "Yes, mark as ordered" is one tap, and a
+// wrong "ordered" mark makes the next order leave those lines out. Deleting
+// it un-marks its lines on EVERY job it covered. The email itself is still in
+// the mail app's Sent folder; this only removes the app's record of it.
+function deleteSupplierOrder(i) {
+  var o = ordersForJob(activeJobId)[i];
+  if (!o) return;
+  var others = (o.jobIds || []).filter(function(j) { return j !== activeJobId; }).length;
+  if (!confirm('Delete this order to ' + (o.supplierName || 'the supplier') + ' from ' + fmtOrderDate(o.sentAt) + '?\n\n'
+    + 'Its lines will show as not ordered again' + (others ? ', on this job and the ' + others + ' other job' + (others === 1 ? '' : 's') + ' it covered' : '')
+    + '. The email already sent isn\'t affected.')) return;
+  Object.keys(supplierOrdersByJob).forEach(function(jobId) {
+    supplierOrdersByJob[jobId] = supplierOrdersByJob[jobId].filter(function(x) { return x.id !== o.id; });
+  });
+  persistSupplierOrdersLocal();
+  apiDelete('/api/supplier-orders/' + encodeURIComponent(o.id));
+  if (supplierOrderOpenId === o.id) supplierOrderOpenId = null;
+  renderActuals();
+}
+
+function toggleSupplierOrderHistory(i) {
+  var o = ordersForJob(activeJobId)[i];
+  if (!o) return;
+  supplierOrderOpenId = supplierOrderOpenId === o.id ? null : o.id;
+  var el = document.getElementById('act-orders');
+  if (el) el.innerHTML = supplierOrdersHistoryHtml();
+}
+
+// ── Supplier orders: building one ───────────────────────────────────────────
+// The order screen's state. Lives only while the screen is open -- edits to a
+// quantity or an address here are this order's alone and never reach the
+// job's calculated materials, the job or Settings.
+var sord = null;
+
+function jobSiteAddress(job) {
+  var c = (job && job.contact) || {};
+  return [c.street, c.town, c.postcode].map(function(s) { return (s || '').trim(); }).filter(Boolean).join(', ');
+}
+
+function homeDeliveryAddress() {
+  return (settings.homeDeliveryAddress || '').trim() || (settings.businessAddress || '').trim();
+}
+
+// Jobs that can join an order: the one it was opened from, plus every job
+// that's active or upcoming (accepted -- scheduled or not yet).
+function supplierOrderCandidateJobs() {
+  return jobs.filter(function(j) { return j.id === (sord && sord.originJobId) || j.status === 'accepted'; });
+}
+
+// A job's materials + colours for the order. The active job is already in
+// memory; any other is fetched, falling back to this phone's offline copy of
+// it (the per-job mirrors) when there's no signal.
+function loadOrderJobData(jobId) {
+  if (jobId === activeJobId) {
+    return Promise.resolve({ materials: materialsSnapshot.slice(), colours: colours.slice(), ok: true });
+  }
+  var get = function(coll, path) {
+    return apiGet(path + '?job_id=' + encodeURIComponent(jobId)).catch(function() {
+      var m = readJobMirror(coll, jobId);
+      if (m === null) throw new Error('offline');
+      return m;
+    });
+  };
+  return Promise.all([get('materials', '/api/materials'), get('colours', '/api/colours')])
+    .then(function(r) { return { materials: r[0] || [], colours: r[1] || [], ok: true }; })
+    .catch(function() { return { materials: [], colours: [], ok: false }; });
+}
+
+// Run fn with another job's colours standing in for the active job's, so the
+// shared colour helpers (colourIsNamed, colourLabelFor, namedColourNames)
+// answer for THAT job. Synchronous and always restored; the placeholder cache
+// is dropped either side because it is keyed on colour numbers, which every
+// job numbers from 1.
+function withJobColours(cols, fn) {
+  var saved = colours;
+  colours = cols || [];
+  invalidateColourPlaceholders();
+  try { return fn(); }
+  finally { colours = saved; invalidateColourPlaceholders(); }
+}
+
+// The order's lines. Each job's snapshot is rolled up exactly as On Site
+// rolls it up (rollUpEstimateByItem: one line per product+size), then the
+// jobs are merged on the SAME key and their quantities summed.
+//
+// Colour follows the invoice's rule (namedColourNames + describeWithColours):
+// the band in the product name is replaced by the real colour, all or
+// nothing -- if any tin on the line is still a placeholder, the generic band
+// stays and the line is flagged instead. Colour numbers are per job, so each
+// job's parts are named under its own colours before the merge.
+function buildSupplierOrderLines(jobIds, dataByJob) {
+  var byKey = {}, out = [];
+  jobIds.forEach(function(jobId) {
+    var d = dataByJob[jobId];
+    if (!d || !d.ok) return;
+    var job = jobs.find(function(j) { return j.id === jobId; });
+    var jobName = (job && job.name) || '';
+    withJobColours(d.colours, function() {
+      rollUpEstimateByItem(d.materials).forEach(function(e) {
+        if (!(e.quantity > 0)) return;
+        var nums = (e.parts || []).filter(function(p) { return p.quantity > 0 && p.colourNumber != null; });
+        var placeholder = nums.some(function(p) { return !colourIsNamed(p.colourNumber); });
+        var names = namedColourNames(nums.map(function(p) { return p.colourNumber; }));
+        var l = byKey[e.key];
+        if (!l) {
+          l = byKey[e.key] = {
+            key: e.key, itemCode: e.itemCode, description: e.description,
+            isPerLitre: e.isPerLitre, unitAmount: e.unitAmount,
+            quantity: 0, jobs: [], colourQty: {}, colourOrder: [], placeholder: false
+          };
+          out.push(l);
+        }
+        l.quantity += e.quantity;
+        l.jobs.push({ jobId: jobId, jobName: jobName, quantity: e.quantity });
+        if (placeholder) l.placeholder = true;
+        if (!placeholder) {
+          nums.forEach(function(p) {
+            var n = colourLabelFor(p.colourNumber);
+            if (!(n in l.colourQty)) { l.colourQty[n] = 0; l.colourOrder.push(n); }
+            l.colourQty[n] += p.quantity;
+          });
+          names.forEach(function(n) { if (!(n in l.colourQty)) { l.colourQty[n] = 0; l.colourOrder.push(n); } });
+        }
+      });
+    });
+  });
+  out.forEach(function(l) {
+    l.quantity = Math.round(l.quantity * 100) / 100;
+    l.display = describeWithColours(l.description, l.placeholder ? [] : l.colourOrder);
+  });
+  return out;
+}
+
+// A line as it reads in the email. More than one colour on one product (a
+// colour band is a PRICE band, so two colours can share an item code) gets
+// its split in brackets -- the merchant has to know how many of each to tint.
+function supplierOrderLineDesc(line) {
+  var text = line.display || line.description;
+  if (!line.placeholder && line.colourOrder && line.colourOrder.length > 1) {
+    text += ' (' + line.colourOrder.map(function(n) {
+      return n + ': ' + (Math.round(line.colourQty[n] * 100) / 100) + (line.isPerLitre ? 'L' : '');
+    }).join(', ') + ')';
+  }
+  return text;
+}
+
+function supplierOrderLineText(qty, line) {
+  var q = Math.round(qty * 100) / 100;
+  return (line.isPerLitre ? q + 'L' : q) + ' x ' + supplierOrderLineDesc(line);
+}
+
+function openSupplierOrder() {
+  var origin = activeJobId;
+  sord = {
+    originJobId: origin,
+    jobIds: [origin],
+    data: {},
+    loading: {},
+    lineState: {},          // key -> { included, qty } once the user touches it
+    extras: [],
+    supplierId: suppliers.length === 1 ? suppliers[0].id : '',
+    method: null,           // null = follow the default (site for one job, home for more)
+    siteJobId: origin,
+    address: null,          // null = follow the prefill; a string once edited
+    notes: '',
+    requiredBy: '',
+    awaiting: null,         // the order a mail app was opened for, pending "did you send it?"
+    logged: null            // the order just logged, for the shopping-list offer
+  };
+  goTab('supplierorder');
+  renderSupplierOrder();
+  ensureOrderJobLoaded(origin);
+  // The labels need every selected job's order log; the origin's is usually
+  // already in hand from On Site, but refresh it.
+  loadSupplierOrders(origin).then(renderSupplierOrderIfOpen).catch(function() {});
+  refreshSuppliers();
+}
+
+function renderSupplierOrderIfOpen() {
+  if (curTab === 'supplierorder' && sord) renderSupplierOrder();
+}
+
+function ensureOrderJobLoaded(jobId) {
+  if (!sord || sord.data[jobId] || sord.loading[jobId]) return;
+  sord.loading[jobId] = true;
+  loadOrderJobData(jobId).then(function(d) {
+    if (!sord) return;
+    sord.data[jobId] = d;
+    sord.loading[jobId] = false;
+    renderSupplierOrderIfOpen();
+  });
+}
+
+function sordMethod() {
+  if (sord.method) return sord.method;
+  return sord.jobIds.length > 1 ? 'home' : 'site';
+}
+
+function sordSiteJobId() {
+  return sord.jobIds.indexOf(sord.siteJobId) !== -1 ? sord.siteJobId : sord.jobIds[0];
+}
+
+function sordPrefillAddress() {
+  var m = sordMethod();
+  if (m === 'home') return homeDeliveryAddress();
+  if (m === 'site') return jobSiteAddress(jobs.find(function(j) { return j.id === sordSiteJobId(); }));
+  return '';
+}
+
+function sordAddress() {
+  return sord.address != null ? sord.address : sordPrefillAddress();
+}
+
+// The merged lines with this order's state laid over them: ticked or not,
+// the quantity to send, and what's already been ordered. Measured per source
+// job against what each needs NOW: a line with nothing still short starts
+// unticked; one with something short -- a job that never ordered it, or one
+// that needs more since (an extra room) -- starts ticked at just the shortfall,
+// since re-sending what's already ordered would double it.
+function sordLines() {
+  var lines = buildSupplierOrderLines(sord.jobIds, sord.data);
+  lines.forEach(function(l) {
+    var latest = null, anyOrdered = false;
+    l.jobs.forEach(function(j) {
+      var info = orderedInfo(j.jobId, l.key);
+      j.ordered = info ? info.quantity : 0;
+      j.short = Math.max(0, Math.round((j.quantity - j.ordered) * 100) / 100);
+      if (info) {
+        anyOrdered = true;
+        if (!latest || info.sentAt > latest.sentAt) latest = info;
+      }
+    });
+    l.ordered = latest;
+    l.orderedTotal = Math.round(l.jobs.reduce(function(s, j) { return s + j.ordered; }, 0) * 100) / 100;
+    l.shortJobs = l.jobs.filter(function(j) { return j.short > 0.001; });
+    l.fullyOrdered = anyOrdered && !l.shortJobs.length;
+    // Some job had ordered it and now needs more than it got.
+    l.increased = l.jobs.some(function(j) { return j.ordered > 0 && j.short > 0.001; });
+    l.orderedJobIds = l.jobs.filter(function(j) { return j.ordered > 0; }).map(function(j) { return j.jobId; });
+    // Who an order of this line is FOR, and in what proportion: the jobs still
+    // short by their shortfall, or -- nothing ordered yet, or re-ordering a
+    // line that's all done -- every job by what it needs.
+    l.forJobs = anyOrdered && l.shortJobs.length
+      ? l.shortJobs.map(function(j) { return { jobId: j.jobId, jobName: j.jobName, weight: j.short }; })
+      : l.jobs.map(function(j) { return { jobId: j.jobId, jobName: j.jobName, weight: j.quantity }; });
+    // A line that's all done still defaults to its full quantity if ticked
+    // again: that's a deliberate re-order, not a top-up.
+    l.defaultQty = anyOrdered && l.shortJobs.length ? Math.round(l.shortJobs.reduce(function(s, j) { return s + j.short; }, 0) * 100) / 100 : l.quantity;
+    var st = sord.lineState[l.key];
+    l.included = st && st.included != null ? st.included : !l.fullyOrdered;
+    l.sendQty = st && st.qty != null ? st.qty : l.defaultQty;
+  });
+  return lines;
+}
+
+function sordSetLine(key, patch) {
+  var st = sord.lineState[key] || (sord.lineState[key] = {});
+  for (var k in patch) st[k] = patch[k];
+}
+
+function toggleSupplierOrderLine(i) {
+  var l = (sord._lines || [])[i];
+  if (!l) return;
+  sordSetLine(l.key, { included: !l.included });
+  renderSupplierOrder();
+}
+
+function setSupplierOrderQty(i, val) {
+  var l = (sord._lines || [])[i];
+  if (!l) return;
+  var n = Math.max(0, +val || 0);
+  sordSetLine(l.key, { qty: Math.round(n * 100) / 100 });
+  renderSupplierOrder();
+}
+
+function stepSupplierOrderQty(i, dir) {
+  var l = (sord._lines || [])[i];
+  if (!l) return;
+  var step = l.isPerLitre ? 0.5 : 1;
+  setSupplierOrderQty(i, Math.max(0, l.sendQty + dir * step));
+}
+
+function toggleSupplierOrderJob(jobId) {
+  var at = sord.jobIds.indexOf(jobId);
+  if (at === -1) {
+    sord.jobIds.push(jobId);
+    ensureOrderJobLoaded(jobId);
+    loadSupplierOrders(jobId).then(renderSupplierOrderIfOpen).catch(function() {});
+  } else {
+    if (sord.jobIds.length === 1) return; // an order is always for at least one job
+    sord.jobIds.splice(at, 1);
+  }
+  // Delivery follows the job count until it's been chosen by hand, and the
+  // address follows the prefill until it's been typed in.
+  renderSupplierOrder();
+}
+
+function setSupplierOrderSupplier(id) { sord.supplierId = id; renderSupplierOrder(); }
+function setSupplierOrderMethod(m) { sord.method = m; sord.address = null; renderSupplierOrder(); }
+function setSupplierOrderSiteJob(jobId) { sord.siteJobId = jobId; sord.address = null; renderSupplierOrder(); }
+function setSupplierOrderAddress(v) { sord.address = v; }
+function setSupplierOrderNotes(v) { sord.notes = v; }
+function setSupplierOrderRequiredBy(v) { sord.requiredBy = v; }
+
+function addSupplierOrderExtra() {
+  var d = document.getElementById('sord-extra-desc');
+  var q = document.getElementById('sord-extra-qty');
+  var desc = d ? d.value.trim() : '';
+  var qty = q ? Math.max(0, +q.value || 0) : 0;
+  if (!desc) { if (d) d.focus(); return; }
+  sord.extras.push({ id: uid(), description: desc, qty: qty || 1 });
+  renderSupplierOrder();
+}
+
+function removeSupplierOrderExtra(i) {
+  sord.extras.splice(i, 1);
+  renderSupplierOrder();
+}
+
+function setSupplierOrderExtraQty(i, val) {
+  var x = sord.extras[i];
+  if (!x) return;
+  x.qty = Math.max(0, Math.round((+val || 0) * 100) / 100);
+  renderSupplierOrder();
+}
+
+function fmtRequiredBy(iso) {
+  if (!iso) return '';
+  var d = parseIsoDate(iso);
+  if (isNaN(d)) return iso;
+  // Built by hand: en-GB's weekday form puts a comma after the day name.
+  return d.toLocaleDateString('en-GB', { weekday: 'short' }) + ' ' + d.getDate() + ' '
+    + d.toLocaleDateString('en-GB', { month: 'short' }) + ' ' + d.getFullYear();
+}
+
+// The email itself. Plain text; every line whose value is empty is left out.
+function supplierOrderEmail(o) {
+  var sup = o.supplier || {};
+  var acc = (sup.accountNumber || '').trim();
+  var business = quoteBusinessName();
+  var subject = 'Order: ' + business + (acc ? ' (Acc ' + acc + ')' : '');
+  var delivery = o.method === 'collect'
+    ? 'Collect' + (sup.branchName ? ' from ' + sup.branchName : '')
+    : DELIVERY_LABELS[o.method];
+  var address = o.method === 'collect' ? (sup.branchAddress || '') : (o.address || '');
+  var kv = function(k, v) { v = (v || '').replace(/\s*\n\s*/g, ', ').trim(); return v ? k + ': ' + v : null; };
+  var owner = (settings.ownerName || '').trim();
+  var body = [
+    'Hi ' + (sup.name || '') + ',',
+    '',
+    'Please could you supply the following:',
+    ''
+  ].concat(o.lineTexts).concat([
+    ''
+  ]).concat([
+    kv('Account', acc),
+    kv('Job ref', o.jobNames.join(', ')),
+    kv('Delivery', delivery),
+    kv('Address', address),
+    kv('Delivery notes', o.notes),
+    kv('Required by', fmtRequiredBy(o.requiredBy))
+  ].filter(Boolean)).concat([
+    '',
+    'Thanks,'
+  ]).concat([owner, owner.toLowerCase() === business.toLowerCase() ? '' : business, (settings.businessPhone || '').trim()]
+    .filter(Boolean));
+  return { subject: subject, body: body.join('\r\n'), to: sup.email || '' };
+}
+
+// mailto: with the RFC 6068 encoding every mail app agrees on: each part
+// encodeURIComponent'd (so spaces are %20, never +) and CRLF line breaks,
+// which come out as %0D%0A.
+function supplierOrderMailto(email) {
+  return 'mailto:' + encodeURIComponent(email.to).replace(/%40/g, '@')
+    + '?subject=' + encodeURIComponent(email.subject)
+    + '&body=' + encodeURIComponent(email.body);
+}
+
+// Everything the email and the log need, read off the screen's state. null
+// with a reason when the order can't go yet.
+function sordCompose() {
+  var lines = sordLines();
+  var sup = findSupplier(sord.supplierId);
+  var method = sordMethod();
+  var included = lines.filter(function(l) { return l.included && l.sendQty > 0; });
+  var extras = sord.extras.filter(function(x) { return x.description && x.qty > 0; });
+  var jobNames = sord.jobIds.map(function(id) { var j = jobs.find(function(x) { return x.id === id; }); return j ? j.name : ''; }).filter(Boolean);
+  var lineTexts = included.map(function(l) { return supplierOrderLineText(l.sendQty, l); })
+    .concat(extras.map(function(x) { return (Math.round(x.qty * 100) / 100) + ' x ' + x.description; }));
+  var reason = !sup ? 'Choose a supplier.'
+    : !lineTexts.length ? 'Tick at least one line.'
+    : method !== 'collect' && !sordAddress().trim() ? 'Add a delivery address.' : '';
+  var email = sup ? supplierOrderEmail({
+    supplier: sup, method: method, address: sordAddress(), notes: sord.notes, requiredBy: sord.requiredBy,
+    lineTexts: lineTexts, jobNames: jobNames
+  }) : null;
+  return { reason: reason, supplier: sup, method: method, lines: lines, included: included, extras: extras, email: email };
+}
+
+function sendSupplierOrder() {
+  var c = sordCompose();
+  if (c.reason) { alert(c.reason); return; }
+  sord.awaiting = sordSnapshot(c, 'mail');
+  renderSupplierOrder();
+  openMailto(supplierOrderMailto(c.email));
+}
+
+// Hands the link to the OS, which opens the mail app. Its own function so a
+// test can see the URL without leaving the page.
+function openMailto(url) {
+  window.location.href = url;
+}
+
+async function copySupplierOrderText() {
+  var c = sordCompose();
+  if (c.reason) { alert(c.reason); return; }
+  var text = c.email.body;
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Order copied — paste it into an email to ' + c.supplier.name);
+  } catch (e) {
+    // Same fallback as the invoice list's Copy: a selectable box, so the
+    // text is at least copyable by hand rather than lost.
+    var ta = document.getElementById('sord-copy-fallback');
+    if (ta) {
+      ta.value = text; ta.style.display = 'block';
+      ta.select();
+      try { document.execCommand('copy'); toast('Order copied'); } catch (e2) {}
+    }
+  }
+  sord.awaiting = sordSnapshot(c, 'copy');
+  renderSupplierOrder();
+}
+
+// Frozen at the moment Send was tapped: the confirmation logs what went into
+// the email, even if something on screen is touched in between.
+function sordSnapshot(c, via) {
+  return {
+    via: via,
+    supplier: c.supplier, method: c.method,
+    address: c.method === 'collect' ? '' : sordAddress(),
+    notes: sord.notes, requiredBy: sord.requiredBy,
+    jobIds: sord.jobIds.slice(),
+    lines: c.lines, included: c.included, extras: c.extras,
+    bodyText: c.email.body
+  };
+}
+
+// "Did you send it?" -- a mailto: link can't report back, so the user says.
+// Yes logs the order and marks its lines ordered, per source job.
+function confirmSupplierOrder(sent) {
+  var a = sord && sord.awaiting;
+  if (!a) return;
+  sord.awaiting = null;
+  if (!sent) { renderSupplierOrder(); return; }
+  var id = uid();
+  var rows = [];
+  var lineNo = 0;
+  a.included.forEach(function(l) {
+    var description = supplierOrderLineDesc(l);
+    // Split the quantity sent across the jobs it was for (see sordLines),
+    // in proportion to what each was short.
+    var forJobs = l.forJobs;
+    var calc = forJobs.reduce(function(s, j) { return s + j.weight; }, 0);
+    forJobs.forEach(function(j) {
+      var share = calc > 0 ? j.weight / calc : 1 / forJobs.length;
+      rows.push({ id: id + ':' + rows.length, lineNo: lineNo, productKey: l.key, jobId: j.jobId,
+                  description: description, quantity: Math.round(l.sendQty * share * 100) / 100, isExtra: false });
+    });
+    lineNo++;
+  });
+  a.extras.forEach(function(x) {
+    rows.push({ id: id + ':' + rows.length, lineNo: lineNo++, productKey: null, jobId: null,
+                description: x.description, quantity: x.qty, isExtra: true });
+  });
+  var order = {
+    id: id, supplierId: a.supplier.id, supplierName: a.supplier.name,
+    deliveryMethod: a.method, deliveryAddress: a.address, deliveryNotes: a.notes,
+    requiredBy: a.requiredBy || null, bodyText: a.bodyText, sentAt: new Date().toISOString(),
+    jobIds: a.jobIds, lines: rows
+  };
+  a.jobIds.forEach(function(jobId) {
+    supplierOrdersByJob[jobId] = [order].concat(ordersForJob(jobId));
+  });
+  persistSupplierOrdersLocal();
+  apiPut('/api/supplier-orders/' + encodeURIComponent(id), order);
+  // What's left for the shopping-list offer: lines left unticked that some
+  // job is still short of, per job that is.
+  var leftover = [];
+  a.lines.forEach(function(l) {
+    if (l.included || l.fullyOrdered) return;
+    var need = l.forJobs;
+    if (need.length) leftover.push({ line: l, jobs: need });
+  });
+  sord.logged = { supplierName: a.supplier.name, leftover: leftover, addedToList: false };
+  sord.lineState = {};
+  renderSupplierOrder();
+}
+
+// Opt-in, one tap: the unticked, not-yet-ordered lines onto the shopping
+// list, through the one add path (shopListAdd) so they dedupe against what's
+// already there and carry each source job's name as a tag.
+function addUnorderedToShopList() {
+  var lg = sord && sord.logged;
+  if (!lg || !lg.leftover.length) return;
+  withShopList(function() {
+    lg.leftover.forEach(function(x) {
+      var l = x.line;
+      var price = l.isPerLitre ? 0 : materialPriceFor({ itemCode: l.itemCode, unitAmount: l.unitAmount });
+      x.jobs.forEach(function(j) {
+        shopListAdd(l.description, l.itemCode || '', price > 0 ? price : null, j.jobName);
+      });
+    });
+    lg.addedToList = true;
+    renderSupplierOrderIfOpen();
+  });
+}
+
+function dismissSupplierOrderLogged() {
+  if (sord) sord.logged = null;
+  renderSupplierOrder();
+}
+
+// Coming back from the mail app is the moment to ask. The card is already on
+// screen (it renders the instant Send is tapped); this just makes sure it's
+// the first thing seen.
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState !== 'visible' || curTab !== 'supplierorder' || !sord || !sord.awaiting) return;
+  renderSupplierOrder();
+  var c = document.getElementById('sord-confirm');
+  if (c && c.scrollIntoView) c.scrollIntoView({ block: 'start' });
+});
+
+function renderSupplierOrder() {
+  var el = document.getElementById('supplierorder-body');
+  if (!el || !sord) return;
+  var btn = 'border:none;border-radius:12px;padding:11px;font-size:14px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer';
+  var chip = 'display:inline-block;font-size:11px;font-weight:600;border-radius:10px;padding:2px 8px';
+  var parts = [];
+
+  // ── The confirmation / logged cards, always on top ─────────────────────
+  if (sord.awaiting) {
+    parts.push('<div class="card" id="sord-confirm" style="padding:14px;margin-bottom:12px;border:2px solid var(--accent)">'
+      + '<div style="font-size:15px;font-weight:700">Did you send the order to ' + escapeHtml(sord.awaiting.supplier.name) + '?</div>'
+      + '<div style="font-size:13px;color:var(--text2);margin-top:4px">The app can\'t see your mail app, so it only marks lines as ordered when you say so.</div>'
+      + '<div style="display:flex;gap:8px;margin-top:12px">'
+        + '<button onclick="confirmSupplierOrder(true)" style="' + btn + ';background:var(--accent);color:#fff;flex:2">Yes, mark as ordered</button>'
+        + '<button onclick="confirmSupplierOrder(false)" style="' + btn + ';background:var(--surface2);color:var(--text);flex:1">No</button>'
+      + '</div></div>');
+  }
+  if (sord.logged) {
+    var lg = sord.logged;
+    parts.push('<div class="card" style="padding:14px;margin-bottom:12px">'
+      + '<div style="display:flex;justify-content:space-between;gap:10px"><div style="font-size:15px;font-weight:700;color:var(--success)">✓ Logged as ordered from ' + escapeHtml(lg.supplierName) + '</div>'
+      + '<button onclick="dismissSupplierOrderLogged()" title="Dismiss" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0 2px">✕</button></div>'
+      + (lg.leftover.length
+          ? (lg.addedToList
+              ? '<div style="font-size:13px;color:var(--text2);margin-top:6px">' + lg.leftover.length + ' unordered line' + (lg.leftover.length === 1 ? '' : 's') + ' added to the shopping list.</div>'
+              : '<div style="font-size:13px;color:var(--text2);margin-top:6px">' + lg.leftover.length + ' line' + (lg.leftover.length === 1 ? ' was' : 's were') + ' left out and still not ordered.</div>'
+                + '<button onclick="addUnorderedToShopList()" style="' + btn + ';background:var(--accent-soft-bg);color:var(--accent);width:100%;margin-top:10px">🛒 Add unordered to shopping list</button>')
+          : '')
+      + '</div>');
+  }
+
+  // ── Jobs ────────────────────────────────────────────────────────────────
+  var cands = supplierOrderCandidateJobs();
+  parts.push('<div class="section-title" style="margin:4px 0 8px">Jobs</div><div class="card" style="padding:4px 0;margin-bottom:12px">'
+    + cands.map(function(j) {
+        var on = sord.jobIds.indexOf(j.id) !== -1;
+        var d = sord.data[j.id];
+        var note = on && sord.loading[j.id] ? 'Loading…'
+          : on && d && !d.ok ? 'Couldn\'t load this job\'s materials offline'
+          : (jobSiteAddress(j) || '');
+        return '<label style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer">'
+          + '<input type="checkbox" ' + (on ? 'checked' : '') + ' onchange="toggleSupplierOrderJob(\'' + escapeHtml(j.id) + '\')" style="width:20px;height:20px;flex:none;accent-color:var(--accent)">'
+          + '<span style="flex:1;min-width:0"><span style="display:block;font-size:14px;font-weight:600">' + escapeHtml(j.name) + (j.id === sord.originJobId ? ' <span style="font-weight:400;color:var(--text2)">(this job)</span>' : '') + '</span>'
+          + (note ? '<span style="display:block;font-size:12px;color:' + (on && d && !d.ok ? 'var(--danger)' : 'var(--text2)') + ';margin-top:1px">' + escapeHtml(note) + '</span>' : '')
+          + '</span></label>';
+      }).join('')
+    + '</div>');
+
+  // ── Lines ───────────────────────────────────────────────────────────────
+  var c = sordCompose();
+  var lines = c.lines;
+  sord._lines = lines;
+  var noColour = lines.filter(function(l) { return l.included && l.placeholder; }).length;
+  var rows = lines.map(function(l, i) {
+    var ordered = l.ordered
+      ? '<div style="margin-top:4px"><span style="' + chip + ';background:var(--accent-soft-bg);color:var(--accent)">'
+        + escapeHtml(l.fullyOrdered || l.increased ? orderedLabel(l.ordered, l.quantity, l.orderedTotal)
+            : 'Ordered for ' + l.jobs.filter(function(j) { return l.orderedJobIds.indexOf(j.jobId) !== -1; }).map(function(j) { return j.jobName; }).join(', ') + ' · ' + (l.ordered.supplierName || '') + ' · ' + fmtOrderDate(l.ordered.sentAt))
+        + '</span></div>' : '';
+    var warn = l.placeholder ? '<span style="' + chip + ';background:var(--danger-soft-bg);color:var(--danger);margin-left:6px">⚠ no colour set</span>' : '';
+    var fromJobs = sord.jobIds.length > 1
+      ? '<div style="font-size:12px;color:var(--text2);margin-top:2px">' + escapeHtml(l.jobs.map(function(j) { return j.jobName + ' · ' + j.quantity; }).join('  ·  ')) + '</div>' : '';
+    var split = !l.placeholder && l.colourOrder.length > 1
+      ? '<div style="font-size:12px;color:var(--text2);margin-top:2px">' + escapeHtml(l.colourOrder.map(function(n) { return n + ' · ' + (Math.round(l.colourQty[n] * 100) / 100); }).join('  ·  ')) + '</div>' : '';
+    var stepBtn = 'width:34px;height:34px;border-radius:var(--rs);border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:18px;cursor:pointer;flex:none';
+    return '<div style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border);' + (l.included ? '' : 'opacity:.55') + '">'
+      + '<input type="checkbox" ' + (l.included ? 'checked' : '') + ' onchange="toggleSupplierOrderLine(' + i + ')" style="margin-top:3px;width:20px;height:20px;flex:none;accent-color:var(--accent)">'
+      + '<div style="flex:1;min-width:0">'
+        + '<div style="font-size:14px;font-weight:600;word-break:break-word">' + escapeHtml(l.display) + warn + '</div>'
+        + split + fromJobs + ordered
+        + '<div style="display:flex;align-items:center;gap:6px;margin-top:8px">'
+          + '<button onclick="stepSupplierOrderQty(' + i + ',-1)" aria-label="Less" style="' + stepBtn + '">−</button>'
+          + '<input type="number" min="0" step="' + (l.isPerLitre ? '0.5' : '1') + '" value="' + l.sendQty + '" inputmode="decimal" onchange="setSupplierOrderQty(' + i + ', this.value)"'
+            + ' style="width:64px;text-align:center;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:\'DM Sans\',sans-serif;font-size:15px;border-radius:var(--rs);padding:6px 4px;outline:none">'
+          + '<button onclick="stepSupplierOrderQty(' + i + ',1)" aria-label="More" style="' + stepBtn + '">+</button>'
+          + '<span style="font-size:13px;color:var(--text2);margin-left:4px">' + (l.isPerLitre ? 'L' : '') + (l.sendQty !== l.defaultQty ? ' (calculated ' + l.defaultQty + ')' : '') + '</span>'
+        + '</div>'
+      + '</div></div>';
+  }).join('');
+  var loading = sord.jobIds.some(function(id) { return sord.loading[id]; });
+  if (!lines.length) {
+    rows = '<div style="padding:14px;font-size:13px;color:var(--text2)">' + (loading ? 'Loading materials…'
+      : 'No calculated materials on ' + (sord.jobIds.length > 1 ? 'these jobs' : 'this job') + ' yet — Recalculate on Summary, or add extra items below.') + '</div>';
+  }
+  var extras = sord.extras.map(function(x, i) {
+    return '<div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border)">'
+      + '<div style="flex:1;min-width:0;font-size:14px;font-weight:600;word-break:break-word">' + escapeHtml(x.description) + ' <span style="' + chip + ';background:var(--surface2);color:var(--text2)">extra</span></div>'
+      + '<input type="number" min="0" step="1" value="' + x.qty + '" inputmode="decimal" onchange="setSupplierOrderExtraQty(' + i + ', this.value)" style="width:56px;text-align:center;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:\'DM Sans\',sans-serif;font-size:15px;border-radius:var(--rs);padding:6px 4px;outline:none">'
+      + '<button onclick="removeSupplierOrderExtra(' + i + ')" title="Remove" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0 2px">✕</button>'
+      + '</div>';
+  }).join('');
+  var addExtra = '<div style="display:flex;gap:8px;padding:10px 14px;align-items:center">'
+    + '<input type="text" id="sord-extra-desc" placeholder="Extra item… e.g. decorators caulk" autocorrect="off" onkeydown="if(event.key===\'Enter\'){event.preventDefault();addSupplierOrderExtra();}" class="field-input" style="flex:1;min-width:0;width:auto;text-align:left;font-family:\'DM Sans\',sans-serif;font-size:15px">'
+    + '<input type="number" id="sord-extra-qty" value="1" min="0" step="1" inputmode="decimal" class="field-input" style="width:56px;text-align:center;font-family:\'DM Sans\',sans-serif;font-size:15px;padding:8px 4px">'
+    + '<button onclick="addSupplierOrderExtra()" style="' + btn + ';background:var(--accent);color:#fff;padding:9px 14px;flex:none">Add</button>'
+    + '</div>';
+  parts.push('<div class="section-title" style="margin:4px 0 8px">Order</div>'
+    + '<div class="card" style="padding:0;margin-bottom:12px">' + rows + extras + addExtra + '</div>');
+
+  // ── Supplier ────────────────────────────────────────────────────────────
+  var supHtml = suppliers.length
+    ? '<select class="field-input" style="width:100%;font-family:\'DM Sans\',sans-serif;font-size:15px" onchange="setSupplierOrderSupplier(this.value)">'
+      + '<option value="">— Choose a supplier —</option>'
+      + suppliers.map(function(s) { return '<option value="' + escapeHtml(s.id) + '"' + (s.id === sord.supplierId ? ' selected' : '') + '>' + escapeHtml(s.name) + '</option>'; }).join('')
+      + '</select>'
+    : '<div style="font-size:13px;color:var(--text2)">No suppliers saved yet. <a href="#" onclick="event.preventDefault();goTab(\'settings\')" style="color:var(--accent);font-weight:600">Add one in Settings</a></div>';
+  parts.push('<div class="section-title" style="margin:4px 0 8px">Supplier</div><div class="card" style="padding:12px 14px;margin-bottom:12px;overflow:visible">' + supHtml + '</div>');
+
+  // ── Delivery ────────────────────────────────────────────────────────────
+  var m = sordMethod();
+  var seg = '<div class="seg" style="display:flex;gap:4px;background:var(--surface2);border-radius:10px;padding:3px">'
+    + ['collect', 'site', 'home'].map(function(k) {
+        return '<button class="seg-btn' + (m === k ? ' active' : '') + '" onclick="setSupplierOrderMethod(\'' + k + '\')">' + (k === 'collect' ? 'Collect' : k === 'site' ? 'To site' : 'To home') + '</button>';
+      }).join('')
+    + '</div>';
+  var sup = c.supplier;
+  var deliveryDetail = '';
+  if (m === 'collect') {
+    deliveryDetail = '<div style="font-size:13px;color:var(--text2);margin-top:10px">'
+      + (sup ? (sup.branchName || sup.branchAddress
+          ? 'Collect from ' + escapeHtml([sup.branchName, sup.branchAddress].filter(Boolean).join(', '))
+          : 'No branch saved for ' + escapeHtml(sup.name) + ' — the email will just say Collect.')
+        : 'Choose a supplier to see its branch.')
+      + '</div>';
+  } else {
+    var siteChoices = '';
+    if (m === 'site' && sord.jobIds.length > 1) {
+      siteChoices = '<div style="margin-top:10px">' + sord.jobIds.map(function(id) {
+        var j = jobs.find(function(x) { return x.id === id; });
+        var a = jobSiteAddress(j);
+        return '<label style="display:flex;gap:8px;align-items:flex-start;padding:5px 0;cursor:pointer;font-size:13px">'
+          + '<input type="radio" name="sord-site" ' + (id === sordSiteJobId() ? 'checked' : '') + ' onchange="setSupplierOrderSiteJob(\'' + escapeHtml(id) + '\')" style="accent-color:var(--accent);margin-top:2px">'
+          + '<span><strong>' + escapeHtml(j ? j.name : '') + '</strong><br><span style="color:var(--text2)">' + escapeHtml(a || 'No address on this job') + '</span></span></label>';
+      }).join('') + '</div>';
+    }
+    deliveryDetail = siteChoices
+      + '<div style="font-size:13px;font-weight:600;margin-top:12px">Delivery address <span style="font-weight:400;color:var(--text2)">this order only</span></div>'
+      + '<textarea id="sord-address" rows="2" oninput="setSupplierOrderAddress(this.value)" class="field-input" style="width:100%;text-align:left;font-family:\'DM Sans\',sans-serif;font-size:15px;margin-top:4px;resize:vertical" placeholder="' + (m === 'home' ? 'Set a home or business address in Settings' : 'No site address on this job') + '">' + escapeHtml(sordAddress()) + '</textarea>';
+  }
+  parts.push('<div class="section-title" style="margin:4px 0 8px">Delivery</div><div class="card" style="padding:12px 14px;margin-bottom:12px">'
+    + seg + deliveryDetail
+    + '<div style="font-size:13px;font-weight:600;margin-top:12px">Delivery notes <span style="font-weight:400;color:var(--text2)">optional</span></div>'
+    + '<textarea id="sord-notes" rows="2" oninput="setSupplierOrderNotes(this.value)" class="field-input" style="width:100%;text-align:left;font-family:\'DM Sans\',sans-serif;font-size:15px;margin-top:4px;resize:vertical" placeholder="Where to leave it, gate code, access…">' + escapeHtml(sord.notes) + '</textarea>'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px">'
+      + '<div style="font-size:13px;font-weight:600">Required by <span style="font-weight:400;color:var(--text2)">optional</span></div>'
+      + '<input type="date" id="sord-required" value="' + escapeHtml(sord.requiredBy) + '" onchange="setSupplierOrderRequiredBy(this.value)" class="field-input" style="width:auto;font-family:\'DM Sans\',sans-serif;font-size:15px">'
+    + '</div>'
+    + '</div>');
+
+  // ── Send ────────────────────────────────────────────────────────────────
+  if (noColour) {
+    parts.push('<div style="background:var(--danger-soft-bg);border:1px solid var(--danger-soft-border);color:var(--danger);border-radius:var(--rs);padding:10px 12px;font-size:13px;font-weight:600;margin-bottom:10px">⚠ '
+      + noColour + ' line' + (noColour === 1 ? ' has' : 's have') + ' no colour set — the email will show the colour band instead.</div>');
+  }
+  parts.push('<button onclick="sendSupplierOrder()" style="' + btn + ';background:var(--accent);color:#fff;width:100%;padding:14px;font-size:15px' + (c.reason ? ';opacity:.5' : '') + '">✉ Send to ' + escapeHtml(sup ? sup.name : 'supplier') + '</button>'
+    + (c.reason ? '<div style="font-size:12px;color:var(--text2);text-align:center;margin-top:6px">' + escapeHtml(c.reason) + '</div>' : '')
+    + '<button onclick="copySupplierOrderText()" class="btn btn-ghost" style="width:100%;padding:12px;font-size:14px;margin-top:4px">Copy order text</button>'
+    + '<textarea id="sord-copy-fallback" readonly style="display:none;width:100%;height:160px;margin-top:8px"></textarea>');
+
+  el.innerHTML = parts.join('');
 }
 
 // ── The Colours tab ────────────────────────────────────────────────────────

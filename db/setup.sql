@@ -574,3 +574,54 @@ CREATE UNIQUE INDEX IF NOT EXISTS invoices_idempotency_key ON invoices (idempote
 CREATE INDEX IF NOT EXISTS invoices_job ON invoices (job_id);
 -- Which invoice a published variation line was billed on (NULL = not yet).
 ALTER TABLE job_variations ADD COLUMN IF NOT EXISTS invoiced_on_invoice_id VARCHAR;
+
+-- ── Suppliers + supplier orders ─────────────────────────────────────────
+-- A materials order sent to ONE supplier from the phone's mail app (mailto:)
+-- and logged here so a job's materials can say what has already been
+-- ordered. No prices anywhere. Created lazily by lib/supplierOrders.js too
+-- (this file is not run on deploy); kept here so a fresh database matches.
+-- supplier_name is a snapshot so history still reads after the supplier is
+-- edited or deleted; supplier_id is deliberately not a foreign key.
+-- supplier_order_lines holds one row per SOURCE JOB for a line merged
+-- across jobs (line_no groups them back into one emailed line), so ordered
+-- status is per job: a row with that job_id + product_key.
+CREATE TABLE IF NOT EXISTS suppliers (
+  id VARCHAR PRIMARY KEY,
+  name VARCHAR NOT NULL,
+  email VARCHAR NOT NULL,
+  account_number VARCHAR NOT NULL DEFAULT '',
+  branch_name VARCHAR NOT NULL DEFAULT '',
+  branch_address VARCHAR NOT NULL DEFAULT '',
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS supplier_orders (
+  id VARCHAR PRIMARY KEY,
+  supplier_id VARCHAR,
+  supplier_name VARCHAR NOT NULL DEFAULT '',
+  delivery_method VARCHAR NOT NULL,               -- collect | site | home
+  delivery_address VARCHAR NOT NULL DEFAULT '',
+  delivery_notes VARCHAR NOT NULL DEFAULT '',
+  required_by DATE,
+  body_text TEXT NOT NULL DEFAULT '',             -- the email body as sent
+  sent_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS supplier_order_jobs (
+  order_id VARCHAR NOT NULL REFERENCES supplier_orders(id) ON DELETE CASCADE,
+  job_id VARCHAR NOT NULL,
+  PRIMARY KEY (order_id, job_id)
+);
+CREATE TABLE IF NOT EXISTS supplier_order_lines (
+  id VARCHAR PRIMARY KEY,
+  order_id VARCHAR NOT NULL REFERENCES supplier_orders(id) ON DELETE CASCADE,
+  line_no INTEGER NOT NULL DEFAULT 0,
+  product_key VARCHAR,                            -- materialKey(); NULL for extra items
+  job_id VARCHAR,                                 -- NULL for extra items
+  description VARCHAR NOT NULL,                   -- as sent, colour substituted
+  quantity NUMERIC NOT NULL DEFAULT 0,
+  is_extra BOOLEAN NOT NULL DEFAULT FALSE
+);
+CREATE INDEX IF NOT EXISTS supplier_order_jobs_job ON supplier_order_jobs (job_id);
+CREATE INDEX IF NOT EXISTS supplier_order_lines_order ON supplier_order_lines (order_id);
+CREATE INDEX IF NOT EXISTS supplier_order_lines_job ON supplier_order_lines (job_id);

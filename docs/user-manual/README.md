@@ -744,7 +744,7 @@ Once a job is accepted, the **🛠 On Site** tab is your day-to-day companion:
 
 - **Estimated vs Actual** — the card at the top tracks what the materials are really costing against what you quoted, with the variance.
 - **Time on Site** — tap **+ Log today (full day)** at the end of each day (or *Log a different day* to back-fill). This builds the true labour record for the job.
-- **Materials** — the quote's materials list becomes a shopping list. Tick items off as you buy them, and correct quantities/prices to what you actually paid — see [Materials & Undo](#materials--undo) for how edits and Recalculate interact, and Undo if something goes wrong. Any row here can also go on your **Shopping List** — see below.
+- **Materials** — the quote's materials list becomes a shopping list. Tick items off as you buy them, and correct quantities/prices to what you actually paid — see [Materials & Undo](#materials--undo) for how edits and Recalculate interact, and Undo if something goes wrong. Any row here can also go on your **Shopping List**, or the whole list can go to your merchant with **✉ Send to supplier** — see below.
 - **Add material the estimate missed** — extra sundries or a forgotten tin: search the product, set the price, done.
 - **Variations** — the client asks for "just one more room" mid-job? Add the room (or exterior item, fitted unit) on Measure and flick its **Variation** toggle, in the **Room Details** card at the top of the form, with the room's name (it only appears once the quote has been accepted, and on a new room added after that it starts **on** — turn it off if the room is a correction to the original quote rather than extra work):
 
@@ -762,6 +762,45 @@ This is the screen you have open standing in the room, so it's the one that answ
 ![Adding On Site materials to the shopping list](images/10g-onsite-shoplist.png)
 
 It's per row and never automatic — plenty of what's on a job is already in the van. Summary's materials list has the same chip on the quoted lines, and either route lands on the same list: one line per product, no duplicates however many times you tap, and both job names on it if two jobs need the same thing. Paint sold by the litre goes on **without a price**, because the figure on the row is a price per litre, not what a tin costs at the till. Ticked something off in the shop and then ran out? Tap the chip again and it goes back on the list.
+
+### Sending a materials order to your supplier
+
+When you'd rather the merchant delivered (or had it ready to collect) than go round the shop yourself, tap **✉ Send to supplier** at the top of the On Site materials list. It builds an order from the job's calculated materials and opens it as a ready-written email in your phone's mail app. This is separate from the [Shopping List](#8-price-lookup--shopping-list), which is for when you're standing in the shop — and there are **no prices anywhere on it**.
+
+![Building a supplier order](images/10m-send-to-supplier.png)
+
+- **Jobs** — the job you came from is ticked. Tick any other accepted job to put its materials on the same order: the same product and size on two jobs becomes one line with the quantities added together, exactly as On Site groups them.
+- **The lines** — every line is ticked to start with. Paint reads with its **real colour in place of the colour band** (*Optiva 5 - Dead Salmon 3ltr*, not *Optiva 5 - Colours 3ltr*), the same as your invoices. A product covering two colours gets the split in brackets in the email, so the merchant knows how many to tint of each. Use **− / +** to change a quantity for this order only — the job's own materials don't change.
+- **⚠ no colour set** — a line whose colour is still just a room name (nobody has picked the colour yet) is flagged, and a banner above the Send button counts them. It won't stop you sending; the email just shows the colour band for that line.
+- **Extra item** — anything the calculator doesn't produce (caulk, tape, filler): type it, set a quantity, **Add**. Extras belong to this order only.
+- **Already ordered** — a line you've ordered before starts **unticked** and says so: *Ordered · Brewers · 24 Sept*. Tick it again if you really do want more. If only one of the jobs on the order has had it, it starts ticked at the other job's quantity.
+- **Needs more since you ordered** — add a room after ordering and the job may now need more than you sent. That line says so — *Ordered 3 · now needs 5 · Brewers · 24 Sept* — and starts **ticked at just the difference** (2), so the next order tops it up. Ordering more than the calculation (spares) never gets flagged.
+
+Then choose the **supplier** and how it's arriving:
+
+![Supplier and delivery](images/10n-supplier-delivery.png)
+
+- **Collect** — no delivery address; the email names the supplier's branch and its address from Settings.
+- **To site** — fills in the job's address. With more than one job on the order, pick which job's address it goes to.
+- **To home** — fills in your home delivery address from Settings (or your business address if that's blank).
+
+It starts on **To site** for one job and **To home** for several. The address box is editable for this order only — nothing you type there changes the job or Settings. **Delivery notes** (where to leave it, a gate code) and **Required by** are optional; anything left empty is simply left off the email.
+
+Tap **✉ Send to [supplier]** and your mail app opens with the email ready — subject *Order: [business name] (Acc [account number])*, the lines, your account number, the job names as the reference, the delivery details, and your name, business name and phone to sign it off. Check it and send it from there. No mail app on this device? **Copy order text** copies the email so you can paste it anywhere.
+
+The app can't see whether you actually pressed Send in your mail app, so when you come back it asks:
+
+![Did you send it?](images/10o-supplier-confirm.png)
+
+**Yes, mark as ordered** logs the order and marks its lines as ordered on each job it covered. **No** logs nothing. After a Yes, if you left any lines unticked that still haven't been ordered, you're offered **🛒 Add unordered to shopping list** — one tap puts them on your Shopping List with each job's name on them, or close the card to skip it:
+
+![Logged, with the shopping list offer](images/10p-supplier-logged.png)
+
+Every order a job was part of is listed under **Orders** on its On Site screen — supplier, date, how it's arriving and how many items. Tap one to read the email exactly as it went. Orders can't be edited or re-sent from there. Ordered rows on On Site also carry the *Ordered · supplier · date* label (or *Ordered 3 · now needs 5* if the job has grown since).
+
+Tapped **Yes, mark as ordered** by mistake? Open the order under **Orders** and tap **Delete this order**. Its lines go back to not ordered — on every job the order covered — so the next order includes them again. It only removes the app's record; the email itself is still in your mail app's Sent folder.
+
+Works without signal: the order is saved on the phone and syncs when you're back online (the order shows *waiting to sync* until it has). Another job's materials can only be added offline if that job has been opened on this phone before.
 
 ### The spec sheet — what's going where, and how far through
 
@@ -1214,7 +1253,8 @@ Menu (☰) → **Settings**. Everything that isn't a calculation rate lives here
 
 | Section | What's in it |
 |---|---|
-| **Business** | Your business name and logo — shown in the app header, on the sign-in screen, at the top of every quote you send and its PDF, and in the calendar feed |
+| **Business** | Your business name and logo — shown in the app header, on the sign-in screen, at the top of every quote you send and its PDF, and in the calendar feed. Also your name, business phone, business address and home delivery address, used on [supplier orders](#sending-a-materials-order-to-your-supplier) |
+| **Suppliers** | The merchants you order materials from — name, email, and optionally your account number, branch name and branch address (the branch is used when you Collect). Add, edit (✎) or delete (✕); deleting one doesn't remove orders already sent to them |
 | **Pricing** | Day rate, hours per day, markup %, sundries %, spray sundries bump, deposit %, commercial job adjustment, standalone-job rounding (full or half days), and how many days before an unanswered quote gets flagged |
 | **Deposits (Xero)** | The bank account a recorded deposit lands in, and the account code it posts to |
 | **Xero Integration** | Connect / disconnect |
@@ -1223,6 +1263,8 @@ Menu (☰) → **Settings**. Everything that isn't a calculation rate lives here
 | **Calibration** | What your finished jobs say about two of your settings — see below |
 | **Appearance** | Light / Dark / Auto theme (this device only) |
 | **Backup** | Export and import everything — see below |
+
+![Business details and Suppliers](images/12c-settings-suppliers.png)
 
 ### Calibration — let finished jobs correct your settings
 
@@ -1300,6 +1342,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.77.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.79.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

@@ -7,6 +7,9 @@ const {
   readSpecTicks, writeSpecTick, SPEC_STEPS, SPEC_TICK_STATUSES, ITEM_KEY_MAX,
 } = require('../lib/specSheet');
 const { ensureInvoiceSchema, mapInvoiceRow, planInterimInvoice, DEAD_STATUSES } = require('../lib/invoices');
+const {
+  ensureSupplierSchema, normaliseSupplier, normaliseOrder, mapSupplierRow, assembleOrders,
+} = require('../lib/supplierOrders');
 // Aliased so the import loop below reads like its neighbours (SNAG_STATUSES,
 // VARIATION_KINDS) rather than shadowing the step set's name with a local.
 const SPEC_STEPS_SET = SPEC_STEPS;
@@ -140,6 +143,19 @@ router.delete('/jobs/:id', async (req, res) => {
       // action, not a figure being quietly revised. Tolerates the table not
       // existing yet on a database that has never had an accepted quote.
       db.query('DELETE FROM quote_snapshots WHERE job_id = $1', [id]).catch(err => {
+        if (err.code !== '42P01') throw err;
+      }),
+      // Supplier orders can span several jobs, so only THIS job's part of
+      // each goes: its per-job lines and its link row. An order left with no
+      // job at all has nothing to be shown under and goes with it (its lines
+      // and links cascade). Tolerates the tables not existing yet.
+      (async () => {
+        await db.query('DELETE FROM supplier_order_lines WHERE job_id = $1', [id]);
+        await db.query('DELETE FROM supplier_order_jobs WHERE job_id = $1', [id]);
+        await db.query(
+          'DELETE FROM supplier_orders o WHERE NOT EXISTS (SELECT 1 FROM supplier_order_jobs j WHERE j.order_id = o.id)'
+        );
+      })().catch(err => {
         if (err.code !== '42P01') throw err;
       }),
       // NB job_variations is NOT in this list and must not be added, and
@@ -1755,6 +1771,146 @@ router.put('/shopping/:id', async (req, res) => {
 router.delete('/shopping/:id', async (req, res) => {
   try {
     await db.query('DELETE FROM shopping_list WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Suppliers + supplier orders ────────────────────────────────────────────
+// See lib/supplierOrders.js. Suppliers are global (an address book, like the
+// shopping list); orders span one or more jobs, so they are fetched per job
+// (every order that job was part of) and written whole, by the client's id.
+//
+//   GET    /api/suppliers
+//   PUT    /api/suppliers/:id                 upsert
+//   DELETE /api/suppliers/:id                 history keeps its name snapshot
+//   GET    /api/supplier-orders?job_id=X      orders X was part of, newest first
+//   PUT    /api/supplier-orders/:id           create-once (replays are no-ops)
+//   DELETE /api/supplier-orders/:id           an order logged by mistake
+//
+// No edit. Deleting removes the order from every job it covered (its jobs and
+// lines cascade), which is what un-marks those lines as ordered.
+
+router.use(['/suppliers', '/supplier-orders'], async (req, res, next) => {
+  try {
+    await ensureSupplierSchema(db);
+    next();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/suppliers', async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT id, name, email, account_number, branch_name, branch_address
+         FROM suppliers ORDER BY lower(name) ASC, created_at ASC`
+    );
+    res.json(result.rows.map(mapSupplierRow));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/suppliers/:id', async (req, res) => {
+  const { supplier: s, error } = normaliseSupplier(req.body);
+  if (error) return res.status(400).json({ error });
+  try {
+    await db.query(`
+      INSERT INTO suppliers (id, name, email, account_number, branch_name, branch_address, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, NOW())
+      ON CONFLICT (id) DO UPDATE SET
+        name = $2, email = $3, account_number = $4, branch_name = $5, branch_address = $6, updated_at = NOW()
+    `, [req.params.id, s.name, s.email, s.accountNumber, s.branchName, s.branchAddress]);
+    res.json({ ok: true, id: req.params.id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/suppliers/:id', async (req, res) => {
+  try {
+    await db.query('DELETE FROM suppliers WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/supplier-orders', async (req, res) => {
+  const jobId = requireJobId(req, res); if (!jobId) return;
+  try {
+    const orders = await db.query(
+      `SELECT o.id, o.supplier_id, o.supplier_name, o.delivery_method, o.delivery_address,
+              o.delivery_notes, to_char(o.required_by, 'YYYY-MM-DD') AS required_by,
+              o.body_text, o.sent_at
+         FROM supplier_orders o
+        WHERE o.id IN (SELECT order_id FROM supplier_order_jobs WHERE job_id = $1)
+        ORDER BY o.sent_at DESC, o.created_at DESC`,
+      [jobId]
+    );
+    const ids = orders.rows.map(r => r.id);
+    if (!ids.length) return res.json([]);
+    const [jobsRes, linesRes] = await Promise.all([
+      db.query('SELECT order_id, job_id FROM supplier_order_jobs WHERE order_id = ANY($1)', [ids]),
+      db.query(
+        `SELECT id, order_id, line_no, product_key, job_id, description, quantity, is_extra
+           FROM supplier_order_lines WHERE order_id = ANY($1) ORDER BY line_no ASC, id ASC`,
+        [ids]
+      ),
+    ]);
+    res.json(assembleOrders(orders.rows, jobsRes.rows, linesRes.rows));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/supplier-orders/:id', async (req, res) => {
+  const { id } = req.params;
+  const { order: o, error } = normaliseOrder(req.body);
+  if (error) return res.status(400).json({ error });
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
+    // Create-once. An order is a record of an email that was sent; the only
+    // way this id arrives twice is the offline queue replaying the same PUT,
+    // and the first copy is already the truth.
+    const ins = await client.query(`
+      INSERT INTO supplier_orders (id, supplier_id, supplier_name, delivery_method, delivery_address,
+                                   delivery_notes, required_by, body_text, sent_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9::timestamp, NOW()))
+      ON CONFLICT (id) DO NOTHING
+    `, [id, o.supplierId, o.supplierName, o.deliveryMethod, o.deliveryAddress,
+        o.deliveryNotes, o.requiredBy, o.bodyText, o.sentAt]);
+    if (ins.rowCount) {
+      for (const jobId of o.jobIds) {
+        await client.query(
+          'INSERT INTO supplier_order_jobs (order_id, job_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+          [id, jobId]
+        );
+      }
+      for (let i = 0; i < o.lines.length; i++) {
+        const l = o.lines[i];
+        await client.query(`
+          INSERT INTO supplier_order_lines (id, order_id, line_no, product_key, job_id, description, quantity, is_extra)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `, [l.id || (id + ':' + i), id, l.lineNo, l.productKey, l.jobId, l.description, l.quantity, l.isExtra]);
+      }
+    }
+    await client.query('COMMIT');
+    res.json({ ok: true, id, created: !!ins.rowCount });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+router.delete('/supplier-orders/:id', async (req, res) => {
+  try {
+    await db.query('DELETE FROM supplier_orders WHERE id = $1', [req.params.id]);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
