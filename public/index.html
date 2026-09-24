@@ -18848,6 +18848,35 @@ function interimInvoiceMath(p) {
   var variationsAmount = sum(variationLines);
   var materialsAmount = sum(p.materials);
   var subtotal = money(labourAmount + materialsAmount + variationsAmount);
+  // A clean total, like the quote's (Nicky, 2026-09-24): the invoice total is
+  // brought DOWN to the nearest £5 by trimming the LABOUR only -- materials
+  // stay at their real prices, extras at their agreed amounts. Down, not up:
+  // an interim bills work in progress and must never ask for more than it's
+  // worth. Nothing is lost -- each line records the £ it was actually billed,
+  // so the trimmed pennies are picked up by the next invoice to touch that
+  // line, and in the end by the final, which squares up to the penny.
+  // The trim is spread over this invoice's billing labour lines in proportion
+  // (the quote's own rounding spread), the remainder landing on the largest.
+  // No trim when there's no labour to take it from, or when it would leave
+  // nothing to bill at all.
+  var step = 5;
+  var target = Math.floor(Math.round(subtotal * 100) / (step * 100)) * step;
+  var trim = money(subtotal - target);
+  var roundingTrim = 0;
+  if (trim > 0.005 && target > 0 && labourAmount >= trim) {
+    var largest = null, trimmed = 0;
+    labourLines.forEach(function(l) {
+      if (!(l.amount > 0)) return;
+      var cut = money(trim * l.amount / labourAmount);
+      l.amount = money(l.amount - cut);
+      trimmed = money(trimmed + cut);
+      if (!largest || l.amount > largest.amount) largest = l;
+    });
+    if (largest) largest.amount = money(largest.amount - money(trim - trimmed));
+    roundingTrim = trim;
+    labourAmount = sum(labourLines);
+    subtotal = money(labourAmount + materialsAmount + variationsAmount);
+  }
   // The deposit: all of what's left by default (up to this invoice's total),
   // or the share chosen. An invoice the deposit covers entirely (£0 to pay)
   // is allowed -- that is a choice, not a mistake.
@@ -18869,7 +18898,7 @@ function interimInvoiceMath(p) {
   return {
     labourLines: labourLines, variationLines: variationLines,
     labourAmount: labourAmount, materialsAmount: materialsAmount,
-    variationsAmount: variationsAmount, subtotal: subtotal,
+    variationsAmount: variationsAmount, subtotal: subtotal, roundingTrim: roundingTrim,
     depositLeftBefore: depositLeft, depositApplied: depositApplied,
     amountDue: amountDue, errors: errors
   };
@@ -19050,6 +19079,9 @@ function interimPreviewHtml(m) {
     html += row(escapeHtml(l.description) + qty, fmt(Math.round(l.quantity * l.unitAmount * 100) / 100));
   });
   html += row('Subtotal', fmt(m.math.subtotal), { rule: true, bold: true });
+  if (m.math.roundingTrim > 0.005) {
+    html += '<div style="font-size:11px;color:var(--text2);padding:0 0 4px">Rounded down to a clean ' + fmt(m.math.subtotal) + ' — ' + fmt(m.math.roundingTrim) + ' of labour is left for the next invoice or the final.</div>';
+  }
   if (m.math.depositApplied > 0.005) {
     html += row('Less deposit' + (m.so.depositApplied > 0.005 ? ' (remainder)' : ''), '− ' + fmt(m.math.depositApplied));
   }
