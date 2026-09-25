@@ -106,9 +106,8 @@ const TINS = [{ amount: 180 }, { amount: 320 }];
     billed = Math.round((billed + r.labourAmount) * 100) / 100;
     prev = pct;
   });
-  eq('every interim total is a clean £5', subtotals.map(t => Math.round(t * 100) % 500), [0, 0, 0]);
-  check('interims never bill more than the line is worth', billed <= 1000.01, billed);
-  eq('the final picks up exactly what the interims left', Math.round((1000.01 - billed) * 100) / 100, 0.01);
+  eq('part-way invoices come to a clean £5', subtotals.slice(0, 2).map(t => Math.round(t * 100) % 500), [0, 0]);
+  eq('the invoice that completes the line bills its exact remainder, pennies and all', billed, 1000.01);
 }
 {
   // An amendment re-priced the room between invoices: the second bills the
@@ -125,18 +124,27 @@ const TINS = [{ amount: 180 }, { amount: 320 }];
   // 1523.47 + 609.02 + 307.60 = 2440.09 -> 2440.00, trim 0.09
   eq('the total is brought down to the nearest £5', [r.subtotal, r.roundingTrim], [2440, 0.09]);
   eq('materials are untouched', r.materialsAmount, 307.6);
-  eq('the trim comes off the labour lines, in proportion',
-    r.labourLines.map(l => l.amount), [1523.41, 608.99]);
+  eq('a room completed here keeps its exact price; the part-done room takes the trim',
+    r.labourLines.map(l => l.amount), [1523.47, 608.93]);
+  // Nicky's screenshot, 2026-09-25: Exterior 25%, Joinery marked Done.
+  const shot = lib.interimInvoiceMath(Object.assign({}, base, {
+    labour: [L('Exterior', 3252.57, 25), L('Joinery Work @ Day Rate', 2000, 100)],
+    materials: [{ amount: 59.23 }, { amount: 108 }, { amount: 26.58 }, { amount: 78.07 }, { amount: 95.64 }, { amount: 90 }] }));
+  eq('Joinery marked Done bills its full £2,000.00', shot.labourLines[1].amount, 2000);
+  eq('...and the Exterior at 25% takes the whole trim to a clean total', [shot.labourLines[0].amount, shot.subtotal], [812.48, 3270]);
+  const allDone = lib.interimInvoiceMath(Object.assign({}, base, {
+    labour: [L('Joinery', 2000.47, 100)], materials: [{ amount: 59.23 }] }));
+  eq('every line being completed: no trim, exact total', [allDone.subtotal, allDone.roundingTrim], [2059.7, 0]);
   const noLabour = lib.interimInvoiceMath(Object.assign({}, base, { materials: [{ amount: 193 }, { amount: 114.6 }] }));
   eq('no labour on the invoice: nothing to trim, exact total', [noLabour.subtotal, noLabour.roundingTrim], [307.6, 0]);
   const tiny = lib.interimInvoiceMath(Object.assign({}, base, { labour: [L('Lounge', 30, 10)] }));
   eq('a trim that would leave nothing to bill is skipped', [tiny.subtotal, tiny.roundingTrim, tiny.errors], [3, 0, []]);
   const exact = lib.interimInvoiceMath(Object.assign({}, base, { labour: [L('Lounge', 4000, 40)] }));
   eq('an already-clean total is left alone', [exact.subtotal, exact.roundingTrim], [1600, 0]);
-  const whole = lib.interimInvoiceLineItems({ labour: [
-    { description: 'Lounge', pct: 40, prevPct: 0, amount: r.labourLines[0].amount },
-    { description: 'Hall', pct: 40, prevPct: 0, amount: r.labourLines[1].amount }] });
-  eq('a whole-job line carries the trimmed labour total', whole[0].unitAmount, 2132.4);
+  const at40 = lib.interimInvoiceMath(Object.assign({}, base, {
+    labour: [L('Lounge', 1523.47, 40), L('Hall', 1845.5, 40)], materials: [{ amount: 114.6 }] }));
+  const whole = lib.interimInvoiceLineItems({ labour: at40.labourLines.map(l => ({ description: l.key, pct: 40, prevPct: 0, amount: l.amount })) });
+  eq('a whole-job line carries the trimmed labour total', [whole[0].unitAmount, at40.subtotal], [1345.4, 1460]);
 }
 
 // ── 3. Guards ───────────────────────────────────────────────────────────────

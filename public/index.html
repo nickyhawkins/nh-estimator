@@ -18855,19 +18855,28 @@ function interimInvoiceMath(p) {
   // worth. Nothing is lost -- each line records the £ it was actually billed,
   // so the trimmed pennies are picked up by the next invoice to touch that
   // line, and in the end by the final, which squares up to the penny.
-  // The trim is spread over this invoice's billing labour lines in proportion
-  // (the quote's own rounding spread), the remainder landing on the largest.
-  // No trim when there's no labour to take it from, or when it would leave
-  // nothing to bill at all.
+  // The trim is spread over this invoice's part-done labour lines in
+  // proportion (the quote's own rounding spread), the remainder landing on the
+  // largest. No trim when there's no part-done labour to take it from, or when
+  // it would leave nothing to bill at all.
   var step = 5;
   var target = Math.floor(Math.round(subtotal * 100) / (step * 100)) * step;
   var trim = money(subtotal - target);
   var roundingTrim = 0;
-  if (trim > 0.005 && target > 0 && labourAmount >= trim) {
+  // Only PART-DONE lines take the trim. A line taken to 100% on this invoice
+  // bills its exact remaining price, pennies and all (Nicky, 2026-09-25:
+  // "jobs completed 100% shouldn't have the pennies skimmed") -- a room
+  // marked done is settled, not left owing 47p for the final. So when every
+  // labour line billing here is being completed, nothing is trimmed and the
+  // invoice keeps its exact total.
+  var trimmable = labourLines.filter(function(l, i) {
+    return l.amount > 0 && pct((p.labour || [])[i] && p.labour[i].pct) < 100;
+  });
+  var trimmableAmount = sum(trimmable);
+  if (trim > 0.005 && target > 0 && trimmableAmount >= trim) {
     var largest = null, trimmed = 0;
-    labourLines.forEach(function(l) {
-      if (!(l.amount > 0)) return;
-      var cut = money(trim * l.amount / labourAmount);
+    trimmable.forEach(function(l) {
+      var cut = money(trim * l.amount / trimmableAmount);
       l.amount = money(l.amount - cut);
       trimmed = money(trimmed + cut);
       if (!largest || l.amount > largest.amount) largest = l;
