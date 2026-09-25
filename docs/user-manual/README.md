@@ -332,7 +332,7 @@ Exterior work is priced per *item* — typically one per elevation ("Front eleva
 - **Exterior Doors & Frames** — same fire-door/ironmongery/self-priming options as interior doors, split the same way.
 - **Garage Doors**, **Porch / Feature Door** — priced in days.
 - **Sash Window Restoration** — prime & paint plus resin repairs, reglazing, draught-proofing, cords and beads, added per window.
-- **Preparation** and **Making Good** — same idea as rooms.
+- **Preparation** — Light (10%), Standard (25%) or Heavy (40%), or a custom percentage, on the item's labour. New items start on Light. An older item saved at 0% prep opens as **Custom** 0%, so its price stays the same. **Making Good** adds a fixed £ amount, as on rooms.
 - **Paint Colours** — one masonry colour and one exterior woodwork colour per item, in the same free-text boxes the rooms use.
 
 Access uplifts for 1st floor and 2nd floor+ work are applied per item automatically; the percentages live in Rates. Exterior paint litres are estimated from assumed areas per unit (window, sash, door, garage, fascia width) — calibrate these in **Rates → Exterior Paint Coverage & Areas** as real jobs prove them out.

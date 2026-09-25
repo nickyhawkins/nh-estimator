@@ -2305,9 +2305,9 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       <div class="field-row">
         <div class="field-label">Prep Level</div>
         <div class="seg" id="seg-ex-prep" style="flex:1.5">
-          <button class="seg-btn active" onclick="setExPrep(0)">Standard</button>
-          <button class="seg-btn" onclick="setExPrep(10)">Light</button>
-          <button class="seg-btn" onclick="setExPrep(25)">Full</button>
+          <button class="seg-btn active" onclick="setExPrep(10)">Light</button>
+          <button class="seg-btn" onclick="setExPrep(25)">Standard</button>
+          <button class="seg-btn" onclick="setExPrep(40)">Heavy</button>
           <button class="seg-btn" onclick="setExPrep(-1)">Custom</button>
         </div>
       </div>
@@ -13449,8 +13449,8 @@ function panelSkirtLM(panelItems) {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 // Shared by room prep and panel prep -- same 10/25/40/custom scale and label
-// wording for both. Exterior's prep uses a different 0/10/25 scale with its
-// own labels (Standard/Light Prep/Full Prep), so it stays a separate inline
+// wording for both. Exterior's prep shares the 10/25/40 scale but names its
+// lightest level Light rather than Minimal, so it stays a separate inline
 // ternary rather than being forced through this.
 function prepLabelFor(pct) {
   return pct===10?'Minimal':pct===25?'Standard Prep':pct===40?'Heavy Prep':'Custom '+pct+'%';
@@ -23075,7 +23075,10 @@ var editExtId = null;
 var extItemCoats = {'ex-masonry':2,'ex-fascia':2,'ex-wins':2,'ex-door':2,'ex-frame':2,'ex-garage':2};
 var exSprayRender = false;
 var exTexturedRender = false;
-var exPrepPct = 0;
+// Exterior prep: 10 (Light, default), 25 (Standard), 40 (Heavy), or -1 for
+// custom -- same 10/25/40 percentages as a room's prepPct.
+var EX_PREP_VALS = [10, 25, 40, -1];
+var exPrepPct = 10;
 // Exterior Door/Frame -- same independent-line-item pattern as a room's
 // doorFireDoor/doorSelfPriming/doorIronRemove/doorIronMask (see calcRoom()),
 // just ex-prefixed. Coats live in extItemCoats above ('ex-door'/'ex-frame'
@@ -24304,15 +24307,14 @@ function setExtSeg(key, val) {
 
 function setExPrep(val) {
   exPrepPct = val;
-  var prepVals=[0,10,25,-1];
-  document.querySelectorAll('#seg-ex-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',prepVals[i]===val);});
+  document.querySelectorAll('#seg-ex-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',EX_PREP_VALS[i]===val);});
   document.getElementById('ex-prep-custom-row').style.display = val===-1?'flex':'none';
   previewExterior();
 }
 
 function resetExtForm() {
   editExtId = null;
-  exPrepPct = 0;
+  exPrepPct = 10;
   extItemCoats = {'ex-masonry':2,'ex-fascia':2,'ex-wins':2,'ex-door':2,'ex-frame':2,'ex-garage':2};
   exSprayRender = false;
   document.getElementById('tog-ex-spray').classList.remove('on');
@@ -24341,8 +24343,7 @@ function resetExtForm() {
   ['ex-masonry','ex-fascia','ex-wins','ex-door','ex-frame','ex-garage'].forEach(function(k){
     document.querySelectorAll('#seg-'+k+' .seg-btn').forEach(function(b,i){b.classList.toggle('active',i+1===2);});
   });
-  var prepVals=[0,10,25,-1];
-  document.querySelectorAll('#seg-ex-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',prepVals[i]===0);});
+  document.querySelectorAll('#seg-ex-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',EX_PREP_VALS[i]===exPrepPct);});
   document.getElementById('ex-prep-custom-row').style.display='none';
   exDoorFireDoor=false; exDoorSelfPriming=false; exDoorIronRemove=false; exDoorIronMask=false;
   exDoorBothSides=false; exSelfPrimingWoodwork=false;
@@ -24470,7 +24471,12 @@ function editExtItem(id) {
   if(!item) return;
   migrateExtDoorFields(item);
   editExtId = id;
+  // Items saved under the old 0/10/25 scale (or with no prepPct at all)
+  // may hold a % with no button now -- 0% most often. Open those as Custom
+  // at the same % so re-saving never silently changes the price.
   exPrepPct = item.prepPct!=null?item.prepPct:0;
+  var exPrepCustom = item.prepCustom||0;
+  if (EX_PREP_VALS.indexOf(exPrepPct) === -1) { exPrepCustom = exPrepPct; exPrepPct = -1; }
   extItemCoats = Object.assign({'ex-masonry':2,'ex-fascia':2,'ex-wins':2,'ex-door':2,'ex-frame':2,'ex-garage':2}, item.coats||{});
   exSprayRender = !!item.sprayRender;
   document.getElementById('tog-ex-spray').classList.toggle('on', exSprayRender);
@@ -24512,8 +24518,8 @@ function editExtItem(id) {
     var v=extItemCoats[k]||2;
     document.querySelectorAll('#seg-'+k+' .seg-btn').forEach(function(b,i){b.classList.toggle('active',i+1===v);});
   });
-  var prepVals=[0,10,25,-1];
-  document.querySelectorAll('#seg-ex-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',prepVals[i]===exPrepPct);});
+  document.getElementById('ex-prep-custom').value = exPrepPct===-1 ? exPrepCustom : '';
+  document.querySelectorAll('#seg-ex-prep .seg-btn').forEach(function(b,i){b.classList.toggle('active',EX_PREP_VALS[i]===exPrepPct);});
   document.getElementById('ex-prep-custom-row').style.display = exPrepPct===-1?'flex':'none';
   document.getElementById('del-ext-btn').style.display='block';
   previewExterior();
@@ -29424,7 +29430,7 @@ function renderSummary() {
       var sashCost    = c.sashCost||0;
       var repairsCost = c.repairsCost||0;
       var prepUp = item.prepPct >= 0 ? item.prepPct : (+item.prepCustom||0);
-      var prepLabel = prepUp===0?'Standard':prepUp===10?'Light Prep':prepUp===25?'Full Prep':'Custom '+prepUp+'%';
+      var prepLabel = item.prepPct===10?'Light Prep':item.prepPct===25?'Standard Prep':item.prepPct===40?'Heavy Prep':'Custom '+prepUp+'%';
       // Legacy resin/reglaze (pre-per-window jobs not yet re-saved) still
       // count toward prep%, same as calcExtItem()'s own base -- see the
       // legacy fallback comment there.
