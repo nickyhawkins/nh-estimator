@@ -3263,6 +3263,14 @@ function populateWindoorsRates() {
   });
   h += '<div class="subsection-label">Prep multipliers<small>× on the painted opening — an opening can go up from the job\'s default, never down</small></div>';
   Windoors.PREP_LEVELS.forEach(function(p) { h += row(p.label, '', inp('s-wd-prep-' + p.key, R.prep[p.key], 0.05)); });
+  h += '<div class="subsection-label">Paint areas<small>for litres only — the timber on the outside face, not the whole opening</small></div>';
+  Windoors.WINDOW_TIERS.forEach(function(t) { h += row(t.label + ' window', 'm² of the whole opening (' + t.guide + ')', inp('s-wd-parea-' + t.key, R.paint.area[t.key], 0.05)); });
+  Windoors.WINDOW_TYPES.forEach(function(t) { h += row(t.label + ' timber share', 'of the opening, 0–1 — the rest is glass', inp('s-wd-ptimber-' + t.key, R.paint.timber[t.key], 0.05)); });
+  h += row('Per extra pane', 'added to the timber share for each glazing bar\'s worth', inp('s-wd-pperpane', R.paint.perPane, 0.01));
+  h += row('Timber share cap', 'however many panes', inp('s-wd-pcap', R.paint.cap, 0.05));
+  Windoors.DOOR_TIERS.forEach(function(t) { h += row(t.label + ' door leaf', 'm², one face', inp('s-wd-parea-' + t.key, R.paint.area[t.key], 0.05)); });
+  Windoors.DOOR_TYPES.forEach(function(t) { h += row(t.label + ' door timber share', 'of the leaf, 0–1', inp('s-wd-pdoor-' + t.key, R.paint.doorTimber[t.key], 0.05)); });
+  h += row('Door frame', 'm² per leaf', inp('s-wd-pdoorframe', R.paint.doorFrame, 0.05));
   h += '<div class="subsection-label">Actions<small>minutes and material £ per pane or part marked</small></div>';
   Windoors.ACTIONS.forEach(function(a) {
     h += row(a.label, a.on === 'pane' ? 'pane action' : (a.doorOnly ? 'door action' : 'frame action'),
@@ -3283,6 +3291,12 @@ function readWindoorsRates() {
     R.doorBase[t.key][s.key] = v('s-wd-door-' + t.key + '-' + s.key, R.doorBase[t.key][s.key]);
   }); });
   Windoors.PREP_LEVELS.forEach(function(p) { R.prep[p.key] = v('s-wd-prep-' + p.key, R.prep[p.key]); });
+  Windoors.WINDOW_TIERS.concat(Windoors.DOOR_TIERS).forEach(function(t) { R.paint.area[t.key] = v('s-wd-parea-' + t.key, R.paint.area[t.key]); });
+  Windoors.WINDOW_TYPES.forEach(function(t) { R.paint.timber[t.key] = Math.min(1, v('s-wd-ptimber-' + t.key, R.paint.timber[t.key])); });
+  Windoors.DOOR_TYPES.forEach(function(t) { R.paint.doorTimber[t.key] = Math.min(1, v('s-wd-pdoor-' + t.key, R.paint.doorTimber[t.key])); });
+  R.paint.perPane = v('s-wd-pperpane', R.paint.perPane);
+  R.paint.cap = Math.min(1, v('s-wd-pcap', R.paint.cap));
+  R.paint.doorFrame = v('s-wd-pdoorframe', R.paint.doorFrame);
   Windoors.ACTIONS.forEach(function(a) {
     R.actions[a.key].mins = v('s-wd-act-' + a.key + '-mins', R.actions[a.key].mins);
     R.actions[a.key].cost = v('s-wd-act-' + a.key + '-cost', R.actions[a.key].cost);
@@ -25200,32 +25214,28 @@ function wdChanged() {
 }
 
 // ── Paint for the fixture ─────────────────────────────────────────────────
-// The outside faces buy exterior woodwork paint the way the Exterior form's
-// windows and doors always have: assumed m² per opening (Rates › Exterior
-// Paint Coverage & Areas -- the same "area per window / per sash" and the
-// door face + frame areas), × coats ÷ the exterior woodwork coverage, with
-// primer at 0.8 of that (the app's primer proxy). They join the SAME
+// The outside faces buy exterior woodwork paint on the TIMBER, not the
+// opening: each window is its size tier's own area × the share of it that is
+// timber for its type (plus a little per extra pane for glazing bars), each
+// door its leaf × its timber share plus the frame -- Windows & Doors › Paint
+// areas on Rates, see Windoors.openingPaintM2. Then × coats ÷ the exterior
+// woodwork coverage, with primer at 0.8 of that (the app's primer proxy),
+// as the Exterior form's woodwork does. (Deliberately NOT the Exterior
+// form's "area per window / per sash": at 1.5 and 2.5m² those are more than
+// a Medium window's whole outline, glass included.) They join the SAME
 // Exterior Woodwork and Exterior Primer rows as exterior items, so a sash
 // and a fascia in the same product and colour are one round-up of tins, not
 // two.
 //
 // Two colours, not one: the windows and the doors. White sashes and a black
 // front door is the Georgian house the drawing is of.
-function wdPaintAreaSettings() {
-  return {
-    window: settings.extAreaWindow != null ? settings.extAreaWindow : 1.5,
-    sash: settings.extAreaSash != null ? settings.extAreaSash : 2.5,
-    doorFace: settings.doorFaceAreaM2 != null ? settings.doorFaceAreaM2 : 1.75,
-    doorFrame: settings.doorFrameAreaM2 != null ? settings.doorFrameAreaM2 : 0.4
-  };
-}
 // Stand-in items for the exterior woodwork roles in computeMaterials(): each
 // carries the colour field those roles group by and its own litres. Nothing
 // else reads them. Empty unless the fixture is in use on this job.
 function windoorsPaintItems() {
   if (!wdInUse()) return [];
   var p = windoors.property;
-  var a = Windoors.paintAreas(windoors, wdPaintAreaSettings());
+  var a = Windoors.paintAreas(windoors, wdRates());
   var coats = Math.max(1, Math.min(3, +p.coats || 2));
   var cov = settings.extWoodCov || 12;
   var out = [];
@@ -25251,7 +25261,7 @@ function wdPaintCardHtml() {
     + '</div></div>'
     + (n.windows || !n.doors ? '<div class="field-row" style="border-top:1px solid var(--border);flex-wrap:wrap"><div class="field-label">Windows colour</div><div id="seg-colour-wd-window" style="width:100%"></div></div>' : '')
     + (n.doors ? '<div class="field-row" style="border-top:1px solid var(--border);flex-wrap:wrap"><div class="field-label">Doors colour</div><div id="seg-colour-wd-door" style="width:100%"></div></div>' : '')
-    + '<div style="padding:0 16px 12px;font-size:11px;color:var(--text2)">Litres use the Exterior Woodwork product and coverage, and the assumed areas per window, sash and door, on Rates. They join the exterior woodwork tins on Summary.</div>'
+    + '<div style="padding:0 16px 12px;font-size:11px;color:var(--text2)">Painted on the timber only: each window\'s size less its glass, from Rates › Windows &amp; Doors › Paint areas. Litres use the Exterior Woodwork product and coverage, and join the exterior woodwork tins on Summary.</div>'
     + '</div>';
 }
 function wdSideCountsAll() {

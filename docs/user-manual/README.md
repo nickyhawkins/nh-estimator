@@ -366,7 +366,10 @@ Orange is work, blue is glass being replaced. Work marked here is **quoted** wor
 
 ![The Paint card: coats, and a colour for the windows and one for the doors](images/26i-windoors-paint.png)
 
-The litres are worked out the way the Exterior form's windows and doors always were: an assumed area per opening — **Rates → Exterior Paint Coverage & Areas**' area per window (per sash for a sash), and the door face and frame areas, scaled by size tier, with the glass left out on a glazed door — times the coats, at the exterior woodwork coverage, plus primer. The paint goes on Summary in the same **Exterior Woodwork** and **Exterior Primer** rows as any exterior item, using the exterior woodwork product from Settings, so windows and a fascia in the same colour are one lot of tins. It's also on the job spec sheet as its own rows. On a job whose materials list was already made, tap **Recalculate** on Summary to bring it in.
+The litres are for the **timber only** — a window is mostly glass. Each window starts from its own size (the middle of its size button's range: a Medium window is 0.75 m²) and takes the share of that which is timber: 35% for a casement, 40% for a sash, 25% for a fixed light, plus 2% for each extra pane's glazing bars, up to 60%. So a Medium 6-over-6 sash is 0.45 m² of paint, and a Large one 0.9 m². A door is its leaf less any glass, plus the frame. That's times the coats, at the exterior woodwork coverage, plus primer. Every figure is under **Rates → Windows & Doors → Paint areas**.
+
+![Rates — Windows & Doors paint areas](images/26j-windoors-paint-rates.png)
+ The paint goes on Summary in the same **Exterior Woodwork** and **Exterior Primer** rows as any exterior item, using the exterior woodwork product from Settings, so windows and a fascia in the same colour are one lot of tins. It's also on the job spec sheet as its own rows. On a job whose materials list was already made, tap **Recalculate** on Summary to bring it in.
 
 **On the quote** the whole fixture is **one line**, worded from what's in it — *Exterior windows and doors (outside faces): 5 sash windows, 1 front door. Includes reputty x3, resin repair x1.* — through Summary, the client's quote, Xero and the final invoice. The minutes behind it (see [Rates](#14-rates)) go into the job's time like any other labour.
 
@@ -1301,7 +1304,7 @@ Menu (☰) → **Rates** — every number the calculator uses, grouped by what i
 | Item & Job-Type | **Wallpaper Rates** | Per-roll rates, ceiling/staircase multipliers, minimum price, wide vinyl & mural rates |
 | Item & Job-Type | **Kitchen Rates** | The full price matrix per item type × size, linear rates, carcass %, strip-original-coating minutes |
 | Item & Job-Type | **Fitted Unit / Shelving** | Shelf and bay spray times, fallback areas behind fitted-unit litres |
-| Item & Job-Type | **Windows & Doors** | Window base minutes per size tier, minutes per pane, sash/casement/fixed adjustment, door base minutes per type and size, prep multipliers, and each marked-work action's minutes and material £ |
+| Item & Job-Type | **Windows & Doors** | Window base minutes per size tier, minutes per pane, sash/casement/fixed adjustment, door base minutes per type and size, prep multipliers, each marked-work action's minutes and material £, and the paint areas (each size's m², the timber share per type, door leaf and frame) |
 | Scheduling | **Scheduling** | Daily overhead, schedule buffer, Work Saturdays, bank-holiday region, calendar feed |
 
 **Windows & Doors** prices each opening as *(base minutes for its size and type + panes × minutes per pane) × its prep multiplier*, plus the minutes of any work marked on it — all at your day rate, like every other timed task. The prep multipliers start at Light ×1.10, Standard ×1.25, Heavy ×1.40 and Restoration ×1.75; the material £ (glass is £25 a pane to start) is per pane or part marked, before markup. Every figure is a starting guess to calibrate.
@@ -1409,6 +1412,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.83.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.83.1. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
