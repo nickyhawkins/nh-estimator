@@ -134,7 +134,10 @@ function closureFrom(root) {
 }
 
 const api = {};
-new Function('exports', [
+// mergeSettings() merges the Windows and doors rates through the shared
+// module the shell loads with a <script> (public/windoors.js), so it is
+// handed in the same way.
+new Function('exports', 'Windoors', [
   varBody('SETTINGS_FIELDS', '[', ']'),
   varBody('KITCHEN_RATE_DEFAULTS', '{', '}'),
   fnBody('mergeSettings'),
@@ -143,7 +146,7 @@ new Function('exports', [
   ...closureFrom('calcRoom').fns.map(fnBody),
   'exports.calcRoom = calcRoom;',
   'exports.settings = settings;'
-].join('\n'))(api);
+].join('\n'))(api, require('../public/windoors'));
 
 const calc = r => api.calcRoom(Object.assign({}, r));
 

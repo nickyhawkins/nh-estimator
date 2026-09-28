@@ -46,7 +46,10 @@
 
 var CACHE = 'nh-estimator-v2';
 var SHELL = '/';
-var CORE = ['/', '/logo.png', '/apple-touch-icon.png', '/manifest.json', '/icon-192.png', '/icon-512.png'];
+// /windoors.js: the Windows and doors module the shell loads with a plain
+// <script> -- without it precached, an offline launch would open with no
+// way to price or draw the fixture.
+var CORE = ['/', '/windoors.js', '/logo.png', '/apple-touch-icon.png', '/manifest.json', '/icon-192.png', '/icon-512.png'];
 
 // Google Fonts. Cross-origin, so the old worker ignored them entirely and
 // every launch went to the network for them -- and until this release the

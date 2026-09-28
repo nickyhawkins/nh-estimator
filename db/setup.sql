@@ -625,3 +625,64 @@ CREATE TABLE IF NOT EXISTS supplier_order_lines (
 CREATE INDEX IF NOT EXISTS supplier_order_jobs_job ON supplier_order_jobs (job_id);
 CREATE INDEX IF NOT EXISTS supplier_order_lines_order ON supplier_order_lines (order_id);
 CREATE INDEX IF NOT EXISTS supplier_order_lines_job ON supplier_order_lines (job_id);
+
+-- ── Windows and doors fixture (WINDOWS_DOORS_SPEC.md) ────────────────────
+-- The house elevation per side, its windows and doors, and the panes/frame
+-- parts marked for extra work. Created lazily by lib/windoors.js (this file is
+-- not run on deploy); kept here so a fresh database matches. No prices are
+-- stored anywhere in these tables: the app prices the rows at today's Rates
+-- (public/windoors.js priceJob), and the report the client sees is drawn from
+-- them with nothing to hide.
+--
+-- No foreign keys, like snags: every write is On Site data replayed through
+-- the offline queue one row at a time, and a stray mark on a deleted opening
+-- prices as nothing rather than failing a replay. DELETE /jobs/:id and the
+-- opening DELETE clean up children by hand.
+CREATE TABLE IF NOT EXISTS job_property (
+  job_id VARCHAR PRIMARY KEY,
+  style VARCHAR NOT NULL DEFAULT 'georgian',        -- georgian | victorian | modern
+  detail_enabled BOOLEAN NOT NULL DEFAULT TRUE,     -- per-job pane/frame marking
+  default_prep VARCHAR NOT NULL DEFAULT 'light',    -- light | standard | heavy | restoration
+  -- per side: {floors: [{windows, doors}, ...] (0 = ground), confirmed}
+  layout JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS job_openings (
+  id VARCHAR PRIMARY KEY,
+  job_id VARCHAR NOT NULL,
+  side VARCHAR NOT NULL,                  -- front | back | left | right
+  floor INTEGER NOT NULL DEFAULT 0,       -- 0 = ground
+  kind VARCHAR NOT NULL,                  -- window | door
+  position INTEGER NOT NULL DEFAULT 1,    -- 1-based, left to right facing that side
+  nickname VARCHAR,
+  type VARCHAR NOT NULL,                  -- casement|sash|fixed / panelled|flush|half_glazed|fully_glazed|stable|french_double
+  size_tier VARCHAR NOT NULL,             -- small|medium|large|xlarge / standard|oversized
+  rows INTEGER NOT NULL DEFAULT 1,        -- pane rows (per sash for sash windows)
+  cols INTEGER NOT NULL DEFAULT 1,
+  prep_level VARCHAR,                     -- NULL = the job default; only ever raised
+  prep_stage VARCHAR NOT NULL DEFAULT 'quote',
+  -- When prep was raised ON SITE: the level the quote priced before the raise,
+  -- and the draft variation the raise belongs to. The variation is priced as
+  -- base x (new multiplier - this one) and is never negative.
+  quote_prep_level VARCHAR,
+  prep_variation_id VARCHAR,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+-- One opening per slot: the PUT upserts on it, so two phones confirming the
+-- same side converge on one W2 rather than two.
+CREATE UNIQUE INDEX IF NOT EXISTS job_openings_slot ON job_openings (job_id, side, floor, kind, position);
+CREATE INDEX IF NOT EXISTS job_openings_job ON job_openings (job_id);
+CREATE TABLE IF NOT EXISTS opening_marks (
+  id VARCHAR PRIMARY KEY,
+  job_id VARCHAR NOT NULL,
+  opening_id VARCHAR NOT NULL,
+  element_id VARCHAR NOT NULL,            -- pane-N, top-N/bottom-N, head, cill, panel-N, glass-N, frame...
+  action_key VARCHAR NOT NULL,            -- reputty, replace_glass, filler, resin, splice, ironmongery
+  stage VARCHAR NOT NULL DEFAULT 'quote', -- quote | variation
+  variation_id VARCHAR,                   -- jobs.data.windoorsVariations[].id, set when stage = 'variation'
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS opening_marks_job ON opening_marks (job_id);
+CREATE INDEX IF NOT EXISTS opening_marks_opening ON opening_marks (opening_id);

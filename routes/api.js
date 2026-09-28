@@ -10,6 +10,10 @@ const { ensureInvoiceSchema, mapInvoiceRow, planInterimInvoice, DEAD_STATUSES } 
 const {
   ensureSupplierSchema, normaliseSupplier, normaliseOrder, mapSupplierRow, assembleOrders,
 } = require('../lib/supplierOrders');
+const {
+  ensureWindoorsSchema, normaliseProperty, normaliseOpening, normaliseMark,
+  mapProperty, mapOpening, mapMark, readWindoors, jobReportHtml,
+} = require('../lib/windoors');
 // Aliased so the import loop below reads like its neighbours (SNAG_STATUSES,
 // VARIATION_KINDS) rather than shadowing the step set's name with a local.
 const SPEC_STEPS_SET = SPEC_STEPS;
@@ -137,6 +141,12 @@ router.delete('/jobs/:id', async (req, res) => {
       db.query('DELETE FROM snag_rooms WHERE job_id = $1', [id]).catch(err => {
         if (err.code !== '42P01') throw err;
       }),
+      // Windows and doors (lib/windoors.js): no foreign keys, so by hand like
+      // the snags, tolerating tables that were never created.
+      ...['job_property', 'job_openings', 'opening_marks'].map(t =>
+        db.query(`DELETE FROM ${t} WHERE job_id = $1`, [id]).catch(err => {
+          if (err.code !== '42P01') throw err;
+        })),
       // The one path a snapshot may leave by. There is no route that deletes
       // a snapshot on its own (see the Accepted-quote snapshots section) --
       // deleting the whole job is a deliberate, confirmed, destroy-everything
@@ -1349,6 +1359,149 @@ router.delete('/snag-rooms/:id', async (req, res) => {
 });
 
 
+// ── Windows and doors fixture (WINDOWS_DOORS_SPEC.md) ──────────────────────
+// The house elevation, its openings and the marks on them. See lib/windoors.js
+// for the tables and why they have no foreign keys. Same save strategy as
+// snags: one row per PUT, one row per DELETE, each queued and replayed on its
+// own by the client's offline queue, so a flush that dies half way leaves the
+// marks that did land rather than an empty elevation.
+//
+//   GET    /api/windoors?job_id=X        everything for one job
+//   PUT    /api/windoors/property        the job's style/layout/defaults
+//   PUT    /api/windoors/openings/:id    one window or door
+//   DELETE /api/windoors/openings/:id    ...and its marks
+//   PUT    /api/windoors/marks/:id       one marked pane or part
+//   DELETE /api/windoors/marks/:id
+//   GET    /api/jobs/:id/windoors-report the printable report (no prices)
+router.use(['/windoors', '/jobs/:id/windoors-report'], async (req, res, next) => {
+  try {
+    await ensureWindoorsSchema();
+    next();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/windoors', async (req, res) => {
+  const jobId = requireJobId(req, res); if (!jobId) return;
+  try {
+    res.json(await readWindoors(jobId));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/windoors/property', async (req, res) => {
+  const jobId = requireJobId(req, res); if (!jobId) return;
+  const p = normaliseProperty(req.body);
+  try {
+    const result = await db.query(`
+      INSERT INTO job_property (job_id, style, detail_enabled, default_prep, layout, updated_at)
+      VALUES ($1, $2, $3, $4, $5, NOW())
+      ON CONFLICT (job_id) DO UPDATE SET style = $2, detail_enabled = $3, default_prep = $4, layout = $5, updated_at = NOW()
+      RETURNING style, detail_enabled, default_prep, layout
+    `, [jobId, p.style, p.detail_enabled, p.default_prep, p.layout]);
+    res.json({ ok: true, property: mapProperty(result.rows[0]) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Upserts on the SLOT (job, side, floor, kind, position), not the row id --
+// the slot is the identity, the same id-adoption contract as /snag-rooms: two
+// phones confirming the same side must end up with one W2, not two. The
+// response names the id that actually holds the row.
+router.put('/windoors/openings/:id', async (req, res) => {
+  const jobId = requireJobId(req, res); if (!jobId) return;
+  const o = normaliseOpening(req.body);
+  if (o.error) return res.status(400).json({ error: o.error });
+  try {
+    const result = await db.query(`
+      INSERT INTO job_openings (id, job_id, side, floor, kind, position, nickname, type, size_tier, rows, cols,
+                                prep_level, prep_stage, quote_prep_level, prep_variation_id, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+      ON CONFLICT (job_id, side, floor, kind, position) DO UPDATE SET
+        nickname = $7, type = $8, size_tier = $9, rows = $10, cols = $11, prep_level = $12,
+        prep_stage = $13, quote_prep_level = $14, prep_variation_id = $15, updated_at = NOW()
+      RETURNING *
+    `, [req.params.id, jobId, o.side, o.floor, o.kind, o.position, o.nickname, o.type, o.size_tier, o.rows, o.cols,
+        o.prep_level, o.prep_stage, o.quote_prep_level, o.prep_variation_id]);
+    res.json({ ok: true, id: result.rows[0].id, opening: mapOpening(result.rows[0]) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/windoors/openings/:id', async (req, res) => {
+  try {
+    await db.query('DELETE FROM opening_marks WHERE opening_id = $1', [req.params.id]);
+    await db.query('DELETE FROM job_openings WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/windoors/marks/:id', async (req, res) => {
+  const jobId = requireJobId(req, res); if (!jobId) return;
+  const m = normaliseMark(req.body);
+  if (m.error) return res.status(400).json({ error: m.error });
+  try {
+    const result = await db.query(`
+      INSERT INTO opening_marks (id, job_id, opening_id, element_id, action_key, stage, variation_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (id) DO UPDATE SET element_id = $4, action_key = $5, stage = $6, variation_id = $7
+      RETURNING *
+    `, [req.params.id, jobId, m.opening_id, m.element_id, m.action_key, m.stage, m.variation_id]);
+    res.json({ ok: true, id: req.params.id, mark: mapMark(result.rows[0]) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/windoors/marks/:id', async (req, res) => {
+  try {
+    await db.query('DELETE FROM opening_marks WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// The report as a standalone, print-ready page -- the app opens it and the
+// phone's print/share sheet saves it as the PDF that goes on the Xero
+// invoice. No prices on it anywhere (see public/windoors.js reportHtml).
+router.get('/jobs/:id/windoors-report', async (req, res) => {
+  try {
+    const job = await db.query('SELECT id, name, data FROM jobs WHERE id = $1', [req.params.id]);
+    if (!job.rows[0]) return res.status(404).type('text').send('No such job');
+    const j = job.rows[0];
+    const settings = await db.query('SELECT data FROM settings WHERE id = 1');
+    const business = (settings.rows[0] && settings.rows[0].data && settings.rows[0].data.businessName) || '';
+    const body = await jobReportHtml(j.id, j.data || {}, { title: 'Windows and doors: work report' });
+    const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const client = (j.data && j.data.xeroClient) || '';
+    res.setHeader('Cache-Control', 'no-store');
+    res.type('html').send('<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+      + '<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">'
+      + '<title>' + esc(j.name) + ' — windows and doors report</title>'
+      + '<style>body{margin:0;padding:20px;background:#fff;color:#1a1f2e;font-family:Barlow,"DM Sans",Arial,sans-serif}'
+      + '.hd{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;border-bottom:3px solid #1e6497;padding-bottom:10px;margin-bottom:14px}'
+      + '.hd b{font-size:17px}.hd small{display:block;color:#5a6270;font-size:13px}'
+      + '.pr{background:#1e6497;color:#fff;border:none;border-radius:10px;padding:10px 14px;font:inherit;font-weight:700;cursor:pointer}'
+      + '@media print{.pr{display:none}body{padding:0}}</style></head><body>'
+      + '<div class="hd"><div><b>' + esc(business || 'Windows and doors report') + '</b>'
+      + '<small>' + esc(j.name) + (client ? ' · ' + esc(client) : '') + '</small>'
+      + '<small>Generated ' + esc(new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })) + '</small></div>'
+      + '<button class="pr" onclick="window.print()">Print / Save PDF</button></div>'
+      + (body || '<p>No work has been marked on this job\'s windows and doors yet.</p>')
+      + '</body></html>');
+  } catch (err) {
+    res.status(500).type('text').send(err.message);
+  }
+});
+
+
 // ── Job spec sheet: ticks and the live link ───────────────────────────────
 // JOB_SPEC_SHEET_SPEC.md. The sheet's ROWS are derived in the browser and
 // never stored (they are rebuilt from the rooms every time it is opened, the
@@ -2160,6 +2313,10 @@ router.delete('/all', async (req, res) => {
       db.query('DELETE FROM snag_rooms WHERE job_id = $1', [jobId]).catch(err => {
         if (err.code !== '42P01') throw err;
       }),
+      ...['job_property', 'job_openings', 'opening_marks'].map(t =>
+        db.query(`DELETE FROM ${t} WHERE job_id = $1`, [jobId]).catch(err => {
+          if (err.code !== '42P01') throw err;
+        })),
       // Spec-sheet ticks and the published model. Both cascade away with the
       // JOB (they carry real foreign keys -- see lib/specSheet.js), but this
       // route clears a job's DATA without deleting the job, so they have to
@@ -2301,6 +2458,13 @@ router.get('/backup/export', async (req, res) => {
          FROM supplier_order_lines ORDER BY order_id ASC, line_no ASC, id ASC`
     ).catch(missingTable);
 
+    // Windows and doors (jobs[].windoors), additive on the same v1 shape: the
+    // elevation, its openings and every mark, quote and variation stage alike
+    // -- the marks are the only record of what was done where.
+    const wdPropertyResult = await db.query('SELECT * FROM job_property').catch(missingTable);
+    const wdOpeningsResult = await db.query('SELECT * FROM job_openings ORDER BY job_id, side, floor, kind, position').catch(missingTable);
+    const wdMarksResult = await db.query('SELECT * FROM opening_marks ORDER BY job_id, created_at ASC').catch(missingTable);
+
     // One pass per table to bucket rows by job_id, rather than filtering
     // each job's rows out of the full result N times.
     const byJob = (rows) => rows.reduce((acc, r) => {
@@ -2318,6 +2482,9 @@ router.get('/backup/export', async (req, res) => {
     const snapshotsByJob = byJob(snapshotsResult.rows);
     const clientVariationsByJob = byJob(clientVariationsResult.rows);
     const specTicksByJob = byJob(specTicksResult.rows);
+    const wdPropertyByJob = byJob(wdPropertyResult.rows);
+    const wdOpeningsByJob = byJob(wdOpeningsResult.rows);
+    const wdMarksByJob = byJob(wdMarksResult.rows);
 
     const jobs = jobsResult.rows.map(j => ({
       job: { id: j.id, name: j.name, data: j.data || {} },
@@ -2375,6 +2542,11 @@ router.get('/backup/export', async (req, res) => {
         approvedAt: r.approved_at,
         declinedAt: r.declined_at,
       })),
+      windoors: wdPropertyByJob[j.id] ? {
+        property: mapProperty(wdPropertyByJob[j.id][0]),
+        openings: (wdOpeningsByJob[j.id] || []).map(mapOpening),
+        marks: (wdMarksByJob[j.id] || []).map(mapMark),
+      } : undefined,
       specTicks: (specTicksByJob[j.id] || []).map(r => ({
         itemKey: r.item_key,
         step: r.step,
@@ -2501,6 +2673,48 @@ async function copyJobRows(entry, newJobId) {
   // Duplicate omits this key, like materialActuals, labourLog and the snags: a
   // copy is a fresh draft, and inheriting another house's progress would be
   // worse than useless.
+  // Windows and doors: fresh row ids like everything else, with the marks
+  // re-pointed at their opening's new id. variation_id is kept as written --
+  // it names an entry in the job's own data (windoorsVariations), which
+  // travels with the job unchanged.
+  const wd = entry.windoors;
+  if (wd && wd.property) {
+    await ensureWindoorsSchema();
+    const p = wd.property;
+    await db.query(
+      `INSERT INTO job_property (job_id, style, detail_enabled, default_prep, layout) VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (job_id) DO NOTHING`,
+      [newJobId, p.style || 'georgian', p.detail_enabled !== false, p.default_prep || 'light', p.layout || {}]
+    );
+    const openingIds = new Map();
+    for (const o of (wd.openings || [])) {
+      const n = normaliseOpening({ side: o.side, floor: o.floor, kind: o.kind, position: o.position, nickname: o.nickname,
+        type: o.type, sizeTier: o.size_tier, rows: o.rows, cols: o.cols, prepLevel: o.prep_level, prepStage: o.prep_stage,
+        quotePrepLevel: o.quote_prep_level, prepVariationId: o.prep_variation_id });
+      if (n.error) continue;
+      const nid = crypto.randomUUID();
+      openingIds.set(o.id, nid);
+      await db.query(
+        `INSERT INTO job_openings (id, job_id, side, floor, kind, position, nickname, type, size_tier, rows, cols,
+                                   prep_level, prep_stage, quote_prep_level, prep_variation_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+         ON CONFLICT (job_id, side, floor, kind, position) DO NOTHING`,
+        [nid, newJobId, n.side, n.floor, n.kind, n.position, n.nickname, n.type, n.size_tier, n.rows, n.cols,
+          n.prep_level, n.prep_stage, n.quote_prep_level, n.prep_variation_id]
+      );
+    }
+    for (const m of (wd.marks || [])) {
+      const oid = openingIds.get(m.opening_id);
+      if (!oid) continue;
+      const n = normaliseMark({ openingId: oid, elementId: m.element_id, actionKey: m.action_key, stage: m.stage, variationId: m.variation_id });
+      if (n.error) continue;
+      await db.query(
+        `INSERT INTO opening_marks (id, job_id, opening_id, element_id, action_key, stage, variation_id, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::timestamp, NOW()))`,
+        [crypto.randomUUID(), newJobId, oid, n.element_id, n.action_key, n.stage, n.variation_id, m.created_at || null]
+      );
+    }
+  }
   const specTickRows = (entry.specTicks || []).filter(t => t && t.itemKey && SPEC_STEPS_SET.has(t.step));
   if (specTickRows.length) await ensureSpecSchema();
   for (const t of specTickRows) {
@@ -2646,6 +2860,20 @@ router.post('/jobs/:id/duplicate', async (req, res) => {
       exteriorItems: extResult.rows.map(it => ({ label: it.label, data: stripVariationFlag(it.data) })),
       colours: coloursResult.rows,
       materialsSnapshot: matsResult.rows,
+      // Windows and doors are scope too: the layout, the openings and the
+      // QUOTE-stage marks copy; anything done on site (variation marks, prep
+      // raised on site) is this job's history and does not.
+      windoors: await (async () => {
+        const wd = await readWindoors(id);
+        if (!wd || !wd.property) return undefined;
+        return {
+          property: wd.property,
+          openings: wd.openings.map(o => (o.prep_stage === 'variation'
+            ? Object.assign({}, o, { prep_level: o.quote_prep_level, prep_stage: 'quote', quote_prep_level: null, prep_variation_id: null })
+            : o)),
+          marks: wd.marks.filter(m => m.stage !== 'variation'),
+        };
+      })(),
     }, newJobId);
 
     // Same shape GET /jobs rows take, so the client can slot it straight in.

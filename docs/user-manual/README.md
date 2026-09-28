@@ -328,14 +328,43 @@ Exterior work is priced per *item* — typically one per elevation ("Front eleva
 
 - **Masonry / Render** — area in m² and coats, with toggles for **textured render** (more paint, more time) and **spray render**.
 - **Fascias & Soffits** — linear metres and coats.
-- **Exterior Windows** — one row per matching group, with panes-per-window and a size band.
 - **Exterior Doors & Frames** — same fire-door/ironmongery/self-priming options as interior doors, split the same way.
 - **Garage Doors**, **Porch / Feature Door** — priced in days.
-- **Sash Window Restoration** — prime & paint plus resin repairs, reglazing, draught-proofing, cords and beads, added per window.
+- **Windows** — now priced in their own fixture, [Windows and doors](#windows-and-doors) below, with a drawing of each side of the house. The form's old *Exterior Windows* and *Sash Window Restoration* sections only appear on a job that already has windows priced that way, so nothing you quoted before changes.
 - **Preparation** — Light (10%), Standard (25%) or Heavy (40%), or a custom percentage, on the item's labour. New items start on Light. An older item saved at 0% prep opens as **Custom** 0%, so its price stays the same. **Making Good** adds a fixed £ amount, as on rooms.
 - **Paint Colours** — one masonry colour and one exterior woodwork colour per item, in the same free-text boxes the rooms use.
 
 Access uplifts for 1st floor and 2nd floor+ work are applied per item automatically; the percentages live in Rates. Exterior paint litres are estimated from assumed areas per unit (window, sash, door, garage, fascia width) — calibrate these in **Rates → Exterior Paint Coverage & Areas** as real jobs prove them out.
+
+### Windows and doors
+
+**+ → Windows and doors** on Measure. The outside faces of every window and door on the house, set up on a drawing of each side. (Inside faces stay in the room measures.)
+
+**1. The house.** Pick the **Style** — Georgian, Victorian or Modern. It sets the drawing and what each new window or door starts as (a Georgian house starts with 6-over-6 sashes and a panelled front door, a Modern one with casements and a flush door). Set the **Default prep** for the job; every opening starts there. Leave **Individual detail** on for old windows, where you'll want to mark single panes and frame parts; turn it off for a job of new windows where that's never needed.
+
+**2. Each side.** Tap **Front**, **Back**, **Left** or **Right**. Set the floors and how many windows (**W**) and doors (**D**) are on each — the drawing updates as you go. Doors start on the ground floor only; add one upstairs for a balcony or Juliet. Left and right draw as gable ends.
+
+![Setting the layout of one side](images/26a-windoors-layout.png)
+
+**3. Confirm layout.** The windows and doors become real and tappable, numbered left to right as you face that side — W1, W2… and D1, D2… counted separately on each floor. **Edit layout** unlocks the side again; taking a count down removes openings from the end of that floor, and warns you first if any of them has work marked on it.
+
+![The front elevation — solid badges mark quoted work](images/26b-windoors-elevation.png)
+
+**4. Tap a window or door** to open its detail. Its label reads like *Front, first floor, W2*; add a **nickname** ("landing", "above porch") if that's how you'd say it on site.
+
+- **Type** — casement, sash or fixed; or for doors panelled, flush, half glazed, fully glazed, stable or French (double).
+- **Pane rows and columns** — per sash, on a sash window. For doors these are the panel or glass grid.
+- **Size** — each button shows the area it covers (Small is under 0.5m², Medium 0.5 to 1m², Large 1 to 2m², X-Large over 2m²).
+- **Prep** — only levels at or above the job's default are offered. An opening can go up, never down.
+- **Marking work** (with Individual detail on) — tap panes, or tap frame parts (head, stiles, rails, cill; for doors the panels, frame and threshold). A tick shows what's selected. You select one kind at a time: tapping a frame part while panes are selected starts a fresh selection. **Select all panes** and **Clear selection** do what they say. Then tap the work — **Reputty** or **Replace glass** for panes; **Filler**, **Resin repair** or **Splice timber** for parts, plus **Ironmongery off & on** on doors — or **Remove work**. The selection clears after each one.
+
+![Marking panes and parts on one window](images/26c-windoors-detail.png)
+
+Orange is work, blue is glass being replaced. Work marked here is **quoted** work and shows solid; work added on site shows dashed. Changing the type or the pane grid clears that opening's marks, so it asks first if there are any. The list under the diagram says, in words, everything on this opening.
+
+**On the quote** the whole fixture is **one line**, worded from what's in it — *Exterior windows and doors (outside faces): 5 sash windows, 1 front door. Includes reputty x3, resin repair x1.* — through Summary, the client's quote, Xero and the final invoice. The minutes behind it (see [Rates](#14-rates)) go into the job's time like any other labour.
+
+The work report — what was done where, with the drawings — is covered under [On Site](#windows-and-doors-on-site).
 
 ### Site notes
 
@@ -1138,6 +1167,29 @@ A few things worth knowing:
 - **The link is the password.** Anyone with it can see this job's totals and answer its extras, so treat it like the quote itself. It's specific to one job and doesn't expire.
 - **What the client can reach.** The link only opens that one job's page. But it's the same web address the app runs on, so if someone trims the link back to the domain they land on the app's front door — which is why setting the app password matters (see [Getting started](#1-getting-started)): with it set they get a sign-in screen and nothing else, and it costs you one login per phone, not one per opening. A custom domain makes the link read as your business rather than as a hosting provider, but it doesn't change what's behind the front door — the password does.
 
+### Windows and doors on site
+
+Old windows are where the surprises are. On a job with [Windows and doors](#windows-and-doors) set up, On Site has a **🪟 Windows & doors** card near the top. It opens the same drawings and the same detail view, with two differences:
+
+- **Anything you add here is a variation.** New marks, and prep raised on an opening (you can raise it, never lower it), are extra work on top of the quote. They show dashed on the diagram and as a dashed badge on the elevation.
+- **The quote's own work is locked.** It's shown, solid, so you can see what was already allowed for, but you can't take it off here — and type, size and pane layout are as quoted. The quote is the floor: nothing done on site ever takes money off it.
+
+![On site: prep raised and glass marked for replacing, added as a variation](images/26d-windoors-onsite-detail.png)
+
+Everything you mark collects into one **draft** variation, worded for you from the marks — *Front, first floor, W2: reputty x4 panes, resin repair (cill).* — and shown at the top of the screen. It sits on the Variations card like any other extra; **reword for the client** changes what they'll read. Prep raised on site is charged as the difference between the old prep level and the new one.
+
+![The draft on the Variations card](images/26f-windoors-variation-card.png)
+
+**Send for approval** puts the draft on the client's page like any other extra. Once it's sent — or you've recorded their answer by hand — the draft is closed, and the next thing you mark starts a new one. Work on a variation the client has already answered is locked too.
+
+#### The work report
+
+Once any work is marked, the fixture screen has a **📄 Work report (PDF)** button. It opens a page — ready to print or save as a PDF from the phone's share sheet — to attach to the Xero invoice. The same report appears on the client's approval page, under their extras.
+
+![The report on the client's page](images/26g-windoors-report.png)
+
+For each side with work on it, it shows the elevation with the windows and doors that had work picked out, then a drawing of each of those with the panes and parts marked, and a list of the work split into **quoted work** and **approved variations** (with the date each was approved). Openings with no work are left out, variations still waiting for an answer aren't on it, and **there are no prices anywhere on it** — the invoice itself keeps one total line for the whole fixture.
+
 When the work's done, tap **Mark Completed** — the job moves on, and Home reminds you it needs invoicing until you do.
 
 ---
@@ -1243,7 +1295,12 @@ Menu (☰) → **Rates** — every number the calculator uses, grouped by what i
 | Item & Job-Type | **Wallpaper Rates** | Per-roll rates, ceiling/staircase multipliers, minimum price, wide vinyl & mural rates |
 | Item & Job-Type | **Kitchen Rates** | The full price matrix per item type × size, linear rates, carcass %, strip-original-coating minutes |
 | Item & Job-Type | **Fitted Unit / Shelving** | Shelf and bay spray times, fallback areas behind fitted-unit litres |
+| Item & Job-Type | **Windows & Doors** | Window base minutes per size tier, minutes per pane, sash/casement/fixed adjustment, door base minutes per type and size, prep multipliers, and each marked-work action's minutes and material £ |
 | Scheduling | **Scheduling** | Daily overhead, schedule buffer, Work Saturdays, bank-holiday region, calendar feed |
+
+**Windows & Doors** prices each opening as *(base minutes for its size and type + panes × minutes per pane) × its prep multiplier*, plus the minutes of any work marked on it — all at your day rate, like every other timed task. The prep multipliers start at Light ×1.10, Standard ×1.25, Heavy ×1.40 and Restoration ×1.75; the material £ (glass is £25 a pane to start) is per pane or part marked, before markup. Every figure is a starting guess to calibrate.
+
+![Rates — Windows & Doors](images/26h-windoors-rates.png)
 
 > **Calibrate as you go:** after a few jobs, compare the logged time and actual materials on On Site with what was estimated, and nudge the time and coverage rates here. The estimates get sharper with every job.
 
@@ -1346,6 +1403,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.81.2. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.82.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

@@ -507,6 +507,15 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     <div id="fu-section-list" style="display:none">
       <div class="card" id="fu-section-cards"></div>
     </div>
+    <!-- Windows and doors (WINDOWS_DOORS_SPEC.md): one per-job fixture like
+         the kitchen, shown once it has a real total; filled in by
+         updateMeasureChrome() from windoorsMeasureRowHtml(). -->
+    <div class="section-title" id="wd-section-head" style="display:none">
+      <span>Windows &amp; Doors</span>
+    </div>
+    <div id="wd-section-list" style="display:none">
+      <div class="card" id="wd-section-cards"></div>
+    </div>
     <!-- Custom line items (ad-hoc description + price, no calc engine): a
          per-job LIST like rooms/exterior (swipe delete, tap to edit), but
          stored on the job object itself (job.customItems) like kitchen/
@@ -527,6 +536,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       <div class="nav-menu-item" onclick="closeAddChooser();goScreen('room')"><div>🏠&ensp;Room</div><span class="nav-menu-arrow">›</span></div>
       <div class="nav-menu-item" onclick="closeAddChooser();showAddExterior()"><div>🏡&ensp;Exterior item</div><span class="nav-menu-arrow">›</span></div>
       <div class="nav-menu-item" onclick="closeAddChooser();goScreen('kitchen')"><div>🍳&ensp;Kitchen</div><span class="nav-menu-arrow">›</span></div>
+      <div class="nav-menu-item" onclick="closeAddChooser();openWindoors('quote')"><div>🪟&ensp;Windows and doors</div><span class="nav-menu-arrow">›</span></div>
       <div class="nav-menu-item" onclick="closeAddChooser();addFittedUnit()"><div>📚&ensp;Fitted Unit</div><span class="nav-menu-arrow">›</span></div>
       <div class="nav-menu-item" onclick="closeAddChooser();showAddCustomItem()"><div>✏️&ensp;Custom line</div><span class="nav-menu-arrow">›</span></div>
     </div>
@@ -1878,6 +1888,14 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       <div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Area per shelf<small>m² paintable — fallback only since v2.25.0: units with a Depth compute the real shelf area (2 × bay width × depth) instead</small></div><input type="number" class="field-input" id="s-fu-shelfarea" value="0.5" min="0.1" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
       <div class="field-row"><div class="field-label">Bay carcass area ×<small>on frontal area (height × width) per bay — fallback only since v2.25.0: units with a Depth compute the real carcass area (back + sides + top/bottom) instead. Litres only</small></div><input type="number" class="field-input" id="s-fu-bayareafactor" value="1.5" min="0" step="0.1" inputmode="decimal" onchange="saveSettings()"></div>
     </div>
+    <!-- Windows and doors fixture (WINDOWS_DOORS_SPEC.md section 4): built
+         by populateWindoorsRates() from public/windoors.js's own lists, so a
+         new tier or action shows up here without a second copy of it. -->
+    <div class="card">
+      <div class="card-header">Windows &amp; Doors</div>
+      <div class="settings-note">The Windows and doors fixture, outside faces only. An opening's minutes are (base + panes × per-pane) × prep, plus the minutes of any work marked on it — converted at your day rate like every other timed task. Materials are per element marked, before markup. Starting defaults — calibrate against real jobs.</div>
+      <div id="wd-rates-body"></div>
+    </div>
   </div>
 </div>
 
@@ -2054,6 +2072,29 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
 </div>
 
 <!-- ══ COLOURS ══ -->
+<!-- ══ WINDOWS AND DOORS (WINDOWS_DOORS_SPEC.md) ══
+     The outside faces of every window and door, on a drawn elevation per
+     side. One screen, two modes: from Measure it edits the QUOTE (layout,
+     types, prep, quote-stage marks); from On Site it records VARIATIONS
+     (new marks and prep raised on site), with the quote's own marks shown
+     but locked. Everything below #wd-body is rendered by renderWindoors(). -->
+<div id="screen-windoors" class="screen">
+  <div class="topbar">
+    <button class="back-btn" onclick="goBack()">←</button>
+    <div class="topbar-title" id="wd-title">Windows &amp; Doors</div>
+    <div class="chip" id="wd-chip" style="display:none">£0</div>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰</button>
+  </div>
+  <div class="content" id="wd-body"></div>
+  <!-- The detail view: one opening's panes and frame parts. Bottom sheet,
+       same overlay pattern as the notes panel. -->
+  <div id="wd-sheet" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.4)" onclick="closeWdDetail()">
+    <div style="position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-radius:16px 16px 0 0;padding:12px 0 calc(var(--sb) + 10px);max-height:92%;display:flex;flex-direction:column;box-shadow:0 -4px 24px rgba(0,0,0,.2)" onclick="event.stopPropagation()">
+      <div id="wd-sheet-body" style="overflow-y:auto;flex:1"></div>
+    </div>
+  </div>
+</div>
+
 <div id="screen-colours" class="screen">
   <div class="topbar">
     <button class="back-btn" onclick="goTab('dash')">←</button>
@@ -2240,7 +2281,13 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       <div class="field-row"><div class="field-label">Coats</div><div class="seg" id="seg-ex-fascia"><button class="seg-btn" onclick="setExtSeg('ex-fascia',1)">1</button><button class="seg-btn active" onclick="setExtSeg('ex-fascia',2)">2</button><button class="seg-btn" onclick="setExtSeg('ex-fascia',3)">3</button></div></div>
       </div>
     </div>
-    <div class="card">
+    <!-- Windows and doors have their own fixture now (WINDOWS_DOORS_SPEC.md).
+         The two old window sections below only show on an item or job that
+         already uses them -- existing data is left exactly as it was. -->
+    <div class="card" id="ext-windoors-pointer" style="display:none;padding:12px 16px;font-size:13px;color:var(--text2);line-height:1.5">
+      Windows and doors are priced in their own fixture now, with a drawing of each side of the house: <span onclick="goBack();openWindoors('quote')" style="color:var(--accent);font-weight:600;cursor:pointer">Measure › + › Windows and doors ›</span>
+    </div>
+    <div class="card" id="ext-windows-card">
       <div class="card-header sec-toggle" onclick="toggleFormSection('ext-windows')"><span>Exterior Windows<small>casement — one row per matching group</small></span><span class="sec-chev open" id="sec-chev-ext-windows">›</span></div>
       <div class="card-body open" id="sec-ext-windows">
       <div id="ex-windows-list"></div>
@@ -2292,7 +2339,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       <div class="field-row"><div class="field-label">Days<small>your estimate on site</small></div><input type="number" class="field-input" id="ex-porch" placeholder="0" min="0" step="0.5" inputmode="decimal" oninput="previewExterior()"></div>
       </div>
     </div>
-    <div class="card">
+    <div class="card" id="ext-sash-card">
       <div class="card-header sec-toggle" onclick="toggleFormSection('ext-sash')"><span>Sash Window Restoration<small>prime &amp; paint — one row per matching group</small></span><span class="sec-chev open" id="sec-chev-ext-sash">›</span></div>
       <div class="card-body open" id="sec-ext-sash">
       <div id="ex-sash-list"></div>
@@ -2470,6 +2517,8 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
 </div>
 </div>
 
+<!-- Windows and doors: pricing, drawing and words shared with the server. -->
+<script src="/windoors.js"></script>
 <script>
 
 // ── Storage Layer (localStorage cache + server sync) ───────────────────────
@@ -2771,6 +2820,9 @@ function dropJobMirror(jobId) {
   JOB_MIRROR_COLLS.forEach(function(c) {
     try { localStorage.removeItem(jobMirrorKey(c, jobId)); } catch (e) {}
   });
+  // The windows and doors mirror is kept by its own module (wdSaveMirror)
+  // but belongs to the job all the same.
+  try { localStorage.removeItem('pe-windoors-' + jobId); } catch (e) {}
   var order = readJobMirrorOrder().filter(function(j) { return j !== jobId; });
   try { localStorage.setItem(JOB_MIRROR_ORDER_KEY, JSON.stringify(order)); } catch (e) {}
 }
@@ -3187,6 +3239,57 @@ function populateKitchenRatesTable() {
   }).join('');
 }
 
+// ── Windows and doors rates (Rates page) ──────────────────────────────────
+function populateWindoorsRates() {
+  var body = document.getElementById('wd-rates-body');
+  if (!body) return;
+  var R = Windoors.mergeRates(settings.windoorsRates);
+  var inp = function(id, val, step) {
+    return '<input type="number" class="field-input" style="width:64px" id="' + id + '" value="' + val + '" min="0" step="' + (step || 1) + '" inputmode="decimal" onchange="saveSettings()">';
+  };
+  var row = function(label, sub, control, top) {
+    return '<div class="field-row"' + (top ? ' style="border-top:1px solid var(--border)"' : '') + '><div class="field-label">' + label + (sub ? '<small>' + sub + '</small>' : '') + '</div>' + control + '</div>';
+  };
+  var h = '<div class="subsection-label">Window base minutes<small>by size tier — the tier button shows the area guide</small></div>';
+  Windoors.WINDOW_TIERS.forEach(function(t) { h += row(t.label, t.guide, inp('s-wd-win-' + t.key, R.winBase[t.key])); });
+  h += row('Minutes per pane', 'covers cutting in the glazing bars', inp('s-wd-perpane', R.perPane, 0.5), true);
+  h += '<div class="subsection-label">Type adjustment<small>× on the window base — sash has more parts to paint</small></div>';
+  Windoors.WINDOW_TYPES.forEach(function(t) { h += row(t.label, '', inp('s-wd-type-' + t.key, R.typeAdj[t.key], 0.05)); });
+  h += '<div class="subsection-label">Door base minutes<small>standard / oversized</small></div>';
+  Windoors.DOOR_TYPES.forEach(function(t) {
+    h += row(t.label, '', '<span style="display:flex;gap:6px">' + Windoors.DOOR_TIERS.map(function(s) {
+      return inp('s-wd-door-' + t.key + '-' + s.key, R.doorBase[t.key][s.key]);
+    }).join('') + '</span>');
+  });
+  h += '<div class="subsection-label">Prep multipliers<small>× on the painted opening — an opening can go up from the job\'s default, never down</small></div>';
+  Windoors.PREP_LEVELS.forEach(function(p) { h += row(p.label, '', inp('s-wd-prep-' + p.key, R.prep[p.key], 0.05)); });
+  h += '<div class="subsection-label">Actions<small>minutes and material £ per pane or part marked</small></div>';
+  Windoors.ACTIONS.forEach(function(a) {
+    h += row(a.label, a.on === 'pane' ? 'pane action' : (a.doorOnly ? 'door action' : 'frame action'),
+      '<span style="display:flex;gap:6px;align-items:center;font-size:11px;color:var(--text2)">' + inp('s-wd-act-' + a.key + '-mins', R.actions[a.key].mins) + 'min £' + inp('s-wd-act-' + a.key + '-cost', R.actions[a.key].cost, 0.5) + '</span>');
+  });
+  body.innerHTML = h;
+}
+// Read back from the inputs where they exist, otherwise keep what's in
+// memory (the Rates page may never have been opened this session).
+function readWindoorsRates() {
+  var R = Windoors.mergeRates(settings.windoorsRates);
+  if (!document.getElementById('s-wd-perpane')) return R;
+  var v = function(id, cur) { var el = document.getElementById(id); return el && el.value !== '' ? Math.max(0, +el.value || 0) : cur; };
+  Windoors.WINDOW_TIERS.forEach(function(t) { R.winBase[t.key] = v('s-wd-win-' + t.key, R.winBase[t.key]); });
+  R.perPane = v('s-wd-perpane', R.perPane);
+  Windoors.WINDOW_TYPES.forEach(function(t) { R.typeAdj[t.key] = v('s-wd-type-' + t.key, R.typeAdj[t.key]); });
+  Windoors.DOOR_TYPES.forEach(function(t) { Windoors.DOOR_TIERS.forEach(function(s) {
+    R.doorBase[t.key][s.key] = v('s-wd-door-' + t.key + '-' + s.key, R.doorBase[t.key][s.key]);
+  }); });
+  Windoors.PREP_LEVELS.forEach(function(p) { R.prep[p.key] = v('s-wd-prep-' + p.key, R.prep[p.key]); });
+  Windoors.ACTIONS.forEach(function(a) {
+    R.actions[a.key].mins = v('s-wd-act-' + a.key + '-mins', R.actions[a.key].mins);
+    R.actions[a.key].cost = v('s-wd-act-' + a.key + '-cost', R.actions[a.key].cost);
+  });
+  return R;
+}
+
 function kNum(id, fallback) {
   var el = document.getElementById(id);
   return el ? (+el.value || 0) : fallback;
@@ -3212,6 +3315,7 @@ function saveSettings() {
     next[f[0]] = +document.getElementById(f[1]).value;
   });
   next.kitchenRates = readKitchenRates();
+  next.windoorsRates = readWindoorsRates();
   next.materials = settings.materials || {};
   // No Settings-screen field for these two -- they're set from the
   // Summary tab's Payment card (setPaymentType/setPaymentWeeks), so carry
@@ -3293,6 +3397,11 @@ function clearEverything() {
   // instead of going through save*(), so nothing else would clear it.
   writeJobMirrorAll(activeJobId, null);
   apiDelete('/api/all?job_id='+encodeURIComponent(activeJobId));
+  // The server clears the windows and doors tables in the same route; the
+  // phone's copy and its mirror go with them, or the next render would price
+  // a fixture that no longer exists.
+  windoors = { jobId: activeJobId, property: null, openings: [], marks: [] };
+  wdSaveMirror();
   var clearedJob = activeJob();
   if (clearedJob) clearedJob.kitchen = null;
   markMaterialsSeeded(false);
@@ -5417,6 +5526,16 @@ async function createXeroQuote(forceNew) {
                unitPrice: +it.unitPrice || 0, applyMarkup: it.applyMarkup !== false };
     });
     var customQuoteSplit = customItemsSplit(activeJob());
+    // Windows and doors: rides the exterior item list as one labelled line --
+    // routes/xero.js already turns each exterior item into its own line, so
+    // the fixture needs nothing new on the server. Its label IS the item
+    // line text ("Exterior windows and doors (outside faces): 8 sash
+    // windows, 1 front door."), per WINDOWS_DOORS_SPEC.md section 8.
+    var wdXero = calcWindoors();
+    if (wdXero.total > 0.005) {
+      exteriorData.push({ label: windoorsLineText(), total: wdXero.total, windoors: true });
+      extTotal += wdXero.total; extTimeTotal += wdXero.time;
+    }
 
     // Materials sent to Xero come from the editable snapshot, not a fresh
     // live calculation -- that's the whole point of the snapshot (see
@@ -5565,6 +5684,7 @@ async function createXeroQuote(forceNew) {
         if (ed.total <= 0) return;
         var label = ed.label || 'Exterior';
         if (!blockAttached || handEdited) { ed.description = withBlock(label); return; }
+        if (ed.windoors) { ed.description = label; return; }
         ed.description = scopedLine(label, extItemScopeSentence('quote', quoteExtItems[i], tplValues), extBaseline);
       });
       // Kitchen has no scope builder — its counts are a bill of quantities
@@ -5788,6 +5908,12 @@ async function initApp() {
   var materialsLocal = JSON.parse(localStorage.getItem('pe-materials-snapshot')||'null');
   if (materialsLocal && materialsLocal.length > 0) { materialsSnapshot = materialsLocal; }
 
+  // Windows and doors from this job's own mirror, for the same reason: it is
+  // priced, and a launch in a dead spot must not show a quote without it.
+  var wdLocal = wdReadMirror(bootJobId);
+  if (wdLocal) windoors = { jobId: bootJobId, property: wdLocal.property || null,
+                            openings: wdLocal.openings || [], marks: wdLocal.marks || [] };
+
   renderHome();
   renderDash();
 
@@ -5977,6 +6103,8 @@ async function initApp() {
       Promise.all([loadSnags(), loadSnagRooms()]).catch(function(e) {
         console.log('Snags fetch failed — the snag list and its colours load when On Site is opened:', e.message);
       }),
+      // Windows and doors: priced, so eagerly -- see loadActiveJobData.
+      loadWindoors(syncJobId),
       // Spec-sheet ticks and the link's state, eagerly for the badge-ish
       // reason: the On Site entry's "Spec sheet (n)" is a count of open rows,
       // and it paints before anyone opens the sheet. The link is loaded here
@@ -6202,6 +6330,9 @@ function mergeSettings(raw) {
   // SETTINGS_FIELDS. Anything unrecognised (incl. old blobs) means 'full'.
   out.standaloneRounding = raw.standaloneRounding === 'half' ? 'half' : 'full';
   out.kitchenRates = raw.kitchenRates || KITCHEN_RATE_DEFAULTS;
+  // Windows and doors: nested like kitchenRates, merged per field over the
+  // module's defaults so a rate added later has a value on every old blob.
+  out.windoorsRates = Windoors.mergeRates(raw.windoorsRates);
   out.materials    = raw.materials || {};
   out.paymentType  = raw.paymentType || 'single';
   out.paymentWeeks = raw.paymentWeeks || null;
@@ -6457,6 +6588,10 @@ async function loadActiveJobData() {
     // memory would put another house's snags on this job's On Site screen.
     loadSnags().catch(function() { snags = []; }),
     loadSnagRooms().catch(function() { snagRooms = []; }),
+    // Windows and doors: PRICED, so it has to be in memory before the
+    // renders below or Summary would paint a total without it. Falls back to
+    // this job's own mirror offline (loadWindoors handles that itself).
+    loadWindoors(jobId),
     // Spec-sheet ticks get the same job-scoped, no-mirror treatment: leaving
     // the OLD job's ticks in memory would put another house's progress on
     // this job's sheet, and the keys are room ids, so they would not even
@@ -7185,8 +7320,11 @@ function buildAcceptedQuoteSnapshot(job) {
   var rawLabour = 0, workingDays = 0, sprayLabour = 0;
   quoteRooms.forEach(function(r) { var c = calcRoom(r); rawLabour += c.total; workingDays += c.time; sprayLabour += c.sprayLabour || 0; });
   quoteExtItems.forEach(function(it) { var c = calcExtItem(it); rawLabour += c.total; workingDays += c.time; sprayLabour += c.sprayLabour || 0; });
-  rawLabour += kitchenCalc.total + fuAgg.total;
-  workingDays += kitchenCalc.time + fuAgg.time;
+  // Windows and doors at the quote stage (on-site marks are variations and
+  // stay out, like any flagged carrier).
+  var wdSnap = calcWindoors();
+  rawLabour += kitchenCalc.total + fuAgg.total + wdSnap.total;
+  workingDays += kitchenCalc.time + fuAgg.time + wdSnap.time;
 
   var chargeableMats = materialsSnapshot.filter(function(l) { return l.chargeable !== false; });
   var materialsTotal = chargeableMats.reduce(function(s, l) { return s + (+l.quantity || 0) * (+l.unitAmount || 0); }, 0);
@@ -9405,6 +9543,7 @@ function lostBaselineCarriers(job) {
 function jobHasMeasuredScope(job) {
   if (rooms.length || extItems.length) return true;
   if (job && job.kitchen && calcKitchen(job.kitchen).total > 0.005) return true;
+  if (job && job.id === activeJobId && calcWindoors().total > 0.005) return true;
   return fittedUnitList(job).some(function(f) { return calcFittedUnit(f).total > 0.005; });
 }
 
@@ -9577,6 +9716,7 @@ function variationRawOf(kind, obj) {
   if (!obj) return null;
   var carrier = String(kind).replace(/delta$/, '');
   if (carrier === 'free') return null; // typed figure; changing it is explicit
+  if (carrier === 'windoors') return windoorsVariationRaw(obj.id);
   if (/delta$/.test(kind)) {
     var d = variationDeltaOf(carrier, obj);
     return d ? d.raw : 0;
@@ -9750,6 +9890,15 @@ function computeVariationsView(roomCalcs, extCalcs, kitchenCalc) {
     if (fuSt !== 'declined') { varLabour+=fc.total; varTime+=fc.time; }
     if (fuSt === 'approved') appLabour+=fc.total;
   });
+  // Windows and doors marked on site: one line per draft/sent variation.
+  // Deliberately NOT added to the *All accumulators: those are subtracted
+  // from the Summary job total to leave original scope, and on-site marks
+  // were never IN that total (calcWindoors() prices the quote stage only).
+  windoorsVariationLines(job).forEach(function(l) {
+    var wSt = addLine('windoors', l.id, l.name, l.raw, l.obj);
+    if (wSt !== 'declined') { varLabour += l.raw; varTime += l.time; }
+    if (wSt === 'approved') appLabour += l.raw;
+  });
   // ── Extra work inside an already-measured carrier (Part 2) ──────────────
   // A classified delta is a variation line like any other. An UNCLASSIFIED one
   // is not yet anything, and the two accumulators say exactly that:
@@ -9907,6 +10056,16 @@ function findVariationEntry(kind, id) {
   if (kind === 'free') {
     var fv = job && (job.freeVariations||[]).find(function(x){ return x.id === id; });
     return fv ? { obj: fv, save: function(){ localStorage.setItem('pe-jobs', JSON.stringify(jobs)); persistJobData(job); } } : null;
+  }
+  if (kind === 'windoors') {
+    var wv = wdVariationList(job).find(function(x){ return x.id === id; });
+    // An answer, by hand or from the link, closes the draft: the next mark
+    // made on site starts a new variation rather than joining one the client
+    // has already said yes or no to.
+    return wv ? { obj: wv, save: function(){
+      if (!wv.sentAt && variationStatusOf(wv) !== 'pending') wv.sentAt = new Date().toISOString();
+      localStorage.setItem('pe-jobs', JSON.stringify(jobs)); persistJobData(job);
+    } } : null;
   }
   return null;
 }
@@ -10307,6 +10466,10 @@ function variationsCardHtml(v) {
       ? 'added since the quote \u2014 <span onclick="event.stopPropagation();editVariationDeltaNote(\''
         + l.kind + '\',\'' + l.id + '\')" style="color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline">'
         + 'reword for the client</span>'
+      : l.kind === 'windoors'
+        ? (findVariationEntry('windoors', l.id) && !findVariationEntry('windoors', l.id).obj.sentAt && l.status === 'pending' ? 'draft \u2014 ' : '')
+          + 'marked on site \u2014 <span onclick="event.stopPropagation();openWindoors(\'site\')" style="color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline">open</span> \u00b7 '
+          + '<span onclick="event.stopPropagation();rewordWindoorsVariation(\'' + l.id + '\')" style="color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline">reword for the client</span>'
       : 'measured item \u2014 edit from its own form';
     rows += '<div class="breakdown-row"><span class="breakdown-label"><span'+(l.status==='declined'?' style="'+struck+'"':'')+'>'+escapeHtml(l.name)+'</span><small style="display:block;font-weight:400;color:var(--text2)">'+sub+'</small>'+
       variationSignoffHtml(l.kind, l.id, l.status, l.approvedAt, l.note)+'</span>'+
@@ -10478,6 +10641,11 @@ function buildClientVariationLines() {
   fittedUnitList(job).forEach(function(f) {
     if (f.isVariation) measured('fittedunit', f.id, fittedUnitName(f), calcFittedUnit(f), f);
   });
+  // Windows and doors marked on site: priced like any measured labour
+  // (sundries share + markup folded in), one line per variation.
+  windoorsVariationLines(job).forEach(function(l) {
+    add('windoors', l.id, l.name, (l.raw + l.raw * sPct) * varMk, l.status);
+  });
   // Extra work inside an already-measured carrier (VARIATIONS_SPEC.md Part 2),
   // published under its OWN source kind. job_variations is unique on
   // (job_id, source_kind, source_id), so a delta sharing 'room' with a
@@ -10611,6 +10779,9 @@ async function sendVariationsForApproval() {
     clientVariations = result.variations || [];
     clientVariationsJobId = job.id;
     clientQuoteLinkPath = result.path || null;
+    // Sent: any windows-and-doors draft on it is closed, so marks made from
+    // now on start the next variation (WINDOWS_DOORS_SPEC.md section 6).
+    wdCloseDraftsSent(lines);
     // Publishing can bring back answers given since the last look — adopt
     // them in the same breath rather than leaving the card showing Pending on
     // a line the client has already answered.
@@ -10739,6 +10910,11 @@ function buildVariationQuoteLines() {
     if (!f.isVariation || variationStatusOf(f) !== 'pending') return;
     var fc = calcFittedUnit(f);
     if (fc.total > 0.005) { sundriesBase += fc.total; items.push({ description: 'Variation: ' + fittedUnitName(f), amount: fc.total * varMk }); }
+  });
+  windoorsVariationLines(job).forEach(function(l) {
+    if (l.status !== 'pending') return;
+    sundriesBase += l.raw;
+    items.push({ description: 'Variation: ' + l.name, amount: l.raw * varMk });
   });
   var hourlyRate = (settings.dr || 0) / (settings.hpd || 7);
   ((job && job.freeVariations) || []).forEach(function(fv) {
@@ -12543,6 +12719,12 @@ function goBack() {
   // renderHome() covers both halves of the combined Measure screen — the
   // exterior form exits through here with curTab still 'home'.
   if(curTab==='home') renderHome();
+  if (leaving === 'windoors') {
+    document.getElementById('wd-sheet').style.display = 'none';
+    wdOpenId = null;
+    if (curTab === 'actuals') renderActuals();
+    renderSummary();
+  }
   if (leaving === 'kitchen' && jobNow && jobNow.kitchen) {
     offerVariationDeltaOnSave('kitchen', jobNow.kitchen);
   } else if (leaving === 'fittedunit' && editFittedUnitId) {
@@ -12649,6 +12831,7 @@ function loadSettings() {
   renderIcsUrlRow();
   renderTextTemplatesSettings();
   populateKitchenRatesTable();
+  populateWindoorsRates();
   document.getElementById('s-kr-cornice-base').value = (settings.kitchenRates && settings.kitchenRates.cornice) ? settings.kitchenRates.cornice.base : 25;
   document.getElementById('s-kr-cornice-coat').value = (settings.kitchenRates && settings.kitchenRates.cornice) ? settings.kitchenRates.cornice.coat : 4;
   document.getElementById('s-kr-plinth-base').value  = (settings.kitchenRates && settings.kitchenRates.plinth) ? settings.kitchenRates.plinth.base : 18;
@@ -17883,6 +18066,7 @@ async function openActuals() {
       // lazily on first use) must still show the materials screen.
       loadSnags().catch(function(e) { if (!isNetworkFailure(e)) snags = []; }),
       loadSnagRooms().catch(function(e) { if (!isNetworkFailure(e)) snagRooms = []; }),
+      loadWindoors(activeJobId).catch(function() {}),
       // Tolerant for the same reason as the snags: spec_ticks is created
       // lazily on first use, and a database that has never had one must still
       // show the materials screen.
@@ -18106,7 +18290,7 @@ function renderActuals() {
   // open (snagsSectionHtml returns '' otherwise). The cleared/empty list has
   // its own quiet home at the bottom -- see snagsQuietHtml.
   var specModel = jobSpecModel();
-  el.innerHTML = onSiteJobHeader() + snagsSectionHtml() + specSectionHtml(specModel) + head + renderTimeOnSiteCard()
+  el.innerHTML = onSiteJobHeader() + snagsSectionHtml() + specSectionHtml(specModel) + windoorsOnSiteCardHtml() + head + renderTimeOnSiteCard()
     + '<div class="section-title" style="margin:16px 0 8px;display:flex;align-items:center;justify-content:space-between;gap:14px">Materials'
       + undoChipHtml()
     + '</div>'
@@ -19652,6 +19836,14 @@ function buildFinalInvoiceModel() {
     labour.push({ id: 'fu' + i, desc: fittedUnitName(e.unit), raw: fc.total,
                   scope: buildFuScopeSentence('invoice', [e.unit], invTplValues) });
   });
+  // Windows and doors: the quote-stage fixture as ONE line, worded the way
+  // the quote worded it. The invoice keeps a single total line for the
+  // fixture; what was done where goes on the report attached beside it.
+  var wdInv = calcWindoors();
+  if (wdInv.total > 0.005) {
+    rawOrig += wdInv.total; ttOrig += wdInv.time;
+    labour.push({ id: 'wd', desc: windoorsLineText(), raw: wdInv.total, ownText: true });
+  }
   var muVal = effectiveMarkup();
   var fixed = effectiveMarkupType() === 'fixed';
   // Standalone diary-day rounding: the quote charged this top-up as labour
@@ -19870,6 +20062,12 @@ function buildFinalInvoiceModel() {
     variations.push({ id: 'vd' + i, desc: 'Variation: ' + l.name + ' \u2014 ' + variationDeltaDescription(l.kind, l.obj),
                       amount: l.raw * varMk, dropped: l.status === 'declined',
                       signoff: l.status, note: l.obj.variationApprovalNote || '' });
+  });
+  // Windows and doors marked on site, one line per variation.
+  windoorsVariationLines(job).forEach(function(l) {
+    if (l.status !== 'declined') varRaw += l.raw;
+    variations.push({ id: 'vwd' + l.id, desc: 'Variation: ' + l.name, amount: l.raw * varMk,
+                      dropped: l.status === 'declined', signoff: l.status, note: l.obj.variationApprovalNote || '' });
   });
   var hourlyRate = (settings.dr || 0) / (settings.hpd || 7);
   var freeHoursRaw = 0;
@@ -24467,9 +24665,26 @@ function getExtFormData() {
   };
 }
 
+// The Exterior form's own window/sash sections are hidden unless this item,
+// or this job, already has windows priced that way. The one job that did is
+// converted by hand (spec section 2); no migration, and nothing existing is
+// touched -- a job with legacy windows keeps both sections on every item.
+function extItemHasLegacyWindows(it) {
+  return !!it && ((it.windows && it.windows.length) || (it.sashWindows && it.sashWindows.length) || +it.wins > 0 || +it.sash > 0);
+}
+function applyExtWindowsVisibility(item) {
+  var legacy = extItemHasLegacyWindows(item) || extItems.some(extItemHasLegacyWindows);
+  ['ext-windows-card', 'ext-sash-card'].forEach(function(id) {
+    var el = document.getElementById(id); if (el) el.style.display = legacy ? '' : 'none';
+  });
+  var ptr = document.getElementById('ext-windoors-pointer');
+  if (ptr) ptr.style.display = legacy ? 'none' : 'block';
+}
+
 function showAddExterior() {
   resetExtForm();
   resetExtFormSections();
+  applyExtWindowsVisibility(null);
   inSub='extform';
   document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('active');});
   document.getElementById('screen-extform').classList.add('active');
@@ -24480,6 +24695,7 @@ function editExtItem(id) {
   if(!item) return;
   migrateExtDoorFields(item);
   editExtId = id;
+  applyExtWindowsVisibility(item);
   // Items saved under the old 0/10/25 scale (or with no prepPct at all)
   // may hold a % with no button now -- 0% most often. Open those as Custom
   // at the same % so re-saving never silently changes the price.
@@ -24717,6 +24933,787 @@ function _renderFittedUnitInner() {
   _renderCustomInner();
 }
 
+// ── Windows and doors fixture (WINDOWS_DOORS_SPEC.md) ─────────────────────
+// Windows and doors moved out of the Exterior form into a fixture of their
+// own: a drawn elevation per side, each opening tappable, each pane and frame
+// part markable. The pricing, the element model, the drawings and the words
+// all live in public/windoors.js (window.Windoors) -- the SAME module the
+// server uses to draw the client's report -- so this block is state, saving
+// and screens, and nothing it shows can disagree with what the client sees.
+//
+// Storage is three tables (lib/windoors.js), written one row at a time
+// through apiPutStrict/apiDeleteStrict like snags, so a mark made in a
+// cellar queues and replays on its own. Unlike snags there is a local mirror
+// per job (pe-windoors-<job>): the fixture is PRICED, and a quote that lost
+// its windows the moment the signal dropped would be a wrong number on
+// Summary, not just a missing list.
+//
+// Two stages, never mixed (spec section 2):
+//   quote      what the Measure screen edits. Part of the quote total.
+//   variation  what On Site records. Collects into a DRAFT variation on
+//              jobs.data.windoorsVariations until it is sent for approval,
+//              then rides the ordinary variation pipeline as kind 'windoors'.
+// The quote is the floor: nothing on site can take a minute off it (the
+// module prices prep raises as the difference, never below zero, and site
+// mode offers no way to lower a type, size or prep level).
+var windoors = { jobId: null, property: null, openings: [], marks: [] };
+var wdMode = 'quote';        // 'quote' (from Measure) or 'site' (from On Site)
+var wdSide = 'front';
+var wdOpenId = null;         // the opening in the detail sheet
+var wdSel = { kind: null, ids: {} }; // selection: all panes or all parts, never both
+var wdLayoutDraft = null;    // the floors being edited on an unlocked side
+
+function wdRates() { return Windoors.mergeRates(settings.windoorsRates); }
+function wdMirrorKey(jobId) { return 'pe-windoors-' + jobId; }
+function wdSaveMirror() {
+  if (!windoors.jobId) return;
+  try {
+    localStorage.setItem(wdMirrorKey(windoors.jobId), JSON.stringify({
+      property: windoors.property, openings: windoors.openings, marks: windoors.marks
+    }));
+  } catch (e) { /* quota -- the server copy is still the record */ }
+}
+function wdReadMirror(jobId) {
+  try {
+    var v = JSON.parse(localStorage.getItem(wdMirrorKey(jobId)) || 'null');
+    return v && typeof v === 'object' ? v : null;
+  } catch (e) { return null; }
+}
+// Any windoors write for this job still waiting in the offline queue? Then
+// the phone's copy is newer than the server's, and a fetch must not replace
+// it -- the queue will get the server there.
+function wdHasQueuedWrites(jobId) {
+  return offlineQueue.some(function(q) {
+    return q.path.indexOf('/api/windoors') === 0 && queuedItemJobId(q) === jobId;
+  });
+}
+
+async function loadWindoors(jobId) {
+  jobId = jobId || activeJobId;
+  var apply = function(d) {
+    if (jobId !== activeJobId) return;
+    windoors = { jobId: jobId, property: (d && d.property) || null,
+                 openings: (d && d.openings) || [], marks: (d && d.marks) || [] };
+  };
+  try {
+    var d = await apiGet('/api/windoors?job_id=' + encodeURIComponent(jobId));
+    if (wdHasQueuedWrites(jobId)) apply(wdReadMirror(jobId) || d);
+    else { apply(d); if (jobId === activeJobId) wdSaveMirror(); }
+  } catch (e) {
+    apply(wdReadMirror(jobId));
+  }
+}
+
+function wdLoadedForActiveJob() { return windoors.jobId === activeJobId && !!windoors.property; }
+// Does this job use the fixture at all -- a property row with openings on it.
+function wdInUse() { return wdLoadedForActiveJob() && windoors.openings.length > 0; }
+
+// The QUOTE side of the fixture, in the calc engine's own units: total is raw
+// £ before markup (labour at rpm() plus the actions' material £), time is
+// days at hours-per-day -- exactly what calcKitchen()/calcFittedUnit()
+// return, so every total that sums those can sum this beside them.
+function calcWindoors() {
+  if (!wdInUse()) return { total: 0, time: 0, mins: 0, materials: 0, count: 0 };
+  var p = Windoors.priceJob(windoors, wdRates());
+  return {
+    total: p.quote.mins * rpm() + p.quote.materials,
+    time: p.quote.mins / 60 / (settings.hpd || 7),
+    mins: p.quote.mins, materials: p.quote.materials, count: p.quote.count, priced: p
+  };
+}
+function windoorsLineText() { return Windoors.itemLineText(windoors); }
+// ── Variations: the on-site drafts ────────────────────────────────────────
+// job.windoorsVariations: [{ id, createdAt, sentAt, description,
+//   variationStatus, variationApprovedAt, variationApprovalNote,
+//   variationApprovedRaw }]. One carrier per draft, so the sign-off fields are
+// the same ones every other variation uses and findVariationEntry() can
+// resolve it like a free line.
+function wdVariationList(job) { job = job || activeJob(); return (job && Array.isArray(job.windoorsVariations)) ? job.windoorsVariations : []; }
+// The open draft: not yet sent, not yet answered. New site marks go here;
+// once it is sent (or answered by hand), the next mark starts a fresh one.
+function wdDraft(create) {
+  var job = activeJob();
+  if (!job) return null;
+  var d = wdVariationList(job).find(function(v) { return !v.sentAt && variationStatusOf(v) === 'pending'; });
+  if (!d && create) {
+    job.windoorsVariations = wdVariationList(job).slice();
+    d = { id: uid(), createdAt: new Date().toISOString(), sentAt: null, description: '' };
+    job.windoorsVariations.push(d);
+    localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+    persistJobData(job);
+  }
+  return d || null;
+}
+// A variation's marks can be changed only while nobody has answered it.
+function wdVariationEditable(variationId) {
+  var v = wdVariationList().find(function(x) { return x.id === variationId; });
+  return !v || variationStatusOf(v) === 'pending';
+}
+function wdVariationAutoText(id) { return Windoors.describeVariation(windoors, id); }
+function wdVariationText(v) {
+  return (v && v.description && v.description.trim()) || wdVariationAutoText(v && v.id) || 'Windows and doors work';
+}
+// One line per variation with money in it, in the shape every variation
+// consumer reads: raw £ before sundries/markup, time in days.
+//
+// A job whose rows are not in memory (offline on a phone that has never held
+// them) still has to bill what the client APPROVED -- that figure is on the
+// carrier as variationApprovedRaw, so it stands in rather than the line
+// silently disappearing off the final invoice.
+function windoorsVariationLines(job) {
+  job = job || activeJob();
+  var list = wdVariationList(job);
+  if (!list.length) return [];
+  var loaded = job && job.id === activeJobId && wdLoadedForActiveJob();
+  var priced = loaded ? Windoors.priceJob(windoors, wdRates()).variations : {};
+  var r = rpm(), hpd = settings.hpd || 7;
+  return list.map(function(v) {
+    var b = priced[v.id];
+    var raw = b ? b.mins * r + b.materials : 0;
+    var time = b ? b.mins / 60 / hpd : 0;
+    if (!loaded && variationStatusOf(v) === 'approved') raw = +v.variationApprovedRaw || 0;
+    return { kind: 'windoors', id: v.id, obj: v, raw: raw, time: time, status: variationStatusOf(v),
+             name: 'Windows and doors — ' + wdVariationText(v) };
+  }).filter(function(l) { return l.raw > 0.005; });
+}
+function windoorsVariationRaw(id) {
+  var l = windoorsVariationLines().find(function(x) { return x.id === id; });
+  return l ? l.raw : 0;
+}
+// "Send for approval" published these: the drafts are closed, so the next
+// mark made on site starts a new one.
+function wdCloseDraftsSent(lines) {
+  var job = activeJob();
+  if (!job) return;
+  var sent = {};
+  (lines || []).forEach(function(l) { if (l.kind === 'windoors') sent[l.sourceId] = true; });
+  var changed = false;
+  wdVariationList(job).forEach(function(v) {
+    if (!v.sentAt && sent[v.id]) { v.sentAt = new Date().toISOString(); changed = true; }
+  });
+  if (changed) { localStorage.setItem('pe-jobs', JSON.stringify(jobs)); persistJobData(job); }
+}
+function rewordWindoorsVariation(id) {
+  var job = activeJob();
+  var v = wdVariationList(job).find(function(x) { return x.id === id; });
+  if (!v) return;
+  var next = prompt('What the client sees for this variation (clear it to go back to the automatic wording):', wdVariationText(v));
+  if (next === null) return;
+  v.description = next.trim() === wdVariationAutoText(id) ? '' : next.trim();
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  renderActuals(); renderSummary();
+  if (inSub === 'windoors') renderWindoors();
+}
+
+// ── Saving ────────────────────────────────────────────────────────────────
+// job_id rides the QUERY on every path, not just the body: the offline queue
+// dedupes by method+path, and the same path for two jobs would let one job's
+// queued write swallow the other's. It also lets a queued DELETE (no body)
+// be attributed to its job by wdHasQueuedWrites().
+function wdQ() { return '?job_id=' + encodeURIComponent(windoors.jobId || activeJobId); }
+function wdFail(what, e) {
+  alert('Could not save ' + what + ': ' + e.message + '\n\nCheck the connection and try again.');
+  loadWindoors().then(function() { if (inSub === 'windoors') renderWindoors(); });
+}
+function wdPutProperty() {
+  var p = windoors.property;
+  return apiPutStrict('/api/windoors/property' + wdQ(), {
+    jobId: windoors.jobId, style: p.style, detailEnabled: p.detail_enabled !== false,
+    defaultPrep: p.default_prep, layout: p.layout || {}
+  }).catch(function(e) { wdFail('the house settings', e); });
+}
+function wdPutOpening(o) {
+  return apiPutStrict('/api/windoors/openings/' + encodeURIComponent(o.id) + wdQ(), {
+    jobId: windoors.jobId, side: o.side, floor: o.floor, kind: o.kind, position: o.position,
+    nickname: o.nickname || '', type: o.type, sizeTier: o.size_tier, rows: o.rows, cols: o.cols,
+    prepLevel: o.prep_level, prepStage: o.prep_stage, quotePrepLevel: o.quote_prep_level,
+    prepVariationId: o.prep_variation_id
+  }).then(function(resp) {
+    // Another phone already holds this slot: adopt its id, and re-point the
+    // marks made against ours (same contract as /snag-rooms).
+    if (resp && resp.id && resp.id !== o.id) {
+      var old = o.id;
+      o.id = resp.id;
+      windoors.marks.forEach(function(m) { if (m.opening_id === old) m.opening_id = resp.id; });
+      if (wdOpenId === old) wdOpenId = resp.id;
+      wdSaveMirror();
+    }
+  }).catch(function(e) { wdFail('that window or door', e); });
+}
+function wdDeleteOpening(o) {
+  return apiDeleteStrict('/api/windoors/openings/' + encodeURIComponent(o.id) + wdQ())
+    .catch(function(e) { wdFail('that change', e); });
+}
+function wdPutMark(m) {
+  return apiPutStrict('/api/windoors/marks/' + encodeURIComponent(m.id) + wdQ(), {
+    jobId: windoors.jobId, openingId: m.opening_id, elementId: m.element_id,
+    actionKey: m.action_key, stage: m.stage, variationId: m.variation_id
+  }).catch(function(e) { wdFail('that mark', e); });
+}
+function wdDeleteMark(m) {
+  return apiDeleteStrict('/api/windoors/marks/' + encodeURIComponent(m.id) + wdQ())
+    .catch(function(e) { wdFail('that change', e); });
+}
+// After any local edit: mirror, repaint this screen, and let the rest of the
+// app catch up (Measure's row and chip, Summary's totals, On Site's card).
+function wdChanged() {
+  wdSaveMirror();
+  renderWindoors();
+  if (wdOpenId) renderWdDetail();
+}
+
+// ── Opening the screen ────────────────────────────────────────────────────
+function wdEnsureProperty() {
+  if (windoors.jobId !== activeJobId) windoors = { jobId: activeJobId, property: null, openings: [], marks: [] };
+  if (windoors.property) return false;
+  windoors.property = { style: 'georgian', detail_enabled: true, default_prep: 'light', layout: {} };
+  return true;
+}
+async function openWindoors(mode) {
+  wdMode = mode === 'site' ? 'site' : 'quote';
+  wdOpenId = null; wdSel = { kind: null, ids: {} }; wdLayoutDraft = null;
+  if (windoors.jobId !== activeJobId) await loadWindoors();
+  if (wdMode === 'quote' && wdEnsureProperty()) { wdSaveMirror(); wdPutProperty(); }
+  // Land on the first side with anything on it, else the front.
+  var withRows = Windoors.SIDES.map(function(s) { return s.key; }).filter(function(k) {
+    return windoors.openings.some(function(o) { return o.side === k; });
+  });
+  wdSide = withRows.indexOf(wdSide) >= 0 ? wdSide : (withRows[0] || 'front');
+  goScreen('windoors');
+  renderWindoors();
+}
+
+// ── The main screen ───────────────────────────────────────────────────────
+function wdSegHtml(items, active, onclickFn, opts) {
+  opts = opts || {};
+  return '<div class="seg" style="flex-wrap:wrap' + (opts.style ? ';' + opts.style : '') + '">' + items.map(function(it) {
+    var dis = opts.disabled && opts.disabled(it);
+    return '<button type="button" class="seg-btn' + (it.key === active ? ' active' : '') + '"'
+      + (dis ? ' disabled style="opacity:.35;cursor:default"' : '')
+      + ' onclick="' + onclickFn + '(\'' + it.key + '\')">' + escapeHtml(it.label)
+      + (it.guide && opts.guides ? '<small style="display:block;font-size:10px;font-weight:500;opacity:.8">' + escapeHtml(it.guide) + '</small>' : '')
+      + '</button>';
+  }).join('') + '</div>';
+}
+
+function wdSideCounts(side) {
+  var list = windoors.openings.filter(function(o) { return o.side === side; });
+  return { windows: list.filter(function(o) { return o.kind === 'window'; }).length,
+           doors: list.filter(function(o) { return o.kind === 'door'; }).length };
+}
+
+function renderWindoors() {
+  var body = document.getElementById('wd-body');
+  if (!body || inSub !== 'windoors') return;
+  var p = windoors.property;
+  var site = wdMode === 'site';
+  document.getElementById('wd-title').textContent = site ? 'Windows & Doors · On Site' : 'Windows & Doors';
+  var chip = document.getElementById('wd-chip');
+  var c = calcWindoors();
+  if (chip) {
+    chip.style.display = !site && c.total > 0.005 ? 'flex' : 'none';
+    chip.textContent = fmt(applyMarkupAmount(c.total));
+  }
+  if (!p) {
+    body.innerHTML = '<div class="card" style="padding:16px;color:var(--text2)">This job has no windows and doors set up yet. Add them from Measure › + › Windows and doors.</div>';
+    return;
+  }
+  var html = '';
+  if (site) {
+    var d = wdDraft(false);
+    var dLine = d ? windoorsVariationLines().find(function(l) { return l.id === d.id; }) : null;
+    html += '<div class="card" style="padding:12px 14px;border:1px solid var(--accent)">'
+      + '<div style="font-size:13px;color:var(--text2);line-height:1.5">New marks and prep raised here are <b>variations</b>. The quote\'s own work is shown, locked. '
+      + 'They collect into a draft, sent for the client\'s approval from On Site › Variations.</div>'
+      + (dLine ? '<div style="margin-top:8px;font-size:13px"><b>Draft:</b> ' + escapeHtml(wdVariationText(d))
+          + ' <span style="color:var(--accent);font-weight:700">' + fmt(variationDeltaAmount({ raw: dLine.raw, spray: 0 })) + '</span>'
+          + ' <span onclick="rewordWindoorsVariation(\'' + d.id + '\')" style="color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline;margin-left:4px">reword</span></div>' : '')
+      + '</div>';
+  } else {
+    html += '<div class="card">'
+      + '<div class="card-header">House</div>'
+      + '<div class="field-row"><div class="field-label">Style<small>sets the drawing and each new opening\'s defaults</small></div></div>'
+      + '<div style="padding:0 16px 10px">' + wdSegHtml(Windoors.STYLES, p.style, 'setWdStyle') + '</div>'
+      + '<div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Default prep<small>every opening starts here — one can go up, never down</small></div></div>'
+      + '<div style="padding:0 16px 10px">' + wdSegHtml(Windoors.PREP_LEVELS, p.default_prep || 'light', 'setWdDefaultPrep') + '</div>'
+      + '<div class="toggle-row" style="border-top:1px solid var(--border)"><div class="toggle-label">Individual detail<small>mark single panes and frame parts for extra work — worth it on old windows, not new ones</small></div>'
+      + '<div class="toggle' + (p.detail_enabled !== false ? ' on' : '') + '" onclick="toggleWdDetailEnabled()"></div></div>'
+      + '</div>';
+  }
+  // Side picker, with a count on each side that has openings.
+  html += '<div class="seg" style="margin:4px 0 10px">' + Windoors.SIDES.map(function(s) {
+    var n = wdSideCounts(s.key);
+    var t = n.windows + n.doors;
+    return '<button type="button" class="seg-btn' + (s.key === wdSide ? ' active' : '') + '" onclick="setWdSide(\'' + s.key + '\')">'
+      + s.label + (t ? ' <span style="font-size:11px;opacity:.75">' + t + '</span>' : '') + '</button>';
+  }).join('') + '</div>';
+  html += wdSideCardHtml();
+  html += '<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--text2);margin:6px 2px 12px">'
+    + '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#1e6497;vertical-align:-1px"></span> quoted work</span>'
+    + '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;border:1.6px dashed #1e6497;vertical-align:-2px"></span> variation</span>'
+    + '<span>W1, W2… and D1… numbered left to right as you face that side</span></div>';
+  if (!site && c.count) {
+    html += '<div class="card" style="padding:12px 14px">'
+      + '<div style="display:flex;justify-content:space-between;font-size:14px"><span>' + c.count + ' opening' + (c.count === 1 ? '' : 's') + ' · ' + fmtD(c.time) + '</span>'
+      + '<span style="font-weight:700">' + fmt(c.total) + '</span></div>'
+      + '<div style="font-size:12px;color:var(--text2);margin-top:4px">Labour cost before markup' + (c.materials > 0.005 ? ', incl. ' + fmt(c.materials) + ' materials' : '') + '. On the quote as: <i>' + escapeHtml(windoorsLineText()) + '</i></div>'
+      + '</div>';
+  }
+  if (Windoors.reportModel(windoors, wdReportVariations()).sections.length) {
+    html += '<button onclick="openWindoorsReport()" style="width:100%;margin:4px 0 16px;background:var(--accent-soft-bg);color:var(--accent);border:1px solid var(--accent-soft-border);border-radius:12px;padding:11px;font-size:14px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer">📄 Work report (PDF)</button>';
+  }
+  body.innerHTML = html;
+  wdWireElevation();
+}
+
+function wdSideCardHtml() {
+  var p = windoors.property;
+  var site = wdMode === 'site';
+  var layout = Windoors.sideLayout(p, wdSide);
+  var editing = !layout.confirmed && !site;
+  var html = '<div class="card">';
+  if (editing) {
+    var floors = wdLayoutDraft && wdLayoutDraft.side === wdSide ? wdLayoutDraft.floors : wdDefaultFloors(wdSide);
+    if (!wdLayoutDraft || wdLayoutDraft.side !== wdSide) wdLayoutDraft = { side: wdSide, floors: floors };
+    var preview = { property: Object.assign({}, p, { layout: Object.assign({}, p.layout, (function() { var o = {}; o[wdSide] = { floors: floors, confirmed: false }; return o; })()) }),
+                    openings: windoors.openings, marks: windoors.marks };
+    html += '<div class="card-header">' + Windoors.sideLabel(wdSide) + ' — set the layout</div>'
+      + '<div style="padding:10px 12px 0">' + Windoors.elevationSvg(preview, wdSide, { maxWidth: 420 }) + '</div>';
+    for (var fi = floors.length - 1; fi >= 0; fi--) {
+      var f = floors[fi];
+      html += '<div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label" style="text-transform:capitalize">' + Windoors.floorLabel(fi) + '</div>'
+        + '<div style="display:flex;gap:10px;align-items:center;font-size:12px;color:var(--text2)">'
+        + wdStepper('W', f.windows, 'wdLayoutStep(' + fi + ',\'windows\',-1)', 'wdLayoutStep(' + fi + ',\'windows\',1)')
+        + wdStepper('D', f.doors, 'wdLayoutStep(' + fi + ',\'doors\',-1)', 'wdLayoutStep(' + fi + ',\'doors\',1)')
+        + '</div></div>';
+    }
+    html += '<div style="display:flex;gap:14px;padding:10px 16px;border-top:1px solid var(--border);font-size:13px;font-weight:600">'
+      + '<span onclick="wdLayoutFloors(1)" style="color:var(--accent);cursor:pointer">+ Add floor</span>'
+      + (floors.length > 1 ? '<span onclick="wdLayoutFloors(-1)" style="color:var(--danger);cursor:pointer">− Remove top floor</span>' : '')
+      + '</div>'
+      + '<div style="padding:0 16px 12px"><div style="font-size:11px;color:var(--text2);margin-bottom:8px">W = windows, D = doors. Doors default to the ground floor; add one upstairs for a balcony or Juliet.</div>'
+      + '<button onclick="confirmWdLayout()" style="width:100%;background:var(--accent);color:#fff;border:none;border-radius:var(--rs);padding:11px;font-size:14px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer">Confirm layout</button></div>';
+  } else {
+    var any = windoors.openings.some(function(o) { return o.side === wdSide; });
+    html += '<div class="card-header" style="display:flex;justify-content:space-between;align-items:center"><span>' + Windoors.sideLabel(wdSide) + '</span>'
+      + (!site ? '<span onclick="editWdLayout()" style="color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;text-transform:none;letter-spacing:0">Edit layout</span>' : '') + '</div>';
+    if (!any) {
+      html += '<div style="padding:12px 16px;color:var(--text2);font-size:13px">' + (site ? 'Nothing was set up on this side at the quote.' : 'No windows or doors on this side.') + '</div>';
+    } else {
+      html += '<div id="wd-elev" style="padding:10px 12px">' + Windoors.elevationSvg(windoors, wdSide, { interactive: true, maxWidth: 440, selected: wdOpenId }) + '</div>'
+        + '<div style="padding:0 16px 10px;font-size:12px;color:var(--text2)">Tap a window or door to set it up' + (windoors.property.detail_enabled !== false ? ' and mark panes or frame parts' : '') + '.</div>';
+    }
+  }
+  return html + '</div>';
+}
+function wdStepper(label, n, minus, plus) {
+  var b = 'width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:17px;font-weight:700;cursor:pointer;line-height:1';
+  return '<span style="display:inline-flex;align-items:center;gap:5px"><b style="color:var(--text)">' + label + '</b>'
+    + '<button type="button" style="' + b + '" onclick="' + minus + '">−</button>'
+    + '<span style="min-width:16px;text-align:center;font-family:\'DM Mono\',monospace;font-size:14px;color:var(--text)">' + n + '</span>'
+    + '<button type="button" style="' + b + '" onclick="' + plus + '">+</button></span>';
+}
+// Tap delegation on the drawn elevation: one listener, openings found by the
+// data-open-id the module stamps on each.
+function wdWireElevation() {
+  var el = document.getElementById('wd-elev');
+  if (!el) return;
+  el.onclick = function(ev) {
+    var g = ev.target && ev.target.closest ? ev.target.closest('[data-open-id]') : null;
+    if (g) openWdDetail(g.getAttribute('data-open-id'));
+  };
+}
+
+function setWdSide(side) { wdSide = side; wdLayoutDraft = null; renderWindoors(); }
+function setWdStyle(style) {
+  windoors.property.style = style;
+  wdPutProperty(); wdChanged();
+}
+// Raising the default lifts every opening left at it; lowering it can never
+// drag an opening that was set higher down with it (effectivePrep takes the
+// higher of the two), which is the "never down" rule by construction.
+function setWdDefaultPrep(level) {
+  windoors.property.default_prep = level;
+  wdPutProperty(); wdChanged();
+}
+function toggleWdDetailEnabled() {
+  windoors.property.detail_enabled = windoors.property.detail_enabled === false;
+  wdPutProperty(); wdChanged();
+}
+
+// A side opened for the first time: the front's floor count, and a sensible
+// starting guess -- the front and back get a ground-floor door.
+function wdDefaultFloors(side) {
+  var own = windoors.property.layout && windoors.property.layout[side];
+  if (own && own.floors && own.floors.length) return Windoors.sideLayout(windoors.property, side).floors;
+  var front = Windoors.sideLayout(windoors.property, 'front').floors;
+  var n = side === 'front' ? 2 : Math.max(1, front.length);
+  var out = [];
+  for (var i = 0; i < n; i++) {
+    var gable = side === 'left' || side === 'right';
+    out.push({ windows: gable ? 0 : (i === 0 ? 2 : 3), doors: i === 0 && !gable ? 1 : 0 });
+  }
+  return out;
+}
+function wdLayoutStep(fi, what, delta) {
+  var f = wdLayoutDraft.floors[fi];
+  f[what] = Math.max(0, Math.min(what === 'doors' ? 6 : 20, (f[what] || 0) + delta));
+  renderWindoors();
+}
+function wdLayoutFloors(delta) {
+  var fl = wdLayoutDraft.floors;
+  if (delta > 0 && fl.length < 6) fl.push({ windows: fl.length ? fl[fl.length - 1].windows : 2, doors: 0 });
+  if (delta < 0 && fl.length > 1) fl.pop();
+  renderWindoors();
+}
+function editWdLayout() {
+  var l = Windoors.sideLayout(windoors.property, wdSide);
+  wdLayoutDraft = { side: wdSide, floors: l.floors.map(function(f) { return { windows: f.windows, doors: f.doors }; }) };
+  windoors.property.layout = windoors.property.layout || {};
+  windoors.property.layout[wdSide] = { floors: l.floors, confirmed: false };
+  wdPutProperty(); wdChanged();
+}
+// Confirming makes the openings real. Counts that went DOWN remove openings
+// from the end of that floor (the highest positions), and floors that went
+// away take theirs with them -- with a warning first if any of them carries
+// marked work, because that work is on the quote.
+function confirmWdLayout() {
+  var floors = wdLayoutDraft.floors.map(function(f) { return { windows: f.windows, doors: f.doors }; });
+  var style = windoors.property.style;
+  var doomed = windoors.openings.filter(function(o) {
+    if (o.side !== wdSide) return false;
+    var f = floors[o.floor];
+    return !f || o.position > f[o.kind === 'door' ? 'doors' : 'windows'];
+  });
+  var marked = doomed.filter(function(o) { return windoors.marks.some(function(m) { return m.opening_id === o.id; }); });
+  if (marked.length && !confirm('This removes ' + marked.map(function(o) { return Windoors.openingCode(o) + ' (' + Windoors.floorLabel(o.floor) + ')'; }).join(', ')
+      + ', which ' + (marked.length === 1 ? 'has' : 'have') + ' work marked on ' + (marked.length === 1 ? 'it' : 'them') + '. The marks go too.\n\nCarry on?')) return;
+  doomed.forEach(function(o) {
+    windoors.marks = windoors.marks.filter(function(m) { return m.opening_id !== o.id; });
+    windoors.openings = windoors.openings.filter(function(x) { return x.id !== o.id; });
+    wdDeleteOpening(o);
+  });
+  floors.forEach(function(f, fi) {
+    ['window', 'door'].forEach(function(kind) {
+      var count = kind === 'door' ? f.doors : f.windows;
+      for (var pos = 1; pos <= count; pos++) {
+        var exists = windoors.openings.some(function(o) { return o.side === wdSide && o.floor === fi && o.kind === kind && o.position === pos; });
+        if (exists) continue;
+        var o = Object.assign({ id: uid(), side: wdSide, floor: fi, kind: kind, position: pos, nickname: null,
+          prep_level: null, prep_stage: 'quote', quote_prep_level: null, prep_variation_id: null },
+          Windoors.openingDefaults(style, kind, fi));
+        windoors.openings.push(o);
+        wdPutOpening(o);
+      }
+    });
+  });
+  windoors.property.layout = windoors.property.layout || {};
+  windoors.property.layout[wdSide] = { floors: floors, confirmed: true };
+  wdLayoutDraft = null;
+  wdPutProperty(); wdChanged();
+}
+
+// ── The detail sheet ──────────────────────────────────────────────────────
+function wdOpening() { return windoors.openings.find(function(o) { return o.id === wdOpenId; }) || null; }
+function openWdDetail(id) {
+  wdOpenId = id; wdSel = { kind: null, ids: {} };
+  document.getElementById('wd-sheet').style.display = 'block';
+  renderWdDetail();
+  renderWindoors();
+}
+function closeWdDetail() {
+  wdOpenId = null; wdSel = { kind: null, ids: {} };
+  document.getElementById('wd-sheet').style.display = 'none';
+  renderWindoors();
+}
+
+// Can this mark be taken off from here? Quote marks only from Measure;
+// variation marks only on site, and only while their variation is unanswered.
+function wdMarkEditable(m) {
+  if (wdMode === 'site') return m.stage === 'variation' && wdVariationEditable(m.variation_id);
+  return m.stage !== 'variation';
+}
+
+function renderWdDetail() {
+  var o = wdOpening();
+  var box = document.getElementById('wd-sheet-body');
+  if (!o || !box) { if (box) box.innerHTML = ''; return; }
+  var p = windoors.property;
+  var site = wdMode === 'site';
+  var isDoor = o.kind === 'door';
+  var oMarks = windoors.marks.filter(function(m) { return m.opening_id === o.id; });
+  var h = '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:0 16px 8px">'
+    + '<div><div style="font-size:16px;font-weight:700">' + escapeHtml(Windoors.openingLabel(o, false)) + '</div>'
+    + '<div onclick="editWdNickname()" style="font-size:12px;color:' + (o.nickname ? 'var(--text2)' : 'var(--accent)') + ';cursor:pointer;margin-top:2px">'
+    + (o.nickname ? '“' + escapeHtml(o.nickname) + '” · rename' : '+ nickname (e.g. landing, above porch)') + '</div></div>'
+    + '<div onclick="closeWdDetail()" style="font-size:14px;font-weight:700;color:var(--accent);cursor:pointer;padding:4px 2px">Done</div></div>';
+  // Structure: type, panes, size. Quote-mode only -- on site the quote is
+  // the floor, and swapping a sash for a casement could lower it.
+  if (!site) {
+    h += '<div class="subsection-label" style="padding-top:4px">Type</div>'
+      + '<div style="padding:0 16px 8px">' + wdSegHtml(isDoor ? Windoors.DOOR_TYPES : Windoors.WINDOW_TYPES, o.type, 'setWdType') + '</div>';
+    if (!(isDoor && o.type === 'flush')) {
+      var rowsLabel = isDoor ? (o.type === 'panelled' || o.type === 'stable' ? 'Panel rows' : 'Glass rows') : (o.type === 'sash' ? 'Pane rows (per sash)' : 'Pane rows');
+      var colsLabel = isDoor ? (o.type === 'panelled' || o.type === 'stable' ? 'Panel columns' : (o.type === 'french_double' ? 'Glass columns (per leaf)' : 'Glass columns')) : 'Pane columns';
+      h += '<div class="field-row"><div class="field-label">' + rowsLabel + '</div>' + wdStepper('', o.rows, 'wdGrid(\'rows\',-1)', 'wdGrid(\'rows\',1)') + '</div>'
+        + '<div class="field-row"><div class="field-label">' + colsLabel + '</div>' + wdStepper('', o.cols, 'wdGrid(\'cols\',-1)', 'wdGrid(\'cols\',1)') + '</div>';
+    }
+    h += '<div class="subsection-label">Size</div>'
+      + '<div style="padding:0 16px 8px">' + wdSegHtml(isDoor ? Windoors.DOOR_TIERS : Windoors.WINDOW_TIERS, o.size_tier, 'setWdTier', { guides: true }) + '</div>';
+  } else {
+    h += '<div style="padding:0 16px 8px;font-size:13px;color:var(--text2)">' + escapeHtml(Windoors.typeLabel(o) + (isDoor ? ' door' : ' window'))
+      + ' · ' + Windoors.paneCount(o) + (isDoor ? ' glass' : ' panes') + ' · as quoted</div>';
+  }
+  // Prep: levels below the job default hidden; on site, below the current
+  // level too (a raise is a variation, a drop is not a thing).
+  var eff = Windoors.effectivePrep(o, p);
+  var floorLevel = site ? eff : (p.default_prep || 'light');
+  var levels = Windoors.PREP_LEVELS.filter(function(l) { return Windoors.prepRank(l.key) >= Windoors.prepRank(floorLevel); });
+  h += '<div class="subsection-label">Prep' + (site && o.prep_stage === 'variation' && Windoors.prepRank(eff) > Windoors.prepRank(Windoors.quotePrep(o, p))
+      ? '<small>raised on site from ' + Windoors.prepLabel(Windoors.quotePrep(o, p)) + ' — a variation</small>' : '') + '</div>'
+    + '<div style="padding:0 16px 10px">' + wdSegHtml(levels, eff, 'setWdPrep') + '</div>';
+  // The diagram and the marking tools.
+  if (p.detail_enabled !== false) {
+    h += '<div id="wd-detail-fig" style="padding:6px 16px 4px">' + Windoors.detailSvg(o, windoors.marks, { interactive: true, selected: wdSel.ids, maxWidth: 300, maxHeight: 360 }) + '</div>';
+    var selCount = Object.keys(wdSel.ids).length;
+    var btn = 'border:1px solid var(--border);background:var(--surface2);color:var(--text);border-radius:10px;padding:8px 10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer';
+    var abtn = 'border:none;background:var(--accent);color:#fff;border-radius:10px;padding:9px 11px;font-size:13px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer';
+    h += '<div style="display:flex;gap:8px;flex-wrap:wrap;padding:4px 16px">'
+      + '<button type="button" style="' + btn + '" onclick="wdSelectAllPanes()">Select all ' + (isDoor ? 'glass' : 'panes') + '</button>'
+      + (selCount ? '<button type="button" style="' + btn + '" onclick="wdClearSel()">Clear selection</button>' : '') + '</div>';
+    if (selCount) {
+      var acts = Windoors.actionsFor(o, wdSel.kind);
+      h += '<div style="padding:6px 16px 2px;font-size:12px;color:var(--text2)">' + selCount + ' ' + (wdSel.kind === 'pane' ? (isDoor ? 'glass' : (selCount === 1 ? 'pane' : 'panes')) : (selCount === 1 ? 'part' : 'parts')) + ' selected — '
+        + (site ? 'added as a variation' : 'added to the quote') + '</div>'
+        + '<div style="display:flex;gap:8px;flex-wrap:wrap;padding:4px 16px 8px">'
+        + acts.map(function(a) { return '<button type="button" style="' + abtn + '" onclick="wdApplyAction(\'' + a.key + '\')">' + escapeHtml(a.label) + '</button>'; }).join('')
+        + '<button type="button" style="' + btn + ';color:var(--danger)" onclick="wdRemoveWork()">Remove work</button></div>';
+    } else {
+      h += '<div style="padding:4px 16px 8px;font-size:12px;color:var(--text2)">Tap panes or frame parts to select them — one kind at a time. '
+        + '<span style="display:inline-block;width:10px;height:10px;background:#f0a020;vertical-align:-1px"></span> work · '
+        + '<span style="display:inline-block;width:10px;height:10px;background:#5fb3e6;vertical-align:-1px"></span> glass · dashed = variation'
+        + (site ? ' · the quote\'s marks are locked here' : '') + '</div>';
+    }
+  }
+  h += wdWorkListHtml(o, oMarks);
+  box.innerHTML = h;
+  var fig = document.getElementById('wd-detail-fig');
+  if (fig) fig.onclick = function(ev) {
+    var g = ev.target && ev.target.closest ? ev.target.closest('[data-el]') : null;
+    if (g) wdToggleElement(g.getAttribute('data-el'));
+  };
+}
+
+// The line list under the diagram: every piece of work on this opening, in
+// words, split by stage.
+function wdWorkListHtml(o, oMarks) {
+  var p = windoors.property;
+  var perOpen = (Windoors.priceJob(windoors, wdRates()).perOpening[o.id]) || {};
+  var r = rpm();
+  var quoteMarks = oMarks.filter(function(m) { return m.stage !== 'variation'; });
+  var varMarks = oMarks.filter(function(m) { return m.stage === 'variation'; });
+  var rows = '';
+  var line = function(text, sub) {
+    return '<div style="padding:7px 16px;border-top:1px solid var(--border);font-size:13px">' + text
+      + (sub ? '<small style="display:block;color:var(--text2);font-size:11px;margin-top:1px">' + sub + '</small>' : '') + '</div>';
+  };
+  var qPrep = Windoors.quotePrep(o, p);
+  rows += line('Paint, outside face · ' + Windoors.prepLabel(qPrep).toLowerCase() + ' prep', 'quote');
+  var qc = Windoors.marksClause(o, quoteMarks);
+  if (qc) rows += line(escapeHtml(qc.charAt(0).toUpperCase() + qc.slice(1)), 'quote');
+  var byVar = {};
+  varMarks.forEach(function(m) { (byVar[m.variation_id || ''] = byVar[m.variation_id || ''] || []).push(m); });
+  if (o.prep_stage === 'variation' && Windoors.prepRank(Windoors.effectivePrep(o, p)) > Windoors.prepRank(qPrep)) byVar[o.prep_variation_id || ''] = byVar[o.prep_variation_id || ''] || [];
+  Object.keys(byVar).forEach(function(vid) {
+    var v = wdVariationList().find(function(x) { return x.id === vid; });
+    var st = v ? variationStatusOf(v) : 'pending';
+    var bits = [];
+    if (o.prep_stage === 'variation' && (o.prep_variation_id || '') === vid && Windoors.prepRank(Windoors.effectivePrep(o, p)) > Windoors.prepRank(qPrep)) {
+      bits.push('prep raised to ' + Windoors.prepLabel(Windoors.effectivePrep(o, p)).toLowerCase());
+    }
+    var vc = Windoors.marksClause(o, byVar[vid]);
+    if (vc) bits.push(vc);
+    if (!bits.length) return;
+    var t = bits.join(', ');
+    rows += line(escapeHtml(t.charAt(0).toUpperCase() + t.slice(1)),
+      'variation · ' + (v && !v.sentAt && st === 'pending' ? 'draft' : st));
+  });
+  var money = (wdMode === 'quote' ? fmt((perOpen.quoteMins || 0) * r + (perOpen.quoteMaterials || 0)) + ' quoted' : '')
+    + (perOpen.varMins ? (wdMode === 'quote' ? ' · ' : '') + fmt((perOpen.varMins || 0) * r + (perOpen.varMaterials || 0)) + ' variation' : '');
+  return '<div style="margin-top:6px"><div class="subsection-label" style="display:flex;justify-content:space-between"><span>Work on this ' + (o.kind === 'door' ? 'door' : 'window') + '</span>'
+    + (money ? '<small style="text-transform:none;letter-spacing:0">' + money + ' <span style="opacity:.7">before markup</span></small>' : '') + '</div>' + rows + '</div>';
+}
+
+function editWdNickname() {
+  var o = wdOpening(); if (!o) return;
+  var n = prompt('Nickname for ' + Windoors.openingLabel(o, false) + ' (e.g. landing, above porch):', o.nickname || '');
+  if (n === null) return;
+  o.nickname = n.trim() || null;
+  wdPutOpening(o); wdChanged();
+}
+// Changing what the opening IS clears its marks -- a pane-5 on a 6-pane sash
+// is not the same pane on a casement -- so it asks first when there are any.
+function wdStructureChange(apply) {
+  var o = wdOpening(); if (!o) return;
+  var mine = windoors.marks.filter(function(m) { return m.opening_id === o.id; });
+  if (mine.length && !confirm('Changing this clears the ' + mine.length + ' mark' + (mine.length === 1 ? '' : 's') + ' on this ' + o.kind + '.\n\nCarry on?')) return;
+  apply(o);
+  mine.forEach(function(m) { wdDeleteMark(m); });
+  windoors.marks = windoors.marks.filter(function(m) { return m.opening_id !== o.id; });
+  wdSel = { kind: null, ids: {} };
+  wdPutOpening(o); wdChanged();
+}
+function setWdType(type) {
+  var o = wdOpening(); if (!o || o.type === type) return;
+  wdStructureChange(function(x) {
+    x.type = type;
+    // A door type that has no grid of its own starts from a sensible one.
+    if (x.kind === 'door') {
+      var d = { panelled: [3, 2], flush: [1, 1], half_glazed: [1, 2], fully_glazed: [3, 2], stable: [2, 2], french_double: [3, 1] }[type];
+      if (d) { x.rows = d[0]; x.cols = d[1]; }
+    }
+  });
+}
+function wdGrid(which, delta) {
+  var o = wdOpening(); if (!o) return;
+  var next = Math.max(1, Math.min(8, (+o[which] || 1) + delta));
+  if (next === o[which]) return;
+  wdStructureChange(function(x) { x[which] = next; });
+}
+function setWdTier(tier) {
+  var o = wdOpening(); if (!o || o.size_tier === tier) return;
+  o.size_tier = tier;
+  wdPutOpening(o); wdChanged();
+}
+// Prep. From Measure it simply sets the level the quote prices. On site it
+// can only go UP, and the rise is a variation: the level in force before it
+// is stamped as quote_prep_level (the first time only -- a second raise on
+// site is still measured from what the QUOTE had), and the raise joins the
+// open draft.
+function setWdPrep(level) {
+  var o = wdOpening(); if (!o) return;
+  var p = windoors.property;
+  if (wdMode === 'site') {
+    var was = Windoors.effectivePrep(o, p);
+    if (Windoors.prepRank(level) <= Windoors.prepRank(was)) return;
+    if (o.prep_stage !== 'variation') { o.quote_prep_level = was; o.prep_stage = 'variation'; }
+    o.prep_level = level;
+    o.prep_variation_id = wdDraft(true).id;
+  } else {
+    if (Windoors.prepRank(level) < Windoors.prepRank(p.default_prep || 'light')) return;
+    if (o.prep_stage === 'variation') {
+      // Editing the quote's level under an on-site raise: the quote's level
+      // moves, the raise stays a raise above it (or dissolves if the quote
+      // now matches it).
+      o.quote_prep_level = level;
+      if (Windoors.prepRank(level) >= Windoors.prepRank(o.prep_level)) {
+        o.prep_level = level; o.prep_stage = 'quote'; o.quote_prep_level = null; o.prep_variation_id = null;
+      }
+    } else {
+      o.prep_level = level === (p.default_prep || 'light') ? null : level;
+    }
+  }
+  wdPutOpening(o); wdChanged();
+}
+
+function wdToggleElement(id) {
+  var o = wdOpening(); if (!o) return;
+  var kind = Windoors.elementKind(o, id);
+  if (!kind) return;
+  // Tapping the other kind starts a fresh selection -- panes and parts are
+  // never selected together (they take different actions).
+  if (wdSel.kind !== kind) wdSel = { kind: kind, ids: {} };
+  if (wdSel.ids[id]) delete wdSel.ids[id]; else wdSel.ids[id] = true;
+  if (!Object.keys(wdSel.ids).length) wdSel.kind = null;
+  renderWdDetail();
+}
+function wdSelectAllPanes() {
+  var o = wdOpening(); if (!o) return;
+  var ids = {};
+  Windoors.openingElements(o).forEach(function(e) { if (e.kind === 'pane') ids[e.id] = true; });
+  wdSel = Object.keys(ids).length ? { kind: 'pane', ids: ids } : { kind: null, ids: {} };
+  renderWdDetail();
+}
+function wdClearSel() { wdSel = { kind: null, ids: {} }; renderWdDetail(); }
+
+// Apply an action to the selection. Each element takes each action once: a
+// second "reputty" on a pane already down for one is no more work. A mark the
+// QUOTE already has is not repeated as a variation either. The selection
+// clears afterwards, as the spec asks.
+function wdApplyAction(actionKey) {
+  var o = wdOpening(); if (!o) return;
+  var site = wdMode === 'site';
+  var draft = site ? wdDraft(true) : null;
+  Object.keys(wdSel.ids).forEach(function(elId) {
+    var dup = windoors.marks.some(function(m) { return m.opening_id === o.id && m.element_id === elId && m.action_key === actionKey; });
+    if (dup) return;
+    var m = { id: uid(), opening_id: o.id, element_id: elId, action_key: actionKey,
+              stage: site ? 'variation' : 'quote', variation_id: site ? draft.id : null,
+              created_at: new Date().toISOString() };
+    windoors.marks.push(m);
+    wdPutMark(m);
+  });
+  wdSel = { kind: null, ids: {} };
+  wdChanged();
+}
+// Remove work from the selection: every mark this screen is allowed to take
+// off (see wdMarkEditable) on the selected elements.
+function wdRemoveWork() {
+  var o = wdOpening(); if (!o) return;
+  var gone = windoors.marks.filter(function(m) { return m.opening_id === o.id && wdSel.ids[m.element_id] && wdMarkEditable(m); });
+  var locked = windoors.marks.filter(function(m) { return m.opening_id === o.id && wdSel.ids[m.element_id] && !wdMarkEditable(m); });
+  if (!gone.length && locked.length) {
+    alert(wdMode === 'site' ? 'That work is part of the quote (or an answered variation), so it is locked here.' : 'That work was added on site as a variation — take it off from On Site.');
+    return;
+  }
+  gone.forEach(function(m) { wdDeleteMark(m); });
+  var ids = {}; gone.forEach(function(m) { ids[m.id] = true; });
+  windoors.marks = windoors.marks.filter(function(m) { return !ids[m.id]; });
+  wdSel = { kind: null, ids: {} };
+  wdChanged();
+}
+
+// ── Report ────────────────────────────────────────────────────────────────
+function wdReportVariations() {
+  return wdVariationList().map(function(v) {
+    return { id: v.id, status: variationStatusOf(v), approvedAt: v.variationApprovedAt || null };
+  });
+}
+// The printable report, served by the server from the stored rows (so any
+// write still in the offline queue is not on it yet -- it says so). Opened
+// in a new tab, where the phone's print/share sheet saves the PDF that goes
+// on the Xero invoice.
+function openWindoorsReport() {
+  if (blockIfOffline('The windows and doors report')) return;
+  if (wdHasQueuedWrites(activeJobId)) toast('Some changes are still syncing — they will be on the report once they land');
+  window.open('/api/jobs/' + encodeURIComponent(activeJobId) + '/windoors-report', '_blank');
+}
+
+// ── Measure-list row and the On Site card ────────────────────────────────
+function windoorsMeasureRowHtml() {
+  var c = calcWindoors();
+  if (!(c.total > 0.005)) return '';
+  var nV = windoors.openings.filter(function(o) { return o.kind === 'window'; }).length;
+  var nD = windoors.openings.length - nV;
+  var meta = [nV ? nV + ' window' + (nV === 1 ? '' : 's') : '', nD ? nD + ' door' + (nD === 1 ? '' : 's') : '', fmtD(c.time)].filter(Boolean).join(' · ');
+  return '<div class="room-item" onclick="openWindoors(\'quote\')">'
+    + '<div class="room-icon">🪟</div>'
+    + '<div class="room-info"><div class="room-name">Windows &amp; Doors</div><div class="room-meta">' + meta + '</div></div>'
+    + '<div class="room-cost">' + fmt(c.total) + '</div>'
+    + '<div style="color:var(--text3);font-size:16px">›</div></div>';
+}
+function windoorsOnSiteCardHtml() {
+  if (!wdInUse()) return '';
+  var d = wdDraft(false);
+  var dl = d ? windoorsVariationLines().find(function(l) { return l.id === d.id; }) : null;
+  return '<div class="card" style="padding:12px 14px;margin-bottom:12px;cursor:pointer" onclick="openWindoors(\'site\')">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px">'
+    + '<div><div style="font-weight:700;font-size:15px">🪟 Windows &amp; doors</div>'
+    + '<div style="font-size:12px;color:var(--text2);margin-top:2px">' + (dl ? 'Draft variation: ' + escapeHtml(wdVariationText(d)) : 'Mark problems found once work starts — they become a variation') + '</div></div>'
+    + '<span class="nav-menu-arrow">›</span></div></div>';
+}
+
 // ── Custom line items (ad-hoc description + price) ─────────────────────────
 // A quote sometimes needs a one-off line that fits no structured pricing
 // model -- "Install panelling — £450" -- just a description and a price
@@ -24927,7 +25924,11 @@ function updateMeasureChrome() {
   var hasKitchen = measureKitchenTotal > 0;
   var hasFittedUnit = measureFittedUnitTotal > 0;
   var customCount = jobCustomItems().length;
-  var both = rooms.length === 0 && extItems.length === 0 && !hasKitchen && !hasFittedUnit && customCount === 0;
+  var wdCalcM = calcWindoors();
+  var hasWindoors = wdCalcM.total > 0.005;
+  var wdRow = document.getElementById('wd-section-cards');
+  if (wdRow) wdRow.innerHTML = hasWindoors ? windoorsMeasureRowHtml() : '';
+  var both = rooms.length === 0 && extItems.length === 0 && !hasKitchen && !hasFittedUnit && customCount === 0 && !hasWindoors;
   var empty = document.getElementById('measure-empty');
   if (empty) empty.style.display = both ? 'flex' : 'none';
   document.getElementById('rooms-section-head').style.display = rooms.length ? 'flex' : 'none';
@@ -24935,6 +25936,8 @@ function updateMeasureChrome() {
   document.getElementById('kitchen-section-head').style.display = hasKitchen ? 'block' : 'none';
   document.getElementById('fu-section-head').style.display = hasFittedUnit ? 'flex' : 'none';
   document.getElementById('custom-section-head').style.display = customCount ? 'flex' : 'none';
+  document.getElementById('wd-section-head').style.display = hasWindoors ? 'block' : 'none';
+  document.getElementById('wd-section-list').style.display = hasWindoors ? 'block' : 'none';
   // Reorder links, one per list that has rows to walk (see
   // toggleMeasureReorder). Rooms' sits in the same header as Bulk edit.
   renderReorderToggle('rooms-reorder-toggle', rooms.length);
@@ -24946,12 +25949,13 @@ function updateMeasureChrome() {
   if (both) { chip.style.display = 'none'; sub.textContent = ''; if (note) note.style.display = 'none'; return; }
   if (note) note.style.display = 'block';
   chip.style.display = 'flex';
-  chip.innerHTML = fmt(applyMarkupAmount(measureRoomsTotal + measureExtTotal + measureKitchenTotal + measureFittedUnitTotal + measureCustomMarkedTotal) + measureCustomFlatTotal)+' <span style="font-weight:400;opacity:.75">quote</span>';
+  chip.innerHTML = fmt(applyMarkupAmount(measureRoomsTotal + measureExtTotal + measureKitchenTotal + measureFittedUnitTotal + wdCalcM.total + measureCustomMarkedTotal) + measureCustomFlatTotal)+' <span style="font-weight:400;opacity:.75">quote</span>';
   var parts = [];
   if (rooms.length) parts.push(rooms.length + ' room' + (rooms.length === 1 ? '' : 's'));
   if (extItems.length) parts.push(extItems.length + ' ext');
   if (hasKitchen) parts.push('kitchen');
   if (hasFittedUnit) parts.push(measureFittedUnitCount > 1 ? measureFittedUnitCount + ' fitted units' : 'fitted unit');
+  if (hasWindoors) parts.push('windows & doors');
   if (customCount) parts.push(customCount + ' custom');
   sub.textContent = parts.join(' · ');
 }
@@ -28680,6 +29684,10 @@ function renderSummary() {
   // custom lines is a real quote. Split once here for every use below.
   var customItems = jobCustomItems(activeJob());
   var customSplit = customItemsSplit(activeJob());
+  // Windows and doors: the quote-stage fixture, same "real total with zero
+  // rooms" reasoning again. Variation-stage marks are NOT in this figure --
+  // they are variation lines (computeVariationsView), never original scope.
+  var wdCalc = calcWindoors();
   // lastSummaryTotals cleared on the empty path: an empty job renders no
   // Mark Accepted button so nothing can stamp from it, but a stale stash
   // from the PREVIOUS job must not linger either.
@@ -28695,7 +29703,7 @@ function renderSummary() {
   // becomes the internal estimate shown beside it. null on every other job,
   // and every branch below falls back to exactly its old behaviour.
   var honouredLabour = jobShowsHonouredQuote(impJob) ? jobHonouredLabour(impJob) : null;
-  if (rooms.length===0 && extItems.length===0 && kitchenCalc.total<=0 && fuAgg.total<=0 && customItems.length===0
+  if (rooms.length===0 && extItems.length===0 && kitchenCalc.total<=0 && fuAgg.total<=0 && customItems.length===0 && wdCalc.total<=0
       && impJob && impJob.acceptedSnapshot && impJob.acceptedSnapshot.importedFromXero) {
     empty.style.display='none'; data.style.display='block';
     lastSummaryTotals = null;
@@ -28708,7 +29716,7 @@ function renderSummary() {
   // through to "no rooms yet" would hide the one figure that is certain about
   // that job, so the frozen record is rendered instead. Same shape as the
   // imported-job branch above, and for the same reason.
-  if(rooms.length===0&&extItems.length===0&&kitchenCalc.total<=0&&fuAgg.total<=0&&customItems.length===0){
+  if(rooms.length===0&&extItems.length===0&&kitchenCalc.total<=0&&fuAgg.total<=0&&customItems.length===0&&wdCalc.total<=0){
     if (jobQuoteIsFrozen(impJob)) {
       empty.style.display='none'; data.style.display='block';
       lastSummaryTotals = null; // nothing engine-computed to stamp or schedule from
@@ -28749,7 +29757,7 @@ function renderSummary() {
   // line), so a fixed-£ markup keeps distributing across every "* mk" row
   // below, custom rows included. Flat (markup-off) custom lines stay out --
   // they never see mk at all.
-  var mu = markupRatio((rawRoomsTotal + rawExtTotal + kitchenCalc.total + fuAgg.total + customSplit.marked) * commercialMult);
+  var mu = markupRatio((rawRoomsTotal + rawExtTotal + kitchenCalc.total + fuAgg.total + wdCalc.total + customSplit.marked) * commercialMult);
   var rows=rooms.map(function(r,ri){
     var c=roomCalcs[ri]; tc+=c.total; tt+=c.time; sprayLabourS+=c.sprayLabour||0;
     // Per-element costs, read straight from calcRoom()'s return (the same
@@ -28863,7 +29871,7 @@ function renderSummary() {
   // here rather than calling calcKitchen() a second time.
   var kitchenTotal = kitchenCalc.total, kitchenTimeTotal = kitchenCalc.time;
   var fittedUnitTotal = fuAgg.total, fittedUnitTimeTotal = fuAgg.time;
-  var tcS=tc+extTotal+kitchenTotal+fittedUnitTotal; var ttS=tt+extTimeTotal+kitchenTimeTotal+fittedUnitTimeTotal;
+  var tcS=tc+extTotal+kitchenTotal+fittedUnitTotal+wdCalc.total; var ttS=tt+extTimeTotal+kitchenTimeTotal+fittedUnitTimeTotal+wdCalc.time;
 
   // ── Variations split (VARIATIONS_SPEC.md) ──
   // Flagged items are summed OUT of the quote-facing figures (deposit,
@@ -29516,6 +30524,20 @@ function renderSummary() {
       '<div class="room-breakdown" id="fu-bd-'+fi+'">'+fsub+'</div>'+
       '<div style="height:1px;background:var(--border)"></div>';
     }).join('')+
+    // Windows and doors: one row for the fixture, tapping opens it. The
+    // per-opening detail is on its own screen; here it's one quote line,
+    // exactly as the client's quote and the invoice carry it.
+    (wdCalc.total>0.005?(function(){
+      var mk = commercialMult*(1+mu);
+      return '<div class="room-item" onclick="openWindoors(\'quote\')" style="border-bottom:none">'+
+        '<div class="room-icon">🪟</div>'+
+        '<div class="room-info"><div class="room-name">Windows &amp; Doors</div>'+
+        '<div class="room-meta">'+wdCalc.count+' opening'+(wdCalc.count===1?'':'s')+' · '+fmtD(wdCalc.time)+'</div></div>'+
+        '<div class="room-cost">'+fmt(wdCalc.total*mk)+'</div>'+
+        '<div style="color:var(--text3);font-size:16px">›</div>'+
+      '</div>'+
+      '<div style="height:1px;background:var(--border)"></div>';
+    })():'')+
     // Custom line items -- no expandable sub-breakdown (there's no
     // calculation to break down; the price IS the entry), tap re-opens the
     // editor instead. Marked lines show at customer price via the same mk
@@ -29768,6 +30790,7 @@ function openClientQuote() {
     : (job && job.acceptedSnapshot && job.acceptedSnapshot.importedFromXero)
       ? (+job.acceptedSnapshot.estQuoteTotal || 0) : 0;
   if (quoteRooms.length === 0 && quoteExtItems.length === 0 && kitchenCalc.total <= 0 && fuQuoteAgg.total <= 0
+      && calcWindoors().total <= 0.005
       && jobCustomItems(job).length === 0 && !vv.hasVariations && importedBaseline <= 0.005
       && honouredLabour == null) {
     alert('Nothing to preview yet — add rooms on the Measure tab first.');
@@ -29921,6 +30944,12 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
   if (fuQuoteAgg.total > 0.005) {
     tcS += fuQuoteAgg.total; ttS += fuQuoteAgg.time;
   }
+  // Windows and doors: one labour line for the fixture, worded from what it
+  // includes (WINDOWS_DOORS_SPEC.md section 8).
+  var wdQuote = calcWindoors();
+  if (wdQuote.total > 0.005) {
+    tcS += wdQuote.total; ttS += wdQuote.time;
+  }
   // Custom line items: no time, no sundries -- the marked share joins the
   // markup base (via computeDepositPlan + rawBase below), the flat share
   // prints verbatim after it.
@@ -29979,6 +31008,12 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
   fuQuoteAgg.units.forEach(function(e) {
     if (e.calc.total > 0.005) workRows.push({ emoji: '📚', label: fittedUnitName(e.unit), sub: '', amount: e.calc.total * lineMult, labour: true, key: 'fittedunit:' + e.unit.id });
   });
+  if (wdQuote.total > 0.005) {
+    // The label IS the item line text, because a frozen snapshot's row label
+    // is what the final invoice later bills it under.
+    workRows.push({ emoji: '🪟', label: windoorsLineText(), sub: '',
+                    amount: wdQuote.total * lineMult, labour: true, key: 'windoors:windoors' });
+  }
   // Custom lines: marked ones ride the same proportional multiplier as
   // every other work line; markup-off ones print the entered price
   // untouched (lineMult would silently re-add margin they already carry).
