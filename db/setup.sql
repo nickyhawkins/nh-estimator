@@ -692,6 +692,7 @@ ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS bay_shape VARCHAR;            
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS bay_storeys INTEGER;                         -- 1 or 2 (kind = 'bay')
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS parent_opening_id VARCHAR;                   -- the bay, on a bay's window
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS panes_set BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS rows_bottom INTEGER;                         -- a sash's bottom rows when they differ (3-over-6); NULL = same as rows
 DROP INDEX IF EXISTS job_openings_slot;
 CREATE UNIQUE INDEX IF NOT EXISTS job_openings_slot2 ON job_openings (job_id, side, level, floor, kind, position);
 CREATE INDEX IF NOT EXISTS job_openings_parent ON job_openings (parent_opening_id);

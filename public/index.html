@@ -25209,7 +25209,7 @@ function wdPutOpening(o) {
     jobId: windoors.jobId, side: o.side, floor: o.floor, level: Windoors.levelOf(o), kind: o.kind, position: o.position,
     nickname: o.nickname || '', type: o.type, sizeTier: o.size_tier, rows: o.rows, cols: o.cols,
     prepLevel: o.prep_level, prepStage: o.prep_stage, quotePrepLevel: o.quote_prep_level,
-    prepVariationId: o.prep_variation_id,
+    prepVariationId: o.prep_variation_id, rowsBottom: o.rows_bottom == null ? null : o.rows_bottom,
     bayShape: o.bay_shape || null, bayStoreys: o.bay_storeys || null, parentOpeningId: o.parent_opening_id || null,
     panesSet: !!o.panes_set
   }).then(function(resp) {
@@ -25910,10 +25910,14 @@ function renderWdDetail() {
     h += '<div class="subsection-label" style="padding-top:4px">Type</div>'
       + '<div style="padding:0 16px 8px">' + wdSegHtml(isDoor ? Windoors.DOOR_TYPES : Windoors.WINDOW_TYPES, o.type, 'setWdType') + '</div>';
     if (!(isDoor && o.type === 'flush')) {
-      var rowsLabel = isDoor ? (o.type === 'panelled' || o.type === 'stable' ? 'Panel rows' : 'Glass rows') : (o.type === 'sash' ? 'Pane rows (per sash)' : 'Pane rows');
-      var colsLabel = isDoor ? (o.type === 'panelled' || o.type === 'stable' ? 'Panel columns' : (o.type === 'french_double' ? 'Glass columns (per leaf)' : 'Glass columns')) : 'Pane columns';
-      h += '<div class="field-row"><div class="field-label">' + rowsLabel + '</div>' + wdStepper('', o.rows, 'wdGrid(\'rows\',-1)', 'wdGrid(\'rows\',1)') + '</div>'
-        + '<div class="field-row"><div class="field-label">' + colsLabel + '</div>' + wdStepper('', o.cols, 'wdGrid(\'cols\',-1)', 'wdGrid(\'cols\',1)') + '</div>';
+      var sashWin = !isDoor && o.type === 'sash';
+      var rowsLabel = isDoor ? (o.type === 'panelled' || o.type === 'stable' ? 'Panel rows' : 'Glass rows') : (sashWin ? 'Top sash rows' : 'Pane rows');
+      var colsLabel = isDoor ? (o.type === 'panelled' || o.type === 'stable' ? 'Panel columns' : (o.type === 'french_double' ? 'Glass columns (per leaf)' : 'Glass columns')) : (sashWin ? 'Pane columns<small>both sashes</small>' : 'Pane columns');
+      h += '<div class="field-row"><div class="field-label">' + rowsLabel + '</div>' + wdStepper('', o.rows, 'wdGrid(\'rows\',-1)', 'wdGrid(\'rows\',1)') + '</div>';
+      // A sash's bottom sash can have more rows than its top: 3-over-6.
+      if (sashWin) h += '<div class="field-row"><div class="field-label">Bottom sash rows</div>' + wdStepper('', Windoors.sashRows(o).bottom, 'wdGrid(\'rows_bottom\',-1)', 'wdGrid(\'rows_bottom\',1)') + '</div>';
+      h += '<div class="field-row"><div class="field-label">' + colsLabel + '</div>' + wdStepper('', o.cols, 'wdGrid(\'cols\',-1)', 'wdGrid(\'cols\',1)') + '</div>';
+      if (sashWin) h += '<div style="padding:2px 16px 8px;font-size:13px;color:var(--text2)">' + Windoors.sashPattern(o) + ' · ' + Windoors.paneCount(o) + ' panes</div>';
     }
     h += '<div class="subsection-label">Size</div>'
       + '<div style="padding:0 16px 8px">' + wdSegHtml(isDoor ? Windoors.DOOR_TIERS : Windoors.WINDOW_TIERS, o.size_tier, 'setWdTier', { guides: true }) + '</div>';
@@ -26109,6 +26113,7 @@ function setWdType(type) {
   var o = wdOpening(); if (!o || o.type === type) return;
   wdStructureChange(function(x) {
     x.type = type;
+    if (type !== 'sash') x.rows_bottom = null;
     // A door type that has no grid of its own starts from a sensible one.
     if (x.kind === 'door') {
       var d = { panelled: [3, 2], flush: [1, 1], half_glazed: [1, 2], fully_glazed: [3, 2], stable: [2, 2], french_double: [3, 1] }[type];
@@ -26118,9 +26123,16 @@ function setWdType(type) {
 }
 function wdGrid(which, delta) {
   var o = wdOpening(); if (!o) return;
-  var next = Math.max(1, Math.min(8, (+o[which] || 1) + delta));
-  if (next === o[which]) return;
-  wdStructureChange(function(x) { x[which] = next; });
+  // The bottom sash's rows follow the top's until they're set on their own.
+  var cur = which === 'rows_bottom' ? Windoors.sashRows(o).bottom : (+o[which] || 1);
+  var next = Math.max(1, Math.min(8, cur + delta));
+  if (next === cur) return;
+  wdStructureChange(function(x) {
+    // Pin the bottom before the top moves, so one stepper never changes both.
+    if (x.type === 'sash' && which === 'rows') x.rows_bottom = Windoors.sashRows(x).bottom;
+    x[which] = next;
+    if (x.rows_bottom != null && +x.rows_bottom === +x.rows) x.rows_bottom = null;
+  });
 }
 function setWdTier(tier) {
   var o = wdOpening(); if (!o || o.size_tier === tier) return;

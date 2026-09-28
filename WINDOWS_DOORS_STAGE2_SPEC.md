@@ -218,4 +218,6 @@ Changes redraw the elevation live. Settings apply to every side of the job in th
 - **Georgian glazing on upper floors:** left to the per-opening detail (a dormer starts one row per sash — 3-over-3 beside 6-over-6).
 - **Changing period on a job with marks:** no warning over marks — it never touches openings. It asks only when options were changed by hand (the spec's rule), and separately when the new period's form would hide a side that has openings. Declining that second question keeps the house's current form and roof but still changes the period.
 
-**Tests:** `npm run test:windoors` (179: stage 2 adds appearance and legacy mapping, levels, bays, pricing, every period × roof × finish drawing cleanly, the bay view, the report, the server's gate, and static checks on the app).
+**v2.85.1 — unequal sashes.** `job_openings.rows_bottom`: a sash's bottom sash can have its own number of rows (3-over-6 is rows 1, rows_bottom 2, cols 3); NULL = same as the top. A Georgian dormer starts 3-over-6. An opening whose panes were never set is drawn with the glazing a new opening in its position would get (a dormer's, a bay side light's), not always the main floors'.
+
+**Tests:** `npm run test:windoors` (192 at v2.85.1; 179: stage 2 adds appearance and legacy mapping, levels, bays, pricing, every period × roof × finish drawing cleanly, the bay view, the report, the server's gate, and static checks on the app).
