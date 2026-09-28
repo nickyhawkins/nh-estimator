@@ -126,6 +126,27 @@ eq('item line pluralises', W.itemLineText({ openings: [sash, Object.assign({}, s
 eq('an upstairs door reads as a balcony door',
   W.itemLineText({ openings: [Object.assign({}, door, { floor: 1 })], marks: [] }), 'Exterior windows and doors (outside faces): 1 balcony door.');
 
+// ── Paint areas ────────────────────────────────────────────────────────────
+// The TIMBER on the outside face, not the opening: a window is mostly glass.
+// Its own size tier's area × its type's timber share (+ glazing bars per
+// extra pane, capped); a door's leaf × its timber share + the frame.
+const win = (type, tier, rows, cols) => ({ kind: 'window', type, size_tier: tier, rows, cols });
+near('a Medium 6-over-6 sash is 0.75m² × the capped 0.6 share', W.openingPaintM2(win('sash', 'medium', 2, 3), R), 0.45);
+near('a Large one is twice that', W.openingPaintM2(win('sash', 'large', 2, 3), R), 0.9);
+near('a 2-over-2 sash: fewer bars, less timber', W.openingPaintM2(win('sash', 'medium', 1, 2), R), 0.75 * (0.4 + 3 * 0.02));
+near('a single-pane fixed light is its base share', W.openingPaintM2(win('fixed', 'medium', 1, 1), R), 0.75 * 0.25);
+check('no window paints more than its whole outline',
+  ['small', 'medium', 'large', 'xlarge'].every(t => ['casement', 'sash', 'fixed'].every(ty =>
+    W.openingPaintM2(win(ty, t, 8, 8), R) <= R.paint.area[t] + 1e-9)));
+near('a panelled door is leaf + frame', W.openingPaintM2({ kind: 'door', type: 'panelled', size_tier: 'standard' }, R), 1.75 + 0.4);
+check('a glazed door paints less than a panelled one',
+  W.openingPaintM2({ kind: 'door', type: 'fully_glazed', size_tier: 'standard' }, R) < 2.15);
+near('french doors are two leaves', W.openingPaintM2({ kind: 'door', type: 'french_double', size_tier: 'standard' }, R), (1.75 * 0.45 + 0.4) * 2);
+near('the shares are Rates figures', W.openingPaintM2(win('sash', 'medium', 2, 3), W.mergeRates({ paint: { cap: 0.5 } })), 0.375);
+const pa = W.paintAreas({ openings: [sash, door] }, R);
+check('windows and doors are totalled apart (two colours)',
+  Math.abs(pa.window - 0.9) < 1e-9 && Math.abs(pa.door - (1.75 * 0.75 + 0.4)) < 1e-9 && pa.windows === 1 && pa.doors === 1);
+
 // ── Drawings ───────────────────────────────────────────────────────────────
 const layoutData = { property: { style: 'victorian', default_prep: 'light', layout: { front: { floors: [{ windows: 2, doors: 1 }, { windows: 3, doors: 0 }], confirmed: true } } },
   openings: [sash, door], marks: data.marks };
@@ -175,6 +196,11 @@ const body = name => {
   ['findVariationEntry', "kind === 'windoors'"],
   ['variationRawOf', "'windoors'"],
   ['loadActiveJobData', 'loadWindoors('],
+  // Paint: joins the exterior woodwork rows, is an area on the Colours tab,
+  // and can be coloured from there.
+  ['computeMaterials', 'windoorsPaintItems()'],
+  ['colourAreas', 'windoorsPaintItems()'],
+  ['setAreaColourNumber', "ref.kind === 'windoors'"],
 ].forEach(([fn, needle]) => check(fn + ' includes the windows and doors fixture', body(fn).indexOf(needle) >= 0));
 check('the Xero quote carries it as a line', /exteriorData\.push\(\{ label: windoorsLineText\(\)/.test(SRC));
 check('the shell loads the shared module', SRC.indexOf('<script src="/windoors.js"></script>') >= 0);

@@ -184,8 +184,11 @@ app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: '30d',
   setHeaders: (res, filePath) => {
     // sw.js must revalidate every load too — a long-cached service worker
-    // would pin users to an old app shell long after a deploy.
-    if (filePath.endsWith('.html') || filePath.endsWith('sw.js')) res.setHeader('Cache-Control', 'no-cache');
+    // would pin users to an old app shell long after a deploy. windoors.js
+    // likewise: it is CODE the shell runs (the Windows and doors pricing and
+    // drawings), and a 30-day copy would price with last month's rules
+    // against this month's index.html.
+    if (filePath.endsWith('.html') || filePath.endsWith('sw.js') || filePath.endsWith('windoors.js')) res.setHeader('Cache-Control', 'no-cache');
   }
 }));
 

@@ -648,6 +648,11 @@ CREATE TABLE IF NOT EXISTS job_property (
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
+-- Paint (v2.83.0): coats, and the colour NUMBERS (colours table) the
+-- windows and the doors are painted in. NULL = the job's colour 1.
+ALTER TABLE job_property ADD COLUMN IF NOT EXISTS coats INTEGER NOT NULL DEFAULT 2;
+ALTER TABLE job_property ADD COLUMN IF NOT EXISTS window_colour INTEGER;
+ALTER TABLE job_property ADD COLUMN IF NOT EXISTS door_colour INTEGER;
 CREATE TABLE IF NOT EXISTS job_openings (
   id VARCHAR PRIMARY KEY,
   job_id VARCHAR NOT NULL,

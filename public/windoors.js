@@ -110,6 +110,20 @@
     prep: { light: 1.1, standard: 1.25, heavy: 1.4, restoration: 1.75 },
     // Per element marked. cost is a material £ per element (glass per pane),
     // before the job's markup.
+    // Paint: the outside face's TIMBER, not the opening. Each opening is its
+    // size tier's own area (the middle of the area guide on the tier button),
+    // times the share of it that is timber rather than glass. More panes means
+    // more glazing bars, so a little more timber per extra pane, capped.
+    paint: {
+      area: { small: 0.35, medium: 0.75, large: 1.5, xlarge: 2.5, standard: 1.75, oversized: 2.2 },
+      timber: { casement: 0.35, sash: 0.4, fixed: 0.25 },
+      perPane: 0.02,
+      cap: 0.6,
+      // Doors: share of the leaf that is timber (the rest is glass), plus the
+      // frame per leaf in m².
+      doorTimber: { panelled: 1, flush: 1, stable: 1, half_glazed: 0.75, fully_glazed: 0.45, french_double: 0.45 },
+      doorFrame: 0.4
+    },
     actions: {
       reputty: { mins: 20, cost: 0 },
       replace_glass: { mins: 30, cost: 25 },
@@ -144,6 +158,20 @@
     PREP_LEVELS.forEach(function (p) {
       out.prep[p.key] = Math.max(0, num((raw.prep || {})[p.key], DEFAULT_RATES.prep[p.key]));
     });
+    var sp = raw.paint || {}, dp = DEFAULT_RATES.paint;
+    out.paint = { area: {}, timber: {}, doorTimber: {} };
+    WINDOW_TIERS.concat(DOOR_TIERS).forEach(function (t) {
+      out.paint.area[t.key] = Math.max(0, num((sp.area || {})[t.key], dp.area[t.key]));
+    });
+    WINDOW_TYPES.forEach(function (t) {
+      out.paint.timber[t.key] = Math.max(0, Math.min(1, num((sp.timber || {})[t.key], dp.timber[t.key])));
+    });
+    DOOR_TYPES.forEach(function (t) {
+      out.paint.doorTimber[t.key] = Math.max(0, Math.min(1, num((sp.doorTimber || {})[t.key], dp.doorTimber[t.key])));
+    });
+    out.paint.perPane = Math.max(0, num(sp.perPane, dp.perPane));
+    out.paint.cap = Math.max(0, Math.min(1, num(sp.cap, dp.cap)));
+    out.paint.doorFrame = Math.max(0, num(sp.doorFrame, dp.doorFrame));
     ACTIONS.forEach(function (a) {
       var saved = (raw.actions || {})[a.key] || {};
       out.actions[a.key] = {
@@ -394,6 +422,42 @@
         out.quote.mins += a.mins; out.quote.materials += a.cost;
         per.quoteMins += a.mins; per.quoteMaterials += a.cost;
       }
+    });
+    return out;
+  }
+
+  // ── Paint: the outside-face area to buy paint for ────────────────────────
+  // The TIMBER on the outside face, not the opening: a window is mostly
+  // glass. Each opening starts from its own size -- the middle of its tier's
+  // area guide (Medium is 0.5 to 1m², so 0.75) -- and takes the share of that
+  // which is timber for its type, plus a little per extra pane for the
+  // glazing bars, capped. A Medium 6-over-6 sash is 0.75 × 0.6 = 0.45m².
+  // Doors take their leaf area times the timber share for their type (glass
+  // is not painted) plus the frame, per leaf. All the figures are on the
+  // Rates card; the caller turns m² × coats into litres at the exterior
+  // woodwork coverage, exactly as the Exterior form's woodwork does.
+  function openingPaintM2(o, rawRates) {
+    var P = (rawRates && rawRates.paint && rawRates.paint.area ? rawRates : mergeRates(rawRates)).paint;
+    var area = P.area[o.size_tier] != null ? P.area[o.size_tier] : (o.kind === 'door' ? P.area.standard : P.area.medium);
+    if (o.kind === 'door') {
+      var leaves = o.type === 'french_double' ? 2 : 1;
+      var share = P.doorTimber[o.type] != null ? P.doorTimber[o.type] : 1;
+      // French doors' tier area is per leaf -- two of them.
+      return (area * share + P.doorFrame) * leaves;
+    }
+    var base = P.timber[o.type] != null ? P.timber[o.type] : P.timber.casement;
+    var timber = Math.min(P.cap, base + Math.max(0, paneCount(o) - 1) * P.perPane);
+    return area * Math.max(base, timber);
+  }
+  // Totals by kind, because windows and doors can be different colours (the
+  // white sashes and the black front door) and each colour is its own row of
+  // tins.
+  function paintAreas(data, rawRates) {
+    var rates = rawRates && rawRates.paint && rawRates.paint.area ? rawRates : mergeRates(rawRates);
+    var out = { window: 0, door: 0, windows: 0, doors: 0 };
+    ((data && data.openings) || []).forEach(function (o) {
+      var m2 = openingPaintM2(o, rates);
+      if (o.kind === 'door') { out.door += m2; out.doors++; } else { out.window += m2; out.windows++; }
     });
     return out;
   }
@@ -1031,7 +1095,7 @@
     openingElements: openingElements, elementKind: elementKind, actionsFor: actionsFor, paneCount: paneCount,
     openingCode: openingCode, openingLabel: openingLabel, sortOpenings: sortOpenings,
     effectivePrep: effectivePrep, quotePrep: quotePrep, baseMinutes: baseMinutes, paintedMinutes: paintedMinutes,
-    priceJob: priceJob, marksClause: marksClause, describeVariation: describeVariation, itemLineText: itemLineText,
+    priceJob: priceJob, openingPaintM2: openingPaintM2, paintAreas: paintAreas, marksClause: marksClause, describeVariation: describeVariation, itemLineText: itemLineText,
     workFlags: workFlags, elevationSvg: elevationSvg, detailSvg: detailSvg,
     reportModel: reportModel, reportHtml: reportHtml, fmtDate: fmtDate
   };
