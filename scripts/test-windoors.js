@@ -405,8 +405,33 @@ check('the report html draws the bay view', W.reportHtml({ property, openings: [
   check('the layout keeps bays (capped), dormers and lower ground', np.layout.front.floors[0].bays === 4 && np.layout.front.roof.windows === 2 && np.layout.front.lower_ground === null);
 }
 
+// ── Sashes with different grids: 3-over-6 ──────────────────────────────────
+const s36 = { id: 's36', side: 'front', level: 'roof', floor: 0, kind: 'window', position: 1, type: 'sash', size_tier: 'small', rows: 1, rows_bottom: 2, cols: 3, panes_set: true };
+eq('a 3-over-6 is 9 panes', W.paneCount(s36), 9);
+eq('...said as such', W.sashPattern(s36), '3 over 6');
+check('...with 3 top panes and 6 bottom ones to mark',
+  W.openingElements(s36).filter(e => /^top-/.test(e.id)).length === 3 && W.openingElements(s36).filter(e => /^bottom-/.test(e.id)).length === 6);
+near('...priced on 9 panes', W.paintedMinutes(s36, R), 30 * 1.3 + 9 * 4);
+eq('no bottom rows saved = same as the top', W.paneCount(sash), 12);
+check('the detail draws 9 tappable panes', ['top-3', 'bottom-6'].every(id => W.detailSvg(s36, [], { interactive: true }).indexOf('data-el="' + id + '"') >= 0)
+  && W.detailSvg(s36, [], { interactive: true }).indexOf('data-el="top-4"') < 0);
+const unsetDormer = Object.assign({}, s36, { id: 'ud', rows: 1, rows_bottom: null, panes_set: false });
+const dormerBars = (o) => (W.elevationSvg({ property: { appearance: Object.assign({}, gd, { roof: 'eaves_to_street', form: 'detached' }), layout: { front: { floors: [{ windows: 0, doors: 0 }], roof: { windows: 1 }, confirmed: true } } }, openings: [o], marks: [] }, 'front').match(/stroke="#ffffff" stroke-width="1.2"/g) || []).length;
+eq("a dormer whose panes were never set draws the period's dormer glazing (3-over-6), not the floors' 6-over-6",
+  dormerBars(unsetDormer), dormerBars(s36));
+eq('a Georgian dormer starts 3-over-6', W.sashPattern(W.openingDefaults(gd, 'window', 0, 'roof')), '3 over 6');
+eq('...4-over-8 beside 8-over-8', W.sashPattern(W.openingDefaults(g8, 'window', 0, 'roof')), '4 over 8');
+{
+  const L = require('../lib/windoors');
+  const base = { side: 'front', level: 'roof', kind: 'window', type: 'sash', sizeTier: 'small', rows: 1, cols: 3 };
+  eq('the server keeps a different bottom', L.normaliseOpening(Object.assign({}, base, { rowsBottom: 2 })).rows_bottom, 2);
+  eq('...stores a matching one as "same"', L.normaliseOpening(Object.assign({}, base, { rowsBottom: 1 })).rows_bottom, null);
+  eq('...and none on a casement', L.normaliseOpening(Object.assign({}, base, { type: 'casement', rowsBottom: 2 })).rows_bottom, null);
+}
+
 // ── The app ────────────────────────────────────────────────────────────────
 check('openings are saved with their level, bay and pane flag', /level: Windoors\.levelOf\(o\)/.test(body('wdPutOpening')) && /parentOpeningId/.test(body('wdPutOpening')) && /panesSet/.test(body('wdPutOpening')));
+check("a sash's bottom rows are saved", /rowsBottom/.test(body('wdPutOpening')));
 check('an adopted bay re-points its windows', /x\.parent_opening_id === old/.test(body('wdPutOpening')));
 check('confirming a layout makes bays with their windows', /wdEnsureBayChildren\(have\)/.test(body('confirmWdLayout')));
 check('a form that hides a side warns before its openings go', /confirm\(/.test(body('wdApplyAppearance')) && /wdRemoveOpenings\(/.test(body('wdApplyAppearance')));

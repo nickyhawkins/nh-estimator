@@ -465,9 +465,11 @@
     if (style === 'modern') return { type: 'casement', size_tier: level === 'roof' ? 'small' : 'medium', rows: 1, cols: 2 };
     var g = periodSashGrid(a);
     if (level === 'roof') {
-      // A dormer's sash is a small one: one row per sash on a Georgian house
-      // (3-over-3 beside 6-over-6).
-      return { type: 'sash', size_tier: 'small', rows: style === 'georgian' ? 1 : g.rows, cols: g.cols };
+      // A dormer's sash is a small one: on a Georgian house its top sash
+      // loses a row (3-over-6 beside 6-over-6).
+      return style === 'georgian'
+        ? { type: 'sash', size_tier: 'small', rows: 1, rows_bottom: g.rows, cols: g.cols }
+        : { type: 'sash', size_tier: 'small', rows: g.rows, cols: g.cols };
     }
     if (style === 'victorian') return { type: 'sash', size_tier: 'medium', rows: g.rows, cols: g.cols };
     // Georgian: the first floor (the piano nobile) is where the tall windows
@@ -540,6 +542,19 @@
   // `kind` is 'pane' or 'part' -- the two things a selection can be, never
   // both at once. Door glass counts as panes; door panels count as parts.
   function clampGrid(v, max) { return Math.max(1, Math.min(max || 8, Math.floor(+v || 1))); }
+  // A sash's two grids. Both sashes share the columns; the bottom sash can
+  // have rows of its own (rows_bottom) -- a 3-over-6 dormer is 1 row of 3
+  // over 2 rows of 3. Unset (every row saved before it existed) = the same
+  // as the top, so a 6-over-6 is still rows 2, cols 3.
+  function sashRows(o) {
+    var top = clampGrid(o.rows);
+    return { top: top, bottom: o.rows_bottom == null ? top : clampGrid(o.rows_bottom) };
+  }
+  // "6 over 6", "3 over 6".
+  function sashPattern(o) {
+    var r = sashRows(o), c = clampGrid(o.cols);
+    return (r.top * c) + ' over ' + (r.bottom * c);
+  }
 
   function doorGlass(o) {
     var r = clampGrid(o.rows), c = clampGrid(o.cols);
@@ -564,8 +579,8 @@
   function paneCount(o) {
     if (o.kind === 'bay') return 0;
     if (o.kind === 'door') return doorGlass(o);
-    var n = clampGrid(o.rows) * clampGrid(o.cols);
-    return o.type === 'sash' ? 2 * n : n;
+    if (o.type === 'sash') { var sr = sashRows(o); return (sr.top + sr.bottom) * clampGrid(o.cols); }
+    return clampGrid(o.rows) * clampGrid(o.cols);
   }
 
   var PART_LABELS = {
@@ -596,8 +611,9 @@
     }
     var n = clampGrid(o.rows) * clampGrid(o.cols);
     if (o.type === 'sash') {
-      for (var t = 1; t <= n; t++) out.push({ id: 'top-' + t, kind: 'pane', label: 'top pane ' + t });
-      for (var b = 1; b <= n; b++) out.push({ id: 'bottom-' + b, kind: 'pane', label: 'bottom pane ' + b });
+      var sr = sashRows(o), nc = clampGrid(o.cols);
+      for (var t = 1; t <= sr.top * nc; t++) out.push({ id: 'top-' + t, kind: 'pane', label: 'top pane ' + t });
+      for (var b = 1; b <= sr.bottom * nc; b++) out.push({ id: 'bottom-' + b, kind: 'pane', label: 'bottom pane ' + b });
     } else {
       for (var k = 1; k <= n; k++) out.push({ id: 'pane-' + k, kind: 'pane', label: 'pane ' + k });
     }
@@ -970,12 +986,17 @@
 
   // The glazing an opening is DRAWN with. Once its pane layout has been set
   // in the detail view (panes_set), that layout; before then a sash shows the
-  // period's glazing, so changing Georgian 6-over-6 to 8-over-8 redraws the
+  // period's glazing for where it is, so changing Georgian 6-over-6 to 8-over-8 redraws the
   // house without touching what anything is priced on. Placeholders (an
   // unconfirmed side) already carry the period's defaults.
   function drawnGrid(o, a) {
-    if (o.panes_set || o.placeholder || o.type !== 'sash') return { rows: clampGrid(o.rows), cols: clampGrid(o.cols) };
-    return periodSashGrid(a) || { rows: clampGrid(o.rows), cols: clampGrid(o.cols) };
+    var own = function () { var sr = sashRows(o); return { rows: sr.top, rowsBottom: o.type === 'sash' ? sr.bottom : sr.top, cols: clampGrid(o.cols) }; };
+    if (o.panes_set || o.placeholder || o.type !== 'sash') return own();
+    // What a new window in this spot starts as: a dormer's 3-over-6, a bay
+    // side light's narrower grid, the floors' 6-over-6.
+    var d = isBayChild(o) ? bayChildDefaults(a, +o.floor || 0, bayChildInfo(o).face) : openingDefaults(a, 'window', +o.floor || 0, levelOf(o));
+    if (d.type !== 'sash') return own();
+    return { rows: clampGrid(d.rows), rowsBottom: d.rows_bottom == null ? clampGrid(d.rows) : clampGrid(d.rows_bottom), cols: clampGrid(d.cols) };
   }
 
   // The head over a window: stone with a keystone or a brick arch
@@ -1026,7 +1047,7 @@
     var grid = drawnGrid(o, a);
     if (o.type === 'sash') {
       line(gx, gy + gh / 2, gx + gw, gy + gh / 2, 2.2);
-      var margin = style === 'victorian' && a.victorian.sash === 'margin_lights' && grid.rows === 3 && grid.cols === 3;
+      var margin = style === 'victorian' && a.victorian.sash === 'margin_lights' && grid.rows === 3 && grid.rowsBottom === 3 && grid.cols === 3;
       for (var half = 0; half < 2; half++) {
         var hy = gy + half * gh / 2;
         if (margin) {
@@ -1037,11 +1058,12 @@
           continue;
         }
         for (var c = 1; c < grid.cols; c++) line(gx + c * gw / grid.cols, hy, gx + c * gw / grid.cols, hy + gh / 2);
-        for (var rr = 1; rr < grid.rows; rr++) line(gx, hy + rr * gh / 2 / grid.rows, gx + gw, hy + rr * gh / 2 / grid.rows);
+        var hr = half ? grid.rowsBottom : grid.rows;
+        for (var rr = 1; rr < hr; rr++) line(gx, hy + rr * gh / 2 / hr, gx + gw, hy + rr * gh / 2 / hr);
       }
       // Victorian sash horns: the upper sash's stiles run on past the
       // meeting rail, on 1-over-1 and 2-over-2.
-      if (style === 'victorian' && !margin && grid.rows === 1 && grid.cols <= 2 && !opts.narrow) {
+      if (style === 'victorian' && !margin && grid.rows === 1 && grid.rowsBottom === 1 && grid.cols <= 2 && !opts.narrow) {
         var my = gy + gh / 2 + 1.1;
         s += poly([[gx, my], [gx + 2.4, my], [gx + 0.9, my + 3.6]], frame, ' stroke="#777" stroke-width="0.3"');
         s += poly([[gx + gw, my], [gx + gw - 2.4, my], [gx + gw - 0.9, my + 3.6]], frame, ' stroke="#777" stroke-width="0.3"');
@@ -1695,7 +1717,8 @@
     } else {
       var rowsW = clampGrid(o.rows), colsW = clampGrid(o.cols);
       var sash = o.type === 'sash';
-      W = 60 + colsW * 70; H = sash ? 70 + rowsW * 2 * 62 + 24 : 60 + rowsW * 70;
+      var sr = sashRows(o);
+      W = 60 + colsW * 70; H = sash ? 70 + Math.max(sr.top, sr.bottom) * 2 * 62 + 24 : 60 + rowsW * 70;
       W = Math.max(W, 200); H = Math.max(H, 180);
       var hd = 20, stw = 18, brw = 18, cill = 16, mr = 16;
       if (levelOf(o) === 'roof') {
@@ -1717,10 +1740,10 @@
         var halfH = areaH / 2;
         s += draw('meeting_rail', R(ax, hd + halfH, aw, mr, timber));
         s += draw('bottom_rail', R(ax, H - cill - brw, aw, brw, timber));
-        var paneGrid = function (prefix, gy, gh) {
+        var paneGrid = function (prefix, gy, gh, nr) {
           var out = '', n = 0, gap = 6;
-          var cw = (aw - 12 - (colsW - 1) * gap) / colsW, rh = (gh - 12 - (rowsW - 1) * gap) / rowsW;
-          for (var ri = 0; ri < rowsW; ri++) for (var ci = 0; ci < colsW; ci++) {
+          var cw = (aw - 12 - (colsW - 1) * gap) / colsW, rh = (gh - 12 - (nr - 1) * gap) / nr;
+          for (var ri = 0; ri < nr; ri++) for (var ci = 0; ci < colsW; ci++) {
             n++;
             out += draw(prefix + '-' + n, R(ax + 6 + ci * (cw + gap), gy + 6 + ri * (rh + gap), cw, rh, glassFill));
           }
@@ -1728,8 +1751,8 @@
         };
         s += '<rect x="' + r1(ax) + '" y="' + r1(hd) + '" width="' + r1(aw) + '" height="' + r1(halfH) + '" fill="#e9e6de" pointer-events="none"/>';
         s += '<rect x="' + r1(ax) + '" y="' + r1(hd + halfH + mr) + '" width="' + r1(aw) + '" height="' + r1(halfH) + '" fill="#e9e6de" pointer-events="none"/>';
-        s += paneGrid('top', hd, halfH);
-        s += paneGrid('bottom', hd + halfH + mr, halfH);
+        s += paneGrid('top', hd, halfH, sr.top);
+        s += paneGrid('bottom', hd + halfH + mr, halfH, sr.bottom);
       } else {
         var areaH2 = H - hd - cill - brw;
         s += draw('bottom_rail', R(ax, H - cill - brw, aw, brw, timber));
@@ -1783,17 +1806,17 @@
         children.forEach(function (k) { if (+k.position === pos) kid = k; });
         var x = c[0], w = c[1], h = rowH - 34, wy = y + 8;
         var win = '<rect x="' + r1(x) + '" y="' + r1(wy) + '" width="' + r1(w) + '" height="' + r1(h) + '" fill="' + timber + '" stroke="#555" stroke-width="1"/>';
-        var rows = kid ? clampGrid(kid.rows) : 1, ncol = kid ? clampGrid(kid.cols) : 1;
+        var ksr = kid ? sashRows(kid) : { top: 1, bottom: 1 }, rows = ksr.top, ncol = kid ? clampGrid(kid.cols) : 1;
         var sash = !kid || kid.type === 'sash';
         var gx = x + 6, gw = w - 12, gy = wy + 6, gh = h - 12;
         win += rect(gx, gy, gw, gh, '#cfe3ee');
-        var bars = function (y0, hh) {
-          var out = '';
+        var bars = function (y0, hh, nr) {
+          var out = '', rows = nr || ksr.top;
           for (var cc = 1; cc < ncol; cc++) out += ln(gx + cc * gw / ncol, y0, gx + cc * gw / ncol, y0 + hh, timber, 3);
           for (var rr = 1; rr < rows; rr++) out += ln(gx, y0 + rr * hh / rows, gx + gw, y0 + rr * hh / rows, timber, 3);
           return out;
         };
-        if (sash) { win += ln(gx, gy + gh / 2, gx + gw, gy + gh / 2, timber, 6) + bars(gy, gh / 2) + bars(gy + gh / 2, gh / 2); } else win += bars(gy, gh);
+        if (sash) { win += ln(gx, gy + gh / 2, gx + gw, gy + gh / 2, timber, 6) + bars(gy, gh / 2) + bars(gy + gh / 2, gh / 2, ksr.bottom); } else win += bars(gy, gh);
         if (canted && c[2] !== 'front') win += rect(gx, gy, gw, gh, 'rgba(20,30,40,.12)');
         var f = kid && flags[kid.id];
         if (f && (f.quote || f.variation)) {
@@ -1949,7 +1972,7 @@
     floorLabel: floorLabel, sideLabel: sideLabel, typeLabel: typeLabel, kindNoun: kindNoun, levelOf: levelOf, levelLabel: levelLabel,
     sideLayout: sideLayout, openingDefaults: openingDefaults, bayDefaults: bayDefaults, bayChildDefaults: bayChildDefaults, floorSlots: floorSlots,
     isBayChild: isBayChild, bayChildPosition: bayChildPosition, bayChildInfo: bayChildInfo, bayStoreys: bayStoreys, bayChildren: bayChildren,
-    liveOpenings: liveOpenings, periodSashGrid: periodSashGrid,
+    liveOpenings: liveOpenings, periodSashGrid: periodSashGrid, sashRows: sashRows, sashPattern: sashPattern,
     openingElements: openingElements, elementKind: elementKind, actionsFor: actionsFor, paneCount: paneCount,
     openingCode: openingCode, openingLabel: openingLabel, sortOpenings: sortOpenings,
     effectivePrep: effectivePrep, quotePrep: quotePrep, baseMinutes: baseMinutes, paintedMinutes: paintedMinutes,

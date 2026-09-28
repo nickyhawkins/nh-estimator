@@ -369,7 +369,9 @@ They're labelled *Front, dormer, W2* and *Front, lower ground, W1*.
 
 ![A Georgian terrace in buff brick, with dormers and a lower ground floor](images/26n-windoors-terrace.png)
 
-![A dormer window: its fascia and cheeks can be marked too](images/26o-windoors-dormer.png)
+On a Georgian house a new dormer starts as a **3-over-6** sash, one row fewer on top than the 6-over-6 windows below it (4-over-8 beside 8-over-8). Dormers added before v2.85.1 started as 3-over-3: open each one and set **Bottom sash rows** to 2.
+
+![A 3-over-6 dormer window: its fascia and cheeks can be marked too](images/26o-windoors-dormer.png)
 
 **3. Confirm layout.** The windows and doors become real and tappable, numbered left to right as you face that side — W1, W2… and D1, D2… counted separately on each floor. **Edit layout** unlocks the side again; taking a count down removes openings from the end of that floor, and warns you first if any of them has work marked on it.
 
@@ -378,7 +380,7 @@ They're labelled *Front, dormer, W2* and *Front, lower ground, W1*.
 **4. Tap a window or door** to open its detail. Its label reads like *Front, first floor, W2*; add a **nickname** ("landing", "above porch") if that's how you'd say it on site.
 
 - **Type** — casement, sash or fixed; or for doors panelled, flush, half glazed, fully glazed, stable or French (double).
-- **Pane rows and columns** — per sash, on a sash window. For doors these are the panel or glass grid.
+- **Pane rows and columns** — on a sash window, the **top sash rows** and **bottom sash rows** are set separately, with the columns shared, so a 3-over-6 is 1 row over 2 rows of 3 columns. The line under them spells it out (*3 over 6 · 9 panes*). For doors these are the panel or glass grid.
 - **Size** — each button shows the area it covers (Small is under 0.5m², Medium 0.5 to 1m², Large 1 to 2m², X-Large over 2m²).
 - **Prep** — only levels at or above the job's default are offered. An opening can go up, never down.
 - **Marking work** (with Individual detail on) — tap panes, or tap frame parts (head, stiles, rails, cill; for doors the panels, frame and threshold). A tick shows what's selected. You select one kind at a time: tapping a frame part while panes are selected starts a fresh selection. **Select all panes** and **Clear selection** do what they say. Then tap the work — **Reputty** or **Replace glass** for panes; **Filler**, **Resin repair** or **Splice timber** for parts, plus **Ironmongery off & on** on doors — or **Remove work**. The selection clears after each one.
@@ -1460,6 +1462,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.85.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.85.1. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
