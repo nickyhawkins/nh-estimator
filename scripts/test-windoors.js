@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 'use strict';
 
-// ── Windows and doors fixture (WINDOWS_DOORS_SPEC.md) ─────────────────────
+// ── Windows and doors fixture (WINDOWS_DOORS_SPEC.md, and stage 2:
+//    WINDOWS_DOORS_STAGE2_SPEC.md -- appearance, dormers, lower ground, bays)
 //
 // Holds the rules the spec calls settled, against the shipping module
 // (public/windoors.js is required directly -- the app, the server and this
@@ -248,6 +249,171 @@ check('the service worker precaches the module',
 const cvv = body('computeVariationsView');
 const wdPart = cvv.slice(cvv.indexOf('windoorsVariationLines('), cvv.indexOf('// ── Extra work inside'));
 check('windoors variations stay out of the original-scope subtraction', wdPart && !/varLabourAll|varTimeAll/.test(wdPart));
+
+// ══ Stage 2 (WINDOWS_DOORS_STAGE2_SPEC.md) ══════════════════════════════════
+
+// ── Appearance ─────────────────────────────────────────────────────────────
+const gd = W.periodDefaults('georgian');
+check('Georgian defaults: stucco, parapet, mid terrace, pediment, 6 over 6, railings',
+  gd.finish === 'stucco' && gd.roof === 'parapet' && gd.form === 'mid_terrace' && gd.georgian.doorcase === 'pedimented_radial'
+  && gd.georgian.heads === 'plain' && gd.georgian.glazing === '6_over_6' && gd.georgian.band_courses && gd.georgian.railings);
+const vd = W.periodDefaults('victorian');
+check('Victorian defaults: buff brick, eaves, semi, 2 over 2, keystones, arched porch, no bargeboards, plain',
+  vd.finish === 'buff_brick' && vd.roof === 'eaves_to_street' && vd.form === 'semi' && vd.victorian.sash === '2_over_2'
+  && vd.victorian.heads === 'stone_keystone' && vd.victorian.entrance === 'recessed_arched_porch' && !vd.victorian.bargeboards && vd.victorian.brick_detailing === 'plain');
+const md = W.periodDefaults('modern');
+check('Modern defaults: render, eaves, detached', md.finish === 'render' && md.roof === 'eaves_to_street' && md.form === 'detached');
+// A job saved before stage 2 has only a style: its period's defaults, but
+// detached -- its sides must not vanish, and no neighbours appear.
+['georgian', 'victorian', 'modern'].forEach(style => {
+  const a = W.appearanceOf({ style });
+  check('a stage 1 ' + style + ' job reads as its period, detached', a.period === style && a.form === 'detached'
+    && a.finish === W.periodDefaults(style).finish && a.roof === W.periodDefaults(style).roof);
+});
+eq('an appearance, once saved, wins over the style', W.appearanceOf({ style: 'georgian', appearance: { period: 'victorian' } }).period, 'victorian');
+check('bad values fall back one field at a time', (() => {
+  const a = W.normaliseAppearance({ period: 'victorian', finish: 'red_brick', roof: 'front_gable', victorian: { sash: 'nope', bargeboards: true } });
+  return a.finish === 'buff_brick' && a.roof === 'front_gable' && a.victorian.sash === '2_over_2' && a.victorian.bargeboards === true;
+})());
+check('no red brick finish', !W.FINISHES.some(f => /red/.test(f.key)));
+check('defaults are defaults', W.appearanceIsDefault(W.periodDefaults('victorian')));
+check('a hand-changed option is noticed', !W.appearanceIsDefault(Object.assign(W.periodDefaults('victorian'), { finish: 'gault_brick' }))
+  && !W.appearanceIsDefault(Object.assign(W.periodDefaults('georgian'), { georgian: Object.assign({}, gd.georgian, { railings: false }) })));
+eq('detached: four sides', W.visibleSides(Object.assign({}, md)).join(','), 'front,back,left,right');
+eq('semi open to the right: front, back, right', W.visibleSides(Object.assign({}, vd, { exposed_side: 'right' })).join(','), 'front,back,right');
+eq('end terrace: same', W.visibleSides(Object.assign({}, vd, { form: 'end_terrace' })).join(','), 'front,back,left');
+eq('mid terrace: front and back only', W.visibleSides(gd).join(','), 'front,back');
+check('mid terrace: neighbours both edges', W.attachedEdges(gd, 'front').left && W.attachedEdges(gd, 'front').right);
+check('semi open to the left: neighbour on the right from the front, on the left from the back',
+  W.attachedEdges(vd, 'front').right && !W.attachedEdges(vd, 'front').left && W.attachedEdges(vd, 'back').left && !W.attachedEdges(vd, 'back').right);
+check('ends never have neighbours', !W.attachedEdges(vd, 'left').left && !W.attachedEdges(vd, 'left').right);
+eq('front gable: gable on the front', W.roofKindFor(Object.assign({}, vd, { roof: 'front_gable' }), 'front'), 'gable');
+eq('front gable: eaves on the ends', W.roofKindFor(Object.assign({}, vd, { roof: 'front_gable' }), 'left'), 'eaves');
+eq('eaves to street: gable ends', W.roofKindFor(vd, 'right'), 'gable');
+
+// ── Defaults follow the appearance ─────────────────────────────────────────
+const g8 = Object.assign(W.periodDefaults('georgian'), { georgian: Object.assign({}, gd.georgian, { glazing: '8_over_8' }) });
+check('8 over 8 starts new sashes at 2 rows of 4', W.openingDefaults(g8, 'window', 0).rows === 2 && W.openingDefaults(g8, 'window', 0).cols === 4);
+check('margin lights start 3 × 3', W.openingDefaults(Object.assign({}, vd, { victorian: Object.assign({}, vd.victorian, { sash: 'margin_lights' }) }), 'window', 0).cols === 3);
+check('a style string still works (stage 1 callers)', W.openingDefaults('georgian', 'window', 1).size_tier === 'large');
+check('a dormer is a small window', W.openingDefaults(gd, 'window', 0, 'roof').size_tier === 'small');
+eq('a lower ground door is a plain panelled one', W.openingDefaults(gd, 'door', 0, 'lower_ground').type, 'panelled');
+eq('bays spread among the slots, off the door', W.floorSlots(0, 1, 1).join(','), 'bay,door');
+eq('every slot is used once with bays', W.floorSlots(2, 1, 2).length, 5);
+check('a Victorian ground-floor bay runs up two storeys when it can', W.bayDefaults(vd, 0, true).bay_storeys === 2 && W.bayDefaults(vd, 0, false).bay_storeys === 1 && W.bayDefaults(gd, 0, true).bay_storeys === 1);
+
+// ── Levels, bays: labels and elements ──────────────────────────────────────
+const lgW = { id: 'lg', side: 'front', level: 'lower_ground', floor: 0, kind: 'window', position: 1, type: 'sash', size_tier: 'medium', rows: 2, cols: 3 };
+const dorm = { id: 'dm', side: 'front', level: 'roof', floor: 0, kind: 'window', position: 2, type: 'sash', size_tier: 'small', rows: 1, cols: 3 };
+eq('lower ground label', W.openingLabel(lgW), 'Front, lower ground, W1');
+eq('dormer label', W.openingLabel(dorm), 'Front, dormer, W2');
+const bay = { id: 'b', side: 'front', level: 'standard', floor: 0, kind: 'bay', position: 1, bay_shape: 'canted', bay_storeys: 2, type: 'canted', size_tier: 'medium', rows: 1, cols: 1 };
+const kid = (storey, face, extra) => Object.assign({ id: 'k' + storey + face, side: 'front', level: 'standard', floor: storey, kind: 'window',
+  position: W.bayChildPosition(1, storey, face), parent_opening_id: 'b', type: 'sash', size_tier: 'medium', rows: 1, cols: 2 }, extra || {});
+const kids = [];
+[0, 1].forEach(st => W.BAY_FACES.forEach(f => kids.push(kid(st, f))));
+eq('a bay is B1', W.openingLabel(bay), 'Front, ground floor, B1');
+eq("a bay's window", W.openingLabel(kids[1]), 'Front, ground floor, B1 front');
+eq('...and its left light', W.openingLabel(kids[0]), 'Front, ground floor, B1 left');
+eq('...upstairs', W.openingLabel(kids[4]), 'Front, first floor, B1 front');
+check("a bay's windows never share a slot number with a window", W.bayChildPosition(1, 0, 'left') > 99);
+eq('dormer surround parts', W.openingElements(dorm).filter(e => /^dormer_/.test(e.id)).map(e => e.id).join(','), 'dormer_fascia,dormer_cheek_left,dormer_cheek_right');
+check('only a dormer has them', !W.openingElements(lgW).some(e => /^dormer_/.test(e.id)));
+eq('bay parts', W.openingElements(bay).map(e => e.id).join(','), 'bay_cornice,bay_fascia,bay_mullion_left,bay_mullion_right,bay_cill');
+check('bay parts take the frame actions', W.actionsFor(bay, 'part').map(a => a.key).join(',') === 'filler,resin,splice');
+eq('the sort: lower ground, floors (window, bay + its windows, door), dormers',
+  W.sortOpenings([dorm, door, kids[1], bay, sash, lgW, kids[0]]).map(o => o.id).join(','), 'lg,b,k0left,k0front,d,s,dm');
+
+// ── Pricing: bays, and the cosmetic settings price nothing ─────────────────
+const bayData = { property, openings: [bay].concat(kids), marks: [] };
+const bp = W.priceJob(bayData, R);
+near('a bay = its base by shape and storeys + its windows as windows',
+  bp.quote.mins, (160 + kids.reduce((t, k) => t + W.paintedMinutes(k, R), 0)) * 1.1);
+near('square one-storey base', W.baseMinutes(Object.assign({}, bay, { bay_shape: 'square', bay_storeys: 1 }), R), 70);
+eq('the bay base is a Rates figure', W.mergeRates({ bayBase: { canted: { 2: 200 } } }).bayBase.canted[2], 200);
+eq('...kept per field', W.mergeRates({ bayBase: { canted: { 2: 200 } } }).bayBase.canted[1], 90);
+near('a bay window whose bay has gone prices as nothing',
+  W.priceJob({ property, openings: kids.slice(0, 1), marks: [] }, R).quote.mins, 0);
+const bayMarks = W.priceJob(Object.assign({}, bayData, { marks: [{ opening_id: 'b', element_id: 'bay_cill', action_key: 'resin', stage: 'quote' }] }), R);
+near('a mark on a bay part prices like a frame part', bayMarks.quote.mins - bp.quote.mins, 25);
+const cosmetic = (appearance) => W.priceJob({ property: Object.assign({}, property, { appearance }), openings: [sash, door, bay].concat(kids), marks: [] }, R).quote.mins;
+check('finish, roof, form and details price nothing', [W.periodDefaults('victorian'), g8, Object.assign(W.periodDefaults('modern'), { roof: 'front_gable', finish: 'gault_brick' })]
+  .every(a => Math.abs(cosmetic(a) - cosmetic(W.periodDefaults('georgian'))) < 1e-9));
+near('bay timber is window paint, per storey', W.paintAreas({ openings: [bay] }, R).window, 2.4);
+eq('...but not a window to count', W.paintAreas({ openings: [bay] }, R).windows, 0);
+eq('the item line counts bays and dormers',
+  W.itemLineText({ openings: [bay].concat(kids, [dorm, Object.assign({}, lgW, { kind: 'door', type: 'panelled', size_tier: 'standard' })]), marks: [] }),
+  'Exterior windows and doors (outside faces): 6 sash windows, 1 dormer window, 1 canted bay, 1 lower ground door.');
+eq('variation text on a bay window', W.describeVariation({ property, openings: [bay].concat(kids),
+  marks: [{ opening_id: 'k0front', element_id: 'cill', action_key: 'splice', stage: 'variation', variation_id: 'v9' }] }, 'v9'),
+  'Front, ground floor, B1 front: splice timber (cill).');
+
+// ── Drawing ────────────────────────────────────────────────────────────────
+const refProp = { appearance: Object.assign(W.periodDefaults('georgian'), { finish: 'buff_brick', roof: 'eaves_to_street' }), default_prep: 'light',
+  layout: { front: { floors: [{ windows: 2, doors: 1 }, { windows: 3, doors: 0 }], roof: { windows: 3 }, lower_ground: { windows: 2, doors: 1 }, confirmed: false } } };
+const ref = W.elevationSvg({ property: refProp, openings: [], marks: [] }, 'front');
+check('the reference terrace draws (dormers, lower ground, neighbours)', /^<svg[\s\S]*<\/svg>$/.test(ref) && ref.indexOf('<g opacity="0.36">') >= 0
+  && (ref.match(/>W[123]</g) || []).length >= 10);
+check('a detached house has no neighbours', W.elevationSvg({ property: Object.assign({}, refProp, { appearance: Object.assign({}, refProp.appearance, { form: 'detached' }) }), openings: [], marks: [] }, 'front').indexOf('<g opacity="0.36">') < 0);
+check('a stage 1 house has no neighbours either', W.elevationSvg({ property: { style: 'georgian', layout: refProp.layout }, openings: [], marks: [] }, 'front').indexOf('<g opacity="0.36">') < 0);
+['georgian', 'victorian', 'modern'].forEach(period => W.ROOFS.forEach(roof => W.FINISHES.forEach(finish => {
+  const a = Object.assign(W.periodDefaults(period), { roof, finish, form: 'detached' });
+  ['front', 'left'].forEach(side => {
+    const svg = W.elevationSvg({ property: { appearance: a, layout: { [side]: { floors: [{ windows: 1, doors: 1, bays: 1 }, { windows: 2, doors: 0 }], roof: { windows: 2 }, lower_ground: { windows: 1, doors: 1 } } } }, openings: [], marks: [] }, side);
+    if (!/^<svg[\s\S]*<\/svg>$/.test(svg) || /NaN|undefined/.test(svg)) check(period + ' ' + roof + ' ' + finish + ' ' + side + ' draws cleanly', false, svg.slice(0, 200));
+  });
+})));
+check('every period × roof × finish draws cleanly', true);
+['pedimented_radial', 'plain_fanlight', 'portico'].forEach(dc => check('doorcase ' + dc + ' draws', !/NaN/.test(W.elevationSvg({ property: { appearance: Object.assign(W.periodDefaults('georgian'), { georgian: Object.assign({}, gd.georgian, { doorcase: dc }) }), layout: refProp.layout }, openings: [], marks: [] }, 'front'))));
+const bayLayout = { front: { floors: [{ windows: 0, doors: 1, bays: 1 }, { windows: 1, doors: 0 }], confirmed: true } };
+const bayElev = W.elevationSvg({ property: { appearance: vd, layout: bayLayout, default_prep: 'light' }, openings: [bay].concat(kids),
+  marks: [{ opening_id: 'k1front', element_id: 'cill', action_key: 'resin', stage: 'quote' }] }, 'front', { interactive: true });
+check('a bay is one tappable thing on the elevation', bayElev.indexOf('data-open-id="b"') >= 0 && bayElev.indexOf('data-open-id="k0front"') < 0);
+check("work on a bay's window badges the bay", /<circle[^>]*fill="#1e6497"/.test(bayElev));
+const hlElev = W.elevationSvg({ property: { appearance: vd, layout: bayLayout }, openings: [bay].concat(kids), marks: [] }, 'front', { highlight: { k1front: true } });
+check("the report lights up a bay when one of its windows had work", /stroke="#1e6497" stroke-width="2.2"/.test(hlElev));
+const drawnPanes = (o, a) => (W.elevationSvg({ property: { appearance: Object.assign({}, a, { form: 'detached' }), layout: { front: { floors: [{ windows: 1, doors: 0 }], confirmed: true } } }, openings: [o], marks: [] }, 'front').match(/stroke="#ffffff" stroke-width="1.2"/g) || []).length;
+const plainSash = { id: 'p', side: 'front', floor: 0, kind: 'window', position: 1, type: 'sash', size_tier: 'medium', rows: 2, cols: 3 };
+check('a sash whose panes were never set draws the period glazing', drawnPanes(plainSash, g8) > drawnPanes(plainSash, gd));
+check('...and one set by hand draws its own', drawnPanes(Object.assign({}, plainSash, { panes_set: true }), g8) === drawnPanes(Object.assign({}, plainSash, { panes_set: true }), gd));
+const dormDetail = W.detailSvg(dorm, [], { interactive: true });
+check('the dormer detail has its surround to tap', ['dormer_fascia', 'dormer_cheek_left', 'dormer_cheek_right', 'head', 'top-1'].every(id => dormDetail.indexOf('data-el="' + id + '"') >= 0));
+const bayView = W.detailSvg(bay, [], { interactive: true, children: kids });
+check('the bay view: its parts to mark', W.openingElements(bay).every(e => bayView.indexOf('data-el="' + e.id + '"') >= 0));
+check('...and each of its windows to open', kids.every(k => bayView.indexOf('data-open-id="' + k.id + '"') >= 0));
+
+// ── Report ─────────────────────────────────────────────────────────────────
+const bayReport = W.reportModel({ property, openings: [bay].concat(kids), marks: [
+  { opening_id: 'b', element_id: 'bay_cornice', action_key: 'filler', stage: 'quote' },
+  { opening_id: 'k0left', element_id: 'top-1', action_key: 'reputty', stage: 'quote' }] }, []);
+eq('the report: a bay and its window', bayReport.sections.map(s => s.label + ' / ' + s.what).join(' | '),
+  'Front, ground floor, B1 / Canted bay | Front, ground floor, B1 left / Sash window');
+eq("...the bay's section carries its windows for its drawing", (bayReport.sections[0].children || []).length, 6);
+check('the report html draws the bay view', W.reportHtml({ property, openings: [bay].concat(kids), marks: [{ opening_id: 'b', element_id: 'bay_cornice', action_key: 'filler', stage: 'quote' }] }, []).indexOf('canted bay, in plan') >= 0);
+
+// ── The server's gate ──────────────────────────────────────────────────────
+{
+  const L = require('../lib/windoors');
+  eq('a door in the roof is refused', L.normaliseOpening({ side: 'front', level: 'roof', kind: 'door', type: 'panelled', sizeTier: 'standard' }).error, 'only windows go in the roof');
+  check('a bay needs no type or size of its own', !L.normaliseOpening({ side: 'front', kind: 'bay', bayShape: 'square', bayStoreys: 2 }).error
+    && L.normaliseOpening({ side: 'front', kind: 'bay', bayShape: 'square', bayStoreys: 2 }).type === 'square');
+  eq('the lower ground and roof have no floor number', L.normaliseOpening({ side: 'front', level: 'lower_ground', floor: 3, kind: 'window', type: 'sash', sizeTier: 'small' }).floor, 0);
+  eq('a row from an old app is standard', L.normaliseOpening({ side: 'front', kind: 'window', type: 'sash', sizeTier: 'small' }).level, 'standard');
+  eq('an old app shell leaves the stored appearance alone', L.normaliseProperty({ style: 'victorian', layout: {} }).appearance, null);
+  const np = L.normaliseProperty({ appearance: { period: 'victorian', finish: 'gault_brick' }, layout: { front: { floors: [{ windows: 1, doors: 1, bays: 9 }], roof: { windows: 2 }, lower_ground: null } } });
+  check('the stored appearance is normalised and the style follows the period', np.style === 'victorian' && np.appearance.finish === 'gault_brick' && np.appearance.victorian.sash === '2_over_2');
+  check('the layout keeps bays (capped), dormers and lower ground', np.layout.front.floors[0].bays === 4 && np.layout.front.roof.windows === 2 && np.layout.front.lower_ground === null);
+}
+
+// ── The app ────────────────────────────────────────────────────────────────
+check('openings are saved with their level, bay and pane flag', /level: Windoors\.levelOf\(o\)/.test(body('wdPutOpening')) && /parentOpeningId/.test(body('wdPutOpening')) && /panesSet/.test(body('wdPutOpening')));
+check('an adopted bay re-points its windows', /x\.parent_opening_id === old/.test(body('wdPutOpening')));
+check('confirming a layout makes bays with their windows', /wdEnsureBayChildren\(have\)/.test(body('confirmWdLayout')));
+check('a form that hides a side warns before its openings go', /confirm\(/.test(body('wdApplyAppearance')) && /wdRemoveOpenings\(/.test(body('wdApplyAppearance')));
+check('changing period asks first only when something was changed by hand', /appearanceIsDefault/.test(body('setWdPeriod')));
+check('the side selector offers only the sides the house has', /wdVisibleSides\(\)/.test(body('renderWindoors')));
+check('the report PDF draws a bay with its windows', /children: mine\[k\]\.children/.test(body('buildWindoorsReportPdf')));
+check('the Rates card has the bay base minutes', /s-wd-bay-/.test(body('populateWindoorsRates')) && /s-wd-bay-/.test(body('readWindoorsRates')));
 
 console.log(pass.length + ' passed, ' + fail.length + ' failed');
 fail.forEach(f => console.log('  ✗ ' + f));

@@ -3261,6 +3261,10 @@ function populateWindoorsRates() {
       return inp('s-wd-door-' + t.key + '-' + s.key, R.doorBase[t.key][s.key]);
     }).join('') + '</span>');
   });
+  h += '<div class="subsection-label">Bay base minutes<small>a bay\'s own cornice, fascia and mullions — one storey / two — on top of its windows, which price as windows</small></div>';
+  Windoors.BAY_SHAPES.forEach(function(b) {
+    h += row(b.label + ' bay', '', '<span style="display:flex;gap:6px">' + [1, 2].map(function(n) { return inp('s-wd-bay-' + b.key + '-' + n, R.bayBase[b.key][n]); }).join('') + '</span>');
+  });
   h += '<div class="subsection-label">Prep multipliers<small>× on the painted opening — an opening can go up from the job\'s default, never down</small></div>';
   Windoors.PREP_LEVELS.forEach(function(p) { h += row(p.label, '', inp('s-wd-prep-' + p.key, R.prep[p.key], 0.05)); });
   h += '<div class="subsection-label">Paint areas<small>for litres only — the timber on the outside face, not the whole opening</small></div>';
@@ -3271,6 +3275,7 @@ function populateWindoorsRates() {
   Windoors.DOOR_TIERS.forEach(function(t) { h += row(t.label + ' door leaf', 'm², one face', inp('s-wd-parea-' + t.key, R.paint.area[t.key], 0.05)); });
   Windoors.DOOR_TYPES.forEach(function(t) { h += row(t.label + ' door timber share', 'of the leaf, 0–1', inp('s-wd-pdoor-' + t.key, R.paint.doorTimber[t.key], 0.05)); });
   h += row('Door frame', 'm² per leaf', inp('s-wd-pdoorframe', R.paint.doorFrame, 0.05));
+  h += row('Bay timber', 'm² per storey — cornice, fascia, mullions, cill', inp('s-wd-pbay', R.paint.bay, 0.05));
   h += '<div class="subsection-label">Actions<small>minutes and material £ per pane or part marked</small></div>';
   Windoors.ACTIONS.forEach(function(a) {
     h += row(a.label, a.on === 'pane' ? 'pane action' : (a.doorOnly ? 'door action' : 'frame action'),
@@ -3291,12 +3296,14 @@ function readWindoorsRates() {
     R.doorBase[t.key][s.key] = v('s-wd-door-' + t.key + '-' + s.key, R.doorBase[t.key][s.key]);
   }); });
   Windoors.PREP_LEVELS.forEach(function(p) { R.prep[p.key] = v('s-wd-prep-' + p.key, R.prep[p.key]); });
+  Windoors.BAY_SHAPES.forEach(function(b) { [1, 2].forEach(function(n) { R.bayBase[b.key][n] = v('s-wd-bay-' + b.key + '-' + n, R.bayBase[b.key][n]); }); });
   Windoors.WINDOW_TIERS.concat(Windoors.DOOR_TIERS).forEach(function(t) { R.paint.area[t.key] = v('s-wd-parea-' + t.key, R.paint.area[t.key]); });
   Windoors.WINDOW_TYPES.forEach(function(t) { R.paint.timber[t.key] = Math.min(1, v('s-wd-ptimber-' + t.key, R.paint.timber[t.key])); });
   Windoors.DOOR_TYPES.forEach(function(t) { R.paint.doorTimber[t.key] = Math.min(1, v('s-wd-pdoor-' + t.key, R.paint.doorTimber[t.key])); });
   R.paint.perPane = v('s-wd-pperpane', R.paint.perPane);
   R.paint.cap = Math.min(1, v('s-wd-pcap', R.paint.cap));
   R.paint.doorFrame = v('s-wd-pdoorframe', R.paint.doorFrame);
+  R.paint.bay = v('s-wd-pbay', R.paint.bay);
   Windoors.ACTIONS.forEach(function(a) {
     R.actions[a.key].mins = v('s-wd-act-' + a.key + '-mins', R.actions[a.key].mins);
     R.actions[a.key].cost = v('s-wd-act-' + a.key + '-cost', R.actions[a.key].cost);
@@ -25190,7 +25197,8 @@ function wdFail(what, e) {
 function wdPutProperty() {
   var p = windoors.property;
   return apiPutStrict('/api/windoors/property' + wdQ(), {
-    jobId: windoors.jobId, style: p.style, detailEnabled: p.detail_enabled !== false,
+    jobId: windoors.jobId, style: Windoors.appearanceOf(p).period, appearance: Windoors.appearanceOf(p),
+    detailEnabled: p.detail_enabled !== false,
     defaultPrep: p.default_prep, layout: p.layout || {},
     coats: p.coats || 2, windowColour: p.window_colour || null, doorColour: p.door_colour || null,
     paintProducts: p.paint_products || {}
@@ -25198,17 +25206,21 @@ function wdPutProperty() {
 }
 function wdPutOpening(o) {
   return apiPutStrict('/api/windoors/openings/' + encodeURIComponent(o.id) + wdQ(), {
-    jobId: windoors.jobId, side: o.side, floor: o.floor, kind: o.kind, position: o.position,
+    jobId: windoors.jobId, side: o.side, floor: o.floor, level: Windoors.levelOf(o), kind: o.kind, position: o.position,
     nickname: o.nickname || '', type: o.type, sizeTier: o.size_tier, rows: o.rows, cols: o.cols,
     prepLevel: o.prep_level, prepStage: o.prep_stage, quotePrepLevel: o.quote_prep_level,
-    prepVariationId: o.prep_variation_id
+    prepVariationId: o.prep_variation_id,
+    bayShape: o.bay_shape || null, bayStoreys: o.bay_storeys || null, parentOpeningId: o.parent_opening_id || null,
+    panesSet: !!o.panes_set
   }).then(function(resp) {
     // Another phone already holds this slot: adopt its id, and re-point the
-    // marks made against ours (same contract as /snag-rooms).
+    // marks made against ours (same contract as /snag-rooms) -- and, for a
+    // bay, its windows (the server resolves their bay by slot too).
     if (resp && resp.id && resp.id !== o.id) {
       var old = o.id;
       o.id = resp.id;
       windoors.marks.forEach(function(m) { if (m.opening_id === old) m.opening_id = resp.id; });
+      windoors.openings.forEach(function(x) { if (x.parent_opening_id === old) x.parent_opening_id = resp.id; });
       if (wdOpenId === old) wdOpenId = resp.id;
       wdSaveMirror();
     }
@@ -25377,7 +25389,8 @@ function populateWdColourSlots() {
 function wdEnsureProperty() {
   if (windoors.jobId !== activeJobId) windoors = { jobId: activeJobId, property: null, openings: [], marks: [] };
   if (windoors.property) return false;
-  windoors.property = { style: 'georgian', detail_enabled: true, default_prep: 'light', layout: {},
+  windoors.property = { style: 'georgian', appearance: Windoors.periodDefaults('georgian'),
+                        detail_enabled: true, default_prep: 'light', layout: {},
                         coats: 2, window_colour: null, door_colour: null, paint_products: {} };
   return true;
 }
@@ -25387,7 +25400,7 @@ async function openWindoors(mode) {
   if (windoors.jobId !== activeJobId) await loadWindoors();
   if (wdMode === 'quote' && wdEnsureProperty()) { wdSaveMirror(); wdPutProperty(); }
   // Land on the first side with anything on it, else the front.
-  var withRows = Windoors.SIDES.map(function(s) { return s.key; }).filter(function(k) {
+  var withRows = wdVisibleSides().filter(function(k) {
     return windoors.openings.some(function(o) { return o.side === k; });
   });
   wdSide = withRows.indexOf(wdSide) >= 0 ? wdSide : (withRows[0] || 'front');
@@ -25444,8 +25457,7 @@ function renderWindoors() {
   } else {
     html += '<div class="card">'
       + '<div class="card-header">House</div>'
-      + '<div class="field-row"><div class="field-label">Style<small>sets the drawing and each new opening\'s defaults</small></div></div>'
-      + '<div style="padding:0 16px 10px">' + wdSegHtml(Windoors.STYLES, p.style, 'setWdStyle') + '</div>'
+      + wdPropertyPanelHtml()
       + '<div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Default prep<small>every opening starts here — one can go up, never down</small></div></div>'
       + '<div style="padding:0 16px 10px">' + wdSegHtml(Windoors.PREP_LEVELS, p.default_prep || 'light', 'setWdDefaultPrep') + '</div>'
       + '<div class="toggle-row" style="border-top:1px solid var(--border)"><div class="toggle-label">Individual detail<small>mark single panes and frame parts for extra work — worth it on old windows, not new ones</small></div>'
@@ -25454,7 +25466,8 @@ function renderWindoors() {
       + wdPaintCardHtml();
   }
   // Side picker, with a count on each side that has openings.
-  html += '<div class="seg" style="margin:4px 0 10px">' + Windoors.SIDES.map(function(s) {
+  if (wdVisibleSides().indexOf(wdSide) < 0) { wdSide = 'front'; wdLayoutDraft = null; }
+  html += '<div class="seg" style="margin:4px 0 10px">' + Windoors.SIDES.filter(function(s) { return wdVisibleSides().indexOf(s.key) >= 0; }).map(function(s) {
     var n = wdSideCounts(s.key);
     var t = n.windows + n.doors;
     return '<button type="button" class="seg-btn' + (s.key === wdSide ? ' active' : '') + '" onclick="setWdSide(\'' + s.key + '\')">'
@@ -25500,25 +25513,51 @@ function wdSideCardHtml() {
   var editing = !layout.confirmed && !site;
   var html = '<div class="card">';
   if (editing) {
-    var floors = wdLayoutDraft && wdLayoutDraft.side === wdSide ? wdLayoutDraft.floors : wdDefaultFloors(wdSide);
-    if (!wdLayoutDraft || wdLayoutDraft.side !== wdSide) wdLayoutDraft = { side: wdSide, floors: floors };
-    var preview = { property: Object.assign({}, p, { layout: Object.assign({}, p.layout, (function() { var o = {}; o[wdSide] = { floors: floors, confirmed: false }; return o; })()) }),
+    if (!wdLayoutDraft || wdLayoutDraft.side !== wdSide) wdLayoutDraft = wdDefaultDraft(wdSide);
+    var dr = wdLayoutDraft, floors = dr.floors;
+    var a = wdAppearance();
+    var roofOk = a.roof !== 'parapet';
+    var draftLayout = {};
+    draftLayout[wdSide] = { floors: floors, lower_ground: dr.lower_ground, roof: roofOk ? dr.roof : null, confirmed: false };
+    var preview = { property: Object.assign({}, p, { layout: Object.assign({}, p.layout, draftLayout) }),
                     openings: windoors.openings, marks: windoors.marks };
+    // Bays are open by default on a Victorian house; elsewhere a tap away
+    // (and always open once a side has one).
+    var showBays = a.period === 'victorian' || wdBaysOpen || floors.some(function(f) { return f.bays; });
+    var row = function(label, controls, sub) {
+      return '<div class="field-row" style="border-top:1px solid var(--border);flex-wrap:wrap;gap:6px"><div class="field-label" style="text-transform:capitalize">' + label + (sub ? '<small style="text-transform:none">' + sub + '</small>' : '') + '</div>'
+        + '<div style="display:flex;gap:10px;align-items:center;font-size:12px;color:var(--text2);flex-wrap:wrap;justify-content:flex-end">' + controls + '</div></div>';
+    };
+    var toggle = function(label, on, fn, sub) {
+      return '<div class="toggle-row" style="border-top:1px solid var(--border)"><div class="toggle-label">' + label + (sub ? '<small>' + sub + '</small>' : '') + '</div>'
+        + '<div class="toggle' + (on ? ' on' : '') + '" onclick="' + fn + '"></div></div>';
+    };
     html += '<div class="card-header">' + Windoors.sideLabel(wdSide) + ' — set the layout</div>'
       + '<div style="padding:10px 12px 0">' + Windoors.elevationSvg(preview, wdSide, { maxWidth: 420 }) + '</div>';
+    if (roofOk) {
+      var gableSide = Windoors.roofKindFor(a, wdSide) === 'gable';
+      html += toggle('Dormers', !!dr.roof, 'wdLevelToggle(\'roof\')', gableSide ? 'windows in the gable, above the top floor' : 'windows in the roof, above the top floor');
+      if (dr.roof) html += row('Dormer windows', wdStepper('W', dr.roof.windows, 'wdLevelStep(\'roof\',\'windows\',-1)', 'wdLevelStep(\'roof\',\'windows\',1)'));
+    }
     for (var fi = floors.length - 1; fi >= 0; fi--) {
       var f = floors[fi];
-      html += '<div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label" style="text-transform:capitalize">' + Windoors.floorLabel(fi) + '</div>'
-        + '<div style="display:flex;gap:10px;align-items:center;font-size:12px;color:var(--text2)">'
-        + wdStepper('W', f.windows, 'wdLayoutStep(' + fi + ',\'windows\',-1)', 'wdLayoutStep(' + fi + ',\'windows\',1)')
+      html += row(Windoors.floorLabel(fi),
+        wdStepper('W', f.windows, 'wdLayoutStep(' + fi + ',\'windows\',-1)', 'wdLayoutStep(' + fi + ',\'windows\',1)')
         + wdStepper('D', f.doors, 'wdLayoutStep(' + fi + ',\'doors\',-1)', 'wdLayoutStep(' + fi + ',\'doors\',1)')
-        + '</div></div>';
+        + (showBays ? wdStepper('B', f.bays || 0, 'wdLayoutStep(' + fi + ',\'bays\',-1)', 'wdLayoutStep(' + fi + ',\'bays\',1)') : ''));
     }
-    html += '<div style="display:flex;gap:14px;padding:10px 16px;border-top:1px solid var(--border);font-size:13px;font-weight:600">'
+    html += toggle('Lower ground floor', !!dr.lower_ground, 'wdLevelToggle(\'lower_ground\')', 'below the pavement, in a light well');
+    if (dr.lower_ground) {
+      html += row('Lower ground',
+        wdStepper('W', dr.lower_ground.windows, 'wdLevelStep(\'lower_ground\',\'windows\',-1)', 'wdLevelStep(\'lower_ground\',\'windows\',1)')
+        + wdStepper('D', dr.lower_ground.doors, 'wdLevelStep(\'lower_ground\',\'doors\',-1)', 'wdLevelStep(\'lower_ground\',\'doors\',1)'));
+    }
+    html += '<div style="display:flex;gap:14px;padding:10px 16px;border-top:1px solid var(--border);font-size:13px;font-weight:600;flex-wrap:wrap">'
       + '<span onclick="wdLayoutFloors(1)" style="color:var(--accent);cursor:pointer">+ Add floor</span>'
       + (floors.length > 1 ? '<span onclick="wdLayoutFloors(-1)" style="color:var(--danger);cursor:pointer">− Remove top floor</span>' : '')
+      + (!showBays ? '<span onclick="wdBaysOpen=true;renderWindoors()" style="color:var(--accent);cursor:pointer">+ Bays</span>' : '')
       + '</div>'
-      + '<div style="padding:0 16px 12px"><div style="font-size:11px;color:var(--text2);margin-bottom:8px">W = windows, D = doors. Doors default to the ground floor; add one upstairs for a balcony or Juliet.</div>'
+      + '<div style="padding:0 16px 12px"><div style="font-size:11px;color:var(--text2);margin-bottom:8px">W = windows, D = doors' + (showBays ? ', B = bays (a two-storey bay starts on its lower floor and counts once)' : '') + '. Doors default to the ground floor; add one upstairs for a balcony or Juliet.</div>'
       + '<button onclick="confirmWdLayout()" style="width:100%;background:var(--accent);color:#fff;border:none;border-radius:var(--rs);padding:11px;font-size:14px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer">Confirm layout</button></div>';
   } else {
     var any = windoors.openings.some(function(o) { return o.side === wdSide; });
@@ -25552,9 +25591,132 @@ function wdWireElevation() {
 }
 
 function setWdSide(side) { wdSide = side; wdLayoutDraft = null; renderWindoors(); }
-function setWdStyle(style) {
-  windoors.property.style = style;
+// ── The house's appearance (WINDOWS_DOORS_STAGE2_SPEC.md) ────────────────
+// Period, finish, form, roof and the period's details. The period is a
+// starting point, not a lock: picking one applies its defaults, and every
+// option can then be changed for this job. None of it is priced -- it's the
+// drawing -- EXCEPT that a form hides sides and a parapet has no dormers,
+// and the openings on those go (with a warning first).
+var wdDetailsOpen = false;   // the Details drawer on the House card
+var wdBaysOpen = false;      // the Bays steppers, on a Georgian/Modern house
+function wdAppearance() { return Windoors.appearanceOf(windoors.property); }
+function wdVisibleSides() { return windoors.property ? Windoors.visibleSides(wdAppearance()) : Windoors.SIDES.map(function(s) { return s.key; }); }
+
+function wdPropertyPanelHtml() {
+  var a = wdAppearance();
+  var row = function(label, sub, control) {
+    return '<div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">' + label + (sub ? '<small>' + sub + '</small>' : '') + '</div></div>'
+      + '<div style="padding:0 16px 10px">' + control + '</div>';
+  };
+  var h = '<div class="field-row"><div class="field-label">Period<small>a starting point — sets the drawing\'s defaults and each new opening\'s; change anything after</small></div></div>'
+    + '<div style="padding:0 16px 10px">' + wdSegHtml(Windoors.PERIODS, a.period, 'setWdPeriod') + '</div>'
+    + row('Finish', '', wdSegHtml(Windoors.FINISHES, a.finish, 'setWdFinish'))
+    + row('Form', a.form === 'mid_terrace' ? 'front and back only' : a.form === 'detached' ? 'all four sides' : 'front, back and the open side', wdSegHtml(Windoors.FORMS, a.form, 'setWdForm'));
+  if (a.form === 'semi' || a.form === 'end_terrace') {
+    h += row('Open side', 'as you face the front', wdSegHtml(Windoors.EXPOSED_SIDES, a.exposed_side, 'setWdExposed'));
+  }
+  h += row('Roof', a.roof === 'parapet' ? 'no dormers behind a parapet' : '', wdSegHtml(Windoors.ROOFS, a.roof, 'setWdRoof'));
+  var opts = Windoors.PERIOD_OPTIONS[a.period] || [];
+  h += '<div onclick="wdDetailsOpen=!wdDetailsOpen;renderWindoors()" class="field-row" style="border-top:1px solid var(--border);cursor:pointer">'
+    + '<div class="field-label">' + (wdDetailsOpen ? '▾' : '▸') + ' Details<small>' + (opts.length ? escapeHtml(opts.map(function(o) { return o.label.toLowerCase(); }).join(', ')) : 'nothing more to set on a Modern house') + '</small></div></div>';
+  if (wdDetailsOpen && opts.length) {
+    var mine = a[a.period];
+    opts.forEach(function(o) {
+      if (o.bool) {
+        h += '<div class="toggle-row" style="border-top:1px solid var(--border)"><div class="toggle-label">' + escapeHtml(o.label) + (o.note ? '<small>' + escapeHtml(o.note) + '</small>' : '') + '</div>'
+          + '<div class="toggle' + (mine[o.key] ? ' on' : '') + '" onclick="toggleWdOpt(\'' + o.key + '\')"></div></div>';
+      } else {
+        h += row(escapeHtml(o.label), o.note ? escapeHtml(o.note) : '', wdSegHtml(o.options, mine[o.key], 'setWdOpt.bind(null,\'' + o.key + '\')'));
+      }
+    });
+  }
+  return h;
+}
+
+// Every opening in `list`, a bay's windows with it, and every mark on any of
+// them: gone, here and on the server.
+function wdRemoveOpenings(list) {
+  var ids = {};
+  list.forEach(function(o) { ids[o.id] = true; });
+  windoors.openings.forEach(function(o) { if (o.parent_opening_id && ids[o.parent_opening_id]) ids[o.id] = true; });
+  var gone = windoors.openings.filter(function(o) { return ids[o.id]; });
+  windoors.marks = windoors.marks.filter(function(m) { return !ids[m.opening_id]; });
+  windoors.openings = windoors.openings.filter(function(o) { return !ids[o.id]; });
+  // The server deletes a bay's windows with it; each is still sent, as a
+  // no-op, so a window whose bay survives goes too.
+  gone.forEach(function(o) { wdDeleteOpening(o); });
+  if (wdOpenId && ids[wdOpenId]) { wdOpenId = null; document.getElementById('wd-sheet').style.display = 'none'; }
+}
+function wdOpeningsSummary(list) {
+  var byside = {};
+  list.forEach(function(o) { if (!Windoors.isBayChild(o)) byside[o.side] = (byside[o.side] || 0) + 1; });
+  return Object.keys(byside).map(function(k) { return Windoors.sideLabel(k) + ' (' + byside[k] + ')'; }).join(', ');
+}
+
+// Apply a new appearance. Sides the new form hides, and dormers under a
+// parapet, lose their openings -- after a warning when any exist. Declined:
+// with keepForm, the rest still applies with the house's current form (a
+// period change shouldn't be refused over a terrace); otherwise nothing.
+function wdApplyAppearance(next, keepForm) {
+  var cur = wdAppearance();
+  var a = Windoors.normaliseAppearance(next);
+  var build = function(a) {
+    var vis = Windoors.visibleSides(a);
+    var sides = windoors.openings.filter(function(o) { return vis.indexOf(o.side) < 0; });
+    var roof = a.roof === 'parapet' ? windoors.openings.filter(function(o) { return Windoors.levelOf(o) === 'roof' && vis.indexOf(o.side) >= 0; }) : [];
+    return { vis: vis, sides: sides, roof: roof };
+  };
+  var c = build(a);
+  if (c.sides.length || c.roof.length) {
+    var msg = (c.sides.length ? 'This hides ' + wdOpeningsSummary(c.sides) + ' — ' + (c.sides.length === 1 ? 'that opening goes' : 'those openings go') + ', with any work marked on them.' : '')
+      + (c.roof.length ? (c.sides.length ? '\n\n' : '') + 'A parapet roof has no dormers: the ' + c.roof.length + ' dormer window' + (c.roof.length === 1 ? '' : 's') + ' go, with any work marked on them.' : '');
+    if (!confirm(msg + '\n\nCarry on?' + (keepForm ? ' (Cancel keeps the house\'s current form and roof.)' : ''))) {
+      if (!keepForm) return false;
+      a.form = cur.form; a.exposed_side = cur.exposed_side; a.roof = cur.roof;
+      c = build(a);
+    }
+  }
+  wdRemoveOpenings(c.sides.concat(c.roof));
+  var L = windoors.property.layout = windoors.property.layout || {};
+  Windoors.SIDES.forEach(function(s) {
+    if (c.vis.indexOf(s.key) < 0) delete L[s.key];
+    else if (a.roof === 'parapet' && L[s.key]) L[s.key].roof = null;
+  });
+  windoors.property.appearance = a;
+  windoors.property.style = a.period;
+  if (c.vis.indexOf(wdSide) < 0) wdSide = 'front';
+  wdLayoutDraft = null;
   wdPutProperty(); wdChanged();
+  return true;
+}
+function setWdPeriod(period) {
+  var cur = wdAppearance();
+  if (cur.period === period) return;
+  var label = (Windoors.PERIODS.find(function(x) { return x.key === period; }) || {}).label || period;
+  // Only ask when something was set by hand: applying the defaults would
+  // undo it. (It never touches the openings or their marks.)
+  if (!Windoors.appearanceIsDefault(cur)
+      && !confirm('Switch to ' + label + '? The finish, form, roof and details go back to ' + label + ' defaults — some of them were changed for this house.')) return;
+  var next = Windoors.periodDefaults(period);
+  next.exposed_side = cur.exposed_side;
+  // The other period's details stay as they were, in the drawer.
+  ['georgian', 'victorian'].forEach(function(k) { if (k !== period) next[k] = cur[k]; });
+  wdApplyAppearance(next, true);
+}
+function wdAppearanceWith(key, value) { var a = wdAppearance(); a[key] = value; return a; }
+function setWdFinish(k) { wdApplyAppearance(wdAppearanceWith('finish', k)); }
+function setWdForm(k) { wdApplyAppearance(wdAppearanceWith('form', k)); }
+function setWdExposed(k) { wdApplyAppearance(wdAppearanceWith('exposed_side', k)); }
+function setWdRoof(k) { wdApplyAppearance(wdAppearanceWith('roof', k)); }
+function setWdOpt(key, value) {
+  var a = wdAppearance();
+  a[a.period][key] = value;
+  wdApplyAppearance(a);
+}
+function toggleWdOpt(key) {
+  var a = wdAppearance();
+  a[a.period][key] = !a[a.period][key];
+  wdApplyAppearance(a);
 }
 // Raising the default lifts every opening left at it; lowering it can never
 // drag an opening that was set higher down with it (effectivePrep takes the
@@ -25569,73 +25731,138 @@ function toggleWdDetailEnabled() {
 }
 
 // A side opened for the first time: the front's floor count, and a sensible
-// starting guess -- the front and back get a ground-floor door.
-function wdDefaultFloors(side) {
+// starting guess -- the front and back get a ground-floor door. A side with
+// a layout of its own starts from that.
+function wdDefaultDraft(side) {
   var own = windoors.property.layout && windoors.property.layout[side];
-  if (own && own.floors && own.floors.length) return Windoors.sideLayout(windoors.property, side).floors;
+  var l = Windoors.sideLayout(windoors.property, side);
+  if (own && own.floors && own.floors.length) {
+    return { side: side, floors: l.floors, lower_ground: l.lower_ground, roof: l.roof };
+  }
   var front = Windoors.sideLayout(windoors.property, 'front').floors;
   var n = side === 'front' ? 2 : Math.max(1, front.length);
   var out = [];
   for (var i = 0; i < n; i++) {
     var gable = side === 'left' || side === 'right';
-    out.push({ windows: gable ? 0 : (i === 0 ? 2 : 3), doors: i === 0 && !gable ? 1 : 0 });
+    out.push({ windows: gable ? 0 : (i === 0 ? 2 : 3), doors: i === 0 && !gable ? 1 : 0, bays: 0 });
   }
-  return out;
+  return { side: side, floors: out, lower_ground: null, roof: null };
 }
 function wdLayoutStep(fi, what, delta) {
   var f = wdLayoutDraft.floors[fi];
-  f[what] = Math.max(0, Math.min(what === 'doors' ? 6 : 20, (f[what] || 0) + delta));
+  f[what] = Math.max(0, Math.min(what === 'doors' ? 6 : what === 'bays' ? 4 : 20, (f[what] || 0) + delta));
   renderWindoors();
 }
 function wdLayoutFloors(delta) {
   var fl = wdLayoutDraft.floors;
-  if (delta > 0 && fl.length < 6) fl.push({ windows: fl.length ? fl[fl.length - 1].windows : 2, doors: 0 });
+  if (delta > 0 && fl.length < 6) fl.push({ windows: fl.length ? fl[fl.length - 1].windows : 2, doors: 0, bays: 0 });
   if (delta < 0 && fl.length > 1) fl.pop();
+  renderWindoors();
+}
+// The dormer and lower-ground levels: on (with a starting count) or off.
+function wdLevelToggle(level) {
+  var d = wdLayoutDraft;
+  if (d[level]) d[level] = null;
+  else d[level] = level === 'roof' ? { windows: Math.max(1, Math.min(3, d.floors[d.floors.length - 1].windows || 2)) } : { windows: 2, doors: 1 };
+  renderWindoors();
+}
+function wdLevelStep(level, what, delta) {
+  var l = wdLayoutDraft[level];
+  if (!l) return;
+  l[what] = Math.max(0, Math.min(what === 'doors' ? 6 : 20, (l[what] || 0) + delta));
   renderWindoors();
 }
 function editWdLayout() {
   var l = Windoors.sideLayout(windoors.property, wdSide);
-  wdLayoutDraft = { side: wdSide, floors: l.floors.map(function(f) { return { windows: f.windows, doors: f.doors }; }) };
+  wdLayoutDraft = { side: wdSide, floors: l.floors.map(function(f) { return { windows: f.windows, doors: f.doors, bays: f.bays }; }),
+                    lower_ground: l.lower_ground ? Object.assign({}, l.lower_ground) : null, roof: l.roof ? Object.assign({}, l.roof) : null };
   windoors.property.layout = windoors.property.layout || {};
-  windoors.property.layout[wdSide] = { floors: l.floors, confirmed: false };
+  windoors.property.layout[wdSide] = { floors: l.floors, lower_ground: l.lower_ground, roof: l.roof, confirmed: false };
   wdPutProperty(); wdChanged();
 }
-// Confirming makes the openings real. Counts that went DOWN remove openings
-// from the end of that floor (the highest positions), and floors that went
-// away take theirs with them -- with a warning first if any of them carries
-// marked work, because that work is on the quote.
-function confirmWdLayout() {
-  var floors = wdLayoutDraft.floors.map(function(f) { return { windows: f.windows, doors: f.doors }; });
-  var style = windoors.property.style;
-  var doomed = windoors.openings.filter(function(o) {
-    if (o.side !== wdSide) return false;
-    var f = floors[o.floor];
-    return !f || o.position > f[o.kind === 'door' ? 'doors' : 'windows'];
-  });
-  var marked = doomed.filter(function(o) { return windoors.marks.some(function(m) { return m.opening_id === o.id; }); });
-  if (marked.length && !confirm('This removes ' + marked.map(function(o) { return Windoors.openingCode(o) + ' (' + Windoors.floorLabel(o.floor) + ')'; }).join(', ')
-      + ', which ' + (marked.length === 1 ? 'has' : 'have') + ' work marked on ' + (marked.length === 1 ? 'it' : 'them') + '. The marks go too.\n\nCarry on?')) return;
-  doomed.forEach(function(o) {
-    windoors.marks = windoors.marks.filter(function(m) { return m.opening_id !== o.id; });
-    windoors.openings = windoors.openings.filter(function(x) { return x.id !== o.id; });
-    wdDeleteOpening(o);
-  });
-  floors.forEach(function(f, fi) {
-    ['window', 'door'].forEach(function(kind) {
-      var count = kind === 'door' ? f.doors : f.windows;
-      for (var pos = 1; pos <= count; pos++) {
-        var exists = windoors.openings.some(function(o) { return o.side === wdSide && o.floor === fi && o.kind === kind && o.position === pos; });
-        if (exists) continue;
-        var o = Object.assign({ id: uid(), side: wdSide, floor: fi, kind: kind, position: pos, nickname: null,
-          prep_level: null, prep_stage: 'quote', quote_prep_level: null, prep_variation_id: null },
-          Windoors.openingDefaults(style, kind, fi));
-        windoors.openings.push(o);
-        wdPutOpening(o);
-      }
+
+// A new opening row, saved. fields: side, level, floor, kind, position and
+// the type/size/grid (from Windoors.openingDefaults), plus a bay's shape or a
+// bay window's parent.
+function wdNewOpening(fields) {
+  var o = Object.assign({ id: uid(), side: wdSide, level: 'standard', floor: 0, nickname: null,
+    prep_level: null, prep_stage: 'quote', quote_prep_level: null, prep_variation_id: null,
+    bay_shape: null, bay_storeys: null, parent_opening_id: null, panes_set: false }, fields);
+  windoors.openings.push(o);
+  wdPutOpening(o);
+  return o;
+}
+// A bay's windows: three per storey, whichever are missing. Saved after the
+// bay itself (the queue replays in order), so the bay exists first.
+function wdEnsureBayChildren(bay) {
+  var a = wdAppearance();
+  for (var st = 0; st < Windoors.bayStoreys(bay); st++) {
+    Windoors.BAY_FACES.forEach(function(face) {
+      var pos = Windoors.bayChildPosition(bay.position, st, face);
+      if (windoors.openings.some(function(o) { return o.parent_opening_id === bay.id && +o.position === pos; })) return;
+      wdNewOpening(Object.assign({ side: bay.side, level: 'standard', floor: bay.floor + st, kind: 'window', position: pos, parent_opening_id: bay.id },
+        Windoors.bayChildDefaults(a, bay.floor + st, face)));
     });
+  }
+}
+
+// Confirming makes the openings real. Counts that went DOWN remove openings
+// from the end of that floor or level (the highest positions), and floors or
+// levels that went away take theirs with them -- a bay takes its windows --
+// with a warning first if any of them carries marked work, because that
+// work is on the quote. A two-storey bay whose upper floor went keeps its
+// lower storey.
+function confirmWdLayout() {
+  var d = wdLayoutDraft;
+  var a = wdAppearance();
+  var floors = d.floors.map(function(f) { return { windows: f.windows, doors: f.doors, bays: f.bays || 0 }; });
+  var lg = d.lower_ground ? { windows: d.lower_ground.windows, doors: d.lower_ground.doors } : null;
+  var rf = d.roof && a.roof !== 'parapet' ? { windows: d.roof.windows } : null;
+  var mine = windoors.openings.filter(function(o) { return o.side === wdSide; });
+  var countOf = function(f, o) { return f[o.kind === 'door' ? 'doors' : o.kind === 'bay' ? 'bays' : 'windows']; };
+  var doomed = mine.filter(function(o) {
+    if (Windoors.isBayChild(o)) return false;
+    var lv = Windoors.levelOf(o);
+    if (lv === 'lower_ground') return !lg || o.position > countOf(lg, o);
+    if (lv === 'roof') return !rf || o.position > rf.windows;
+    var f = floors[o.floor];
+    return !f || o.position > countOf(f, o);
   });
+  var shrink = mine.filter(function(o) { return o.kind === 'bay' && doomed.indexOf(o) < 0 && Windoors.bayStoreys(o) === 2 && !floors[o.floor + 1]; });
+  var shrinkIds = {};
+  shrink.forEach(function(b) { shrinkIds[b.id] = true; });
+  var upper = mine.filter(function(o) { return o.parent_opening_id && shrinkIds[o.parent_opening_id] && Windoors.bayChildInfo(o).storey === 1; });
+  var doomedIds = {};
+  doomed.forEach(function(o) { doomedIds[o.id] = true; });
+  var all = doomed.concat(upper).concat(mine.filter(function(o) { return o.parent_opening_id && doomedIds[o.parent_opening_id]; }));
+  var marked = all.filter(function(o) { return windoors.marks.some(function(m) { return m.opening_id === o.id; }); });
+  if (marked.length && !confirm('This removes ' + marked.map(function(o) { return Windoors.openingCode(o) + ' (' + Windoors.levelLabel(o) + ')'; }).join(', ')
+      + ', which ' + (marked.length === 1 ? 'has' : 'have') + ' work marked on ' + (marked.length === 1 ? 'it' : 'them') + '. The marks go too.\n\nCarry on?')) return;
+  wdRemoveOpenings(doomed.concat(upper));
+  shrink.forEach(function(b) { b.bay_storeys = 1; wdPutOpening(b); });
+  var ensure = function(level, fi, kind, count) {
+    for (var pos = 1; pos <= count; pos++) {
+      var have = windoors.openings.find(function(o) {
+        return o.side === wdSide && Windoors.levelOf(o) === level && (level !== 'standard' || o.floor === fi)
+          && o.kind === kind && o.position === pos && !Windoors.isBayChild(o);
+      });
+      if (!have) {
+        var defs = kind === 'bay' ? Windoors.bayDefaults(a, fi, !!floors[fi + 1]) : Windoors.openingDefaults(a, kind, fi, level);
+        if (kind === 'bay') defs = Object.assign({ type: defs.bay_shape, size_tier: 'medium', rows: 1, cols: 1 }, defs);
+        have = wdNewOpening(Object.assign({ side: wdSide, level: level, floor: level === 'standard' ? fi : 0, kind: kind, position: pos }, defs));
+      }
+      if (kind === 'bay') wdEnsureBayChildren(have);
+    }
+  };
+  floors.forEach(function(f, fi) {
+    ensure('standard', fi, 'window', f.windows);
+    ensure('standard', fi, 'door', f.doors);
+    ensure('standard', fi, 'bay', f.bays);
+  });
+  if (lg) { ensure('lower_ground', 0, 'window', lg.windows); ensure('lower_ground', 0, 'door', lg.doors); }
+  if (rf) ensure('roof', 0, 'window', rf.windows);
   windoors.property.layout = windoors.property.layout || {};
-  windoors.property.layout[wdSide] = { floors: floors, confirmed: true };
+  windoors.property.layout[wdSide] = { floors: floors, lower_ground: lg, roof: rf, confirmed: true };
   wdLayoutDraft = null;
   wdPutProperty(); wdChanged();
 }
@@ -25665,11 +25892,14 @@ function renderWdDetail() {
   var o = wdOpening();
   var box = document.getElementById('wd-sheet-body');
   if (!o || !box) { if (box) box.innerHTML = ''; return; }
+  if (o.kind === 'bay') { renderWdBay(o, box); return; }
   var p = windoors.property;
   var site = wdMode === 'site';
   var isDoor = o.kind === 'door';
   var oMarks = windoors.marks.filter(function(m) { return m.opening_id === o.id; });
-  var h = '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:0 16px 8px">'
+  var parentBay = o.parent_opening_id ? windoors.openings.find(function(x) { return x.id === o.parent_opening_id; }) : null;
+  var h = (parentBay ? '<div onclick="openWdDetail(\'' + escapeHtml(parentBay.id) + '\')" style="padding:0 16px 6px;font-size:13px;font-weight:600;color:var(--accent);cursor:pointer">‹ ' + escapeHtml(Windoors.openingCode(parentBay)) + ', the whole bay</div>' : '')
+    + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:0 16px 8px">'
     + '<div><div style="font-size:16px;font-weight:700">' + escapeHtml(Windoors.openingLabel(o, false)) + '</div>'
     + '<div onclick="editWdNickname()" style="font-size:12px;color:' + (o.nickname ? 'var(--text2)' : 'var(--accent)') + ';cursor:pointer;margin-top:2px">'
     + (o.nickname ? '“' + escapeHtml(o.nickname) + '” · rename' : '+ nickname (e.g. landing, above porch)') + '</div></div>'
@@ -25731,6 +25961,88 @@ function renderWdDetail() {
   };
 }
 
+// ── The bay view ──────────────────────────────────────────────────────────
+// A bay's own sheet: its shape and storeys (from Measure), its prep, and the
+// plan-style strip from Windoors.detailSvg -- tap one of its windows to open
+// that window's ordinary detail view, or tap its cornice, fascia, mullions or
+// cill to mark them like any frame part.
+function renderWdBay(o, box) {
+  var p = windoors.property;
+  var site = wdMode === 'site';
+  var kids = Windoors.bayChildren(o, windoors.openings);
+  var oMarks = windoors.marks.filter(function(m) { return m.opening_id === o.id; });
+  var above = Windoors.sideLayout(p, o.side).floors[o.floor + 1];
+  var h = '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:0 16px 8px">'
+    + '<div><div style="font-size:16px;font-weight:700">' + escapeHtml(Windoors.openingLabel(o, false)) + '</div>'
+    + '<div onclick="editWdNickname()" style="font-size:12px;color:' + (o.nickname ? 'var(--text2)' : 'var(--accent)') + ';cursor:pointer;margin-top:2px">'
+    + (o.nickname ? '“' + escapeHtml(o.nickname) + '” · rename' : '+ nickname (e.g. sitting room bay)') + '</div></div>'
+    + '<div onclick="closeWdDetail()" style="font-size:14px;font-weight:700;color:var(--accent);cursor:pointer;padding:4px 2px">Done</div></div>';
+  if (!site) {
+    h += '<div class="subsection-label" style="padding-top:4px">Shape</div>'
+      + '<div style="padding:0 16px 8px">' + wdSegHtml(Windoors.BAY_SHAPES, o.bay_shape || 'canted', 'setWdBayShape') + '</div>'
+      + '<div class="subsection-label">Storeys<small>' + (above ? 'a two-storey bay runs up through the ' + Windoors.floorLabel(o.floor + 1) : 'no floor above to run up into') + '</small></div>'
+      + '<div style="padding:0 16px 8px">' + wdSegHtml([{ key: '1', label: 'One' }, { key: '2', label: 'Two' }], String(Windoors.bayStoreys(o)), 'setWdBayStoreys',
+          { disabled: function(it) { return it.key === '2' && !above; } }) + '</div>';
+  } else {
+    h += '<div style="padding:0 16px 8px;font-size:13px;color:var(--text2)">' + escapeHtml(Windoors.kindNoun(o)) + ' · '
+      + Windoors.bayStoreys(o) + ' storey' + (Windoors.bayStoreys(o) === 1 ? '' : 's') + ' · as quoted</div>';
+  }
+  var eff = Windoors.effectivePrep(o, p);
+  var floorLevel = site ? eff : (p.default_prep || 'light');
+  var levels = Windoors.PREP_LEVELS.filter(function(l) { return Windoors.prepRank(l.key) >= Windoors.prepRank(floorLevel); });
+  h += '<div class="subsection-label">Prep<small>the bay\'s own timber — each window has its own</small></div>'
+    + '<div style="padding:0 16px 10px">' + wdSegHtml(levels, eff, 'setWdPrep') + '</div>';
+  var detail = p.detail_enabled !== false;
+  h += '<div id="wd-detail-fig" style="padding:6px 16px 4px">' + Windoors.detailSvg(o, windoors.marks, { interactive: true, selected: detail ? wdSel.ids : {},
+    children: kids, property: p, maxWidth: 320, maxHeight: 440 }) + '</div>';
+  var selCount = Object.keys(wdSel.ids).length;
+  var btn = 'border:1px solid var(--border);background:var(--surface2);color:var(--text);border-radius:10px;padding:8px 10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer';
+  var abtn = 'border:none;background:var(--accent);color:#fff;border-radius:10px;padding:9px 11px;font-size:13px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer';
+  if (detail && selCount) {
+    h += '<div style="padding:6px 16px 2px;font-size:12px;color:var(--text2)">' + selCount + ' part' + (selCount === 1 ? '' : 's') + ' selected — ' + (site ? 'added as a variation' : 'added to the quote') + '</div>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap;padding:4px 16px 8px">'
+      + Windoors.actionsFor(o, 'part').map(function(a) { return '<button type="button" style="' + abtn + '" onclick="wdApplyAction(\'' + a.key + '\')">' + escapeHtml(a.label) + '</button>'; }).join('')
+      + '<button type="button" style="' + btn + '" onclick="wdClearSel()">Clear selection</button>'
+      + '<button type="button" style="' + btn + ';color:var(--danger)" onclick="wdRemoveWork()">Remove work</button></div>';
+  } else {
+    h += '<div style="padding:4px 16px 8px;font-size:12px;color:var(--text2)">Tap a window to open it' + (detail ? '; tap the cornice, fascia, a mullion or the cill to mark the bay\'s own timber' : '') + '. A badge on a window means it has work on it.</div>';
+  }
+  h += wdWorkListHtml(o, oMarks);
+  box.innerHTML = h;
+  var fig = document.getElementById('wd-detail-fig');
+  if (fig) fig.onclick = function(ev) {
+    var t = ev.target && ev.target.closest ? ev.target : null;
+    if (!t) return;
+    var win = t.closest('[data-open-id]');
+    if (win) { openWdDetail(win.getAttribute('data-open-id')); return; }
+    var el = t.closest('[data-el]');
+    if (el && detail) wdToggleElement(el.getAttribute('data-el'));
+  };
+}
+function setWdBayShape(shape) {
+  var o = wdOpening(); if (!o || o.kind !== 'bay' || o.bay_shape === shape) return;
+  o.bay_shape = shape; o.type = shape;
+  wdPutOpening(o); wdChanged();
+}
+// One storey or two. Going down takes the upper storey's windows (asking
+// first if any has work on it); going up adds three.
+function setWdBayStoreys(n) {
+  var o = wdOpening(); if (!o || o.kind !== 'bay') return;
+  n = +n === 2 ? 2 : 1;
+  if (n === Windoors.bayStoreys(o)) return;
+  if (n === 2 && !Windoors.sideLayout(windoors.property, o.side).floors[o.floor + 1]) return;
+  if (n === 1) {
+    var upper = Windoors.bayChildren(o, windoors.openings).filter(function(k) { return Windoors.bayChildInfo(k).storey === 1; });
+    var marked = upper.filter(function(k) { return windoors.marks.some(function(m) { return m.opening_id === k.id; }); });
+    if (marked.length && !confirm('The upper storey\'s windows have work marked on them. Making the bay one storey removes them and their marks.\n\nCarry on?')) return;
+    wdRemoveOpenings(upper);
+  }
+  o.bay_storeys = n;
+  wdPutOpening(o);
+  if (n === 2) wdEnsureBayChildren(o);
+  wdChanged();
+}
+
 // The line list under the diagram: every piece of work on this opening, in
 // words, split by stage.
 function wdWorkListHtml(o, oMarks) {
@@ -25745,7 +26057,7 @@ function wdWorkListHtml(o, oMarks) {
       + (sub ? '<small style="display:block;color:var(--text2);font-size:11px;margin-top:1px">' + sub + '</small>' : '') + '</div>';
   };
   var qPrep = Windoors.quotePrep(o, p);
-  rows += line('Paint, outside face · ' + Windoors.prepLabel(qPrep).toLowerCase() + ' prep', 'quote');
+  rows += line((o.kind === 'bay' ? 'Paint, the bay\'s own timber' : 'Paint, outside face') + ' · ' + Windoors.prepLabel(qPrep).toLowerCase() + ' prep', 'quote');
   var qc = Windoors.marksClause(o, quoteMarks);
   if (qc) rows += line(escapeHtml(qc.charAt(0).toUpperCase() + qc.slice(1)), 'quote');
   var byVar = {};
@@ -25767,7 +26079,7 @@ function wdWorkListHtml(o, oMarks) {
   });
   var money = (wdMode === 'quote' ? fmt((perOpen.quoteMins || 0) * r + (perOpen.quoteMaterials || 0)) + ' quoted' : '')
     + (perOpen.varMins ? (wdMode === 'quote' ? ' · ' : '') + fmt((perOpen.varMins || 0) * r + (perOpen.varMaterials || 0)) + ' variation' : '');
-  return '<div style="margin-top:6px"><div class="subsection-label" style="display:flex;justify-content:space-between"><span>Work on this ' + (o.kind === 'door' ? 'door' : 'window') + '</span>'
+  return '<div style="margin-top:6px"><div class="subsection-label" style="display:flex;justify-content:space-between"><span>Work on this ' + (o.kind === 'door' ? 'door' : o.kind === 'bay' ? 'bay' : 'window') + '</span>'
     + (money ? '<small style="text-transform:none;letter-spacing:0">' + money + ' <span style="opacity:.7">before markup</span></small>' : '') + '</div>' + rows + '</div>';
 }
 
@@ -25785,6 +26097,9 @@ function wdStructureChange(apply) {
   var mine = windoors.marks.filter(function(m) { return m.opening_id === o.id; });
   if (mine.length && !confirm('Changing this clears the ' + mine.length + ' mark' + (mine.length === 1 ? '' : 's') + ' on this ' + o.kind + '.\n\nCarry on?')) return;
   apply(o);
+  // Its pane layout is now its own: the elevation draws it rather than the
+  // period's glazing.
+  o.panes_set = true;
   mine.forEach(function(m) { wdDeleteMark(m); });
   windoors.marks = windoors.marks.filter(function(m) { return m.opening_id !== o.id; });
   wdSel = { kind: null, ids: {} };
@@ -25974,7 +26289,7 @@ async function buildWindoorsReportPdf() {
     var secs = [];
     var mine = model.sections.filter(function(sec) { return sec.opening.side === side; });
     for (var k = 0; k < mine.length; k++) {
-      secs.push({ sec: mine[k], img: await wdSvgToJpeg(Windoors.detailSvg(mine[k].opening, model.marks, {}), 360) });
+      secs.push({ sec: mine[k], img: await wdSvgToJpeg(Windoors.detailSvg(mine[k].opening, model.marks, { children: mine[k].children, property: data.property }), 360) });
     }
     sides.push({ side: side, elev: elev, secs: secs });
   }
@@ -26011,7 +26326,7 @@ async function buildWindoorsReportPdf() {
       var tx = L + 112, tw = R - tx;
       var rows = [];
       rows.push({ t: sec.label, size: 10.5, bold: true });
-      rows.push({ t: sec.type + (sec.opening.kind === 'door' ? ' door' : ' window'), size: 8.5, rgb: PDF_MUT });
+      rows.push({ t: sec.what, size: 8.5, rgb: PDF_MUT });
       if (sec.quoted.length) {
         rows.push({ t: 'QUOTED WORK', size: 7.5, bold: true, rgb: PDF_MUT, gap: 4 });
         sec.quoted.forEach(function(q) { rows.push({ t: '• ' + q, size: 9 }); });
@@ -26124,9 +26439,11 @@ async function attachWindoorsReportNow() {
 function windoorsMeasureRowHtml() {
   var c = calcWindoors();
   if (!(c.total > 0.005)) return '';
-  var nV = windoors.openings.filter(function(o) { return o.kind === 'window'; }).length;
-  var nD = windoors.openings.length - nV;
-  var meta = [nV ? nV + ' window' + (nV === 1 ? '' : 's') : '', nD ? nD + ' door' + (nD === 1 ? '' : 's') : '', fmtD(c.time)].filter(Boolean).join(' · ');
+  var live = Windoors.liveOpenings(windoors.openings);
+  var nV = live.filter(function(o) { return o.kind === 'window'; }).length;
+  var nD = live.filter(function(o) { return o.kind === 'door'; }).length;
+  var nB = live.filter(function(o) { return o.kind === 'bay'; }).length;
+  var meta = [nV ? nV + ' window' + (nV === 1 ? '' : 's') : '', nB ? nB + ' bay' + (nB === 1 ? '' : 's') : '', nD ? nD + ' door' + (nD === 1 ? '' : 's') : '', fmtD(c.time)].filter(Boolean).join(' · ');
   return '<div class="room-item" onclick="openWindoors(\'quote\')">'
     + '<div class="room-icon">🪟</div>'
     + '<div class="room-info"><div class="room-name">Windows &amp; Doors</div><div class="room-meta">' + meta + '</div></div>'

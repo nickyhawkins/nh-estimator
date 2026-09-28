@@ -340,11 +340,36 @@ Access uplifts for 1st floor and 2nd floor+ work are applied per item automatica
 
 **+ → Windows and doors** on Measure. The outside faces of every window and door on the house, set up on a drawing of each side. (Inside faces stay in the room measures.)
 
-**1. The house.** Pick the **Style** — Georgian, Victorian or Modern. It sets the drawing and what each new window or door starts as (a Georgian house starts with 6-over-6 sashes and a panelled front door, a Modern one with casements and a flush door). Set the **Default prep** for the job; every opening starts there. Leave **Individual detail** on for old windows, where you'll want to mark single panes and frame parts; turn it off for a job of new windows where that's never needed.
+**1. The house.** The **House** card sets up the drawing so it looks like the actual house. None of it changes the price; it's what the drawing looks like, and what each new window or door starts as.
 
-**2. Each side.** Tap **Front**, **Back**, **Left** or **Right**. Set the floors and how many windows (**W**) and doors (**D**) are on each — the drawing updates as you go. Doors start on the ground floor only; add one upstairs for a balcony or Juliet. Left and right draw as gable ends.
+- **Period** — Georgian, Victorian or Modern. This is just a starting point. Picking one fills in everything below with that period's usual choices: a Georgian house starts as a stucco mid terrace behind a parapet, with 6-over-6 sashes and a pedimented door; a Victorian one as a buff-brick semi with a pitched roof and 2-over-2 sashes; a Modern one as a rendered detached house with casements. Change any of it afterwards. If you've already changed something and then pick a different period, it asks before putting everything back to that period's defaults.
+- **Finish** — stucco, buff brick, gault brick (paler and greyer), render or painted brick.
+- **Form** — detached, semi, end terrace or mid terrace. This decides which sides there are to paint: a detached house has all four, a semi or end terrace has the front, the back and its **open side** (left or right, as you face the front), and a mid terrace just the front and back. Neighbours are drawn faintly against a terraced or semi house so it reads as one.
+- **Roof** — a **parapet**, a pitched roof with its **eaves to the street**, or a **front gable**.
+- **Details** (tap to open) — the period's finer points. Georgian: the doorcase (pediment with a radial fanlight, plain fanlight, or portico), window heads (plain, or gauged brick arches on a brick finish), glazing (6 or 8 over 8), the band course and the front railings. Victorian: the sashes (1 or 2 over 2, or margin lights), heads (stone with a keystone, or brick arches), the entrance (recessed arched porch, open with a canopy, or gabled timber porch), bargeboards on a front gable, and plain or polychrome brick bands.
 
-![Setting the layout of one side](images/26a-windoors-layout.png)
+![The House card: period, finish, form and roof](images/26l-windoors-house.png)
+
+![The Victorian details](images/26m-windoors-details.png)
+
+Every change redraws the house straight away, and applies to every side. If a change would hide a side that has windows or doors on it (a detached house changed to a mid terrace, say), or would remove dormers (changing the roof to a parapet), it tells you what will go and asks first. Those openings are deleted along with any work marked on them.
+
+Below the House card, set the **Default prep** for the job; every opening starts there. Leave **Individual detail** on for old windows, where you'll want to mark single panes and frame parts; turn it off for a job of new windows where that's never needed.
+
+**2. Each side.** Tap a side — only the sides this house has are offered. Set the floors and how many windows (**W**) and doors (**D**) are on each — the drawing updates as you go. Doors start on the ground floor only; add one upstairs for a balcony or Juliet. The ends of the house draw as gables (or, under a front gable, as the eaves).
+
+![Setting the layout of one side, with dormers and a lower ground floor](images/26a-windoors-layout.png)
+
+Two more levels can be switched on for each side, and both are priced like any other windows and doors:
+
+- **Dormers** — windows in the roof, above the top floor (not with a parapet roof). Windows only. On a side where the roof shows as a gable, these are drawn as windows in the gable itself. A dormer window's detail view also has its **dormer fascia** and **left and right cheeks** to mark, alongside the window's own parts.
+- **Lower ground floor** — a floor below the pavement, with its own windows and doors, drawn in its light well with railings along the top and a bridge across to the front door.
+
+They're labelled *Front, dormer, W2* and *Front, lower ground, W1*.
+
+![A Georgian terrace in buff brick, with dormers and a lower ground floor](images/26n-windoors-terrace.png)
+
+![A dormer window: its fascia and cheeks can be marked too](images/26o-windoors-dormer.png)
 
 **3. Confirm layout.** The windows and doors become real and tappable, numbered left to right as you face that side — W1, W2… and D1, D2… counted separately on each floor. **Edit layout** unlocks the side again; taking a count down removes openings from the end of that floor, and warns you first if any of them has work marked on it.
 
@@ -362,16 +387,28 @@ Access uplifts for 1st floor and 2nd floor+ work are applied per item automatica
 
 Orange is work, blue is glass being replaced. Work marked here is **quoted** work and shows solid; work added on site shows dashed. Changing the type or the pane grid clears that opening's marks, so it asks first if there are any. The list under the diagram says, in words, everything on this opening.
 
+Until you set a window's panes here, the house drawing shows it with the period's glazing (change Georgian 6-over-6 to 8-over-8 in Details and the drawing follows). Once you've set its type, rows or columns, the drawing shows the panes you set. The price always uses the panes set here.
+
+**Bays.** Each floor in the layout also has a **B** count for bay windows. It's shown straight away on a Victorian house; on a Georgian or Modern house, tap **+ Bays** first. A bay is counted once, on the floor where it starts. On a Victorian house, a bay on the ground floor starts as a **two-storey** bay running up through the first floor, and the windows above are laid out around it.
+
+![A two-storey canted bay beside the front door](images/26p-windoors-bay.png)
+
+Tap a bay on the drawing to open the **bay view**. Set its **shape** (**canted**, with angled sides, or **square**), its **storeys** (one or two — two needs a floor above), and its prep. The strip shows its left, front and right windows, storey by storey. Tap any of them to open that window's normal detail view (**‹ B1, the whole bay** takes you back). Each window has its own type, size, panes and prep, and is labelled like *Front, ground floor, B1 front*. The bay's own timber — the **cornice**, **fascia**, left and right **mullions** and the **cill** — can be tapped and marked like a window's frame parts. A badge on a window in the strip means it has work marked on it.
+
+![The bay view: its windows and its own parts](images/26q-windoors-bay-view.png)
+
+A bay's price is its own **bay base minutes** (Rates, by shape and storeys, covering the cornice, fascia and mullions) plus each of its windows priced as a window. Making a two-storey bay single-storey removes the upper windows, asking first if any have work on them.
+
 **Paint.** The **Paint** card under the house settings sets the **coats** (2 to start), and a **product** and **colour** for the windows and for the doors — the satin on the sashes and the gloss on the black front door. The product pickers work like a room's: search the ranges, pick a colour band where the range has more than one, or leave it on *Use default (Settings)* for the exterior woodwork topcoat. The colours are the app's ordinary colour fields — type-ahead from the colour library, one-tap picks from colours already on the job — and they show on the Colours tab as *Exterior Windows* and *Exterior Doors*, beside every other area. Primer always follows the exterior primer in Settings.
 
 ![The Paint card: coats, and a product and colour each for the windows and the doors](images/26i-windoors-paint.png)
 
-The litres are for the **timber only** — a window is mostly glass. Each window starts from its own size (the middle of its size button's range: a Medium window is 0.75 m²) and takes the share of that which is timber: 35% for a casement, 40% for a sash, 25% for a fixed light, plus 2% for each extra pane's glazing bars, up to 60%. So a Medium 6-over-6 sash is 0.45 m² of paint, and a Large one 0.9 m². A door is its leaf less any glass, plus the frame. That's times the coats, at the exterior woodwork coverage, plus primer. Every figure is under **Rates → Windows & Doors → Paint areas**.
+The litres are for the **timber only** — a window is mostly glass. Each window starts from its own size (the middle of its size button's range: a Medium window is 0.75 m²) and takes the share of that which is timber: 35% for a casement, 40% for a sash, 25% for a fixed light, plus 2% for each extra pane's glazing bars, up to 60%. So a Medium 6-over-6 sash is 0.45 m² of paint, and a Large one 0.9 m². A door is its leaf less any glass, plus the frame. A bay adds 1.2 m² of its own timber per storey, painted with the windows. That's times the coats, at the exterior woodwork coverage, plus primer. Every figure is under **Rates → Windows & Doors → Paint areas**.
 
 ![Rates — Windows & Doors paint areas](images/26j-windoors-paint-rates.png)
  The paint goes on Summary in the same **Exterior Woodwork** and **Exterior Primer** rows as any exterior item, using the exterior woodwork product from Settings, so windows and a fascia in the same colour are one lot of tins. It's also on the job spec sheet as its own rows. On a job whose materials list was already made, tap **Recalculate** on Summary to bring it in.
 
-**On the quote** the whole fixture is **one line**, worded from what's in it — *Exterior windows and doors (outside faces): 5 sash windows, 1 front door. Includes reputty x3, resin repair x1.* — through Summary, the client's quote, Xero and the final invoice. The minutes behind it (see [Rates](#14-rates)) go into the job's time like any other labour.
+**On the quote** the whole fixture is **one line**, worded from what's in it — *Exterior windows and doors (outside faces): 5 sash windows, 1 front door. Includes reputty x3, resin repair x1.* (or, with the newer pieces, *…10 sash windows, 3 dormer windows, 1 canted bay, 1 lower ground door, 1 front door.*) — through Summary, the client's quote, Xero and the final invoice. The minutes behind it (see [Rates](#14-rates)) go into the job's time like any other labour.
 
 The work report — what was done where, with the drawings — is covered under [On Site](#windows-and-doors-on-site).
 
@@ -1181,6 +1218,7 @@ A few things worth knowing:
 Old windows are where the surprises are. On a job with [Windows and doors](#windows-and-doors) set up, On Site has a **🪟 Windows & doors** card near the top. It opens the same drawings and the same detail view, with two differences:
 
 - **Anything you add here is a variation.** New marks, and prep raised on an opening (you can raise it, never lower it), are extra work on top of the quote. They show dashed on the diagram and as a dashed badge on the elevation.
+- **Bays, dormers and lower ground windows work the same way** — open a bay and tap one of its windows to mark it, or mark the bay's own parts.
 - **The quote's own work is locked.** It's shown, solid, so you can see what was already allowed for, but you can't take it off here — and type, size and pane layout are as quoted. The quote is the floor: nothing done on site ever takes money off it.
 
 ![On site: prep raised and glass marked for replacing, added as a variation](images/26d-windoors-onsite-detail.png)
@@ -1310,12 +1348,16 @@ Menu (☰) → **Rates** — every number the calculator uses, grouped by what i
 | Item & Job-Type | **Wallpaper Rates** | Per-roll rates, ceiling/staircase multipliers, minimum price, wide vinyl & mural rates |
 | Item & Job-Type | **Kitchen Rates** | The full price matrix per item type × size, linear rates, carcass %, strip-original-coating minutes |
 | Item & Job-Type | **Fitted Unit / Shelving** | Shelf and bay spray times, fallback areas behind fitted-unit litres |
-| Item & Job-Type | **Windows & Doors** | Window base minutes per size tier, minutes per pane, sash/casement/fixed adjustment, door base minutes per type and size, prep multipliers, each marked-work action's minutes and material £, and the paint areas (each size's m², the timber share per type, door leaf and frame) |
+| Item & Job-Type | **Windows & Doors** | Window base minutes per size tier, minutes per pane, sash/casement/fixed adjustment, door base minutes per type and size, bay base minutes per shape and storeys, prep multipliers, each marked-work action's minutes and material £, and the paint areas (each size's m², the timber share per type, door leaf and frame, bay timber per storey) |
 | Scheduling | **Scheduling** | Daily overhead, schedule buffer, Work Saturdays, bank-holiday region, calendar feed |
 
 **Windows & Doors** prices each opening as *(base minutes for its size and type + panes × minutes per pane) × its prep multiplier*, plus the minutes of any work marked on it — all at your day rate, like every other timed task. The prep multipliers start at Light ×1.10, Standard ×1.25, Heavy ×1.40 and Restoration ×1.75; the material £ (glass is £25 a pane to start) is per pane or part marked, before markup. Every figure is a starting guess to calibrate.
 
 ![Rates — Windows & Doors](images/26h-windoors-rates.png)
+
+**Bay base minutes** are a bay's own cornice, fascia and mullions, by shape and storeys — canted 90 minutes for one storey and 160 for two, square 70 and 125 to start. They're on top of the bay's windows, which are priced as windows, and the bay's prep multiplies them. A dormer's fascia and cheeks have no minutes of their own; work marked on them uses the frame actions' minutes.
+
+![Rates — bay base minutes](images/26r-windoors-bay-rates.png)
 
 > **Calibrate as you go:** after a few jobs, compare the logged time and actual materials on On Site with what was estimated, and nudge the time and coverage rates here. The estimates get sharper with every job.
 
@@ -1418,6 +1460,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.84.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.85.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

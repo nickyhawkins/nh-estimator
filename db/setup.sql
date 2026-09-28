@@ -656,12 +656,16 @@ ALTER TABLE job_property ADD COLUMN IF NOT EXISTS door_colour INTEGER;
 -- The paint product for each (v2.84.0): {window: {range, band}, door: {...}}.
 -- Empty = the Settings exterior woodwork topcoat.
 ALTER TABLE job_property ADD COLUMN IF NOT EXISTS paint_products JSONB NOT NULL DEFAULT '{}';
+-- Stage 2 (WINDOWS_DOORS_STAGE2_SPEC.md): period, finish, form, roof and the
+-- period's details. Drawing only, never priced. NULL = saved before stage 2,
+-- read as the style's defaults (detached). style is kept = appearance.period.
+ALTER TABLE job_property ADD COLUMN IF NOT EXISTS appearance JSONB;
 CREATE TABLE IF NOT EXISTS job_openings (
   id VARCHAR PRIMARY KEY,
   job_id VARCHAR NOT NULL,
   side VARCHAR NOT NULL,                  -- front | back | left | right
   floor INTEGER NOT NULL DEFAULT 0,       -- 0 = ground
-  kind VARCHAR NOT NULL,                  -- window | door
+  kind VARCHAR NOT NULL,                  -- window | door | bay
   position INTEGER NOT NULL DEFAULT 1,    -- 1-based, left to right facing that side
   nickname VARCHAR,
   type VARCHAR NOT NULL,                  -- casement|sash|fixed / panelled|flush|half_glazed|fully_glazed|stable|french_double
@@ -680,7 +684,17 @@ CREATE TABLE IF NOT EXISTS job_openings (
 );
 -- One opening per slot: the PUT upserts on it, so two phones confirming the
 -- same side converge on one W2 rather than two.
-CREATE UNIQUE INDEX IF NOT EXISTS job_openings_slot ON job_openings (job_id, side, floor, kind, position);
+-- Stage 2: lower ground / floors / dormers, bays and their windows (a bay's
+-- window points at it by parent_opening_id and is numbered 100 x bay + 10 x
+-- storey + face), and whether the pane layout was set by hand.
+ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS level VARCHAR NOT NULL DEFAULT 'standard'; -- lower_ground | standard | roof
+ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS bay_shape VARCHAR;                           -- canted | square (kind = 'bay')
+ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS bay_storeys INTEGER;                         -- 1 or 2 (kind = 'bay')
+ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS parent_opening_id VARCHAR;                   -- the bay, on a bay's window
+ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS panes_set BOOLEAN NOT NULL DEFAULT FALSE;
+DROP INDEX IF EXISTS job_openings_slot;
+CREATE UNIQUE INDEX IF NOT EXISTS job_openings_slot2 ON job_openings (job_id, side, level, floor, kind, position);
+CREATE INDEX IF NOT EXISTS job_openings_parent ON job_openings (parent_opening_id);
 CREATE INDEX IF NOT EXISTS job_openings_job ON job_openings (job_id);
 CREATE TABLE IF NOT EXISTS opening_marks (
   id VARCHAR PRIMARY KEY,

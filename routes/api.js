@@ -14,6 +14,7 @@ const {
   ensureWindoorsSchema, normalisePaintProducts, normaliseProperty, normaliseOpening, normaliseMark,
   mapProperty, mapOpening, mapMark, readWindoors,
 } = require('../lib/windoors');
+const Windoors = require('../public/windoors');
 // Aliased so the import loop below reads like its neighbours (SNAG_STATUSES,
 // VARIATION_KINDS) rather than shadowing the step set's name with a local.
 const SPEC_STEPS_SET = SPEC_STEPS;
@@ -1395,37 +1396,56 @@ router.put('/windoors/property', async (req, res) => {
   const p = normaliseProperty(req.body);
   try {
     const result = await db.query(`
-      INSERT INTO job_property (job_id, style, detail_enabled, default_prep, layout, coats, window_colour, door_colour, paint_products, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+      INSERT INTO job_property (job_id, style, detail_enabled, default_prep, layout, coats, window_colour, door_colour, paint_products, appearance, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
       ON CONFLICT (job_id) DO UPDATE SET style = $2, detail_enabled = $3, default_prep = $4, layout = $5,
-        coats = $6, window_colour = $7, door_colour = $8, paint_products = $9, updated_at = NOW()
+        coats = $6, window_colour = $7, door_colour = $8, paint_products = $9,
+        appearance = COALESCE($10, job_property.appearance), updated_at = NOW()
       RETURNING *
-    `, [jobId, p.style, p.detail_enabled, p.default_prep, p.layout, p.coats, p.window_colour, p.door_colour, p.paint_products]);
+    `, [jobId, p.style, p.detail_enabled, p.default_prep, p.layout, p.coats, p.window_colour, p.door_colour, p.paint_products, p.appearance]);
     res.json({ ok: true, property: mapProperty(result.rows[0]) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Upserts on the SLOT (job, side, floor, kind, position), not the row id --
-// the slot is the identity, the same id-adoption contract as /snag-rooms: two
-// phones confirming the same side must end up with one W2, not two. The
-// response names the id that actually holds the row.
+// Upserts on the SLOT (job, side, level, floor, kind, position), not the row
+// id -- the slot is the identity, the same id-adoption contract as
+// /snag-rooms: two phones confirming the same side must end up with one W2,
+// not two. The response names the id that actually holds the row.
+//
+// A bay's window names its bay by id, and the bay may have been adopted
+// under another phone's id in the meantime. Its position says which bay it
+// is (Windoors.bayChildInfo), so a parent id that holds no bay is resolved to
+// the bay that holds that slot instead of leaving the window orphaned.
 router.put('/windoors/openings/:id', async (req, res) => {
   const jobId = requireJobId(req, res); if (!jobId) return;
   const o = normaliseOpening(req.body);
   if (o.error) return res.status(400).json({ error: o.error });
   try {
+    if (o.parent_opening_id) {
+      const own = await db.query("SELECT id FROM job_openings WHERE id = $1 AND job_id = $2 AND kind = 'bay'", [o.parent_opening_id, jobId]);
+      if (!own.rows.length) {
+        const info = Windoors.bayChildInfo({ position: o.position });
+        const bay = await db.query(
+          "SELECT id FROM job_openings WHERE job_id = $1 AND side = $2 AND level = 'standard' AND kind = 'bay' AND floor = $3 AND position = $4",
+          [jobId, o.side, o.floor - info.storey, info.bay]);
+        if (bay.rows.length) o.parent_opening_id = bay.rows[0].id;
+      }
+    }
     const result = await db.query(`
       INSERT INTO job_openings (id, job_id, side, floor, kind, position, nickname, type, size_tier, rows, cols,
-                                prep_level, prep_stage, quote_prep_level, prep_variation_id, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
-      ON CONFLICT (job_id, side, floor, kind, position) DO UPDATE SET
+                                prep_level, prep_stage, quote_prep_level, prep_variation_id,
+                                level, bay_shape, bay_storeys, parent_opening_id, panes_set, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NOW())
+      ON CONFLICT (job_id, side, level, floor, kind, position) DO UPDATE SET
         nickname = $7, type = $8, size_tier = $9, rows = $10, cols = $11, prep_level = $12,
-        prep_stage = $13, quote_prep_level = $14, prep_variation_id = $15, updated_at = NOW()
+        prep_stage = $13, quote_prep_level = $14, prep_variation_id = $15,
+        bay_shape = $17, bay_storeys = $18, parent_opening_id = $19, panes_set = $20, updated_at = NOW()
       RETURNING *
     `, [req.params.id, jobId, o.side, o.floor, o.kind, o.position, o.nickname, o.type, o.size_tier, o.rows, o.cols,
-        o.prep_level, o.prep_stage, o.quote_prep_level, o.prep_variation_id]);
+        o.prep_level, o.prep_stage, o.quote_prep_level, o.prep_variation_id,
+        o.level, o.bay_shape, o.bay_storeys, o.parent_opening_id, o.panes_set]);
     res.json({ ok: true, id: result.rows[0].id, opening: mapOpening(result.rows[0]) });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1434,6 +1454,9 @@ router.put('/windoors/openings/:id', async (req, res) => {
 
 router.delete('/windoors/openings/:id', async (req, res) => {
   try {
+    // A bay takes its windows (and their marks) with it.
+    await db.query('DELETE FROM opening_marks WHERE opening_id IN (SELECT id FROM job_openings WHERE parent_opening_id = $1)', [req.params.id]);
+    await db.query('DELETE FROM job_openings WHERE parent_opening_id = $1', [req.params.id]);
     await db.query('DELETE FROM opening_marks WHERE opening_id = $1', [req.params.id]);
     await db.query('DELETE FROM job_openings WHERE id = $1', [req.params.id]);
     res.json({ ok: true });
@@ -2429,7 +2452,7 @@ router.get('/backup/export', async (req, res) => {
     // elevation, its openings and every mark, quote and variation stage alike
     // -- the marks are the only record of what was done where.
     const wdPropertyResult = await db.query('SELECT * FROM job_property').catch(missingTable);
-    const wdOpeningsResult = await db.query('SELECT * FROM job_openings ORDER BY job_id, side, floor, kind, position').catch(missingTable);
+    const wdOpeningsResult = await db.query('SELECT * FROM job_openings ORDER BY job_id, side, level, floor, kind, position').catch(missingTable);
     const wdMarksResult = await db.query('SELECT * FROM opening_marks ORDER BY job_id, created_at ASC').catch(missingTable);
 
     // One pass per table to bucket rows by job_id, rather than filtering
@@ -2649,28 +2672,36 @@ async function copyJobRows(entry, newJobId) {
     await ensureWindoorsSchema();
     const p = wd.property;
     await db.query(
-      `INSERT INTO job_property (job_id, style, detail_enabled, default_prep, layout, coats, window_colour, door_colour, paint_products)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO job_property (job_id, style, detail_enabled, default_prep, layout, coats, window_colour, door_colour, paint_products, appearance)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        ON CONFLICT (job_id) DO NOTHING`,
       [newJobId, p.style || 'georgian', p.detail_enabled !== false, p.default_prep || 'light', p.layout || {},
         Math.max(1, Math.min(3, +p.coats || 2)), p.window_colour == null ? null : +p.window_colour,
-        p.door_colour == null ? null : +p.door_colour, normalisePaintProducts(p.paint_products)]
+        p.door_colour == null ? null : +p.door_colour, normalisePaintProducts(p.paint_products),
+        p.appearance && typeof p.appearance === 'object' ? Windoors.normaliseAppearance(p.appearance, p.style) : null]
     );
+    // Every opening gets its new id first, so a bay's windows can be pointed
+    // at their bay's new id whatever order the rows come in.
     const openingIds = new Map();
+    for (const o of (wd.openings || [])) openingIds.set(o.id, crypto.randomUUID());
     for (const o of (wd.openings || [])) {
-      const n = normaliseOpening({ side: o.side, floor: o.floor, kind: o.kind, position: o.position, nickname: o.nickname,
+      const parent = o.parent_opening_id ? openingIds.get(o.parent_opening_id) : null;
+      if (o.parent_opening_id && !parent) { openingIds.delete(o.id); continue; }
+      const n = normaliseOpening({ side: o.side, floor: o.floor, level: o.level, kind: o.kind, position: o.position, nickname: o.nickname,
         type: o.type, sizeTier: o.size_tier, rows: o.rows, cols: o.cols, prepLevel: o.prep_level, prepStage: o.prep_stage,
-        quotePrepLevel: o.quote_prep_level, prepVariationId: o.prep_variation_id });
-      if (n.error) continue;
-      const nid = crypto.randomUUID();
-      openingIds.set(o.id, nid);
+        quotePrepLevel: o.quote_prep_level, prepVariationId: o.prep_variation_id,
+        bayShape: o.bay_shape, bayStoreys: o.bay_storeys, parentOpeningId: parent, panesSet: o.panes_set });
+      if (n.error) { openingIds.delete(o.id); continue; }
+      const nid = openingIds.get(o.id);
       await db.query(
         `INSERT INTO job_openings (id, job_id, side, floor, kind, position, nickname, type, size_tier, rows, cols,
-                                   prep_level, prep_stage, quote_prep_level, prep_variation_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-         ON CONFLICT (job_id, side, floor, kind, position) DO NOTHING`,
+                                   prep_level, prep_stage, quote_prep_level, prep_variation_id,
+                                   level, bay_shape, bay_storeys, parent_opening_id, panes_set)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+         ON CONFLICT (job_id, side, level, floor, kind, position) DO NOTHING`,
         [nid, newJobId, n.side, n.floor, n.kind, n.position, n.nickname, n.type, n.size_tier, n.rows, n.cols,
-          n.prep_level, n.prep_stage, n.quote_prep_level, n.prep_variation_id]
+          n.prep_level, n.prep_stage, n.quote_prep_level, n.prep_variation_id,
+          n.level, n.bay_shape, n.bay_storeys, n.parent_opening_id, n.panes_set]
       );
     }
     for (const m of (wd.marks || [])) {
