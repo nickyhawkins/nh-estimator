@@ -343,18 +343,27 @@ Access uplifts for 1st floor and 2nd floor+ work are applied per item automatica
 **1. The house.** The **House** card sets up the drawing so it looks like the actual house. None of it changes the price; it's what the drawing looks like, and what each new window or door starts as.
 
 - **Period** — Georgian, Victorian or Modern. This is just a starting point. Picking one fills in everything below with that period's usual choices: a Georgian house starts as a stucco mid terrace behind a parapet, with 6-over-6 sashes and a pedimented door; a Victorian one as a buff-brick semi with a pitched roof and 2-over-2 sashes; a Modern one as a rendered detached house with casements. Change any of it afterwards. If you've already changed something and then pick a different period, it asks before putting everything back to that period's defaults.
-- **Finish** — stucco, buff brick, gault brick (paler and greyer), render or painted brick.
+- **Finish** — stucco, buff brick, gault brick (paler and greyer), red brick, render or painted brick.
 - **Form** — detached, semi, end terrace or mid terrace. This decides which sides there are to paint: a detached house has all four, a semi or end terrace has the front, the back and its **open side** (left or right, as you face the front), and a mid terrace just the front and back. Neighbours are drawn faintly against a terraced or semi house so it reads as one.
 - **Roof** — a **parapet**, a pitched roof with its **eaves to the street**, or a **front gable**.
+- **Sides that differ** (tap to open) — for a side that doesn't match the rest of the house: a red-brick back behind a stucco front, or a gable at one end. Each side has its own **finish** and **roof** (*parapet*, *eaves* or *gable*: what that side shows). Leave it on **Same** to follow the house. Dormers follow that side's roof, so a side set to a parapet can't have them. Picking a new period puts every side back to **Same**.
 - **Details** (tap to open) — the period's finer points. Georgian: the doorcase (pediment with a radial fanlight, plain fanlight, or portico), window heads (plain, or gauged brick arches on a brick finish), glazing (6 or 8 over 8), the band course and the front railings. Victorian: the sashes (1 or 2 over 2, or margin lights), heads (stone with a keystone, or brick arches), the entrance (recessed arched porch, open with a canopy, or gabled timber porch), bargeboards on a front gable, and plain or polychrome brick bands.
 
 ![The House card: period, finish, form and roof](images/26l-windoors-house.png)
 
 ![The Victorian details](images/26m-windoors-details.png)
 
-Every change redraws the house straight away, and applies to every side. If a change would hide a side that has windows or doors on it (a detached house changed to a mid terrace, say), or would remove dormers (changing the roof to a parapet), it tells you what will go and asks first. Those openings are deleted along with any work marked on them.
+![Sides that differ: the back in red brick](images/26s-windoors-sides.png)
 
-Below the House card, set the **Default prep** for the job; every opening starts there. Leave **Individual detail** on for old windows, where you'll want to mark single panes and frame parts; turn it off for a job of new windows where that's never needed.
+![The back drawn in red brick, the rest of the house in stucco](images/26t-windoors-red-brick-back.png)
+
+Every change redraws the house straight away, and applies to every side (except anything set under *Sides that differ*). If a change would hide a side that has windows or doors on it (a detached house changed to a mid terrace, say), or would remove dormers (changing the roof to a parapet), it tells you what will go and asks first. Those openings are deleted along with any work marked on them.
+
+Once any side's layout is confirmed, the House card folds down to one line (*Georgian · stucco · mid terrace · parapet · light prep · individual detail*) to save space. Tap it, or **Edit**, to open it again, and **Hide** to fold it.
+
+![The House card folded once the house is set up](images/26x-windoors-house-folded.png)
+
+In the House card, set the **Default prep** for the job; every opening starts there. Leave **Individual detail** on for old windows, where you'll want to mark single panes and frame parts; turn it off for a job of new windows where that's never needed.
 
 **2. Each side.** Tap a side — only the sides this house has are offered. Set the floors and how many windows (**W**) and doors (**D**) are on each — the drawing updates as you go. Doors start on the ground floor only; add one upstairs for a balcony or Juliet. The ends of the house draw as gables (or, under a front gable, as the eaves).
 
@@ -383,7 +392,7 @@ On a Georgian house a new dormer starts as a **3-over-6** sash, one row fewer on
 - **Pane rows and columns** — on a sash window, the **top sash rows** and **bottom sash rows** are set separately, with the columns shared, so a 3-over-6 is 1 row over 2 rows of 3 columns. The line under them spells it out (*3 over 6 · 9 panes*). For doors these are the panel or glass grid.
 - **Size** — each button shows the area it covers (Small is under 0.5m², Medium 0.5 to 1m², Large 1 to 2m², X-Large over 2m²).
 - **Prep** — only levels at or above the job's default are offered. An opening can go up, never down.
-- **Marking work** (with Individual detail on) — tap panes, or tap frame parts (head, stiles, rails, cill; for doors the panels, frame and threshold). A tick shows what's selected. You select one kind at a time: tapping a frame part while panes are selected starts a fresh selection. **Select all panes** and **Clear selection** do what they say. Then tap the work — **Reputty** or **Replace glass** for panes; **Filler**, **Resin repair** or **Splice timber** for parts, plus **Ironmongery off & on** on doors — or **Remove work**. The selection clears after each one.
+- **Marking work** (with Individual detail on) — tap panes, or tap frame parts (head, stiles, rails, cill; for doors the panels, frame and threshold). A tick shows what's selected. You select one kind at a time: tapping a frame part while panes are selected starts a fresh selection. **Select all panes** and **Clear selection** do what they say. Then tap the work — **Reputty** or **Replace glass** for panes; **Filler**, **Resin repair** or **Splice timber** for parts, plus **Ironmongery off & on** and **Ease** on doors, and **Re-cord**, **Replace beads** and **Ease & overhaul** on a sash window's parts — or **Remove work**. The selection clears after each one. On a sash, each mark is for that part: re-cording the left stile is the cords on that side, so mark both stiles for a full re-cord.
 
 ![Marking panes and parts on one window](images/26c-windoors-detail.png)
 
@@ -400,6 +409,12 @@ Tap a bay on the drawing to open the **bay view**. Set its **shape** (**canted**
 ![The bay view: its windows and its own parts](images/26q-windoors-bay-view.png)
 
 A bay's price is its own **bay base minutes** (Rates, by shape and storeys, covering the cornice, fascia and mullions) plus each of its windows priced as a window. Making a two-storey bay single-storey removes the upper windows, asking first if any have work on them.
+
+**Other items.** Garage doors, fanlights, porches and lean-tos don't sit on a floor. Under each side's drawing, **+ Add other item** asks what it is, then opens it. Give it the **minutes** to paint it (before prep), any **materials £** it needs beyond paint, and a **paint area** in m² (0 if you're not buying paint for it). **Painted in** sets whether it uses the doors' colour or the windows' colour. Prep works as it does on any opening. It's drawn as a tile under the house, numbered **O1, O2…** and labelled *Front, O1 (Garage door)*. You can mark its **face** and **frame** like a door's parts (filler, resin, splice, ironmongery, ease). Changing a side's layout never touches its other items; **Remove this item** at the bottom of its sheet does. On the quote it's named in the fixture's line: *…1 front door, garage door.*
+
+![A garage door as an other item, under the house](images/26u-windoors-other-items.png)
+
+![An other item's own figures](images/26v-windoors-other-sheet.png)
 
 **Paint.** The **Paint** card under the house settings sets the **coats** (2 to start), and a **product** and **colour** for the windows and for the doors — the satin on the sashes and the gloss on the black front door. The product pickers work like a room's: search the ranges, pick a colour band where the range has more than one, or leave it on *Use default (Settings)* for the exterior woodwork topcoat. The colours are the app's ordinary colour fields — type-ahead from the colour library, one-tap picks from colours already on the job — and they show on the Colours tab as *Exterior Windows* and *Exterior Doors*, beside every other area. Primer always follows the exterior primer in Settings.
 
@@ -1229,6 +1244,10 @@ Old windows are where the surprises are. On a job with [Windows and doors](#wind
 
 ![On site: prep raised and glass marked for replacing, added as a variation](images/26d-windoors-onsite-detail.png)
 
+**Tick off as done.** On site, each window's sheet ends with a **Tick off as done** list: every piece of work on it, quoted or added on site, one line each (*Reputty · top pane 3*). Tap a line as you finish it, or **tick all**. Ticks don't change the price. They decide what the work report shows, because the report lists only what was done. The On Site card counts how many are ticked off. Work on a variation the client declined isn't listed.
+
+![Ticking the work off](images/26w-windoors-tick-off.png)
+
 Everything you mark collects into one **draft** variation, worded for you from the marks — *Front, first floor, W2: reputty x4 panes, resin repair (cill).* — and shown at the top of the screen. It sits on the Variations card like any other extra; **reword for the client** changes what they'll read. Prep raised on site is charged as the difference between the old prep level and the new one.
 
 ![The draft on the Variations card](images/26f-windoors-variation-card.png)
@@ -1237,9 +1256,9 @@ Everything you mark collects into one **draft** variation, worded for you from t
 
 #### The work report
 
-Once any work is marked, the fixture screen has a **📄 Work report (PDF)** button. It builds the report as a PDF on the phone — it works with no signal — and hands it to the share sheet to save, email or print. The same report appears on the client's approval page, under their extras.
+Once any work is ticked off as done, the fixture screen has a **📄 Work report (PDF)** button. It builds the report as a PDF on the phone — it works with no signal — and hands it to the share sheet to save, email or print. The same report appears on the client's approval page, under their extras.
 
-**On the invoice.** When you build the final invoice, a tick box — on whenever there's a report — attaches it to the Xero invoice as a PDF the client can open from the online invoice. Untick it to leave it off.
+**On the invoice.** When you build the final invoice, a tick box — on whenever there's a report — attaches it to the Xero invoice as a PDF the client can open from the online invoice. Untick it to leave it off. If any quoted or approved work still isn't ticked off, a red warning under it says how much. That work would be left out of the report, so tick it on site first.
 
 ![Attaching the report to the final invoice](images/26k-windoors-invoice-attach.png)
 
@@ -1247,7 +1266,7 @@ The first time, **Xero needs reconnecting once** (Summary → Connect Xero) so i
 
 ![The report on the client's page](images/26g-windoors-report.png)
 
-For each side with work on it, it shows the elevation with the windows and doors that had work picked out, then a drawing of each of those with the panes and parts marked, and a list of the work split into **quoted work** and **approved variations** (with the date each was approved). Openings with no work are left out, variations still waiting for an answer aren't on it, and **there are no prices anywhere on it** — the invoice itself keeps one total line for the whole fixture.
+For each side with work on it, it shows the elevation with the windows and doors that had work picked out, then a drawing of each of those with the panes and parts marked, and a list of the work split into **quoted work** and **approved variations** (with the date each was approved). Openings with no work are left out, work not yet ticked off isn't on it, variations still waiting for an answer aren't on it, and **there are no prices anywhere on it** — the invoice itself keeps one total line for the whole fixture.
 
 When the work's done, tap **Mark Completed** — the job moves on, and Home reminds you it needs invoicing until you do.
 
@@ -1357,7 +1376,7 @@ Menu (☰) → **Rates** — every number the calculator uses, grouped by what i
 | Item & Job-Type | **Windows & Doors** | Window base minutes per size tier, minutes per pane, sash/casement/fixed adjustment, door base minutes per type and size, bay base minutes per shape and storeys, prep multipliers, each marked-work action's minutes and material £, and the paint areas (each size's m², the timber share per type, door leaf and frame, bay timber per storey) |
 | Scheduling | **Scheduling** | Daily overhead, schedule buffer, Work Saturdays, bank-holiday region, calendar feed |
 
-**Windows & Doors** prices each opening as *(base minutes for its size and type + panes × minutes per pane) × its prep multiplier*, plus the minutes of any work marked on it — all at your day rate, like every other timed task. The prep multipliers start at Light ×1.10, Standard ×1.25, Heavy ×1.40 and Restoration ×1.75; the material £ (glass is £25 a pane to start) is per pane or part marked, before markup. Every figure is a starting guess to calibrate.
+**Windows & Doors** prices each opening as *(base minutes for its size and type + panes × minutes per pane) × its prep multiplier*, plus the minutes of any work marked on it — all at your day rate, like every other timed task. The prep multipliers start at Light ×1.10, Standard ×1.25, Heavy ×1.40 and Restoration ×1.75; the material £ (glass is £25 a pane to start) is per pane or part marked, before markup. The sash actions start at Re-cord 40 min and £6, Replace beads 20 min and £4, and Ease & overhaul 45 min and £3, each per part; a door's Ease starts at 30 min. Other items aren't on Rates: each has its own minutes and £. Every figure is a starting guess to calibrate.
 
 ![Rates — Windows & Doors](images/26h-windoors-rates.png)
 
@@ -1466,6 +1485,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.85.2. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.86.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

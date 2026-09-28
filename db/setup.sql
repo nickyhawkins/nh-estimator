@@ -693,6 +693,9 @@ ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS bay_storeys INTEGER;          
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS parent_opening_id VARCHAR;                   -- the bay, on a bay's window
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS panes_set BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS rows_bottom INTEGER;                         -- a sash's bottom rows when they differ (3-over-6); NULL = same as rows
+ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS other_mins REAL;                            -- kind 'other' (a garage door, a porch): its painting minutes before prep
+ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS other_cost REAL;                            -- ...its materials £
+ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS other_m2 REAL;                              -- ...its timber m² for paint; type = 'door'|'window', the colour it takes
 DROP INDEX IF EXISTS job_openings_slot;
 CREATE UNIQUE INDEX IF NOT EXISTS job_openings_slot2 ON job_openings (job_id, side, level, floor, kind, position);
 CREATE INDEX IF NOT EXISTS job_openings_parent ON job_openings (parent_opening_id);
@@ -707,5 +710,6 @@ CREATE TABLE IF NOT EXISTS opening_marks (
   variation_id VARCHAR,                   -- jobs.data.windoorsVariations[].id, set when stage = 'variation'
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
+ALTER TABLE opening_marks ADD COLUMN IF NOT EXISTS done_at TIMESTAMP;                          -- ticked off on site; the report shows only ticked marks
 CREATE INDEX IF NOT EXISTS opening_marks_job ON opening_marks (job_id);
 CREATE INDEX IF NOT EXISTS opening_marks_opening ON opening_marks (opening_id);
