@@ -4,6 +4,8 @@ NH Estimator. Handoff for Claude Code.
 
 **Status: BUILT (v2.82.0).** See "Implementation notes" at the end for where each part lives and the calls made on the open questions.
 
+**Stage 2 (v2.85.0)** — the configurable house (period, finish, form, roof, details), dormers, lower ground floors and bays: `WINDOWS_DOORS_STAGE2_SPEC.md`. It answers open questions 1 (bays), 2 (lower ground) and 4 (roof style) here.
+
 ## 1. Summary
 
 Windows and doors move out of the general Exterior option into their own fixture, **Windows and doors**. Each job gets an illustrated house elevation per side (Front, Back, Left, Right). Windows and doors are set per floor, confirmed, then tapped to open a detail view where individual panes and frame parts can be marked for extra work.
