@@ -119,6 +119,7 @@ function load(server, opts) {
     },
     noteServerCopy: () => {},
     loadLabourLog: async () => {}, loadSnags: async () => {}, loadSnagRooms: async () => {},
+    loadWindoors: async () => {},
     loadSpecTicks: async () => {}, refreshSpecLink: async () => {},
     loadQuoteSnapshots: async () => {}, loadClientVariations: async () => {}, loadJobInvoices: async () => {},
     applyClientVariationAnswers: () => {}, ensureDefaultColour: () => {},

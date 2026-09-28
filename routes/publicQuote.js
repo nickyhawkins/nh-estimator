@@ -23,6 +23,7 @@
 const express = require('express');
 const db = require('../db');
 const { ensureClientQuoteSchema, loadClientQuote } = require('../lib/clientQuote');
+const { jobReportHtml } = require('../lib/windoors');
 
 const router = express.Router();
 
@@ -249,13 +250,19 @@ function quotePage(view, base, flash) {
       + (view.originalTotal != null ? ' of ' + money(view.runningTotal) : '') + '</span></div>'
       + '</div>';
 
+  // The windows and doors report (WINDOWS_DOORS_SPEC.md section 7): what
+  // was done where, with the diagrams, and no prices -- built by the server
+  // from the job's rows, so it is here whether or not a variation is pending.
+  const windoorsCard = view.windoorsReport
+    ? '<div class="card" id="windoors-report">' + view.windoorsReport + '</div>' : '';
+
   const foot = '<div class="foot">Approved extras are added to your final invoice.<br>'
     + 'Any questions, just reply to the message this link came in.</div>';
 
   return shell('Quote — ' + (b.name || 'Quote'),
     '<div class="page">' + head
     + (flash ? '<div class="flash" id="flash">' + esc(flash) + '</div>' : '')
-    + original + variations + total + invoicesCard + foot + '</div>'
+    + original + variations + total + invoicesCard + windoorsCard + foot + '</div>'
     // Progressive enhancement only: each form is submitted with fetch so the
     // answer lands without a page reload (this is opened on a phone, mid-job,
     // often on poor signal — a full navigation is where a tap goes missing
@@ -397,6 +404,15 @@ router.get(PUBLIC_PATHS, async (req, res) => {
     const { jobId, token, base } = await resolveTarget(req);
     const view = await loadClientQuote(jobId, token);
     if (!view) { recordMiss(req.ip); return res.status(404).type('html').send(notFoundPage()); }
+    // Only after the token has checked out: the report is scoped to this job.
+    // A report that fails to build must not take the approval page with it.
+    try {
+      const jd = await db.query('SELECT data FROM jobs WHERE id = $1', [jobId]);
+      view.windoorsReport = await jobReportHtml(jobId, (jd.rows[0] && jd.rows[0].data) || {}, { title: 'Windows and doors: what was done' });
+    } catch (err) {
+      console.error('Windows and doors report failed', err);
+      view.windoorsReport = '';
+    }
     // Every action on the page is built from the base the reader arrived on,
     // so a client on an old long link stays on long links and one on a short
     // link stays short -- neither ever gets bounced to the other shape.
