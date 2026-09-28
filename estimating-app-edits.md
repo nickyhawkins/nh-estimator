@@ -14,14 +14,14 @@ loadActiveJobData() already did on every job switch); a FAILED fetch still
 falls back to the local cache. The delete → re-render → reload path itself was
 already sound via the materialsSeeded flag (2026-07-15 fix).
 
-## 2. Editable markup on summary page
+## 2. Editable markup on summary page — BUILT (per-quote markup override with a %/£ toggle, negative values as a discount)
 - Markup should be editable directly on the summary page, allowing a per-quote override.
 - The default markup percentage should remain configurable in the Settings page.
 - Changing markup on the summary page for one quote should NOT change the global default in Settings.
 - The markup field should also work as a discount: allow negative values (e.g. -10%) to apply a discount instead of a markup, using the same field rather than a separate one.
 - User should be able to choose whether the value entered is a % or a fixed £ amount (toggle between the two), applying to both positive (markup) and negative (discount) values.
 
-## 3. Accepted job tracking
+## 3. Accepted job tracking — BUILT (job pipeline statuses, On Site materials actuals, the Chargeable tick on added materials)
 - Add ability to mark a quote as "Accepted" and convert/promote it into a tracked job.
 - Reuse the existing quote materials list as the starting point for job management.
 - Once colours/products are finalised, allow updating the materials list (products, quantities, costs) so it reflects real purchases.
@@ -38,7 +38,7 @@ already sound via the materialsSeeded flag (2026-07-15 fix).
 - Should filter results as the user types, rather than requiring scrolling through the full list.
 - Built everywhere it's used on site: room-form product overrides (all seven roles), the Kitchen range picker, and both Add Material pickers (Summary + Materials tracking) are search-as-you-type. Deliberately still plain selects: colour band pickers (short lists, explicit pick forced on purpose) and the Settings role-mapping dropdowns (set-once config, not an on-site surface).
 
-## 5. Remaining balance disclaimer note
+## 5. Remaining balance disclaimer note — BUILT (v2.85.2)
 Add a note (with asterisk) below the remaining balance total on the summary/invoice view:
 
 > *Material costs are estimated and may vary based on final colour and product selection. Any adjustments will be reflected in your final invoice. Significant changes in cost will always be discussed and agreed with you in advance.
