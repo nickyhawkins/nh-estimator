@@ -522,7 +522,8 @@ check('a tick is saved', /doneAt/.test(body('wdPutMark')));
 check('confirming a layout never removes an Other item', /o\.kind === 'other'/.test(body('confirmWdLayout')));
 check('the invoice screen warns about unticked work', /wdUntickedCount\(\)/.test(body('renderFinalInvoice')));
 check('dormers follow a side\'s own roof', /wdDormersAllowed\(a, wdSide\)/.test(body('confirmWdLayout')));
-check('the House card folds once a side is confirmed', /confirmed/.test(body('wdHouseIsOpen')) && /wdHouseIsOpen\(\)/.test(body('renderWindoors')) && /wdHouseSummary\(\)/.test(body('renderWindoors')));
+check('the Paint card folds too', /wdCardIsOpen\('paint'\)/.test(body('wdPaintCardHtml')));
+check('the House card folds once a side is confirmed', /confirmed/.test(body('wdCardIsOpen')) && /wdCardIsOpen\('house'\)/.test(body('wdHouseIsOpen')) && /wdHouseIsOpen\(\)/.test(body('renderWindoors')) && /wdHouseSummary\(\)/.test(body('renderWindoors')));
 check('the Rates card has the bay base minutes', /s-wd-bay-/.test(body('populateWindoorsRates')) && /s-wd-bay-/.test(body('readWindoorsRates')));
 
 console.log(pass.length + ' passed, ' + fail.length + ' failed');

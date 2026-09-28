@@ -25347,8 +25347,25 @@ function wdPaintCardHtml() {
   var p = windoors.property;
   var n = wdSideCountsAll();
   var coats = Math.max(1, Math.min(3, +p.coats || 2));
-  return '<div class="card">'
-    + '<div class="card-header">Paint<small style="text-transform:none;letter-spacing:normal;font-weight:400"> — outside faces</small></div>'
+  // Folds like the House card: open while the house is being set up, one
+  // summary line once a side's layout is confirmed (tap to reopen).
+  var open = wdCardIsOpen('paint');
+  var head = '<div class="card">'
+    + '<div class="card-header" onclick="toggleWdCard(\'paint\')" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer">'
+    + '<span>' + (open ? '▾' : '▸') + ' Paint<small style="text-transform:none;letter-spacing:normal;font-weight:400"> — outside faces</small></span>'
+    + '<span style="font-size:12px;font-weight:600;color:var(--accent);text-transform:none;letter-spacing:0">' + (open ? 'Hide' : 'Edit') + '</span></div>';
+  if (!open) {
+    var what = function(kind) {
+      var pr = wdPaintProduct(kind);
+      return (kind === 'door' ? 'doors ' : 'windows ') + colourLabelFor(wdColourOf(kind))
+        + (pr ? ' (' + pr.range + (pr.band ? ', ' + pr.band : '') + ')' : '');
+    };
+    var bits = [coats + ' coat' + (coats === 1 ? '' : 's')];
+    if (n.windows || !n.doors) bits.push(what('window'));
+    if (n.doors) bits.push(what('door'));
+    return head + '<div onclick="toggleWdCard(\'paint\')" style="padding:10px 16px 12px;font-size:13px;color:var(--text2);cursor:pointer">' + escapeHtml(bits.join(' · ')) + '</div></div>';
+  }
+  return head
     + '<div class="field-row"><div class="field-label">Coats</div><div class="seg" style="width:150px">'
     + [1, 2, 3].map(function(c) { return '<button type="button" class="seg-btn' + (c === coats ? ' active' : '') + '" onclick="setWdCoats(' + c + ')">' + c + '</button>'; }).join('')
     + '</div></div>'
@@ -25710,20 +25727,23 @@ function setWdSide(side) { wdSide = side; wdLayoutDraft = null; renderWindoors()
 var wdDetailsOpen = false;   // the Details drawer on the House card
 var wdBaysOpen = false;      // the Bays steppers, on a Georgian/Modern house
 var wdSidesOpen = false;     // the per-side finish/roof drawer
-// The House card's fold, per job: unset = automatic (open until a side's
+// The House card's fold, per job and card: unset = automatic (open until a side's
 // layout is confirmed, folded after); a tap sets it for this job until the
 // app reloads.
-var wdHouseOpenFor = {};
-function wdHouseIsOpen() {
-  var k = windoors.jobId || activeJobId;
-  if (Object.prototype.hasOwnProperty.call(wdHouseOpenFor, k)) return wdHouseOpenFor[k];
+// The Paint card folds the same way (card 'paint').
+var wdCardOpenFor = {};
+function wdCardIsOpen(card) {
+  var k = (windoors.jobId || activeJobId) + '|' + card;
+  if (Object.prototype.hasOwnProperty.call(wdCardOpenFor, k)) return wdCardOpenFor[k];
   var L = (windoors.property && windoors.property.layout) || {};
   return !Object.keys(L).some(function(side) { return L[side] && L[side].confirmed; });
 }
-function toggleWdHouse() {
-  wdHouseOpenFor[windoors.jobId || activeJobId] = !wdHouseIsOpen();
+function toggleWdCard(card) {
+  wdCardOpenFor[(windoors.jobId || activeJobId) + '|' + card] = !wdCardIsOpen(card);
   renderWindoors();
 }
+function wdHouseIsOpen() { return wdCardIsOpen('house'); }
+function toggleWdHouse() { toggleWdCard('house'); }
 // One line for the folded card: "Georgian · stucco · mid terrace · parapet ·
 // back differs · light prep · individual detail".
 function wdHouseSummary() {

@@ -359,9 +359,9 @@ Access uplifts for 1st floor and 2nd floor+ work are applied per item automatica
 
 Every change redraws the house straight away, and applies to every side (except anything set under *Sides that differ*). If a change would hide a side that has windows or doors on it (a detached house changed to a mid terrace, say), or would remove dormers (changing the roof to a parapet), it tells you what will go and asks first. Those openings are deleted along with any work marked on them.
 
-Once any side's layout is confirmed, the House card folds down to one line (*Georgian · stucco · mid terrace · parapet · light prep · individual detail*) to save space. Tap it, or **Edit**, to open it again, and **Hide** to fold it.
+Once any side's layout is confirmed, the House card folds down to one line (*Georgian · stucco · mid terrace · parapet · light prep · individual detail*) to save space, and so does the Paint card (*2 coats · windows White · doors Black*). Tap either one, or **Edit**, to open it again, and **Hide** to fold it.
 
-![The House card folded once the house is set up](images/26x-windoors-house-folded.png)
+![The House and Paint cards folded once the house is set up](images/26x-windoors-house-folded.png)
 
 In the House card, set the **Default prep** for the job; every opening starts there. Leave **Individual detail** on for old windows, where you'll want to mark single panes and frame parts; turn it off for a job of new windows where that's never needed.
 
@@ -1485,6 +1485,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.86.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.86.1. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

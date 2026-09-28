@@ -143,6 +143,8 @@ The header still reads *"Painting of &lt;room&gt;:"* on a strip-out job run thro
 
 Held by `npm run test:wallpaper-strip` (49 assertions, including three real shapes of job sent through `createXeroQuote()` against a capturing endpoint, asserting on the actual payload) plus 5 in `npm run test:scope`.
 
+**2026-09-28 (v2.86.1): the Windows and doors Paint card folds too.** Same rule as the House card (open while the house is set up, folded to one line once a side's layout is confirmed: coats, then each colour with its product if one is picked); the fold state is now `wdCardOpenFor[job|card]` for both cards. The colour slots and product pickers are only drawn while it's open, and fill in again when it reopens.
+
 **2026-09-28 (v2.86.0): Windows and doors, the open questions answered.** The calls on `WINDOWS_DOORS_SPEC.md` §9 and the stage 2 list, and what they built:
 - **Other items per side** (§9 "misc slot"): garage doors, fanlights, porches, lean-tos. Rows of kind `other` on `job_openings`, numbered O1… per side, added by hand from Measure (the layout never touches them), each priced from its own `other_mins` (× the prep multiplier), `other_cost` (materials £, in the quote) and `other_m2` (paint, pooled with the doors' or windows' colour by `type`). Drawn as tiles under the elevation; tappable and markable (face, frame) with the door actions; named in the item line (*…1 front door, garage door.*).
 - **Sash actions** (§9 "sash-specific elements"): **Re-cord**, **Replace beads**, **Ease & overhaul** (`sashOnly`), on a sash's frame parts, per part — actions rather than new tappable elements, so the drawing stays tappable on a phone. Rates 40/20/45 min, £6/£4/£3.
