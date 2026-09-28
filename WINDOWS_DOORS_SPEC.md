@@ -194,5 +194,5 @@ The fixture's item line text should reflect what's included (ties into the exist
 - On site, type/size/pane layout are read-only: changing them could lower the quote, which is the floor.
 - Door glass counts as panes (pane actions, per-pane minutes); door panels count as parts (frame actions). Ironmongery is a door-only part action.
 - The old Exterior window/sash sections are hidden on any job that doesn't already have windows priced there; a pointer to the fixture shows instead.
-- Paint materials: not yet folded into the materials estimate (see FEATURES.md) — the fixture prices labour and repair materials only.
+- Paint materials (v2.83.0): coats + a windows colour and a doors colour on `job_property`; litres from the Exterior form's assumed areas per window/sash/door scaled by tier, × coats ÷ exterior woodwork coverage, primer at 0.8 — pooled into the Exterior Woodwork / Exterior Primer rows. Product follows the Settings exterior woodwork default.
 - Open questions 1–10 are not built; the elevation numbering on the back is left to right facing the back, as specified.

@@ -126,6 +126,20 @@ eq('item line pluralises', W.itemLineText({ openings: [sash, Object.assign({}, s
 eq('an upstairs door reads as a balcony door',
   W.itemLineText({ openings: [Object.assign({}, door, { floor: 1 })], marks: [] }), 'Exterior windows and doors (outside faces): 1 balcony door.');
 
+// ── Paint areas ────────────────────────────────────────────────────────────
+// The Exterior form's own assumptions: area per window / per sash, the door
+// face + frame, scaled by size tier; glass is not painted.
+const AREAS = { window: 1.5, sash: 2.5, doorFace: 1.75, doorFrame: 0.4 };
+near('a medium casement is one "area per window"', W.openingPaintM2({ kind: 'window', type: 'casement', size_tier: 'medium' }, AREAS), 1.5);
+near('a sash uses the sash area', W.openingPaintM2({ kind: 'window', type: 'sash', size_tier: 'medium' }, AREAS), 2.5);
+near('size tier scales it', W.openingPaintM2({ kind: 'window', type: 'sash', size_tier: 'large' }, AREAS), 3.5);
+near('a panelled door is face + frame', W.openingPaintM2({ kind: 'door', type: 'panelled', size_tier: 'standard' }, AREAS), 2.15);
+check('a glazed door paints less than a panelled one',
+  W.openingPaintM2({ kind: 'door', type: 'fully_glazed', size_tier: 'standard' }, AREAS) < 2.15);
+near('french doors are two leaves', W.openingPaintM2({ kind: 'door', type: 'french_double', size_tier: 'standard' }, AREAS), (1.75 * 0.45 + 0.4) * 2);
+const pa = W.paintAreas({ openings: [sash, door] }, AREAS);
+check('windows and doors are totalled apart (two colours)', Math.abs(pa.window - 3.5) < 1e-9 && Math.abs(pa.door - (1.75 * 0.75 + 0.4)) < 1e-9 && pa.windows === 1 && pa.doors === 1);
+
 // ── Drawings ───────────────────────────────────────────────────────────────
 const layoutData = { property: { style: 'victorian', default_prep: 'light', layout: { front: { floors: [{ windows: 2, doors: 1 }, { windows: 3, doors: 0 }], confirmed: true } } },
   openings: [sash, door], marks: data.marks };
@@ -175,6 +189,11 @@ const body = name => {
   ['findVariationEntry', "kind === 'windoors'"],
   ['variationRawOf', "'windoors'"],
   ['loadActiveJobData', 'loadWindoors('],
+  // Paint: joins the exterior woodwork rows, is an area on the Colours tab,
+  // and can be coloured from there.
+  ['computeMaterials', 'windoorsPaintItems()'],
+  ['colourAreas', 'windoorsPaintItems()'],
+  ['setAreaColourNumber', "ref.kind === 'windoors'"],
 ].forEach(([fn, needle]) => check(fn + ' includes the windows and doors fixture', body(fn).indexOf(needle) >= 0));
 check('the Xero quote carries it as a line', /exteriorData\.push\(\{ label: windoorsLineText\(\)/.test(SRC));
 check('the shell loads the shared module', SRC.indexOf('<script src="/windoors.js"></script>') >= 0);

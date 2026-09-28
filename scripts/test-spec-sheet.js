@@ -94,6 +94,8 @@ const sandbox = {
   calcKitchen: (k) => ({ total: k && k._total ? k._total : 0 }),
   ensureKitchenShape: (j) => j.kitchen,
   fittedUnitList: (j) => (j && j.fittedUnits) || [],
+  // Windows and doors paint: none on these fixtures.
+  windoorsPaintItems: () => [],
   fittedUnitName: (f) => (f && f.name) || 'Fitted Unit',
   calcFittedUnit: (f) => ({ total: +f._total || 0 }),
   jobCustomItems: (j) => (j && j.customItems) || [],

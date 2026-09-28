@@ -1396,11 +1396,12 @@ router.put('/windoors/property', async (req, res) => {
   const p = normaliseProperty(req.body);
   try {
     const result = await db.query(`
-      INSERT INTO job_property (job_id, style, detail_enabled, default_prep, layout, updated_at)
-      VALUES ($1, $2, $3, $4, $5, NOW())
-      ON CONFLICT (job_id) DO UPDATE SET style = $2, detail_enabled = $3, default_prep = $4, layout = $5, updated_at = NOW()
-      RETURNING style, detail_enabled, default_prep, layout
-    `, [jobId, p.style, p.detail_enabled, p.default_prep, p.layout]);
+      INSERT INTO job_property (job_id, style, detail_enabled, default_prep, layout, coats, window_colour, door_colour, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+      ON CONFLICT (job_id) DO UPDATE SET style = $2, detail_enabled = $3, default_prep = $4, layout = $5,
+        coats = $6, window_colour = $7, door_colour = $8, updated_at = NOW()
+      RETURNING *
+    `, [jobId, p.style, p.detail_enabled, p.default_prep, p.layout, p.coats, p.window_colour, p.door_colour]);
     res.json({ ok: true, property: mapProperty(result.rows[0]) });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2682,9 +2683,12 @@ async function copyJobRows(entry, newJobId) {
     await ensureWindoorsSchema();
     const p = wd.property;
     await db.query(
-      `INSERT INTO job_property (job_id, style, detail_enabled, default_prep, layout) VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO job_property (job_id, style, detail_enabled, default_prep, layout, coats, window_colour, door_colour)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (job_id) DO NOTHING`,
-      [newJobId, p.style || 'georgian', p.detail_enabled !== false, p.default_prep || 'light', p.layout || {}]
+      [newJobId, p.style || 'georgian', p.detail_enabled !== false, p.default_prep || 'light', p.layout || {},
+        Math.max(1, Math.min(3, +p.coats || 2)), p.window_colour == null ? null : +p.window_colour,
+        p.door_colour == null ? null : +p.door_colour]
     );
     const openingIds = new Map();
     for (const o of (wd.openings || [])) {

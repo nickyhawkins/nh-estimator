@@ -14430,8 +14430,14 @@ function computeMaterials() {
   // sub-surfaces are self-priming), NOT a flat topcoat×0.8 any more -- same
   // reasoning as interior primerL above.
   var masonryRows   = buildRoleRows('Masonry / Render', 'masonry', function(it) { return extMasonryLitres(it); }, function(it) { return extMasonryLitres(it) <= 0; }, extItems);
-  var extTopcoatRows= buildRoleRows('Exterior Woodwork', 'extTopcoat', function(it) { return ew(it); }, function(it) { return ew(it) <= 0; }, extItems);
-  var extPrimerRows = buildRoleRows('Exterior Primer', 'extPrimer', function(it) { return ep(it); }, function(it) { return ep(it) <= 0; }, extItems);
+  // The Windows and doors fixture joins these two roles as stand-in items
+  // (windoorsPaintItems) carrying their own litres and colour, so its paint
+  // pools with the exterior items' into one row per product and colour.
+  var extWoodItems = extItems.concat(windoorsPaintItems());
+  var ewAny = function(it) { return it.wdPaint ? it.topcoatL : ew(it); };
+  var epAny = function(it) { return it.wdPaint ? it.primerL : ep(it); };
+  var extTopcoatRows= buildRoleRows('Exterior Woodwork', 'extTopcoat', ewAny, function(it) { return ewAny(it) <= 0; }, extWoodItems);
+  var extPrimerRows = buildRoleRows('Exterior Primer', 'extPrimer', epAny, function(it) { return epAny(it) <= 0; }, extWoodItems);
 
   // ── Fitted Unit roles: same engine, sourced from job.fittedUnits ────────
   // Litres come from calcFittedUnit()'s count-scaled assumed areas (per
@@ -15781,6 +15787,8 @@ function snagAreas() {
     if (extWoodworkLitres(it) > 0) parts.push({ role: 'Woodwork', num: it.extWoodworkColourNumber || 1 });
     push(it.label || 'Exterior', parts);
   });
+  var wdParts = windoorsPaintItems().map(function(it) { return { role: it.label, num: it.extWoodworkColourNumber }; });
+  if (wdParts.length) push('Windows & doors', wdParts);
   var job = activeJob();
   if (job) {
     var k = ensureKitchenShape(job);
@@ -17131,6 +17139,18 @@ function jobSpecModel() {
         product: effectiveRoleRange(it, 'extTopcoat'),
         includes: englishJoin(wood), prep: SPEC_PREP_LINES.extwoodwork });
     }
+  });
+  // Windows and doors: one row per colour it paints, keyed on the fixture
+  // (not a room id), so a tick survives the layout being edited.
+  windoorsPaintItems().forEach(function(it) {
+    var nW = windoors.openings.filter(function(o) { return o.kind === it.wdPaint; }).length;
+    rows.push({ key: 'windoors:windoors:' + it.wdPaint, areaKey: 'windoors', area: 'Windows & doors', tag: '', areaNote: '',
+      stage: 'other', label: it.wdPaint === 'door' ? 'Doors, outside faces' : 'Windows, outside faces', steps: ['prep', 'done'],
+      coats: specCoatsLabel((windoors.property && windoors.property.coats) || 2),
+      colour: colourScheduleLabel(it.extWoodworkColourNumber),
+      product: ((settings.materials || {}).extTopcoat || {}).range || '',
+      includes: nW + ' ' + (it.wdPaint === 'door' ? (nW === 1 ? 'door' : 'doors') : (nW === 1 ? 'window' : 'windows')),
+      prep: SPEC_PREP_LINES.extwoodwork });
   });
 
   var job2 = activeJob();
@@ -20599,7 +20619,9 @@ var AREA_ROLE_WORDS = {
   // them (see colourAreas). By default they ride the woodwork colour and buy
   // no litres of their own, so they are not an area at all.
   radiator: 'Radiators',
-  masonry: 'Masonry', extwoodwork: 'Woodwork'
+  masonry: 'Masonry', extwoodwork: 'Woodwork',
+  // Windows and doors fixture: its two colours ("Exterior Windows").
+  wdwindows: 'Windows', wddoors: 'Doors'
 };
 
 function areaPlaceholder(owner, role) {
@@ -20694,6 +20716,12 @@ function colourAreas(live) {
                  num: +fu.colourNumber || 1, ref: { kind: 'fittedunit', id: fu.id, role: 'fittedunit' } });
     });
   }
+  // Windows and doors: one area per colour the fixture actually paints --
+  // windows only if it has windows, doors only if it has doors.
+  windoorsPaintItems().forEach(function(it) {
+    add('Exterior', it.wdPaint === 'door' ? 'wddoors' : 'wdwindows', it.extWoodworkColourNumber,
+        { kind: 'windoors', id: 'windoors', role: it.wdPaint });
+  });
   // Snag groups with no measured room behind them (SNAGS_SPEC.md). They are
   // areas like any other here -- which is the point: it means the Colours tab
   // lists them beside real rooms, an unnamed colour can read as one of them,
@@ -22313,7 +22341,8 @@ function renderColours() {
     var panelRooms = rooms.filter(function(r){ return (r.panelColourNumber||1)===c.number && (r.panelItems||[]).length>0; }).map(function(r){ return r.name; });
     // Exterior items assigned to this colour (masonry vs exterior woodwork).
     var masonryItems = extItems.filter(function(it){ return (it.masonryColourNumber||1)===c.number && extMasonryLitres(it)>0; }).map(function(it){ return it.label; });
-    var extWoodItems = extItems.filter(function(it){ return (it.extWoodworkColourNumber||1)===c.number && extWoodworkLitres(it)>0; }).map(function(it){ return it.label; });
+    var extWoodItems = extItems.filter(function(it){ return (it.extWoodworkColourNumber||1)===c.number && extWoodworkLitres(it)>0; }).map(function(it){ return it.label; })
+      .concat(windoorsPaintItems().filter(function(it){ return it.extWoodworkColourNumber===c.number; }).map(function(it){ return it.label; }));
     var matRows = allMatRows.filter(function(r){ return r.colourNumber===c.number; });
     var hasBreakdown = wallRooms.length || ceilRooms.length || woodRooms.length || featureWallRooms.length || panelRooms.length || masonryItems.length || extWoodItems.length || matRows.length;
     var surfaces = surfaceSummary(wallRooms.length>0, ceilRooms.length>0, woodRooms.length>0, featureWallRooms.length>0, panelRooms.length>0);
@@ -22394,6 +22423,10 @@ function setAreaColourNumber(ref, num) {
     if (!fu) return;
     fu.colourNumber = num;
     saveFittedUnitJob();
+    return;
+  }
+  if (ref.kind === 'windoors') {
+    setWdColour(ref.role === 'door' ? 'door' : 'window', num);
   }
 }
 
@@ -22979,6 +23012,8 @@ function refreshColourSlots() {
   // woodwork refreshes its quick-picks. Safe to re-enter: the render only
   // calls back into here from its own apply/pick handlers.
   renderRadiatorColourRow();
+  // The Windows and doors screen's two colour fields, when it is showing.
+  populateWdColourSlots();
 }
 
 // ── Exterior item colour chips ──────────────────────────────────────────────
@@ -25120,7 +25155,8 @@ function wdPutProperty() {
   var p = windoors.property;
   return apiPutStrict('/api/windoors/property' + wdQ(), {
     jobId: windoors.jobId, style: p.style, detailEnabled: p.detail_enabled !== false,
-    defaultPrep: p.default_prep, layout: p.layout || {}
+    defaultPrep: p.default_prep, layout: p.layout || {},
+    coats: p.coats || 2, windowColour: p.window_colour || null, doorColour: p.door_colour || null
   }).catch(function(e) { wdFail('the house settings', e); });
 }
 function wdPutOpening(o) {
@@ -25163,11 +25199,114 @@ function wdChanged() {
   if (wdOpenId) renderWdDetail();
 }
 
+// ── Paint for the fixture ─────────────────────────────────────────────────
+// The outside faces buy exterior woodwork paint the way the Exterior form's
+// windows and doors always have: assumed m² per opening (Rates › Exterior
+// Paint Coverage & Areas -- the same "area per window / per sash" and the
+// door face + frame areas), × coats ÷ the exterior woodwork coverage, with
+// primer at 0.8 of that (the app's primer proxy). They join the SAME
+// Exterior Woodwork and Exterior Primer rows as exterior items, so a sash
+// and a fascia in the same product and colour are one round-up of tins, not
+// two.
+//
+// Two colours, not one: the windows and the doors. White sashes and a black
+// front door is the Georgian house the drawing is of.
+function wdPaintAreaSettings() {
+  return {
+    window: settings.extAreaWindow != null ? settings.extAreaWindow : 1.5,
+    sash: settings.extAreaSash != null ? settings.extAreaSash : 2.5,
+    doorFace: settings.doorFaceAreaM2 != null ? settings.doorFaceAreaM2 : 1.75,
+    doorFrame: settings.doorFrameAreaM2 != null ? settings.doorFrameAreaM2 : 0.4
+  };
+}
+// Stand-in items for the exterior woodwork roles in computeMaterials(): each
+// carries the colour field those roles group by and its own litres. Nothing
+// else reads them. Empty unless the fixture is in use on this job.
+function windoorsPaintItems() {
+  if (!wdInUse()) return [];
+  var p = windoors.property;
+  var a = Windoors.paintAreas(windoors, wdPaintAreaSettings());
+  var coats = Math.max(1, Math.min(3, +p.coats || 2));
+  var cov = settings.extWoodCov || 12;
+  var out = [];
+  var push = function(kind, m2, num) {
+    if (!(m2 > 0)) return;
+    var top = m2 * coats / cov;
+    out.push({ wdPaint: kind, label: kind === 'door' ? 'Doors' : 'Windows', extWoodworkColourNumber: num || 1,
+               topcoatL: top, primerL: top * 0.8 });
+  };
+  push('window', a.window, p.window_colour);
+  push('door', a.door, p.door_colour);
+  return out;
+}
+
+function wdPaintCardHtml() {
+  var p = windoors.property;
+  var n = wdSideCountsAll();
+  var coats = Math.max(1, Math.min(3, +p.coats || 2));
+  return '<div class="card">'
+    + '<div class="card-header">Paint<small style="text-transform:none;letter-spacing:normal;font-weight:400"> — outside faces, on the exterior woodwork product</small></div>'
+    + '<div class="field-row"><div class="field-label">Coats</div><div class="seg" style="width:150px">'
+    + [1, 2, 3].map(function(c) { return '<button type="button" class="seg-btn' + (c === coats ? ' active' : '') + '" onclick="setWdCoats(' + c + ')">' + c + '</button>'; }).join('')
+    + '</div></div>'
+    + (n.windows || !n.doors ? '<div class="field-row" style="border-top:1px solid var(--border);flex-wrap:wrap"><div class="field-label">Windows colour</div><div id="seg-colour-wd-window" style="width:100%"></div></div>' : '')
+    + (n.doors ? '<div class="field-row" style="border-top:1px solid var(--border);flex-wrap:wrap"><div class="field-label">Doors colour</div><div id="seg-colour-wd-door" style="width:100%"></div></div>' : '')
+    + '<div style="padding:0 16px 12px;font-size:11px;color:var(--text2)">Litres use the Exterior Woodwork product and coverage, and the assumed areas per window, sash and door, on Rates. They join the exterior woodwork tins on Summary.</div>'
+    + '</div>';
+}
+function wdSideCountsAll() {
+  return { windows: windoors.openings.filter(function(o) { return o.kind === 'window'; }).length,
+           doors: windoors.openings.filter(function(o) { return o.kind === 'door'; }).length };
+}
+function setWdCoats(c) {
+  windoors.property.coats = c;
+  wdPutProperty(); wdChanged();
+}
+// The two colour fields: the app's ordinary colour slot (library lookup,
+// rename-vs-fork, quick picks), persisting immediately like the kitchen's.
+function wdColourOf(kind) {
+  var p = windoors.property || {};
+  return +(kind === 'door' ? p.door_colour : p.window_colour) || 1;
+}
+function setWdColour(kind, num) {
+  invalidateColourPlaceholders();
+  if (!windoors.property) return;
+  if (kind === 'door') windoors.property.door_colour = num; else windoors.property.window_colour = num;
+  wdSaveMirror();
+  wdPutProperty();
+}
+function populateWdColourSlots() {
+  ['window', 'door'].forEach(function(kind) {
+    var seg = document.getElementById('seg-colour-wd-' + kind);
+    if (!seg || !windoors.property) return;
+    ensureDefaultColour();
+    var slot = 'a-wd-' + kind;
+    var cur = wdColourOf(kind);
+    registerColourSlot(slot, {
+      apply: function(label, brand, code) {
+        var next = applyAreaColourName(cur, label, brand, code, liveColourState());
+        if (next !== cur) { setWdColour(kind, next); pruneOrphanColour(cur, liveColourState()); }
+        saveColours();
+        refreshColourSlots();
+      },
+      pick: function(picked) {
+        if (picked === cur) return;
+        setWdColour(kind, picked);
+        pruneOrphanColour(cur, liveColourState());
+        saveColours();
+        refreshColourSlots();
+      }
+    });
+    seg.innerHTML = colourSlotHtml(slot, cur, areaPlaceholder('Exterior', kind === 'door' ? 'wddoors' : 'wdwindows'), liveColourState());
+  });
+}
+
 // ── Opening the screen ────────────────────────────────────────────────────
 function wdEnsureProperty() {
   if (windoors.jobId !== activeJobId) windoors = { jobId: activeJobId, property: null, openings: [], marks: [] };
   if (windoors.property) return false;
-  windoors.property = { style: 'georgian', detail_enabled: true, default_prep: 'light', layout: {} };
+  windoors.property = { style: 'georgian', detail_enabled: true, default_prep: 'light', layout: {},
+                        coats: 2, window_colour: null, door_colour: null };
   return true;
 }
 async function openWindoors(mode) {
@@ -25239,7 +25378,8 @@ function renderWindoors() {
       + '<div style="padding:0 16px 10px">' + wdSegHtml(Windoors.PREP_LEVELS, p.default_prep || 'light', 'setWdDefaultPrep') + '</div>'
       + '<div class="toggle-row" style="border-top:1px solid var(--border)"><div class="toggle-label">Individual detail<small>mark single panes and frame parts for extra work — worth it on old windows, not new ones</small></div>'
       + '<div class="toggle' + (p.detail_enabled !== false ? ' on' : '') + '" onclick="toggleWdDetailEnabled()"></div></div>'
-      + '</div>';
+      + '</div>'
+      + wdPaintCardHtml();
   }
   // Side picker, with a count on each side that has openings.
   html += '<div class="seg" style="margin:4px 0 10px">' + Windoors.SIDES.map(function(s) {
@@ -25265,6 +25405,7 @@ function renderWindoors() {
   }
   body.innerHTML = html;
   wdWireElevation();
+  populateWdColourSlots();
 }
 
 function wdSideCardHtml() {

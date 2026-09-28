@@ -362,6 +362,12 @@ Access uplifts for 1st floor and 2nd floor+ work are applied per item automatica
 
 Orange is work, blue is glass being replaced. Work marked here is **quoted** work and shows solid; work added on site shows dashed. Changing the type or the pane grid clears that opening's marks, so it asks first if there are any. The list under the diagram says, in words, everything on this opening.
 
+**Paint.** The **Paint** card under the house settings sets the **coats** (2 to start) and two colours: **Windows colour** and **Doors colour**, for the white sashes and black front door. They're the app's ordinary colour fields — type-ahead from the colour library, one-tap picks from colours already on the job — and they show on the Colours tab as *Exterior Windows* and *Exterior Doors*, beside every other area.
+
+![The Paint card: coats, and a colour for the windows and one for the doors](images/26i-windoors-paint.png)
+
+The litres are worked out the way the Exterior form's windows and doors always were: an assumed area per opening — **Rates → Exterior Paint Coverage & Areas**' area per window (per sash for a sash), and the door face and frame areas, scaled by size tier, with the glass left out on a glazed door — times the coats, at the exterior woodwork coverage, plus primer. The paint goes on Summary in the same **Exterior Woodwork** and **Exterior Primer** rows as any exterior item, using the exterior woodwork product from Settings, so windows and a fascia in the same colour are one lot of tins. It's also on the job spec sheet as its own rows. On a job whose materials list was already made, tap **Recalculate** on Summary to bring it in.
+
 **On the quote** the whole fixture is **one line**, worded from what's in it — *Exterior windows and doors (outside faces): 5 sash windows, 1 front door. Includes reputty x3, resin repair x1.* — through Summary, the client's quote, Xero and the final invoice. The minutes behind it (see [Rates](#14-rates)) go into the job's time like any other labour.
 
 The work report — what was done where, with the drawings — is covered under [On Site](#windows-and-doors-on-site).
@@ -1403,6 +1409,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.82.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.83.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

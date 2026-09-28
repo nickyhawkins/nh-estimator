@@ -398,6 +398,41 @@
     return out;
   }
 
+  // ── Paint: the outside-face area to buy paint for ────────────────────────
+  // Same assumed-area idea as the Exterior form (a count carries no measured
+  // m²): each window is the form's own "area per window" (sash: "area per
+  // sash") scaled by its size tier, and each door is the door-face area plus
+  // the frame, less the glass on a glazed door. The caller supplies the
+  // figures from its Rates page -- this module never reads settings -- and
+  // turns m² × coats into litres at the exterior woodwork coverage, exactly
+  // as the Exterior form's woodwork does, so the two buy paint the same way.
+  //
+  //   areas: { window, sash, doorFace, doorFrame } in m²
+  var PAINT_TIER = { small: 0.7, medium: 1, large: 1.4, xlarge: 1.9, standard: 1, oversized: 1.25 };
+  // Share of a door leaf that is timber rather than glass.
+  var DOOR_TIMBER = { panelled: 1, flush: 1, stable: 1, half_glazed: 0.75, fully_glazed: 0.45, french_double: 0.45 };
+  function openingPaintM2(o, areas) {
+    var a = areas || {};
+    var tier = PAINT_TIER[o.size_tier] || 1;
+    if (o.kind === 'door') {
+      var leaves = o.type === 'french_double' ? 2 : 1;
+      var face = num(a.doorFace, 1.75) * (DOOR_TIMBER[o.type] != null ? DOOR_TIMBER[o.type] : 1) * leaves;
+      return (face + num(a.doorFrame, 0.4) * leaves) * tier;
+    }
+    return (o.type === 'sash' ? num(a.sash, 2.5) : num(a.window, 1.5)) * tier;
+  }
+  // Totals by kind, because windows and doors can be different colours (the
+  // white sashes and the black front door) and each colour is its own row of
+  // tins.
+  function paintAreas(data, areas) {
+    var out = { window: 0, door: 0, windows: 0, doors: 0 };
+    ((data && data.openings) || []).forEach(function (o) {
+      var m2 = openingPaintM2(o, areas);
+      if (o.kind === 'door') { out.door += m2; out.doors++; } else { out.window += m2; out.windows++; }
+    });
+    return out;
+  }
+
   // ── Words ────────────────────────────────────────────────────────────────
   // One opening's marks as a clause: "reputty x4 panes, resin repair (cill)".
   // Pane actions count panes (a client can count them); part actions name the
@@ -1031,7 +1066,7 @@
     openingElements: openingElements, elementKind: elementKind, actionsFor: actionsFor, paneCount: paneCount,
     openingCode: openingCode, openingLabel: openingLabel, sortOpenings: sortOpenings,
     effectivePrep: effectivePrep, quotePrep: quotePrep, baseMinutes: baseMinutes, paintedMinutes: paintedMinutes,
-    priceJob: priceJob, marksClause: marksClause, describeVariation: describeVariation, itemLineText: itemLineText,
+    priceJob: priceJob, openingPaintM2: openingPaintM2, paintAreas: paintAreas, marksClause: marksClause, describeVariation: describeVariation, itemLineText: itemLineText,
     workFlags: workFlags, elevationSvg: elevationSvg, detailSvg: detailSvg,
     reportModel: reportModel, reportHtml: reportHtml, fmtDate: fmtDate
   };
