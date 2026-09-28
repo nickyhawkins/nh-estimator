@@ -362,9 +362,9 @@ Access uplifts for 1st floor and 2nd floor+ work are applied per item automatica
 
 Orange is work, blue is glass being replaced. Work marked here is **quoted** work and shows solid; work added on site shows dashed. Changing the type or the pane grid clears that opening's marks, so it asks first if there are any. The list under the diagram says, in words, everything on this opening.
 
-**Paint.** The **Paint** card under the house settings sets the **coats** (2 to start) and two colours: **Windows colour** and **Doors colour**, for the white sashes and black front door. They're the app's ordinary colour fields — type-ahead from the colour library, one-tap picks from colours already on the job — and they show on the Colours tab as *Exterior Windows* and *Exterior Doors*, beside every other area.
+**Paint.** The **Paint** card under the house settings sets the **coats** (2 to start), and a **product** and **colour** for the windows and for the doors — the satin on the sashes and the gloss on the black front door. The product pickers work like a room's: search the ranges, pick a colour band where the range has more than one, or leave it on *Use default (Settings)* for the exterior woodwork topcoat. The colours are the app's ordinary colour fields — type-ahead from the colour library, one-tap picks from colours already on the job — and they show on the Colours tab as *Exterior Windows* and *Exterior Doors*, beside every other area. Primer always follows the exterior primer in Settings.
 
-![The Paint card: coats, and a colour for the windows and one for the doors](images/26i-windoors-paint.png)
+![The Paint card: coats, and a product and colour each for the windows and the doors](images/26i-windoors-paint.png)
 
 The litres are for the **timber only** — a window is mostly glass. Each window starts from its own size (the middle of its size button's range: a Medium window is 0.75 m²) and takes the share of that which is timber: 35% for a casement, 40% for a sash, 25% for a fixed light, plus 2% for each extra pane's glazing bars, up to 60%. So a Medium 6-over-6 sash is 0.45 m² of paint, and a Large one 0.9 m². A door is its leaf less any glass, plus the frame. That's times the coats, at the exterior woodwork coverage, plus primer. Every figure is under **Rates → Windows & Doors → Paint areas**.
 
@@ -1193,7 +1193,13 @@ Everything you mark collects into one **draft** variation, worded for you from t
 
 #### The work report
 
-Once any work is marked, the fixture screen has a **📄 Work report (PDF)** button. It opens a page — ready to print or save as a PDF from the phone's share sheet — to attach to the Xero invoice. The same report appears on the client's approval page, under their extras.
+Once any work is marked, the fixture screen has a **📄 Work report (PDF)** button. It builds the report as a PDF on the phone — it works with no signal — and hands it to the share sheet to save, email or print. The same report appears on the client's approval page, under their extras.
+
+**On the invoice.** When you build the final invoice, a tick box — on whenever there's a report — attaches it to the Xero invoice as a PDF the client can open from the online invoice. Untick it to leave it off.
+
+![Attaching the report to the final invoice](images/26k-windoors-invoice-attach.png)
+
+The first time, **Xero needs reconnecting once** (Summary → Connect Xero) so it grants the app permission to add attachments; until then the invoice is still created, and the message says the report wasn't attached and why. Once the job has its invoice, the fixture screen also has **📎 Attach the report to invoice INV-…** — for a report that didn't go on first time, or to replace it after a change (attaching again replaces the earlier copy).
 
 ![The report on the client's page](images/26g-windoors-report.png)
 
@@ -1412,6 +1418,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.83.1. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.84.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

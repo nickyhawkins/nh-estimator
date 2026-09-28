@@ -35,6 +35,33 @@ const XERO_API_URL = 'https://api.xero.com/api.xro/2.0';
 // — and says precisely that rather than showing a bare error.
 const SCOPES = 'openid profile email offline_access accounting.contacts accounting.settings.read accounting.invoices accounting.banktransactions accounting.payments';
 
+// 2026-09-28: accounting.attachments, for the Windows and doors work report
+// on the final invoice (WINDOWS_DOORS_SPEC.md section 7). Asked for ON TOP of
+// SCOPES rather than folded into it, because of the July saga above: one
+// scope this app isn't permitted fails the WHOLE connect with invalid_scope,
+// which would take every Xero feature down to add one. So /connect asks with
+// it, and if Xero answers invalid_scope the callback remembers that
+// (settings.xero_attachments_refused) and reconnects straight away without
+// it -- the worst case is a report that can't be attached, never an app that
+// can't connect. The flag is a column, not a key in settings.data: that blob
+// is rewritten whole by the app's every settings save and would lose it.
+const ATTACHMENTS_SCOPE = 'accounting.attachments';
+let attachmentsColumnReady = null;
+function ensureAttachmentsColumn() {
+  if (!attachmentsColumnReady) {
+    attachmentsColumnReady = db.query('ALTER TABLE settings ADD COLUMN IF NOT EXISTS xero_attachments_refused BOOLEAN NOT NULL DEFAULT FALSE')
+      .catch(err => { attachmentsColumnReady = null; throw err; });
+  }
+  return attachmentsColumnReady;
+}
+async function attachmentsRefused() {
+  try {
+    await ensureAttachmentsColumn();
+    const r = await db.query('SELECT xero_attachments_refused FROM settings WHERE id = 1');
+    return !!(r.rows[0] && r.rows[0].xero_attachments_refused);
+  } catch (err) { return false; }
+}
+
 // Builds the {Contacts:[...]} entry for a Xero contact create/update PUT.
 // Fields left blank are OMITTED (undefined keys never reach JSON.stringify),
 // not sent as empty strings -- so updating an existing ContactID with only
@@ -108,13 +135,16 @@ async function putXeroContact(accessToken, tenantId, payload) {
 }
 
 // Step 1: Redirect to Xero login
-router.get('/connect', (req, res) => {
+router.get('/connect', async (req, res) => {
+  const withAttachments = !(await attachmentsRefused());
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: process.env.XERO_CLIENT_ID,
     redirect_uri: process.env.XERO_REDIRECT_URI,
-    scope: SCOPES,
-    state: 'xero-auth'
+    scope: withAttachments ? SCOPES + ' ' + ATTACHMENTS_SCOPE : SCOPES,
+    // The state says which ask this was, so the callback knows whether an
+    // invalid_scope can be blamed on the attachments scope.
+    state: withAttachments ? 'xero-auth-att' : 'xero-auth'
   });
   res.redirect(`${XERO_AUTH_URL}?${params}`);
 });
@@ -122,6 +152,19 @@ router.get('/connect', (req, res) => {
 // Step 2: Handle callback from Xero
 router.get('/xero/callback', async (req, res) => {
   const { code } = req.query;
+  // Xero refused the attachments scope for this app: remember, and go
+  // round again without it (see ATTACHMENTS_SCOPE). Only ever for the ask
+  // that carried it, so this can't loop.
+  if (!code && req.query.error === 'invalid_scope' && req.query.state === 'xero-auth-att') {
+    try {
+      await ensureAttachmentsColumn();
+      await db.query('UPDATE settings SET xero_attachments_refused = TRUE WHERE id = 1');
+      console.warn('Xero refused accounting.attachments for this app -- reconnecting without it');
+      return res.redirect('/auth/connect');
+    } catch (err) {
+      console.error('Could not record the refused attachments scope', err);
+    }
+  }
   if (!code) return res.redirect('/?error=xero_auth_failed');
   // A scope-probe login must NEVER be exchanged: its token would carry the
   // probe's reduced scopes and silently replace the real one, breaking API
@@ -260,7 +303,12 @@ router.get('/status', async (req, res) => {
   try {
     const result = await db.query('SELECT xero_token, xero_tenant_id FROM settings WHERE id = 1');
     const { xero_token, xero_tenant_id } = result.rows[0];
-    res.json({ connected: !!xero_token, tenantId: xero_tenant_id });
+    // Whether the connection can attach files (the granted scopes are on the
+    // token Xero issued). A connection made before attachments were asked for
+    // can't, until it is reconnected once.
+    const scope = (xero_token && xero_token.scope) || '';
+    res.json({ connected: !!xero_token, tenantId: xero_tenant_id,
+               attachments: scope.split(/\s+/).indexOf(ATTACHMENTS_SCOPE) !== -1 });
   } catch (err) {
     res.json({ connected: false });
   }
@@ -1500,6 +1548,48 @@ router.post('/create-invoice', async (req, res) => {
       ? ' — this can mean Xero needs reconnecting once to grant invoice permission (Summary → Connect Xero)'
       : '';
     res.status(500).json({ error: xeroErrorMessage(err) + hint });
+  }
+});
+
+// Attach a PDF to an invoice (the Windows and doors work report, built on the
+// phone -- see buildWindoorsReportPdf). IncludeOnline so the client can open
+// it from the online invoice Xero sends them. Xero replaces an attachment of
+// the same file name, so attaching again after a change updates it rather
+// than stacking copies. A 401/403 is the scope this connection wasn't granted
+// (reconnect once) and is reported as such.
+router.post('/invoice-attachment', async (req, res) => {
+  const { invoiceId, fileName, pdfBase64 } = req.body || {};
+  if (!invoiceId || !/^[0-9a-f-]{36}$/i.test(String(invoiceId))) return res.status(400).json({ error: 'invoiceId is required' });
+  const name = String(fileName || 'report.pdf').replace(/[^A-Za-z0-9 ._-]+/g, '').slice(0, 120) || 'report.pdf';
+  const bytes = Buffer.from(String(pdfBase64 || ''), 'base64');
+  if (bytes.length < 8 || bytes.slice(0, 5).toString('latin1') !== '%PDF-') return res.status(400).json({ error: 'that is not a PDF' });
+  try {
+    const accessToken = await getAccessToken();
+    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    const tenantId = result.rows[0]?.xero_tenant_id;
+    if (!tenantId) return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
+    await axios.post(
+      `${XERO_API_URL}/Invoices/${encodeURIComponent(invoiceId)}/Attachments/${encodeURIComponent(name.endsWith('.pdf') ? name : name + '.pdf')}?IncludeOnline=true`,
+      bytes,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Xero-Tenant-Id': tenantId,
+          'Content-Type': 'application/pdf',
+          Accept: 'application/json'
+        },
+        maxBodyLength: Infinity
+      }
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Invoice attachment error:', err.response?.data || err.message);
+    const status = err.response?.status;
+    const reconnect = status === 401 || status === 403;
+    res.status(reconnect ? 403 : 500).json({
+      error: reconnect ? 'Xero hasn\'t given this app permission to add attachments yet' : xeroErrorMessage(err),
+      reconnect
+    });
   }
 });
 
