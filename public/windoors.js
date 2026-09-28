@@ -93,14 +93,22 @@
   // `on` is the element kind an action applies to. For doors, glass takes the
   // pane actions and panels take the timber (part) actions -- a door panel is
   // timber, and filling or resin-repairing one is the same job as on a stile.
-  // `doorOnly`: ironmongery has nothing to come off a window frame.
+  // `doorOnly`: ironmongery has nothing to come off a window frame, and easing
+  // is a door's (an Other item -- a garage door, a porch -- takes both too).
+  // `sashOnly`: cords, beads and an overhaul are a box sash's own work; on a
+  // sash's frame parts, each mark is that part's share (re-cord the left
+  // stile = the cords on that side).
   var ACTIONS = [
     { key: 'reputty', label: 'Reputty', verb: 'reputty', on: 'pane' },
     { key: 'replace_glass', label: 'Replace glass', verb: 'replace glass', on: 'pane', glass: true },
     { key: 'filler', label: 'Filler', verb: 'filler', on: 'part' },
     { key: 'resin', label: 'Resin repair', verb: 'resin repair', on: 'part' },
     { key: 'splice', label: 'Splice timber', verb: 'splice timber', on: 'part' },
-    { key: 'ironmongery', label: 'Ironmongery off & on', verb: 'ironmongery off and on', on: 'part', doorOnly: true }
+    { key: 'record', label: 'Re-cord', verb: 're-cord', on: 'part', sashOnly: true },
+    { key: 'beads', label: 'Replace beads', verb: 'replace beads', on: 'part', sashOnly: true },
+    { key: 'overhaul', label: 'Ease & overhaul', verb: 'ease and overhaul', on: 'part', sashOnly: true },
+    { key: 'ironmongery', label: 'Ironmongery off & on', verb: 'ironmongery off and on', on: 'part', doorOnly: true },
+    { key: 'ease', label: 'Ease', verb: 'ease', on: 'part', doorOnly: true }
   ];
 
   // ── Appearance (stage 2) ─────────────────────────────────────────────────
@@ -113,6 +121,7 @@
     { key: 'stucco', label: 'Stucco' },
     { key: 'buff_brick', label: 'Buff brick' },
     { key: 'gault_brick', label: 'Gault brick' },
+    { key: 'red_brick', label: 'Red brick' },
     { key: 'render', label: 'Render' },
     { key: 'painted_brick', label: 'Painted brick' }
   ];
@@ -175,7 +184,15 @@
     georgian: { doorcase: 'pedimented_radial', heads: 'plain', glazing: '6_over_6', band_courses: true, railings: true },
     victorian: { sash: '2_over_2', heads: 'stone_keystone', entrance: 'recessed_arched_porch', bargeboards: false, brick_detailing: 'plain' }
   };
-  var BRICK_FINISHES = { buff_brick: true, gault_brick: true, painted_brick: true };
+  var BRICK_FINISHES = { buff_brick: true, gault_brick: true, red_brick: true, painted_brick: true };
+  // What one side of the house shows of the roof, when it's set for that
+  // side on its own (appearance.sides) rather than read from the house's
+  // roof (roofKindFor).
+  var SIDE_ROOFS = [
+    { key: 'parapet', label: 'Parapet' },
+    { key: 'eaves', label: 'Eaves' },
+    { key: 'gable', label: 'Gable' }
+  ];
 
   function inList(list, key) {
     for (var i = 0; i < list.length; i++) if (list[i].key === key) return true;
@@ -190,7 +207,7 @@
     period = periodKey(period);
     var d = PERIOD_DEFAULTS[period];
     return {
-      period: period, finish: d.finish, form: d.form, exposed_side: 'left', roof: d.roof,
+      period: period, finish: d.finish, form: d.form, exposed_side: 'left', roof: d.roof, sides: {},
       georgian: Object.assign({}, DETAIL_DEFAULTS.georgian),
       victorian: Object.assign({}, DETAIL_DEFAULTS.victorian)
     };
@@ -202,6 +219,23 @@
       var v = raw[opt.key];
       if (opt.bool) out[opt.key] = typeof v === 'boolean' ? v : DETAIL_DEFAULTS[period][opt.key];
       else out[opt.key] = inList(opt.options, v) ? v : DETAIL_DEFAULTS[period][opt.key];
+    });
+    return out;
+  }
+  // Per-side overrides (v2.86.0): the back of a house is often plainer, or in
+  // another finish -- a stucco front on a brick back. { back: { finish,
+  // roof } }, each field optional; absent = the house's own. roof here is
+  // what that side SHOWS (SIDE_ROOFS), not the house's roof setting.
+  function normaliseSideOverrides(raw) {
+    var out = {};
+    raw = raw && typeof raw === 'object' ? raw : {};
+    SIDES.forEach(function (s) {
+      var o = raw[s.key];
+      if (!o || typeof o !== 'object') return;
+      var v = {};
+      if (inList(FINISHES, o.finish)) v.finish = o.finish;
+      if (inList(SIDE_ROOFS, o.roof)) v.roof = o.roof;
+      if (v.finish || v.roof) out[s.key] = v;
     });
     return out;
   }
@@ -217,6 +251,7 @@
       form: inList(FORMS, raw.form) ? raw.form : d.form,
       exposed_side: inList(EXPOSED_SIDES, raw.exposed_side) ? raw.exposed_side : 'left',
       roof: inList(ROOFS, raw.roof) ? raw.roof : d.roof,
+      sides: normaliseSideOverrides(raw.sides),
       georgian: normaliseDetails('georgian', raw.georgian),
       victorian: normaliseDetails('victorian', raw.victorian)
     };
@@ -238,6 +273,7 @@
     a = normaliseAppearance(a);
     var d = periodDefaults(a.period);
     if (a.finish !== d.finish || a.roof !== d.roof || a.form !== d.form) return false;
+    if (Object.keys(a.sides).length) return false;
     var mine = a[a.period] || {}, dd = DETAIL_DEFAULTS[a.period] || {};
     return Object.keys(dd).every(function (k) { return mine[k] === dd[k]; });
   }
@@ -267,10 +303,22 @@
   // parapet or the gable; the ends of the house see the other one.
   function roofKindFor(a, side) {
     a = normaliseAppearance(a);
+    var own = a.sides[side] && a.sides[side].roof;
+    if (own) return own;
     var end = side === 'left' || side === 'right';
     if (a.roof === 'front_gable') return end ? 'eaves' : 'gable';
     if (end) return 'gable';
     return a.roof === 'parapet' ? 'parapet' : 'eaves';
+  }
+
+  // The appearance ONE side is drawn with: the house's, with that side's
+  // own finish in place of the house's when it has one. (Its roof override
+  // is read by roofKindFor, which every drawing path already goes through.)
+  function sideAppearance(a, side) {
+    a = normaliseAppearance(a);
+    var own = a.sides[side];
+    if (own && own.finish) a.finish = own.finish;
+    return a;
   }
 
   // The Rates page's figures, as shipped. Minutes throughout, converted to £
@@ -325,7 +373,11 @@
       filler: { mins: 10, cost: 0 },
       resin: { mins: 25, cost: 4 },
       splice: { mins: 60, cost: 8 },
-      ironmongery: { mins: 20, cost: 0 }
+      record: { mins: 40, cost: 6 },
+      beads: { mins: 20, cost: 4 },
+      overhaul: { mins: 45, cost: 3 },
+      ironmongery: { mins: 20, cost: 0 },
+      ease: { mins: 30, cost: 0 }
     }
   };
 
@@ -404,6 +456,7 @@
   }
   function sideLabel(key) { var s = findKey(SIDES, key); return s ? s.label : key; }
   function typeLabel(o) {
+    if (o.kind === 'other') return 'Other';
     if (o.kind === 'bay') { var b = findKey(BAY_SHAPES, o.bay_shape); return b ? b.label : 'Canted'; }
     var t = findKey(o.kind === 'door' ? DOOR_TYPES : WINDOW_TYPES, o.type);
     return t ? t.label : '';
@@ -412,10 +465,25 @@
   // "Sash window", "Canted bay", "Panelled door" -- what the thing is, for
   // the report and the detail sheet.
   function kindNoun(o) {
+    if (o.kind === 'other') return otherName(o);
     if (o.kind === 'bay') return typeLabel(o) + ' bay';
     if (o.kind === 'door') return typeLabel(o) + ' door';
     return (levelOf(o) === 'roof' ? 'Dormer, ' + typeLabel(o).toLowerCase() : typeLabel(o)) + ' window';
   }
+
+  // ── Other items (v2.86.0) ────────────────────────────────────────────────
+  // Garage doors, fanlights, porches, lean-tos: things on a side that don't
+  // sit on a floor. Rows of kind 'other', numbered O1, O2... per side, added
+  // by hand (never by the layout). Each is priced from its own figures, not
+  // the Rates card: other_mins (painting it, before prep), other_cost
+  // (materials £) and other_m2 (timber to buy paint for). Its type says which
+  // colour it's painted with: 'door' (the front door's) or 'window'.
+  var OTHER_PAINT = [
+    { key: 'door', label: 'Doors colour' },
+    { key: 'window', label: 'Windows colour' }
+  ];
+  function otherName(o) { return (o && o.nickname) || 'Other item'; }
+  function otherFigure(v, max) { var n = +v; return isFinite(n) && n > 0 ? Math.min(max, n) : 0; }
 
   // ── Layout: the per-side floor counts ────────────────────────────────────
   // property.layout = { front: { floors: [{windows, doors, bays}, ...],
@@ -577,7 +645,7 @@
   }
 
   function paneCount(o) {
-    if (o.kind === 'bay') return 0;
+    if (o.kind === 'bay' || o.kind === 'other') return 0;
     if (o.kind === 'door') return doorGlass(o);
     if (o.type === 'sash') { var sr = sashRows(o); return (sr.top + sr.bottom) * clampGrid(o.cols); }
     return clampGrid(o.rows) * clampGrid(o.cols);
@@ -586,7 +654,7 @@
   var PART_LABELS = {
     head: 'head', left_stile: 'left stile', right_stile: 'right stile', bottom_rail: 'bottom rail',
     meeting_rail: 'meeting rail', cill: 'cill', stile_left: 'left stile', stile_right: 'right stile',
-    top_rail: 'top rail', frame: 'frame', threshold: 'threshold',
+    top_rail: 'top rail', frame: 'frame', threshold: 'threshold', face: 'face',
     dormer_fascia: 'dormer fascia', dormer_cheek_left: 'left dormer cheek', dormer_cheek_right: 'right dormer cheek',
     bay_cornice: 'bay cornice', bay_fascia: 'bay fascia', bay_mullion_left: 'left mullion',
     bay_mullion_right: 'right mullion', bay_cill: 'bay cill'
@@ -596,6 +664,12 @@
 
   function openingElements(o) {
     var out = [];
+    if (o.kind === 'other') {
+      // Generic: the thing itself and whatever it's framed by.
+      out.push({ id: 'face', kind: 'part', label: PART_LABELS.face });
+      out.push({ id: 'frame', kind: 'part', label: PART_LABELS.frame });
+      return out;
+    }
     if (o.kind === 'bay') {
       BAY_PARTS.forEach(function (id) { out.push({ id: id, kind: 'part', label: PART_LABELS[id] }); });
       return out;
@@ -632,16 +706,21 @@
   }
   // The actions that can go on a selection of this kind, for this opening.
   function actionsFor(o, kind) {
-    return ACTIONS.filter(function (a) { return a.on === kind && (!a.doorOnly || o.kind === 'door'); });
+    return ACTIONS.filter(function (a) {
+      return a.on === kind && (!a.doorOnly || o.kind === 'door' || o.kind === 'other')
+        && (!a.sashOnly || (o.kind === 'window' && o.type === 'sash'));
+    });
   }
 
   // ── Labels ───────────────────────────────────────────────────────────────
   function openingCode(o) {
+    if (o.kind === 'other') return 'O' + (+o.position || 1);
     if (isBayChild(o)) { var c = bayChildInfo(o); return 'B' + c.bay + ' ' + c.face; }
     return (o.kind === 'door' ? 'D' : o.kind === 'bay' ? 'B' : 'W') + (+o.position || 1);
   }
   // Where on the side: "first floor", "lower ground", "dormer".
   function levelLabel(o) {
+    if (o.kind === 'other') return 'other items';
     var lv = levelOf(o);
     return lv === 'lower_ground' ? 'lower ground' : lv === 'roof' ? 'dormer' : floorLabel(o.floor);
   }
@@ -649,6 +728,9 @@
   // Stage 2: "Front, lower ground, W1", "Front, dormer, W2",
   // "Front, ground floor, B1 front".
   function openingLabel(o, withNickname) {
+    // An Other item's name IS its nickname, so it's always there:
+    // "Front, O1 (Garage door)".
+    if (o.kind === 'other') return sideLabel(o.side) + ', ' + openingCode(o) + ' (' + otherName(o) + ')';
     var s = sideLabel(o.side) + ', ' + levelLabel(o) + ', ' + openingCode(o);
     if (withNickname !== false && o.nickname) s += ' (' + o.nickname + ')';
     return s;
@@ -659,13 +741,15 @@
     var sideRank = { front: 0, back: 1, left: 2, right: 3 };
     var levelRank = { lower_ground: 0, standard: 1, roof: 2 };
     var kindRank = function (o) { return isBayChild(o) || o.kind === 'bay' ? 1 : o.kind === 'door' ? 2 : 0; };
+    // Other items come after everything on the side's floors.
+    var lvl = function (o) { return o.kind === 'other' ? 3 : levelRank[levelOf(o)]; };
     var posKey = function (o) {
       if (o.kind === 'bay') return (+o.position || 0) * 100;
       if (isBayChild(o)) { var c = bayChildInfo(o); return c.bay * 100 + (+o.position % 10); }
       return +o.position || 0;
     };
     return list.slice().sort(function (a, b) {
-      return (sideRank[a.side] - sideRank[b.side]) || (levelRank[levelOf(a)] - levelRank[levelOf(b)])
+      return (sideRank[a.side] - sideRank[b.side]) || (lvl(a) - lvl(b))
         || ((+a.floor || 0) - (+b.floor || 0)) || (kindRank(a) - kindRank(b)) || (posKey(a) - posKey(b));
     });
   }
@@ -688,6 +772,7 @@
   }
 
   function baseMinutes(o, rates) {
+    if (o.kind === 'other') return otherFigure(o.other_mins, 6000);
     if (o.kind === 'bay') {
       var bb = rates.bayBase[o.bay_shape] || rates.bayBase.canted;
       return bb[bayStoreys(o)];
@@ -743,9 +828,13 @@
       byId[o.id] = o;
       var painted = paintedMinutes(o, rates);
       var qMult = rates.prep[quotePrep(o, property)] || 1;
-      var per = { painted: painted, quoteMins: painted * qMult, quoteMaterials: 0, varMins: 0, varMaterials: 0 };
+      // An Other item's own materials £ are part of the quote, like its
+      // minutes.
+      var own = o.kind === 'other' ? otherFigure(o.other_cost, 100000) : 0;
+      var per = { painted: painted, quoteMins: painted * qMult, quoteMaterials: own, varMins: 0, varMaterials: 0 };
       out.perOpening[o.id] = per;
       out.quote.mins += per.quoteMins;
+      out.quote.materials += own;
       out.quote.count++;
       if (o.prep_stage === 'variation') {
         var nowMult = rates.prep[effectivePrep(o, property)] || 1;
@@ -787,6 +876,7 @@
   // woodwork coverage, exactly as the Exterior form's woodwork does.
   function openingPaintM2(o, rawRates) {
     var P = (rawRates && rawRates.paint && rawRates.paint.area ? rawRates : mergeRates(rawRates)).paint;
+    if (o.kind === 'other') return otherFigure(o.other_m2, 200);
     if (o.kind === 'bay') return P.bay * bayStoreys(o);
     var area = P.area[o.size_tier] != null ? P.area[o.size_tier] : (o.kind === 'door' ? P.area.standard : P.area.medium);
     if (o.kind === 'door') {
@@ -809,6 +899,8 @@
     // joinery), but it is not a window to count.
     liveOpenings(data && data.openings).forEach(function (o) {
       var m2 = openingPaintM2(o, rates);
+      // An Other item goes in with whichever colour it's painted, uncounted.
+      if (o.kind === 'other') { if (o.type === 'window') out.window += m2; else out.door += m2; return; }
       if (o.kind === 'door') { out.door += m2; out.doors++; } else { out.window += m2; if (o.kind !== 'bay') out.windows++; }
     });
     return out;
@@ -871,7 +963,9 @@
     var counts = {}, order = [];
     var bump = function (k) { if (!counts[k]) { counts[k] = 0; order.push(k); } counts[k]++; };
     sortOpenings(openings).forEach(function (o) {
-      if (o.kind === 'door') {
+      if (o.kind === 'other') {
+        bump('other:' + otherName(o).toLowerCase());
+      } else if (o.kind === 'door') {
         var where = levelOf(o) === 'lower_ground' ? 'lower ground' : +o.floor > 0 ? 'balcony' : (o.side === 'front' ? 'front' : o.side === 'back' ? 'back' : 'side');
         bump(where + ' door');
       } else if (o.kind === 'bay') {
@@ -886,9 +980,11 @@
     if (!order.length) return head + '.';
     // Windows, then bays, then doors, whatever order the house was walked
     // in. (A bay's own windows are counted among the windows.)
-    var rank = function (k) { return /door$/.test(k) ? 2 : /bay$/.test(k) ? 1 : 0; };
+    var rank = function (k) { return /^other:/.test(k) ? 3 : /door$/.test(k) ? 2 : /bay$/.test(k) ? 1 : 0; };
     order.sort(function (a, b) { return rank(a) - rank(b); });
     var text = head + ': ' + order.map(function (k) {
+      // An Other item's name is whatever was typed: named, never pluralised.
+      if (/^other:/.test(k)) { var nm = k.slice(6); return counts[k] === 1 ? nm : counts[k] + ' × ' + nm; }
       return counts[k] + ' ' + k + (counts[k] === 1 ? '' : (/s$/.test(k) ? 'es' : 's'));
     }).join(', ') + '.';
     var qMarks = marks.filter(function (m) { return m.stage !== 'variation'; });
@@ -916,12 +1012,13 @@
     victorian: { wall: '#d9c088', wallLine: '#c3a86c', roof: '#4f5660', trim: '#ece6d6', frame: '#f6f3ea', door: '#2f5d3a' },
     modern: { wall: '#f4f4f1', wallLine: '#dcdcd6', low: '#8b8e91', lowLine: '#777a7d', roof: '#77736e', trim: '#e9e9e6', frame: '#383e42', door: '#6b7075' }
   };
-  // Wall finishes. No red brick anywhere (the spec's rule): the gauged
-  // arches and polychrome bands are a deeper buff, cream or grey.
+  // Wall finishes. Stage 2 left red brick out; it's back as a finish of its
+  // own (v2.86.0) -- its arches a rubbed orange, its bands a buff.
   var FINISH_PAL = {
     stucco: { wall: '#efe8d8', line: '#d8cdb4', fine: '#e2d9c5', arch: '#d9cfb9' },
     buff_brick: { wall: '#d9c088', line: '#c3a86c', arch: '#c9a566', band: '#f0e7cf' },
     gault_brick: { wall: '#e2dcc5', line: '#cbc2a6', arch: '#d0c6a8', band: '#a5a39b' },
+    red_brick: { wall: '#b8674b', line: '#9a513a', arch: '#d08a5e', band: '#e3cfa6' },
     render: { wall: '#f2ede1', line: null },
     painted_brick: { wall: '#f1efe9', line: '#dbd7cc', arch: '#e4e0d6', band: '#aeaca5' }
   };
@@ -1286,9 +1383,10 @@
   // Positions every opening on one side, level by level. Uses the saved rows
   // where they exist and the layout counts otherwise (an unconfirmed side is
   // drawn as a preview of what confirming will create).
+  var OTHER_TILE = { w: 74, h: 30 };
   function sideGeometry(data, side) {
     var property = (data && data.property) || {};
-    var a = appearanceOf(property);
+    var a = sideAppearance(appearanceOf(property), side);
     var style = a.period;
     var layout = sideLayout(property, side);
     var end = side === 'left' || side === 'right';
@@ -1352,6 +1450,10 @@
     var rowW = function (list, fi) { return list.reduce(function (t, o) { return t + itemW(o, fi) + 26; }, 0); };
     var widest = floors.reduce(function (m, f, fi) { return Math.max(m, rowW(f.items, fi) + rowW(f.through, fi - 1)); }, 0);
     if (lower) widest = Math.max(widest, rowW(lower, 0));
+    // Other items: a row of tiles under the house, in position order.
+    var others = rows.filter(function (r) { return r.kind === 'other'; })
+      .sort(function (x, y) { return (+x.position || 0) - (+y.position || 0); });
+    widest = Math.max(widest, others.length * (OTHER_TILE.w + 12) - 40);
     if (roof) widest = Math.max(widest, rowW(roof, -1) + 80);
     var W = Math.max(end ? 200 : 260, widest + 60);
     var floorH = floors.map(function (f, fi) {
@@ -1366,7 +1468,7 @@
     var roofTall = roof ? roof.reduce(function (m, o) { return Math.max(m, drawnSize(o, style, -1).h); }, 0) : 0;
     var roofH = roofKind === 'gable' ? Math.min(120, W * 0.42) : roofKind === 'parapet' ? 30 : (style === 'victorian' ? 62 : style === 'georgian' ? 56 : 48);
     if (roof && roof.length) roofH = Math.max(roofH, roofTall + (roofKind === 'gable' ? 50 : 32));
-    return { a: a, style: style, floors: floors, lower: lower, roof: roof, floorH: floorH, lowerH: lowerH, W: W,
+    return { a: a, style: style, floors: floors, lower: lower, roof: roof, others: others, floorH: floorH, lowerH: lowerH, W: W,
              roofKind: roofKind, roofH: roofH, end: end, confirmed: layout.confirmed };
   }
 
@@ -1394,6 +1496,8 @@
     var lowerH = g.lowerH;
     var frontRailings = style === 'georgian' && a.georgian.railings && side === 'front' && !g.lower;
     var H = groundY + lowerH + (frontRailings ? 34 : 22);
+    var otherTop = H + 12;
+    if (g.others.length) H = otherTop + OTHER_TILE.h + 10;
     var x0 = 30 + nbL, x1 = x0 + W, vbW = W + 60 + nbL + nbR;
     var s = '';
     // ground
@@ -1600,6 +1704,22 @@
         place(o, [o.id], glyph, { x: cx, y: oy, w: w, h: h }, oy - (rk === 'gable' ? 5 : 21));
       });
     }
+    if (g.others.length) {
+      // Other items: tiles in a strip under the house -- they have no place
+      // on the elevation, but they're tapped, badged and highlighted like
+      // anything on it.
+      s += rect(0, otherTop - 10, vbW, H - otherTop + 10, '#eef1f4');
+      var oxs = placeRow(g.others.map(function () { return OTHER_TILE.w; }), x0, W);
+      g.others.forEach(function (o, i) {
+        var ox = oxs[i], oy = otherTop + 2, name = otherName(o);
+        if (name.length > 13) name = name.slice(0, 12) + '…';
+        var glyph = rect(ox, oy, OTHER_TILE.w, OTHER_TILE.h - 4, o.type === 'window' ? p.frame : p.door, ' stroke="#8a929b" stroke-width="0.8" rx="3"')
+          + '<text x="' + r1(ox + OTHER_TILE.w / 2) + '" y="' + r1(oy + 16) + '" text-anchor="middle" font-family="Barlow, Arial, sans-serif" font-size="9" fill="'
+          + (o.type === 'window' && p.frame !== PAL.modern.frame ? PAL.ink : '#fff') + '">' + esc(name) + '</text>';
+        // Its code sits in the strip, above the tile.
+        place(o, [o.id], glyph, { x: ox, y: oy, w: OTHER_TILE.w, h: OTHER_TILE.h - 4 }, oy - 1);
+      });
+    }
     s += openingsSvg;
     // Railings: along the top of the light well, stepping round a bridge to
     // each ground-floor door; or a Georgian house's front railings.
@@ -1667,7 +1787,13 @@
     var P = function (pts, base, cx, cy) { return { s: '<polygon points="' + pts.map(function (q) { return r1(q[0]) + ',' + r1(q[1]); }).join(' ') + '" fill="%FILL%" stroke="%STROKE%" stroke-width="%SW%"%DASH%/>', baseFill: base, cx: cx, cy: cy }; };
     var timber = '#f7f5ef', glassFill = '#cfe3ee', panelFill = '#ece7da';
     var W, H;
-    if (o.kind === 'door') {
+    if (o.kind === 'other') {
+      // Nothing to know about its shape: a frame round a face, named.
+      W = 240; H = 170;
+      s += draw('frame', R(0, 0, W, H, timber));
+      s += draw('face', R(20, 20, W - 40, H - 40, panelFill));
+      s += '<text x="' + r1(W / 2) + '" y="' + r1(H / 2 + 5) + '" text-anchor="middle" font-family="Barlow, Arial, sans-serif" font-size="15" font-weight="700" fill="' + PAL.ink + '" pointer-events="none">' + esc(otherName(o)) + '</text>';
+    } else if (o.kind === 'door') {
       var rows = clampGrid(o.rows), cols = clampGrid(o.cols);
       var double = o.type === 'french_double';
       W = double ? 300 : 190; H = 330;
@@ -1851,13 +1977,29 @@
   // variations: [{ id, status, approvedAt }] -- only APPROVED variation work
   // is reported; a draft, a pending ask or a declined one is not something
   // that was done.
-  function reportModel(data, variations) {
-    var property = (data && data.property) || {};
+  //
+  // And only marks TICKED OFF as done on site (done_at, v2.86.0): the report
+  // says what was done, not what was planned. Prep isn't a mark and has no
+  // tick -- the whole opening was prepped to it.
+  function reportableMarks(data, variations) {
     var approved = {};
     (variations || []).forEach(function (v) { if (v && v.status === 'approved') approved[v.id] = v; });
-    var marks = ((data && data.marks) || []).filter(function (m) {
-      return m.stage !== 'variation' || approved[m.variation_id];
-    });
+    var live = {};
+    liveOpenings(data && data.openings).forEach(function (o) { live[o.id] = true; });
+    return { approved: approved, marks: ((data && data.marks) || []).filter(function (m) {
+      return live[m.opening_id] && (m.stage !== 'variation' || approved[m.variation_id]);
+    }) };
+  }
+  // The marks the report would show if they were ticked: what the invoice
+  // screen warns about before attaching it.
+  function untickedMarks(data, variations) {
+    return reportableMarks(data, variations).marks.filter(function (m) { return !m.done_at; });
+  }
+  function reportModel(data, variations) {
+    var property = (data && data.property) || {};
+    var rm = reportableMarks(data, variations);
+    var approved = rm.approved;
+    var marks = rm.marks.filter(function (m) { return !!m.done_at; });
     var sections = [];
     var openingsWithWork = {};
     var live = liveOpenings(data && data.openings);
@@ -1934,7 +2076,7 @@
       + '.wdr .wdr-sw{display:inline-block;width:14px;height:10px;border:1px solid #555}'
       + '@media(max-width:520px){.wdr .wdr-open{flex-direction:column}.wdr .wdr-open .wdr-fig{flex:none;width:170px}}</style>';
     if (opts.title !== false) out += '<h2>' + esc(opts.title || 'Windows and doors: work report') + '</h2>';
-    out += '<p class="wdr-note">Outside faces only. Openings are numbered left to right as you face each side of the house.</p>';
+    out += '<p class="wdr-note">Outside faces only. Openings are numbered left to right as you face each side of the house. Only work ticked off as done is listed.</p>';
     out += '<div class="wdr-key"><span><i class="wdr-sw" style="background:' + PAL.work + '"></i>work</span>'
       + '<span><i class="wdr-sw" style="background:' + PAL.glassWork + '"></i>glass replaced</span>'
       + '<span><i class="wdr-sw" style="background:rgba(240,160,32,.25);border:2px dashed #c07a00"></i>agreed as a variation</span></div>';
@@ -1964,10 +2106,10 @@
     SIDES: SIDES, STYLES: STYLES, PERIODS: PERIODS, WINDOW_TYPES: WINDOW_TYPES, DOOR_TYPES: DOOR_TYPES,
     WINDOW_TIERS: WINDOW_TIERS, DOOR_TIERS: DOOR_TIERS, PREP_LEVELS: PREP_LEVELS, ACTIONS: ACTIONS,
     LEVELS: LEVELS, BAY_SHAPES: BAY_SHAPES, BAY_FACES: BAY_FACES,
-    FINISHES: FINISHES, FORMS: FORMS, EXPOSED_SIDES: EXPOSED_SIDES, ROOFS: ROOFS, PERIOD_OPTIONS: PERIOD_OPTIONS,
+    FINISHES: FINISHES, SIDE_ROOFS: SIDE_ROOFS, FORMS: FORMS, EXPOSED_SIDES: EXPOSED_SIDES, ROOFS: ROOFS, PERIOD_OPTIONS: PERIOD_OPTIONS,
     DEFAULT_RATES: DEFAULT_RATES,
     periodDefaults: periodDefaults, normaliseAppearance: normaliseAppearance, appearanceOf: appearanceOf,
-    appearanceIsDefault: appearanceIsDefault, visibleSides: visibleSides, attachedEdges: attachedEdges, roofKindFor: roofKindFor,
+    appearanceIsDefault: appearanceIsDefault, sideAppearance: sideAppearance, visibleSides: visibleSides, attachedEdges: attachedEdges, roofKindFor: roofKindFor,
     mergeRates: mergeRates, actionDef: actionDef, prepRank: prepRank, prepLabel: prepLabel, maxPrep: maxPrep,
     floorLabel: floorLabel, sideLabel: sideLabel, typeLabel: typeLabel, kindNoun: kindNoun, levelOf: levelOf, levelLabel: levelLabel,
     sideLayout: sideLayout, openingDefaults: openingDefaults, bayDefaults: bayDefaults, bayChildDefaults: bayChildDefaults, floorSlots: floorSlots,
@@ -1978,6 +2120,7 @@
     effectivePrep: effectivePrep, quotePrep: quotePrep, baseMinutes: baseMinutes, paintedMinutes: paintedMinutes,
     priceJob: priceJob, openingPaintM2: openingPaintM2, paintAreas: paintAreas, marksClause: marksClause, describeVariation: describeVariation, itemLineText: itemLineText,
     workFlags: workFlags, elevationSvg: elevationSvg, detailSvg: detailSvg,
+    OTHER_PAINT: OTHER_PAINT, otherName: otherName, untickedMarks: untickedMarks, reportableMarks: reportableMarks,
     reportModel: reportModel, reportHtml: reportHtml, fmtDate: fmtDate
   };
 });

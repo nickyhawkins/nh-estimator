@@ -1436,16 +1436,19 @@ router.put('/windoors/openings/:id', async (req, res) => {
     const result = await db.query(`
       INSERT INTO job_openings (id, job_id, side, floor, kind, position, nickname, type, size_tier, rows, cols,
                                 prep_level, prep_stage, quote_prep_level, prep_variation_id,
-                                level, bay_shape, bay_storeys, parent_opening_id, panes_set, rows_bottom, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, NOW())
+                                level, bay_shape, bay_storeys, parent_opening_id, panes_set, rows_bottom,
+                                other_mins, other_cost, other_m2, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, NOW())
       ON CONFLICT (job_id, side, level, floor, kind, position) DO UPDATE SET
         nickname = $7, type = $8, size_tier = $9, rows = $10, cols = $11, prep_level = $12,
         prep_stage = $13, quote_prep_level = $14, prep_variation_id = $15,
-        bay_shape = $17, bay_storeys = $18, parent_opening_id = $19, panes_set = $20, rows_bottom = $21, updated_at = NOW()
+        bay_shape = $17, bay_storeys = $18, parent_opening_id = $19, panes_set = $20, rows_bottom = $21,
+        other_mins = $22, other_cost = $23, other_m2 = $24, updated_at = NOW()
       RETURNING *
     `, [req.params.id, jobId, o.side, o.floor, o.kind, o.position, o.nickname, o.type, o.size_tier, o.rows, o.cols,
         o.prep_level, o.prep_stage, o.quote_prep_level, o.prep_variation_id,
-        o.level, o.bay_shape, o.bay_storeys, o.parent_opening_id, o.panes_set, o.rows_bottom]);
+        o.level, o.bay_shape, o.bay_storeys, o.parent_opening_id, o.panes_set, o.rows_bottom,
+        o.other_mins, o.other_cost, o.other_m2]);
     res.json({ ok: true, id: result.rows[0].id, opening: mapOpening(result.rows[0]) });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1471,11 +1474,11 @@ router.put('/windoors/marks/:id', async (req, res) => {
   if (m.error) return res.status(400).json({ error: m.error });
   try {
     const result = await db.query(`
-      INSERT INTO opening_marks (id, job_id, opening_id, element_id, action_key, stage, variation_id)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      ON CONFLICT (id) DO UPDATE SET element_id = $4, action_key = $5, stage = $6, variation_id = $7
+      INSERT INTO opening_marks (id, job_id, opening_id, element_id, action_key, stage, variation_id, done_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      ON CONFLICT (id) DO UPDATE SET element_id = $4, action_key = $5, stage = $6, variation_id = $7, done_at = $8
       RETURNING *
-    `, [req.params.id, jobId, m.opening_id, m.element_id, m.action_key, m.stage, m.variation_id]);
+    `, [req.params.id, jobId, m.opening_id, m.element_id, m.action_key, m.stage, m.variation_id, m.done_at]);
     res.json({ ok: true, id: req.params.id, mark: mapMark(result.rows[0]) });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2690,29 +2693,32 @@ async function copyJobRows(entry, newJobId) {
       const n = normaliseOpening({ side: o.side, floor: o.floor, level: o.level, kind: o.kind, position: o.position, nickname: o.nickname,
         type: o.type, sizeTier: o.size_tier, rows: o.rows, cols: o.cols, prepLevel: o.prep_level, prepStage: o.prep_stage,
         quotePrepLevel: o.quote_prep_level, prepVariationId: o.prep_variation_id,
-        bayShape: o.bay_shape, bayStoreys: o.bay_storeys, parentOpeningId: parent, panesSet: o.panes_set, rowsBottom: o.rows_bottom });
+        bayShape: o.bay_shape, bayStoreys: o.bay_storeys, parentOpeningId: parent, panesSet: o.panes_set, rowsBottom: o.rows_bottom,
+        otherMins: o.other_mins, otherCost: o.other_cost, otherM2: o.other_m2 });
       if (n.error) { openingIds.delete(o.id); continue; }
       const nid = openingIds.get(o.id);
       await db.query(
         `INSERT INTO job_openings (id, job_id, side, floor, kind, position, nickname, type, size_tier, rows, cols,
                                    prep_level, prep_stage, quote_prep_level, prep_variation_id,
-                                   level, bay_shape, bay_storeys, parent_opening_id, panes_set, rows_bottom)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+                                   level, bay_shape, bay_storeys, parent_opening_id, panes_set, rows_bottom,
+                                   other_mins, other_cost, other_m2)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
          ON CONFLICT (job_id, side, level, floor, kind, position) DO NOTHING`,
         [nid, newJobId, n.side, n.floor, n.kind, n.position, n.nickname, n.type, n.size_tier, n.rows, n.cols,
           n.prep_level, n.prep_stage, n.quote_prep_level, n.prep_variation_id,
-          n.level, n.bay_shape, n.bay_storeys, n.parent_opening_id, n.panes_set, n.rows_bottom]
+          n.level, n.bay_shape, n.bay_storeys, n.parent_opening_id, n.panes_set, n.rows_bottom,
+          n.other_mins, n.other_cost, n.other_m2]
       );
     }
     for (const m of (wd.marks || [])) {
       const oid = openingIds.get(m.opening_id);
       if (!oid) continue;
-      const n = normaliseMark({ openingId: oid, elementId: m.element_id, actionKey: m.action_key, stage: m.stage, variationId: m.variation_id });
+      const n = normaliseMark({ openingId: oid, elementId: m.element_id, actionKey: m.action_key, stage: m.stage, variationId: m.variation_id, doneAt: m.done_at });
       if (n.error) continue;
       await db.query(
-        `INSERT INTO opening_marks (id, job_id, opening_id, element_id, action_key, stage, variation_id, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::timestamp, NOW()))`,
-        [crypto.randomUUID(), newJobId, oid, n.element_id, n.action_key, n.stage, n.variation_id, m.created_at || null]
+        `INSERT INTO opening_marks (id, job_id, opening_id, element_id, action_key, stage, variation_id, created_at, done_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::timestamp, NOW()), $9)`,
+        [crypto.randomUUID(), newJobId, oid, n.element_id, n.action_key, n.stage, n.variation_id, m.created_at || null, n.done_at]
       );
     }
   }
@@ -2872,7 +2878,8 @@ router.post('/jobs/:id/duplicate', async (req, res) => {
           openings: wd.openings.map(o => (o.prep_stage === 'variation'
             ? Object.assign({}, o, { prep_level: o.quote_prep_level, prep_stage: 'quote', quote_prep_level: null, prep_variation_id: null })
             : o)),
-          marks: wd.marks.filter(m => m.stage !== 'variation'),
+          // A copy is a fresh job: nothing on it has been done yet.
+          marks: wd.marks.filter(m => m.stage !== 'variation').map(m => Object.assign({}, m, { done_at: null })),
         };
       })(),
     }, newJobId);

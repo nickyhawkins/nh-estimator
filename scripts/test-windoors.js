@@ -163,6 +163,12 @@ check('every element is tappable in the detail view', W.openingElements(sash).ev
 check('variation marks draw dashed', /stroke-dasharray="4 3"/.test(det));
 
 // ── Report ─────────────────────────────────────────────────────────────────
+// The report shows only work ticked off as done (v2.86.0): these fixtures
+// are ticked; the tick rule has its own checks further down.
+const done = marks => marks.map(m => Object.assign({ done_at: '2026-09-21T09:00:00Z' }, m));
+const unticked = W.reportModel(data, [{ id: 'v1', status: 'approved' }]);
+check('nothing ticked off: nothing to report', unticked.sections.every(s => !s.quoted.some(t => /reputty|resin/i.test(t)) && !s.variations.length));
+data.marks = done(data.marks);
 const noApproval = W.reportModel(data, []);
 eq('an unapproved variation is not in the report', noApproval.sections.filter(s => s.variations.length).length, 0);
 eq('...but quoted work is', noApproval.sections.map(s => s.label).join('|'), 'Front, ground floor, D1');
@@ -272,10 +278,9 @@ check('Modern defaults: render, eaves, detached', md.finish === 'render' && md.r
 });
 eq('an appearance, once saved, wins over the style', W.appearanceOf({ style: 'georgian', appearance: { period: 'victorian' } }).period, 'victorian');
 check('bad values fall back one field at a time', (() => {
-  const a = W.normaliseAppearance({ period: 'victorian', finish: 'red_brick', roof: 'front_gable', victorian: { sash: 'nope', bargeboards: true } });
+  const a = W.normaliseAppearance({ period: 'victorian', finish: 'pink_brick', roof: 'front_gable', victorian: { sash: 'nope', bargeboards: true } });
   return a.finish === 'buff_brick' && a.roof === 'front_gable' && a.victorian.sash === '2_over_2' && a.victorian.bargeboards === true;
 })());
-check('no red brick finish', !W.FINISHES.some(f => /red/.test(f.key)));
 check('defaults are defaults', W.appearanceIsDefault(W.periodDefaults('victorian')));
 check('a hand-changed option is noticed', !W.appearanceIsDefault(Object.assign(W.periodDefaults('victorian'), { finish: 'gault_brick' }))
   && !W.appearanceIsDefault(Object.assign(W.periodDefaults('georgian'), { georgian: Object.assign({}, gd.georgian, { railings: false }) })));
@@ -383,13 +388,13 @@ check('the bay view: its parts to mark', W.openingElements(bay).every(e => bayVi
 check('...and each of its windows to open', kids.every(k => bayView.indexOf('data-open-id="' + k.id + '"') >= 0));
 
 // ── Report ─────────────────────────────────────────────────────────────────
-const bayReport = W.reportModel({ property, openings: [bay].concat(kids), marks: [
+const bayReport = W.reportModel({ property, openings: [bay].concat(kids), marks: done([
   { opening_id: 'b', element_id: 'bay_cornice', action_key: 'filler', stage: 'quote' },
-  { opening_id: 'k0left', element_id: 'top-1', action_key: 'reputty', stage: 'quote' }] }, []);
+  { opening_id: 'k0left', element_id: 'top-1', action_key: 'reputty', stage: 'quote' }]) }, []);
 eq('the report: a bay and its window', bayReport.sections.map(s => s.label + ' / ' + s.what).join(' | '),
   'Front, ground floor, B1 / Canted bay | Front, ground floor, B1 left / Sash window');
 eq("...the bay's section carries its windows for its drawing", (bayReport.sections[0].children || []).length, 6);
-check('the report html draws the bay view', W.reportHtml({ property, openings: [bay].concat(kids), marks: [{ opening_id: 'b', element_id: 'bay_cornice', action_key: 'filler', stage: 'quote' }] }, []).indexOf('canted bay, in plan') >= 0);
+check('the report html draws the bay view', W.reportHtml({ property, openings: [bay].concat(kids), marks: done([{ opening_id: 'b', element_id: 'bay_cornice', action_key: 'filler', stage: 'quote' }]) }, []).indexOf('canted bay, in plan') >= 0);
 
 // ── The server's gate ──────────────────────────────────────────────────────
 {
@@ -429,6 +434,80 @@ eq('...4-over-8 beside 8-over-8', W.sashPattern(W.openingDefaults(g8, 'window', 
   eq('...and none on a casement', L.normaliseOpening(Object.assign({}, base, { type: 'casement', rowsBottom: 2 })).rows_bottom, null);
 }
 
+// ── v2.86.0: Other items, sash and door actions, ticks, sides, red brick ──
+{
+  const other = { id: 'o1', side: 'front', floor: 0, level: 'standard', kind: 'other', position: 1, nickname: 'Garage door',
+    type: 'door', size_tier: 'standard', rows: 1, cols: 1, other_mins: 120, other_cost: 15, other_m2: 5 };
+  const od = { property, openings: [sash, door, other], marks: [] };
+  const base = W.priceJob({ property, openings: [sash, door], marks: [] }, R).quote;
+  const withO = W.priceJob(od, R).quote;
+  eq('an Other item prices its own minutes at the job prep', Math.round((withO.mins - base.mins) * 100) / 100, Math.round(120 * R.prep[property.default_prep || 'light'] * 100) / 100);
+  eq('...and its own materials', withO.materials - base.materials, 15);
+  eq('...and counts as an opening', withO.count, base.count + 1);
+  eq('its paint goes with the colour it is painted in', W.paintAreas({ openings: [other] }, R).door, 5);
+  eq('...windows colour when set so', W.paintAreas({ openings: [Object.assign({}, other, { type: 'window' })] }, R).window, 5);
+  eq('...and it is not counted as a door', W.paintAreas({ openings: [other] }, R).doors, 0);
+  eq('it is labelled by its name', W.openingLabel(other), 'Front, O1 (Garage door)');
+  eq('the item line names it', W.itemLineText({ openings: [door, other], marks: [] }), 'Exterior windows and doors (outside faces): 1 front door, garage door.');
+  eq('...and counts repeats', W.itemLineText({ openings: [other, Object.assign({}, other, { id: 'o2', position: 2 })], marks: [] }), 'Exterior windows and doors (outside faces): 2 × garage door.');
+  eq('it has a face and a frame to mark', W.openingElements(other).map(e => e.id).join(','), 'face,frame');
+  eq('it takes the door actions', W.actionsFor(other, 'part').map(a => a.key).join(','), 'filler,resin,splice,ironmongery,ease');
+  eq('it sorts after the floors', W.sortOpenings([other, door, sash]).map(o => o.id).join(','), 'd,s,o1');
+  const osvg = W.elevationSvg({ property: { appearance: W.periodDefaults('georgian'), layout: { front: { floors: [{ windows: 1, doors: 1 }], confirmed: true } } }, openings: [other], marks: [] }, 'front', { interactive: true });
+  check('it is drawn as a tappable tile under the house', osvg.indexOf('data-open-id="o1"') >= 0 && osvg.indexOf('>Garage door<') >= 0 && !/NaN/.test(osvg));
+  check('its detail view has both parts', ['face', 'frame'].every(id => W.detailSvg(other, [], { interactive: true }).indexOf('data-el="' + id + '"') >= 0));
+  const L = require('../lib/windoors');
+  const ok = L.normaliseOpening({ side: 'back', kind: 'other', nickname: 'Porch', type: 'window', otherMins: 90, otherCost: 12.5, otherM2: 3, floor: 2 });
+  eq('the server keeps its figures', [ok.other_mins, ok.other_cost, ok.other_m2, ok.floor, ok.type].join(','), '90,12.5,3,0,window');
+  check('...refuses one with no name', !!L.normaliseOpening({ side: 'back', kind: 'other', nickname: ' ' }).error);
+  eq('...paints an unknown colour as the doors', L.normaliseOpening({ side: 'back', kind: 'other', nickname: 'X', type: 'purple' }).type, 'door');
+  eq('...and gives other kinds no figures', L.normaliseOpening({ side: 'front', kind: 'door', type: 'flush', sizeTier: 'standard', otherMins: 50 }).other_mins, null);
+
+  // Sash and door actions
+  eq('a sash frame part takes the sash actions', W.actionsFor(sash, 'part').map(a => a.key).join(','), 'filler,resin,splice,record,beads,overhaul');
+  eq('a casement does not', W.actionsFor(Object.assign({}, sash, { type: 'casement' }), 'part').map(a => a.key).join(','), 'filler,resin,splice');
+  eq('a door can be eased', W.actionsFor(door, 'part').map(a => a.key).join(','), 'filler,resin,splice,ironmongery,ease');
+  eq('re-cording prices from the Rates card', W.priceJob({ property, openings: [sash], marks: [{ opening_id: 's', element_id: 'left_stile', action_key: 'record', stage: 'quote' }] }, R).quote.mins - W.priceJob({ property, openings: [sash], marks: [] }, R).quote.mins, R.actions.record.mins);
+  eq('...and reads in words', W.marksClause(sash, [{ element_id: 'left_stile', action_key: 'record' }, { element_id: 'meeting_rail', action_key: 'overhaul' }]), 're-cord (left stile), ease and overhaul (meeting rail)');
+  check('every action has default rates', W.ACTIONS.every(a => W.DEFAULT_RATES.actions[a.key]));
+
+  // Ticks
+  const tm = [{ id: 'a', opening_id: 's', element_id: 'cill', action_key: 'resin', stage: 'quote' },
+    { id: 'b', opening_id: 's', element_id: 'top-1', action_key: 'reputty', stage: 'quote', done_at: '2026-09-22T10:00:00Z' },
+    { id: 'c', opening_id: 's', element_id: 'top-2', action_key: 'reputty', stage: 'variation', variation_id: 'vx' },
+    { id: 'e', opening_id: 's', element_id: 'top-3', action_key: 'reputty', stage: 'variation', variation_id: 'vp' }];
+  const tv = [{ id: 'vx', status: 'approved' }, { id: 'vp', status: 'pending' }];
+  const tr = W.reportModel({ property, openings: [sash], marks: tm }, tv);
+  eq('the report shows only ticked work', tr.sections[0].quoted.join('|'), 'Reputty x1 pane');
+  eq('...and draws only ticked marks', tr.marks.map(m => m.id).join(','), 'b');
+  eq('unticked work the report would show: quote and approved only', W.untickedMarks({ property, openings: [sash], marks: tm }, tv).map(m => m.id).join(','), 'a,c');
+  eq('ticks change no price', W.priceJob({ property, openings: [sash], marks: tm }, R).quote.mins, W.priceJob({ property, openings: [sash], marks: tm.map(m => Object.assign({}, m, { done_at: null })) }, R).quote.mins);
+  eq('the server keeps a tick', !!L.normaliseMark({ openingId: 'x', elementId: 'cill', actionKey: 'resin', doneAt: '2026-09-22T10:00:00Z' }).done_at, true);
+  eq('...and an untick', L.normaliseMark({ openingId: 'x', elementId: 'cill', actionKey: 'resin', doneAt: null }).done_at, null);
+
+  // Per-side finish and roof, red brick
+  const ga = W.periodDefaults('georgian');
+  const sided = W.normaliseAppearance(Object.assign({}, ga, { sides: { back: { finish: 'red_brick', roof: 'gable' }, left: { finish: 'nonsense' } } }));
+  eq('a side keeps its own finish and roof', JSON.stringify(sided.sides), '{"back":{"finish":"red_brick","roof":"gable"}}');
+  eq("the side's roof wins", W.roofKindFor(sided, 'back'), 'gable');
+  eq('...the others keep the house roof', W.roofKindFor(sided, 'front'), 'parapet');
+  eq("the side draws in its own finish", W.sideAppearance(sided, 'back').finish, 'red_brick');
+  eq('...the front in the house finish', W.sideAppearance(sided, 'front').finish, 'stucco');
+  check('a side set on its own is a change from the period', !W.appearanceIsDefault(sided));
+  check('a new period starts with no sides of its own', !Object.keys(W.periodDefaults('victorian').sides).length);
+  const lay = { back: { floors: [{ windows: 2, doors: 1 }, { windows: 3, doors: 0 }], confirmed: true }, front: { floors: [{ windows: 2, doors: 1 }], confirmed: true } };
+  const backSvg = W.elevationSvg({ property: { appearance: sided, layout: lay }, openings: [], marks: [] }, 'back');
+  const frontSvg = W.elevationSvg({ property: { appearance: sided, layout: lay }, openings: [], marks: [] }, 'front');
+  check('the back draws red brick', backSvg.indexOf('#b8674b') >= 0 && !/NaN/.test(backSvg));
+  check('...and the front does not', frontSvg.indexOf('#b8674b') < 0);
+  check('red brick is a finish', W.FINISHES.some(f => f.key === 'red_brick'));
+  ['georgian', 'victorian', 'modern'].forEach(pd => ['front', 'left'].forEach(side => {
+    const a = Object.assign(W.periodDefaults(pd), { finish: 'red_brick', form: 'detached' });
+    check(pd + ' red brick ' + side + ' draws cleanly', !/NaN|undefined/.test(W.elevationSvg({ property: { appearance: a, layout: { [side]: { floors: [{ windows: 2, doors: 1 }], confirmed: true } } }, openings: [], marks: [] }, side)));
+  }));
+  eq('the server keeps the sides', JSON.stringify(L.normaliseProperty({ appearance: Object.assign({}, ga, { sides: { back: { finish: 'red_brick' } } }) }).appearance.sides), '{"back":{"finish":"red_brick"}}');
+}
+
 // ── The app ────────────────────────────────────────────────────────────────
 check('openings are saved with their level, bay and pane flag', /level: Windoors\.levelOf\(o\)/.test(body('wdPutOpening')) && /parentOpeningId/.test(body('wdPutOpening')) && /panesSet/.test(body('wdPutOpening')));
 check("a sash's bottom rows are saved", /rowsBottom/.test(body('wdPutOpening')));
@@ -438,6 +517,11 @@ check('a form that hides a side warns before its openings go', /confirm\(/.test(
 check('changing period asks first only when something was changed by hand', /appearanceIsDefault/.test(body('setWdPeriod')));
 check('the side selector offers only the sides the house has', /wdVisibleSides\(\)/.test(body('renderWindoors')));
 check('the report PDF draws a bay with its windows', /children: mine\[k\]\.children/.test(body('buildWindoorsReportPdf')));
+check('Other item figures are saved', /otherMins/.test(body('wdPutOpening')) && /otherCost/.test(body('wdPutOpening')) && /otherM2/.test(body('wdPutOpening')));
+check('a tick is saved', /doneAt/.test(body('wdPutMark')));
+check('confirming a layout never removes an Other item', /o\.kind === 'other'/.test(body('confirmWdLayout')));
+check('the invoice screen warns about unticked work', /wdUntickedCount\(\)/.test(body('renderFinalInvoice')));
+check('dormers follow a side\'s own roof', /wdDormersAllowed\(a, wdSide\)/.test(body('confirmWdLayout')));
 check('the Rates card has the bay base minutes', /s-wd-bay-/.test(body('populateWindoorsRates')) && /s-wd-bay-/.test(body('readWindoorsRates')));
 
 console.log(pass.length + ' passed, ' + fail.length + ' failed');

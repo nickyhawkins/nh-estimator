@@ -166,9 +166,9 @@ Changes redraw the elevation live. Settings apply to every side of the job in th
 
 ## 9. Out of scope for this stage
 
-- Per-side appearance overrides (see open questions).
+- Per-side appearance overrides (see open questions; built in v2.86.0).
 - Photos on openings.
-- Red brick finishes.
+- Red brick finishes (built in v2.86.0).
 
 ## 10. Open questions
 
@@ -210,7 +210,7 @@ Changes redraw the elevation live. Settings apply to every side of the job in th
 - **Dormer surround**: no new constants, as the spec says; its three parts take the frame actions.
 
 **Answers to the open questions, as built**
-- **Per-side overrides:** not built. Appearance applies to every side.
+- **Per-side overrides:** built in v2.86.0 — `appearance.sides[side] = { finish, roof }`, roof being what that side shows (parapet/eaves/gable). `Windoors.sideAppearance` draws the side in its own finish; `roofKindFor` reads its roof; dormers follow the side's own roof. Picking a period clears them. Red brick is a finish from v2.86.0.
 - **Oriel windows:** bays can be added on any floor. One that starts on an upper floor is drawn standing on the band below it, with no ground support. No `start_floor` column is needed, since `floor` already is one.
 - **Dormer styles:** one generic dormer (cheeks, face, small pitched top).
 - **Front gable window:** yes. On a side whose roof reads as a gable, the Dormers toggle adds windows drawn in the gable itself (attic windows) rather than dormers. They're the same `roof` level with the same elements.

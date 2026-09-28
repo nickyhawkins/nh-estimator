@@ -197,10 +197,19 @@ The fixture's item line text should reflect what's included (ties into the exist
 - Door glass counts as panes (pane actions, per-pane minutes); door panels count as parts (frame actions). Ironmongery is a door-only part action.
 - The old Exterior window/sash sections are hidden on any job that doesn't already have windows priced there; a pointer to the fixture shows instead.
 - Paint materials (v2.83.0): coats + a windows colour and a doors colour on `job_property`; litres from the TIMBER only (v2.83.1): the tier's own area × a timber share per type (+ per extra pane, capped), doors leaf × timber share + frame — all on the Rates card — × coats ÷ exterior woodwork coverage, primer at 0.8 — pooled into the Exterior Woodwork / Exterior Primer rows. Product follows the Settings exterior woodwork default.
-- Open questions 1–10 are not built; the elevation numbering on the back is left to right facing the back, as specified.
+- Open questions: see "Answers to the open questions (v2.86.0)" below.
 
 **v2.84.0 — report on the invoice, and paint products.**
 - Report PDF: built on the phone from `Windoors.reportModel` over the rows in memory (works offline), drawings rasterised through a canvas to JPEG; `pdfSerialise` now takes extra images (`Im2…`, DCTDecode). The final invoice screen has an "Attach the windows & doors report" tick (on whenever there's a report); after the invoice is created the PDF goes to `POST /auth/invoice-attachment` → Xero `Invoices/{id}/Attachments/{file}?IncludeOnline=true` (same file name replaces). A failed attach never un-creates the invoice: it's reported beside the success, with a retry button on the fixture screen. Answers open question "attach automatically, or only when chosen": automatically, with the tick to opt out.
 - Xero scope: `accounting.attachments` is requested ON TOP of the base scopes. If Xero answers `invalid_scope` for that ask, the callback records `settings.xero_attachments_refused` and reconnects without it, so the scope can never break connecting. Existing connections need one reconnect to gain it.
 - Paint products: `job_property.paint_products` `{window:{range,band}, door:{range,band}}`, picked with the room product picker (roles `wdwindow`/`wddoor`); carried on the paint stand-in items as `extTopcoatRangeOverride`, so each prices on its own product and pools with anything else on the same product and colour. Primer follows the Settings exterior primer.
 
+**Answers to the open questions (v2.86.0)**
+- **Bays, lower ground, roof style:** stage 2 (`WINDOWS_DOORS_STAGE2_SPEC.md`).
+- **Misc slot per side:** built as **Other items** — `job_openings` rows of kind `other` (level `standard`, floor 0), O1… per side, named by `nickname`, priced from their own `other_mins` / `other_cost` / `other_m2` (not the Rates card), `type` = the colour they're painted in (`door`|`window`). Added and removed by hand from Measure; confirming a layout never touches them. Drawn as tiles under the elevation; elements `face` and `frame`, taking the door actions.
+- **Sash-specific elements:** as actions, not elements — Re-cord, Replace beads, Ease & overhaul (`sashOnly`), on a sash's frame parts, one mark per part.
+- **Door extras:** Ease (`doorOnly`). Rehang is priced by hand.
+- **Ticking off on site:** yes. `opening_marks.done_at`; the report shows only ticked marks; the final invoice screen warns about unticked quoted/approved work. Ticks never change a price.
+- **Numbering on the back elevation:** kept — left to right as you face the back.
+- **Report PDF:** attached automatically (v2.84.0).
+- **Prep levels:** confirmed — Light ×1.10, Standard ×1.25, Heavy ×1.40, Restoration ×1.75, editable on Rates.
