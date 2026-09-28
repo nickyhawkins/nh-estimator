@@ -198,6 +198,30 @@ const STUB = () => {
   await settle();
   near('2. and it lets go again when the viewport comes back', (await bar()).bottom, H);
 
+  // ── 9. The + button rides with the bar ───────────────────────────────────
+  // Reported from a phone: the Home/Jobs + sat half behind the bar. The bar
+  // had been translated UP onto the visible edge, and the + -- positioned off
+  // --navh alone -- stayed where CSS put it. Whichever way the bar moves, the
+  // + must keep its gap above the bar's top edge.
+  const fabGap = () => page.evaluate(() => {
+    const f = document.querySelector('#screen-jobs .fab').getBoundingClientRect();
+    return document.querySelector('.navbar').getBoundingClientRect().top - f.bottom;
+  });
+  await page.evaluate(() => goTab('jobs'));
+  await page.waitForTimeout(300);
+  near('9. at rest the + sits 16px above the bar', await fabGap(), 16);
+  await setVv({ height: H - 40 });
+  await settle();
+  near('9. bar lifted 40px: the + still sits 16px above it', await fabGap(), 16);
+  await setVv({ height: H + 300 });
+  await settle();
+  near('9. bar pushed down: the + still sits 16px above it', await fabGap(), 16);
+  await setVv({ height: H });
+  await settle();
+  await page.evaluate(() => goTab('settings'));
+  await page.waitForSelector('#s-business-name');
+  await page.waitForTimeout(300);
+
   // ── 3. Keyboard up ───────────────────────────────────────────────────────
   // Focus first, then shrink: that is the order the events arrive in on a
   // phone, and the rule only reads as a keyboard when a field has focus.

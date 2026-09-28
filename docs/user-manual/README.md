@@ -535,6 +535,10 @@ Materials list **one line per product and tin size**, the way On Site has always
 
 Materials are quoted as an estimate and — once the job runs — invoiced as used, so the list on Summary and On Site is the same list throughout a job's life. **Add Material** searches your Xero items (or free-text) for anything the calculation missed — an exterior plastic door, a kitchen, anything you've deleted the calculated line for and are entering by hand. Manually-added lines carry a **Chargeable** switch which is **on by default**, so what you add is on the quote, in the Materials subtotal and in the deposit like any other material. Turn it **off** to keep a line as tracking-only: it stays on your shopping list but is left out of the total, and the card then says how much is sitting there — *"Tracking only — not on the quote"* under the subtotal — so nothing is ever quietly missing off a price. A row you've already added shows **Chargeable** or **Tracking only** as a tag; tap the tag to switch it. **Recalculate** re-pulls the calculated lines from the rooms without throwing away your own additions: anything you added yourself is kept and tagged **"added by you"**, a quantity you've typed over is kept and tagged **"edited"** (with a **reset to N** link if you want the calculation's figure back), and if recalculating would drop something you edited by hand, you're asked first, by name.
 
+Because the materials are an estimate, any quote with chargeable materials carries a note, asterisked against the balance: *"Material costs are estimated and may vary based on final colour and product selection. Any adjustments will be reflected in your final invoice. Significant changes in cost will always be discussed and agreed with you in advance."* It prints under the payment card on the client's quote and its PDF, under the balance on Summary, and at the end of the payment terms on the Xero quote. A labour-only quote doesn't get it.
+
+**Primer and topcoat in the same paint.** If the woodwork primer in Settings (or a room's own primer pick) is the same product as the topcoat — a self-priming paint used for both — the app buys it once: one extra topcoat coat instead of a separate primer allocation of the same tins. The same goes for exterior woodwork and the windows and doors. The room form's self-priming rows say *primer is the same paint* when that's what decided it.
+
 Almost anything you do to the materials list — recalculating, deleting a line, changing a quantity, adding a line — can be undone. Look for an **UNDO** button on the confirmation message right after the change, **↩ Undo** at the top of the Materials list, or **↩ Undo** in the ☰ menu if you missed the moment. It remembers the last 10 changes on the current job; switching job or closing the app starts it fresh.
 
 ### Once a quote is accepted, its figures freeze
@@ -1462,6 +1466,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.85.1. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.85.2. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

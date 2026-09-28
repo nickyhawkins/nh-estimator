@@ -110,6 +110,12 @@ try {
      height once the DOM is up, so an OS text-size setting that makes the
      labels taller can't hide content underneath it. */
   --navh: calc(56px + max(var(--sb), 8px));
+  /* How far pinNav() has translated the bar up from where CSS put it. The
+     translate moves the bar but nothing positioned off --navh, so anything
+     floating above the bar (the + buttons, notes button, toast) adds this
+     too -- without it they stay put while the bar rides up over them, which
+     is how the + ended up half-hidden behind the bar on iOS. */
+  --navlift: 0px;
 }
 /* Dark palette (v2.0) — same ~12 vars, flipped. Applied via data-theme on
    <html>, set by the head boot snippet before first paint and by
@@ -356,11 +362,11 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
 /* Misc */
 .section-title{font-size:13px;font-weight:700;color:var(--text2);letter-spacing:.5px;text-transform:uppercase;padding:0 4px;margin-top:4px}
 .chip{display:inline-flex;align-items:center;gap:4px;background:var(--accent-soft-bg);color:var(--accent);border:1px solid var(--accent-soft-border);border-radius:20px;padding:4px 10px;font-size:12px;font-weight:600}
-.fab{position:fixed;bottom:calc(var(--navh) + 16px);right:20px;width:56px;height:56px;border-radius:50%;background:var(--accent);border:none;color:#fff;font-size:28px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(26,82,118,.4);cursor:pointer;z-index:50;transition:all .15s}
+.fab{position:fixed;bottom:calc(var(--navh) + var(--navlift) + 16px);right:20px;width:56px;height:56px;border-radius:50%;background:var(--accent);border:none;color:#fff;font-size:28px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(26,82,118,.4);cursor:pointer;z-index:50;transition:all .15s}
 .fab:active{transform:scale(.92)}
-.fab-quick{position:fixed;bottom:calc(var(--navh) + 28px);right:88px;height:36px;padding:0 14px;border-radius:18px;background:var(--surface);border:1px solid var(--border);color:var(--accent);font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;box-shadow:0 2px 12px rgba(0,0,0,.12);cursor:pointer;z-index:50;transition:all .15s}
+.fab-quick{position:fixed;bottom:calc(var(--navh) + var(--navlift) + 28px);right:88px;height:36px;padding:0 14px;border-radius:18px;background:var(--surface);border:1px solid var(--border);color:var(--accent);font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;box-shadow:0 2px 12px rgba(0,0,0,.12);cursor:pointer;z-index:50;transition:all .15s}
 .fab-quick:active{transform:scale(.95)}
-.notes-fab{position:fixed;bottom:calc(var(--navh) + 24px);left:20px;width:40px;height:40px;border-radius:50%;background:var(--surface);border:1px solid var(--border);font-size:18px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 12px rgba(0,0,0,.12);cursor:pointer;z-index:50;transition:all .15s}
+.notes-fab{position:fixed;bottom:calc(var(--navh) + var(--navlift) + 24px);left:20px;width:40px;height:40px;border-radius:50%;background:var(--surface);border:1px solid var(--border);font-size:18px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 12px rgba(0,0,0,.12);cursor:pointer;z-index:50;transition:all .15s}
 .notes-fab:active{transform:scale(.92)}
 .notes-fab-dot{position:absolute;top:2px;right:2px;width:9px;height:9px;border-radius:50%;background:var(--accent);border:1.5px solid var(--surface);display:none}
 .note-card{background:rgba(245,166,35,.06);border:1px solid rgba(245,166,35,.25);border-radius:var(--r);overflow:hidden}
@@ -2511,7 +2517,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
 <!-- One shared toast for "that didn't work" messages — see toast() /
      reportFailure(). Above every overlay so a failure inside one is still
      readable. -->
-<div id="app-toast" style="display:none;position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--navh) + 12px);z-index:600;max-width:calc(100% - 32px);min-width:min(300px, calc(100% - 32px));background:#2b2b2b;color:#fff;font-size:14px;line-height:1.4;padding:11px 16px;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.28);text-align:left;align-items:center;gap:14px">
+<div id="app-toast" style="display:none;position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--navh) + var(--navlift) + 12px);z-index:600;max-width:calc(100% - 32px);min-width:min(300px, calc(100% - 32px));background:#2b2b2b;color:#fff;font-size:14px;line-height:1.4;padding:11px 16px;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.28);text-align:left;align-items:center;gap:14px">
   <span id="app-toast-msg" style="flex:1;min-width:0"></span>
   <button id="app-toast-action" onclick="runToastAction()" style="display:none;flex:none;background:none;border:none;color:#7fc0ef;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;padding:2px 0;text-transform:uppercase;letter-spacing:.04em"></button>
 </div>
@@ -5592,7 +5598,7 @@ async function createXeroQuote(forceNew) {
     ttS += extTimeTotal + kitchenTimeTotal + fuTimeTotal;
     var onSiteDays = realisticDays(ttS);
     var depositPlan = computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabourS, ttS, customQuoteSplit.marked, customQuoteSplit.flat);
-    var paymentTerms = buildPaymentTermsText(depositPlan, activeJob() && activeJob().startDate);
+    var paymentTerms = buildPaymentTermsText(depositPlan, activeJob() && activeJob().startDate, materials.length > 0);
     var paymentSummary = buildPaymentSummaryText(depositPlan);
 
     // Template block (TEXT_TEMPLATES_SPEC.md): the whole rendered quote
@@ -8299,8 +8305,9 @@ function livePaymentCardHtml(plan, deposit, depositBasis, balance, depositRequir
         : '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="color:var(--text2)">Deposit due on acceptance<small style="display:block;font-weight:400;color:var(--text2)">'+
             escapeHtml(depositBasis)+'</small></span>'+
             '<span class="breakdown-value" style="color:var(--text3)">None</span></div>')+
-      '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">'+(depositShown?'Balance':'Total due on completion')+'</span>'+
+      '<div class="breakdown-row" style="border-top:1px solid var(--border)"><span class="breakdown-label" style="font-weight:600;color:var(--text)">'+(depositShown?'Balance':'Total due on completion')+(plan.materialsTotal>0.005?' *':'')+'</span>'+
         '<span class="breakdown-value">'+fmt(balance)+'</span></div>'+
+      (plan.materialsTotal>0.005 ? '<div style="padding:4px 16px 10px;font-size:11px;color:var(--text2);line-height:1.45">* '+escapeHtml(BALANCE_MATERIALS_NOTE)+'</div>' : '')+
       '<div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Payment plan</div><div class="seg" id="seg-payment-type">'+
         '<button type="button" class="seg-btn'+(paymentType==='single'?' active':'')+'" onclick="setPaymentType(\'single\')">Single</button>'+
         '<button type="button" class="seg-btn'+(paymentType==='multiweek'?' active':'')+'" onclick="setPaymentType(\'multiweek\')">Multi-week</button>'+
@@ -13496,6 +13503,17 @@ function calcRoom(r) {
   // extra topcoat coat-equivalent instead of a primer coat (distinct from
   // primerNone, which is a product choice, not a coat swap).
   var drivenSelfPriming = coverageSelfPrimingFor(effectiveRoleRange(r, 'topcoat'), 'woodwork');
+  // Same-tin guard, as calcFittedUnit() has had since v2.25.2: a primer
+  // product that IS the topcoat product (the Settings woodwork primer
+  // pointed at a self-priming topcoat, or a room override doing the same)
+  // makes the "primer" a second helping of the very same paint -- two
+  // Woodwork rows resolving to the same tins, each rounded up on its own.
+  // Treat it as self-priming whatever the coverage entry says (the lookup
+  // misses whenever there's no entry or a range was renamed): one extra
+  // topcoat coat-equivalent, no separate primer buy. A DIFFERENT primer
+  // product, or primer switched off, is untouched. Litres only -- labour
+  // never read the self-priming flags.
+  if (!r.primerNone && effectiveRoleRange(r, 'primer') && effectiveRoleRange(r, 'primer') === effectiveRoleRange(r, 'topcoat')) drivenSelfPriming = true;
   var selfPrimingWoodwork = drivenSelfPriming != null ? drivenSelfPriming : !!r.selfPrimingWoodwork;
   var doorSelfPriming     = drivenSelfPriming != null ? drivenSelfPriming : !!r.doorSelfPriming;
   var otherWoodTopcoatCoatM2 = xc>0 ? wdA * (xc + (selfPrimingWoodwork?1:0)) : 0;
@@ -13888,7 +13906,10 @@ function computeDepositPlan(tcS, materialsTotal, onSiteDays, sprayLabour, workin
            adjustmentPool:adjustmentPool, deposit:deposit,
            depositRequired:depositRequired,
            depositBasis:depositBasis, balance:balance, paymentType:paymentType,
-           paymentWeeks:paymentWeeks, weeklyRows:weeklyRows };
+           paymentWeeks:paymentWeeks, weeklyRows:weeklyRows,
+           // Additive: whether the balance carries estimated materials (the
+           // balance note -- see BALANCE_MATERIALS_NOTE).
+           materialsTotal: +materialsTotal || 0 };
 }
 
 // One-paragraph payment-terms summary for the Xero quote. Sent as the API's
@@ -13919,7 +13940,16 @@ function instalmentLabel(plan, i) {
 // startDateIso is optional: quotes are usually sent before scheduling, and
 // with no date the text reads exactly as it always has. Only a quote sent
 // AFTER scheduling picks up the real w/c dates.
-function buildPaymentTermsText(plan, startDateIso) {
+// The balance note (estimating-app-edits.md #5). Materials go on the quote as
+// an estimate and are billed as used, so the balance a client sees is only as
+// firm as the materials in it -- said once, in Nicky's words, wherever the
+// client reads a balance: the quote preview/PDF, the Xero quote's terms and
+// Summary. Only on a quote that HAS materials: on a labour-only quote the
+// balance is the agreed figure and the note would be a false caveat.
+var BALANCE_MATERIALS_NOTE = 'Material costs are estimated and may vary based on final colour and product selection. '
+  + 'Any adjustments will be reflected in your final invoice. Significant changes in cost will always be discussed and agreed with you in advance.';
+
+function buildPaymentTermsText(plan, startDateIso, hasMaterials) {
   // No deposit on this job (jobRequiresDeposit off): say so in as many
   // words rather than printing "Deposit due on acceptance: £0.00", which
   // reads as a broken calculation rather than a decision. What follows is
@@ -13945,6 +13975,7 @@ function buildPaymentTermsText(plan, startDateIso) {
       ? ' (w/c ' + fmtShortDate(instalmentDate(startDateIso, 0)) + ')' : '';
     text += ' ' + owedLabel + fmt(plan.balance) + ' due on completion' + soleWc + '.';
   }
+  if (hasMaterials) text += ' *' + BALANCE_MATERIALS_NOTE;
   return text;
 }
 
@@ -14548,6 +14579,12 @@ function extMasonryLitres(item) {
 // topcoat share and zeroes the primer share for windows/garage/fascia; sash
 // restoration is left untouched either way (its "prime & paint" is already
 // a fixed 2-pass process baked in elsewhere, not a primer-coat swap).
+// The same-tin guard for an exterior item (see calcRoom's): its primer
+// product is its topcoat product, so the primer is the same paint again.
+function extPrimerIsTopcoat(item) {
+  var pr = effectiveRoleRange(item, 'extPrimer');
+  return !!pr && pr === effectiveRoleRange(item, 'extTopcoat');
+}
 function extOtherWoodworkAreaCoats(item) {
   var mc = item.coats || {};
   var windows = item.windows || legacyWindowList(item.wins);
@@ -14556,7 +14593,7 @@ function extOtherWoodworkAreaCoats(item) {
   var aSash = settings.extAreaSash!=null ? settings.extAreaSash : 2.5;
   var aGar  = settings.extAreaGarage!=null ? settings.extAreaGarage : 6;
   var fasciaW = settings.extFasciaWidth!=null ? settings.extFasciaWidth : 0.35;
-  var selfPriming = !!item.woodworkSelfPriming;
+  var selfPriming = !!item.woodworkSelfPriming || extPrimerIsTopcoat(item);
   var winCoats = mc['ex-wins']||2, garCoats = mc['ex-garage']||2, fasciaCoats = mc['ex-fascia']||2;
   var sashAreaCoats = extWindowSizeUnits(sashWindows) * aSash * 2;
   var topcoatAreaCoats = extWindowSizeUnits(windows) * aWin * (winCoats + (selfPriming?1:0))
@@ -14573,7 +14610,7 @@ function extWoodworkLitres(item) {
   migrateExtDoorFields(item);
   var mc = item.coats || {};
   var other = extOtherWoodworkAreaCoats(item);
-  var doorFrame = doorFrameAreaCoats(+item.doorQty||0, +item.frameQty||0, mc['ex-door']||2, mc['ex-frame']||2, !!item.doorFireDoor, !!item.doorSelfPriming, !!item.doorBothSides);
+  var doorFrame = doorFrameAreaCoats(+item.doorQty||0, +item.frameQty||0, mc['ex-door']||2, mc['ex-frame']||2, !!item.doorFireDoor, !!item.doorSelfPriming || extPrimerIsTopcoat(item), !!item.doorBothSides);
   var areaCoats = other.topcoatAreaCoats + doorFrame.topcoatCoatM2;
   if (areaCoats <= 0) return 0;
   var cov = settings.extWoodCov || 12;
@@ -14586,7 +14623,7 @@ function extPrimerLitres(item) {
   migrateExtDoorFields(item);
   var mc = item.coats || {};
   var other = extOtherWoodworkAreaCoats(item);
-  var doorFrame = doorFrameAreaCoats(+item.doorQty||0, +item.frameQty||0, mc['ex-door']||2, mc['ex-frame']||2, !!item.doorFireDoor, !!item.doorSelfPriming, !!item.doorBothSides);
+  var doorFrame = doorFrameAreaCoats(+item.doorQty||0, +item.frameQty||0, mc['ex-door']||2, mc['ex-frame']||2, !!item.doorFireDoor, !!item.doorSelfPriming || extPrimerIsTopcoat(item), !!item.doorBothSides);
   var areaCoats = other.primerAreaCoats + doorFrame.primerCoatM2;
   if (areaCoats <= 0) return 0;
   var cov = settings.extWoodCov || 12;
@@ -23181,7 +23218,7 @@ function populateRoomOverridePicker(role) {
   // The topcoat product decides whether the room's self-priming toggles are
   // manual or product-driven -- refresh those rows on every repopulation
   // (fresh form, room load, and every pick via selectRoomRange).
-  if (role === 'topcoat') updateSelfPrimingDrivenUI();
+  if (role === 'topcoat' || role === 'primer') updateSelfPrimingDrivenUI();
 }
 
 // Product-driven self-priming (PRODUCT_COVERAGE_SPEC.md): when the form's
@@ -23195,12 +23232,17 @@ function populateRoomOverridePicker(role) {
 function updateSelfPrimingDrivenUI() {
   var range = roomOverrides.topcoat.range || (((settings.materials || {}).topcoat) || {}).range || '';
   var driven = coverageSelfPrimingFor(range, 'woodwork');
+  // calcRoom's same-tin guard: a primer that is the topcoat product decides
+  // it too, and the note says why.
+  var primerRange = roomOverrides.primer.none ? '' : (roomOverrides.primer.range || (((settings.materials || {}).primer) || {}).range || '');
+  var sameTin = !!primerRange && primerRange === range;
+  if (sameTin) driven = true;
   [['tog-doorselfpriming', 'driven-doorselfpriming'], ['tog-selfprimingwoodwork', 'driven-selfprimingwoodwork']].forEach(function(p) {
     var tog = document.getElementById(p[0]), note = document.getElementById(p[1]);
     if (!tog || !note) return;
     tog.style.display = driven == null ? '' : 'none';
     note.style.display = driven == null ? 'none' : '';
-    if (driven != null) note.textContent = (driven ? 'On' : 'Off') + ' — ' + range;
+    if (driven != null) note.textContent = (driven ? 'On' : 'Off') + ' — ' + range + (sameTin ? ' (primer is the same paint)' : '');
   });
 }
 
@@ -25281,10 +25323,15 @@ function windoorsPaintItems() {
     // read by computeRoleGroups exactly as a room's override is. Primer
     // stays the Settings exterior primer, as it does for fitted units.
     var prod = wdPaintProduct(kind);
+    // Same-tin guard (see calcRoom's): primer product = this topcoat product
+    // means one extra coat of the topcoat, not a second buy of it as primer.
+    var topRange = prod ? prod.range : (((settings.materials || {}).extTopcoat) || {}).range;
+    var primerRange = (((settings.materials || {}).extPrimer) || {}).range;
+    var sameTin = !!primerRange && primerRange === topRange;
     out.push({ wdPaint: kind, label: kind === 'door' ? 'Doors' : 'Windows', extWoodworkColourNumber: num || 1,
                extTopcoatRangeOverride: prod ? prod.range : undefined,
                extTopcoatBandOverride: prod ? prod.band : undefined,
-               topcoatL: top, primerL: top * 0.8 });
+               topcoatL: sameTin ? m2 * (coats + 1) / cov : top, primerL: sameTin ? 0 : top * 0.8 });
   };
   push('window', a.window, p.window_colour);
   push('door', a.door, p.door_colour);
@@ -31936,7 +31983,14 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
     // £0.00 deposit/balance rows would just look broken, so hide them. Same
     // reasoning on a honoured job: the plan derives from the app's own labour,
     // so its instalments wouldn't sum to the honoured total.
-    payment: plan.total > 0.005 && honouredLabour == null ? { rows: paymentRows } : null,
+    // The balance note under the payment rows, and an asterisk on the last
+    // of them (the balance, or the final instalment) to point at it.
+    payment: plan.total > 0.005 && honouredLabour == null
+      ? (matRows.length && paymentRows.length
+          ? { rows: paymentRows.map(function(r, i) { return i === paymentRows.length - 1 ? Object.assign({}, r, { label: r.label + ' *' }) : r; }),
+              note: '* ' + BALANCE_MATERIALS_NOTE }
+          : { rows: paymentRows })
+      : null,
     // The sum of what is printed, again -- which on any job with labour is
     // exactly plan.total (a clean QUOTE_ROUNDING_STEP figure), because the
     // spread above made the labour rows carry the difference.
@@ -31944,7 +31998,9 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
     // Same combined figure Summary's hero-sub shows.
     totalInclVariations: varRows.length
       ? pence((honouredLabour != null ? honouredLabour + matRowsTotal : workRowsTotal + matRowsTotal + (importedBaseline || 0)) + vv.variationsTotal) : null,
-    terms: plan.total > 0.005 && honouredLabour == null ? buildPaymentTermsText(plan, job && job.startDate) : ''
+    // No balance note in these terms: this page prints it under the payment
+    // card already. (The Xero quote has no such card, so its terms carry it.)
+    terms: plan.total > 0.005 && honouredLabour == null ? buildPaymentTermsText(plan, job && job.startDate, false) : ''
   };
 }
 
@@ -32911,6 +32967,8 @@ function pinNav() {
   if (shift === _navShift) return;
   _navShift = shift;
   nav.style.transform = shift ? 'translateY(' + shift + 'px)' : '';
+  // Carry everything floating above the bar along with it (see --navlift).
+  document.documentElement.style.setProperty('--navlift', (-shift) + 'px');
 }
 
 // One pin per frame however many events land in it: the read forces layout,
