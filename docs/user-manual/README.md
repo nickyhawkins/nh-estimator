@@ -392,11 +392,16 @@ On a Georgian house a new dormer starts as a **3-over-6** sash, one row fewer on
 - **Pane rows and columns** — on a sash window, the **top sash rows** and **bottom sash rows** are set separately, with the columns shared, so a 3-over-6 is 1 row over 2 rows of 3 columns. The line under them spells it out (*3 over 6 · 9 panes*). For doors these are the panel or glass grid.
 - **Size** — each button shows the area it covers (Small is under 0.5m², Medium 0.5 to 1m², Large 1 to 2m², X-Large over 2m²).
 - **Prep** — only levels at or above the job's default are offered. An opening can go up, never down.
+- **Access** — how you reach it. **Auto** (the default) works it out from where the opening sits: the lower ground and ground floor are **Ground**, the first floor is **First floor**, and the second floor up and every dormer are **Ladder/tower**. The Auto button names what it picked, e.g. *Auto (First floor)*. Set it by hand when the house says otherwise — **Ground** when the scaffold is already up, **Ladder/tower** for a ground-floor window over a basement well. An opening set by hand shows a small dark dot at the bottom corner on the house drawing. Access is set at quoting; on site the sheet just says what was priced.
 - **Marking work** (with Individual detail on) — tap panes, or tap frame parts (head, stiles, rails, cill; for doors the panels, frame and threshold). A tick shows what's selected. You select one kind at a time: tapping a frame part while panes are selected starts a fresh selection. **Select all panes** and **Clear selection** do what they say. Then tap the work — **Reputty** or **Replace glass** for panes; **Filler**, **Resin repair** or **Splice timber** for parts, plus **Ironmongery off & on** and **Ease** on doors, and **Re-cord**, **Replace beads** and **Ease & overhaul** on a sash window's parts — or **Remove work**. The selection clears after each one. On a sash, each mark is for that part: re-cording the left stile is the cords on that side, so mark both stiles for a full re-cord.
 
 ![Marking panes and parts on one window](images/26c-windoors-detail.png)
 
-Orange is work, blue is glass being replaced. Work marked here is **quoted** work and shows solid; work added on site shows dashed. Changing the type or the pane grid clears that opening's marks, so it asks first if there are any. The list under the diagram says, in words, everything on this opening.
+Orange is work, blue is glass being replaced. Work marked here is **quoted** work and shows solid; work added on site shows dashed. Changing the type or the pane grid clears that opening's marks, so it asks first if there are any. The list under the diagram says, in words, everything on this opening. The first line is the painting itself, with what it was priced on: *Paint, outside face · light prep · 2 coats · first floor access* (with *(set by hand)* when you chose the access).
+
+![First floor W2's access set to Ground by hand (scaffold already up): the dark dot at its bottom corner](images/26y-windoors-access-dot.png)
+
+**Coats and access change the price.** Painting minutes are set for 2 coats, so **1 coat** in the Paint card halves them (a maintenance coat) and **3 coats** adds half again. Access adds the same uplift as the Exterior form: first floor +10% and ladder/tower +25% to start (**Rates → Exterior Rates → Access**). Both apply to the painting only. Marked work like reputty, glass, filler, resin and splice is a one-off job and stays the same price whatever the coats or the height. A medium 6-over-6 sash at Light prep is 110 min on the ground floor at 2 coats, 121 min on the first floor, and 206 min on the second floor at 3 coats.
 
 Until you set a window's panes here, the house drawing shows it with the period's glazing (change Georgian 6-over-6 to 8-over-8 in Details and the drawing follows). Once you've set its type, rows or columns, the drawing shows the panes you set. The price always uses the panes set here.
 
@@ -408,9 +413,9 @@ Tap a bay on the drawing to open the **bay view**. Set its **shape** (**canted**
 
 ![The bay view: its windows and its own parts](images/26q-windoors-bay-view.png)
 
-A bay's price is its own **bay base minutes** (Rates, by shape and storeys, covering the cornice, fascia and mullions) plus each of its windows priced as a window. Making a two-storey bay single-storey removes the upper windows, asking first if any have work on them.
+A bay's price is its own **bay base minutes** (Rates, by shape and storeys, covering the cornice, fascia and mullions) plus each of its windows priced as a window. Each window takes the access for its own floor. The bay's own timber goes by its top storey, so a two-storey bay from the ground takes the first-floor uplift. The bay view has its own **Access** control for that timber. Making a two-storey bay single-storey removes the upper windows, asking first if any have work on them.
 
-**Other items.** Garage doors, fanlights, porches and lean-tos don't sit on a floor. Under each side's drawing, **+ Add other item** asks what it is, then opens it. Give it the **minutes** to paint it (before prep), any **materials £** it needs beyond paint, and a **paint area** in m² (0 if you're not buying paint for it). **Painted in** sets whether it uses the doors' colour or the windows' colour. Prep works as it does on any opening. It's drawn as a tile under the house, numbered **O1, O2…** and labelled *Front, O1 (Garage door)*. You can mark its **face** and **frame** like a door's parts (filler, resin, splice, ironmongery, ease). Changing a side's layout never touches its other items; **Remove this item** at the bottom of its sheet does. On the quote it's named in the fixture's line: *…1 front door, garage door.*
+**Other items.** Garage doors, fanlights, porches and lean-tos don't sit on a floor. Under each side's drawing, **+ Add other item** asks what it is, then opens it. Give it the **minutes** to paint it (before prep, and as you'll actually paint it — its minutes aren't scaled by coats or access), any **materials £** it needs beyond paint, and a **paint area** in m² (0 if you're not buying paint for it). **Painted in** sets whether it uses the doors' colour or the windows' colour. Prep works as it does on any opening. It's drawn as a tile under the house, numbered **O1, O2…** and labelled *Front, O1 (Garage door)*. You can mark its **face** and **frame** like a door's parts (filler, resin, splice, ironmongery, ease). Changing a side's layout never touches its other items; **Remove this item** at the bottom of its sheet does. On the quote it's named in the fixture's line: *…1 front door, garage door.*
 
 ![A garage door as an other item, under the house](images/26u-windoors-other-items.png)
 
@@ -1376,7 +1381,9 @@ Menu (☰) → **Rates** — every number the calculator uses, grouped by what i
 | Item & Job-Type | **Windows & Doors** | Window base minutes per size tier, minutes per pane, sash/casement/fixed adjustment, door base minutes per type and size, bay base minutes per shape and storeys, prep multipliers, each marked-work action's minutes and material £, and the paint areas (each size's m², the timber share per type, door leaf and frame, bay timber per storey) |
 | Scheduling | **Scheduling** | Daily overhead, schedule buffer, Work Saturdays, bank-holiday region, calendar feed |
 
-**Windows & Doors** prices each opening as *(base minutes for its size and type + panes × minutes per pane) × its prep multiplier*, plus the minutes of any work marked on it — all at your day rate, like every other timed task. The prep multipliers start at Light ×1.10, Standard ×1.25, Heavy ×1.40 and Restoration ×1.75; the material £ (glass is £25 a pane to start) is per pane or part marked, before markup. The sash actions start at Re-cord 40 min and £6, Replace beads 20 min and £4, and Ease & overhaul 45 min and £3, each per part; a door's Ease starts at 30 min. Other items aren't on Rates: each has its own minutes and £. Every figure is a starting guess to calibrate.
+**Windows & Doors** prices each opening as *(base minutes for its size and type + panes × minutes per pane) × coats × access × its prep multiplier*, plus the minutes of any work marked on it — all at your day rate, like every other timed task. The prep multipliers start at Light ×1.10, Standard ×1.25, Heavy ×1.40 and Restoration ×1.75; the material £ (glass is £25 a pane to start) is per pane or part marked, before markup. The sash actions start at Re-cord 40 min and £6, Replace beads 20 min and £4, and Ease & overhaul 45 min and £3, each per part; a door's Ease starts at 30 min. Other items aren't on Rates: each has its own minutes and £. Every figure is a starting guess to calibrate.
+
+The window, pane, door and bay minutes are **for 2 coats**, and scale with the job's coats setting (1 coat is half, 3 coats one and a half), as the card's note says. Access isn't a figure of this card: it uses the **Access — 1st floor** and **Access — 2nd floor +** percentages on the Exterior Rates card, so a first-floor window costs the same uplift in both places. Marked work takes neither.
 
 ![Rates — Windows & Doors](images/26h-windoors-rates.png)
 
@@ -1485,6 +1492,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.86.1. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.87.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

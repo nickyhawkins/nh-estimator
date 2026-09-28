@@ -696,6 +696,7 @@ ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS rows_bottom INTEGER;          
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS other_mins REAL;                            -- kind 'other' (a garage door, a porch): its painting minutes before prep
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS other_cost REAL;                            -- ...its materials £
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS other_m2 REAL;                              -- ...its timber m² for paint; type = 'door'|'window', the colour it takes
+ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS access VARCHAR;                                -- ground | firstFloor | ladderTower set by hand; NULL = Auto (from level and floor)
 DROP INDEX IF EXISTS job_openings_slot;
 CREATE UNIQUE INDEX IF NOT EXISTS job_openings_slot2 ON job_openings (job_id, side, level, floor, kind, position);
 CREATE INDEX IF NOT EXISTS job_openings_parent ON job_openings (parent_opening_id);

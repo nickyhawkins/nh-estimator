@@ -75,15 +75,16 @@ eq('every slot is used exactly once', W.floorSlots(4, 2).length, 6);
 
 // ── Pricing: section 5's formula ───────────────────────────────────────────
 const property = { style: 'georgian', default_prep: 'light', layout: {} };
-// sash large: 55 × 1.3 = 71.5 base, + 12 panes × 4 = 119.5 painted, × 1.1 light
+// sash large: 55 × 1.3 = 71.5 base, + 12 panes × 4 = 119.5 painted, × 1.1
+// first-floor access (2 coats = × 1), × 1.1 light
 near('sash painted minutes', W.paintedMinutes(sash, R), 119.5);
 const quoteOnly = W.priceJob({ property, openings: [sash], marks: [] }, R);
-near('quote = painted × prep multiplier', quoteOnly.quote.mins, 119.5 * 1.1);
+near('quote = painted × access × prep multiplier', quoteOnly.quote.mins, 119.5 * 1.1 * 1.1);
 const withMarks = W.priceJob({ property, openings: [sash], marks: [
   { opening_id: 's', element_id: 'top-1', action_key: 'replace_glass', stage: 'quote' },
   { opening_id: 's', element_id: 'cill', action_key: 'resin', stage: 'variation', variation_id: 'v1' },
 ] }, R);
-near('quote marks add their minutes, not multiplied by prep', withMarks.quote.mins, 119.5 * 1.1 + 30);
+near('quote marks add their minutes, not multiplied by prep or access', withMarks.quote.mins, 119.5 * 1.1 * 1.1 + 30);
 near('quote marks add their material £', withMarks.quote.materials, 25);
 near('variation marks price into their own variation', withMarks.variations.v1.mins, 25);
 near('...with their materials', withMarks.variations.v1.materials, 4);
@@ -101,7 +102,7 @@ eq('...but never below it', W.effectivePrep({ prep_level: 'light' }, { default_p
 const raised = Object.assign({}, sash, { prep_level: 'restoration', prep_stage: 'variation', quote_prep_level: 'light', prep_variation_id: 'v2' });
 const pr = W.priceJob({ property, openings: [raised], marks: [] }, R);
 near('prep raised on site leaves the quote as it was', pr.quote.mins, quoteOnly.quote.mins);
-near('the raise is priced as the difference', pr.variations.v2.mins, 119.5 * (1.75 - 1.1));
+near('the raise is priced as the difference, on the scaled figure', pr.variations.v2.mins, 119.5 * 1.1 * (1.75 - 1.1));
 // A raise the default has since overtaken is worth nothing -- never negative.
 const overtaken = W.priceJob({ property: { default_prep: 'restoration' },
   openings: [Object.assign({}, raised, { prep_level: 'standard', quote_prep_level: 'light' })], marks: [] }, R);
@@ -332,8 +333,10 @@ eq('the sort: lower ground, floors (window, bay + its windows, door), dormers',
 // ── Pricing: bays, and the cosmetic settings price nothing ─────────────────
 const bayData = { property, openings: [bay].concat(kids), marks: [] };
 const bp = W.priceJob(bayData, R);
+// A two-storey bay's timber takes the first-floor uplift; its windows go by
+// their own floors (ground, then first).
 near('a bay = its base by shape and storeys + its windows as windows',
-  bp.quote.mins, (160 + kids.reduce((t, k) => t + W.paintedMinutes(k, R), 0)) * 1.1);
+  bp.quote.mins, (160 * 1.1 + kids.reduce((t, k) => t + W.paintedMinutes(k, R) * (k.floor === 1 ? 1.1 : 1), 0)) * 1.1);
 near('square one-storey base', W.baseMinutes(Object.assign({}, bay, { bay_shape: 'square', bay_storeys: 1 }), R), 70);
 eq('the bay base is a Rates figure', W.mergeRates({ bayBase: { canted: { 2: 200 } } }).bayBase.canted[2], 200);
 eq('...kept per field', W.mergeRates({ bayBase: { canted: { 2: 200 } } }).bayBase.canted[1], 90);
@@ -508,6 +511,105 @@ eq('...4-over-8 beside 8-over-8', W.sashPattern(W.openingDefaults(g8, 'window', 
   eq('the server keeps the sides', JSON.stringify(L.normaliseProperty({ appearance: Object.assign({}, ga, { sides: { back: { finish: 'red_brick' } } }) }).appearance.sides), '{"back":{"finish":"red_brick"}}');
 }
 
+// ── Coats and access (v2.87.0) ─────────────────────────────────────────────
+{
+  // The spec's worked check: a medium 6-over-6 sash, Light prep, defaults.
+  const med = { id: 'm', kind: 'window', type: 'sash', rows: 2, cols: 3, size_tier: 'medium', side: 'front', level: 'standard', floor: 0, position: 1 };
+  const RA = Object.assign(W.mergeRates({}), { access: W.accessRates({ rAccessFirstPct: 10, rAccessLadderPct: 25 }) });
+  const q = (o, coats, rates) => W.priceJob({ property: { default_prep: 'light', coats }, openings: [o], marks: [] }, rates || RA).quote.mins;
+  near('painted minutes of a medium 6-over-6 sash', W.paintedMinutes(med, RA), 100);
+  near('worked check: ground, 2 coats = 110', q(med, 2), 110);
+  near('worked check: first floor, 2 coats = 121', q(Object.assign({}, med, { floor: 1 }), 2), 121);
+  near('worked check: second floor, 3 coats = 206.25', q(Object.assign({}, med, { floor: 2 }), 3), 206.25);
+
+  // Coats: 0.5 / 1 / 1.5 on the painted minutes; actions flat.
+  const acts = [{ opening_id: 'm', element_id: 'top-1', action_key: 'reputty', stage: 'quote' },
+    { opening_id: 'm', element_id: 'cill', action_key: 'splice', stage: 'quote' }];
+  const withActs = coats => W.priceJob({ property: { default_prep: 'light', coats }, openings: [med], marks: acts }, RA).quote.mins;
+  near('1 coat = half the painted minutes', q(med, 1), 55);
+  near('3 coats = one and a half', q(med, 3), 165);
+  near('actions are not scaled by coats (1 coat)', withActs(1) - q(med, 1), 80);
+  near('...(3 coats)', withActs(3) - q(med, 3), 80);
+  eq('missing coats reads as 2', W.coatsFactor({}), 1);
+  eq('invalid coats read as 2', [W.coatsFactor({ coats: 0 }), W.coatsFactor({ coats: 7 }), W.coatsFactor({ coats: 'x' }), W.coatsFactor(null)].join(','), '1,1,1,1');
+  const doorQ = coats => q({ id: 'm', kind: 'door', type: 'panelled', size_tier: 'standard', side: 'front', floor: 0, rows: 3, cols: 2 }, coats);
+  near('door minutes scale with coats too', doorQ(3) / doorQ(2), 1.5);
+  const perM = W.priceJob({ property: { default_prep: 'light', coats: 3 }, openings: [Object.assign({}, med, { floor: 1 })], marks: [] }, RA).perOpening.m;
+  check('perOpening carries scaled, coatsFactor and accessMult',
+    perM.coatsFactor === 1.5 && Math.abs(perM.accessMult - 1.1) < 1e-9 && Math.abs(perM.scaled - 165) < 1e-9 && perM.access === 'firstFloor');
+  const oth = { id: 'o', kind: 'other', side: 'front', floor: 0, position: 1, nickname: 'Garage door', type: 'door', size_tier: 'standard', rows: 1, cols: 1, other_mins: 120, access: 'ladderTower' };
+  near("an Other item's own minutes take neither coats nor access", q(oth, 3), 120 * 1.1);
+
+  // Access from where the opening sits.
+  const at = extra => W.autoAccess(Object.assign({}, med, extra));
+  eq('lower ground = ground', at({ level: 'lower_ground', floor: 0 }), 'ground');
+  eq('ground floor = ground', at({ floor: 0 }), 'ground');
+  eq('first floor = first floor', at({ floor: 1 }), 'firstFloor');
+  eq('second floor = ladder/tower', at({ floor: 2 }), 'ladderTower');
+  eq('third floor = ladder/tower', at({ floor: 3 }), 'ladderTower');
+  eq('dormers = ladder/tower', at({ level: 'roof', floor: 0 }), 'ladderTower');
+  near('a lower ground window prices at ground', q(Object.assign({}, med, { level: 'lower_ground' }), 2), 110);
+  near('a dormer prices at the ladder uplift', q(Object.assign({}, med, { level: 'roof' }), 2), 100 * 1.25 * 1.1);
+  const bay1 = { id: 'b1', kind: 'bay', side: 'front', level: 'standard', floor: 0, position: 1, bay_shape: 'canted', bay_storeys: 1, type: 'canted', size_tier: 'medium' };
+  eq('a one-storey ground bay = ground', W.autoAccess(bay1), 'ground');
+  eq('a two-storey ground bay = first floor', W.autoAccess(Object.assign({}, bay1, { bay_storeys: 2 })), 'firstFloor');
+  eq('a first-floor bay = first floor', W.autoAccess(Object.assign({}, bay1, { floor: 1 })), 'firstFloor');
+  eq('a two-storey first-floor bay = ladder/tower', W.autoAccess(Object.assign({}, bay1, { floor: 1, bay_storeys: 2 })), 'ladderTower');
+  near('a two-storey bay timber takes the first-floor uplift', q(Object.assign({}, bay1, { bay_storeys: 2 }), 2), 160 * 1.1 * 1.1);
+  const child = (floor) => Object.assign({}, med, { id: 'c' + floor, parent_opening_id: 'b1', floor, position: W.bayChildPosition(1, floor, 'front') });
+  eq("a bay's ground window = ground", W.autoAccess(child(0)), 'ground');
+  eq("a bay's upper window = first floor", W.autoAccess(child(1)), 'firstFloor');
+  const bp2 = W.priceJob({ property: { default_prep: 'light', coats: 2 }, openings: [Object.assign({}, bay1, { bay_storeys: 2 }), child(0), child(1)], marks: [] }, RA).perOpening;
+  check('...priced by their own floors', bp2.c0.accessMult === 1 && Math.abs(bp2.c1.accessMult - 1.1) < 1e-9 && Math.abs(bp2.b1.accessMult - 1.1) < 1e-9);
+
+  // Override.
+  eq('override beats Auto (scaffold up)', W.openingAccess(Object.assign({}, med, { floor: 2, access: 'ground' })), 'ground');
+  eq('override beats Auto (basement well)', W.openingAccess(Object.assign({}, med, { access: 'ladderTower' })), 'ladderTower');
+  eq('null reads as Auto', W.openingAccess(Object.assign({}, med, { floor: 1, access: null })), 'firstFloor');
+  near('an override prices', q(Object.assign({}, med, { floor: 2, access: 'ground' }), 2), 110);
+  const aMarks = [{ opening_id: 'm', element_id: 'cill', action_key: 'resin', stage: 'quote' }];
+  near('actions take no access uplift', W.priceJob({ property: { default_prep: 'light' }, openings: [Object.assign({}, med, { floor: 2 })], marks: aMarks }, RA).quote.mins - q(Object.assign({}, med, { floor: 2 }), 2), 25);
+
+  // The percentages come from settings, 10 / 25 when unset.
+  const a0 = W.accessRates({});
+  check('unset settings = 10 / 25', Math.abs(a0.firstFloor - 1.1) < 1e-9 && Math.abs(a0.ladderTower - 1.25) < 1e-9);
+  const a1 = W.accessRates({ rAccessFirstPct: 20, rAccessLadderPct: 50 });
+  check('set settings are used', Math.abs(a1.firstFloor - 1.2) < 1e-9 && Math.abs(a1.ladderTower - 1.5) < 1e-9);
+  check('a saved 0% is kept', W.accessRates({ rAccessFirstPct: 0 }).firstFloor === 1);
+  near('settings reach the price', q(Object.assign({}, med, { floor: 1 }), 2, Object.assign(W.mergeRates({}), { access: a1 })), 100 * 1.2 * 1.1);
+  check('mergeRates defaults the access to 10 / 25', Math.abs(W.mergeRates({}).access.firstFloor - 1.1) < 1e-9 && Math.abs(W.mergeRates({}).access.ladderTower - 1.25) < 1e-9);
+  const noAcc = W.mergeRates({}); delete noAcc.access;
+  near('pre-merged rates with no access still price at 10 / 25', q(Object.assign({}, med, { floor: 1 }), 2, noAcc), 121);
+  // The server's half requires the same module, so it prices identically.
+  const L = require('../lib/windoors');
+  const SW = require.cache[require.resolve('../public/windoors')].exports;
+  check('the server runs the same module', SW === W && typeof L.normaliseOpening === 'function');
+
+  // Prep raised on site: the extra is on the scaled figure.
+  const rz = Object.assign({}, med, { floor: 2, prep_level: 'heavy', prep_stage: 'variation', quote_prep_level: 'light', prep_variation_id: 'vz' });
+  const rzp = W.priceJob({ property: { default_prep: 'light', coats: 3 }, openings: [rz], marks: [] }, RA);
+  near('prep-raise extra = scaled × (now − quote)', rzp.variations.vz.mins, 100 * 1.5 * 1.25 * (1.4 - 1.1));
+  near('...and the quote keeps the scaled figure at its level', rzp.quote.mins, 206.25);
+
+  // The server's gate.
+  const base = { side: 'front', kind: 'window', type: 'sash', sizeTier: 'medium', floor: 1 };
+  eq('no access = Auto (null)', L.normaliseOpening(base).access, null);
+  eq('null access = Auto', L.normaliseOpening(Object.assign({}, base, { access: null })).access, null);
+  ['ground', 'firstFloor', 'ladderTower'].forEach(k => eq('access ' + k + ' is kept', L.normaliseOpening(Object.assign({}, base, { access: k })).access, k));
+  check('an unknown access is refused', !!L.normaliseOpening(Object.assign({}, base, { access: 'scaffold' })).error);
+  check('...and so is a blank one', !!L.normaliseOpening(Object.assign({}, base, { access: '' })).error);
+  eq('an Other item has no access', L.normaliseOpening({ side: 'front', kind: 'other', nickname: 'Porch', access: 'ground' }).access, null);
+  eq('the row maps back', L.mapOpening({ id: 'x', access: 'ladderTower' }).access, 'ladderTower');
+  eq('...NULL as Auto', L.mapOpening({ id: 'x', access: null }).access, null);
+
+  // The elevation marks an override, in the app only.
+  const ep = { appearance: W.periodDefaults('georgian'), layout: { front: { floors: [{ windows: 1, doors: 0 }], confirmed: true } } };
+  const eo = Object.assign({}, med, { id: 'e1', access: 'ground' });
+  check('an overridden opening has a dot on the elevation', W.elevationSvg({ property: ep, openings: [eo], marks: [] }, 'front', { interactive: true }).indexOf('wd-access-dot') >= 0);
+  check('...an Auto one does not', W.elevationSvg({ property: ep, openings: [Object.assign({}, eo, { access: null })], marks: [] }, 'front', { interactive: true }).indexOf('wd-access-dot') < 0);
+  check('...nor does the client report', W.elevationSvg({ property: ep, openings: [eo], marks: [] }, 'front', { markers: false }).indexOf('wd-access-dot') < 0);
+}
+
 // ── The app ────────────────────────────────────────────────────────────────
 check('openings are saved with their level, bay and pane flag', /level: Windoors\.levelOf\(o\)/.test(body('wdPutOpening')) && /parentOpeningId/.test(body('wdPutOpening')) && /panesSet/.test(body('wdPutOpening')));
 check("a sash's bottom rows are saved", /rowsBottom/.test(body('wdPutOpening')));
@@ -524,6 +626,11 @@ check('the invoice screen warns about unticked work', /wdUntickedCount\(\)/.test
 check('dormers follow a side\'s own roof', /wdDormersAllowed\(a, wdSide\)/.test(body('confirmWdLayout')));
 check('the Paint card folds too', /wdCardIsOpen\('paint'\)/.test(body('wdPaintCardHtml')));
 check('the House card folds once a side is confirmed', /confirmed/.test(body('wdCardIsOpen')) && /wdCardIsOpen\('house'\)/.test(body('wdHouseIsOpen')) && /wdHouseIsOpen\(\)/.test(body('renderWindoors')) && /wdHouseSummary\(\)/.test(body('renderWindoors')));
+check('access is saved with an opening', /access: o\.access/.test(body('wdPutOpening')));
+check('the app prices with the Exterior access settings', /accessRates\(settings\)/.test(body('wdRates')));
+check('the access figures are not stored as a second copy in windoorsRates', /delete R\.access/.test(body('readWindoorsRates')));
+check('the detail sheet has an Access control', /wdAccessHtml\(o\)/.test(body('renderWdDetail')) && /wdAccessHtml\(o\)/.test(body('renderWdBay')));
+check('the line list names the access', /openingAccess\(o\)/.test(body('wdWorkListHtml')));
 check('the Rates card has the bay base minutes', /s-wd-bay-/.test(body('populateWindoorsRates')) && /s-wd-bay-/.test(body('readWindoorsRates')));
 
 console.log(pass.length + ' passed, ' + fail.length + ' failed');
