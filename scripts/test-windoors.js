@@ -202,6 +202,41 @@ const body = name => {
   ['colourAreas', 'windoorsPaintItems()'],
   ['setAreaColourNumber', "ref.kind === 'windoors'"],
 ].forEach(([fn, needle]) => check(fn + ' includes the windows and doors fixture', body(fn).indexOf(needle) >= 0));
+// ── The report PDF ─────────────────────────────────────────────────────────
+// The PDF writer now carries more than one image (the report's drawings, as
+// JPEG). Run the real writer out of index.html: the logo-only call the quote
+// and the snag list make must serialise exactly as before, and extra images
+// must each become their own XObject the pages can name.
+{
+  const vm = require('vm');
+  const grab = (name) => {
+    const at = SRC.indexOf('\nfunction ' + name + '(');
+    let depth = 0, i = SRC.indexOf('{', at);
+    for (; i < SRC.length; i++) { if (SRC[i] === '{') depth++; else if (SRC[i] === '}' && --depth === 0) break; }
+    return SRC.slice(at, i + 1);
+  };
+  const consts = SRC.match(/\nvar PDF_[A-Z_]+ += [^\n]*;/g).join('\n')
+    + '\n' + SRC.slice(SRC.indexOf('\nvar PDF_WIDTHS = {'), SRC.indexOf('};', SRC.indexOf('\nvar PDF_WIDTHS = {')) + 2);
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(consts + ['pdfSanitise', 'pdfEscape', 'pdfTextWidth', 'pdfWrap', 'pdfDoc', 'pdfLatin1', 'pdfSerialise'].map(grab).join('\n'), ctx);
+  const pdf = (bytes) => Buffer.from(bytes).toString('latin1');
+  const logoOnly = pdf(vm.runInContext("var d = pdfDoc(); d.text('Hi', 40, 700); d.image(40, 600, 10, 10); pdfSerialise(d, {w:1,h:1,data:new Uint8Array([1,2,3])})", ctx));
+  check('the logo-only PDF still names its image Im1 as object 5', /\/XObject << \/Im1 5 0 R >>/.test(logoOnly) && /6 0 obj\n<< \/Type \/Page /.test(logoOnly));
+  const report = pdf(vm.runInContext("var d = pdfDoc(); d.image(40, 600, 10, 10, 'Im2'); d.image(40, 500, 10, 10, 'Im3');"
+    + " pdfSerialise(d, null, [{w:2,h:2,data:new Uint8Array([255,216,255]),filter:'DCTDecode'},{w:3,h:3,data:new Uint8Array([255,216,255]),filter:'DCTDecode'}])", ctx));
+  check('extra images are Im2, Im3… with the JPEG filter', /\/Im2 5 0 R \/Im3 6 0 R/.test(report) && (report.match(/\/Filter \/DCTDecode/g) || []).length === 2);
+  check('and the pages draw them by name', /\/Im2 Do Q/.test(report) && /\/Im3 Do Q/.test(report));
+  const xrefCount = +(/xref\n0 (\d+)/.exec(report) || [])[1];
+  check('the xref table counts every object', xrefCount === (report.match(/\d+ 0 obj\n/g) || []).length + 1);
+}
+check('the final invoice attaches the report when ticked',
+  /s\.attachWindoorsReport !== false && result\.invoiceId/.test(body('createFinalInvoice')) && body('createFinalInvoice').indexOf('attachWindoorsReportToInvoice(') >= 0);
+check('a failed attach never un-creates the invoice (it is reported beside the success)',
+  body('attachWindoorsReportToInvoice').indexOf('never throws') >= 0 || /catch \(err\) \{\n\s*return \{ ok: false/.test(body('attachWindoorsReportToInvoice')));
+check('the windows and doors paint carries its own product', /extTopcoatRangeOverride: prod \? prod\.range/.test(body('windoorsPaintItems')));
+check('the product picker treats windows and doors as roles', /role === 'wdwindow' \|\| role === 'wddoor'/.test(body('overrideState')));
+
 check('the Xero quote carries it as a line', /exteriorData\.push\(\{ label: windoorsLineText\(\)/.test(SRC));
 check('the shell loads the shared module', SRC.indexOf('<script src="/windoors.js"></script>') >= 0);
 check('the server accepts the windoors variation kind', require('../lib/clientQuote').VARIATION_KINDS.has('windoors'));

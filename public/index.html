@@ -17162,7 +17162,7 @@ function jobSpecModel() {
       stage: 'other', label: it.wdPaint === 'door' ? 'Doors, outside faces' : 'Windows, outside faces', steps: ['prep', 'done'],
       coats: specCoatsLabel((windoors.property && windoors.property.coats) || 2),
       colour: colourScheduleLabel(it.extWoodworkColourNumber),
-      product: ((settings.materials || {}).extTopcoat || {}).range || '',
+      product: it.extTopcoatRangeOverride || ((settings.materials || {}).extTopcoat || {}).range || '',
       includes: nW + ' ' + (it.wdPaint === 'door' ? (nW === 1 ? 'door' : 'doors') : (nW === 1 ? 'window' : 'windows')),
       prep: SPEC_PREP_LINES.extwoodwork });
   });
@@ -20393,6 +20393,12 @@ function renderFinalInvoice() {
     '</div>'+
     (blockedLive ? '<div style="font-size:13px;color:var(--danger);margin-bottom:12px">⚠ Unpriced lines in red must be priced or dropped before the invoice can be created.</div>' : '')+
     (interimsPending ? '<div style="font-size:13px;color:var(--danger);margin-bottom:12px">⚠ An interim invoice isn\'t live in Xero (not sent yet, or voided there) — send or discard it on Summary first, so this invoice deducts only invoices that stand.</div>' : '')+
+    // Windows and doors: the work report goes on the invoice as a PDF
+    // attachment (WINDOWS_DOORS_SPEC.md section 7). On by default whenever
+    // there is a report; untick to leave it off.
+    (wdHasReport() ? '<label class="card" style="display:flex;gap:10px;align-items:flex-start;padding:12px 14px;margin-bottom:12px;cursor:pointer">'
+      + '<input type="checkbox" id="fi-wd-report" '+(finalInvState.attachWindoorsReport !== false ? 'checked' : '')+' onchange="finalInvState.attachWindoorsReport=this.checked" style="width:20px;height:20px;flex:none;margin-top:1px;accent-color:var(--accent)">'
+      + '<span style="font-size:14px"><b>Attach the windows &amp; doors report</b><small style="display:block;font-size:12px;color:var(--text2);margin-top:2px">What was done where, with the drawings — no prices. Added to the Xero invoice as a PDF the client can open from it.</small></span></label>' : '')+
     '<button id="fi-create-btn" onclick="createFinalInvoice()" '+(blockedLive || interimsPending ? 'disabled' : '')+' style="width:100%;background:'+(blockedLive || interimsPending ? 'var(--surface2)' : 'var(--accent)')+';color:'+(blockedLive || interimsPending ? 'var(--text3)' : '#fff')+';border:none;border-radius:var(--rs);padding:14px;font-size:15px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer">Create draft invoice in Xero</button>'+
     '<div style="font-size:12px;color:var(--text2);text-align:center;margin-top:8px">Created as a DRAFT — review in Xero before sending.</div>';
 }
@@ -20550,7 +20556,16 @@ async function createFinalInvoice() {
         .catch(function(e) { console.warn('Final invoice record not saved (the Xero invoice is fine):', e); });
     }
     setJobStatusById(job.id, 'invoiced'); // persists + pipeline hook
-    alert('Invoice ' + (result.invoiceNumber || '') + ' created as a DRAFT in Xero ✓\n\nApply the payments already received against it there, review, then send.');
+    // The windows and doors report, as a PDF on the invoice. After the
+    // invoice exists and never able to undo it: a failure here is said
+    // plainly beside the success, with where to retry.
+    var wdNote = '';
+    if (wdHasReport() && s.attachWindoorsReport !== false && result.invoiceId) {
+      btn.textContent = 'Attaching the report…';
+      var att = await attachWindoorsReportToInvoice(result.invoiceId);
+      wdNote = att.ok ? '\n\nThe windows and doors report is attached ✓' : '\n\n' + wdAttachFailureText(att);
+    }
+    alert('Invoice ' + (result.invoiceNumber || '') + ' created as a DRAFT in Xero ✓\n\nApply the payments already received against it there, review, then send.' + wdNote);
     goTab('summary');
   } catch (err) {
     alert('Could not create the invoice: ' + err.message + '\n\nNothing was changed — the Invoice list (On Site → Invoice) is the copy-by-hand fallback.');
@@ -23112,7 +23127,10 @@ var roomOverrides = {
 // twin, which is what Kitchen used to have (populateKitchenRangePicker/
 // onKitchenRangeSearchInput/selectKitchenRange/populateKitchenBandPicker/
 // onKitchenBandSelect).
-function overrideIdPrefix(role) { return role === 'kitchen' ? 'k' : role === 'fittedunit' ? 'fu' : 'r-'+role; }
+function overrideIdPrefix(role) {
+  if (role === 'wdwindow' || role === 'wddoor') return 'wdp-' + role.slice(2);
+  return role === 'kitchen' ? 'k' : role === 'fittedunit' ? 'fu' : 'r-'+role;
+}
 function overrideState(role) {
   if (role === 'kitchen') {
     var job = activeJob();
@@ -23127,11 +23145,15 @@ function overrideState(role) {
   if (role === 'fittedunit') {
     return currentFittedUnit() || { range: '', band: null };
   }
+  // Windows and doors: the fixture's own product per kind, persisted
+  // immediately like the kitchen's.
+  if (role === 'wdwindow' || role === 'wddoor') return wdProductState(role.slice(2));
   return roomOverrides[role];
 }
 function persistOverrideChange(role) {
   if (role === 'kitchen') saveKitchenJob();
   if (role === 'fittedunit') saveFittedUnitJob();
+  if (role === 'wdwindow' || role === 'wddoor') wdPersistProduct(role.slice(2));
 }
 
 function populateRoomOverridePicker(role) {
@@ -23273,7 +23295,7 @@ function hideRangeSearchDropdown(idPrefix) {
 }
 
 document.addEventListener('click', function(e) {
-  ['r-wall','r-ceiling','r-topcoat','r-primer','r-mist','r-featurewall','r-panel','r-masonry','r-extTopcoat','r-extPrimer','k'].concat(bulkRangeIdPrefixes()).forEach(function(idPrefix) {
+  ['r-wall','r-ceiling','r-topcoat','r-primer','r-mist','r-featurewall','r-panel','r-masonry','r-extTopcoat','r-extPrimer','k','wdp-window','wdp-door'].concat(bulkRangeIdPrefixes()).forEach(function(idPrefix) {
     var input = document.getElementById(idPrefix+'-range');
     var dd = document.getElementById(idPrefix+'-range-dd');
     if (!input || !dd) return;
@@ -25170,7 +25192,8 @@ function wdPutProperty() {
   return apiPutStrict('/api/windoors/property' + wdQ(), {
     jobId: windoors.jobId, style: p.style, detailEnabled: p.detail_enabled !== false,
     defaultPrep: p.default_prep, layout: p.layout || {},
-    coats: p.coats || 2, windowColour: p.window_colour || null, doorColour: p.door_colour || null
+    coats: p.coats || 2, windowColour: p.window_colour || null, doorColour: p.door_colour || null,
+    paintProducts: p.paint_products || {}
   }).catch(function(e) { wdFail('the house settings', e); });
 }
 function wdPutOpening(o) {
@@ -25242,7 +25265,13 @@ function windoorsPaintItems() {
   var push = function(kind, m2, num) {
     if (!(m2 > 0)) return;
     var top = m2 * coats / cov;
+    // Its own product where one was picked (the gloss for a front door),
+    // read by computeRoleGroups exactly as a room's override is. Primer
+    // stays the Settings exterior primer, as it does for fitted units.
+    var prod = wdPaintProduct(kind);
     out.push({ wdPaint: kind, label: kind === 'door' ? 'Doors' : 'Windows', extWoodworkColourNumber: num || 1,
+               extTopcoatRangeOverride: prod ? prod.range : undefined,
+               extTopcoatBandOverride: prod ? prod.band : undefined,
                topcoatL: top, primerL: top * 0.8 });
   };
   push('window', a.window, p.window_colour);
@@ -25255,13 +25284,13 @@ function wdPaintCardHtml() {
   var n = wdSideCountsAll();
   var coats = Math.max(1, Math.min(3, +p.coats || 2));
   return '<div class="card">'
-    + '<div class="card-header">Paint<small style="text-transform:none;letter-spacing:normal;font-weight:400"> — outside faces, on the exterior woodwork product</small></div>'
+    + '<div class="card-header">Paint<small style="text-transform:none;letter-spacing:normal;font-weight:400"> — outside faces</small></div>'
     + '<div class="field-row"><div class="field-label">Coats</div><div class="seg" style="width:150px">'
     + [1, 2, 3].map(function(c) { return '<button type="button" class="seg-btn' + (c === coats ? ' active' : '') + '" onclick="setWdCoats(' + c + ')">' + c + '</button>'; }).join('')
     + '</div></div>'
-    + (n.windows || !n.doors ? '<div class="field-row" style="border-top:1px solid var(--border);flex-wrap:wrap"><div class="field-label">Windows colour</div><div id="seg-colour-wd-window" style="width:100%"></div></div>' : '')
-    + (n.doors ? '<div class="field-row" style="border-top:1px solid var(--border);flex-wrap:wrap"><div class="field-label">Doors colour</div><div id="seg-colour-wd-door" style="width:100%"></div></div>' : '')
-    + '<div style="padding:0 16px 12px;font-size:11px;color:var(--text2)">Painted on the timber only: each window\'s size less its glass, from Rates › Windows &amp; Doors › Paint areas. Litres use the Exterior Woodwork product and coverage, and join the exterior woodwork tins on Summary.</div>'
+    + (n.windows || !n.doors ? wdProductRowHtml('window') + '<div class="field-row" style="flex-wrap:wrap"><div class="field-label">Windows colour</div><div id="seg-colour-wd-window" style="width:100%"></div></div>' : '')
+    + (n.doors ? wdProductRowHtml('door') + '<div class="field-row" style="flex-wrap:wrap"><div class="field-label">Doors colour</div><div id="seg-colour-wd-door" style="width:100%"></div></div>' : '')
+    + '<div style="padding:0 16px 12px;font-size:11px;color:var(--text2)">Painted on the timber only: each window\'s size less its glass, from Rates › Windows &amp; Doors › Paint areas. Litres use the exterior woodwork coverage, and join the exterior woodwork tins on Summary wherever the product and colour match.</div>'
     + '</div>';
 }
 function wdSideCountsAll() {
@@ -25274,6 +25303,39 @@ function setWdCoats(c) {
 }
 // The two colour fields: the app's ordinary colour slot (library lookup,
 // rename-vs-fork, quick picks), persisting immediately like the kitchen's.
+// The paint product for windows or doors: the room product picker, run as
+// two more roles ('wdwindow' / 'wddoor' -- see overrideIdPrefix/overrideState/
+// persistOverrideChange), writing into property.paint_products. No pick =
+// the Settings exterior woodwork topcoat, as for an exterior item.
+function wdPaintProduct(kind) {
+  var pp = (windoors.property && windoors.property.paint_products) || {};
+  var p = pp[kind];
+  return p && p.range ? p : null;
+}
+function wdProductState(kind) {
+  if (!windoors.property) return { range: '', band: null };
+  var pp = windoors.property.paint_products = windoors.property.paint_products || {};
+  if (!pp[kind]) pp[kind] = { range: '', band: null };
+  return pp[kind];
+}
+function wdProductRowHtml(kind) {
+  var id = 'wdp-' + kind;
+  return '<div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">' + (kind === 'door' ? 'Doors' : 'Windows')
+    + ' product<small>topcoat — defaults to the exterior woodwork topcoat in Settings</small></div>'
+    + '<div style="position:relative"><input type="text" class="field-input wide" style="width:160px;text-align:left" id="' + id + '-range" placeholder="Search…" autocorrect="off" autocomplete="off"'
+    + ' oninput="onRoomRangeSearchInput(\'wd' + kind + '\')" onfocus="onRoomRangeSearchInput(\'wd' + kind + '\')">'
+    + '<div id="' + id + '-range-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--surface);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:200;max-height:280px;overflow-y:auto"></div></div></div>'
+    + '<div class="field-row" id="' + id + '-band-row" style="display:none"><div class="field-label">Colour band</div><select class="field-input" id="' + id + '-band" onchange="onRoomOverrideBandSelect(\'wd' + kind + '\')"></select></div>';
+}
+function wdPersistProduct(kind) {
+  var st = wdProductState(kind);
+  // An unpicked product is stored as no entry at all, so "default" reads the
+  // same whether it was never set or set and cleared.
+  if (!st.range) delete windoors.property.paint_products[kind];
+  wdSaveMirror();
+  wdPutProperty();
+}
+
 function wdColourOf(kind) {
   var p = windoors.property || {};
   return +(kind === 'door' ? p.door_colour : p.window_colour) || 1;
@@ -25316,7 +25378,7 @@ function wdEnsureProperty() {
   if (windoors.jobId !== activeJobId) windoors = { jobId: activeJobId, property: null, openings: [], marks: [] };
   if (windoors.property) return false;
   windoors.property = { style: 'georgian', detail_enabled: true, default_prep: 'light', layout: {},
-                        coats: 2, window_colour: null, door_colour: null };
+                        coats: 2, window_colour: null, door_colour: null, paint_products: {} };
   return true;
 }
 async function openWindoors(mode) {
@@ -25410,12 +25472,25 @@ function renderWindoors() {
       + '<div style="font-size:12px;color:var(--text2);margin-top:4px">Labour cost before markup' + (c.materials > 0.005 ? ', incl. ' + fmt(c.materials) + ' materials' : '') + '. On the quote as: <i>' + escapeHtml(windoorsLineText()) + '</i></div>'
       + '</div>';
   }
-  if (Windoors.reportModel(windoors, wdReportVariations()).sections.length) {
-    html += '<button onclick="openWindoorsReport()" style="width:100%;margin:4px 0 16px;background:var(--accent-soft-bg);color:var(--accent);border:1px solid var(--accent-soft-border);border-radius:12px;padding:11px;font-size:14px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer">📄 Work report (PDF)</button>';
+  if (wdReportModelNow().sections.length) {
+    var soft = 'width:100%;margin:4px 0 8px;background:var(--accent-soft-bg);color:var(--accent);border:1px solid var(--accent-soft-border);border-radius:12px;padding:11px;font-size:14px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer';
+    html += '<button onclick="saveWindoorsReportPdf()" style="' + soft + '">📄 Work report (PDF)</button>';
+    // Once the job has its final invoice in Xero: attach (or re-attach) the
+    // report there -- the retry for an attach that failed at invoicing.
+    var ij = activeJob();
+    if (ij && ij.xeroInvoiceId) {
+      var attached = ij.windoorsReportAttachedTo === ij.xeroInvoiceId;
+      html += '<button id="wd-attach-btn" class="xero-live-btn" onclick="attachWindoorsReportNow()" style="' + soft + '">'
+        + (attached ? '↻ Attach the report to ' : '📎 Attach the report to ') + 'invoice ' + escapeHtml(ij.xeroInvoiceNumber || '') + '</button>'
+        + (attached ? '<div style="font-size:12px;color:var(--text2);text-align:center;margin:-2px 0 8px">Attached ✓ — attach again after changes to replace it</div>' : '');
+    }
+    html += '<div style="height:8px"></div>';
   }
   body.innerHTML = html;
   wdWireElevation();
   populateWdColourSlots();
+  populateRoomOverridePicker('wdwindow');
+  populateRoomOverridePicker('wddoor');
 }
 
 function wdSideCardHtml() {
@@ -25831,14 +25906,218 @@ function wdReportVariations() {
     return { id: v.id, status: variationStatusOf(v), approvedAt: v.variationApprovedAt || null };
   });
 }
-// The printable report, served by the server from the stored rows (so any
-// write still in the offline queue is not on it yet -- it says so). Opened
-// in a new tab, where the phone's print/share sheet saves the PDF that goes
-// on the Xero invoice.
-function openWindoorsReport() {
-  if (blockIfOffline('The windows and doors report')) return;
-  if (wdHasQueuedWrites(activeJobId)) toast('Some changes are still syncing — they will be on the report once they land');
-  window.open('/api/jobs/' + encodeURIComponent(activeJobId) + '/windoors-report', '_blank');
+// ── Windows and doors report as a PDF (WINDOWS_DOORS_SPEC.md section 7) ───
+// Built on the phone with the app's own PDF writer, the same one the quote
+// and the snag list use, so it works with no signal and nothing is rendered
+// server-side. The drawings are the module's SVGs rasterised through a
+// canvas to JPEG (the writer draws text and boxes, not SVG) -- JPEG rather
+// than the logo's raw RGB because a report is several drawings, and raw
+// pixels for those would make a file Xero's attachment limit would notice.
+//
+// The model is Windoors.reportModel over the rows in memory: the same model
+// the server draws the client's page from, so the two cannot disagree about
+// what was done. No prices anywhere, by construction -- nothing in the model
+// carries one.
+function wdSvgToJpeg(svg, pxWidth) {
+  return new Promise(function(resolve, reject) {
+    var vb = /viewBox="([-\d.]+) ([-\d.]+) ([\d.]+) ([\d.]+)"/.exec(svg);
+    if (!vb) { reject(new Error('drawing has no viewBox')); return; }
+    var vw = +vb[3], vh = +vb[4];
+    var w = Math.round(pxWidth), h = Math.max(1, Math.round(pxWidth * vh / vw));
+    // Give the root an explicit pixel size: an <img> of a width="100%" SVG
+    // has no intrinsic size to draw at.
+    var sized = svg.replace(/^<svg([^>]*?) width="100%" style="[^"]*"/, '<svg$1 width="' + w + '" height="' + h + '"');
+    var url = URL.createObjectURL(new Blob([sized], { type: 'image/svg+xml;charset=utf-8' }));
+    var img = new Image();
+    var done = false;
+    var timer = setTimeout(function() { if (!done) { done = true; URL.revokeObjectURL(url); reject(new Error('drawing timed out')); } }, 8000);
+    img.onload = function() {
+      if (done) return;
+      done = true; clearTimeout(timer);
+      try {
+        var cv = document.createElement('canvas');
+        cv.width = w; cv.height = h;
+        var cx = cv.getContext('2d');
+        cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, w, h);
+        cx.drawImage(img, 0, 0, w, h);
+        var b64 = cv.toDataURL('image/jpeg', 0.86).split(',')[1];
+        var bin = atob(b64), bytes = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        resolve({ w: w, h: h, data: bytes, filter: 'DCTDecode', aspect: vh / vw });
+      } catch (e) { reject(e); } finally { URL.revokeObjectURL(url); }
+    };
+    img.onerror = function() {
+      if (done) return;
+      done = true; clearTimeout(timer); URL.revokeObjectURL(url);
+      reject(new Error('drawing could not be rendered'));
+    };
+    img.src = url;
+  });
+}
+
+function wdReportModelNow() { return Windoors.reportModel(windoors, wdReportVariations()); }
+function wdHasReport() { return wdInUse() && wdReportModelNow().sections.length > 0; }
+
+async function buildWindoorsReportPdf() {
+  var model = wdReportModelNow();
+  if (!model.sections.length) throw new Error('no work has been marked on the windows and doors yet');
+  var data = { property: windoors.property, openings: windoors.openings, marks: model.marks };
+  var job = activeJob() || {};
+  var images = [];
+  var addImage = function(im) { images.push(im); return 'Im' + (images.length + 1); };
+
+  // Render every drawing first (they're async), then lay the pages out.
+  var sides = [];
+  for (var si = 0; si < model.sides.length; si++) {
+    var side = model.sides[si];
+    var elev = await wdSvgToJpeg(Windoors.elevationSvg(data, side, { highlight: model.highlight, markers: false }), 900);
+    var secs = [];
+    var mine = model.sections.filter(function(sec) { return sec.opening.side === side; });
+    for (var k = 0; k < mine.length; k++) {
+      secs.push({ sec: mine[k], img: await wdSvgToJpeg(Windoors.detailSvg(mine[k].opening, model.marks, {}), 360) });
+    }
+    sides.push({ side: side, elev: elev, secs: secs });
+  }
+
+  var d = pdfDoc();
+  var L = PDF_MARGIN, R = PDF_PAGE_W - PDF_MARGIN, W = R - L;
+  var line = function(s, x, size, opts) { d.text(s, x, d.y - size, Object.assign({ size: size }, opts || {})); d.y -= size + 4; };
+  // Header: who, what, which job, when.
+  line(quoteBusinessName(), L, 15, { bold: true, rgb: PDF_STEEL });
+  line('Windows and doors: work report', L, 12, { bold: true });
+  line([job.name, job.xeroClient].filter(Boolean).join(' · '), L, 9.5, { rgb: PDF_MUT });
+  line('Generated ' + new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }), L, 9.5, { rgb: PDF_MUT });
+  d.y -= 4;
+  d.rule(L, d.y, R, PDF_STEEL);
+  d.y -= 8;
+  pdfWrap(pdfSanitise('Outside faces only. Openings are numbered left to right as you face each side of the house. '
+    + 'Work in orange; glass replaced in blue; work agreed as a variation drawn dashed.'), false, 9, W)
+    .forEach(function(ln) { d.text(ln, L, d.y - 9, { size: 9, rgb: PDF_MUT }); d.y -= 12; });
+  d.y -= 6;
+
+  sides.forEach(function(sd) {
+    var ew = Math.min(280, W), eh = ew * sd.elev.aspect;
+    if (eh > 290) { eh = 290; ew = eh / sd.elev.aspect; }
+    d.need(22 + eh + 12);
+    d.text(Windoors.sideLabel(sd.side).toUpperCase(), L, d.y - 11, { size: 10, bold: true, rgb: PDF_STEEL });
+    d.y -= 20;
+    var en = addImage(sd.elev);
+    d.image(L + (W - ew) / 2, d.y, ew, eh, en);
+    d.y -= eh + 12;
+    sd.secs.forEach(function(e) {
+      var sec = e.sec;
+      var iw = 84, ih = Math.min(120, iw * e.img.aspect);
+      iw = ih / e.img.aspect;
+      var tx = L + 112, tw = R - tx;
+      var rows = [];
+      rows.push({ t: sec.label, size: 10.5, bold: true });
+      rows.push({ t: sec.type + (sec.opening.kind === 'door' ? ' door' : ' window'), size: 8.5, rgb: PDF_MUT });
+      if (sec.quoted.length) {
+        rows.push({ t: 'QUOTED WORK', size: 7.5, bold: true, rgb: PDF_MUT, gap: 4 });
+        sec.quoted.forEach(function(q) { rows.push({ t: '• ' + q, size: 9 }); });
+      }
+      if (sec.variations.length) {
+        rows.push({ t: 'APPROVED VARIATIONS', size: 7.5, bold: true, rgb: PDF_MUT, gap: 4 });
+        sec.variations.forEach(function(v) {
+          rows.push({ t: '• ' + v.text + (v.approvedAt ? ' (approved ' + Windoors.fmtDate(v.approvedAt) + ')' : ''), size: 9 });
+        });
+      }
+      var laid = [];
+      rows.forEach(function(r) {
+        pdfWrap(pdfSanitise(r.t), !!r.bold, r.size, tw).forEach(function(ln, i) {
+          laid.push({ t: ln, size: r.size, bold: r.bold, rgb: r.rgb, gap: i === 0 ? (r.gap || 0) : 0 });
+        });
+      });
+      var th = laid.reduce(function(h, r) { return h + r.gap + r.size + 3.5; }, 0);
+      var bh = Math.max(ih, th) + 14;
+      d.need(bh);
+      var top = d.y - 6;
+      d.rule(L, d.y, R, PDF_RULE);
+      var en2 = addImage(e.img);
+      d.image(L, top, iw, ih, en2);
+      var yy = top;
+      laid.forEach(function(r) {
+        yy -= r.gap + r.size;
+        d.text(r.t, tx, yy, { size: r.size, bold: !!r.bold, rgb: r.rgb });
+        yy -= 3.5;
+      });
+      d.y = top - Math.max(ih, th) - 8;
+    });
+    d.y -= 6;
+  });
+  return pdfSerialise(d, null, images);
+}
+
+function windoorsReportFilename() {
+  var base = ((activeJob() && activeJob().name) || 'Job').replace(/[^A-Za-z0-9 _-]+/g, '').trim().replace(/\s+/g, '-');
+  return 'NH-Windows-Doors-Report-' + (base || 'Job') + '-' + new Date().toISOString().slice(0, 10) + '.pdf';
+}
+
+// "Work report (PDF)": same three visible outcomes as the quote's Save PDF --
+// the share sheet, a download, or a message saying what went wrong.
+async function saveWindoorsReportPdf() {
+  try {
+    var bytes = await buildWindoorsReportPdf();
+    var blob = new Blob([bytes], { type: 'application/pdf' });
+    var filename = windoorsReportFilename();
+    var file = null;
+    try { file = new File([blob], filename, { type: 'application/pdf' }); } catch (e) { file = null; }
+    var canShare = false;
+    try { canShare = !!(file && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })); } catch (e) { canShare = false; }
+    if (canShare) {
+      try { await navigator.share({ files: [file], title: 'Windows and doors report' }); return; }
+      catch (e) { if (e && (e.name === 'AbortError' || e.name === 'NotAllowedError')) return; }
+    }
+    downloadBlob(blob, filename);
+    toast('Report saved as ' + filename);
+  } catch (err) {
+    reportFailure('Couldn\'t build the windows and doors report', err);
+  }
+}
+
+// Upload the report to a Xero invoice as an attachment, shown to the client
+// on the online invoice. Resolves { ok } or { ok:false, error, reconnect }
+// and never throws: a report that fails to attach must never make an invoice
+// that WAS created look like it wasn't.
+async function attachWindoorsReportToInvoice(invoiceId) {
+  try {
+    var bytes = await buildWindoorsReportPdf();
+    var bin = '';
+    for (var i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    var resp = await fetch('/auth/invoice-attachment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ invoiceId: invoiceId, fileName: windoorsReportFilename(), pdfBase64: btoa(bin) })
+    });
+    var result = await readJsonResponse(resp);
+    if (!resp.ok || !result.ok) return { ok: false, error: (result && result.error) || ('HTTP ' + resp.status), reconnect: !!(result && result.reconnect) };
+    var job = activeJob();
+    if (job) {
+      job.windoorsReportAttachedTo = invoiceId;
+      localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+      persistJobData(job);
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+function wdAttachFailureText(r) {
+  return 'The windows and doors report was NOT attached: ' + r.error
+    + (r.reconnect ? '\n\nXero needs reconnecting once to allow attachments (Summary → Connect Xero), then attach it from the Windows & Doors screen.'
+                   : '\n\nYou can attach it from the Windows & Doors screen, or save the PDF and add it in Xero.');
+}
+// The retry, from the fixture screen: to the job's final invoice in Xero.
+async function attachWindoorsReportNow() {
+  if (blockIfOffline('Attaching the report to the Xero invoice')) return;
+  var job = activeJob();
+  if (!job || !job.xeroInvoiceId) return;
+  var btn = document.getElementById('wd-attach-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Attaching…'; }
+  var r = await attachWindoorsReportToInvoice(job.xeroInvoiceId);
+  if (r.ok) toast('Report attached to invoice ' + (job.xeroInvoiceNumber || ''));
+  else alert(wdAttachFailureText(r));
+  renderWindoors();
 }
 
 // ── Measure-list row and the On Site card ────────────────────────────────
@@ -31561,8 +31840,14 @@ function pdfDoc() {
     d.cur.push('BT ' + rgb.join(' ') + ' rg /' + (bold ? 'F2' : 'F1') + ' ' + size + ' Tf 1 0 0 1 '
       + xx.toFixed(2) + ' ' + baseline.toFixed(2) + ' Tm (' + pdfEscape(t) + ') Tj ET');
   };
-  d.image = function(x, top, w, h) {
-    d.cur.push('q ' + w.toFixed(2) + ' 0 0 ' + h.toFixed(2) + ' ' + x.toFixed(2) + ' ' + (top - h).toFixed(2) + ' cm /Im1 Do Q');
+  // name: which image XObject -- Im1 (the logo, pdfSerialise's `image`) by
+  // default; Im2, Im3... are the `extraImages` it takes after it.
+  d.image = function(x, top, w, h, name) {
+    d.cur.push('q ' + w.toFixed(2) + ' 0 0 ' + h.toFixed(2) + ' ' + x.toFixed(2) + ' ' + (top - h).toFixed(2) + ' cm /' + (name || 'Im1') + ' Do Q');
+  };
+  // Stroked outline and a filled rule block -- the report's diagram frames.
+  d.box = function(x, top, w, h, rgb) {
+    d.cur.push(rgb.join(' ') + ' RG 0.8 w ' + x.toFixed(2) + ' ' + (top - h).toFixed(2) + ' ' + w.toFixed(2) + ' ' + h.toFixed(2) + ' re S');
   };
   d.newPage();
   return d;
@@ -31577,9 +31862,16 @@ function pdfLatin1(s) {
 // Serialise to bytes, recording each object's byte offset for the xref table
 // as we go — which is why this concatenates chunks by hand instead of
 // building one big string: the logo is raw binary, not text.
-function pdfSerialise(d, image) {
+// extraImages (optional): more images after the logo, named Im2, Im3... in
+// order, each { w, h, data } raw RGB like the logo, or with filter:
+// 'DCTDecode' where data is a JPEG file's bytes (the report's diagrams --
+// raw RGB for a page of drawings would run to megabytes).
+function pdfSerialise(d, image, extraImages) {
   var objs = [], i;
-  var firstPage = image ? 6 : 5;
+  var images = [];
+  if (image) images.push({ name: 'Im1', img: image });
+  (extraImages || []).forEach(function(im, k) { images.push({ name: 'Im' + (k + 2), img: im }); });
+  var firstPage = 5 + images.length;
   var n = d.pages.length;
   var kids = [];
   for (i = 0; i < n; i++) kids.push((firstPage + i * 2) + ' 0 R');
@@ -31588,11 +31880,14 @@ function pdfSerialise(d, image) {
   objs.push('<< /Type /Pages /Count ' + n + ' /Kids [' + kids.join(' ') + '] >>');
   objs.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
   objs.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
-  if (image) {
-    objs.push(['<< /Type /XObject /Subtype /Image /Width ' + image.w + ' /Height ' + image.h
-      + ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length ' + image.data.length + ' >>\nstream\n', image.data, '\nendstream']);
-  }
-  var res = '/Font << /F1 3 0 R /F2 4 0 R >>' + (image ? ' /XObject << /Im1 5 0 R >>' : '');
+  images.forEach(function(e) {
+    var im = e.img;
+    objs.push(['<< /Type /XObject /Subtype /Image /Width ' + im.w + ' /Height ' + im.h
+      + ' /ColorSpace /DeviceRGB /BitsPerComponent 8' + (im.filter ? ' /Filter /' + im.filter : '')
+      + ' /Length ' + im.data.length + ' >>\nstream\n', im.data, '\nendstream']);
+  });
+  var res = '/Font << /F1 3 0 R /F2 4 0 R >>' + (images.length
+    ? ' /XObject << ' + images.map(function(e, k) { return '/' + e.name + ' ' + (5 + k) + ' 0 R'; }).join(' ') + ' >>' : '');
   for (i = 0; i < n; i++) {
     var content = d.pages[i].join('\n');
     objs.push('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + PDF_PAGE_W.toFixed(2) + ' ' + PDF_PAGE_H.toFixed(2)

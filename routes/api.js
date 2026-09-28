@@ -11,8 +11,8 @@ const {
   ensureSupplierSchema, normaliseSupplier, normaliseOrder, mapSupplierRow, assembleOrders,
 } = require('../lib/supplierOrders');
 const {
-  ensureWindoorsSchema, normaliseProperty, normaliseOpening, normaliseMark,
-  mapProperty, mapOpening, mapMark, readWindoors, jobReportHtml,
+  ensureWindoorsSchema, normalisePaintProducts, normaliseProperty, normaliseOpening, normaliseMark,
+  mapProperty, mapOpening, mapMark, readWindoors,
 } = require('../lib/windoors');
 // Aliased so the import loop below reads like its neighbours (SNAG_STATUSES,
 // VARIATION_KINDS) rather than shadowing the step set's name with a local.
@@ -1372,8 +1372,7 @@ router.delete('/snag-rooms/:id', async (req, res) => {
 //   DELETE /api/windoors/openings/:id    ...and its marks
 //   PUT    /api/windoors/marks/:id       one marked pane or part
 //   DELETE /api/windoors/marks/:id
-//   GET    /api/jobs/:id/windoors-report the printable report (no prices)
-router.use(['/windoors', '/jobs/:id/windoors-report'], async (req, res, next) => {
+router.use('/windoors', async (req, res, next) => {
   try {
     await ensureWindoorsSchema();
     next();
@@ -1396,12 +1395,12 @@ router.put('/windoors/property', async (req, res) => {
   const p = normaliseProperty(req.body);
   try {
     const result = await db.query(`
-      INSERT INTO job_property (job_id, style, detail_enabled, default_prep, layout, coats, window_colour, door_colour, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+      INSERT INTO job_property (job_id, style, detail_enabled, default_prep, layout, coats, window_colour, door_colour, paint_products, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
       ON CONFLICT (job_id) DO UPDATE SET style = $2, detail_enabled = $3, default_prep = $4, layout = $5,
-        coats = $6, window_colour = $7, door_colour = $8, updated_at = NOW()
+        coats = $6, window_colour = $7, door_colour = $8, paint_products = $9, updated_at = NOW()
       RETURNING *
-    `, [jobId, p.style, p.detail_enabled, p.default_prep, p.layout, p.coats, p.window_colour, p.door_colour]);
+    `, [jobId, p.style, p.detail_enabled, p.default_prep, p.layout, p.coats, p.window_colour, p.door_colour, p.paint_products]);
     res.json({ ok: true, property: mapProperty(result.rows[0]) });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1466,39 +1465,6 @@ router.delete('/windoors/marks/:id', async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
-  }
-});
-
-// The report as a standalone, print-ready page -- the app opens it and the
-// phone's print/share sheet saves it as the PDF that goes on the Xero
-// invoice. No prices on it anywhere (see public/windoors.js reportHtml).
-router.get('/jobs/:id/windoors-report', async (req, res) => {
-  try {
-    const job = await db.query('SELECT id, name, data FROM jobs WHERE id = $1', [req.params.id]);
-    if (!job.rows[0]) return res.status(404).type('text').send('No such job');
-    const j = job.rows[0];
-    const settings = await db.query('SELECT data FROM settings WHERE id = 1');
-    const business = (settings.rows[0] && settings.rows[0].data && settings.rows[0].data.businessName) || '';
-    const body = await jobReportHtml(j.id, j.data || {}, { title: 'Windows and doors: work report' });
-    const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const client = (j.data && j.data.xeroClient) || '';
-    res.setHeader('Cache-Control', 'no-store');
-    res.type('html').send('<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
-      + '<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">'
-      + '<title>' + esc(j.name) + ' — windows and doors report</title>'
-      + '<style>body{margin:0;padding:20px;background:#fff;color:#1a1f2e;font-family:Barlow,"DM Sans",Arial,sans-serif}'
-      + '.hd{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;border-bottom:3px solid #1e6497;padding-bottom:10px;margin-bottom:14px}'
-      + '.hd b{font-size:17px}.hd small{display:block;color:#5a6270;font-size:13px}'
-      + '.pr{background:#1e6497;color:#fff;border:none;border-radius:10px;padding:10px 14px;font:inherit;font-weight:700;cursor:pointer}'
-      + '@media print{.pr{display:none}body{padding:0}}</style></head><body>'
-      + '<div class="hd"><div><b>' + esc(business || 'Windows and doors report') + '</b>'
-      + '<small>' + esc(j.name) + (client ? ' · ' + esc(client) : '') + '</small>'
-      + '<small>Generated ' + esc(new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })) + '</small></div>'
-      + '<button class="pr" onclick="window.print()">Print / Save PDF</button></div>'
-      + (body || '<p>No work has been marked on this job\'s windows and doors yet.</p>')
-      + '</body></html>');
-  } catch (err) {
-    res.status(500).type('text').send(err.message);
   }
 });
 
@@ -2683,12 +2649,12 @@ async function copyJobRows(entry, newJobId) {
     await ensureWindoorsSchema();
     const p = wd.property;
     await db.query(
-      `INSERT INTO job_property (job_id, style, detail_enabled, default_prep, layout, coats, window_colour, door_colour)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO job_property (job_id, style, detail_enabled, default_prep, layout, coats, window_colour, door_colour, paint_products)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (job_id) DO NOTHING`,
       [newJobId, p.style || 'georgian', p.detail_enabled !== false, p.default_prep || 'light', p.layout || {},
         Math.max(1, Math.min(3, +p.coats || 2)), p.window_colour == null ? null : +p.window_colour,
-        p.door_colour == null ? null : +p.door_colour]
+        p.door_colour == null ? null : +p.door_colour, normalisePaintProducts(p.paint_products)]
     );
     const openingIds = new Map();
     for (const o of (wd.openings || [])) {

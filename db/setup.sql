@@ -653,6 +653,9 @@ CREATE TABLE IF NOT EXISTS job_property (
 ALTER TABLE job_property ADD COLUMN IF NOT EXISTS coats INTEGER NOT NULL DEFAULT 2;
 ALTER TABLE job_property ADD COLUMN IF NOT EXISTS window_colour INTEGER;
 ALTER TABLE job_property ADD COLUMN IF NOT EXISTS door_colour INTEGER;
+-- The paint product for each (v2.84.0): {window: {range, band}, door: {...}}.
+-- Empty = the Settings exterior woodwork topcoat.
+ALTER TABLE job_property ADD COLUMN IF NOT EXISTS paint_products JSONB NOT NULL DEFAULT '{}';
 CREATE TABLE IF NOT EXISTS job_openings (
   id VARCHAR PRIMARY KEY,
   job_id VARCHAR NOT NULL,
