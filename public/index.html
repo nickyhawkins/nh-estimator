@@ -25508,13 +25508,20 @@ function renderWindoors() {
           + ' <span onclick="rewordWindoorsVariation(\'' + d.id + '\')" style="color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline;margin-left:4px">reword</span></div>' : '')
       + '</div>';
   } else {
+    // Collapsible: open while the house is being designed, folded to one
+    // summary line once any side's layout is confirmed (tap to reopen).
+    var houseOpen = wdHouseIsOpen();
     html += '<div class="card">'
-      + '<div class="card-header">House</div>'
-      + wdPropertyPanelHtml()
-      + '<div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Default prep<small>every opening starts here — one can go up, never down</small></div></div>'
-      + '<div style="padding:0 16px 10px">' + wdSegHtml(Windoors.PREP_LEVELS, p.default_prep || 'light', 'setWdDefaultPrep') + '</div>'
-      + '<div class="toggle-row" style="border-top:1px solid var(--border)"><div class="toggle-label">Individual detail<small>mark single panes and frame parts for extra work — worth it on old windows, not new ones</small></div>'
-      + '<div class="toggle' + (p.detail_enabled !== false ? ' on' : '') + '" onclick="toggleWdDetailEnabled()"></div></div>'
+      + '<div class="card-header" onclick="toggleWdHouse()" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer">'
+      + '<span>' + (houseOpen ? '▾' : '▸') + ' House</span>'
+      + '<span style="font-size:12px;font-weight:600;color:var(--accent);text-transform:none;letter-spacing:0">' + (houseOpen ? 'Hide' : 'Edit') + '</span></div>'
+      + (houseOpen
+        ? wdPropertyPanelHtml()
+          + '<div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Default prep<small>every opening starts here — one can go up, never down</small></div></div>'
+          + '<div style="padding:0 16px 10px">' + wdSegHtml(Windoors.PREP_LEVELS, p.default_prep || 'light', 'setWdDefaultPrep') + '</div>'
+          + '<div class="toggle-row" style="border-top:1px solid var(--border)"><div class="toggle-label">Individual detail<small>mark single panes and frame parts for extra work — worth it on old windows, not new ones</small></div>'
+          + '<div class="toggle' + (p.detail_enabled !== false ? ' on' : '') + '" onclick="toggleWdDetailEnabled()"></div></div>'
+        : '<div onclick="toggleWdHouse()" style="padding:10px 16px 12px;font-size:13px;color:var(--text2);cursor:pointer">' + escapeHtml(wdHouseSummary()) + '</div>')
       + '</div>'
       + wdPaintCardHtml();
   }
@@ -25703,6 +25710,32 @@ function setWdSide(side) { wdSide = side; wdLayoutDraft = null; renderWindoors()
 var wdDetailsOpen = false;   // the Details drawer on the House card
 var wdBaysOpen = false;      // the Bays steppers, on a Georgian/Modern house
 var wdSidesOpen = false;     // the per-side finish/roof drawer
+// The House card's fold, per job: unset = automatic (open until a side's
+// layout is confirmed, folded after); a tap sets it for this job until the
+// app reloads.
+var wdHouseOpenFor = {};
+function wdHouseIsOpen() {
+  var k = windoors.jobId || activeJobId;
+  if (Object.prototype.hasOwnProperty.call(wdHouseOpenFor, k)) return wdHouseOpenFor[k];
+  var L = (windoors.property && windoors.property.layout) || {};
+  return !Object.keys(L).some(function(side) { return L[side] && L[side].confirmed; });
+}
+function toggleWdHouse() {
+  wdHouseOpenFor[windoors.jobId || activeJobId] = !wdHouseIsOpen();
+  renderWindoors();
+}
+// One line for the folded card: "Georgian · stucco · mid terrace · parapet ·
+// back differs · light prep · individual detail".
+function wdHouseSummary() {
+  var a = wdAppearance(), p = windoors.property || {};
+  var lab = function(list, k) { var x = list.find(function(i) { return i.key === k; }); return x ? x.label : k; };
+  var bits = [lab(Windoors.PERIODS, a.period), lab(Windoors.FINISHES, a.finish).toLowerCase(), lab(Windoors.FORMS, a.form).toLowerCase(), lab(Windoors.ROOFS, a.roof).toLowerCase()];
+  var own = Object.keys(a.sides || {}).filter(function(k) { return wdVisibleSides().indexOf(k) >= 0; });
+  if (own.length) bits.push(own.map(function(k) { return Windoors.sideLabel(k).toLowerCase(); }).join(' and ') + (own.length === 1 ? ' differs' : ' differ'));
+  bits.push(Windoors.prepLabel(p.default_prep || 'light').toLowerCase() + ' prep');
+  bits.push(p.detail_enabled !== false ? 'individual detail' : 'no individual detail');
+  return bits.join(' · ');
+}
 function wdAppearance() { return Windoors.appearanceOf(windoors.property); }
 // No dormers behind a parapet: the house's roof, unless this side has a roof
 // of its own (then that side's).

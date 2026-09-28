@@ -150,6 +150,7 @@ Held by `npm run test:wallpaper-strip` (49 assertions, including three real shap
 - **Ticking off on site** (§9): `opening_marks.done_at`. On site each sheet has a **Tick off as done** list (and *tick all*); ticks change no price. The report (app PDF, client page, invoice attachment) shows only ticked marks (`Windoors.reportModel`), and the final invoice screen warns when quoted or approved work is still unticked (`Windoors.untickedMarks`). A duplicated job's marks start unticked.
 - **Per-side finish and roof** (stage 2 "per-side overrides"): `appearance.sides[side] = { finish, roof }`, roof as what the side shows (parapet/eaves/gable). `sideAppearance()` feeds the drawing; `roofKindFor()` honours the override; dormers follow the side's own roof. A new period clears them.
 - **Red brick** finish.
+- **The House card folds** once any side's layout is confirmed, to one summary line (period · finish · form · roof · sides that differ · prep · detail); tap to reopen. A tap sticks for that job until reload (`wdHouseOpenFor`).
 - **Confirmed as built:** back-elevation numbering stays left to right facing the back; prep levels stay Light ×1.10 / Standard ×1.25 / Heavy ×1.40 / Restoration ×1.75.
 - Still open: photos on openings.
 `npm run test:windoors` (244, was 192).

@@ -359,7 +359,11 @@ Access uplifts for 1st floor and 2nd floor+ work are applied per item automatica
 
 Every change redraws the house straight away, and applies to every side (except anything set under *Sides that differ*). If a change would hide a side that has windows or doors on it (a detached house changed to a mid terrace, say), or would remove dormers (changing the roof to a parapet), it tells you what will go and asks first. Those openings are deleted along with any work marked on them.
 
-Below the House card, set the **Default prep** for the job; every opening starts there. Leave **Individual detail** on for old windows, where you'll want to mark single panes and frame parts; turn it off for a job of new windows where that's never needed.
+Once any side's layout is confirmed, the House card folds down to one line (*Georgian · stucco · mid terrace · parapet · light prep · individual detail*) to save space. Tap it, or **Edit**, to open it again, and **Hide** to fold it.
+
+![The House card folded once the house is set up](images/26x-windoors-house-folded.png)
+
+In the House card, set the **Default prep** for the job; every opening starts there. Leave **Individual detail** on for old windows, where you'll want to mark single panes and frame parts; turn it off for a job of new windows where that's never needed.
 
 **2. Each side.** Tap a side — only the sides this house has are offered. Set the floors and how many windows (**W**) and doors (**D**) are on each — the drawing updates as you go. Doors start on the ground floor only; add one upstairs for a balcony or Juliet. The ends of the house draw as gables (or, under a front gable, as the eaves).
 
