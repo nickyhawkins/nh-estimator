@@ -859,13 +859,31 @@
   function paintedMinutes(o, rates) {
     return baseMinutes(o, rates) + paneCount(o) * rates.perPane;
   }
+  // Can this side have dormers? Not under a parapet -- the side's own roof if
+  // it has one, else the house's.
+  function dormersAllowed(a, side) {
+    var own = a && a.sides && a.sides[side] && a.sides[side].roof;
+    return own ? own !== 'parapet' : !(a && a.roof === 'parapet');
+  }
+  // Is this opening on the house as it's currently set up? Anything on a side
+  // the form hides (a mid terrace has no left or right), and a dormer under a
+  // parapet, isn't. Since v2.88.2 changing the house type HIDES those rather
+  // than deleting them: the rows and their marks stay, priced and listed
+  // nowhere, and come back as they were if the house is changed back.
+  function onHouse(o, property) {
+    if (!property) return true;
+    var a = appearanceOf(property);
+    if (visibleSides(a).indexOf(o.side) < 0) return false;
+    return !(levelOf(o) === 'roof' && !dormersAllowed(a, o.side));
+  }
   // The rows that exist as far as pricing, paint and words go. A bay's
   // window whose bay has gone (a delete racing an edit from a second phone)
-  // is left out, the same way a mark on a deleted opening prices as nothing.
-  function liveOpenings(openings) {
+  // is left out, the same way a mark on a deleted opening prices as nothing;
+  // so, given the property, is anything the house type currently hides.
+  function liveOpenings(openings, property) {
     var ids = {};
-    (openings || []).forEach(function (o) { if (o.kind === 'bay') ids[o.id] = true; });
-    return (openings || []).filter(function (o) { return !isBayChild(o) || ids[o.parent_opening_id]; });
+    (openings || []).forEach(function (o) { if (o.kind === 'bay' && onHouse(o, property)) ids[o.id] = true; });
+    return (openings || []).filter(function (o) { return onHouse(o, property) && (!isBayChild(o) || ids[o.parent_opening_id]); });
   }
 
   // The whole fixture priced from its rows.
@@ -886,7 +904,7 @@
   function priceJob(data, rawRates) {
     var rates = rawRates && rawRates.winBase ? rawRates : mergeRates(rawRates);
     var property = (data && data.property) || {};
-    var openings = liveOpenings(data && data.openings);
+    var openings = liveOpenings(data && data.openings, data && data.property);
     var marks = (data && data.marks) || [];
     var coats = coatsFactor(property);
     var out = { quote: { mins: 0, materials: 0, count: 0 }, variations: {}, perOpening: {} };
@@ -975,7 +993,7 @@
     var out = { window: 0, door: 0, windows: 0, doors: 0 };
     // A bay's own timber is painted with the windows (it is the window
     // joinery), but it is not a window to count.
-    liveOpenings(data && data.openings).forEach(function (o) {
+    liveOpenings(data && data.openings, data && data.property).forEach(function (o) {
       var m2 = openingPaintM2(o, rates);
       // An Other item goes in with whichever colour it's painted, uncounted.
       if (o.kind === 'other') { if (o.type === 'window') out.window += m2; else out.door += m2; return; }
@@ -1014,7 +1032,7 @@
   // A variation's text, generated from its marks and prep raises, e.g.
   // "Front, first floor, W2: reputty x4 panes, resin repair (cill)."
   function describeVariation(data, variationId) {
-    var openings = sortOpenings(liveOpenings(data && data.openings));
+    var openings = sortOpenings(liveOpenings(data && data.openings, data && data.property));
     var marks = (data && data.marks) || [];
     var property = (data && data.property) || {};
     var sentences = [];
@@ -1036,7 +1054,7 @@
   // "Exterior windows and doors (outside faces): 8 sash windows, 1 front door."
   // Quote-stage marked work is summarised briefly after it.
   function itemLineText(data) {
-    var openings = liveOpenings(data && data.openings);
+    var openings = liveOpenings(data && data.openings, data && data.property);
     var marks = (data && data.marks) || [];
     var counts = {}, order = [];
     var bump = function (k) { if (!counts[k]) { counts[k] = 0; order.push(k); } counts[k]++; };
@@ -1527,7 +1545,8 @@
       return floorSlots(windows, doors, 0).map(function (kind) { return make(level, 0, kind, ++n[kind]); });
     };
     var lower = layout.lower_ground ? levelItems('lower_ground', layout.lower_ground.windows, layout.lower_ground.doors) : null;
-    var roof = layout.roof ? levelItems('roof', layout.roof.windows, 0) : null;
+    // Dormers the roof doesn't allow are hidden, not drawn (their rows are kept).
+    var roof = layout.roof && dormersAllowed(appearanceOf(property), side) ? levelItems('roof', layout.roof.windows, 0) : null;
     var itemW = function (o, fi) { return o.kind === 'bay' ? o._box.w : drawnSize(o, style, fi).w; };
     var rowW = function (list, fi) { return list.reduce(function (t, o) { return t + itemW(o, fi) + 26; }, 0); };
     var widest = floors.reduce(function (m, f, fi) { return Math.max(m, rowW(f.items, fi) + rowW(f.through, fi - 1)); }, 0);
@@ -2081,7 +2100,7 @@
     var approved = {};
     (variations || []).forEach(function (v) { if (v && v.status === 'approved') approved[v.id] = v; });
     var live = {};
-    liveOpenings(data && data.openings).forEach(function (o) { live[o.id] = true; });
+    liveOpenings(data && data.openings, data && data.property).forEach(function (o) { live[o.id] = true; });
     return { approved: approved, marks: ((data && data.marks) || []).filter(function (m) {
       return live[m.opening_id] && (m.stage !== 'variation' || approved[m.variation_id]);
     }) };
@@ -2121,7 +2140,7 @@
     var marks = rm.marks.filter(function (m) { return todo ? !m.done_at : !!m.done_at; });
     var sections = [];
     var openingsWithWork = {};
-    var live = liveOpenings(data && data.openings);
+    var live = liveOpenings(data && data.openings, data && data.property);
     sortOpenings(live).forEach(function (o) {
       var mine = marks.filter(function (m) { return m.opening_id === o.id; });
       var quoteMarks = mine.filter(function (m) { return m.stage !== 'variation'; });
@@ -2259,7 +2278,7 @@
     floorLabel: floorLabel, sideLabel: sideLabel, typeLabel: typeLabel, kindNoun: kindNoun, levelOf: levelOf, levelLabel: levelLabel,
     sideLayout: sideLayout, openingDefaults: openingDefaults, bayDefaults: bayDefaults, bayChildDefaults: bayChildDefaults, floorSlots: floorSlots,
     isBayChild: isBayChild, bayChildPosition: bayChildPosition, bayChildInfo: bayChildInfo, bayStoreys: bayStoreys, bayChildren: bayChildren,
-    liveOpenings: liveOpenings, periodSashGrid: periodSashGrid, sashRows: sashRows, sashTopShare: sashTopShare, sashPattern: sashPattern,
+    liveOpenings: liveOpenings, onHouse: onHouse, dormersAllowed: dormersAllowed, periodSashGrid: periodSashGrid, sashRows: sashRows, sashTopShare: sashTopShare, sashPattern: sashPattern,
     openingElements: openingElements, elementKind: elementKind, actionsFor: actionsFor, paneCount: paneCount,
     openingCode: openingCode, openingLabel: openingLabel, sortOpenings: sortOpenings,
     effectivePrep: effectivePrep, quotePrep: quotePrep, baseMinutes: baseMinutes, paintedMinutes: paintedMinutes,

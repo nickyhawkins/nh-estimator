@@ -357,7 +357,7 @@ Access uplifts for 1st floor and 2nd floor+ work are applied per item automatica
 
 ![The back drawn in red brick, the rest of the house in stucco](images/26t-windoors-red-brick-back.png)
 
-Every change redraws the house straight away, and applies to every side (except anything set under *Sides that differ*). If a change would hide a side that has windows or doors on it (a detached house changed to a mid terrace, say), or would remove dormers (changing the roof to a parapet), it tells you what will go and asks first. Those openings are deleted along with any work marked on them.
+Every change redraws the house straight away, and applies to every side (except anything set under *Sides that differ*). If a change would hide a side that has windows or doors on it (a detached house changed to a mid terrace, say), or would remove dormers (changing the roof to a parapet), it says which ones it will hide and asks first. **Nothing is deleted.** While hidden, those windows and doors and any work marked on them are left off the price, the quote wording, the paint and the reports. Change the house back and they return exactly as they were, work included. So it's safe to try a different house type to show someone. (Before v2.88.2 this deleted them. If that happened on a job, they can be put back from a database backup; ask for the Windows and doors restore.)
 
 Once any side's layout is confirmed, the House card folds down to one line (*Georgian · stucco · mid terrace · parapet · light prep · individual detail*) to save space, and so does the Paint card (*2 coats · windows White · doors Black*). Tap either one, or **Edit**, to open it again, and **Hide** to fold it.
 
@@ -1508,6 +1508,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.88.1. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.88.2. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

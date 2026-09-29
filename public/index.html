@@ -17210,7 +17210,7 @@ function jobSpecModel() {
   // Windows and doors: one row per colour it paints, keyed on the fixture
   // (not a room id), so a tick survives the layout being edited.
   windoorsPaintItems().forEach(function(it) {
-    var nW = windoors.openings.filter(function(o) { return o.kind === it.wdPaint; }).length;
+    var nW = Windoors.liveOpenings(windoors.openings, windoors.property).filter(function(o) { return o.kind === it.wdPaint; }).length;
     rows.push({ key: 'windoors:windoors:' + it.wdPaint, areaKey: 'windoors', area: 'Windows & doors', tag: '', areaNote: '',
       stage: 'other', label: it.wdPaint === 'door' ? 'Doors, outside faces' : 'Windows, outside faces', steps: ['prep', 'done'],
       coats: specCoatsLabel((windoors.property && windoors.property.coats) || 2),
@@ -25814,10 +25814,7 @@ function wdHouseSummary() {
 function wdAppearance() { return Windoors.appearanceOf(windoors.property); }
 // No dormers behind a parapet: the house's roof, unless this side has a roof
 // of its own (then that side's).
-function wdDormersAllowed(a, side) {
-  var own = a.sides && a.sides[side] && a.sides[side].roof;
-  return own ? own !== 'parapet' : a.roof !== 'parapet';
-}
+function wdDormersAllowed(a, side) { return Windoors.dormersAllowed(a, side); }
 function wdVisibleSides() { return windoors.property ? Windoors.visibleSides(wdAppearance()) : Windoors.SIDES.map(function(s) { return s.key; }); }
 
 function wdPropertyPanelHtml() {
@@ -25886,37 +25883,40 @@ function wdOpeningsSummary(list) {
 }
 
 // Apply a new appearance. Sides the new form hides, and dormers under a
-// parapet, lose their openings -- after a warning when any exist. Declined:
-// with keepForm, the rest still applies with the house's current form (a
-// period change shouldn't be refused over a terrace); otherwise nothing.
+// parapet, are HIDDEN (v2.88.2), not deleted: their windows, marks and layout
+// are kept, priced and listed nowhere (Windoors.onHouse), and come back as
+// they were when the house is changed back. It still asks first when that
+// takes openings off the price. Declined: with keepForm, the rest still
+// applies with the house's current form (a period change shouldn't be
+// refused over a terrace); otherwise nothing.
 function wdApplyAppearance(next, keepForm) {
   var cur = wdAppearance();
   var a = Windoors.normaliseAppearance(next);
-  var build = function(a) {
-    var vis = Windoors.visibleSides(a);
-    var sides = windoors.openings.filter(function(o) { return vis.indexOf(o.side) < 0; });
-    var roof = windoors.openings.filter(function(o) { return Windoors.levelOf(o) === 'roof' && vis.indexOf(o.side) >= 0 && !wdDormersAllowed(a, o.side); });
-    return { vis: vis, sides: sides, roof: roof };
+  // What this change newly takes off the house (already-hidden ones aren't
+  // news). Bay windows ride their bay and aren't counted separately.
+  var hiddenBy = function(a) {
+    var p = Object.assign({}, windoors.property, { appearance: a });
+    var sides = [], roof = [];
+    windoors.openings.forEach(function(o) {
+      if (Windoors.isBayChild(o) || !Windoors.onHouse(o, windoors.property) || Windoors.onHouse(o, p)) return;
+      (Windoors.visibleSides(a).indexOf(o.side) < 0 ? sides : roof).push(o);
+    });
+    return { sides: sides, roof: roof };
   };
-  var c = build(a);
+  var c = hiddenBy(a);
   if (c.sides.length || c.roof.length) {
-    var msg = (c.sides.length ? 'This hides ' + wdOpeningsSummary(c.sides) + ' — ' + (c.sides.length === 1 ? 'that opening goes' : 'those openings go') + ', with any work marked on them.' : '')
-      + (c.roof.length ? (c.sides.length ? '\n\n' : '') + 'A parapet roof has no dormers: the ' + c.roof.length + ' dormer window' + (c.roof.length === 1 ? '' : 's') + ' go, with any work marked on them.' : '');
+    var msg = (c.sides.length ? 'This hides ' + wdOpeningsSummary(c.sides) + '.' : '')
+      + (c.roof.length ? (c.sides.length ? '\n\n' : '') + 'A parapet roof has no dormers: ' + c.roof.length + ' dormer window' + (c.roof.length === 1 ? ' is' : 's are') + ' hidden.' : '')
+      + '\n\nNothing is deleted: while hidden they\'re left off the price, and they come back with all their work if you change the house back.';
     if (!confirm(msg + '\n\nCarry on?' + (keepForm ? ' (Cancel keeps the house\'s current form and roof.)' : ''))) {
       if (!keepForm) return false;
       a.form = cur.form; a.exposed_side = cur.exposed_side; a.roof = cur.roof; a.sides = cur.sides;
-      c = build(a);
     }
   }
-  wdRemoveOpenings(c.sides.concat(c.roof));
-  var L = windoors.property.layout = windoors.property.layout || {};
-  Windoors.SIDES.forEach(function(s) {
-    if (c.vis.indexOf(s.key) < 0) delete L[s.key];
-    else if (!wdDormersAllowed(a, s.key) && L[s.key]) L[s.key].roof = null;
-  });
+  // The layouts of hidden sides (and their dormer counts) are kept too.
   windoors.property.appearance = a;
   windoors.property.style = a.period;
-  if (c.vis.indexOf(wdSide) < 0) wdSide = 'front';
+  if (Windoors.visibleSides(a).indexOf(wdSide) < 0) wdSide = 'front';
   wdLayoutDraft = null;
   wdPutProperty(); wdChanged();
   return true;
@@ -26057,7 +26057,10 @@ function confirmWdLayout() {
   var a = wdAppearance();
   var floors = d.floors.map(function(f) { return { windows: f.windows, doors: f.doors, bays: f.bays || 0 }; });
   var lg = d.lower_ground ? { windows: d.lower_ground.windows, doors: d.lower_ground.doors } : null;
-  var rf = d.roof && wdDormersAllowed(a, wdSide) ? { windows: d.roof.windows } : null;
+  // Under a parapet the side's dormers are hidden, not gone: editing the
+  // floors mustn't delete them or forget their count.
+  var roofHidden = !wdDormersAllowed(a, wdSide);
+  var rf = d.roof && !roofHidden ? { windows: d.roof.windows } : null;
   var mine = windoors.openings.filter(function(o) { return o.side === wdSide; });
   var countOf = function(f, o) { return f[o.kind === 'door' ? 'doors' : o.kind === 'bay' ? 'bays' : 'windows']; };
   var doomed = mine.filter(function(o) {
@@ -26065,7 +26068,7 @@ function confirmWdLayout() {
     if (Windoors.isBayChild(o) || o.kind === 'other') return false;
     var lv = Windoors.levelOf(o);
     if (lv === 'lower_ground') return !lg || o.position > countOf(lg, o);
-    if (lv === 'roof') return !rf || o.position > rf.windows;
+    if (lv === 'roof') return !roofHidden && (!rf || o.position > rf.windows);
     var f = floors[o.floor];
     return !f || o.position > countOf(f, o);
   });
@@ -26103,7 +26106,8 @@ function confirmWdLayout() {
   if (lg) { ensure('lower_ground', 0, 'window', lg.windows); ensure('lower_ground', 0, 'door', lg.doors); }
   if (rf) ensure('roof', 0, 'window', rf.windows);
   windoors.property.layout = windoors.property.layout || {};
-  windoors.property.layout[wdSide] = { floors: floors, lower_ground: lg, roof: rf, confirmed: true };
+  var keptRoof = roofHidden ? ((windoors.property.layout[wdSide] || {}).roof || null) : rf;
+  windoors.property.layout[wdSide] = { floors: floors, lower_ground: lg, roof: keptRoof, confirmed: true };
   wdLayoutDraft = null;
   wdPutProperty(); wdChanged();
 }
@@ -26843,7 +26847,7 @@ async function attachWindoorsReportNow() {
 function windoorsMeasureRowHtml() {
   var c = calcWindoors();
   if (!(c.total > 0.005)) return '';
-  var live = Windoors.liveOpenings(windoors.openings);
+  var live = Windoors.liveOpenings(windoors.openings, windoors.property);
   var nV = live.filter(function(o) { return o.kind === 'window'; }).length;
   var nD = live.filter(function(o) { return o.kind === 'door'; }).length;
   var nB = live.filter(function(o) { return o.kind === 'bay'; }).length;
