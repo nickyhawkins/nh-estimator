@@ -516,7 +516,8 @@ eq('...4-over-8 beside 8-over-8', W.sashPattern(W.openingDefaults(g8, 'window', 
   // The spec's worked check: a medium 6-over-6 sash, Light prep, defaults.
   const med = { id: 'm', kind: 'window', type: 'sash', rows: 2, cols: 3, size_tier: 'medium', side: 'front', level: 'standard', floor: 0, position: 1 };
   const RA = Object.assign(W.mergeRates({}), { access: W.accessRates({ rAccessFirstPct: 10, rAccessLadderPct: 25 }) });
-  const q = (o, coats, rates) => W.priceJob({ property: { default_prep: 'light', coats }, openings: [o], marks: [] }, rates || RA).quote.mins;
+  const eaves = Object.assign(W.periodDefaults('georgian'), { roof: 'eaves_to_street', form: 'detached' });
+  const q = (o, coats, rates) => W.priceJob({ property: { default_prep: 'light', coats, appearance: eaves }, openings: [o], marks: [] }, rates || RA).quote.mins;
   near('painted minutes of a medium 6-over-6 sash', W.paintedMinutes(med, RA), 100);
   near('worked check: ground, 2 coats = 110', q(med, 2), 110);
   near('worked check: first floor, 2 coats = 121', q(Object.assign({}, med, { floor: 1 }), 2), 121);
@@ -629,7 +630,7 @@ eq('...4-over-8 beside 8-over-8', W.sashPattern(W.openingDefaults(g8, 'window', 
 
 // ── Work to do (v2.88.0) ───────────────────────────────────────────────────
 {
-  const tp = { default_prep: 'light', coats: 2 };
+  const tp = { default_prep: 'light', coats: 2, appearance: Object.assign(W.periodDefaults('georgian'), { roof: 'eaves_to_street' }) };
   const a1 = { id: 'a1', kind: 'window', type: 'sash', rows: 2, cols: 3, size_tier: 'medium', side: 'front', level: 'standard', floor: 1, position: 1 };
   const a2 = Object.assign({}, a1, { id: 'a2', position: 2, floor: 0 });
   const dm = { id: 'dm2', kind: 'window', type: 'sash', rows: 1, rows_bottom: 2, cols: 3, size_tier: 'small', side: 'back', level: 'roof', floor: 0, position: 1 };
@@ -663,7 +664,34 @@ check('openings are saved with their level, bay and pane flag', /level: Windoors
 check("a sash's bottom rows are saved", /rowsBottom/.test(body('wdPutOpening')));
 check('an adopted bay re-points its windows', /x\.parent_opening_id === old/.test(body('wdPutOpening')));
 check('confirming a layout makes bays with their windows', /wdEnsureBayChildren\(have\)/.test(body('confirmWdLayout')));
-check('a form that hides a side warns before its openings go', /confirm\(/.test(body('wdApplyAppearance')) && /wdRemoveOpenings\(/.test(body('wdApplyAppearance')));
+// v2.88.2: changing the house type hides, never deletes.
+check('a house-type change asks before it hides openings', /confirm\(/.test(body('wdApplyAppearance')) && /Nothing is deleted/.test(body('wdApplyAppearance')));
+check('...and deletes nothing', !/wdRemoveOpenings\(|wdDeleteOpening\(|delete L\[/.test(body('wdApplyAppearance')));
+check('editing a side under a parapet keeps its dormers and their count', /roofHidden && \(!rf/.test(body('confirmWdLayout')) && /keptRoof/.test(body('confirmWdLayout')));
+{
+  const base = Object.assign(W.periodDefaults('georgian'), { form: 'detached', roof: 'eaves_to_street' });
+  const p0 = { default_prep: 'light', coats: 2, appearance: base };
+  const win = (id, side, extra) => Object.assign({ id, side, level: 'standard', floor: 0, kind: 'window', position: 1, type: 'sash', size_tier: 'medium', rows: 2, cols: 3 }, extra || {});
+  const ops = [win('f', 'front'), win('l', 'left'), win('r', 'right', { position: 1 }), win('d', 'front', { level: 'roof', position: 1 }),
+    { id: 'bl', side: 'left', level: 'standard', floor: 0, kind: 'bay', position: 2, bay_shape: 'canted', bay_storeys: 1, type: 'canted', size_tier: 'medium' },
+    win('blk', 'left', { position: W.bayChildPosition(2, 0, 'front'), parent_opening_id: 'bl' }),
+    { id: 'ol', side: 'left', level: 'standard', floor: 0, kind: 'other', position: 1, nickname: 'Porch', type: 'door', size_tier: 'standard', other_mins: 60 }];
+  const marks = [{ opening_id: 'l', element_id: 'cill', action_key: 'resin', stage: 'variation', variation_id: 'vv' }];
+  const at = a => ({ property: Object.assign({}, p0, { appearance: Object.assign({}, base, a) }), openings: ops, marks });
+  const ids = d => W.liveOpenings(d.openings, d.property).map(o => o.id).sort().join(',');
+  eq('detached with eaves: everything is on the house', ids(at({})), 'bl,blk,d,f,l,ol,r');
+  eq('a mid terrace hides the ends -- windows, bays and their windows, other items', ids(at({ form: 'mid_terrace' })), 'd,f');
+  eq('a parapet hides the dormers', ids(at({ roof: 'parapet' })), 'bl,blk,f,l,ol,r');
+  eq("a side's own roof decides its dormers", ids(at({ roof: 'parapet', sides: { front: { roof: 'gable' } } })), 'bl,blk,d,f,l,ol,r');
+  const full = W.priceJob(at({}), R), mid = W.priceJob(at({ form: 'mid_terrace' }), R);
+  check('hidden openings come off the price', mid.quote.mins < full.quote.mins && mid.quote.count === 2);
+  check("...and their variation work with them", !mid.variations.vv && full.variations.vv.mins > 0);
+  eq('switching back restores the same figure', W.priceJob(at({ form: 'detached' }), R).quote.mins, full.quote.mins);
+  eq('a job saved before house types reads as detached: nothing hidden', W.liveOpenings(ops.filter(o => o.level !== 'roof'), { default_prep: 'light' }).length, 6);
+  check('hidden openings are off the item line', !/Porch|porch/.test(W.itemLineText(at({ form: 'mid_terrace' }))));
+  eq('...and off the work to do', W.reportModel(at({ form: 'mid_terrace' }), [], { todo: true }).sections.map(x => x.opening.id).join(','), 'f,d');
+  check('...and the paint', W.paintAreas(at({ form: 'mid_terrace' }), R).windows === 2);
+}
 check('changing period asks first only when something was changed by hand', /appearanceIsDefault/.test(body('setWdPeriod')));
 check('the side selector offers only the sides the house has', /wdVisibleSides\(\)/.test(body('renderWindoors')));
 check('the report PDF draws a bay with its windows', /children: mine\[k\]\.children/.test(body('buildWindoorsReportPdf')));
