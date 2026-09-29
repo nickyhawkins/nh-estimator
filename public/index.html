@@ -25574,8 +25574,11 @@ function renderWindoors() {
       + '<div style="font-size:12px;color:var(--text2);margin-top:4px">Labour cost before markup' + (c.materials > 0.005 ? ', incl. ' + fmt(c.materials) + ' materials' : '') + '. On the quote as: <i>' + escapeHtml(windoorsLineText()) + '</i></div>'
       + '</div>';
   }
+  var soft = 'width:100%;margin:4px 0 8px;background:var(--accent-soft-bg);color:var(--accent);border:1px solid var(--accent-soft-border);border-radius:12px;padding:11px;font-size:14px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer';
+  // Work to do (v2.88.0): from Measure, the schedule of work behind the
+  // quote; on site, the list to hand the team. Whenever there are openings.
+  if (wdInUse()) html += '<button onclick="saveWindoorsReportPdf(true)" style="' + soft + '">📋 Work to do (PDF)</button>';
   if (wdReportModelNow().sections.length) {
-    var soft = 'width:100%;margin:4px 0 8px;background:var(--accent-soft-bg);color:var(--accent);border:1px solid var(--accent-soft-border);border-radius:12px;padding:11px;font-size:14px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer';
     html += '<button onclick="saveWindoorsReportPdf()" style="' + soft + '">📄 Work report (PDF)</button>';
     // Once the job has its final invoice in Xero: attach (or re-attach) the
     // report there -- the retry for an attach that failed at invoicing.
@@ -26599,9 +26602,22 @@ function wdHasReport() { return wdInUse() && wdReportModelNow().sections.length 
 // approved variations' marks) that isn't ticked yet.
 function wdUntickedCount() { return wdInUse() ? Windoors.untickedMarks(windoors, wdReportVariations()).length : 0; }
 
-async function buildWindoorsReportPdf() {
-  var model = wdReportModelNow();
-  if (!model.sections.length) throw new Error(wdUntickedCount() ? 'none of the windows and doors work is ticked off as done yet' : 'no work has been marked on the windows and doors yet');
+// The work still to do (v2.88.0): the schedule of work behind a quote, or the
+// list a painter works through on site. Windoors.reportModel's todo mode.
+function wdTodoModelNow() { return Windoors.reportModel(windoors, wdReportVariations(), { todo: true }); }
+
+// opts.todo builds the work-to-do list instead of the work report: every
+// opening with its painting, the marks not yet ticked off, a tick box on
+// each line, and the totals up top. Openings with nothing but painting get
+// a line of text and no drawing.
+async function buildWindoorsReportPdf(opts) {
+  opts = opts || {};
+  var todo = !!opts.todo;
+  var model = todo ? wdTodoModelNow() : wdReportModelNow();
+  if (!model.sections.length) {
+    throw new Error(todo ? 'no windows or doors are set up on this job yet'
+      : wdUntickedCount() ? 'none of the windows and doors work is ticked off as done yet' : 'no work has been marked on the windows and doors yet');
+  }
   var data = { property: windoors.property, openings: windoors.openings, marks: model.marks };
   var job = activeJob() || {};
   var images = [];
@@ -26611,11 +26627,13 @@ async function buildWindoorsReportPdf() {
   var sides = [];
   for (var si = 0; si < model.sides.length; si++) {
     var side = model.sides[si];
-    var elev = await wdSvgToJpeg(Windoors.elevationSvg(data, side, { highlight: model.highlight, markers: false }), 900);
+    // The to-do list is every opening, so none is faded out on its elevation.
+    var elev = await wdSvgToJpeg(Windoors.elevationSvg(data, side, { highlight: todo ? null : model.highlight, markers: false }), 900);
     var secs = [];
     var mine = model.sections.filter(function(sec) { return sec.opening.side === side; });
     for (var k = 0; k < mine.length; k++) {
-      secs.push({ sec: mine[k], img: await wdSvgToJpeg(Windoors.detailSvg(mine[k].opening, model.marks, { children: mine[k].children, property: data.property }), 360) });
+      secs.push({ sec: mine[k], img: mine[k].marked
+        ? await wdSvgToJpeg(Windoors.detailSvg(mine[k].opening, model.marks, { children: mine[k].children, property: data.property }), 360) : null });
     }
     sides.push({ side: side, elev: elev, secs: secs });
   }
@@ -26625,16 +26643,31 @@ async function buildWindoorsReportPdf() {
   var line = function(s, x, size, opts) { d.text(s, x, d.y - size, Object.assign({ size: size }, opts || {})); d.y -= size + 4; };
   // Header: who, what, which job, when.
   line(quoteBusinessName(), L, 15, { bold: true, rgb: PDF_STEEL });
-  line('Windows and doors: work report', L, 12, { bold: true });
+  line(todo ? 'Windows and doors: work to do' : 'Windows and doors: work report', L, 12, { bold: true });
   line([job.name, job.xeroClient].filter(Boolean).join(' · '), L, 9.5, { rgb: PDF_MUT });
   line('Generated ' + new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }), L, 9.5, { rgb: PDF_MUT });
   d.y -= 4;
   d.rule(L, d.y, R, PDF_STEEL);
   d.y -= 8;
   pdfWrap(pdfSanitise('Outside faces only. Openings are numbered left to right as you face each side of the house. '
-    + 'Only work ticked off as done is listed. Work in orange; glass replaced in blue; work agreed as a variation drawn dashed.'), false, 9, W)
+    + (todo ? 'Every opening is painted; repairs are drawn on the openings that have them, work in orange, glass to replace in blue, agreed variations dashed. '
+        + 'Work already ticked off as done is left off. Tick each box as it\'s done.'
+      : 'Only work ticked off as done is listed. Work in orange; glass replaced in blue; work agreed as a variation drawn dashed.')), false, 9, W)
     .forEach(function(ln) { d.text(ln, L, d.y - 9, { size: 9, rgb: PDF_MUT }); d.y -= 12; });
   d.y -= 6;
+  if (todo) {
+    // What the job is, counted: the part of this that justifies a price.
+    var nOpen = model.sections.filter(function(sec) { return sec.opening.kind !== 'bay'; }).length;
+    var nBay = model.sections.length - nOpen;
+    var summary = [nOpen + ' opening' + (nOpen === 1 ? '' : 's') + ' to paint' + (nBay ? ', and ' + nBay + ' bay' + (nBay === 1 ? '' : 's') + '\' own timber' : '')]
+      .concat(model.totals.map(function(t) { return t.text; }));
+    d.text('IN ALL', L, d.y - 8, { size: 7.5, bold: true, rgb: PDF_MUT });
+    d.y -= 14;
+    summary.forEach(function(t) {
+      pdfWrap(pdfSanitise('• ' + t), false, 9.5, W).forEach(function(ln) { d.text(ln, L, d.y - 9.5, { size: 9.5 }); d.y -= 13; });
+    });
+    d.y -= 8;
+  }
 
   sides.forEach(function(sd) {
     var ew = Math.min(280, W), eh = ew * sd.elev.aspect;
@@ -26645,28 +26678,33 @@ async function buildWindoorsReportPdf() {
     var en = addImage(sd.elev);
     d.image(L + (W - ew) / 2, d.y, ew, eh, en);
     d.y -= eh + 12;
+    var BOX = 7.5;
     sd.secs.forEach(function(e) {
       var sec = e.sec;
-      var iw = 84, ih = Math.min(120, iw * e.img.aspect);
-      iw = ih / e.img.aspect;
-      var tx = L + 112, tw = R - tx;
+      var iw = 0, ih = 0;
+      if (e.img) { iw = 84; ih = Math.min(120, iw * e.img.aspect); iw = ih / e.img.aspect; }
+      var tx = e.img ? L + 112 : L, tw = R - tx;
       var rows = [];
+      // On the to-do list each line of work gets a box to tick on paper; the
+      // report's lines are bullets (it's already done).
+      var item = function(t) { return todo ? { t: t, size: 9, box: true } : { t: '• ' + t, size: 9 }; };
       rows.push({ t: sec.label, size: 10.5, bold: true });
       rows.push({ t: sec.what, size: 8.5, rgb: PDF_MUT });
       if (sec.quoted.length) {
-        rows.push({ t: 'QUOTED WORK', size: 7.5, bold: true, rgb: PDF_MUT, gap: 4 });
-        sec.quoted.forEach(function(q) { rows.push({ t: '• ' + q, size: 9 }); });
+        rows.push({ t: todo ? 'TO DO' : 'QUOTED WORK', size: 7.5, bold: true, rgb: PDF_MUT, gap: 4 });
+        sec.quoted.forEach(function(q) { rows.push(item(q)); });
       }
       if (sec.variations.length) {
         rows.push({ t: 'APPROVED VARIATIONS', size: 7.5, bold: true, rgb: PDF_MUT, gap: 4 });
         sec.variations.forEach(function(v) {
-          rows.push({ t: '• ' + v.text + (v.approvedAt ? ' (approved ' + Windoors.fmtDate(v.approvedAt) + ')' : ''), size: 9 });
+          rows.push(item(v.text + (v.approvedAt ? ' (approved ' + Windoors.fmtDate(v.approvedAt) + ')' : '')));
         });
       }
       var laid = [];
       rows.forEach(function(r) {
-        pdfWrap(pdfSanitise(r.t), !!r.bold, r.size, tw).forEach(function(ln, i) {
-          laid.push({ t: ln, size: r.size, bold: r.bold, rgb: r.rgb, gap: i === 0 ? (r.gap || 0) : 0 });
+        var ind = r.box ? BOX + 5 : 0;
+        pdfWrap(pdfSanitise(r.t), !!r.bold, r.size, tw - ind).forEach(function(ln, i) {
+          laid.push({ t: ln, size: r.size, bold: r.bold, rgb: r.rgb, gap: i === 0 ? (r.gap || 0) : 0, ind: ind, box: !!r.box && i === 0 });
         });
       });
       var th = laid.reduce(function(h, r) { return h + r.gap + r.size + 3.5; }, 0);
@@ -26674,12 +26712,12 @@ async function buildWindoorsReportPdf() {
       d.need(bh);
       var top = d.y - 6;
       d.rule(L, d.y, R, PDF_RULE);
-      var en2 = addImage(e.img);
-      d.image(L, top, iw, ih, en2);
+      if (e.img) d.image(L, top, iw, ih, addImage(e.img));
       var yy = top;
       laid.forEach(function(r) {
         yy -= r.gap + r.size;
-        d.text(r.t, tx, yy, { size: r.size, bold: !!r.bold, rgb: r.rgb });
+        if (r.box) { d.rect(tx, yy + r.size - 1, BOX, BOX, PDF_MUT); d.rect(tx + 1, yy + r.size - 2, BOX - 2, BOX - 2, PDF_WHITE); }
+        d.text(r.t, tx + r.ind, yy, { size: r.size, bold: !!r.bold, rgb: r.rgb });
         yy -= 3.5;
       });
       d.y = top - Math.max(ih, th) - 8;
@@ -26689,30 +26727,31 @@ async function buildWindoorsReportPdf() {
   return pdfSerialise(d, null, images);
 }
 
-function windoorsReportFilename() {
+function windoorsReportFilename(todo) {
   var base = ((activeJob() && activeJob().name) || 'Job').replace(/[^A-Za-z0-9 _-]+/g, '').trim().replace(/\s+/g, '-');
-  return 'NH-Windows-Doors-Report-' + (base || 'Job') + '-' + new Date().toISOString().slice(0, 10) + '.pdf';
+  return 'NH-Windows-Doors-' + (todo ? 'Work-To-Do-' : 'Report-') + (base || 'Job') + '-' + new Date().toISOString().slice(0, 10) + '.pdf';
 }
 
 // "Work report (PDF)": same three visible outcomes as the quote's Save PDF --
 // the share sheet, a download, or a message saying what went wrong.
-async function saveWindoorsReportPdf() {
+async function saveWindoorsReportPdf(todo) {
+  todo = todo === true;
   try {
-    var bytes = await buildWindoorsReportPdf();
+    var bytes = await buildWindoorsReportPdf({ todo: todo });
     var blob = new Blob([bytes], { type: 'application/pdf' });
-    var filename = windoorsReportFilename();
+    var filename = windoorsReportFilename(todo);
     var file = null;
     try { file = new File([blob], filename, { type: 'application/pdf' }); } catch (e) { file = null; }
     var canShare = false;
     try { canShare = !!(file && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })); } catch (e) { canShare = false; }
     if (canShare) {
-      try { await navigator.share({ files: [file], title: 'Windows and doors report' }); return; }
+      try { await navigator.share({ files: [file], title: todo ? 'Windows and doors: work to do' : 'Windows and doors report' }); return; }
       catch (e) { if (e && (e.name === 'AbortError' || e.name === 'NotAllowedError')) return; }
     }
     downloadBlob(blob, filename);
     toast('Report saved as ' + filename);
   } catch (err) {
-    reportFailure('Couldn\'t build the windows and doors report', err);
+    reportFailure(todo ? 'Couldn\'t build the windows and doors work-to-do list' : 'Couldn\'t build the windows and doors report', err);
   }
 }
 
