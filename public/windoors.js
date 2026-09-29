@@ -533,6 +533,32 @@
   ];
   function otherPricing(o) { return o && o.other_pricing === 'price' ? 'price' : 'time'; }
   function otherUnit(o) { return o && (o.other_unit === 'hours' || o.other_unit === 'days') ? o.other_unit : 'mins'; }
+  // v2.90.0: an Other item can be DRAWN as a porch over one of its side's
+  // ground-floor doors (other_draw = a style below, other_door = that door's
+  // position, D1 = 1) instead of as a tile under the house. Drawing only: it
+  // prices from its own figures either way. The door's own doorcase gives
+  // way to it. With no such door on the side it falls back to a tile.
+  var PORCH_STYLES = [
+    { key: 'canopy', label: 'Flat canopy' },
+    { key: 'hood', label: 'Arched hood' },
+    { key: 'portico', label: 'Portico' },
+    { key: 'pediment', label: 'Portico, pediment' },
+    { key: 'gabled', label: 'Gabled timber' },
+    { key: 'enclosed', label: 'Enclosed porch' }
+  ];
+  function otherDraw(o) { return o && o.kind === 'other' && findKey(PORCH_STYLES, o.other_draw) ? o.other_draw : 'tile'; }
+  function otherDoor(o) { var n = Math.floor(+(o && o.other_door)); return n >= 1 ? Math.min(6, n) : 1; }
+  // A name that says what it is picks its style when it's added.
+  function porchStyleFor(name, period) {
+    var n = String(name || '').toLowerCase();
+    if (/pediment/.test(n)) return 'pediment';
+    if (/portico|column/.test(n)) return period === 'georgian' ? 'pediment' : 'portico';
+    if (/hood|shell|bonnet/.test(n)) return 'hood';
+    if (/canopy/.test(n)) return 'canopy';
+    if (/enclosed|lean|glazed porch|brick porch/.test(n)) return 'enclosed';
+    if (/porch/.test(n)) return period === 'georgian' ? 'pediment' : period === 'modern' ? 'enclosed' : 'gabled';
+    return null;
+  }
   function otherSetPrice(o) { return otherPricing(o) === 'price' ? otherFigure(o.other_price, OTHER_MAX_PRICE) : 0; }
 
   // ── Not in this job (v2.89.0) ────────────────────────────────────────────
@@ -1391,6 +1417,111 @@
     return s;
   }
   // How far above the leaf the door's surround reaches, for its number.
+  // How far a porch stands above its door's head: where the door's code goes.
+  function porchLift(style) {
+    return { canopy: 22, hood: 32, portico: 40, pediment: 42, gabled: 40, enclosed: 28 }[style] || 22;
+  }
+  // A porch over a ground-floor door (x, y, w, h: the door leaf), in the
+  // house's own trim and roof colours. Drawn BEFORE the door, so an
+  // enclosed porch's front is framed round the house door rather than
+  // hiding it: that door is the porch's door as seen from the street.
+  function drawPorchGlyph(x, y, w, h, style, a) {
+    var p = PAL[a.period] || PAL.georgian;
+    var fp = finishPal(a);
+    var edge = ' stroke="#b8ad95" stroke-width="0.6"';
+    var glass = '#8fa6b5';
+    var s = '';
+    var columns = function (top) {
+      [x - 15, x + w + 7].forEach(function (cx) {
+        s += rect(cx, top, 8, y + h - top, p.trim, edge);
+        for (var fl = 2; fl < 8; fl += 3) s += ln(cx + fl, top + 4, cx + fl, y + h - 5, '#d6ccb4', 0.5);
+        s += rect(cx - 2, top - 3, 12, 4, p.trim, edge);
+        s += rect(cx - 2, y + h - 4, 12, 4, p.trim, edge);
+      });
+    };
+    if (style === 'canopy') {
+      // A flat canopy on two brackets, a small top light.
+      s += rect(x - 13, y - 17, w + 26, 5, p.roof);
+      s += rect(x - 13, y - 12, w + 26, 2, p.trim);
+      s += poly([[x - 11, y - 10], [x - 5, y - 10], [x - 11, y + 2]], p.trim, ' stroke="#b9ae93" stroke-width="0.5"');
+      s += poly([[x + w + 11, y - 10], [x + w + 5, y - 10], [x + w + 11, y + 2]], p.trim, ' stroke="#b9ae93" stroke-width="0.5"');
+      s += rect(x, y - 8, w, 7, glass, ' stroke="#fff" stroke-width="0.8"');
+    } else if (style === 'hood') {
+      // A shell hood: a half-dome on carved brackets.
+      var rx = w / 2 + 12, cy = y - 13;
+      s += '<path d="M' + r1(x - 12) + ',' + r1(cy) + ' A' + r1(rx) + ',19 0 0 1 ' + r1(x + w + 12) + ',' + r1(cy) + ' Z" fill="' + p.trim + '" stroke="#b8ad95" stroke-width="0.8"/>';
+      for (var k = 1; k < 8; k++) {
+        var t = Math.PI * k / 8;
+        s += ln(x + w / 2, cy, x + w / 2 - Math.cos(t) * (rx - 3), cy - Math.sin(t) * 16, '#d6ccb4', 0.6);
+      }
+      s += rect(x - 15, cy, w + 30, 3, p.trim, edge);
+      [x - 13, x + w + 6].forEach(function (bx) {
+        s += rect(bx, cy + 3, 7, 12, p.trim, edge);
+        s += '<circle cx="' + r1(bx + 3.5) + '" cy="' + r1(cy + 14) + '" r="2.6" fill="' + p.trim + '" stroke="#b8ad95" stroke-width="0.6"/>';
+      });
+      s += rect(x, y - 8, w, 7, glass, ' stroke="#fff" stroke-width="0.8"');
+    } else if (style === 'portico') {
+      // Columns carrying a flat entablature, the fanlight between them.
+      columns(y - 24);
+      s += rect(x - 20, y - 35, w + 40, 9, p.trim, edge);
+      s += rect(x - 23, y - 38, w + 46, 3, p.trim, edge);
+      s += radialFanlight(x, y, w);
+    } else if (style === 'pediment') {
+      // Columns, a shallow entablature and a pediment over it.
+      columns(y - 20);
+      s += rect(x - 20, y - 28, w + 40, 7, p.trim, edge);
+      s += poly([[x - 23, y - 28], [x + w / 2, y - 42], [x + w + 23, y - 28]], p.trim, ' stroke="#b8ad95" stroke-width="0.8"');
+      s += poly([[x - 15, y - 29.5], [x + w / 2, y - 38.5], [x + w + 15, y - 29.5]], 'none', ' stroke="#d6ccb4" stroke-width="0.6"');
+      s += radialFanlight(x, y, w);
+    } else if (style === 'gabled') {
+      // Timber posts and a half-height rail under a small gabled roof.
+      [x - 14, x + w + 9].forEach(function (px) {
+        s += rect(px, y - 20, 5, h + 20, p.trim, ' stroke="#9d9582" stroke-width="0.5"');
+      });
+      s += ln(x - 14, y + h * 0.55, x - 3, y + h * 0.55, p.trim, 2);
+      s += ln(x + w + 3, y + h * 0.55, x + w + 14, y + h * 0.55, p.trim, 2);
+      for (var bx2 = x - 12; bx2 < x - 3; bx2 += 3) s += ln(bx2, y + h * 0.55, bx2, y + h, p.trim, 1);
+      for (var bx3 = x + w + 5; bx3 < x + w + 14; bx3 += 3) s += ln(bx3, y + h * 0.55, bx3, y + h, p.trim, 1);
+      s += poly([[x - 19, y - 19], [x + w / 2, y - 40], [x + w + 19, y - 19]], p.roof);
+      s += '<polyline points="' + r1(x - 19) + ',' + r1(y - 18) + ' ' + r1(x + w / 2) + ',' + r1(y - 39) + ' ' + r1(x + w + 19) + ',' + r1(y - 18) + '" fill="none" stroke="' + p.trim + '" stroke-width="2.2"/>';
+      s += rect(x + w / 2 - 1, y - 44, 2, 6, p.trim);
+      s += rect(x, y - 8, w, 7, glass, ' stroke="#fff" stroke-width="0.8"');
+    } else if (style === 'enclosed') {
+      // A lean-to porch built out in front: walls in the house's finish,
+      // a glazed light either side, a lean-to roof; the door is its door.
+      var L = x - 19, R = x + w + 19;
+      s += poly([[L - 3, y - 14], [L + 3, y - 27], [R - 3, y - 27], [R + 3, y - 14]], p.roof);
+      s += rect(L - 3, y - 15, R - L + 6, 3, p.trim, edge);
+      s += rect(L, y - 12, R - L, h + 12, fp.wall, ' stroke="' + (fp.stroke || '#a99f88') + '" stroke-width="0.8"');
+      if (fp.line) for (var ly = y - 7; ly < y + h; ly += 5) s += ln(L, ly, R, ly, fp.line, 0.4);
+      [L + 3, x + w + 4].forEach(function (gx) {
+        s += rect(gx, y - 7, 12, h * 0.55, p.trim, edge);
+        s += rect(gx + 2, y - 5, 8, h * 0.55 - 4, glass);
+        s += ln(gx + 6, y - 5, gx + 6, y - 5 + h * 0.55 - 4, p.trim, 1);
+      });
+      s += rect(x - 3, y - 10, w + 6, h + 10, p.trim, edge);
+      s += rect(x, y - 8, w, 6, glass, ' stroke="#fff" stroke-width="0.8"');
+    }
+    return s;
+  }
+  // A porch's own box on the elevation: what's tapped to open it.
+  function porchBox(x, y, w, style) {
+    var lift = porchLift(style), side = style === 'canopy' ? 13 : style === 'hood' ? 15 : style === 'gabled' ? 19 : style === 'enclosed' ? 22 : 23;
+    return { x: x - side, y: y - lift, w: w + 2 * side, h: lift - 10 };
+  }
+  // A small picture of each style, for the picker: a patch of wall, the
+  // door and the porch.
+  function porchPreviewSvg(style, appearance) {
+    var a = appearance && appearance.period ? appearance : periodDefaults('georgian');
+    var fp = finishPal(a);
+    // Room above the door for the tallest (the pediment, 42 up).
+    var x = 36, y = 47, w = 28, h = 40;
+    var d = { kind: 'door', type: 'panelled', rows: 3, cols: 2, size_tier: 'standard' };
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 90" width="100%" style="display:block" aria-hidden="true">'
+      + rect(0, 0, 100, 90, fp.wall) + rect(0, 87, 100, 3, '#cfd6cc')
+      + drawPorchGlyph(x, y, w, h, style, a) + drawDoorGlyph(x, y, w, h, d, a, 0, 'standard', style) + '</svg>';
+  }
+
   function doorLift(a, floor, level) {
     if (level === 'lower_ground' || floor > 0) return 4;
     if (a.period === 'georgian') return a.georgian.doorcase === 'plain_fanlight' ? 22 : 40;
@@ -1398,10 +1529,14 @@
     return 12;
   }
 
-  function drawDoorGlyph(x, y, w, h, o, a, floor, level) {
+  function drawDoorGlyph(x, y, w, h, o, a, floor, level, porch) {
     var style = a.period;
     var p = PAL[style] || PAL.georgian;
     var s = '';
+    if (porch && floor === 0 && level !== 'lower_ground') {
+      // Under a porch: its frame only, the porch is its doorcase.
+      return rect(x - 3, y - 3, w + 6, h + 3, p.trim, ' stroke="#b8ad95" stroke-width="0.6"') + doorLeaf(x, y, w, h, o, style, p);
+    }
     if (level === 'lower_ground') {
       // Under the steps: the leaf and a plain frame, no doorcase.
       return rect(x - 3, y - 3, w + 6, h + 3, p.trim, ' stroke="#9d9582" stroke-width="0.6"') + doorLeaf(x, y, w, h, o, style, p);
@@ -1629,8 +1764,16 @@
     var widest = floors.reduce(function (m, f, fi) { return Math.max(m, rowW(f.items, fi) + rowW(f.through, fi - 1)); }, 0);
     if (lower) widest = Math.max(widest, rowW(lower, 0));
     // Other items: a row of tiles under the house, in position order.
-    var others = rows.filter(function (r) { return r.kind === 'other'; })
-      .sort(function (x, y) { return (+x.position || 0) - (+y.position || 0); });
+    var others = [], porches = {};
+    rows.filter(function (r) { return r.kind === 'other'; })
+      .sort(function (x, y) { return (+x.position || 0) - (+y.position || 0); })
+      .forEach(function (o) {
+        // A porch goes over its door when the side has that door (and the
+        // door hasn't a porch already); otherwise it's a tile like any other.
+        var st = otherDraw(o), pos = otherDoor(o);
+        var door = st !== 'tile' && floors[0] && floors[0].items.some(function (d) { return d.kind === 'door' && !d.placeholder && +d.position === pos; });
+        if (door && !porches[pos]) porches[pos] = o; else others.push(o);
+      });
     widest = Math.max(widest, others.length * (OTHER_TILE.w + 12) - 40);
     if (roof) widest = Math.max(widest, rowW(roof, -1) + 80);
     var W = Math.max(end ? 200 : 260, widest + 60);
@@ -1646,7 +1789,7 @@
     var roofTall = roof ? roof.reduce(function (m, o) { return Math.max(m, drawnSize(o, style, -1).h); }, 0) : 0;
     var roofH = roofKind === 'gable' ? Math.min(120, W * 0.42) : roofKind === 'parapet' ? 30 : (style === 'victorian' ? 62 : style === 'georgian' ? 56 : 48);
     if (roof && roof.length) roofH = Math.max(roofH, roofTall + (roofKind === 'gable' ? 50 : 32));
-    return { a: a, style: style, floors: floors, lower: lower, roof: roof, others: others, floorH: floorH, lowerH: lowerH, W: W,
+    return { a: a, style: style, floors: floors, lower: lower, roof: roof, others: others, porches: porches, floorH: floorH, lowerH: lowerH, W: W,
              roofKind: roofKind, roofH: roofH, end: end, confirmed: layout.confirmed };
   }
 
@@ -1809,7 +1952,7 @@
     // One drawn thing (an opening, or a bay with all its windows): fade or
     // pick it out, number it, badge it, and make it tappable. ids: every row
     // it stands for (a bay and its windows).
-    var place = function (o, ids, glyph, box, labelY) {
+    var place = function (o, ids, glyph, box, labelY, labelX) {
       var real = ids.filter(Boolean);
       var lit = hl && real.some(function (id) { return hl[id]; });
       // Not in this job: drawn as it is (the house has to look right, and
@@ -1823,7 +1966,7 @@
       }
       if (lit) inner += rect(box.x - 4, box.y - 4, box.w + 8, box.h + 8, 'none', ' stroke="' + PAL.accent + '" stroke-width="2.2" rx="3"');
       if (opts.selected && real.indexOf(opts.selected) >= 0) inner += rect(box.x - 4, box.y - 4, box.w + 8, box.h + 8, 'none', ' stroke="' + PAL.accent + '" stroke-width="2.5" rx="3"');
-      inner += '<text x="' + r1(box.x + box.w / 2) + '" y="' + r1(labelY) + '" text-anchor="middle" font-family="Barlow, Arial, sans-serif" font-size="9" font-weight="700" fill="' + PAL.ink + '" paint-order="stroke" stroke="rgba(255,255,255,.85)" stroke-width="2.5">' + openingCode(o) + '</text>';
+      inner += '<text x="' + r1(labelX != null ? labelX : box.x + box.w / 2) + '" y="' + r1(labelY) + '" text-anchor="middle" font-family="Barlow, Arial, sans-serif" font-size="9" font-weight="700" fill="' + PAL.ink + '" paint-order="stroke" stroke="rgba(255,255,255,.85)" stroke-width="2.5">' + openingCode(o) + '</text>';
       var fl = { quote: 0, variation: 0 };
       real.forEach(function (id) { var f = flags[id]; if (f) { fl.quote += f.quote; fl.variation += f.variation; } });
       if (fl.quote || fl.variation) {
@@ -1863,9 +2006,18 @@
         }
         var sz = drawnSize(o, style, fi);
         var oy = o.kind === 'door' && fi === 0 ? top + fh - sz.h : top + (fh - sz.h) / 2 + (fi === 0 ? -4 : 0);
-        var glyph = o.kind === 'door' ? drawDoorGlyph(cx, oy, sz.w, sz.h, o, a, fi, 'standard') : drawWindowGlyph(cx, oy, sz.w, sz.h, o, a);
+        var porch = o.kind === 'door' && fi === 0 && !o.placeholder ? g.porches[+o.position] : null;
+        var pst = porch ? otherDraw(porch) : null;
+        if (porch) {
+          // The porch first, so the door sits in it; the two codes side by
+          // side over the porch (O1 D1).
+          var pb = porchBox(cx, oy, sz.w, pst);
+          place(porch, [porch.id], drawPorchGlyph(cx, oy, sz.w, sz.h, pst, a), pb, oy - porchLift(pst) - 4, cx + sz.w / 2 - 11);
+        }
+        var glyph = o.kind === 'door' ? drawDoorGlyph(cx, oy, sz.w, sz.h, o, a, fi, 'standard', pst) : drawWindowGlyph(cx, oy, sz.w, sz.h, o, a);
         if (o.kind === 'door' && fi === 0) groundDoors.push([cx, sz.w]);
-        place(o, [o.id], glyph, { x: cx, y: oy, w: sz.w, h: sz.h }, oy - (o.kind === 'door' ? doorLift(a, fi, 'standard') : 4));
+        place(o, [o.id], glyph, { x: cx, y: oy, w: sz.w, h: sz.h }, oy - (porch ? porchLift(pst) + 4 : o.kind === 'door' ? doorLift(a, fi, 'standard') : 4),
+          porch ? cx + sz.w / 2 + 11 : null);
       });
     });
     if (g.lower) {
@@ -2381,7 +2533,7 @@
     effectivePrep: effectivePrep, quotePrep: quotePrep, baseMinutes: baseMinutes, paintedMinutes: paintedMinutes,
     priceJob: priceJob, openingPaintM2: openingPaintM2, paintAreas: paintAreas, marksClause: marksClause, describeVariation: describeVariation, itemLineText: itemLineText,
     workFlags: workFlags, elevationSvg: elevationSvg, detailSvg: detailSvg,
-    OTHER_PAINT: OTHER_PAINT, otherName: otherName, OTHER_PRICING: OTHER_PRICING, OTHER_UNITS: OTHER_UNITS, OTHER_MAX_MINS: OTHER_MAX_MINS, OTHER_MAX_PRICE: OTHER_MAX_PRICE,
+    OTHER_PAINT: OTHER_PAINT, otherName: otherName, PORCH_STYLES: PORCH_STYLES, sideGeometry: sideGeometry, otherDraw: otherDraw, otherDoor: otherDoor, porchStyleFor: porchStyleFor, porchPreviewSvg: porchPreviewSvg, drawPorchGlyph: drawPorchGlyph, OTHER_PRICING: OTHER_PRICING, OTHER_UNITS: OTHER_UNITS, OTHER_MAX_MINS: OTHER_MAX_MINS, OTHER_MAX_PRICE: OTHER_MAX_PRICE,
     otherPricing: otherPricing, otherUnit: otherUnit, otherSetPrice: otherSetPrice, ownScope: ownScope, scopeMap: scopeMap, openingScope: openingScope, quotedOpenings: quotedOpenings, untickedMarks: untickedMarks, reportableMarks: reportableMarks,
     reportModel: reportModel, reportHtml: reportHtml, fmtDate: fmtDate
   };

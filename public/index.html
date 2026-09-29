@@ -25312,7 +25312,8 @@ function wdPutOpening(o) {
     panesSet: !!o.panes_set, access: o.access || null,
     otherMins: o.other_mins || 0, otherCost: o.other_cost || 0, otherM2: o.other_m2 || 0,
     otherPricing: o.other_pricing || 'time', otherPrice: o.other_price || 0, otherUnit: o.other_unit || 'mins',
-    excluded: !!o.excluded, includeVariationId: o.include_variation_id || null
+    excluded: !!o.excluded, includeVariationId: o.include_variation_id || null,
+    otherDraw: o.other_draw || null, otherDoor: o.other_door || null
   }).then(function(resp) {
     // Another phone already holds this slot: adopt its id, and re-point the
     // marks made against ours (same contract as /snag-rooms) -- and, for a
@@ -25727,7 +25728,8 @@ function wdOthersHtml() {
   var h = '<div class="subsection-label" style="border-top:1px solid var(--border);padding-top:10px">Other items<small>garage doors, fanlights, porches — anything not on a floor</small></div>';
   list.forEach(function(o) {
     h += '<div onclick="openWdDetail(\'' + escapeHtml(o.id) + '\')" style="display:flex;justify-content:space-between;gap:10px;padding:9px 16px;border-top:1px solid var(--border);cursor:pointer;font-size:14px">'
-      + '<span><b>' + Windoors.openingCode(o) + '</b> ' + escapeHtml(Windoors.otherName(o)) + '</span>'
+      + '<span><b>' + Windoors.openingCode(o) + '</b> ' + escapeHtml(Windoors.otherName(o))
+      + (Windoors.otherDraw(o) !== 'tile' ? ' <small style="color:var(--text2)">over D' + Windoors.otherDoor(o) + '</small>' : '') + '</span>'
       + '<span style="color:var(--text2);font-size:12px">' + wdOtherPriceText(o) + (+o.other_cost ? ' · ' + fmt(+o.other_cost) + ' materials' : '') + ' ›</span></div>';
   });
   if (!site) h += '<div style="padding:10px 16px 12px;border-top:1px solid var(--border)"><span onclick="addWdOther()" style="color:var(--accent);font-size:13px;font-weight:600;cursor:pointer">+ Add other item</span></div>';
@@ -25757,6 +25759,48 @@ function setWdOtherUnit(u) {
   o.other_unit = u;
   wdPutOpening(o); wdChanged();
 }
+// ── Drawn as a porch (v2.90.0) ────────────────────────────────────────────
+// The side's ground-floor doors, D1 first: what a porch can go over.
+function wdGroundDoors(side) {
+  return windoors.openings.filter(function(o) { return o.side === side && o.kind === 'door' && Windoors.levelOf(o) === 'standard' && +o.floor === 0; })
+    .sort(function(a, b) { return a.position - b.position; });
+}
+function wdOtherDrawHtml(o) {
+  var doors = wdGroundDoors(o.side);
+  var st = Windoors.otherDraw(o);
+  var h = '<div class="subsection-label">Drawn as<small>' + (doors.length ? 'a tile under the house, or a porch over a door' : 'add a ground-floor door to this side to draw it as a porch') + '</small></div>';
+  if (!doors.length) return h;
+  var tile = 'border:1px solid var(--border);background:var(--surface2);border-radius:10px;padding:5px;cursor:pointer;font-size:11px;font-weight:600;text-align:center;color:var(--text);font-family:\'DM Sans\',sans-serif';
+  var on = ';border:2px solid var(--accent);padding:4px;color:var(--accent)';
+  h += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:0 16px 8px">'
+    + '<button type="button" style="' + tile + (st === 'tile' ? on : '') + '" onclick="setWdOtherDraw(\'tile\')"><div style="aspect-ratio:10/9;display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:3px">▭</div>Tile</button>'
+    + Windoors.PORCH_STYLES.map(function(ps) {
+        return '<button type="button" style="' + tile + (st === ps.key ? on : '') + '" onclick="setWdOtherDraw(\'' + ps.key + '\')">'
+          + '<div style="overflow:hidden;border-radius:6px;margin-bottom:3px">' + Windoors.porchPreviewSvg(ps.key, wdAppearance()) + '</div>' + escapeHtml(ps.label) + '</button>';
+      }).join('') + '</div>';
+  if (st !== 'tile' && doors.length > 1) {
+    h += '<div class="field-row"><div class="field-label">Over</div>'
+      + wdSegHtml(doors.map(function(d) { return { key: String(d.position), label: Windoors.openingCode(d) }; }), String(Windoors.otherDoor(o)), 'setWdOtherDoor') + '</div>';
+  }
+  var taken = st !== 'tile' && windoors.openings.some(function(x) {
+    return x !== o && x.kind === 'other' && x.side === o.side && Windoors.otherDraw(x) !== 'tile' && Windoors.otherDoor(x) === Windoors.otherDoor(o) && (+x.position || 0) < (+o.position || 0);
+  });
+  if (taken) h += '<div style="padding:0 16px 8px;font-size:12px;color:var(--danger)">That door already has a porch drawn over it, so this one shows as a tile.</div>';
+  return h;
+}
+function setWdOtherDraw(k) {
+  var o = wdOpening(); if (!o || o.kind !== 'other') return;
+  var next = k === 'tile' ? null : k;
+  if ((o.other_draw || null) === next) return;
+  o.other_draw = next;
+  if (next && !o.other_door) { var d = wdGroundDoors(o.side)[0]; o.other_door = d ? d.position : 1; }
+  wdPutOpening(o); wdChanged();
+}
+function setWdOtherDoor(pos) {
+  var o = wdOpening(); if (!o || o.kind !== 'other' || Windoors.otherDoor(o) === +pos) return;
+  o.other_door = +pos;
+  wdPutOpening(o); wdChanged();
+}
 function setWdOtherPricing(k) {
   var o = wdOpening(); if (!o || o.kind !== 'other' || Windoors.otherPricing(o) === k) return;
   o.other_pricing = k;
@@ -25768,7 +25812,10 @@ function addWdOther() {
   var pos = wdOthersOn(wdSide).reduce(function(m, o) { return Math.max(m, +o.position || 0); }, 0) + 1;
   var o = wdNewOpening({ side: wdSide, level: 'standard', floor: 0, kind: 'other', position: pos, nickname: name.trim().slice(0, 60),
     type: 'door', size_tier: 'standard', rows: 1, cols: 1, other_mins: 60, other_cost: 0, other_m2: 0,
-    other_pricing: 'time', other_price: 0, other_unit: 'mins' });
+    other_pricing: 'time', other_price: 0, other_unit: 'mins',
+    // "Portico", "porch", "canopy"... over the first door, if the side has one.
+    other_draw: wdGroundDoors(wdSide).length ? Windoors.porchStyleFor(name, wdAppearance().period) : null,
+    other_door: wdGroundDoors(wdSide).length ? wdGroundDoors(wdSide)[0].position : null });
   wdChanged();
   openWdDetail(o.id);
 }
@@ -26298,6 +26345,7 @@ function renderWdDetail() {
       }
       h += fig('Materials £', 'anything it needs beyond paint', 'other_cost', 0.5)
         + fig('Paint area m²', 'timber to buy paint for; 0 = none', 'other_m2', 0.1)
+        + wdOtherDrawHtml(o)
         + '<div class="subsection-label">Painted in</div>'
         + '<div style="padding:0 16px 8px">' + wdSegHtml(Windoors.OTHER_PAINT, o.type === 'window' ? 'window' : 'door', 'setWdOtherPaint') + '</div>';
     } else {
