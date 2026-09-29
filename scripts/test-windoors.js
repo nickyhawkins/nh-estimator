@@ -669,6 +669,40 @@ check('the side selector offers only the sides the house has', /wdVisibleSides\(
 check('the report PDF draws a bay with its windows', /children: mine\[k\]\.children/.test(body('buildWindoorsReportPdf')));
 check('Other item figures are saved', /otherMins/.test(body('wdPutOpening')) && /otherCost/.test(body('wdPutOpening')) && /otherM2/.test(body('wdPutOpening')));
 check('a tick is saved', /doneAt/.test(body('wdPutMark')));
+
+// Variations persist, and orphans come back (v2.88.1). The carriers were
+// never sent to the server, so a reload dropped them and left their marks
+// priced into a variation billed nowhere.
+check('the variation carriers are saved with the job', /windoorsVariations: Array\.isArray\(job\.windoorsVariations\)/.test(body('persistJobData')));
+check('loading the fixture recovers orphaned variations', /wdRecoverVariations\(\)/.test(body('loadWindoors')));
+{
+  const recover = new Function('ctx', 'with (ctx) { return (' + body('wdRecoverVariations').trim() + ')(); }');
+  const make = (list, marks, openings) => {
+    const job = { id: 'j', windoorsVariations: list };
+    const ctx = {
+      windoors: { jobId: 'j', marks, openings: openings || [] }, activeJobId: 'j', jobs: [job],
+      activeJob: () => job, wdVariationList: j => (j && Array.isArray(j.windoorsVariations)) ? j.windoorsVariations : [],
+      localStorage: { setItem() {} }, persisted: 0, toasts: [], JSON, Date,
+    };
+    ctx.persistJobData = () => { ctx.persisted++; };
+    ctx.toast = m => ctx.toasts.push(m);
+    return { job, ctx };
+  };
+  const t1 = make([{ id: 'kept', sentAt: null }], [
+    { opening_id: 'a', stage: 'variation', variation_id: 'kept', created_at: '2026-09-20T09:00:00Z' },
+    { opening_id: 'a', stage: 'variation', variation_id: 'lost1', created_at: '2026-09-21T09:00:00Z' },
+    { opening_id: 'b', stage: 'variation', variation_id: 'lost1', created_at: '2026-09-19T09:00:00Z' },
+    { opening_id: 'b', stage: 'quote', variation_id: null },
+  ], [{ id: 'c', prep_stage: 'variation', prep_variation_id: 'lost2' }]);
+  eq('orphaned variation ids get their carrier back', recover(t1.ctx), 2);
+  eq('...after the ones already there, so new marks still join the open draft', t1.job.windoorsVariations.map(v => v.id).join(','), 'kept,lost1,lost2');
+  eq('...dated from their earliest mark', t1.job.windoorsVariations[1].createdAt, '2026-09-19T09:00:00Z');
+  check('...as unanswered drafts', t1.job.windoorsVariations.slice(1).every(v => v.sentAt === null && !v.variationStatus && v.recoveredAt));
+  check('...saved to the server, and said so', t1.ctx.persisted === 1 && /Recovered 2/.test(t1.ctx.toasts[0]));
+  eq('running it again finds nothing', recover(t1.ctx), 0);
+  const t2 = make(undefined, [{ opening_id: 'a', stage: 'quote' }]);
+  check('nothing orphaned: nothing written', recover(t2.ctx) === 0 && t2.ctx.persisted === 0 && t2.job.windoorsVariations === undefined);
+}
 check('the work-to-do PDF is offered whenever there are openings', /saveWindoorsReportPdf\(true\)/.test(body('renderWindoors')) && /wdInUse\(\)/.test(body('renderWindoors')));
 check('...and builds from the todo model', /todo: true/.test(body('wdTodoModelNow')) && /wdTodoModelNow\(\)/.test(body('buildWindoorsReportPdf')));
 check('confirming a layout never removes an Other item', /o\.kind === 'other'/.test(body('confirmWdLayout')));
