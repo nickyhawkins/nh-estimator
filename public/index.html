@@ -17210,7 +17210,7 @@ function jobSpecModel() {
   // Windows and doors: one row per colour it paints, keyed on the fixture
   // (not a room id), so a tick survives the layout being edited.
   windoorsPaintItems().forEach(function(it) {
-    var nW = Windoors.liveOpenings(windoors.openings, windoors.property).filter(function(o) { return o.kind === it.wdPaint; }).length;
+    var nW = Windoors.quotedOpenings(windoors.openings, windoors.property).filter(function(o) { return o.kind === it.wdPaint; }).length;
     rows.push({ key: 'windoors:windoors:' + it.wdPaint, areaKey: 'windoors', area: 'Windows & doors', tag: '', areaNote: '',
       stage: 'other', label: it.wdPaint === 'door' ? 'Doors, outside faces' : 'Windows, outside faces', steps: ['prep', 'done'],
       coats: specCoatsLabel((windoors.property && windoors.property.coats) || 2),
@@ -25186,13 +25186,15 @@ function wdInUse() { return wdLoadedForActiveJob() && windoors.openings.length >
 // £ before markup (labour at rpm() plus the actions' material £), time is
 // days at hours-per-day -- exactly what calcKitchen()/calcFittedUnit()
 // return, so every total that sums those can sum this beside them.
+// An Other item's set price (v2.89.0) is £ before markup too, so it sits in
+// total beside the labour; it has no time of its own.
 function calcWindoors() {
-  if (!wdInUse()) return { total: 0, time: 0, mins: 0, materials: 0, count: 0 };
+  if (!wdInUse()) return { total: 0, time: 0, mins: 0, materials: 0, fixed: 0, count: 0, excluded: 0 };
   var p = Windoors.priceJob(windoors, wdRates());
   return {
-    total: p.quote.mins * rpm() + p.quote.materials,
+    total: p.quote.mins * rpm() + p.quote.materials + p.quote.fixed,
     time: p.quote.mins / 60 / (settings.hpd || 7),
-    mins: p.quote.mins, materials: p.quote.materials, count: p.quote.count, priced: p
+    mins: p.quote.mins, materials: p.quote.materials, fixed: p.quote.fixed, count: p.quote.count, excluded: p.excluded, priced: p
   };
 }
 function windoorsLineText() { return Windoors.itemLineText(windoors); }
@@ -25308,7 +25310,9 @@ function wdPutOpening(o) {
     prepVariationId: o.prep_variation_id, rowsBottom: o.rows_bottom == null ? null : o.rows_bottom,
     bayShape: o.bay_shape || null, bayStoreys: o.bay_storeys || null, parentOpeningId: o.parent_opening_id || null,
     panesSet: !!o.panes_set, access: o.access || null,
-    otherMins: o.other_mins || 0, otherCost: o.other_cost || 0, otherM2: o.other_m2 || 0
+    otherMins: o.other_mins || 0, otherCost: o.other_cost || 0, otherM2: o.other_m2 || 0,
+    otherPricing: o.other_pricing || 'time', otherPrice: o.other_price || 0, otherUnit: o.other_unit || 'mins',
+    excluded: !!o.excluded, includeVariationId: o.include_variation_id || null
   }).then(function(resp) {
     // Another phone already holds this slot: adopt its id, and re-point the
     // marks made against ours (same contract as /snag-rooms) -- and, for a
@@ -25605,12 +25609,15 @@ function renderWindoors() {
   html += '<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--text2);margin:6px 2px 12px">'
     + '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#1e6497;vertical-align:-1px"></span> quoted work</span>'
     + '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;border:1.6px dashed #1e6497;vertical-align:-2px"></span> variation</span>'
+    + (windoors.openings.some(function(o) { return o.excluded; }) ? '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#8a929b;vertical-align:-1px;color:#fff;font-size:9px;line-height:10px;text-align:center;font-weight:700">–</span> not in this job</span>' : '')
     + '<span>W1, W2… and D1… numbered left to right as you face that side; O1… other items, under the house</span></div>';
   if (!site && c.count) {
     html += '<div class="card" style="padding:12px 14px">'
       + '<div style="display:flex;justify-content:space-between;font-size:14px"><span>' + c.count + ' opening' + (c.count === 1 ? '' : 's') + ' · ' + fmtD(c.time) + '</span>'
       + '<span style="font-weight:700">' + fmt(c.total) + '</span></div>'
-      + '<div style="font-size:12px;color:var(--text2);margin-top:4px">Labour cost before markup' + (c.materials > 0.005 ? ', incl. ' + fmt(c.materials) + ' materials' : '') + '. On the quote as: <i>' + escapeHtml(windoorsLineText()) + '</i></div>'
+      + '<div style="font-size:12px;color:var(--text2);margin-top:4px">Labour cost before markup' + (c.materials > 0.005 ? ', incl. ' + fmt(c.materials) + ' materials' : '')
+      + (c.fixed > 0.005 ? (c.materials > 0.005 ? ' and ' : ', incl. ') + fmt(c.fixed) + ' set prices' : '')
+      + (c.excluded ? '. ' + c.excluded + ' not in this job (drawn, not priced)' : '') + '. On the quote as: <i>' + escapeHtml(windoorsLineText()) + '</i></div>'
       + '</div>';
   }
   var soft = 'width:100%;margin:4px 0 8px;background:var(--accent-soft-bg);color:var(--accent);border:1px solid var(--accent-soft-border);border-radius:12px;padding:11px;font-size:14px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer';
@@ -25721,17 +25728,47 @@ function wdOthersHtml() {
   list.forEach(function(o) {
     h += '<div onclick="openWdDetail(\'' + escapeHtml(o.id) + '\')" style="display:flex;justify-content:space-between;gap:10px;padding:9px 16px;border-top:1px solid var(--border);cursor:pointer;font-size:14px">'
       + '<span><b>' + Windoors.openingCode(o) + '</b> ' + escapeHtml(Windoors.otherName(o)) + '</span>'
-      + '<span style="color:var(--text2);font-size:12px">' + (+o.other_mins || 0) + ' min' + (+o.other_cost ? ' · ' + fmt(+o.other_cost) + ' materials' : '') + ' ›</span></div>';
+      + '<span style="color:var(--text2);font-size:12px">' + wdOtherPriceText(o) + (+o.other_cost ? ' · ' + fmt(+o.other_cost) + ' materials' : '') + ' ›</span></div>';
   });
   if (!site) h += '<div style="padding:10px 16px 12px;border-top:1px solid var(--border)"><span onclick="addWdOther()" style="color:var(--accent);font-size:13px;font-weight:600;cursor:pointer">+ Add other item</span></div>';
   return h;
+}
+// "1.5 days", "90 min", "£300 set price" -- in the unit it was typed in.
+function wdOtherPriceText(o) {
+  if (Windoors.otherPricing(o) === 'price') return fmt(Windoors.otherSetPrice(o)) + ' set price';
+  var v = wdOtherTimeIn(o, Windoors.otherUnit(o));
+  var u = Windoors.otherUnit(o);
+  return wdFmtN(v) + (u === 'days' ? (v === 1 ? ' day' : ' days') : u === 'hours' ? (v === 1 ? ' hr' : ' hrs') : ' min');
+}
+function wdFmtN(v) { return String(Math.round(v * 100) / 100); }
+// Minutes <-> the unit shown. A day is the Settings hours-per-day.
+function wdUnitMins(unit) { return unit === 'days' ? 60 * (settings.hpd || 7) : unit === 'hours' ? 60 : 1; }
+function wdOtherTimeIn(o, unit) { return (+o.other_mins || 0) / wdUnitMins(unit); }
+function setWdOtherTime(v) {
+  var o = wdOpening(); if (!o || o.kind !== 'other') return;
+  var n = Math.min(Windoors.OTHER_MAX_MINS, Math.max(0, +v || 0) * wdUnitMins(Windoors.otherUnit(o)));
+  if (Math.abs((+o.other_mins || 0) - n) < 0.001) return;
+  o.other_mins = Math.round(n * 100) / 100;
+  wdPutOpening(o); wdChanged();
+}
+function setWdOtherUnit(u) {
+  var o = wdOpening(); if (!o || o.kind !== 'other' || Windoors.otherUnit(o) === u) return;
+  // Only how it's shown: the time itself doesn't move.
+  o.other_unit = u;
+  wdPutOpening(o); wdChanged();
+}
+function setWdOtherPricing(k) {
+  var o = wdOpening(); if (!o || o.kind !== 'other' || Windoors.otherPricing(o) === k) return;
+  o.other_pricing = k;
+  wdPutOpening(o); wdChanged();
 }
 function addWdOther() {
   var name = prompt('What is it? (e.g. garage door, porch, fanlight)', '');
   if (name === null || !name.trim()) return;
   var pos = wdOthersOn(wdSide).reduce(function(m, o) { return Math.max(m, +o.position || 0); }, 0) + 1;
   var o = wdNewOpening({ side: wdSide, level: 'standard', floor: 0, kind: 'other', position: pos, nickname: name.trim().slice(0, 60),
-    type: 'door', size_tier: 'standard', rows: 1, cols: 1, other_mins: 60, other_cost: 0, other_m2: 0 });
+    type: 'door', size_tier: 'standard', rows: 1, cols: 1, other_mins: 60, other_cost: 0, other_m2: 0,
+    other_pricing: 'time', other_price: 0, other_unit: 'mins' });
   wdChanged();
   openWdDetail(o.id);
 }
@@ -26133,6 +26170,89 @@ function wdMarkEditable(m) {
   return m.stage !== 'variation';
 }
 
+// ── Not in this job (v2.89.0) ─────────────────────────────────────────────
+// A window, door or bay that's on the house but not in the work: drawn, not
+// priced. Set from Measure. On site one can be brought INTO the job, which
+// makes it a variation (the whole opening, painted), and taken back out
+// while that variation is unanswered. A bay's windows go with their bay.
+function wdSiteAdded(o) {
+  var sc = Windoors.openingScope(o, windoors.openings);
+  return !!sc.variationId && wdVariationEditable(sc.variationId);
+}
+function wdScopeHtml(o) {
+  var site = wdMode === 'site';
+  var own = Windoors.ownScope(o);
+  var sc = Windoors.openingScope(o, windoors.openings);
+  var parent = o.parent_opening_id ? windoors.openings.find(function(x) { return x.id === o.parent_opening_id; }) : null;
+  var note = function(t) { return '<div style="padding:0 16px 8px;font-size:12px;color:var(--text2)">' + t + '</div>'; };
+  var btn = 'border:1px solid var(--border);background:var(--surface2);color:var(--text);border-radius:10px;padding:8px 10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer';
+  // Inherited from its bay: said, not set, here.
+  if (parent && (sc.excluded !== own.excluded || sc.variationId !== own.variationId)) {
+    return note(sc.excluded ? 'Not in this job, with its bay — drawn, not priced.' : 'Added to the job on site with its bay, as a variation.');
+  }
+  if (!site) {
+    if (own.variationId) return note('Added to the job on site, as a variation.');
+    return '<div class="subsection-label" style="padding-top:4px">In this job<small>' + (own.excluded ? 'drawn on the house, not priced' : 'switch off for one that\'s already done or not being painted') + '</small></div>'
+      + '<div style="padding:0 16px 8px">' + wdSegHtml([{ key: 'in', label: 'In the job' }, { key: 'out', label: 'Not in this job' }], own.excluded ? 'out' : 'in', 'setWdExcluded') + '</div>';
+  }
+  if (own.excluded) {
+    return note('Not in this job — drawn, not priced.')
+      + '<div style="padding:0 16px 10px"><button type="button" style="' + btn + '" onclick="wdIncludeOnSite()">Add to this job — as a variation</button></div>';
+  }
+  if (own.variationId) {
+    return note('Added to the job on site, as a variation' + (wdVariationEditable(own.variationId) ? '.' : ' (answered).'))
+      + (wdVariationEditable(own.variationId) ? '<div style="padding:0 16px 10px"><span onclick="wdTakeOutOnSite()" style="color:var(--danger);font-size:13px;font-weight:600;cursor:pointer">Take it back out</span></div>' : '');
+  }
+  return '';
+}
+// Every row that goes with o: itself, and a bay's windows.
+function wdWithKids(o) { return [o].concat(o.kind === 'bay' ? Windoors.bayChildren(o, windoors.openings) : []); }
+function setWdExcluded(k) {
+  var o = wdOpening(); if (!o || o.kind === 'other' || wdMode === 'site') return;
+  var out = k === 'out';
+  if (!!o.excluded === out) return;
+  if (out) {
+    var ids = {}; wdWithKids(o).forEach(function(x) { ids[x.id] = true; });
+    var mine = windoors.marks.filter(function(m) { return ids[m.opening_id]; });
+    if (mine.some(function(m) { return m.stage === 'variation'; })) {
+      alert('This ' + o.kind + ' has work added on site as a variation, so it can\'t be taken out of the job.');
+      return;
+    }
+    if (mine.length && !confirm('Taking this ' + o.kind + ' out of the job clears the ' + mine.length + ' mark' + (mine.length === 1 ? '' : 's') + ' on it.\n\nCarry on?')) return;
+    mine.forEach(function(m) { wdDeleteMark(m); });
+    windoors.marks = windoors.marks.filter(function(m) { return !ids[m.opening_id]; });
+    wdSel = { kind: null, ids: {} };
+  }
+  o.excluded = out;
+  o.include_variation_id = null;
+  wdPutOpening(o); wdChanged();
+}
+function wdIncludeOnSite() {
+  var o = wdOpening(); if (!o || !o.excluded || wdMode !== 'site') return;
+  if (!confirm('Add ' + Windoors.openingLabel(o) + ' to the job? It goes on the current variation for the client to approve.')) return;
+  o.excluded = false;
+  o.include_variation_id = wdDraft(true).id;
+  wdPutOpening(o); wdChanged();
+}
+function wdTakeOutOnSite() {
+  var o = wdOpening(); if (!o || wdMode !== 'site') return;
+  var vid = Windoors.ownScope(o).variationId;
+  if (!vid || !wdVariationEditable(vid)) return;
+  var ids = {}; wdWithKids(o).forEach(function(x) { ids[x.id] = true; });
+  var mine = windoors.marks.filter(function(m) { return ids[m.opening_id]; });
+  if (mine.some(function(m) { return !wdMarkEditable(m); })) {
+    alert('Some of the work on this ' + o.kind + ' is on an answered variation, so it can\'t be taken back out.');
+    return;
+  }
+  if (mine.length && !confirm('Taking it back out also clears the ' + mine.length + ' mark' + (mine.length === 1 ? '' : 's') + ' added on it.\n\nCarry on?')) return;
+  mine.forEach(function(m) { wdDeleteMark(m); });
+  windoors.marks = windoors.marks.filter(function(m) { return !ids[m.opening_id]; });
+  o.excluded = true;
+  o.include_variation_id = null;
+  wdSel = { kind: null, ids: {} };
+  wdPutOpening(o); wdChanged();
+}
+
 function renderWdDetail() {
   var o = wdOpening();
   var box = document.getElementById('wd-sheet-body');
@@ -26151,6 +26271,8 @@ function renderWdDetail() {
       : '<div onclick="editWdNickname()" style="font-size:12px;color:' + (o.nickname ? 'var(--text2)' : 'var(--accent)') + ';cursor:pointer;margin-top:2px">'
       + (o.nickname ? '“' + escapeHtml(o.nickname) + '” · rename' : '+ nickname (e.g. landing, above porch)') + '</div>') + '</div>'
     + '<div onclick="closeWdDetail()" style="font-size:14px;font-weight:700;color:var(--accent);cursor:pointer;padding:4px 2px">Done</div></div>';
+  var scope = Windoors.openingScope(o, windoors.openings);
+  if (!isOther) h += wdScopeHtml(o);
   // Structure: type, panes, size. Quote-mode only -- on site the quote is
   // the floor, and swapping a sash for a casement could lower it. An Other
   // item has its own figures instead.
@@ -26161,13 +26283,25 @@ function renderWdDetail() {
           + '<input type="number" inputmode="decimal" min="0" step="' + step + '" value="' + (+o[field] || 0) + '" onchange="setWdOtherFigure(\'' + field + '\',this.value)"'
           + ' style="width:84px;text-align:right;padding:7px 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);color:var(--text);font-size:14px;font-family:\'DM Mono\',monospace"></div>';
       };
-      h += fig('Minutes', 'to paint it, before prep', 'other_mins', 5)
-        + fig('Materials £', 'anything it needs beyond paint', 'other_cost', 0.5)
+      var byPrice = Windoors.otherPricing(o) === 'price';
+      var unit = Windoors.otherUnit(o);
+      h += '<div class="subsection-label" style="padding-top:4px">Priced</div>'
+        + '<div style="padding:0 16px 8px">' + wdSegHtml(Windoors.OTHER_PRICING, byPrice ? 'price' : 'time', 'setWdOtherPricing') + '</div>';
+      if (byPrice) {
+        h += fig('Price £', 'the labour, before markup — prep and access don\'t change it', 'other_price', 5);
+      } else {
+        h += '<div style="padding:0 16px 6px">' + wdSegHtml(Windoors.OTHER_UNITS, unit, 'setWdOtherUnit') + '</div>'
+          + '<div class="field-row"><div class="field-label">' + (unit === 'days' ? 'Days' : unit === 'hours' ? 'Hours' : 'Minutes')
+          + '<small>to do it, before prep' + (unit === 'days' ? ' · a day is ' + (settings.hpd || 7) + ' hrs' : '') + '</small></div>'
+          + '<input type="number" inputmode="decimal" min="0" step="' + (unit === 'mins' ? 5 : unit === 'hours' ? 0.5 : 0.25) + '" value="' + wdFmtN(wdOtherTimeIn(o, unit)) + '" onchange="setWdOtherTime(this.value)"'
+          + ' style="width:84px;text-align:right;padding:7px 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);color:var(--text);font-size:14px;font-family:\'DM Mono\',monospace"></div>';
+      }
+      h += fig('Materials £', 'anything it needs beyond paint', 'other_cost', 0.5)
         + fig('Paint area m²', 'timber to buy paint for; 0 = none', 'other_m2', 0.1)
         + '<div class="subsection-label">Painted in</div>'
         + '<div style="padding:0 16px 8px">' + wdSegHtml(Windoors.OTHER_PAINT, o.type === 'window' ? 'window' : 'door', 'setWdOtherPaint') + '</div>';
     } else {
-      h += '<div style="padding:0 16px 8px;font-size:13px;color:var(--text2)">' + (+o.other_mins || 0) + ' min to paint · as quoted</div>';
+      h += '<div style="padding:0 16px 8px;font-size:13px;color:var(--text2)">' + wdOtherPriceText(o) + ' · as quoted</div>';
     }
   } else if (!site) {
     h += '<div class="subsection-label" style="padding-top:4px">Type</div>'
@@ -26186,14 +26320,17 @@ function renderWdDetail() {
       + '<div style="padding:0 16px 8px">' + wdSegHtml(isDoor ? Windoors.DOOR_TIERS : Windoors.WINDOW_TIERS, o.size_tier, 'setWdTier', { guides: true }) + '</div>';
   } else {
     h += '<div style="padding:0 16px 8px;font-size:13px;color:var(--text2)">' + escapeHtml(Windoors.typeLabel(o) + (isDoor ? ' door' : ' window'))
-      + ' · ' + Windoors.paneCount(o) + (isDoor ? ' glass' : ' panes') + ' · as quoted</div>';
+      + ' · ' + Windoors.paneCount(o) + (isDoor ? ' glass' : ' panes') + (scope.excluded || scope.variationId ? '' : ' · as quoted') + '</div>';
   }
   // Prep: levels below the job default hidden; on site, below the current
   // level too (a raise is a variation, a drop is not a thing).
+  // Not in this job: the drawing only -- no prep, access, marks or work.
+  if (scope.excluded) { box.innerHTML = h; return; }
   var eff = Windoors.effectivePrep(o, p);
-  var floorLevel = site ? eff : (p.default_prep || 'light');
+  var floorLevel = site && !wdSiteAdded(o) ? eff : (p.default_prep || 'light');
   var levels = Windoors.PREP_LEVELS.filter(function(l) { return Windoors.prepRank(l.key) >= Windoors.prepRank(floorLevel); });
-  h += '<div class="subsection-label">Prep' + (site && o.prep_stage === 'variation' && Windoors.prepRank(eff) > Windoors.prepRank(Windoors.quotePrep(o, p))
+  // A set price isn't scaled by prep, so there's no prep to pick.
+  if (!(isOther && Windoors.otherPricing(o) === 'price')) h += '<div class="subsection-label">Prep' + (site && o.prep_stage === 'variation' && Windoors.prepRank(eff) > Windoors.prepRank(Windoors.quotePrep(o, p))
       ? '<small>raised on site from ' + Windoors.prepLabel(Windoors.quotePrep(o, p)) + ' — a variation</small>' : '') + '</div>'
     + '<div style="padding:0 16px 10px">' + wdSegHtml(levels, eff, 'setWdPrep') + '</div>';
   if (!isOther) h += wdAccessHtml(o);
@@ -26256,8 +26393,10 @@ function renderWdBay(o, box) {
     h += '<div style="padding:0 16px 8px;font-size:13px;color:var(--text2)">' + escapeHtml(Windoors.kindNoun(o)) + ' · '
       + Windoors.bayStoreys(o) + ' storey' + (Windoors.bayStoreys(o) === 1 ? '' : 's') + ' · as quoted</div>';
   }
+  h += wdScopeHtml(o);
+  if (o.excluded) { box.innerHTML = h; return; }
   var eff = Windoors.effectivePrep(o, p);
-  var floorLevel = site ? eff : (p.default_prep || 'light');
+  var floorLevel = site && !wdSiteAdded(o) ? eff : (p.default_prep || 'light');
   var levels = Windoors.PREP_LEVELS.filter(function(l) { return Windoors.prepRank(l.key) >= Windoors.prepRank(floorLevel); });
   h += '<div class="subsection-label">Prep<small>the bay\'s own timber — each window has its own</small></div>'
     + '<div style="padding:0 16px 10px">' + wdSegHtml(levels, eff, 'setWdPrep') + '</div>';
@@ -26327,13 +26466,20 @@ function wdWorkListHtml(o, oMarks) {
       + (sub ? '<small style="display:block;color:var(--text2);font-size:11px;margin-top:1px">' + sub + '</small>' : '') + '</div>';
   };
   var qPrep = Windoors.quotePrep(o, p);
-  var paintBits = [Windoors.prepLabel(qPrep).toLowerCase() + ' prep'];
+  var paintBits = [o.kind === 'other' && Windoors.otherPricing(o) === 'price' ? fmt(Windoors.otherSetPrice(o)) + ' set price' : Windoors.prepLabel(qPrep).toLowerCase() + ' prep'];
   if (o.kind !== 'other') {
     var coatsN = Math.round(Windoors.coatsFactor(p) * 2);
     paintBits.push(coatsN + ' coat' + (coatsN === 1 ? '' : 's'));
     paintBits.push(Windoors.accessLabel(Windoors.openingAccess(o)).toLowerCase() + ' access' + (o.access ? ' (set by hand)' : ''));
   }
-  rows += line((o.kind === 'bay' ? 'Paint, the bay\'s own timber' : o.kind === 'other' ? 'Paint' : 'Paint, outside face') + ' · ' + paintBits.join(' · '), 'quote');
+  var addedIn = Windoors.openingScope(o, windoors.openings).variationId;
+  if (addedIn) {
+    var av = wdVariationList().find(function(x) { return x.id === addedIn; });
+    var ast = av ? variationStatusOf(av) : 'pending';
+    paintBits[0] = Windoors.prepLabel(Windoors.effectivePrep(o, p)).toLowerCase() + ' prep';
+  }
+  rows += line((o.kind === 'bay' ? 'Paint, the bay\'s own timber' : o.kind === 'other' ? 'Paint' : 'Paint, outside face') + ' · ' + paintBits.join(' · '),
+    addedIn ? 'variation, added on site · ' + (av && !av.sentAt && ast === 'pending' ? 'draft' : ast) : 'quote');
   var qc = Windoors.marksClause(o, quoteMarks);
   if (qc) rows += line(escapeHtml(qc.charAt(0).toUpperCase() + qc.slice(1)), 'quote');
   var byVar = {};
@@ -26353,7 +26499,7 @@ function wdWorkListHtml(o, oMarks) {
     rows += line(escapeHtml(t.charAt(0).toUpperCase() + t.slice(1)),
       'variation · ' + (v && !v.sentAt && st === 'pending' ? 'draft' : st));
   });
-  var money = (wdMode === 'quote' ? fmt((perOpen.quoteMins || 0) * r + (perOpen.quoteMaterials || 0)) + ' quoted' : '')
+  var money = (wdMode === 'quote' ? fmt((perOpen.quoteMins || 0) * r + (perOpen.quoteMaterials || 0) + (perOpen.quoteFixed || 0)) + ' quoted' : '')
     + (perOpen.varMins ? (wdMode === 'quote' ? ' · ' : '') + fmt((perOpen.varMins || 0) * r + (perOpen.varMaterials || 0)) + ' variation' : '');
   return '<div style="margin-top:6px"><div class="subsection-label" style="display:flex;justify-content:space-between"><span>Work on this ' + (o.kind === 'door' ? 'door' : o.kind === 'bay' ? 'bay' : o.kind === 'other' ? 'item' : 'window') + '</span>'
     + (money ? '<small style="text-transform:none;letter-spacing:0">' + money + ' <span style="opacity:.7">before markup</span></small>' : '') + '</div>' + rows + '</div>'
@@ -26504,7 +26650,13 @@ function setWdAccess(key) {
 function setWdPrep(level) {
   var o = wdOpening(); if (!o) return;
   var p = windoors.property;
-  if (wdMode === 'site') {
+  if (wdMode === 'site' && wdSiteAdded(o)) {
+    // Added on site: its whole painting is the variation, so its level is
+    // simply set (while the variation is still open), not raised.
+    if (Windoors.prepRank(level) < Windoors.prepRank(p.default_prep || 'light')) return;
+    o.prep_level = level === (p.default_prep || 'light') ? null : level;
+    o.prep_stage = 'quote'; o.quote_prep_level = null; o.prep_variation_id = null;
+  } else if (wdMode === 'site') {
     var was = Windoors.effectivePrep(o, p);
     if (Windoors.prepRank(level) <= Windoors.prepRank(was)) return;
     if (o.prep_stage !== 'variation') { o.quote_prep_level = was; o.prep_stage = 'variation'; }
@@ -26529,6 +26681,7 @@ function setWdPrep(level) {
 
 function wdToggleElement(id) {
   var o = wdOpening(); if (!o) return;
+  if (Windoors.openingScope(o, windoors.openings).excluded) return;
   var kind = Windoors.elementKind(o, id);
   if (!kind) return;
   // Tapping the other kind starts a fresh selection -- panes and parts are
@@ -26847,7 +27000,7 @@ async function attachWindoorsReportNow() {
 function windoorsMeasureRowHtml() {
   var c = calcWindoors();
   if (!(c.total > 0.005)) return '';
-  var live = Windoors.liveOpenings(windoors.openings, windoors.property);
+  var live = Windoors.quotedOpenings(windoors.openings, windoors.property);
   var nV = live.filter(function(o) { return o.kind === 'window'; }).length;
   var nD = live.filter(function(o) { return o.kind === 'door'; }).length;
   var nB = live.filter(function(o) { return o.kind === 'bay'; }).length;
