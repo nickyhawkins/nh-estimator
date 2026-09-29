@@ -627,6 +627,37 @@ eq('...4-over-8 beside 8-over-8', W.sashPattern(W.openingDefaults(g8, 'window', 
     !/NaN|undefined/.test(W.elevationSvg({ property: ep, openings: [Object.assign({}, d36, { panes_set: true })], marks: [] }, 'front', { interactive: true })));
 }
 
+// ── Work to do (v2.88.0) ───────────────────────────────────────────────────
+{
+  const tp = { default_prep: 'light', coats: 2 };
+  const a1 = { id: 'a1', kind: 'window', type: 'sash', rows: 2, cols: 3, size_tier: 'medium', side: 'front', level: 'standard', floor: 1, position: 1 };
+  const a2 = Object.assign({}, a1, { id: 'a2', position: 2, floor: 0 });
+  const dm = { id: 'dm2', kind: 'window', type: 'sash', rows: 1, rows_bottom: 2, cols: 3, size_tier: 'small', side: 'back', level: 'roof', floor: 0, position: 1 };
+  const tm = [
+    { id: 't1', opening_id: 'a1', element_id: 'top-1', action_key: 'reputty', stage: 'quote' },
+    { id: 't2', opening_id: 'a1', element_id: 'top-2', action_key: 'reputty', stage: 'quote', done_at: '2026-09-20T10:00:00Z' },
+    { id: 't3', opening_id: 'a1', element_id: 'cill', action_key: 'resin', stage: 'quote' },
+    { id: 't4', opening_id: 'a2', element_id: 'cill', action_key: 'splice', stage: 'variation', variation_id: 'vok' },
+    { id: 't5', opening_id: 'a2', element_id: 'head', action_key: 'filler', stage: 'variation', variation_id: 'vpend' },
+  ];
+  const vars = [{ id: 'vok', status: 'approved', approvedAt: '2026-09-21T09:00:00Z' }, { id: 'vpend', status: 'pending' }];
+  const td = W.reportModel({ property: tp, openings: [a1, a2, dm], marks: tm }, vars, { todo: true });
+  eq('every opening is on the to-do list, marked or not', td.sections.map(s => s.opening.id).join(','), 'a2,a1,dm2');
+  eq('its painting is the first line', td.sections.find(s => s.opening.id === 'a1').quoted[0], 'Paint: light prep, 2 coats, first floor access');
+  eq('...ground floor names no access', td.sections.find(s => s.opening.id === 'a2').quoted[0], 'Paint: light prep, 2 coats');
+  eq('...a dormer is ladder/tower', td.sections.find(s => s.opening.id === 'dm2').quoted[0], 'Paint: light prep, 2 coats, ladder/tower access');
+  eq('work already ticked off is left off, one line per action', td.sections.find(s => s.opening.id === 'a1').quoted.slice(1).join('|'), 'Reputty x1 pane|Resin repair (cill)');
+  eq('a hand-set access is always named', W.reportModel({ property: tp, openings: [Object.assign({}, a1, { access: 'ground' })], marks: [] }, [], { todo: true }).sections[0].quoted[0], 'Paint: light prep, 2 coats, ground access (set by hand)');
+  eq('an approved variation is on it', td.sections.find(s => s.opening.id === 'a2').variations.map(v => v.text).join('|'), 'Splice timber (cill)');
+  check('a pending variation is not', !td.marks.some(m => m.id === 't5'));
+  check('only openings with work get a drawing', td.sections.find(s => s.opening.id === 'a1').marked && td.sections.find(s => s.opening.id === 'a2').marked && !td.sections.find(s => s.opening.id === 'dm2').marked);
+  eq('the totals count the work left', td.totals.map(t => t.text).join('; '), 'Reputty x1 pane; Resin repair x1 part; Splice timber x1 part');
+  eq('3 coats say so', W.reportModel({ property: Object.assign({}, tp, { coats: 3 }), openings: [a2], marks: [] }, [], { todo: true }).sections[0].quoted[0], 'Paint: light prep, 3 coats');
+  const done = W.reportModel({ property: tp, openings: [a1, a2, dm], marks: tm }, vars);
+  eq('the work report is unchanged: done work only', done.sections.map(s => s.opening.id).join(',') + ' ' + done.marks.map(m => m.id).join(','), 'a1 t2');
+  check('no prices anywhere on it', !/£|\d+\.\d\d/.test(JSON.stringify(td.sections.map(s => [s.quoted, s.variations]))));
+}
+
 // ── The app ────────────────────────────────────────────────────────────────
 check('openings are saved with their level, bay and pane flag', /level: Windoors\.levelOf\(o\)/.test(body('wdPutOpening')) && /parentOpeningId/.test(body('wdPutOpening')) && /panesSet/.test(body('wdPutOpening')));
 check("a sash's bottom rows are saved", /rowsBottom/.test(body('wdPutOpening')));
@@ -638,6 +669,8 @@ check('the side selector offers only the sides the house has', /wdVisibleSides\(
 check('the report PDF draws a bay with its windows', /children: mine\[k\]\.children/.test(body('buildWindoorsReportPdf')));
 check('Other item figures are saved', /otherMins/.test(body('wdPutOpening')) && /otherCost/.test(body('wdPutOpening')) && /otherM2/.test(body('wdPutOpening')));
 check('a tick is saved', /doneAt/.test(body('wdPutMark')));
+check('the work-to-do PDF is offered whenever there are openings', /saveWindoorsReportPdf\(true\)/.test(body('renderWindoors')) && /wdInUse\(\)/.test(body('renderWindoors')));
+check('...and builds from the todo model', /todo: true/.test(body('wdTodoModelNow')) && /wdTodoModelNow\(\)/.test(body('buildWindoorsReportPdf')));
 check('confirming a layout never removes an Other item', /o\.kind === 'other'/.test(body('confirmWdLayout')));
 check('the invoice screen warns about unticked work', /wdUntickedCount\(\)/.test(body('renderFinalInvoice')));
 check('dormers follow a side\'s own roof', /wdDormersAllowed\(a, wdSide\)/.test(body('confirmWdLayout')));

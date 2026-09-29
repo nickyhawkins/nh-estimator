@@ -1259,6 +1259,20 @@ Everything you mark collects into one **draft** variation, worded for you from t
 
 **Send for approval** puts the draft on the client's page like any other extra. Once it's sent — or you've recorded their answer by hand — the draft is closed, and the next thing you mark starts a new one. Work on a variation the client has already answered is locked too.
 
+#### Work to do
+
+**📋 Work to do (PDF)** is on the Windows & Doors screen from Measure and from On Site, as soon as the job has any windows or doors. It's the list of what's still to be done, built on the phone with no signal needed and handed to the share sheet, like the work report.
+
+- **At the top, *In all*:** how many openings there are to paint, and the marked work counted up (*Reputty x14 panes, Replace glass x3 panes, Resin repair x5 parts*).
+- **Then each side**, with its drawing, and **every opening on it**, each with a box to tick on paper for each job: the painting first (*Paint: light prep, 2 coats, first floor access*), then one line per kind of repair (*Reputty x2 panes*, *Replace glass x1 pane*, *Resin repair (cill)*). An access you set by hand is always named (*ground access (set by hand)*), so the team knows the scaffold should be up.
+- **Openings with repairs get their drawing** with the panes and parts marked. Openings that are only being painted get just their lines, to keep it short.
+- **Approved variations are on it**, under their own heading. Drafts and variations still waiting for the client aren't: they haven't been agreed.
+- **Work already ticked off as done is left off**, so printing it again mid-job gives what's left. The painting has no tick of its own, so every opening's painting stays on the list.
+
+Like the work report, it has **no prices on it**. From Measure it's the schedule of work behind a quote, to send with it or to talk a client through what they're paying for; on site it's the list to hand the team.
+
+![The two PDFs on the Windows & Doors screen](images/26z-windoors-work-to-do.png)
+
 #### The work report
 
 Once any work is ticked off as done, the fixture screen has a **📄 Work report (PDF)** button. It builds the report as a PDF on the phone — it works with no signal — and hands it to the share sheet to save, email or print. The same report appears on the client's approval page, under their extras.
@@ -1492,6 +1506,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.87.1. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.88.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

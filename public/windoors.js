@@ -2091,11 +2091,34 @@
   function untickedMarks(data, variations) {
     return reportableMarks(data, variations).marks.filter(function (m) { return !m.done_at; });
   }
-  function reportModel(data, variations) {
+  // The painting itself, in words, for the work-to-do list: every opening is
+  // painted, marked or not. "Paint: light prep, 2 coats, first floor access".
+  function paintLine(o, property) {
+    var bits = [prepLabel(quotePrep(o, property)).toLowerCase() + ' prep'];
+    if (o.kind !== 'other') {
+      var n = Math.round(coatsFactor(property) * 2);
+      bits.push(n + ' coat' + (n === 1 ? '' : 's'));
+      // Always named when set by hand: "ground access" on an upstairs window
+      // means the scaffold is expected to be up.
+      var acc = openingAccess(o);
+      if (isAccessKey(o.access)) bits.push(accessLabel(acc).toLowerCase() + ' access (set by hand)');
+      else if (acc !== 'ground') bits.push(accessLabel(acc).toLowerCase() + ' access');
+    }
+    return (o.kind === 'bay' ? "Paint the bay's own timber: " : 'Paint: ') + bits.join(', ');
+  }
+  // opts.todo (v2.88.0): the work STILL TO DO rather than what was done --
+  // the schedule of work behind a quote, or the list a painter works through.
+  // Same rows and the same drawings, but: marks NOT yet ticked off, every
+  // opening listed with its painting (prep, coats, access), and the whole
+  // lot counted up by action (totals). Still quote and approved-variation
+  // work only, and still no prices.
+  function reportModel(data, variations, opts) {
+    opts = opts || {};
+    var todo = !!opts.todo;
     var property = (data && data.property) || {};
     var rm = reportableMarks(data, variations);
     var approved = rm.approved;
-    var marks = rm.marks.filter(function (m) { return !!m.done_at; });
+    var marks = rm.marks.filter(function (m) { return todo ? !m.done_at : !!m.done_at; });
     var sections = [];
     var openingsWithWork = {};
     var live = liveOpenings(data && data.openings);
@@ -2104,9 +2127,18 @@
       var quoteMarks = mine.filter(function (m) { return m.stage !== 'variation'; });
       var quoted = [], varied = [];
       var dflt = property.default_prep || 'light';
-      if (prepRank(quotePrep(o, property)) > prepRank(dflt)) quoted.push('Prep: ' + prepLabel(quotePrep(o, property)).toLowerCase());
-      var qc = marksClause(o, quoteMarks);
-      if (qc) quoted.push(qc.charAt(0).toUpperCase() + qc.slice(1));
+      if (todo) quoted.push(paintLine(o, property));
+      else if (prepRank(quotePrep(o, property)) > prepRank(dflt)) quoted.push('Prep: ' + prepLabel(quotePrep(o, property)).toLowerCase());
+      // On the to-do list, one line per action -- each is its own box to
+      // tick, so the reputty can be done before the glass arrives.
+      var clauses = function (list) {
+        var cap = function (t) { return t.charAt(0).toUpperCase() + t.slice(1); };
+        if (!todo) { var c = marksClause(o, list); return c ? [cap(c)] : []; }
+        return ACTIONS.map(function (a) {
+          return marksClause(o, list.filter(function (m) { return m.action_key === a.key; }));
+        }).filter(Boolean).map(cap);
+      };
+      clauses(quoteMarks).forEach(function (t) { quoted.push(t); });
       var byVar = {};
       mine.filter(function (m) { return m.stage === 'variation'; }).forEach(function (m) {
         (byVar[m.variation_id] = byVar[m.variation_id] || []).push(m);
@@ -2123,6 +2155,13 @@
             && prepRank(effectivePrep(o, property)) > prepRank(quotePrep(o, property))) {
           parts.push('prep raised to ' + prepLabel(effectivePrep(o, property)).toLowerCase());
         }
+        if (todo) {
+          // One line each, like the quoted work.
+          parts.concat(clauses(byVar[vid])).forEach(function (t) {
+            varied.push({ text: t.charAt(0).toUpperCase() + t.slice(1), approvedAt: v.approvedAt || null });
+          });
+          return;
+        }
         var vc = marksClause(o, byVar[vid]);
         if (vc) parts.push(vc);
         if (parts.length) {
@@ -2131,14 +2170,23 @@
         }
       });
       if (!quoted.length && !varied.length) return;
-      openingsWithWork[o.id] = true;
+      // Marked: has work beyond the painting, so it earns its own drawing.
+      var marked = mine.length > 0 || varied.length > 0 || (!todo && quoted.length > 0);
+      if (marked) openingsWithWork[o.id] = true;
       sections.push({ opening: o, label: openingLabel(o), type: typeLabel(o), what: kindNoun(o), quoted: quoted, variations: varied,
-                      children: o.kind === 'bay' ? bayChildren(o, live) : null });
+                      marked: marked, children: o.kind === 'bay' ? bayChildren(o, live) : null });
     });
     var sides = SIDES.map(function (s) { return s.key; }).filter(function (side) {
       return sections.some(function (sec) { return sec.opening.side === side; });
     });
-    return { sides: sides, sections: sections, highlight: openingsWithWork, marks: marks };
+    // Counted up by action, in the Rates card's order: "Reputty x14 panes".
+    var counts = {};
+    marks.forEach(function (m) { counts[m.action_key] = (counts[m.action_key] || 0) + 1; });
+    var totals = ACTIONS.filter(function (a) { return counts[a.key]; }).map(function (a) {
+      var n = counts[a.key];
+      return { key: a.key, label: a.label, count: n, text: a.label + ' x' + n + ' ' + (a.on === 'pane' ? (n === 1 ? 'pane' : 'panes') : (n === 1 ? 'part' : 'parts')) };
+    });
+    return { sides: sides, sections: sections, highlight: openingsWithWork, marks: marks, totals: totals, todo: todo };
   }
 
   function fmtDate(iso) {
