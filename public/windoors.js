@@ -516,6 +516,56 @@
   ];
   function otherName(o) { return (o && o.nickname) || 'Other item'; }
   function otherFigure(v, max) { var n = +v; return isFinite(n) && n > 0 ? Math.min(max, n) : 0; }
+  // v2.89.0: an Other item is priced either by its time (other_mins, typed
+  // as minutes, hours or days -- other_unit is only how it is shown) or at a
+  // set price (other_price, £ before markup, standing in for the labour).
+  // Its materials £ and paint m² apply either way.
+  var OTHER_MAX_MINS = 60000;
+  var OTHER_MAX_PRICE = 100000;
+  var OTHER_PRICING = [
+    { key: 'time', label: 'By time' },
+    { key: 'price', label: 'Set price' }
+  ];
+  var OTHER_UNITS = [
+    { key: 'mins', label: 'Minutes' },
+    { key: 'hours', label: 'Hours' },
+    { key: 'days', label: 'Days' }
+  ];
+  function otherPricing(o) { return o && o.other_pricing === 'price' ? 'price' : 'time'; }
+  function otherUnit(o) { return o && (o.other_unit === 'hours' || o.other_unit === 'days') ? o.other_unit : 'mins'; }
+  function otherSetPrice(o) { return otherPricing(o) === 'price' ? otherFigure(o.other_price, OTHER_MAX_PRICE) : 0; }
+
+  // ── Not in this job (v2.89.0) ────────────────────────────────────────────
+  // A window, door or bay can be on the drawing without being in the job
+  // (excluded): a door painted last year still belongs on the house. It
+  // prices as nothing, buys no paint, is left out of the item line and the
+  // work lists, and takes no marks. Switched back on ON SITE it comes into
+  // the job as a variation (include_variation_id): the whole opening, at its
+  // prep, priced into that variation rather than the quote. A bay's windows
+  // follow their bay when the bay is out or came in on site.
+  function ownScope(o) {
+    if (!o || o.kind === 'other') return { excluded: false, variationId: null };
+    if (o.excluded) return { excluded: true, variationId: null };
+    return { excluded: false, variationId: o.include_variation_id || null };
+  }
+  function scopeMap(openings) {
+    var byId = {}, out = {};
+    (openings || []).forEach(function (o) { byId[o.id] = o; });
+    (openings || []).forEach(function (o) {
+      var sc = ownScope(o);
+      var par = isBayChild(o) ? byId[o.parent_opening_id] : null;
+      if (par) { var ps = ownScope(par); if (ps.excluded || ps.variationId) sc = ps; }
+      out[o.id] = sc;
+    });
+    return out;
+  }
+  function openingScope(o, openings) { return scopeMap(openings)[o && o.id] || ownScope(o); }
+  // The openings the QUOTE is for: live, in the job, not added on site.
+  function quotedOpenings(openings) {
+    var live = liveOpenings(openings);
+    var sc = scopeMap(live);
+    return live.filter(function (o) { return !sc[o.id].excluded && !sc[o.id].variationId; });
+  }
 
   // ── Layout: the per-side floor counts ────────────────────────────────────
   // property.layout = { front: { floors: [{windows, doors, bays}, ...],
@@ -840,7 +890,7 @@
   }
 
   function baseMinutes(o, rates) {
-    if (o.kind === 'other') return otherFigure(o.other_mins, 6000);
+    if (o.kind === 'other') return otherPricing(o) === 'price' ? 0 : otherFigure(o.other_mins, OTHER_MAX_MINS);
     if (o.kind === 'bay') {
       var bb = rates.bayBase[o.bay_shape] || rates.bayBase.canted;
       return bb[bayStoreys(o)];
@@ -889,14 +939,18 @@
     var openings = liveOpenings(data && data.openings);
     var marks = (data && data.marks) || [];
     var coats = coatsFactor(property);
-    var out = { quote: { mins: 0, materials: 0, count: 0 }, variations: {}, perOpening: {} };
+    var out = { quote: { mins: 0, materials: 0, fixed: 0, count: 0 }, variations: {}, perOpening: {}, excluded: 0 };
     var byId = {};
+    var scope = scopeMap(openings);
     var varBucket = function (id) {
       var k = id || 'unassigned';
-      if (!out.variations[k]) out.variations[k] = { mins: 0, materials: 0, marks: 0, prepRaises: 0 };
+      if (!out.variations[k]) out.variations[k] = { mins: 0, materials: 0, marks: 0, prepRaises: 0, includes: 0 };
       return out.variations[k];
     };
     openings.forEach(function (o) {
+      var sc = scope[o.id];
+      // Not in this job: no price, and (not in byId) its marks price as nothing.
+      if (sc.excluded) { out.excluded++; return; }
       byId[o.id] = o;
       var painted = paintedMinutes(o, rates);
       // An Other item's minutes are its own total, typed in as it is to be
@@ -908,11 +962,25 @@
       // An Other item's own materials £ are part of the quote, like its
       // minutes.
       var own = o.kind === 'other' ? otherFigure(o.other_cost, 100000) : 0;
+      // A set price is £ before markup in place of the labour: prep and
+      // access don't touch it.
+      var fixed = o.kind === 'other' ? otherSetPrice(o) : 0;
       var per = { painted: painted, coatsFactor: cf, accessMult: am, access: o.kind === 'other' ? 'ground' : openingAccess(o), scaled: scaled,
-                  quoteMins: scaled * qMult, quoteMaterials: own, varMins: 0, varMaterials: 0 };
+                  quoteMins: scaled * qMult, quoteMaterials: own, quoteFixed: fixed, varMins: 0, varMaterials: 0 };
       out.perOpening[o.id] = per;
+      if (sc.variationId) {
+        // Added to the job on site: all of it is that variation's, at the
+        // prep it has now.
+        var ivb = varBucket(sc.variationId);
+        var incMins = scaled * (rates.prep[effectivePrep(o, property)] || 1);
+        ivb.mins += incMins; ivb.materials += own;
+        if (ownScope(o).variationId) ivb.includes++;
+        per.quoteMins = 0; per.quoteMaterials = 0; per.varMins += incMins; per.varMaterials += own;
+        return;
+      }
       out.quote.mins += per.quoteMins;
       out.quote.materials += own;
+      out.quote.fixed += fixed;
       out.quote.count++;
       if (o.prep_stage === 'variation') {
         var nowMult = rates.prep[effectivePrep(o, property)] || 1;
@@ -974,8 +1042,9 @@
     var rates = rawRates && rawRates.paint && rawRates.paint.area ? rawRates : mergeRates(rawRates);
     var out = { window: 0, door: 0, windows: 0, doors: 0 };
     // A bay's own timber is painted with the windows (it is the window
-    // joinery), but it is not a window to count.
-    liveOpenings(data && data.openings).forEach(function (o) {
+    // joinery), but it is not a window to count. Only what the quote is for:
+    // not an opening that's out of the job, or one added to it on site.
+    quotedOpenings(data && data.openings).forEach(function (o) {
       var m2 = openingPaintM2(o, rates);
       // An Other item goes in with whichever colour it's painted, uncounted.
       if (o.kind === 'other') { if (o.type === 'window') out.window += m2; else out.door += m2; return; }
@@ -1021,7 +1090,9 @@
     openings.forEach(function (o) {
       var mine = marks.filter(function (m) { return m.opening_id === o.id && m.stage === 'variation' && (m.variation_id || 'unassigned') === (variationId || 'unassigned'); });
       var bits = [];
-      if (o.prep_stage === 'variation' && (o.prep_variation_id || 'unassigned') === (variationId || 'unassigned')
+      if (!o.excluded && o.include_variation_id && o.include_variation_id === variationId) {
+        bits.push('added to the job, ' + prepLabel(effectivePrep(o, property)).toLowerCase() + ' prep and paint');
+      } else if (o.prep_stage === 'variation' && (o.prep_variation_id || 'unassigned') === (variationId || 'unassigned')
           && prepRank(effectivePrep(o, property)) > prepRank(quotePrep(o, property))) {
         bits.push('prep raised to ' + prepLabel(effectivePrep(o, property)).toLowerCase());
       }
@@ -1036,7 +1107,7 @@
   // "Exterior windows and doors (outside faces): 8 sash windows, 1 front door."
   // Quote-stage marked work is summarised briefly after it.
   function itemLineText(data) {
-    var openings = liveOpenings(data && data.openings);
+    var openings = quotedOpenings(data && data.openings);
     var marks = (data && data.marks) || [];
     var counts = {}, order = [];
     var bump = function (k) { if (!counts[k]) { counts[k] = 0; order.push(k); } counts[k]++; };
@@ -1065,7 +1136,9 @@
       if (/^other:/.test(k)) { var nm = k.slice(6); return counts[k] === 1 ? nm : counts[k] + ' × ' + nm; }
       return counts[k] + ' ' + k + (counts[k] === 1 ? '' : (/s$/.test(k) ? 'es' : 's'));
     }).join(', ') + '.';
-    var qMarks = marks.filter(function (m) { return m.stage !== 'variation'; });
+    var inQuote = {};
+    openings.forEach(function (o) { inQuote[o.id] = true; });
+    var qMarks = marks.filter(function (m) { return m.stage !== 'variation' && inQuote[m.opening_id]; });
     if (qMarks.length) {
       var perAction = {}, aOrder = [];
       qMarks.forEach(function (m) { if (!perAction[m.action_key]) { perAction[m.action_key] = 0; aOrder.push(m.action_key); } perAction[m.action_key]++; });
@@ -1145,8 +1218,12 @@
   function workFlags(data) {
     var flags = {};
     var property = (data && data.property) || {};
+    var scope = scopeMap(data && data.openings);
     ((data && data.openings) || []).forEach(function (o) {
-      var f = flags[o.id] = { quote: 0, variation: 0 };
+      var f = flags[o.id] = { quote: 0, variation: 0, excluded: !!(scope[o.id] && scope[o.id].excluded) };
+      if (f.excluded) return;
+      // Added to the job on site: that's variation work in itself.
+      if (ownScope(o).variationId) { f.variation++; return; }
       var dflt = property.default_prep || 'light';
       if (prepRank(quotePrep(o, property)) > prepRank(dflt)) f.quote++;
       if (o.prep_stage === 'variation' && prepRank(effectivePrep(o, property)) > prepRank(quotePrep(o, property))) f.variation++;
@@ -1716,7 +1793,15 @@
     var place = function (o, ids, glyph, box, labelY) {
       var real = ids.filter(Boolean);
       var lit = hl && real.some(function (id) { return hl[id]; });
-      var inner = '<g' + (hl && !lit ? ' opacity="0.35"' : '') + '>' + glyph + '</g>';
+      // Not in this job: drawn as it is (the house has to look right, and
+      // the client's copy shows it plainly), but in the app faded, with a
+      // grey dash where the work badge would be.
+      var out = opts.interactive && flags[o.id] && flags[o.id].excluded;
+      var inner = '<g' + (hl && !lit ? ' opacity="0.35"' : out ? ' opacity="0.45"' : '') + '>' + glyph + '</g>';
+      if (out) {
+        inner += '<circle class="wd-excluded" cx="' + r1(box.x + box.w - 2) + '" cy="' + r1(box.y + 2) + '" r="5" fill="#8a929b" stroke="#fff" stroke-width="1.2"/>'
+          + ln(box.x + box.w - 4.5, box.y + 2, box.x + box.w + 0.5, box.y + 2, '#fff', 1.6);
+      }
       if (lit) inner += rect(box.x - 4, box.y - 4, box.w + 8, box.h + 8, 'none', ' stroke="' + PAL.accent + '" stroke-width="2.2" rx="3"');
       if (opts.selected && real.indexOf(opts.selected) >= 0) inner += rect(box.x - 4, box.y - 4, box.w + 8, box.h + 8, 'none', ' stroke="' + PAL.accent + '" stroke-width="2.5" rx="3"');
       inner += '<text x="' + r1(box.x + box.w / 2) + '" y="' + r1(labelY) + '" text-anchor="middle" font-family="Barlow, Arial, sans-serif" font-size="9" font-weight="700" fill="' + PAL.ink + '" paint-order="stroke" stroke="rgba(255,255,255,.85)" stroke-width="2.5">' + openingCode(o) + '</text>';
@@ -2081,7 +2166,8 @@
     var approved = {};
     (variations || []).forEach(function (v) { if (v && v.status === 'approved') approved[v.id] = v; });
     var live = {};
-    liveOpenings(data && data.openings).forEach(function (o) { live[o.id] = true; });
+    var lo = liveOpenings(data && data.openings), sc = scopeMap(lo);
+    lo.forEach(function (o) { if (!sc[o.id].excluded) live[o.id] = true; });
     return { approved: approved, marks: ((data && data.marks) || []).filter(function (m) {
       return live[m.opening_id] && (m.stage !== 'variation' || approved[m.variation_id]);
     }) };
@@ -2094,7 +2180,7 @@
   // The painting itself, in words, for the work-to-do list: every opening is
   // painted, marked or not. "Paint: light prep, 2 coats, first floor access".
   function paintLine(o, property) {
-    var bits = [prepLabel(quotePrep(o, property)).toLowerCase() + ' prep'];
+    var bits = [prepLabel(o.include_variation_id && !o.excluded ? effectivePrep(o, property) : quotePrep(o, property)).toLowerCase() + ' prep'];
     if (o.kind !== 'other') {
       var n = Math.round(coatsFactor(property) * 2);
       bits.push(n + ' coat' + (n === 1 ? '' : 's'));
@@ -2122,12 +2208,23 @@
     var sections = [];
     var openingsWithWork = {};
     var live = liveOpenings(data && data.openings);
+    var scope = scopeMap(live);
     sortOpenings(live).forEach(function (o) {
+      var sc = scope[o.id];
+      // Not in this job: nothing to do, nothing done.
+      if (sc.excluded) return;
       var mine = marks.filter(function (m) { return m.opening_id === o.id; });
       var quoteMarks = mine.filter(function (m) { return m.stage !== 'variation'; });
       var quoted = [], varied = [];
       var dflt = property.default_prep || 'light';
-      if (todo) quoted.push(paintLine(o, property));
+      if (sc.variationId) {
+        // Added on site: its painting is the variation's, once approved.
+        var iv = approved[sc.variationId];
+        if (iv && (todo || ownScope(o).variationId)) {
+          varied.push({ text: todo ? paintLine(o, property) : 'Added to the job: ' + prepLabel(effectivePrep(o, property)).toLowerCase() + ' prep and paint',
+                        approvedAt: iv.approvedAt || null });
+        }
+      } else if (todo) quoted.push(paintLine(o, property));
       else if (prepRank(quotePrep(o, property)) > prepRank(dflt)) quoted.push('Prep: ' + prepLabel(quotePrep(o, property)).toLowerCase());
       // On the to-do list, one line per action -- each is its own box to
       // tick, so the reputty can be done before the glass arrives.
@@ -2143,7 +2240,7 @@
       mine.filter(function (m) { return m.stage === 'variation'; }).forEach(function (m) {
         (byVar[m.variation_id] = byVar[m.variation_id] || []).push(m);
       });
-      if (o.prep_stage === 'variation' && approved[o.prep_variation_id]
+      if (!sc.variationId && o.prep_stage === 'variation' && approved[o.prep_variation_id]
           && prepRank(effectivePrep(o, property)) > prepRank(quotePrep(o, property))) {
         byVar[o.prep_variation_id] = byVar[o.prep_variation_id] || [];
       }
@@ -2151,7 +2248,7 @@
         var v = approved[vid];
         if (!v) return;
         var parts = [];
-        if (o.prep_stage === 'variation' && o.prep_variation_id === vid
+        if (!sc.variationId && o.prep_stage === 'variation' && o.prep_variation_id === vid
             && prepRank(effectivePrep(o, property)) > prepRank(quotePrep(o, property))) {
           parts.push('prep raised to ' + prepLabel(effectivePrep(o, property)).toLowerCase());
         }
@@ -2265,7 +2362,8 @@
     effectivePrep: effectivePrep, quotePrep: quotePrep, baseMinutes: baseMinutes, paintedMinutes: paintedMinutes,
     priceJob: priceJob, openingPaintM2: openingPaintM2, paintAreas: paintAreas, marksClause: marksClause, describeVariation: describeVariation, itemLineText: itemLineText,
     workFlags: workFlags, elevationSvg: elevationSvg, detailSvg: detailSvg,
-    OTHER_PAINT: OTHER_PAINT, otherName: otherName, untickedMarks: untickedMarks, reportableMarks: reportableMarks,
+    OTHER_PAINT: OTHER_PAINT, otherName: otherName, OTHER_PRICING: OTHER_PRICING, OTHER_UNITS: OTHER_UNITS, OTHER_MAX_MINS: OTHER_MAX_MINS, OTHER_MAX_PRICE: OTHER_MAX_PRICE,
+    otherPricing: otherPricing, otherUnit: otherUnit, otherSetPrice: otherSetPrice, ownScope: ownScope, scopeMap: scopeMap, openingScope: openingScope, quotedOpenings: quotedOpenings, untickedMarks: untickedMarks, reportableMarks: reportableMarks,
     reportModel: reportModel, reportHtml: reportHtml, fmtDate: fmtDate
   };
 });

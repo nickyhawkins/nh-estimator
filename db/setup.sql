@@ -697,6 +697,11 @@ ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS other_mins REAL;              
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS other_cost REAL;                            -- ...its materials £
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS other_m2 REAL;                              -- ...its timber m² for paint; type = 'door'|'window', the colour it takes
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS access VARCHAR;                                -- ground | firstFloor | ladderTower set by hand; NULL = Auto (from level and floor)
+ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS excluded BOOLEAN NOT NULL DEFAULT FALSE;       -- not in this job: drawn, not priced (v2.89.0)
+ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS include_variation_id VARCHAR;                  -- brought into the job on site, as this variation
+ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS other_pricing VARCHAR;                         -- kind 'other': 'time' | 'price'; NULL = time
+ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS other_price REAL;                              -- ...its set price £, before markup
+ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS other_unit VARCHAR;                            -- ...mins | hours | days: how its time is shown
 DROP INDEX IF EXISTS job_openings_slot;
 CREATE UNIQUE INDEX IF NOT EXISTS job_openings_slot2 ON job_openings (job_id, side, level, floor, kind, position);
 CREATE INDEX IF NOT EXISTS job_openings_parent ON job_openings (parent_opening_id);

@@ -717,6 +717,70 @@ check('the detail sheet has an Access control', /wdAccessHtml\(o\)/.test(body('r
 check('the line list names the access', /openingAccess\(o\)/.test(body('wdWorkListHtml')));
 check('the Rates card has the bay base minutes', /s-wd-bay-/.test(body('populateWindoorsRates')) && /s-wd-bay-/.test(body('readWindoorsRates')));
 
+// ── v2.89.0: not in this job; Other items by time or at a set price ───────
+{
+  const pr = { default_prep: 'light', coats: 2 };
+  const win = { id: 'w', side: 'front', floor: 0, level: 'standard', kind: 'window', type: 'sash', size_tier: 'medium', rows: 2, cols: 3, position: 1 };
+  const dr = { id: 'd', side: 'front', floor: 0, level: 'standard', kind: 'door', type: 'panelled', size_tier: 'standard', rows: 3, cols: 2, position: 1 };
+  const out = Object.assign({}, dr, { excluded: true });
+  const only = W.priceJob({ property: pr, openings: [win], marks: [] }, R);
+  const withOut = W.priceJob({ property: pr, openings: [win, out], marks: [{ opening_id: 'd', element_id: 'threshold', action_key: 'filler', stage: 'quote' }] }, R);
+  near('a door not in this job prices as nothing', withOut.quote.mins, only.quote.mins);
+  eq('...takes no materials, even with a stray mark', withOut.quote.materials, only.quote.materials);
+  eq('...is not counted as an opening', withOut.quote.count, 1);
+  eq('...but is counted as left out', withOut.excluded, 1);
+  eq('...buys no paint', W.paintAreas({ openings: [win, out] }, R).door, 0);
+  eq('...is left off the item line', W.itemLineText({ openings: [win, out], marks: [] }), 'Exterior windows and doors (outside faces): 1 sash window.');
+  const svgOut = W.elevationSvg({ property: { appearance: W.periodDefaults('georgian'), layout: { front: { floors: [{ windows: 1, doors: 1 }], confirmed: true } } }, openings: [win, out], marks: [] }, 'front', { interactive: true });
+  check('...is still drawn, faded with a grey dash in the app', svgOut.indexOf('data-open-id="d"') >= 0 && svgOut.indexOf('wd-excluded') >= 0 && !/NaN/.test(svgOut));
+  const svgReport = W.elevationSvg({ property: { appearance: W.periodDefaults('georgian'), layout: { front: { floors: [{ windows: 1, doors: 1 }], confirmed: true } } }, openings: [win, out], marks: [] }, 'front', {});
+  check('...and drawn plainly on the client\'s copy', svgReport.indexOf('wd-excluded') < 0);
+  eq('...and is not on the work-to-do list', W.reportModel({ property: pr, openings: [win, out], marks: [] }, [], { todo: true }).sections.map(x => x.opening.id).join(','), 'w');
+
+  // A bay out of the job takes its windows with it.
+  const bay = { id: 'b', side: 'front', floor: 0, level: 'standard', kind: 'bay', type: 'canted', bay_shape: 'canted', bay_storeys: 1, size_tier: 'medium', rows: 1, cols: 1, position: 1, excluded: true };
+  const kid = Object.assign({}, win, { id: 'k', position: W.bayChildPosition(1, 0, 'centre'), parent_opening_id: 'b' });
+  eq('a bay\'s windows follow their bay out', W.priceJob({ property: pr, openings: [bay, kid], marks: [] }, R).quote.count, 0);
+
+  // Brought in on site: a variation, the whole opening at its prep.
+  const added = Object.assign({}, dr, { excluded: false, include_variation_id: 'v1' });
+  const pa = W.priceJob({ property: pr, openings: [win, added], marks: [] }, R);
+  near('added on site: nothing on the quote', pa.quote.mins, only.quote.mins);
+  near('...all of it on the variation', pa.variations.v1.mins, W.paintedMinutes(dr, R) * R.prep.light);
+  eq('...counted as an include', pa.variations.v1.includes, 1);
+  check('...and worded', /D1: added to the job, light prep and paint\./.test(W.describeVariation({ property: pr, openings: [win, added], marks: [] }, 'v1')));
+  eq('...its painting on the to-do list once approved', W.reportModel({ property: pr, openings: [added], marks: [] }, [{ id: 'v1', status: 'approved' }], { todo: true }).sections[0].variations.length, 1);
+  eq('...and not before', W.reportModel({ property: pr, openings: [added], marks: [] }, [], { todo: true }).sections.length, 0);
+
+  // Other items: time in any unit is stored as minutes; a set price is £.
+  const oth = { id: 'o', side: 'front', floor: 0, level: 'standard', kind: 'other', position: 1, nickname: 'Portico', type: 'door', size_tier: 'standard', rows: 1, cols: 1,
+    other_mins: 1260, other_cost: 20, other_m2: 3, other_unit: 'days' };
+  near('a portico by time: 3 days of 7 hrs, at the job prep', W.priceJob({ property: pr, openings: [oth], marks: [] }, R).quote.mins, 1260 * R.prep.light);
+  const fixedP = W.priceJob({ property: pr, openings: [Object.assign({}, oth, { other_pricing: 'price', other_price: 300 })], marks: [] }, R).quote;
+  eq('at a set price: no minutes', fixedP.mins, 0);
+  eq('...the price as it is, prep and all', fixedP.fixed, 300);
+  eq('...and its materials still', fixedP.materials, 20);
+  eq('by time carries no set price', W.priceJob({ property: pr, openings: [Object.assign({}, oth, { other_price: 300 })], marks: [] }, R).quote.fixed, 0);
+  eq('its paint still counts at a set price', W.paintAreas({ openings: [Object.assign({}, oth, { other_pricing: 'price' })] }, R).door, 3);
+
+  const L = require('../lib/windoors');
+  const o1 = { side: 'front', kind: 'other', nickname: 'Porch', otherMins: 50000, otherPricing: 'price', otherPrice: 300, otherUnit: 'days' };
+  eq('the server keeps longer times now', L.normaliseOpening(o1).other_mins, 50000);
+  eq('...the pricing', L.normaliseOpening(o1).other_pricing, 'price');
+  eq('...the price', L.normaliseOpening(o1).other_price, 300);
+  eq('...the unit', L.normaliseOpening(o1).other_unit, 'days');
+  eq('...an unknown unit reads as minutes', L.normaliseOpening(Object.assign({}, o1, { otherUnit: 'weeks' })).other_unit, 'mins');
+  eq('...never leaves an Other item out', L.normaliseOpening(Object.assign({}, o1, { excluded: true })).excluded, false);
+  const d1 = { side: 'front', kind: 'door', type: 'panelled', sizeTier: 'standard', excluded: true, includeVariationId: 'v1' };
+  eq('a door can be left out', L.normaliseOpening(d1).excluded, true);
+  eq('...and a left-out one is in no variation', L.normaliseOpening(d1).include_variation_id, null);
+  eq('...brought in on site keeps its variation', L.normaliseOpening(Object.assign({}, d1, { excluded: false })).include_variation_id, 'v1');
+}
+check('the set price is in the fixture total', /quote\.fixed/.test(body('calcWindoors')));
+check('left-out and set-price fields are saved', /excluded: !!o\.excluded/.test(body('wdPutOpening')) && /otherPrice/.test(body('wdPutOpening')));
+check('the detail sheets have the In this job control', /wdScopeHtml\(o\)/.test(body('renderWdDetail')) && /wdScopeHtml\(o\)/.test(body('renderWdBay')));
+check('a left-out opening takes no marks', /excluded\) return/.test(body('wdToggleElement')));
+
 console.log(pass.length + ' passed, ' + fail.length + ' failed');
 fail.forEach(f => console.log('  ✗ ' + f));
 process.exit(fail.length ? 1 : 0);

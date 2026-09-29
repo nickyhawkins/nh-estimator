@@ -415,7 +415,22 @@ Tap a bay on the drawing to open the **bay view**. Set its **shape** (**canted**
 
 A bay's price is its own **bay base minutes** (Rates, by shape and storeys, covering the cornice, fascia and mullions) plus each of its windows priced as a window. Each window takes the access for its own floor. The bay's own timber goes by its top storey, so a two-storey bay from the ground takes the first-floor uplift. The bay view has its own **Access** control for that timber. Making a two-storey bay single-storey removes the upper windows, asking first if any have work on them.
 
-**Other items.** Garage doors, fanlights, porches and lean-tos don't sit on a floor. Under each side's drawing, **+ Add other item** asks what it is, then opens it. Give it the **minutes** to paint it (before prep, and as you'll actually paint it — its minutes aren't scaled by coats or access), any **materials £** it needs beyond paint, and a **paint area** in m² (0 if you're not buying paint for it). **Painted in** sets whether it uses the doors' colour or the windows' colour. Prep works as it does on any opening. It's drawn as a tile under the house, numbered **O1, O2…** and labelled *Front, O1 (Garage door)*. You can mark its **face** and **frame** like a door's parts (filler, resin, splice, ironmongery, ease). Changing a side's layout never touches its other items; **Remove this item** at the bottom of its sheet does. On the quote it's named in the fixture's line: *…1 front door, garage door.*
+**Not in this job.** A door you painted last time, or a window someone else is replacing, still belongs on the drawing — the house doesn't look right without it. Open it and set **In this job** to **Not in this job**. It stays on the drawing (faded in the app, with a grey **–** badge where the work badge would be; drawn normally on the client's copy of the report), but it's left out of everything else: no price, no paint, not counted in the openings, not named on the quote's line, not on the work-to-do list, and it can't have work marked on it. You can still set its type and panes so it's drawn right. Any work already marked on it is cleared, and it asks first. Set it back to **In the job** to price it again. Leaving a **bay** out leaves its windows out too.
+
+![Front D1 not in this job: drawn, faded, not priced](images/26za-windoors-not-in-job.png)
+
+If it turns out on site that it does need doing after all, open it on **On Site** and tap **Add to this job — as a variation** (see [Windows and doors on site](#windows-and-doors-on-site)).
+
+**Other items.** Garage doors, fanlights, porches, porticos and lean-tos don't sit on a floor. Under each side's drawing, **+ Add other item** asks what it is, then opens it. Choose how it's **Priced**:
+
+- **By time** — how long it takes to do, before prep, as you'll actually do it (it isn't scaled by coats or access). Pick **Minutes**, **Hours** or **Days** and type the figure: *1.5 days* for a portico. A day is your **hours per day** from Settings, and the time goes into the job's days like any other labour.
+- **Set price** — a £ figure for the labour, e.g. **£300**. It goes into the Windows & Doors total as it is and takes your markup like everything else. Prep and access don't change it (so there's no prep to pick), and it adds no days to the job.
+
+Either way, add any **materials £** it needs beyond paint, and a **paint area** in m² (0 if you're not buying paint for it). **Painted in** sets whether it uses the doors' colour or the windows' colour. The list under the house shows each one's figure (*O1 Portico · 1.5 days*, or *£300 set price*), and the card under the sides shows how much of the total is set prices.
+
+![A portico as an other item at a set price](images/26zb-windoors-other-set-price.png)
+
+This is the place for a porch or portico rather than a separate Exterior item, so it sits with the rest of the joinery and on the same quote line. It's drawn as a tile under the house, numbered **O1, O2…** and labelled *Front, O1 (Garage door)*. You can mark its **face** and **frame** like a door's parts (filler, resin, splice, ironmongery, ease). Changing a side's layout never touches its other items; **Remove this item** at the bottom of its sheet does. On the quote it's named in the fixture's line: *…1 front door, garage door.*
 
 ![A garage door as an other item, under the house](images/26u-windoors-other-items.png)
 
@@ -1246,6 +1261,7 @@ Old windows are where the surprises are. On a job with [Windows and doors](#wind
 - **Anything you add here is a variation.** New marks, and prep raised on an opening (you can raise it, never lower it), are extra work on top of the quote. They show dashed on the diagram and as a dashed badge on the elevation.
 - **Bays, dormers and lower ground windows work the same way** — open a bay and tap one of its windows to mark it, or mark the bay's own parts.
 - **The quote's own work is locked.** It's shown, solid, so you can see what was already allowed for, but you can't take it off here — and type, size and pane layout are as quoted. The quote is the floor: nothing done on site ever takes money off it.
+- **A window or door that was left out of the job** can be brought in. Its sheet says *Not in this job* with an **Add to this job — as a variation** button. Tapping it puts the whole opening — its prep and painting — on the draft variation (*Front, ground floor, D1: added to the job, light prep and paint.*), shown with a dashed badge. You can then mark work on it like any other. While the variation is still a draft or waiting for an answer, you can set its prep freely, and **Take it back out** undoes it (clearing any work you marked on it). Once approved, its painting is on the work-to-do list.
 
 ![On site: prep raised and glass marked for replacing, added as a variation](images/26d-windoors-onsite-detail.png)
 
@@ -1508,6 +1524,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.88.1. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.89.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
