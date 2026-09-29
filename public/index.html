@@ -16191,11 +16191,6 @@ var SNAG_ROOM_SURFACES = [
   { role: 'featurewall', label: 'Feature wall' },
   { role: 'panel',       label: 'Panelling' }
 ];
-function snagSurfaceLabel(role) {
-  var s = SNAG_ROOM_SURFACES.find(function(x) { return x.role === role; });
-  return s ? s.label : '';
-}
-
 function snagRoomEntry(label, role) {
   var key = snagLabelKey(label);
   if (!key) return null;
@@ -18129,9 +18124,6 @@ async function stopSpecSharing() {
 // means undecided; the chip means follow the woodwork. So the carrier is null
 // for "follows woodwork" rather than reusing the placeholder-first blank rule,
 // and old jobs (which have no override at all) need no migration.
-function roomHasRadiatorColour(r) {
-  return !!(r && r.radiatorColourNumber);
-}
 function roomRadiatorColourNumber(r) {
   if (!r) return 1;
   return r.radiatorColourNumber || r.woodworkColourNumber || 1;
@@ -21072,7 +21064,7 @@ function pruneOrphanColour(num, live) {
 //     parses "Colour N" back out of a string (checked).
 //   · The BRAND and CODE arrive. They are already on the colour (filled
 //     from colour_library whenever the typed name matched an entry there --
-//     see commitColour), and they were only ever shown as a chip on the
+//     see commitColourSlotText), and they were only ever shown as a chip on the
 //     Colours tab. "No. 201" is what gets a tin mixed at the counter and
 //     what lets a client re-order the same white in five years; the bare
 //     name doesn't, and half a dozen brands each have a "Shaded White"-ish
@@ -22768,17 +22760,6 @@ function commitColourSlotText(slot, label) {
   var matches = colourLibrary.filter(function(l){ return l.name.toLowerCase() === label.toLowerCase(); });
   var match = matches.length === 1 ? matches[0] : null;
   commitColourSlot(slot, label, match ? match.brand : '', match ? match.code : '');
-}
-
-function commitColour(number, label, brand, code) {
-  var c = findColour(number);
-  if (!c) return;
-  invalidateColourPlaceholders();
-  c.label = label;
-  c.brand = brand || '';
-  c.code = code || '';
-  saveColours();
-  renderColours();
 }
 
 // ── Colour reference library autocomplete ───────────────────────────────────
