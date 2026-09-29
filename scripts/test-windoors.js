@@ -809,6 +809,38 @@ check('left-out and set-price fields are saved', /excluded: !!o\.excluded/.test(
 check('the detail sheets have the In this job control', /wdScopeHtml\(o\)/.test(body('renderWdDetail')) && /wdScopeHtml\(o\)/.test(body('renderWdBay')));
 check('a left-out opening takes no marks', /excluded\) return/.test(body('wdToggleElement')));
 
+// ── v2.90.0: an Other item drawn as a porch over a door ────────────────────
+{
+  const a = W.periodDefaults('georgian');
+  const door = { id: 'd', side: 'front', floor: 0, level: 'standard', kind: 'door', type: 'panelled', size_tier: 'standard', rows: 3, cols: 2, position: 1 };
+  const win = { id: 'w', side: 'front', floor: 0, level: 'standard', kind: 'window', type: 'sash', size_tier: 'medium', rows: 2, cols: 3, position: 1 };
+  const porch = { id: 'o', side: 'front', floor: 0, level: 'standard', kind: 'other', position: 1, nickname: 'Portico', type: 'door', other_draw: 'pediment', other_door: 1, other_mins: 60 };
+  const prop = { appearance: a, layout: { front: { floors: [{ windows: 1, doors: 1 }], confirmed: true } } };
+  const g = W.sideGeometry({ property: prop, openings: [win, door, porch], marks: [] }, 'front');
+  eq('a porch over D1 goes over the door', g.porches[1] && g.porches[1].id, 'o');
+  eq('...not in the tile strip', g.others.length, 0);
+  W.PORCH_STYLES.forEach(ps => {
+    const svg = W.elevationSvg({ property: prop, openings: [win, door, Object.assign({}, porch, { other_draw: ps.key })], marks: [] }, 'front', { interactive: true });
+    check('the ' + ps.key + ' porch draws, tappable, with no bad numbers', svg.indexOf('data-open-id="o"') >= 0 && !/NaN|undefined/.test(svg));
+    check('...and has a preview', /<svg/.test(W.porchPreviewSvg(ps.key, a)) && !/NaN|undefined/.test(W.porchPreviewSvg(ps.key, a)));
+  });
+  eq('with no such door it is a tile', W.sideGeometry({ property: prop, openings: [win, door, Object.assign({}, porch, { other_door: 2 })], marks: [] }, 'front').others.length, 1);
+  eq('a second porch on the same door is a tile', W.sideGeometry({ property: prop, openings: [win, door, porch, Object.assign({}, porch, { id: 'o2', position: 2 })], marks: [] }, 'front').others.map(o => o.id).join(','), 'o2');
+  eq('an unknown style reads as a tile', W.otherDraw(Object.assign({}, porch, { other_draw: 'spaceship' })), 'tile');
+  near('drawing it as a porch changes no price', W.priceJob({ property: { default_prep: 'light' }, openings: [door, porch], marks: [] }, R).quote.mins,
+    W.priceJob({ property: { default_prep: 'light' }, openings: [door, Object.assign({}, porch, { other_draw: null })], marks: [] }, R).quote.mins);
+  eq('"portico" on a Georgian house picks the pediment', W.porchStyleFor('Front portico', 'georgian'), 'pediment');
+  eq('"canopy" picks the canopy', W.porchStyleFor('Door canopy', 'victorian'), 'canopy');
+  eq('"garage door" is no porch', W.porchStyleFor('Garage door', 'victorian'), null);
+  const L = require('../lib/windoors');
+  const n = L.normaliseOpening({ side: 'front', kind: 'other', nickname: 'Porch', otherDraw: 'hood', otherDoor: 2 });
+  eq('the server keeps the style', n.other_draw, 'hood');
+  eq('...and the door', n.other_door, 2);
+  eq('...drops an unknown style', L.normaliseOpening({ side: 'front', kind: 'other', nickname: 'Porch', otherDraw: 'x', otherDoor: 2 }).other_draw, null);
+}
+check('the porch style is saved', /otherDraw: o\.other_draw/.test(body('wdPutOpening')));
+check('the Other sheet has the Drawn as picker', /wdOtherDrawHtml\(o\)/.test(body('renderWdDetail')));
+
 console.log(pass.length + ' passed, ' + fail.length + ' failed');
 fail.forEach(f => console.log('  ✗ ' + f));
 process.exit(fail.length ? 1 : 0);

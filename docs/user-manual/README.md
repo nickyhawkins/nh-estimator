@@ -430,7 +430,24 @@ Either way, add any **materials £** it needs beyond paint, and a **paint area**
 
 ![A portico as an other item at a set price](images/26zb-windoors-other-set-price.png)
 
-This is the place for a porch or portico rather than a separate Exterior item, so it sits with the rest of the joinery and on the same quote line. It's drawn as a tile under the house, numbered **O1, O2…** and labelled *Front, O1 (Garage door)*. You can mark its **face** and **frame** like a door's parts (filler, resin, splice, ironmongery, ease). Changing a side's layout never touches its other items; **Remove this item** at the bottom of its sheet does. On the quote it's named in the fixture's line: *…1 front door, garage door.*
+This is the place for a porch or portico rather than a separate Exterior item, so it sits with the rest of the joinery and on the same quote line.
+
+**Drawing a porch over the door.** An other item is drawn as a tile under the house unless you say otherwise. Under **Drawn as** on its sheet, pick a porch style instead and it's drawn over a ground-floor door on that side:
+
+- **Flat canopy** — a flat hood on two brackets.
+- **Arched hood** — a shell hood on carved brackets.
+- **Portico** — columns carrying a flat entablature, with a fanlight.
+- **Portico, pediment** — columns and a pediment on top.
+- **Gabled timber** — timber posts and rails under a small gabled roof.
+- **Enclosed porch** — a lean-to porch built out in front, in the house's wall finish, with a glazed light either side.
+
+Each button shows a small picture of the style in your house's colours. If the side has more than one ground-floor door, **Over** picks which (D1, D2…). The door's own doorcase (the one set in the House card's Details) gives way to the porch, and the drawing labels it **O1 D1** over the top. Tap the porch's roof to open the porch, or the door to open the door. The list under the house says *O1 Portico over D1*.
+
+It's drawing only: the porch is still priced from its own time or set price, and it can still have its face and frame marked. If you add an item called "portico", "porch", "canopy" or "hood" on a side with a ground-floor door, it starts as a porch in a matching style; anything else starts as a tile. A side with no ground-floor door (or a door that already has a porch) shows it as a tile.
+
+![A pedimented portico drawn over the front door](images/26zc-windoors-porch-drawn.png)
+
+![Drawn as: a tile, or one of six porch styles](images/26zd-windoors-porch-styles.png) It's drawn as a tile under the house, numbered **O1, O2…** and labelled *Front, O1 (Garage door)*. You can mark its **face** and **frame** like a door's parts (filler, resin, splice, ironmongery, ease). Changing a side's layout never touches its other items; **Remove this item** at the bottom of its sheet does. On the quote it's named in the fixture's line: *…1 front door, garage door.*
 
 ![A garage door as an other item, under the house](images/26u-windoors-other-items.png)
 
@@ -1524,6 +1541,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.89.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.90.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
