@@ -6853,10 +6853,15 @@ function persistJobData(job) {
   // (jobRequiresDeposit) — same "must be in this list or it never persists"
   // rule as `standalone`. Written as an explicit boolean, never omitted:
   // absent means "predates the toggle", which reads as deposit required.
+  // windoorsVariations: the Windows and doors variation carriers (wdDraft).
+  // Missing from this list until v2.88.1, so they lived only on the phone and
+  // a reload from the server dropped them, orphaning their marks (which are
+  // saved on the server) -- see wdRecoverVariations(). Omitted, not [], when
+  // this copy has none, so a phone that never held the list can't wipe it.
   // interimDraft: the interim invoice builder's saved-as-you-go draft,
   // idempotency key included (STAGED_INVOICING_SPEC.md) -- null, not omitted,
   // once issued, or the merge would keep the spent draft forever.
-  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, quoteTextEdited: job.quoteTextEdited != null ? job.quoteTextEdited : null, invoiceTextEdited: job.invoiceTextEdited != null ? job.invoiceTextEdited : null, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, variationBaselinesAt: job.variationBaselinesAt || null, variationBaselinesLate: !!job.variationBaselinesLate, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, deposit: job.deposit, notes: job.notes, kitchen: job.kitchen, fittedUnits: job.fittedUnits, fittedUnit: Array.isArray(job.fittedUnits) ? null : job.fittedUnit, customItems: job.customItems, isXeroImported: !!job.isXeroImported, honouredLabourAmount: job.honouredLabourAmount != null ? job.honouredLabourAmount : null, depositRequired: job.depositRequired !== false, upchargeTotal: job.upchargeTotal != null ? job.upchargeTotal : null, roundingDelta: job.roundingDelta != null ? job.roundingDelta : null, interimDraft: job.interimDraft || null });
+  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, quoteTextEdited: job.quoteTextEdited != null ? job.quoteTextEdited : null, invoiceTextEdited: job.invoiceTextEdited != null ? job.invoiceTextEdited : null, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, variationBaselinesAt: job.variationBaselinesAt || null, variationBaselinesLate: !!job.variationBaselinesLate, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, deposit: job.deposit, notes: job.notes, kitchen: job.kitchen, fittedUnits: job.fittedUnits, fittedUnit: Array.isArray(job.fittedUnits) ? null : job.fittedUnit, customItems: job.customItems, isXeroImported: !!job.isXeroImported, honouredLabourAmount: job.honouredLabourAmount != null ? job.honouredLabourAmount : null, depositRequired: job.depositRequired !== false, upchargeTotal: job.upchargeTotal != null ? job.upchargeTotal : null, roundingDelta: job.roundingDelta != null ? job.roundingDelta : null, interimDraft: job.interimDraft || null, windoorsVariations: Array.isArray(job.windoorsVariations) ? job.windoorsVariations : undefined });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -25137,6 +25142,40 @@ async function loadWindoors(jobId) {
   } catch (e) {
     apply(wdReadMirror(jobId));
   }
+  wdRecoverVariations();
+}
+
+// Every on-site mark and prep raise names its variation by id, and the
+// variation itself (the carrier the Variations card lists and the invoice
+// bills) lives on the job. Before v2.88.1 that list never reached the server,
+// so a reload could drop it and leave the marks priced into a variation that
+// no longer existed -- on the window's own sheet, but billed nowhere. Any such
+// id gets its carrier back, as an unanswered draft: what was agreed (if
+// anything) went with the lost copy, so it's asked again rather than guessed.
+function wdRecoverVariations() {
+  if (windoors.jobId !== activeJobId) return 0;
+  var job = activeJob();
+  if (!job) return 0;
+  var have = {};
+  wdVariationList(job).forEach(function(v) { if (v && v.id) have[v.id] = true; });
+  var lost = {}, order = [];
+  var note = function(id, at) {
+    if (!id || have[id]) return;
+    if (!lost[id]) { lost[id] = { at: at || null }; order.push(id); }
+    else if (at && (!lost[id].at || at < lost[id].at)) lost[id].at = at;
+  };
+  (windoors.marks || []).forEach(function(m) { if (m.stage === 'variation') note(m.variation_id, m.created_at); });
+  (windoors.openings || []).forEach(function(o) { if (o.prep_stage === 'variation') note(o.prep_variation_id, null); });
+  if (!order.length) return 0;
+  var now = new Date().toISOString();
+  job.windoorsVariations = wdVariationList(job).slice();
+  order.forEach(function(id) {
+    job.windoorsVariations.push({ id: id, createdAt: lost[id].at || now, sentAt: null, description: '', recoveredAt: now });
+  });
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  toast('Recovered ' + order.length + ' windows and doors variation' + (order.length === 1 ? '' : 's') + ' — check the Variations card');
+  return order.length;
 }
 
 function wdLoadedForActiveJob() { return windoors.jobId === activeJobId && !!windoors.property; }

@@ -1259,6 +1259,8 @@ Everything you mark collects into one **draft** variation, worded for you from t
 
 **Send for approval** puts the draft on the client's page like any other extra. Once it's sent — or you've recorded their answer by hand — the draft is closed, and the next thing you mark starts a new one. Work on a variation the client has already answered is locked too.
 
+**Variations that went missing before v2.88.1.** Before v2.88.1 the Windows and doors variations were only kept on the phone, so reloading the app could lose them. The work marked on the windows stayed, but it was left out of the Variations card and billed nowhere. They now save with the job. When the app loads a job with any of that orphaned work, it puts each lost variation back on the Variations card as a **draft**, with a message saying how many it recovered. Any answer the client had already given went with the lost copy, so check each recovered one: send it for approval again, or record the client's answer with **Approved by client**.
+
 #### Work to do
 
 **📋 Work to do (PDF)** is on the Windows & Doors screen from Measure and from On Site, as soon as the job has any windows or doors. It's the list of what's still to be done, built on the phone with no signal needed and handed to the share sheet, like the work report.
@@ -1506,6 +1508,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.88.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.88.1. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
