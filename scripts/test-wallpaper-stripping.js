@@ -493,6 +493,7 @@ const SEED=()=>{
     await page.evaluate(async () => {
       var orig = blockIfOffline;            // the test server is the "Xero" here
       blockIfOffline = function(){ return false; };
+      settings.businessName = 'Test Decorating';   // documents require one
       try { await createXeroQuote(true); } catch (e) { /* captured server-side */ }
       blockIfOffline = orig;
     });

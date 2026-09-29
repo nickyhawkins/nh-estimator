@@ -410,7 +410,7 @@ router.get('/contacts/:id', async (req, res) => {
 router.get('/accepted-quotes', async (req, res) => {
   try {
     const accessToken = await getAccessToken();
-    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    const result = await db.query('SELECT xero_tenant_id, data FROM settings WHERE id = 1');
     const tenantId = result.rows[0]?.xero_tenant_id;
     if (!tenantId) {
       return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
@@ -422,6 +422,7 @@ router.get('/accepted-quotes', async (req, res) => {
         Accept: 'application/json'
       }
     });
+    const accounts = xeroAccountConfig(result.rows[0]?.data);
     const jobsResult = await db.query('SELECT data FROM jobs');
     // Both quote links per job: the main quote AND the variation quote
     // (sendVariationQuote in public/index.html — the small pending-extras
@@ -437,8 +438,8 @@ router.get('/accepted-quotes', async (req, res) => {
         let labour = 0, materials = 0;
         (q.LineItems || []).forEach(li => {
           const amt = +li.LineAmount || 0;
-          if (li.AccountCode === '201') labour += amt;
-          else if (li.AccountCode === '202') materials += amt;
+          if (li.AccountCode === accounts.labour) labour += amt;
+          else if (li.AccountCode === accounts.materials) materials += amt;
         });
         return {
           quoteId: q.QuoteID,
@@ -599,6 +600,59 @@ function parseItemName(name) {
   return { range, band, sizeL: size.sizeL, trueL: trueFill(range, size.sizeL, isPerLitre), isPerLitre };
 }
 
+// ── Which Xero accounts and codes this instance uses ─────────────────────
+// Every instance posts labour and materials to ITS OWN chart of accounts, so
+// the codes live in Settings (stored in settings.data by the client, the same
+// place depositAccountCode lives) rather than as literals. The defaults are
+// Nicky's -- 201 labour, 202 materials, SUN sundries -- so an instance that
+// has never touched these fields behaves exactly as it always did.
+function xeroAccountConfig(stored) {
+  const d = stored || {};
+  const code = (v, dflt) => String(v == null ? '' : v).trim() || dflt;
+  return {
+    labour: code(d.labourAccountCode, '201'),
+    materials: code(d.materialsAccountCode, '202'),
+    sundryPrefix: code(d.sundryCodePrefix, 'SUN')
+  };
+}
+
+// The client and lib/invoices.js build invoice lines with '201' / '202' as
+// plain "labour" / "materials" markers (shared, test-pinned code -- see
+// scripts/test-staged-invoicing.js). This is where they become the
+// instance's real codes, as the document is written to Xero. Any other code
+// is passed through untouched.
+function postingAccount(code, accounts) {
+  if (code === '201') return accounts.labour;
+  if (code === '202') return accounts.materials;
+  return code;
+}
+
+// Resolve to an error message if either posting account is missing or
+// archived in Xero, or null if both are usable (or the lookup itself failed).
+async function checkPostingAccounts(accessToken, tenantId, accounts) {
+  try {
+    const accRes = await axios.get(`${XERO_API_URL}/Accounts`, {
+      headers: { Authorization: `Bearer ${accessToken}`, 'Xero-Tenant-Id': tenantId, Accept: 'application/json' }
+    });
+    const all = accRes.data.Accounts || [];
+    const problems = [];
+    [['Labour', accounts.labour], ['Materials', accounts.materials]].forEach(([label, code]) => {
+      const a = all.find(x => x.Code === code);
+      if (!a) problems.push(`${label} account ${code} doesn't exist in your Xero`);
+      else if (a.Status === 'ARCHIVED') problems.push(`${label} account ${code} (${a.Name}) is archived in Xero`);
+    });
+    if (!problems.length) return null;
+    return problems.join('; ') + ' — set the right codes in Settings → Materials (Xero Items), then refresh again.';
+  } catch (err) {
+    console.warn('Posting account pre-check failed, continuing:', err.response?.data || err.message);
+    return null;
+  }
+}
+
+function escapeRegExp(str) {
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 // A sundry is declared by its item CODE, not derived from its name — see
 // "Identifying specific sundries" in MATERIAL_TRACKING_SPEC.md. Nicky curates
 // the SUN prefix in Xero to mean "itemise this on the job"; the app trusts it
@@ -608,7 +662,11 @@ function parseItemName(name) {
 // other account purely to satisfy this parser. The code prefix has no second
 // job, so it's free to carry this one — and it survives the accountant
 // re-coding accounts.
-const SUNDRY_CODE_RE = /^SUN/i;
+// The prefix itself is per-instance (Settings -> sundryCodePrefix); SUN is
+// the default and what this comment block describes.
+function sundryCodeRe(prefix) {
+  return new RegExp('^' + escapeRegExp(prefix || 'SUN'), 'i');
+}
 
 // Split the Xero item list into the three things it actually contains, keyed
 // off the item code FIRST and the name only second:
@@ -665,7 +723,8 @@ const SUNDRY_CODE_RE = /^SUN/i;
 // detail, the picker). trueL is what's in it — use it for anything that adds
 // up (tin optimisation, cost per litre). They're equal for every range not in
 // that table, which is why mixing them up survives casual testing.
-function groupMaterialItems(items) {
+function groupMaterialItems(items, sundryPrefix) {
+  const SUNDRY_CODE_RE = sundryCodeRe(sundryPrefix);
   const paint = {};
   const sundries = [];
   const unmodellable = [];
@@ -731,7 +790,7 @@ router.get('/material-groups', async (req, res) => {
       return res.json(materialGroupsCache.body);
     }
     const accessToken = await getAccessToken();
-    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    const result = await db.query('SELECT xero_tenant_id, data FROM settings WHERE id = 1');
     const tenantId = result.rows[0]?.xero_tenant_id;
     if (!tenantId) {
       return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
@@ -746,12 +805,24 @@ router.get('/material-groups', async (req, res) => {
     });
 
     const allItems = itemsRes.data.Items || [];
+    const accounts = xeroAccountConfig(result.rows[0]?.data);
+    // A deliberate Refresh (Settings) checks the two posting accounts exist
+    // before trusting the item list: on a new instance whose Xero uses other
+    // codes, "0 items" would otherwise look like an empty catalogue rather
+    // than a wrong setting. Same rule as the deposit pre-check: only a
+    // positive "missing / archived" answer blocks; a failed lookup doesn't.
+    if (req.query.fresh) {
+      const problem = await checkPostingAccounts(accessToken, tenantId, accounts);
+      if (problem) return res.status(400).json({ error: problem });
+    }
     // 202 is the sales account — what the customer is charged. 311 (purchase
     // side) was used to identify materials before the user re-coded their
     // Xero data; every material item now carries SalesDetails.AccountCode
     // 202, so filter on that directly, per MATERIALS_SPEC.md.
-    const salesItems = allItems.filter(i => i.SalesDetails?.AccountCode === '202');
-    const buckets = groupMaterialItems(salesItems);
+    // (202 is the default; the instance's own code is Settings ->
+    // materialsAccountCode.)
+    const salesItems = allItems.filter(i => i.SalesDetails?.AccountCode === accounts.materials);
+    const buckets = groupMaterialItems(salesItems, accounts.sundryPrefix);
     // Log all three counts, not just ranges. The unmodellable count is the
     // health signal: it should sit at its known baseline (11 Isomat kg-sold
     // products as of 2026-07-14 — see scripts/check_item_parse.py). A jump
@@ -766,7 +837,7 @@ router.get('/material-groups', async (req, res) => {
     // fallback — it says so on the card, but this line is where to confirm.
     const withPurchase = salesItems.filter(i => +i.PurchaseDetails?.UnitPrice > 0).length;
     console.log(
-      `Material groups: ${allItems.length} total items, ${salesItems.length} on account 202 -> ` +
+      `Material groups: ${allItems.length} total items, ${salesItems.length} on account ${accounts.materials} -> ` +
       `${Object.keys(buckets.paint).length} paint ranges, ${buckets.sundries.length} sundries, ` +
       `${buckets.unmodellable.length} unmodellable; ${withPurchase}/${salesItems.length} carry a purchase price`
     );
@@ -787,9 +858,10 @@ router.get('/material-groups', async (req, res) => {
 // till check, so the unmodellable items (Isomat kg products etc.) must appear
 // here too. Same fetch, same cache shape and TTL as material-groups, held
 // separately so a ?fresh=1 on one doesn't evict the other.
-function priceLookupItems(allItems) {
+function priceLookupItems(allItems, materialsAccount) {
+  const account = materialsAccount || '202';
   return allItems
-    .filter(i => i.SalesDetails?.AccountCode === '202')
+    .filter(i => i.SalesDetails?.AccountCode === account)
     .map(i => ({
       name: i.Name || i.Code || '',
       code: i.Code || '',
@@ -818,7 +890,7 @@ router.get('/sales-items', async (req, res) => {
       return res.json(salesItemsCache.body);
     }
     const accessToken = await getAccessToken();
-    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    const result = await db.query('SELECT xero_tenant_id, data FROM settings WHERE id = 1');
     const tenantId = result.rows[0]?.xero_tenant_id;
     if (!tenantId) {
       return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
@@ -833,8 +905,9 @@ router.get('/sales-items', async (req, res) => {
     });
 
     const allItems = itemsRes.data.Items || [];
-    const items = priceLookupItems(allItems);
-    console.log(`Sales items: ${items.length} on account 202 (of ${allItems.length} total)`);
+    const accounts = xeroAccountConfig(result.rows[0]?.data);
+    const items = priceLookupItems(allItems, accounts.materials);
+    console.log(`Sales items: ${items.length} on account ${accounts.materials} (of ${allItems.length} total)`);
     salesItemsCache = { at: Date.now(), body: items };
     res.json(items);
   } catch (err) {
@@ -864,7 +937,12 @@ function xeroDateOnly(isoString, netDate) {
 // scripts/test-quote-total.js can run the real thing and assert what the route
 // can otherwise only promise: that the Xero document's own total lands EXACTLY
 // on the clean figure the app quoted, not a penny over it.
-function buildQuoteLineItems(body) {
+function buildQuoteLineItems(body, accounts) {
+  // Posting accounts come from the instance's Settings (xeroAccountConfig);
+  // the literals are the defaults, so a caller that passes nothing -- the
+  // test harness -- gets exactly the historic 201/202 lines.
+  const LABOUR_ACCOUNT = (accounts && accounts.labour) || '201';
+  const MATERIALS_ACCOUNT = (accounts && accounts.materials) || '202';
   const { rooms, exterior, kitchen, fittedUnit, custom, materials, settings,
           markup, markupType, commercial, commercialPct,
           standalone, standaloneTopUp, standaloneCalcDays, standaloneDiaryDays,
@@ -957,7 +1035,7 @@ function buildQuoteLineItems(body) {
         Description: room.description || room.name,
         Quantity: 1,
         UnitAmount: fmt(room.total * mu),
-        AccountCode: '201'
+        AccountCode: LABOUR_ACCOUNT
       });
     });
   }
@@ -974,7 +1052,7 @@ function buildQuoteLineItems(body) {
           Description: item.description || item.label || 'Exterior',
           Quantity: 1,
           UnitAmount: fmt(item.total * mu),
-          AccountCode: '201'
+          AccountCode: LABOUR_ACCOUNT
         });
       }
     });
@@ -984,7 +1062,7 @@ function buildQuoteLineItems(body) {
       Description: 'Exterior Works',
       Quantity: 1,
       UnitAmount: fmt(exterior.cost * mu),
-      AccountCode: '201'
+      AccountCode: LABOUR_ACCOUNT
     });
   }
 
@@ -1000,7 +1078,7 @@ function buildQuoteLineItems(body) {
       Description: kitchen.description || 'Kitchen Cabinet Spraying',
       Quantity: 1,
       UnitAmount: fmt(kitchen.cost * mu),
-      AccountCode: '201'
+      AccountCode: LABOUR_ACCOUNT
     });
   }
 
@@ -1018,7 +1096,7 @@ function buildQuoteLineItems(body) {
           Description: item.description || item.name || 'Fitted Unit / Shelving',
           Quantity: 1,
           UnitAmount: fmt(item.total * mu),
-          AccountCode: '201'
+          AccountCode: LABOUR_ACCOUNT
         });
       }
     });
@@ -1028,7 +1106,7 @@ function buildQuoteLineItems(body) {
       Description: fittedUnit.description || 'Fitted Unit / Shelving',
       Quantity: 1,
       UnitAmount: fmt(fittedUnit.cost * mu),
-      AccountCode: '201'
+      AccountCode: LABOUR_ACCOUNT
     });
   }
 
@@ -1045,7 +1123,7 @@ function buildQuoteLineItems(body) {
       Description: item.description || 'Custom line',
       Quantity: qty,
       UnitAmount: fmt(item.applyMarkup === false ? unitPrice : unitPrice * mu),
-      AccountCode: '201'
+      AccountCode: LABOUR_ACCOUNT
     });
   });
 
@@ -1078,7 +1156,7 @@ function buildQuoteLineItems(body) {
         Description: m.description,
         Quantity: m.quantity,
         UnitAmount: fmt(m.unitAmount),
-        AccountCode: '202'
+        AccountCode: MATERIALS_ACCOUNT
       });
     });
   }
@@ -1107,7 +1185,7 @@ function buildQuoteLineItems(body) {
       Description: 'Sundries & Consumables',
       Quantity: 1,
       UnitAmount: fmt(sundriesRaw * mu),
-      AccountCode: '202'
+      AccountCode: MATERIALS_ACCOUNT
     });
   }
 
@@ -1172,7 +1250,7 @@ function buildQuoteLineItems(body) {
       Description: 'Standalone job — diary day rounding' + standaloneDaysNote,
       Quantity: 1,
       UnitAmount: fmt(standaloneAmount * mu),
-      AccountCode: '201'
+      AccountCode: LABOUR_ACCOUNT
     });
   } else if (spreadIdx.length === 0 && (cleanTotal > 0 ? target > 0.005 : spreadPool > 0.005)) {
     // Guard, not a normal path: pool money with no labour line to hide it
@@ -1184,7 +1262,7 @@ function buildQuoteLineItems(body) {
       Description: standalone ? 'Standalone job — diary day rounding' + standaloneDaysNote : 'Price adjustment',
       Quantity: 1,
       UnitAmount: fmt(cleanTotal > 0 ? target : spreadPool),
-      AccountCode: '201'
+      AccountCode: LABOUR_ACCOUNT
     });
   }
 
@@ -1199,8 +1277,7 @@ router.post('/create-quote', async (req, res) => {
 
   try {
     const accessToken = await getAccessToken();
-    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
-    console.log('Settings rows:', result.rows);
+    const result = await db.query('SELECT xero_tenant_id, data FROM settings WHERE id = 1');
     const tenantId = result.rows[0]?.xero_tenant_id;
     if (!tenantId) {
       return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
@@ -1221,7 +1298,7 @@ router.post('/create-quote', async (req, res) => {
       contact = { Name: clientName || 'Client' };
     }
 
-    const lineItems = buildQuoteLineItems(req.body);
+    const lineItems = buildQuoteLineItems(req.body, xeroAccountConfig(result.rows[0]?.data));
 
     // UPDATE path (2026-07-23, per Nicky): amend the EXISTING Xero quote in
     // place — same number, same document — instead of minting a new one.
@@ -1489,12 +1566,13 @@ router.post('/create-invoice', async (req, res) => {
 
   try {
     const accessToken = await getAccessToken();
-    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    const result = await db.query('SELECT xero_tenant_id, data FROM settings WHERE id = 1');
     const tenantId = result.rows[0]?.xero_tenant_id;
     if (!tenantId) {
       return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
     }
 
+    const accounts = xeroAccountConfig(result.rows[0]?.data);
     const contact = contactId ? { ContactID: contactId } : { Name: clientName || 'Client' };
     const fmt2 = (n) => Math.round(n * 100) / 100;
     const xeroLines = lineItems.map(l => {
@@ -1507,7 +1585,9 @@ router.post('/create-invoice', async (req, res) => {
         Description: l.description,
         Quantity: +l.quantity || 0,
         UnitAmount: fmt2(+l.unitAmount || 0),
-        AccountCode: l.accountCode || (l.itemCode ? '202' : '201')
+        AccountCode: l.accountCode
+          ? postingAccount(String(l.accountCode), accounts)
+          : (l.itemCode ? accounts.materials : accounts.labour)
       };
       if (l.itemCode) line.ItemCode = l.itemCode;
       return line;
@@ -1633,18 +1713,23 @@ router.post('/sync-invoice', async (req, res) => {
   try {
     await db.query('UPDATE invoices SET last_attempt_at = NOW(), updated_at = NOW() WHERE id = $1', [row.id]);
     const accessToken = await getAccessToken();
-    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
+    const result = await db.query('SELECT xero_tenant_id, data FROM settings WHERE id = 1');
     const tenantId = result.rows[0]?.xero_tenant_id;
     if (!tenantId) {
       await markFailed('No Xero tenant found — please reconnect Xero');
       return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
     }
+    const accounts = xeroAccountConfig(result.rows[0]?.data);
+    const payload = buildInterimXeroInvoice({
+      xeroContactId: row.xero_contact_id, xeroClientName: row.xero_client_name,
+      xeroReference: row.xero_reference, lineItems: row.line_items
+    });
+    payload.Invoices.forEach(inv => inv.LineItems.forEach(li => {
+      if (li.AccountCode) li.AccountCode = postingAccount(li.AccountCode, accounts);
+    }));
     const invRes = await axios.put(
       `${XERO_API_URL}/Invoices`,
-      buildInterimXeroInvoice({
-        xeroContactId: row.xero_contact_id, xeroClientName: row.xero_client_name,
-        xeroReference: row.xero_reference, lineItems: row.line_items
-      }),
+      payload,
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -2066,4 +2151,6 @@ module.exports.parseItemName = parseItemName;
 module.exports.trueFill = trueFill;
 module.exports.groupMaterialItems = groupMaterialItems;
 module.exports.priceLookupItems = priceLookupItems;
+module.exports.xeroAccountConfig = xeroAccountConfig;
+module.exports.postingAccount = postingAccount;
 module.exports.TIK_REDUCED_FILL_RANGES = TIK_REDUCED_FILL_RANGES;

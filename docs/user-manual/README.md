@@ -54,14 +54,15 @@ Setting a password is worth doing now that you can send clients an approval link
 
 ### Make it yours
 
-**Do this before you send anything to a client.** Until you enter your own
-details the app falls back to the name and logo it was built with, so a quote, a
-snag-list PDF or even your sign-in screen could go to a client with somebody
-else's business on it.
+**Do this before you send anything to a client.** Until you enter a business
+name the app won't open the client quote, send a quote to Xero or make a
+spec-sheet or snag-list PDF — it takes you straight to the field instead. The
+logo is different: until you upload your own, documents still carry the logo
+the app was built with, so upload yours too.
 
 Menu (☰) → **Settings** → **Business**:
 
-- **Business name** — replaces that fallback everywhere it appears.
+- **Business name** — required before any client-facing document goes out.
 - **Logo** — optional, and shown *instead of* the name in the header when you
   set one. Leave it empty and your business name is used on its own.
 
@@ -76,8 +77,41 @@ Almost everything works without Xero, but quoting and invoicing shine with it co
 
 1. Open the menu (☰) → **Settings**.
 2. Scroll to **Xero Integration** → tap **Connect Xero** and sign in.
-3. Back in Settings, under **Materials (Xero Items)**, tap **Refresh from Xero** to pull in your paint products, then pick your default products (wall paint, ceiling, woodwork, primer, mist coat, masonry…). Every new room starts with these defaults, so set them once and forget them.
+3. Back in Settings, under **Materials (Xero Items)**, check the three codes at the top match your Xero (see [Preparing your Xero](#preparing-your-xero) below), then tap **Refresh from Xero** to pull in your paint products and pick your default products (wall paint, ceiling, woodwork, primer, mist coat, masonry…). Every new room starts with these defaults, so set them once and forget them.
 4. If you plan to record deposits through the app (see [Recording a deposit](#recording-a-deposit)), also pick a bank account under **Settings → Deposits (Xero)**.
+
+### Preparing your Xero
+
+The app reads your paint and sundries straight from your Xero **Products and
+services** list, and posts quotes and invoices to your own sales accounts. Three
+settings tell it how your Xero is laid out — Settings → **Materials (Xero
+Items)**:
+
+| Setting | Default | What it means |
+|---|---|---|
+| **Labour account** | `201` | The sales account every labour line on a quote or invoice posts to |
+| **Materials account** | `202` | The sales account set on every paint and sundry product. **Only products with this sales account appear in the app** — the materials list, the pickers and Price Lookup are all built from them. Materials and sundries lines post here too |
+| **Sundry code prefix** | `SUN` | Products whose *code* starts with this are sundries (tape, lining paper, paste…): listed by name with a price, no tin sizes |
+
+Change them to match your own chart of accounts. When you tap **Refresh from
+Xero** the app checks both accounts exist and aren't archived, and tells you
+which one is wrong if not.
+
+**Name your paint products so the app can read them.** Every paint product's
+name follows `Range - Colour band Size`, with the size in litres:
+
+- `Dulux Trade Diamond Matt - PBW 5ltr`
+- `Dulux Trade Diamond Matt - Colours 2.5ltr`
+- `Tikkurila Optiva Matt 5 - Base A 0.9ltr`
+- `Johnstone's Covaplus Vinyl Matt - 10ltr` (no colour band — fine)
+- `Tikkurila Optiva Matt 5 - Base A 1ltr (per litre)` — add `(per litre)` at the end for a product sold by the litre
+
+The part before the last ` - ` is the **range**, the bit after it is the
+**colour band**, and the number with `ltr` (or `ml`) is the tin size. Each tin
+size is its own product in Xero, with the same range and band, so the app can
+pick the cheapest mix of tins for the litres a job needs. A product whose name
+has no size it can read is left out of the paint pickers; sundries (coded with
+your prefix) don't need a size at all.
 
 ### Check your rates
 
@@ -1457,7 +1491,7 @@ Menu (☰) → **Settings**. Everything that isn't a calculation rate lives here
 | **Pricing** | Day rate, hours per day, markup %, sundries %, spray sundries bump, deposit %, commercial job adjustment, standalone-job rounding (full or half days), and how many days before an unanswered quote gets flagged |
 | **Deposits (Xero)** | The bank account a recorded deposit lands in, and the account code it posts to |
 | **Xero Integration** | Connect / disconnect |
-| **Materials (Xero Items)** | Refresh your product list from Xero and set the default product for each role |
+| **Materials (Xero Items)** | Your labour and materials account codes and sundry code prefix (see [Preparing your Xero](#preparing-your-xero)), Refresh your product list from Xero, and set the default product for each role |
 | **Quote & Invoice Text** | The per-job-type wording templates for quotes and final invoices |
 | **Calibration** | What your finished jobs say about two of your settings — see below |
 | **Appearance** | Light / Dark / Auto theme (this device only) |
@@ -1541,6 +1575,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.90.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.91.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

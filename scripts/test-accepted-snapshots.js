@@ -201,6 +201,7 @@ async function seed(db) {
 
   // ── Client-facing quote + PDF read the snapshot ───────────────────────────
   const quoteDoc = await page.evaluate(() => {
+    settings.businessName = 'Test Decorating';   // documents require one
     openClientQuote();
     const m = clientQuoteModel;
     const html = document.getElementById('client-quote-frame').srcdoc;

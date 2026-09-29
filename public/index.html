@@ -1630,6 +1630,21 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
     </div>
     <div class="card">
       <div class="card-header">Materials (Xero Items)</div>
+      <!-- Which accounts this instance's Xero uses (routes/xero.js
+           xeroAccountConfig). Defaults 201/202/SUN; Refresh from Xero checks
+           the two codes exist before trusting the item list. -->
+      <div class="field-row">
+        <div class="field-label">Labour account<small>sales code quote and invoice labour lines post to</small></div>
+        <input type="text" class="field-input" id="s-labour-account-code" value="201" style="width:70px;text-align:right" autocorrect="off" onchange="setXeroAccountSetting('labourAccountCode', this.value)">
+      </div>
+      <div class="field-row">
+        <div class="field-label">Materials account<small>sales code on every paint and sundry item — the catalogue is built from these</small></div>
+        <input type="text" class="field-input" id="s-materials-account-code" value="202" style="width:70px;text-align:right" autocorrect="off" onchange="setXeroAccountSetting('materialsAccountCode', this.value)">
+      </div>
+      <div class="field-row">
+        <div class="field-label">Sundry code prefix<small>item codes starting with this are sundries, not paint</small></div>
+        <input type="text" class="field-input" id="s-sundry-code-prefix" value="SUN" style="width:70px;text-align:right" autocorrect="off" autocapitalize="characters" onchange="setXeroAccountSetting('sundryCodePrefix', this.value)">
+      </div>
       <div style="padding:0 16px 14px">
         <button id="materials-refresh-btn" onclick="refreshXeroItems()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:12px;padding:12px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;width:100%">Refresh from Xero</button>
       </div>
@@ -3374,6 +3389,11 @@ function saveSettings() {
   next.depositBankAccountId = settings.depositBankAccountId || null;
   next.depositBankAccountName = settings.depositBankAccountName || null;
   next.depositAccountCode = settings.depositAccountCode || '620';
+  // Xero posting accounts + sundry prefix: strings set through
+  // setXeroAccountSetting(), carried forward like the deposit code.
+  next.labourAccountCode = settings.labourAccountCode || '201';
+  next.materialsAccountCode = settings.materialsAccountCode || '202';
+  next.sundryCodePrefix = settings.sundryCodePrefix || 'SUN';
   // Branding (WS3): name comes from its Settings input; the logo has no
   // text input so it's carried from memory like materials/paymentType.
   var bnEl = document.getElementById('s-business-name');
@@ -4821,7 +4841,13 @@ async function refreshXeroItems() {
   try {
     // fresh=1 bypasses the server's short material-groups cache -- a manual
     // Refresh must always hit Xero for real (e.g. right after a price update).
-    applyMaterialGroupsResponse(await apiGet('/auth/material-groups?fresh=1'));
+    // Read the body even on failure: the server says in words which account
+    // code is missing or archived, and apiGet() would flatten that away.
+    var r = await netFetch('/auth/material-groups?fresh=1', undefined, NET_READ_TIMEOUT_MS);
+    if (apiAuthExpired(r)) throw new Error('login required');
+    var body = await r.json().catch(function() { return {}; });
+    if (!r.ok) throw new Error(body.error || 'API error');
+    applyMaterialGroupsResponse(body);
     // materialItemIndex is rebuilt inside applyMaterialGroupsResponse, and the
     // one-off product search picker reads it live on every keystroke -- no
     // separate list to refresh here.
@@ -5465,6 +5491,7 @@ function updateXeroQuoteButton() {
 
 async function createXeroQuote(forceNew) {
   if (blockIfOffline('Sending a quote to Xero')) return;
+  if (!requireBusinessName()) return;
   // Sending an ACCEPTED job's quote again is the one outbound path that can't
   // simply read the snapshot: the payload below is raw line totals plus a
   // markup instruction that routes/xero.js applies server-side, so "send the
@@ -6403,6 +6430,11 @@ function mergeSettings(raw) {
   out.depositBankAccountId = raw.depositBankAccountId || null;
   out.depositBankAccountName = raw.depositBankAccountName || null;
   out.depositAccountCode = raw.depositAccountCode || '620';
+  // Xero posting accounts + sundry prefix (per-instance chart of accounts);
+  // the defaults are the original 201 / 202 / SUN convention.
+  out.labourAccountCode = String(raw.labourAccountCode || '').trim() || '201';
+  out.materialsAccountCode = String(raw.materialsAccountCode || '').trim() || '202';
+  out.sundryCodePrefix = String(raw.sundryCodePrefix || '').trim() || 'SUN';
   // Branding (WS3): both empty = stock logo.png, today's look.
   out.businessName = raw.businessName || '';
   out.logoDataUri = raw.logoDataUri || null;
@@ -10982,6 +11014,7 @@ function buildVariationQuoteLines() {
 // carries the variations with proper codes), so the mismatch is cosmetic.
 async function sendVariationQuote() {
   if (blockIfOffline('Sending a variation quote to Xero')) return;
+  if (!requireBusinessName()) return;
   var job = activeJob();
   if (!job) return;
   var lines = buildVariationQuoteLines();
@@ -11868,6 +11901,31 @@ async function refreshDepositStatus() {
       renderAttentionStrip();
     }
   } catch (err) { /* a poll — the next Summary open tries again */ }
+}
+
+// ── Xero posting accounts (Settings → Materials) ───────────────────────────
+// [settings key, default, input id]. Only the server reads them: the client
+// (and lib/invoices.js) keep writing '201' / '202' on the lines they build
+// as plain labour / materials markers, and routes/xero.js swaps in the
+// configured codes as the document goes to Xero (postingAccount()).
+// A function, not a var: mergeSettings() can run before this line has.
+function xeroAccountFields() {
+  return [
+    ['labourAccountCode', '201', 's-labour-account-code'],
+    ['materialsAccountCode', '202', 's-materials-account-code'],
+    ['sundryCodePrefix', 'SUN', 's-sundry-code-prefix']
+  ];
+}
+
+function setXeroAccountSetting(key, value) {
+  var f = xeroAccountFields().find(function(r) { return r[0] === key; });
+  if (!f) return;
+  var v = String(value || '').trim();
+  if (key === 'sundryCodePrefix') v = v.toUpperCase();
+  settings[key] = v || f[1];
+  var el = document.getElementById(f[2]);
+  if (el) el.value = settings[key];
+  saveSettings();
 }
 
 // ── Deposit settings (bank account + posting code) ─────────────────────────
@@ -12775,8 +12833,26 @@ function goBack() {
 // The name that goes on documents a client sees — the quote preview, its
 // PDF and the CSV export. Falls back to the stock name so an instance that
 // never set one produces byte-identical documents to before.
+// No fallback name: an instance that hasn't filled in Settings → Business
+// must not send documents under anyone else's. Every client-facing document
+// is gated on requireBusinessName() instead, so this is only ever empty in
+// the header of an in-app report nobody sends.
 function quoteBusinessName() {
-  return settings.businessName || 'Nicky Hawkins';
+  return (settings.businessName || '').trim();
+}
+
+// The gate for every client-facing document (quote preview + its PDF, Xero
+// quote and variation quote, spec sheet, snag list, windows & doors report).
+// Says why, takes them to the field, and returns false so the caller stops.
+function requireBusinessName() {
+  if (quoteBusinessName()) return true;
+  alert('Add your business name first — it goes at the top of every quote and document you send.\n\nSettings → Business → Business name.');
+  goTab('settings');
+  setTimeout(function() {
+    var el = document.getElementById('s-business-name');
+    if (el) { el.scrollIntoView({ block: 'center' }); el.focus(); }
+  }, 50);
+  return false;
 }
 
 // White-label branding (WS3). Precedence in the header: uploaded logo →
@@ -12877,6 +12953,10 @@ function loadSettings() {
   renderCoverageRates();
   var depCode = document.getElementById('s-deposit-account-code');
   if (depCode) depCode.value = settings.depositAccountCode || '620';
+  xeroAccountFields().forEach(function(f) {
+    var el = document.getElementById(f[2]);
+    if (el) el.value = settings[f[0]] || f[1];
+  });
   loadDepositBankAccounts();
 }
 
@@ -17874,6 +17954,7 @@ async function buildSpecPdf(m) {
 // The button. Same three visible outcomes as the snag PDF's: the share sheet,
 // a download, or a toast saying what went wrong -- never a tap with no result.
 async function saveSpecPdf() {
+  if (!requireBusinessName()) return;
   var btn = document.getElementById('spec-pdf-btn');
   var label = btn ? btn.textContent : '';
   if (btn) { btn.textContent = 'Working…'; btn.disabled = true; }
@@ -26979,6 +27060,7 @@ function windoorsReportFilename(todo) {
 // "Work report (PDF)": same three visible outcomes as the quote's Save PDF --
 // the share sheet, a download, or a message saying what went wrong.
 async function saveWindoorsReportPdf(todo) {
+  if (!requireBusinessName()) return;
   todo = todo === true;
   try {
     var bytes = await buildWindoorsReportPdf({ todo: todo });
@@ -32090,6 +32172,7 @@ function renderSummary() {
 // "Print / Save as PDF" button with a real generated PDF — see the comment
 // in the body for why the old popup could never work on the phone.
 function openClientQuote() {
+  if (!requireBusinessName()) return;
   var job = activeJob();
   // FROZEN PATH -- an accepted quote's client-facing document is read from
   // the snapshot and nothing else. Not "read from the snapshot and top it up
@@ -33176,6 +33259,7 @@ async function buildSnagPdf(m) {
 // outcomes as saveQuotePdf(): the share sheet, a download, or a toast saying
 // what went wrong -- never a tap with no result.
 async function saveSnagPdf() {
+  if (!requireBusinessName()) return;
   var btn = document.getElementById('snag-pdf-btn');
   var label = btn ? btn.textContent : '';
   if (btn) { btn.textContent = 'Working…'; btn.disabled = true; }
@@ -33217,7 +33301,7 @@ function exportCSV() {
   if(rooms.length===0 && extItems.length===0 && calcKitchen(activeJob() && activeJob().kitchen).total<=0 && fuCsvAgg.total<=0 && jobCustomItems().length===0){alert('Nothing to export yet.');return;}
   var s=settings; var q=function(v){return '"'+String(v).replace(/"/g,'""')+'"';};
   var lines=[];
-  lines.push([q(quoteBusinessName() + ' Estimator')].join(','));
+  lines.push([q((quoteBusinessName() ? quoteBusinessName() + ' ' : '') + 'Estimator')].join(','));
   lines.push([q('Job'),q((activeJob() && activeJob().name) || '—')].join(','));
   lines.push([q('Generated'),q(new Date().toLocaleDateString('en-GB'))].join(','));
   lines.push('');

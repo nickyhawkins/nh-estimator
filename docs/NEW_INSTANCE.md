@@ -103,13 +103,38 @@ re-points the branch while a fix is prepared.
 3. **Install to home screen** — Safari share → Add to Home Screen
    (iPhone) or Chrome ⋮ → Add to Home screen (Android).
 4. Settings → **Connect Xero** → sign into *their* Xero.
-5. Settings → Materials (Xero Items) → **Refresh from Xero**, then pick
-   their default products per role.
+5. Settings → Materials (Xero Items) → set their **labour account**,
+   **materials account** and **sundry code prefix** (see *Preparing their
+   Xero* below), then **Refresh from Xero** and pick their default products
+   per role. Refresh checks both account codes exist and aren't archived.
 6. Settings → set **day rate, markup, deposit** and skim the coverage/time
    rates with them.
 7. Optional: Settings → Scheduling → **Calendar feed** on their phone
    calendar.
 8. Point them at the user manual: `docs/user-manual/` (or send the PDF).
+
+### Preparing their Xero
+
+Do this with them before step 5, or the materials list comes back empty or
+garbled and quotes post to accounts that don't exist. Full detail with
+examples is in the user manual, *Preparing your Xero*.
+
+- **Two sales accounts:** one for labour (default `201`) and one for
+  materials and sundries (default `202`). Any codes will do; set them in
+  Settings → Materials (Xero Items). Both must exist and not be archived.
+- **Every paint and sundry product** in Xero's Products and services must
+  have its **sales account** set to the materials account. Products on any
+  other sales account are invisible to the app.
+- **Paint names** follow `Range - Colour band Size`, e.g.
+  `Dulux Trade Diamond Matt - PBW 5ltr`, one product per tin size. The size
+  must be readable (`5ltr`, `2.5ltr`, `750ml`); add `(per litre)` for
+  products sold by the litre. Unreadable names are left out of the pickers.
+- **Sundry codes** start with the sundry prefix (default `SUN`, e.g.
+  `SUN001 Lining Paper 1400 grade`). Sundries need no size.
+- **Purchase prices** are optional but feed the materials-margin view and
+  the Price Lookup till price.
+- **Deposits** post to a third account (default `620` Prepayments) —
+  Settings → Deposits (Xero).
 
 ## 5. Feedback, while they're using it
 
