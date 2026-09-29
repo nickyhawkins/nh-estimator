@@ -610,6 +610,23 @@ eq('...4-over-8 beside 8-over-8', W.sashPattern(W.openingDefaults(g8, 'window', 
   check('...nor does the client report', W.elevationSvg({ property: ep, openings: [eo], marks: [] }, 'front', { markers: false }).indexOf('wd-access-dot') < 0);
 }
 
+// ── Sash drawing: the meeting rail follows the rows (v2.87.1) ──────────────
+{
+  near('a 6-over-6 splits at half', W.sashTopShare(2, 2), 0.5);
+  near('a 3-over-6 top sash is a third', W.sashTopShare(1, 2), 1 / 3);
+  near('unset rows read as 1', W.sashTopShare(undefined, 1), 0.5);
+  // The detail view: every pane in a 3-over-6 is the same height.
+  const d36 = { id: 'd36', kind: 'window', type: 'sash', rows: 1, rows_bottom: 2, cols: 3, size_tier: 'small', side: 'front', level: 'roof', floor: 0, position: 1 };
+  const svg = W.detailSvg(d36, [], { interactive: true });
+  const paneH = id => { const m = new RegExp('data-el="' + id + '"[^>]*>\\s*<rect[^>]*height="([0-9.]+)"').exec(svg); return m ? +m[1] : NaN; };
+  const hs = ['top-1', 'bottom-1', 'bottom-4'].map(paneH);
+  check('3-over-6 detail panes are all the same height', hs.every(h => isFinite(h) && Math.abs(h - hs[0]) < 1.5), hs.join(','));
+  check('...and it still draws cleanly', !/NaN|undefined/.test(svg));
+  const ep = { appearance: W.periodDefaults('georgian'), layout: { front: { floors: [{ windows: 1, doors: 0 }], roof: { windows: 1 }, confirmed: true } } };
+  check('an elevation with a 3-over-6 dormer draws cleanly',
+    !/NaN|undefined/.test(W.elevationSvg({ property: ep, openings: [Object.assign({}, d36, { panes_set: true })], marks: [] }, 'front', { interactive: true })));
+}
+
 // ── The app ────────────────────────────────────────────────────────────────
 check('openings are saved with their level, bay and pane flag', /level: Windoors\.levelOf\(o\)/.test(body('wdPutOpening')) && /parentOpeningId/.test(body('wdPutOpening')) && /panesSet/.test(body('wdPutOpening')));
 check("a sash's bottom rows are saved", /rowsBottom/.test(body('wdPutOpening')));
