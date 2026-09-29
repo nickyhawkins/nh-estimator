@@ -1899,7 +1899,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
          new tier or action shows up here without a second copy of it. -->
     <div class="card">
       <div class="card-header">Windows &amp; Doors</div>
-      <div class="settings-note">The Windows and doors fixture, outside faces only. An opening's minutes are (base + panes × per-pane) × prep, plus the minutes of any work marked on it — converted at your day rate like every other timed task. Materials are per element marked, before markup. Starting defaults — calibrate against real jobs.</div>
+      <div class="settings-note">The Windows and doors fixture, outside faces only. An opening's minutes are (base + panes × per-pane) × coats × access × prep, plus the minutes of any work marked on it — converted at your day rate like every other timed task. <b>Window, pane, door and bay minutes are for 2 coats</b> and scale with the job's coats setting (1 coat = half, 3 coats = one and a half). Access is the Exterior Rates card's own uplift: first floor takes the 1st-floor %, second floor up and dormers the 2nd-floor + %. Marked work is a one-off job and takes neither. Materials are per element marked, before markup. Starting defaults — calibrate against real jobs.</div>
       <div id="wd-rates-body"></div>
     </div>
   </div>
@@ -3293,6 +3293,9 @@ function populateWindoorsRates() {
 // memory (the Rates page may never have been opened this session).
 function readWindoorsRates() {
   var R = Windoors.mergeRates(settings.windoorsRates);
+  // Access is read from rAccessFirstPct / rAccessLadderPct at pricing time
+  // (wdRates), never stored here as a second copy.
+  delete R.access;
   if (!document.getElementById('s-wd-perpane')) return R;
   var v = function(id, cur) { var el = document.getElementById(id); return el && el.value !== '' ? Math.max(0, +el.value || 0) : cur; };
   Windoors.WINDOW_TIERS.forEach(function(t) { R.winBase[t.key] = v('s-wd-win-' + t.key, R.winBase[t.key]); });
@@ -6360,6 +6363,7 @@ function mergeSettings(raw) {
   // Windows and doors: nested like kitchenRates, merged per field over the
   // module's defaults so a rate added later has a value on every old blob.
   out.windoorsRates = Windoors.mergeRates(raw.windoorsRates);
+  delete out.windoorsRates.access; // settings' rAccess*Pct are the figures (wdRates)
   out.materials    = raw.materials || {};
   out.paymentType  = raw.paymentType || 'single';
   out.paymentWeeks = raw.paymentWeeks || null;
@@ -25087,7 +25091,14 @@ var wdOpenId = null;         // the opening in the detail sheet
 var wdSel = { kind: null, ids: {} }; // selection: all panes or all parts, never both
 var wdLayoutDraft = null;    // the floors being edited on an unlocked side
 
-function wdRates() { return Windoors.mergeRates(settings.windoorsRates); }
+// The card's figures plus the access uplift, which is the Exterior form's own
+// (rAccessFirstPct / rAccessLadderPct) so the two exterior paths agree about
+// what first-floor and ladder work cost.
+function wdRates() {
+  var R = Windoors.mergeRates(settings.windoorsRates);
+  R.access = Windoors.accessRates(settings);
+  return R;
+}
 function wdMirrorKey(jobId) { return 'pe-windoors-' + jobId; }
 function wdSaveMirror() {
   if (!windoors.jobId) return;
@@ -25257,7 +25268,7 @@ function wdPutOpening(o) {
     prepLevel: o.prep_level, prepStage: o.prep_stage, quotePrepLevel: o.quote_prep_level,
     prepVariationId: o.prep_variation_id, rowsBottom: o.rows_bottom == null ? null : o.rows_bottom,
     bayShape: o.bay_shape || null, bayStoreys: o.bay_storeys || null, parentOpeningId: o.parent_opening_id || null,
-    panesSet: !!o.panes_set,
+    panesSet: !!o.panes_set, access: o.access || null,
     otherMins: o.other_mins || 0, otherCost: o.other_cost || 0, otherM2: o.other_m2 || 0
   }).then(function(resp) {
     // Another phone already holds this slot: adopt its id, and re-point the
@@ -25490,6 +25501,7 @@ function wdSegHtml(items, active, onclickFn, opts) {
   }).join('') + '</div>';
 }
 
+function wdSideOpenings(side) { return windoors.openings.filter(function(o) { return o.side === side; }); }
 function wdSideCounts(side) {
   var list = windoors.openings.filter(function(o) { return o.side === side; });
   return { windows: list.filter(function(o) { return o.kind === 'window'; }).length,
@@ -25644,7 +25656,8 @@ function wdSideCardHtml() {
       html += '<div style="padding:12px 16px;color:var(--text2);font-size:13px">' + (site ? 'Nothing was set up on this side at the quote.' : 'No windows or doors on this side.') + '</div>';
     } else {
       html += '<div id="wd-elev" style="padding:10px 12px">' + Windoors.elevationSvg(windoors, wdSide, { interactive: true, maxWidth: 440, selected: wdOpenId }) + '</div>'
-        + '<div style="padding:0 16px 10px;font-size:12px;color:var(--text2)">Tap a window or door to set it up' + (windoors.property.detail_enabled !== false ? ' and mark panes or frame parts' : '') + '.</div>';
+        + '<div style="padding:0 16px 10px;font-size:12px;color:var(--text2)">Tap a window or door to set it up' + (windoors.property.detail_enabled !== false ? ' and mark panes or frame parts' : '') + '.'
+        + (wdSideOpenings(wdSide).some(function(o) { return !!o.access; }) ? ' A dark dot at the bottom corner means its access was set by hand.' : '') + '</div>';
     }
   }
   return html + wdOthersHtml() + '</div>';
@@ -26137,6 +26150,7 @@ function renderWdDetail() {
   h += '<div class="subsection-label">Prep' + (site && o.prep_stage === 'variation' && Windoors.prepRank(eff) > Windoors.prepRank(Windoors.quotePrep(o, p))
       ? '<small>raised on site from ' + Windoors.prepLabel(Windoors.quotePrep(o, p)) + ' — a variation</small>' : '') + '</div>'
     + '<div style="padding:0 16px 10px">' + wdSegHtml(levels, eff, 'setWdPrep') + '</div>';
+  if (!isOther) h += wdAccessHtml(o);
   // The diagram and the marking tools.
   if (p.detail_enabled !== false) {
     h += '<div id="wd-detail-fig" style="padding:6px 16px 4px">' + Windoors.detailSvg(o, windoors.marks, { interactive: true, selected: wdSel.ids, maxWidth: 300, maxHeight: 360 }) + '</div>';
@@ -26201,6 +26215,7 @@ function renderWdBay(o, box) {
   var levels = Windoors.PREP_LEVELS.filter(function(l) { return Windoors.prepRank(l.key) >= Windoors.prepRank(floorLevel); });
   h += '<div class="subsection-label">Prep<small>the bay\'s own timber — each window has its own</small></div>'
     + '<div style="padding:0 16px 10px">' + wdSegHtml(levels, eff, 'setWdPrep') + '</div>';
+  h += wdAccessHtml(o);
   var detail = p.detail_enabled !== false;
   h += '<div id="wd-detail-fig" style="padding:6px 16px 4px">' + Windoors.detailSvg(o, windoors.marks, { interactive: true, selected: detail ? wdSel.ids : {},
     children: kids, property: p, maxWidth: 320, maxHeight: 440 }) + '</div>';
@@ -26266,7 +26281,13 @@ function wdWorkListHtml(o, oMarks) {
       + (sub ? '<small style="display:block;color:var(--text2);font-size:11px;margin-top:1px">' + sub + '</small>' : '') + '</div>';
   };
   var qPrep = Windoors.quotePrep(o, p);
-  rows += line((o.kind === 'bay' ? 'Paint, the bay\'s own timber' : o.kind === 'other' ? 'Paint' : 'Paint, outside face') + ' · ' + Windoors.prepLabel(qPrep).toLowerCase() + ' prep', 'quote');
+  var paintBits = [Windoors.prepLabel(qPrep).toLowerCase() + ' prep'];
+  if (o.kind !== 'other') {
+    var coatsN = Math.round(Windoors.coatsFactor(p) * 2);
+    paintBits.push(coatsN + ' coat' + (coatsN === 1 ? '' : 's'));
+    paintBits.push(Windoors.accessLabel(Windoors.openingAccess(o)).toLowerCase() + ' access' + (o.access ? ' (set by hand)' : ''));
+  }
+  rows += line((o.kind === 'bay' ? 'Paint, the bay\'s own timber' : o.kind === 'other' ? 'Paint' : 'Paint, outside face') + ' · ' + paintBits.join(' · '), 'quote');
   var qc = Windoors.marksClause(o, quoteMarks);
   if (qc) rows += line(escapeHtml(qc.charAt(0).toUpperCase() + qc.slice(1)), 'quote');
   var byVar = {};
@@ -26404,6 +26425,29 @@ function wdGrid(which, delta) {
 function setWdTier(tier) {
   var o = wdOpening(); if (!o || o.size_tier === tier) return;
   o.size_tier = tier;
+  wdPutOpening(o); wdChanged();
+}
+// Access: Auto reads it from where the opening sits (Windoors.autoAccess);
+// an override covers scaffold already up (Ground) or a ground-floor window
+// over a basement well (Ladder/tower). Set from Measure only -- like the
+// coats, it is fixed at quoting, so on site it just says what was priced.
+function wdAccessHtml(o) {
+  var auto = Windoors.autoAccess(o);
+  var set = Windoors.ACCESS_LEVELS.some(function(a) { return a.key === o.access; }) ? o.access : null;
+  var sub = o.kind === 'bay' ? 'the bay\'s own timber — each window has its own' : '';
+  if (wdMode === 'site') {
+    return '<div style="padding:0 16px 8px;font-size:13px;color:var(--text2)">Access: ' + escapeHtml(Windoors.accessLabel(set || auto))
+      + (set ? ' (set by hand)' : '') + ' · as quoted</div>';
+  }
+  var items = [{ key: 'auto', label: 'Auto (' + Windoors.accessLabel(auto) + ')' }].concat(Windoors.ACCESS_LEVELS);
+  return '<div class="subsection-label">Access' + (sub ? '<small>' + sub + '</small>' : '') + '</div>'
+    + '<div style="padding:0 16px 10px">' + wdSegHtml(items, set || 'auto', 'setWdAccess') + '</div>';
+}
+function setWdAccess(key) {
+  var o = wdOpening(); if (!o || o.kind === 'other' || wdMode === 'site') return;
+  var next = Windoors.ACCESS_LEVELS.some(function(a) { return a.key === key; }) ? key : null;
+  if ((o.access || null) === next) return;
+  o.access = next;
   wdPutOpening(o); wdChanged();
 }
 // Prep. From Measure it simply sets the level the quote prices. On site it

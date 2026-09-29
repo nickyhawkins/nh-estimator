@@ -51,6 +51,14 @@
     { key: 'standard', label: 'Floors' },
     { key: 'roof', label: 'Dormers' }
   ];
+  // How the painter reaches an opening. Auto (access null) reads it from
+  // where the opening sits -- see autoAccess -- and an override covers
+  // scaffold already up, or a ground-floor window over a basement well.
+  var ACCESS_LEVELS = [
+    { key: 'ground', label: 'Ground' },
+    { key: 'firstFloor', label: 'First floor' },
+    { key: 'ladderTower', label: 'Ladder/tower' }
+  ];
   var BAY_SHAPES = [
     { key: 'canted', label: 'Canted' },
     { key: 'square', label: 'Square' }
@@ -329,6 +337,12 @@
   // Prep multipliers mirror the exterior form's levels since v2.81.1 (Light
   // 10% / Standard 25% / Heavy 40%) so the two exterior paths agree about what
   // "Heavy" costs; Restoration is new and has no older figure to match.
+  //
+  // The painted minutes (window, pane, door and bay bases) are calibrated at
+  // 2 coats and scale with the job's coats (coatsFactor). Access is the
+  // Exterior form's own uplift, not a figure of this card's: the app passes
+  // settings.rAccessFirstPct / rAccessLadderPct in as rates.access
+  // (accessRates), and the defaults below are those settings' defaults.
   var DEFAULT_RATES = {
     winBase: { small: 30, medium: 40, large: 55, xlarge: 75 },
     perPane: 4,
@@ -378,7 +392,8 @@
       overhaul: { mins: 45, cost: 3 },
       ironmongery: { mins: 20, cost: 0 },
       ease: { mins: 30, cost: 0 }
-    }
+    },
+    access: { firstFloor: 1.1, ladderTower: 1.25 }
   };
 
   function num(v, d) { var n = +v; return isFinite(n) ? n : d; }
@@ -434,7 +449,24 @@
         cost: Math.max(0, num(saved.cost, DEFAULT_RATES.actions[a.key].cost))
       };
     });
+    out.access = mergeAccess(raw.access);
     return out;
+  }
+  function mergeAccess(raw) {
+    raw = raw || {};
+    return {
+      firstFloor: Math.max(1, num(raw.firstFloor, DEFAULT_RATES.access.firstFloor)),
+      ladderTower: Math.max(1, num(raw.ladderTower, DEFAULT_RATES.access.ladderTower))
+    };
+  }
+  // The access multipliers from the app's settings -- the same two
+  // percentages the Exterior form's extAccessMult() reads, 10 / 25 when unset.
+  function accessRates(settings) {
+    var pct = function (v, d) { return v == null || v === '' || !isFinite(+v) ? d : +v; };
+    return {
+      firstFloor: 1 + pct(settings && settings.rAccessFirstPct, 10) / 100,
+      ladderTower: 1 + pct(settings && settings.rAccessLadderPct, 25) / 100
+    };
   }
 
   function findKey(list, key) {
@@ -771,6 +803,34 @@
     return effectivePrep(o, property);
   }
 
+  // Tier minutes are for 2 coats: 1 coat is half, 3 is one and a half.
+  // Missing or out of range reads as 2.
+  function coatsFactor(property) {
+    var c = Math.floor(+(property && property.coats));
+    return c >= 1 && c <= 3 ? c / 2 : 1;
+  }
+  // Where the opening sits says how it's reached: the lower ground and the
+  // ground floor from the ground, the first floor off a ladder at first-floor
+  // height, anything above (and the dormers) ladder or tower. A bay's own
+  // timber goes by its top storey, so a two-storey bay from the ground takes
+  // the first-floor uplift; its windows go by their own floors.
+  function autoAccess(o) {
+    var lv = levelOf(o);
+    if (lv === 'roof') return 'ladderTower';
+    if (lv === 'lower_ground' || !o || o.kind === 'other') return 'ground';
+    var top = (+o.floor || 0) + (o.kind === 'bay' ? bayStoreys(o) - 1 : 0);
+    return top >= 2 ? 'ladderTower' : top === 1 ? 'firstFloor' : 'ground';
+  }
+  function isAccessKey(k) { return k === 'ground' || k === 'firstFloor' || k === 'ladderTower'; }
+  function openingAccess(o) { return o && isAccessKey(o.access) ? o.access : autoAccess(o); }
+  function accessLabel(key) { var a = findKey(ACCESS_LEVELS, key); return a ? a.label : 'Ground'; }
+  function accessMult(o, rates) {
+    var acc = (rates && rates.access) || DEFAULT_RATES.access;
+    var k = openingAccess(o);
+    if (k === 'ground') return 1;
+    return Math.max(1, num(acc[k], DEFAULT_RATES.access[k]));
+  }
+
   function baseMinutes(o, rates) {
     if (o.kind === 'other') return otherFigure(o.other_mins, 6000);
     if (o.kind === 'bay') {
@@ -803,7 +863,10 @@
   // The whole fixture priced from its rows.
   //
   //   quote       minutes + materials the QUOTE carries: every opening at its
-  //               quote prep level, plus every quote-stage mark
+  //               quote prep level, plus every quote-stage mark. An opening's
+  //               painted minutes are scaled for the job's coats and its
+  //               access before prep; the marks are one-off jobs and are not
+  //               (the Exterior form's repair minutes take no access either).
   //   variations  keyed by variation id: that draft/sent variation's marks,
   //               plus any prep raised on site into it (priced as the base at
   //               the new multiplier less the base at the old one -- never
@@ -817,6 +880,7 @@
     var property = (data && data.property) || {};
     var openings = liveOpenings(data && data.openings);
     var marks = (data && data.marks) || [];
+    var coats = coatsFactor(property);
     var out = { quote: { mins: 0, materials: 0, count: 0 }, variations: {}, perOpening: {} };
     var byId = {};
     var varBucket = function (id) {
@@ -827,18 +891,24 @@
     openings.forEach(function (o) {
       byId[o.id] = o;
       var painted = paintedMinutes(o, rates);
+      // An Other item's minutes are its own total, typed in as it is to be
+      // done -- not a 2-coat tier figure -- so neither scaling touches it.
+      var cf = o.kind === 'other' ? 1 : coats;
+      var am = o.kind === 'other' ? 1 : accessMult(o, rates);
+      var scaled = painted * cf * am;
       var qMult = rates.prep[quotePrep(o, property)] || 1;
       // An Other item's own materials £ are part of the quote, like its
       // minutes.
       var own = o.kind === 'other' ? otherFigure(o.other_cost, 100000) : 0;
-      var per = { painted: painted, quoteMins: painted * qMult, quoteMaterials: own, varMins: 0, varMaterials: 0 };
+      var per = { painted: painted, coatsFactor: cf, accessMult: am, access: o.kind === 'other' ? 'ground' : openingAccess(o), scaled: scaled,
+                  quoteMins: scaled * qMult, quoteMaterials: own, varMins: 0, varMaterials: 0 };
       out.perOpening[o.id] = per;
       out.quote.mins += per.quoteMins;
       out.quote.materials += own;
       out.quote.count++;
       if (o.prep_stage === 'variation') {
         var nowMult = rates.prep[effectivePrep(o, property)] || 1;
-        var extra = Math.max(0, painted * (nowMult - qMult));
+        var extra = Math.max(0, scaled * (nowMult - qMult));
         if (extra > 0) {
           var vb = varBucket(o.prep_variation_id);
           vb.mins += extra; vb.prepRaises++;
@@ -1484,6 +1554,10 @@
     var p = PAL[style] || PAL.georgian;
     var fp = finishPal(a);
     var flags = opts.markers === false ? {} : workFlags(data);
+    // Openings whose access was set by hand: a small dot, in the app only
+    // (the client's report has no prices in it, so nothing to explain).
+    var accessSet = {};
+    if (opts.interactive) ((data && data.openings) || []).forEach(function (o) { if (isAccessKey(o.access)) accessSet[o.id] = true; });
     var edges = attachedEdges(a, side);
     var nbL = edges.left ? 46 : 0, nbR = edges.right ? 46 : 0;
     var W = g.W, pad = 20;
@@ -1640,6 +1714,9 @@
         var bx = box.x + box.w - 2, byy = box.y + 2;
         if (fl.quote) inner += '<circle cx="' + r1(bx) + '" cy="' + r1(byy) + '" r="5" fill="' + PAL.accent + '" stroke="#fff" stroke-width="1.2"/>';
         if (fl.variation) inner += '<circle cx="' + r1(bx - (fl.quote ? 11 : 0)) + '" cy="' + r1(byy) + '" r="5" fill="#fff" stroke="' + PAL.accent + '" stroke-width="1.6" stroke-dasharray="2 1.6"/>';
+      }
+      if (real.some(function (id) { return accessSet[id]; })) {
+        inner += '<circle class="wd-access-dot" cx="' + r1(box.x + 2) + '" cy="' + r1(box.y + box.h - 2) + '" r="3.5" fill="' + PAL.ink + '" stroke="#fff" stroke-width="1.2"/>';
       }
       if (opts.interactive && o.id) {
         inner = '<g class="wd-open" data-open-id="' + esc(o.id) + '" style="cursor:pointer">' + inner
@@ -2105,12 +2182,13 @@
   return {
     SIDES: SIDES, STYLES: STYLES, PERIODS: PERIODS, WINDOW_TYPES: WINDOW_TYPES, DOOR_TYPES: DOOR_TYPES,
     WINDOW_TIERS: WINDOW_TIERS, DOOR_TIERS: DOOR_TIERS, PREP_LEVELS: PREP_LEVELS, ACTIONS: ACTIONS,
-    LEVELS: LEVELS, BAY_SHAPES: BAY_SHAPES, BAY_FACES: BAY_FACES,
+    LEVELS: LEVELS, BAY_SHAPES: BAY_SHAPES, BAY_FACES: BAY_FACES, ACCESS_LEVELS: ACCESS_LEVELS,
     FINISHES: FINISHES, SIDE_ROOFS: SIDE_ROOFS, FORMS: FORMS, EXPOSED_SIDES: EXPOSED_SIDES, ROOFS: ROOFS, PERIOD_OPTIONS: PERIOD_OPTIONS,
     DEFAULT_RATES: DEFAULT_RATES,
     periodDefaults: periodDefaults, normaliseAppearance: normaliseAppearance, appearanceOf: appearanceOf,
     appearanceIsDefault: appearanceIsDefault, sideAppearance: sideAppearance, visibleSides: visibleSides, attachedEdges: attachedEdges, roofKindFor: roofKindFor,
-    mergeRates: mergeRates, actionDef: actionDef, prepRank: prepRank, prepLabel: prepLabel, maxPrep: maxPrep,
+    mergeRates: mergeRates, accessRates: accessRates, coatsFactor: coatsFactor, autoAccess: autoAccess, openingAccess: openingAccess,
+    accessLabel: accessLabel, accessMult: accessMult, actionDef: actionDef, prepRank: prepRank, prepLabel: prepLabel, maxPrep: maxPrep,
     floorLabel: floorLabel, sideLabel: sideLabel, typeLabel: typeLabel, kindNoun: kindNoun, levelOf: levelOf, levelLabel: levelLabel,
     sideLayout: sideLayout, openingDefaults: openingDefaults, bayDefaults: bayDefaults, bayChildDefaults: bayChildDefaults, floorSlots: floorSlots,
     isBayChild: isBayChild, bayChildPosition: bayChildPosition, bayChildInfo: bayChildInfo, bayStoreys: bayStoreys, bayChildren: bayChildren,
