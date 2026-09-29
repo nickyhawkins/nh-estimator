@@ -378,7 +378,7 @@ They're labelled *Front, dormer, W2* and *Front, lower ground, W1*.
 
 ![A Georgian terrace in buff brick, with dormers and a lower ground floor](images/26n-windoors-terrace.png)
 
-On a Georgian house a new dormer starts as a **3-over-6** sash, one row fewer on top than the 6-over-6 windows below it (4-over-8 beside 8-over-8). Dormers added before v2.85.1 started as 3-over-3: open each one and set **Bottom sash rows** to 2.
+On a Georgian house a new dormer starts as a **3-over-6** sash, one row fewer on top than the 6-over-6 windows below it (4-over-8 beside 8-over-8). Dormers added before v2.85.1 started as 3-over-3: open each one and set **Bottom sash rows** to 2. A sash with more rows in one half than the other is drawn with its meeting rail where the rows put it: a 3-over-6's top sash is a third of the window, so every pane is the same size, as on the real thing.
 
 ![A 3-over-6 dormer window: its fascia and cheeks can be marked too](images/26o-windoors-dormer.png)
 
@@ -1492,6 +1492,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.87.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.87.1. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

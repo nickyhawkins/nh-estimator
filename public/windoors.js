@@ -650,6 +650,14 @@
     var top = clampGrid(o.rows);
     return { top: top, bottom: o.rows_bottom == null ? top : clampGrid(o.rows_bottom) };
   }
+  // How much of a sash's glass height the top sash takes: its share of the
+  // rows, so every pane is drawn the same height. A 6-over-6 splits at half,
+  // a 3-over-6 at a third -- the real window's shorter top sash, not a top
+  // row stretched to fill half the window.
+  function sashTopShare(top, bottom) {
+    var t = clampGrid(top), b = clampGrid(bottom);
+    return t / (t + b);
+  }
   // "6 over 6", "3 over 6".
   function sashPattern(o) {
     var r = sashRows(o), c = clampGrid(o.cols);
@@ -1213,25 +1221,29 @@
     var line = function (x1, y1, x2, y2, sw) { s += ln(x1, y1, x2, y2, bar, sw || 1.2); };
     var grid = drawnGrid(o, a);
     if (o.type === 'sash') {
-      line(gx, gy + gh / 2, gx + gw, gy + gh / 2, 2.2);
+      // The meeting rail sits where the rows put it: a 3-over-6's top sash
+      // is a third of the glass, so its panes are the bottom's size rather
+      // than stretched to fill half.
+      var topH = gh * sashTopShare(grid.rows, grid.rowsBottom);
+      line(gx, gy + topH, gx + gw, gy + topH, 2.2);
       var margin = style === 'victorian' && a.victorian.sash === 'margin_lights' && grid.rows === 3 && grid.rowsBottom === 3 && grid.cols === 3;
       for (var half = 0; half < 2; half++) {
-        var hy = gy + half * gh / 2;
+        var hy = half ? gy + topH : gy, hh = half ? gh - topH : topH;
         if (margin) {
           // Margin lights: one big pane, a narrow border of small ones.
-          var m = Math.min(gw, gh / 2) * 0.16;
-          line(gx + m, hy, gx + m, hy + gh / 2, 0.9); line(gx + gw - m, hy, gx + gw - m, hy + gh / 2, 0.9);
-          line(gx, hy + m, gx + gw, hy + m, 0.9); line(gx, hy + gh / 2 - m, gx + gw, hy + gh / 2 - m, 0.9);
+          var m = Math.min(gw, hh) * 0.16;
+          line(gx + m, hy, gx + m, hy + hh, 0.9); line(gx + gw - m, hy, gx + gw - m, hy + hh, 0.9);
+          line(gx, hy + m, gx + gw, hy + m, 0.9); line(gx, hy + hh - m, gx + gw, hy + hh - m, 0.9);
           continue;
         }
-        for (var c = 1; c < grid.cols; c++) line(gx + c * gw / grid.cols, hy, gx + c * gw / grid.cols, hy + gh / 2);
+        for (var c = 1; c < grid.cols; c++) line(gx + c * gw / grid.cols, hy, gx + c * gw / grid.cols, hy + hh);
         var hr = half ? grid.rowsBottom : grid.rows;
-        for (var rr = 1; rr < hr; rr++) line(gx, hy + rr * gh / 2 / hr, gx + gw, hy + rr * gh / 2 / hr);
+        for (var rr = 1; rr < hr; rr++) line(gx, hy + rr * hh / hr, gx + gw, hy + rr * hh / hr);
       }
       // Victorian sash horns: the upper sash's stiles run on past the
       // meeting rail, on 1-over-1 and 2-over-2.
       if (style === 'victorian' && !margin && grid.rows === 1 && grid.rowsBottom === 1 && grid.cols <= 2 && !opts.narrow) {
-        var my = gy + gh / 2 + 1.1;
+        var my = gy + topH + 1.1;
         s += poly([[gx, my], [gx + 2.4, my], [gx + 0.9, my + 3.6]], frame, ' stroke="#777" stroke-width="0.3"');
         s += poly([[gx + gw, my], [gx + gw - 2.4, my], [gx + gw - 0.9, my + 3.6]], frame, ' stroke="#777" stroke-width="0.3"');
       }
@@ -1921,7 +1933,7 @@
       var rowsW = clampGrid(o.rows), colsW = clampGrid(o.cols);
       var sash = o.type === 'sash';
       var sr = sashRows(o);
-      W = 60 + colsW * 70; H = sash ? 70 + Math.max(sr.top, sr.bottom) * 2 * 62 + 24 : 60 + rowsW * 70;
+      W = 60 + colsW * 70; H = sash ? 70 + (sr.top + sr.bottom) * 62 + 24 : 60 + rowsW * 70;
       W = Math.max(W, 200); H = Math.max(H, 180);
       var hd = 20, stw = 18, brw = 18, cill = 16, mr = 16;
       if (levelOf(o) === 'roof') {
@@ -1940,7 +1952,11 @@
       var ax = stw, aw = W - 2 * stw;
       if (sash) {
         var areaH = H - hd - cill - brw - mr;
-        var halfH = areaH / 2;
+        // Split by rows, so every pane is the same height (see sashTopShare):
+        // one pane height across both sashes, net of each sash's 6px border
+        // and the 6px gaps paneGrid() leaves between rows.
+        var paneH = (areaH - 24 - (sr.top - 1 + sr.bottom - 1) * 6) / (sr.top + sr.bottom);
+        var halfH = 12 + sr.top * paneH + (sr.top - 1) * 6, lowH = areaH - halfH;
         s += draw('meeting_rail', R(ax, hd + halfH, aw, mr, timber));
         s += draw('bottom_rail', R(ax, H - cill - brw, aw, brw, timber));
         var paneGrid = function (prefix, gy, gh, nr) {
@@ -1953,9 +1969,9 @@
           return out;
         };
         s += '<rect x="' + r1(ax) + '" y="' + r1(hd) + '" width="' + r1(aw) + '" height="' + r1(halfH) + '" fill="#e9e6de" pointer-events="none"/>';
-        s += '<rect x="' + r1(ax) + '" y="' + r1(hd + halfH + mr) + '" width="' + r1(aw) + '" height="' + r1(halfH) + '" fill="#e9e6de" pointer-events="none"/>';
+        s += '<rect x="' + r1(ax) + '" y="' + r1(hd + halfH + mr) + '" width="' + r1(aw) + '" height="' + r1(lowH) + '" fill="#e9e6de" pointer-events="none"/>';
         s += paneGrid('top', hd, halfH, sr.top);
-        s += paneGrid('bottom', hd + halfH + mr, halfH, sr.bottom);
+        s += paneGrid('bottom', hd + halfH + mr, lowH, sr.bottom);
       } else {
         var areaH2 = H - hd - cill - brw;
         s += draw('bottom_rail', R(ax, H - cill - brw, aw, brw, timber));
@@ -2019,7 +2035,10 @@
           for (var rr = 1; rr < rows; rr++) out += ln(gx, y0 + rr * hh / rows, gx + gw, y0 + rr * hh / rows, timber, 3);
           return out;
         };
-        if (sash) { win += ln(gx, gy + gh / 2, gx + gw, gy + gh / 2, timber, 6) + bars(gy, gh / 2) + bars(gy + gh / 2, gh / 2, ksr.bottom); } else win += bars(gy, gh);
+        if (sash) {
+          var kt = gh * sashTopShare(ksr.top, ksr.bottom);
+          win += ln(gx, gy + kt, gx + gw, gy + kt, timber, 6) + bars(gy, kt) + bars(gy + kt, gh - kt, ksr.bottom);
+        } else win += bars(gy, gh);
         if (canted && c[2] !== 'front') win += rect(gx, gy, gw, gh, 'rgba(20,30,40,.12)');
         var f = kid && flags[kid.id];
         if (f && (f.quote || f.variation)) {
@@ -2192,7 +2211,7 @@
     floorLabel: floorLabel, sideLabel: sideLabel, typeLabel: typeLabel, kindNoun: kindNoun, levelOf: levelOf, levelLabel: levelLabel,
     sideLayout: sideLayout, openingDefaults: openingDefaults, bayDefaults: bayDefaults, bayChildDefaults: bayChildDefaults, floorSlots: floorSlots,
     isBayChild: isBayChild, bayChildPosition: bayChildPosition, bayChildInfo: bayChildInfo, bayStoreys: bayStoreys, bayChildren: bayChildren,
-    liveOpenings: liveOpenings, periodSashGrid: periodSashGrid, sashRows: sashRows, sashPattern: sashPattern,
+    liveOpenings: liveOpenings, periodSashGrid: periodSashGrid, sashRows: sashRows, sashTopShare: sashTopShare, sashPattern: sashPattern,
     openingElements: openingElements, elementKind: elementKind, actionsFor: actionsFor, paneCount: paneCount,
     openingCode: openingCode, openingLabel: openingLabel, sortOpenings: sortOpenings,
     effectivePrep: effectivePrep, quotePrep: quotePrep, baseMinutes: baseMinutes, paintedMinutes: paintedMinutes,
