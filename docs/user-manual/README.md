@@ -1275,7 +1275,7 @@ A few things worth knowing:
 
 Old windows are where the surprises are. On a job with [Windows and doors](#windows-and-doors) set up, On Site has a **🪟 Windows & doors** card near the top. It opens the same drawings and the same detail view, with two differences:
 
-- **Anything you add here is a variation.** New marks, and prep raised on an opening (you can raise it, never lower it), are extra work on top of the quote. They show dashed on the diagram and as a dashed badge on the elevation.
+- **Anything you add here is a variation.** New marks, and prep raised on an opening, are extra work on top of the quote. A raise can be brought back down — to a level in between, or all the way back to what was quoted, which undoes it — while its variation is still a draft or waiting for an answer. Prep never goes below what the quote priced, and once the client has answered, the raise is fixed. They show dashed on the diagram and as a dashed badge on the elevation.
 - **Bays, dormers and lower ground windows work the same way** — open a bay and tap one of its windows to mark it, or mark the bay's own parts.
 - **The quote's own work is locked.** It's shown, solid, so you can see what was already allowed for, but you can't take it off here — and type, size and pane layout are as quoted. The quote is the floor: nothing done on site ever takes money off it.
 - **A window or door that was left out of the job** can be brought in. Its sheet says *Not in this job* with an **Add to this job — as a variation** button. Tapping it puts the whole opening — its prep and painting — on the draft variation (*Front, ground floor, D1: added to the job, light prep and paint.*), shown with a dashed badge. You can then mark work on it like any other. While the variation is still a draft or waiting for an answer, you can set its prep freely, and **Take it back out** undoes it (clearing any work you marked on it). Once approved, its painting is on the work-to-do list.
@@ -1541,6 +1541,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.90.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.90.1. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

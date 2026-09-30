@@ -25088,7 +25088,8 @@ function _renderFittedUnitInner() {
 //              then rides the ordinary variation pipeline as kind 'windoors'.
 // The quote is the floor: nothing on site can take a minute off it (the
 // module prices prep raises as the difference, never below zero, and site
-// mode offers no way to lower a type, size or prep level).
+// mode offers no way to lower a type or size, nor prep below what the quote
+// priced -- an unanswered raise can come back down to it, no further).
 var windoors = { jobId: null, property: null, openings: [], marks: [] };
 var wdMode = 'quote';        // 'quote' (from Measure) or 'site' (from On Site)
 var wdSide = 'front';
@@ -26370,12 +26371,13 @@ function renderWdDetail() {
     h += '<div style="padding:0 16px 8px;font-size:13px;color:var(--text2)">' + escapeHtml(Windoors.typeLabel(o) + (isDoor ? ' door' : ' window'))
       + ' · ' + Windoors.paneCount(o) + (isDoor ? ' glass' : ' panes') + (scope.excluded || scope.variationId ? '' : ' · as quoted') + '</div>';
   }
-  // Prep: levels below the job default hidden; on site, below the current
-  // level too (a raise is a variation, a drop is not a thing).
+  // Prep: levels below the job default hidden; on site, below what the
+  // quote priced too (a raise is a variation, a drop below the quote is not
+  // a thing -- but a raise can come back down while it's unanswered).
   // Not in this job: the drawing only -- no prep, access, marks or work.
   if (scope.excluded) { box.innerHTML = h; return; }
   var eff = Windoors.effectivePrep(o, p);
-  var floorLevel = site && !wdSiteAdded(o) ? eff : (p.default_prep || 'light');
+  var floorLevel = wdPrepFloor(o, site);
   var levels = Windoors.PREP_LEVELS.filter(function(l) { return Windoors.prepRank(l.key) >= Windoors.prepRank(floorLevel); });
   // A set price isn't scaled by prep, so there's no prep to pick.
   if (!(isOther && Windoors.otherPricing(o) === 'price')) h += '<div class="subsection-label">Prep' + (site && o.prep_stage === 'variation' && Windoors.prepRank(eff) > Windoors.prepRank(Windoors.quotePrep(o, p))
@@ -26444,7 +26446,7 @@ function renderWdBay(o, box) {
   h += wdScopeHtml(o);
   if (o.excluded) { box.innerHTML = h; return; }
   var eff = Windoors.effectivePrep(o, p);
-  var floorLevel = site && !wdSiteAdded(o) ? eff : (p.default_prep || 'light');
+  var floorLevel = wdPrepFloor(o, site);
   var levels = Windoors.PREP_LEVELS.filter(function(l) { return Windoors.prepRank(l.key) >= Windoors.prepRank(floorLevel); });
   h += '<div class="subsection-label">Prep<small>the bay\'s own timber — each window has its own</small></div>'
     + '<div style="padding:0 16px 10px">' + wdSegHtml(levels, eff, 'setWdPrep') + '</div>';
@@ -26690,11 +26692,23 @@ function setWdAccess(key) {
   o.access = next;
   wdPutOpening(o); wdChanged();
 }
-// Prep. From Measure it simply sets the level the quote prices. On site it
-// can only go UP, and the rise is a variation: the level in force before it
-// is stamped as quote_prep_level (the first time only -- a second raise on
-// site is still measured from what the QUOTE had), and the raise joins the
-// open draft.
+// The lowest prep level the picker offers. From Measure (and for an opening
+// added on site) that's the job default. On site it's what the quote priced
+// while a raise is still unanswered -- so a raise can be brought back down,
+// or undone altogether -- and the current level once the raise has been
+// answered (or if there's no raise), as an answered variation is locked.
+function wdPrepFloor(o, site) {
+  var p = windoors.property;
+  if (!site || wdSiteAdded(o)) return p.default_prep || 'light';
+  if (o.prep_stage === 'variation' && wdVariationEditable(o.prep_variation_id)) return Windoors.quotePrep(o, p);
+  return Windoors.effectivePrep(o, p);
+}
+// Prep. From Measure it simply sets the level the quote prices. On site a
+// rise is a variation: the level in force before it is stamped as
+// quote_prep_level (the first time only -- a second raise on site is still
+// measured from what the QUOTE had), and the raise joins the open draft. It
+// can come back down while that variation is unanswered, never below what
+// the quote priced; back at the quote's level the raise dissolves.
 function setWdPrep(level) {
   var o = wdOpening(); if (!o) return;
   var p = windoors.property;
@@ -26706,10 +26720,23 @@ function setWdPrep(level) {
     o.prep_stage = 'quote'; o.quote_prep_level = null; o.prep_variation_id = null;
   } else if (wdMode === 'site') {
     var was = Windoors.effectivePrep(o, p);
-    if (Windoors.prepRank(level) <= Windoors.prepRank(was)) return;
-    if (o.prep_stage !== 'variation') { o.quote_prep_level = was; o.prep_stage = 'variation'; }
-    o.prep_level = level;
-    o.prep_variation_id = wdDraft(true).id;
+    if (Windoors.prepRank(level) === Windoors.prepRank(was)) return;
+    if (Windoors.prepRank(level) < Windoors.prepRank(was)) {
+      // Bringing an unanswered raise back down. It stays in the variation
+      // it was raised into; at the quote's level it's no raise at all.
+      if (Windoors.prepRank(level) < Windoors.prepRank(wdPrepFloor(o, true))) return;
+      var q = Windoors.quotePrep(o, p);
+      if (level === q) {
+        o.prep_level = q === (p.default_prep || 'light') ? null : q;
+        o.prep_stage = 'quote'; o.quote_prep_level = null; o.prep_variation_id = null;
+      } else {
+        o.prep_level = level;
+      }
+    } else {
+      if (o.prep_stage !== 'variation') { o.quote_prep_level = was; o.prep_stage = 'variation'; }
+      o.prep_level = level;
+      o.prep_variation_id = wdDraft(true).id;
+    }
   } else {
     if (Windoors.prepRank(level) < Windoors.prepRank(p.default_prep || 'light')) return;
     if (o.prep_stage === 'variation') {
