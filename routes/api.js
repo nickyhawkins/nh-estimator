@@ -458,15 +458,24 @@ router.put('/jobs/:id/client-variations', async (req, res) => {
     if (!token) return res.status(404).json({ error: 'job not found' });
     await client.query('BEGIN');
     for (const l of clean) {
+      // A CREDIT (a negative line -- windows and doors prep lowered on site,
+      // v2.91.0) is money off: there is nothing for the client to agree to,
+      // so it lands approved, and a line sent as an extra that has since
+      // become a credit while still pending is approved on the way in too.
+      // The one exception to rule 3 above, and it only ever runs in the
+      // client's favour.
+      const credit = l.amount < 0;
       await client.query(
         `INSERT INTO job_variations (id, job_id, source_kind, source_id, description, amount, status, approved_at, declined_at)
               VALUES ($1, $2, $3, $4, $5, $6, $7::varchar,
                       CASE WHEN $7::varchar = 'approved' THEN NOW() END,
                       CASE WHEN $7::varchar = 'declined' THEN NOW() END)
          ON CONFLICT (job_id, source_kind, source_id) DO UPDATE
-                SET description = EXCLUDED.description, amount = EXCLUDED.amount, updated_at = NOW()
+                SET description = EXCLUDED.description, amount = EXCLUDED.amount, updated_at = NOW(),
+                    status = CASE WHEN $8::boolean THEN 'approved' ELSE job_variations.status END,
+                    approved_at = CASE WHEN $8::boolean THEN NOW() ELSE job_variations.approved_at END
               WHERE job_variations.status = 'pending'`,
-        [crypto.randomUUID(), jobId, l.kind, l.sourceId, l.description, l.amount, l.status]
+        [crypto.randomUUID(), jobId, l.kind, l.sourceId, l.description, l.amount, credit ? 'approved' : l.status, credit]
       );
     }
     await client.query(

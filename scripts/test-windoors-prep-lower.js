@@ -1,0 +1,250 @@
+#!/usr/bin/env node
+'use strict';
+
+// ── Regression test: prep can come back down on site (Windows & Doors) ─────
+//
+// On Site, prep raised on a window or door is a variation. The picker used
+// to hide every level below the CURRENT one, so a raise could never be
+// brought back down -- tap Heavy by mistake, or find the timber better than
+// feared once scraped, and the only way out was Measure. What is held here:
+//
+// v2.91.0 then went further (Nicky: "sometimes it is better than expected,
+// same as sometimes it's worse"): prep can go BELOW what the quote priced,
+// and the difference is a credit on the variation.
+//
+//   1. On site, every level is offered.
+//   2. A raise is a variation: quote_prep_level stamped, draft created.
+//   3. While that variation is unanswered, every level is still offered.
+//   4. Lowering to a level still above the quote keeps it a raise, in the
+//      same variation, measured from the same quote level.
+//   5. Lowering all the way to the quote's level dissolves the raise: the
+//      opening reads exactly as it did before (stage quote, nothing stamped).
+//   6. Below the quote's level -- even below the job default -- is a CREDIT:
+//      a negative variation line, worded "prep lowered to", published to the
+//      client as a negative line, netted against extra work in the same
+//      draft, kept off interim invoices and carried by the final. Once
+//      answered it's fixed both ways, so the agreed credit can't vanish.
+//   7. Once the variation is answered, a raise is locked: no level below it
+//      is offered and a call to lower it does nothing.
+//
+// Driven in a real browser against the real public/index.html (served off
+// disk, no server, no database -- writes 404 and queue, as offline on site).
+//
+// USAGE
+//   node scripts/test-windoors-prep-lower.js
+//   npm run test:windoors-prep-lower
+
+const fs = require('fs');
+const path = require('path');
+const http = require('http');
+const { execSync } = require('child_process');
+
+let chromium;
+try { ({ chromium } = require('playwright-core')); }
+catch (e) {
+  try { ({ chromium } = require('playwright')); }
+  catch (e2) {
+    console.error('This test needs Playwright (playwright-core is a devDependency).');
+    process.exit(2);
+  }
+}
+
+function findChrome() {
+  const candidates = [
+    process.env.CHROME_PATH,
+    '/opt/pw-browsers/chromium',
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+  ].filter(Boolean);
+  for (const c of candidates) if (fs.existsSync(c)) return c;
+  for (const name of ['google-chrome-stable', 'google-chrome', 'chromium', 'chromium-browser']) {
+    try {
+      const p = execSync(`which ${name}`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+      if (p) return p;
+    } catch (e) { /* not installed under this name */ }
+  }
+  throw new Error('No Chrome/Chromium found. Install one, or point CHROME_PATH at the executable.');
+}
+
+const PUBLIC = path.join(__dirname, '..', 'public');
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.json': 'application/json' };
+
+function serve() {
+  return new Promise((resolve) => {
+    const srv = http.createServer((req, res) => {
+      const rel = decodeURIComponent(req.url.split('?')[0]);
+      const file = path.join(PUBLIC, rel === '/' ? 'index.html' : rel);
+      if (!file.startsWith(PUBLIC) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
+        res.writeHead(404); res.end('not found'); return;
+      }
+      res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream' });
+      res.end(fs.readFileSync(file));
+    });
+    srv.listen(0, '127.0.0.1', () => resolve(srv));
+  });
+}
+
+const pass = [], fail = [];
+const check = (name, ok, detail) => (ok ? pass : fail).push(name + (!ok && detail !== undefined ? ' — ' + JSON.stringify(detail) : ''));
+const eq = (name, got, want) => check(name, JSON.stringify(got) === JSON.stringify(want), { got, want });
+
+const SEED = () => {
+  jobs = [{ id: 'j1', name: 'Test Job', status: 'accepted', windoorsVariations: [] }];
+  activeJobId = 'j1';
+  windoors = {
+    jobId: 'j1',
+    property: { job_id: 'j1', style: 'georgian', detail_enabled: true, default_prep: 'light', layout: {}, coats: 2 },
+    openings: [
+      { id: 'w1', side: 'front', level: 'standard', floor: 0, position: 1, kind: 'window', type: 'sash', size_tier: 'medium', rows: 2, cols: 3,
+        nickname: null, prep_level: null, prep_stage: 'quote', quote_prep_level: null, prep_variation_id: null,
+        bay_shape: null, bay_storeys: null, parent_opening_id: null, panes_set: false },
+      { id: 'w2', side: 'front', level: 'standard', floor: 0, position: 2, kind: 'window', type: 'sash', size_tier: 'medium', rows: 2, cols: 3,
+        nickname: null, prep_level: 'standard', prep_stage: 'quote', quote_prep_level: null, prep_variation_id: null,
+        bay_shape: null, bay_storeys: null, parent_opening_id: null, panes_set: false }
+    ],
+    marks: []
+  };
+};
+
+(async () => {
+  const srv = await serve();
+  const browser = await chromium.launch({ executablePath: findChrome(), args: ['--no-sandbox'] });
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+
+  await page.goto('http://127.0.0.1:' + srv.address().port + '/', { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(1300);
+  await page.evaluate(SEED);
+  await page.evaluate(async () => { await openWindoors('site'); openWdDetail('w1'); });
+
+  // The prep picker's buttons, read off the rendered sheet.
+  const offered = () => page.evaluate(() => Array.from(document.querySelectorAll('#wd-sheet-body button'))
+    .filter(b => /setWdPrep\(/.test(b.getAttribute('onclick') || ''))
+    .map(b => (b.getAttribute('onclick').match(/'([^']+)'/) || [])[1] + (b.classList.contains('active') ? '*' : '')));
+  const row = (id) => page.evaluate((i) => {
+    const o = windoors.openings.find(x => x.id === i);
+    return { prep_level: o.prep_level, prep_stage: o.prep_stage, quote_prep_level: o.quote_prep_level, hasVar: !!o.prep_variation_id };
+  }, id);
+  const tap = (level) => page.evaluate((l) => {
+    const b = Array.from(document.querySelectorAll('#wd-sheet-body button')).find(x => (x.getAttribute('onclick') || '') === "setWdPrep('" + l + "')");
+    if (!b) return false;
+    b.click(); return true;
+  }, level);
+
+  // ── 1. Every level on offer ──────────────────────────────────────────────
+  eq('1. a quoted opening offers every level', await offered(), ['light*', 'standard', 'heavy', 'restoration']);
+
+  // ── 2. Raise ─────────────────────────────────────────────────────────────
+  check('2. tapped Heavy', await tap('heavy'));
+  eq('2. raised as a variation from the quote\'s level', await row('w1'),
+    { prep_level: 'heavy', prep_stage: 'variation', quote_prep_level: 'light', hasVar: true });
+  const varId = await page.evaluate(() => windoors.openings.find(x => x.id === 'w1').prep_variation_id);
+
+  // ── 3. Down to the quote, not just the current level ─────────────────────
+  eq('3. an unanswered raise offers every level down to the quote\'s', await offered(), ['light', 'standard', 'heavy*', 'restoration']);
+
+  // ── 4. Part way down ─────────────────────────────────────────────────────
+  check('4. tapped Standard', await tap('standard'));
+  eq('4. still a raise, from the same quote level', await row('w1'),
+    { prep_level: 'standard', prep_stage: 'variation', quote_prep_level: 'light', hasVar: true });
+  eq('4. in the same variation', await page.evaluate(() => windoors.openings.find(x => x.id === 'w1').prep_variation_id), varId);
+  check('4. and the variation text says so', /prep raised to standard/.test(await page.evaluate((v) => Windoors.describeVariation(windoors, v), varId)));
+
+  // ── 5. All the way back ──────────────────────────────────────────────────
+  check('5. tapped Light', await tap('light'));
+  eq('5. the raise dissolves: back to exactly as quoted', await row('w1'),
+    { prep_level: null, prep_stage: 'quote', quote_prep_level: null, hasVar: false });
+  eq('5. and the picker still offers every level', await offered(), ['light*', 'standard', 'heavy', 'restoration']);
+  eq('5. and the draft has nothing left in it', await page.evaluate(() => windoorsVariationLines().length), 0);
+
+  // ── 6. Below the quote: a credit ─────────────────────────────────────────
+  await page.evaluate(() => openWdDetail('w2'));
+  eq('6. quoted at Standard (above the default): Light is offered too', await offered(), ['light', 'standard*', 'heavy', 'restoration']);
+  check('6. tapped Light', await tap('light'));
+  eq('6. lowered as a variation from the quote\'s level', await row('w2'),
+    { prep_level: 'light', prep_stage: 'variation', quote_prep_level: 'standard', hasVar: true });
+  const credit = await page.evaluate(() => {
+    const o = windoors.openings.find(x => x.id === 'w2');
+    const per = Windoors.priceJob(windoors, wdRates()).perOpening.w2;
+    const lines = windoorsVariationLines();
+    return { lines: lines.map(l => ({ raw: Math.round(l.raw * 100) / 100, credit: l.credit, status: l.status })),
+             expect: Math.round(per.scaled * (wdRates().prep.light - wdRates().prep.standard) * rpm() * 100) / 100,
+             text: Windoors.describeVariation(windoors, o.prep_variation_id),
+             client: buildClientVariationLines().filter(l => l.kind === 'windoors').map(l => l.amount < 0) };
+  });
+  eq('6. the draft is one line, below zero, marked a credit', credit.lines.map(l => [l.credit, l.status, l.raw < 0]), [[true, 'pending', true]]);
+  eq('6. priced as the scaled opening × (Light − Standard)', credit.lines[0].raw, credit.expect);
+  check('6. and worded as lowered', /W2: prep lowered to light\./.test(credit.text), credit.text);
+  eq('6. it is published to the client as a negative line', credit.client, [true]);
+  check('6. the sheet says it is a credit',
+    /lowered on site from Standard — a credit/.test(await page.evaluate(() => document.getElementById('wd-sheet-body').textContent)));
+  check('6. the Variations card shows it as money off', await page.evaluate(() =>
+    /−£/.test(fmtSigned(-12.5)) && fmtSigned(-12.5) === '−£12.50' && fmtSigned(12.5) === '£12.50'));
+
+  // Netted against extra work in the same draft.
+  const netted = await page.evaluate(() => {
+    const before = windoorsVariationLines()[0].raw;
+    const d = wdDraft(false);
+    windoors.marks.push({ id: 'm1', opening_id: 'w2', element_id: 'cill', action_key: 'resin', stage: 'variation', variation_id: d.id });
+    const after = windoorsVariationLines();
+    const a = wdRates().actions.resin;
+    const out = { n: after.length, delta: Math.round((after[0].raw - before) * 100) / 100, want: Math.round((a.mins * rpm() + a.cost) * 100) / 100 };
+    windoors.marks = [];
+    return out;
+  });
+  eq('6. extra work in the same draft nets against the credit, on one line', [netted.n, netted.delta], [1, netted.want]);
+
+  // Answered: approved like any variation, then on the invoices.
+  const billed = await page.evaluate(() => {
+    const o = windoors.openings.find(x => x.id === 'w2');
+    const v = activeJob().windoorsVariations.find(x => x.id === o.prep_variation_id);
+    v.sentAt = new Date().toISOString(); v.variationStatus = 'approved';
+    let interim = null, fin = null;
+    try { interim = interimVariationCandidates(activeJob()).filter(l => l.kind === 'windoors').length; } catch (e) { interim = 'error: ' + e.message; }
+    try { fin = buildFinalInvoiceModel().variations.filter(l => /Windows and doors/.test(l.desc)).map(l => l.amount < 0 && !l.dropped); } catch (e) { fin = 'error: ' + e.message; }
+    renderWdDetail();
+    return { interim, fin };
+  });
+  eq('6. an approved credit is not billed on an interim (the final squares it)', billed.interim, 0);
+  eq('6. the final invoice carries it as money off', billed.fin, [true]);
+  eq('6. once answered, a credit is fixed: only its own level is offered', await offered(), ['light*']);
+  await page.evaluate(() => setWdPrep('heavy'));
+  eq('6. ...and a direct call to raise it does nothing (the agreed credit stays on the final)', await row('w2'),
+    { prep_level: 'light', prep_stage: 'variation', quote_prep_level: 'standard', hasVar: true });
+
+  // Reset w2 to exactly as quoted for the lock test below.
+  await page.evaluate(() => {
+    const o = windoors.openings.find(x => x.id === 'w2');
+    Object.assign(o, { prep_level: 'standard', prep_stage: 'quote', quote_prep_level: null, prep_variation_id: null });
+    renderWdDetail();
+  });
+
+  // ── 7. Answered: locked ──────────────────────────────────────────────────
+  await tap('heavy');
+  await page.evaluate(() => {
+    const o = windoors.openings.find(x => x.id === 'w2');
+    const v = activeJob().windoorsVariations.find(x => x.id === o.prep_variation_id);
+    v.sentAt = new Date().toISOString(); v.variationStatus = 'approved';
+    renderWdDetail();
+  });
+  eq('7. an answered raise offers nothing below it', await offered(), ['heavy*', 'restoration']);
+  await page.evaluate(() => setWdPrep('standard'));
+  eq('7. and a direct call to lower it does nothing', await row('w2'),
+    { prep_level: 'heavy', prep_stage: 'variation', quote_prep_level: 'standard', hasVar: true });
+
+  check('no page errors', errors.length === 0, errors);
+
+  await browser.close();
+  srv.close();
+
+  console.log('\n' + pass.length + ' passed');
+  pass.forEach(n => console.log('  ✓ ' + n));
+  if (fail.length) {
+    console.log('\n' + fail.length + ' FAILED');
+    fail.forEach(n => console.log('  ✗ ' + n));
+    process.exit(1);
+  }
+  console.log('\nAll good.');
+})().catch((e) => { console.error(e); process.exit(1); });
