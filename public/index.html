@@ -25418,7 +25418,7 @@ function wdAdjustmentText(it) {
   if (!o) return 'Repair';
   var el = Windoors.openingElements(o).find(function(e) { return e.id === it.element_id; });
   var a = Windoors.actionDef(it.action_key);
-  return Windoors.openingLabel(o) + ': ' + (a ? a.verb : 'repair') + ' (' + (el ? el.label : it.element_id) + ') '
+  return Windoors.openingLabel(o) + ': ' + (a ? a.verb : 'repair') + ' (' + (el ? el.label : it.element_id) + (it.count > 1 ? ' \u00d7' + it.count : '') + ') '
     + Windoors.repairTierDef(it.from).short + '\u00a0\u2192\u00a0' + Windoors.repairTierDef(it.to).short;
 }
 // The "Repair size adjustments +£X" line under a W&D total, tapping through
@@ -25529,7 +25529,8 @@ function wdPutMark(m) {
   return apiPutStrict('/api/windoors/marks/' + encodeURIComponent(m.id) + wdQ(), {
     jobId: windoors.jobId, openingId: m.opening_id, elementId: m.element_id,
     actionKey: m.action_key, stage: m.stage, variationId: m.variation_id, doneAt: m.done_at || null,
-    sizeTier: m.size_tier || null, agreedSizeTier: m.agreed_size_tier || null, upgradedAt: m.upgraded_at || null
+    sizeTier: m.size_tier || null, agreedSizeTier: m.agreed_size_tier || null, upgradedAt: m.upgraded_at || null,
+    repairCount: m.repair_count || null
   }).catch(function(e) { wdFail('that mark', e); });
 }
 function wdDeleteMark(m) {
@@ -26785,7 +26786,7 @@ function wdTickListHtml(o, oMarks) {
     h += '<div onclick="wdToggleDone(\'' + escapeHtml(m.id) + '\')" style="display:flex;gap:10px;align-items:center;padding:8px 16px;border-top:1px solid var(--border);cursor:pointer;font-size:13px">'
       + '<span style="flex:none;width:20px;height:20px;border-radius:6px;border:2px solid ' + (done ? 'var(--accent)' : 'var(--border)') + ';background:' + (done ? 'var(--accent)' : 'transparent') + ';color:#fff;font-size:13px;line-height:16px;text-align:center">' + (done ? '✓' : '') + '</span>'
       + '<span style="' + (done ? 'color:var(--text2);text-decoration:line-through' : '') + '">' + escapeHtml((a ? a.label : m.action_key) + ' · ' + (els[m.element_id] || m.element_id)
-        + (Windoors.isTiered(m.action_key) ? ' (' + Windoors.repairTierDef(Windoors.markTier(m)).short + ')' : ''))
+        + (Windoors.isTiered(m.action_key) ? ' (' + (Windoors.repairCount(m) > 1 ? '\u00d7' + Windoors.repairCount(m) + ', ' : '') + Windoors.repairTierDef(Windoors.markTier(m)).short + ')' : ''))
       + (m.stage === 'variation' ? ' <small style="color:var(--text2)">(variation)</small>' : '') + '</span></div>';
   });
   return h + '</div>';
@@ -27013,9 +27014,17 @@ function wdApplyAction(actionKey) {
   var o = wdOpening(); if (!o) return;
   var site = wdMode === 'site';
   var draft = site ? wdDraft(true) : null;
+  var tiered = Windoors.isTiered(actionKey), counted = false;
   Object.keys(wdSel.ids).forEach(function(elId) {
-    var dup = windoors.marks.some(function(m) { return m.opening_id === o.id && m.element_id === elId && m.action_key === actionKey; });
-    if (dup) return;
+    var same = windoors.marks.filter(function(m) { return m.opening_id === o.id && m.element_id === elId && m.action_key === actionKey; });
+    // A resin repair can be more than one per part: another patch at the
+    // other end of the cill. While the part's repair can still be counted
+    // from here, that's its ×2, not a second mark. Once it's locked (the
+    // quote accepted, its variation sent), a patch found on site beside it
+    // is a new repair on the draft -- sized on its own, the part's base
+    // already paid by the first.
+    var dup = tiered ? same.some(wdRepairCountEditable) : same.length > 0;
+    if (dup) { if (tiered) counted = true; return; }
     var m = { id: uid(), opening_id: o.id, element_id: elId, action_key: actionKey,
               stage: site ? 'variation' : 'quote', variation_id: site ? draft.id : null,
               created_at: new Date().toISOString() };
@@ -27025,6 +27034,7 @@ function wdApplyAction(actionKey) {
   });
   wdSel = { kind: null, ids: {} };
   wdChanged();
+  if (counted) toast('Already down for a resin repair — set how many under Repair size');
 }
 // ── A repair's size (RESIN_REPAIR_TIERS_SPEC.md) ─────────────────────────
 // A new repair starts at the size last used on this job (the last one set,
@@ -27063,7 +27073,8 @@ function wdRepairTiersHtml(o, oMarks) {
     var can = wdTierEditable(m);
     h += '<div style="padding:6px 16px 8px;border-top:1px solid var(--border)">'
       + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;margin-bottom:5px">'
-      + '<span>' + escapeHtml((a ? a.label : m.action_key) + ' (' + (els[m.element_id] || m.element_id).toLowerCase() + ', ' + Windoors.repairTierDef(cur).short + ')')
+      + '<span>' + escapeHtml((a ? a.label : m.action_key) + ' (' + (els[m.element_id] || m.element_id).toLowerCase()
+        + (Windoors.repairCount(m) > 1 ? ' \u00d7' + Windoors.repairCount(m) : '') + ', ' + Windoors.repairTierDef(cur).short + ')')
       + (m.stage === 'variation' ? ' <small style="color:var(--text2)">(variation)</small>' : '') + '</span>'
       + (up ? '<span style="flex:none;font-size:11px;font-weight:700;color:#fff;background:var(--accent);border-radius:10px;padding:2px 8px">'
           + Windoors.repairTierDef(ag).short + ' \u2192 ' + Windoors.repairTierDef(cur).short + '</span>' : '')
@@ -27073,12 +27084,36 @@ function wdRepairTiersHtml(o, oMarks) {
           { disabled: function(t) { return !can || (ag && Windoors.repairTierRank(t.key) < Windoors.repairTierRank(ag)); } })
       + '<div style="font-size:11px;color:var(--text2);margin-top:3px">' + escapeHtml(Windoors.repairTierDef(cur).label + ': ' + Windoors.repairTierDef(cur).hint)
       + (ag ? ' · agreed at ' + Windoors.repairTierDef(ag).label.toLowerCase() : '') + '</div>'
+      // Two patches the same size on one part: one mark, ×2. The base is
+      // charged once for the part, the size once per repair.
+      + (wdRepairCountEditable(m)
+        ? '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px;font-size:13px">'
+          + '<span>Repairs on this part<small style="display:block;font-size:11px;color:var(--text2)">e.g. one at each end — the base is charged once</small></span>'
+          + wdStepper('', Windoors.repairCount(m), 'setWdRepairCount(\'' + escapeHtml(m.id) + '\',-1)', 'setWdRepairCount(\'' + escapeHtml(m.id) + '\',1)') + '</div>'
+        : '')
       + '</div>';
   });
   return h + '</div>';
 }
 // Set a repair's size. Up past the agreed size is an upgrade (an
 // adjustment, straight onto the final invoice); back down to it undoes one.
+// How many repairs a part's mark stands for can change while its size can
+// change freely: before the quote is accepted, or on a draft. After that an
+// extra patch is new work -- a repair of its own on the draft (wdApplyAction).
+function wdRepairCountEditable(m) {
+  return Windoors.isTiered(m.action_key) && wdTierEditable(m) && !Windoors.agreedTier(m)
+    && (m.stage === 'variation') === (wdMode === 'site');
+}
+function setWdRepairCount(id, delta) {
+  wdStampTiers();
+  var m = windoors.marks.find(function(x) { return x.id === id; });
+  if (!m || !wdRepairCountEditable(m)) return;
+  var n = Math.max(1, Math.min(Windoors.MAX_REPAIRS, Windoors.repairCount(m) + delta));
+  if (n === Windoors.repairCount(m)) return;
+  m.repair_count = n > 1 ? n : null;
+  wdPutMark(m);
+  wdChanged();
+}
 function setWdMarkTier(id, tier) {
   // Locks first: a job accepted since the last look must not have its quote
   // moved by the first tap on site.

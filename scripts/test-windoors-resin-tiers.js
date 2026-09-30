@@ -17,6 +17,9 @@
 //      size moves the draft freely, and once sent an upgrade is an adjustment.
 //   6. The final invoice bills adjustments as their own line.
 //   7. Amending the quote re-agrees its repairs at today's size.
+//   8. Two patches on one part are one repair ×2: the base once, the size twice.
+//   9. Once that's accepted, a patch found beside them is a new repair on the
+//      draft, at its size only (the part's base is already in the quote).
 //
 // USAGE
 //   node scripts/test-windoors-resin-tiers.js
@@ -203,6 +206,33 @@ const SEED = () => {
   // ── Amending re-agrees the repairs ───────────────────────────────────────
   await page.evaluate(() => wdStampTiers({ restamp: true }));
   eq('7. amending folds the quote repair\'s upgrade into the quote', (await state()).adj.items.map(i => i.mark_id), [vm.id]);
+
+  // ── Two repairs on one part (v2.93.0) ─────────────────────────────────────
+  await page.evaluate(async () => {
+    closeWdDetail();
+    jobs[0].status = 'quoted'; jobs[0].windoorsVariations = [];
+    await openWindoors('quote');
+    windoors.marks = [{ id: 'c1', opening_id: 'w1', element_id: 'cill', action_key: 'resin', stage: 'quote', size_tier: 'small', created_at: '2026-09-01T09:00:00Z' }];
+    wdSaveMirror(); openWdDetail('w1');
+  });
+  const qa = (await state()).quoteMins;
+  const plus = () => page.evaluate(() => {
+    const b = Array.from(document.querySelectorAll('#wd-sheet-body button')).find(x => (x.getAttribute('onclick') || '') === "setWdRepairCount('c1',1)");
+    if (!b) return false; b.click(); return true;
+  });
+  check('8. a repair has a count to step up', await plus());
+  near('8. the second repair adds its size, not another base', (await state()).quoteMins - qa, R.tiers.small.mins);
+  check('8. the label says two', /Resin repair \(cill ×2, S\)/.test(await page.evaluate(() => document.getElementById('wd-sheet-body').textContent)));
+  await page.evaluate(() => { wdSel = { kind: 'part', ids: { cill: true } }; wdApplyAction('resin'); });
+  eq('8. tapping Resin repair on the cill again doesn\'t add a second mark', await page.evaluate(() => windoors.marks.length), 1);
+  // Accepted: the quoted pair locks, and a third patch found on site is a variation of its own.
+  await page.evaluate(async () => { activeJob().status = 'accepted'; wdStampTiers(); closeWdDetail(); await openWindoors('site'); openWdDetail('w1'); });
+  check('9. once accepted the count is locked', !(await plus()));
+  await page.evaluate(() => { wdSel = { kind: 'part', ids: { cill: true } }; wdApplyAction('resin'); });
+  const s9 = await state();
+  eq('9. a patch found on site beside the quoted pair is a new repair on the draft', s9.marks.length, 2);
+  const t9 = s9.marks.find(m => m.id !== 'c1').size;
+  near('9. ...priced at its size only: the part\'s base is already in the quote', s9.vars[0], Math.round((R.tiers[t9].mins * rpm + R.tiers[t9].cost) * 100) / 100);
 
   check('no page errors', errors.length === 0, errors);
 

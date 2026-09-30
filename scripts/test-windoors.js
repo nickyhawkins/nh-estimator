@@ -713,7 +713,7 @@ eq('...4-over-8 beside 8-over-8', W.sashPattern(W.openingDefaults(g8, 'window', 
   eq('an approved variation is on it', td.sections.find(s => s.opening.id === 'a2').variations.map(v => v.text).join('|'), 'Splice timber (cill)');
   check('a pending variation is not', !td.marks.some(m => m.id === 't5'));
   check('only openings with work get a drawing', td.sections.find(s => s.opening.id === 'a1').marked && td.sections.find(s => s.opening.id === 'a2').marked && !td.sections.find(s => s.opening.id === 'dm2').marked);
-  eq('the totals count the work left', td.totals.map(t => t.text).join('; '), 'Reputty x1 pane; Resin repair x1 part; Splice timber x1 part');
+  eq('the totals count the work left', td.totals.map(t => t.text).join('; '), 'Reputty x1 pane; Resin repair x1 repair; Splice timber x1 part');
   eq('3 coats say so', W.reportModel({ property: Object.assign({}, tp, { coats: 3 }), openings: [a2], marks: [] }, [], { todo: true }).sections[0].quoted[0], 'Paint: light prep, 3 coats');
   const done = W.reportModel({ property: tp, openings: [a1, a2, dm], marks: tm }, vars);
   eq('the work report is unchanged: done work only', done.sections.map(s => s.opening.id).join(',') + ' ' + done.marks.map(m => m.id).join(','), 'a1 t2');
@@ -1003,6 +1003,36 @@ check('the Other sheet has the Drawn as picker', /wdOtherDrawHtml\(o\)/.test(bod
   eq('the row maps back', L.mapMark({ id: 'x', size_tier: 'xlarge', agreed_size_tier: 'large', upgraded_at: null }).size_tier, 'xlarge');
   check('the client page knows the adjustment kind', require('../lib/clientQuote').VARIATION_KINDS.has('windoorsadj'));
 }
+// ── Two repairs on one part (v2.93.0): the base once per part ──────────────
+{
+  const rz = (extra) => Object.assign({ id: 'c1', opening_id: 's', element_id: 'cill', action_key: 'resin', stage: 'quote', created_at: '2026-09-01' }, extra || {});
+  const job = (marks) => W.priceJob({ property, openings: [sash], marks }, R);
+  const base = job([]).quote;
+  const T = R.actions.resin.tiers;
+  near('two Small on the cill: the base once, the size twice', job([rz({ size_tier: 'small', repair_count: 2 })]).quote.mins - base.mins, R.actions.resin.baseMins + 2 * T.small.mins);
+  near('...and the resin twice', job([rz({ size_tier: 'small', repair_count: 2 })]).quote.materials - base.materials, 2 * T.small.cost);
+  eq('no count is one', W.repairCount(rz()), 1);
+  eq('a count is capped', W.repairCount(rz({ repair_count: 50 })), W.MAX_REPAIRS);
+  eq('a count on a non-tiered action is ignored', W.repairCount({ action_key: 'filler', repair_count: 3 }), 1);
+  const both = job([rz({ size_tier: 'medium' }), rz({ id: 'c2', stage: 'variation', variation_id: 'v7', size_tier: 'small', created_at: '2026-09-20' })]);
+  near('a repair found on site beside a quoted one: the quote carries the base', both.quote.mins - base.mins, R.actions.resin.baseMins + T.medium.mins);
+  near('...the variation only its size', both.variations.v7.mins, T.small.mins);
+  near('...whatever order the rows come in', job([rz({ id: 'c2', stage: 'variation', variation_id: 'v7', size_tier: 'small', created_at: '2026-09-20' }), rz({ size_tier: 'medium' })]).variations.v7.mins, T.small.mins);
+  near('a repair on another part takes its own base', job([rz({ size_tier: 'medium' }), rz({ id: 'c3', element_id: 'head', size_tier: 'small' })]).quote.mins - base.mins,
+    2 * R.actions.resin.baseMins + T.medium.mins + T.small.mins);
+  const up2 = job([rz({ size_tier: 'large', agreed_size_tier: 'small', repair_count: 2 })]);
+  near('two upgraded: two tier differences', up2.adjustments.mins, 2 * (T.large.mins - T.small.mins));
+  eq('...and the item says two', up2.adjustments.items[0].count, 2);
+  eq('the app\'s label', W.marksClause(sash, [rz({ size_tier: 'small', repair_count: 2 })], { tiers: 'short' }), 'resin repair (cill ×2, S)');
+  eq('the variation text says two', W.marksClause(sash, [rz({ repair_count: 2 })]), 'resin repair (cill ×2)');
+  check('the quote line counts repairs', /resin repair x2/.test(W.itemLineText({ property, openings: [sash], marks: [rz({ repair_count: 2 })] })));
+  const L = require('../lib/windoors');
+  eq('the server keeps the count', L.normaliseMark({ openingId: 's', elementId: 'cill', actionKey: 'resin', repairCount: 2 }).repair_count, 2);
+  eq('...stores one as NULL', L.normaliseMark({ openingId: 's', elementId: 'cill', actionKey: 'resin', repairCount: 1 }).repair_count, null);
+  eq('...caps it', L.normaliseMark({ openingId: 's', elementId: 'cill', actionKey: 'resin', repairCount: 40 }).repair_count, W.MAX_REPAIRS);
+  eq('...and drops it off a non-tiered action', L.normaliseMark({ openingId: 's', elementId: 'cill', actionKey: 'filler', repairCount: 2 }).repair_count, null);
+}
+check('marks save their count', /repairCount: m\.repair_count/.test(body('wdPutMark')));
 // The app wiring.
 check('marks save their size', /sizeTier: m\.size_tier/.test(body('wdPutMark')) && /agreedSizeTier: m\.agreed_size_tier/.test(body('wdPutMark')));
 check('acceptance locks the repairs', /wdStampTiers\(\)/.test(body('setJobStatusById')));

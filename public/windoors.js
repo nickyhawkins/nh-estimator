@@ -536,27 +536,42 @@
     return !!ag && isTiered(m.action_key) && repairTierRank(markTier(m)) > repairTierRank(ag);
   }
   // One action's figures, at a tier where it takes one.
-  function actionPrice(rates, actionKey, tier) {
+  //
+  // count: how many repairs of this size on the part (two thumb-sized patches
+  // at either end of a cill). noBase: the base is charged ONCE PER PART --
+  // setup, consolidating and the cure wait are shared by every repair on it
+  // done in the same visit -- so a second mark on a part already carrying it
+  // (a repair found on site beside a quoted one) is its tier only.
+  function actionPrice(rates, actionKey, tier, count, noBase) {
     var a = rates.actions[actionKey];
     if (!a) return null;
     if (!a.tiers) return { mins: a.mins, cost: a.cost };
     var t = a.tiers[repairTierRank(tier) >= 0 ? tier : 'medium'];
-    return { mins: a.baseMins + t.mins, cost: t.cost };
+    var n = count == null ? 1 : count;
+    return { mins: (noBase ? 0 : a.baseMins) + t.mins * n, cost: t.cost * n };
+  }
+  // How many repairs a tiered mark stands for: 1 to MAX_REPAIRS, NULL = 1.
+  var MAX_REPAIRS = 9;
+  function repairCount(m) {
+    var n = Math.floor(+(m && m.repair_count));
+    return isTiered(m && m.action_key) && n > 1 ? Math.min(MAX_REPAIRS, n) : 1;
   }
   // A mark priced: what its stage carries (the agreed tier, or the tier it's
   // at while nothing is agreed yet), and the upgrade above that, if any.
   // The floor holds here as well as in the UI: a tier set BELOW the agreed
   // one still prices at the agreed one. An upgrade is the tier difference
   // only -- the base is the same whatever the size.
-  function markPrice(m, rates) {
-    var cur = markTier(m);
+  // An upgrade is per repair: two patches that both turn out Large are two
+  // tier differences.
+  function markPrice(m, rates, noBase) {
+    var cur = markTier(m), n = repairCount(m);
     var ag = isTiered(m.action_key) ? agreedTier(m) : null;
     var billed = ag && repairTierRank(ag) > repairTierRank(cur) ? ag : (ag || cur);
-    var p = actionPrice(rates, m.action_key, billed);
+    var p = actionPrice(rates, m.action_key, billed, n, noBase);
     if (!p) return null;
-    var out = { mins: p.mins, cost: p.cost, adjMins: 0, adjCost: 0, from: billed, to: billed };
+    var out = { mins: p.mins, cost: p.cost, adjMins: 0, adjCost: 0, from: billed, to: billed, count: n };
     if (ag && repairTierRank(cur) > repairTierRank(ag)) {
-      var up = actionPrice(rates, m.action_key, cur);
+      var up = actionPrice(rates, m.action_key, cur, n, noBase);
       out.adjMins = Math.max(0, up.mins - p.mins);
       out.adjCost = Math.max(0, up.cost - p.cost);
       out.to = cur;
@@ -1191,17 +1206,26 @@
         per.varMins += delta;
       });
     });
-    marks.forEach(function (m) {
+    // The quote's marks first, then the site's in the order they were made,
+    // so a part's base rides its FIRST repair: the quoted one where there is
+    // one, never the variation that joined it.
+    var baseTaken = {};
+    marks.slice().sort(function (x, y) {
+      return ((x.stage === 'variation') - (y.stage === 'variation')) || String(x.created_at || '').localeCompare(String(y.created_at || ''));
+    }).forEach(function (m) {
       var o = byId[m.opening_id];
       if (!o) return;
-      var a = markPrice(m, rates);
+      var partKey = m.opening_id + '|' + m.element_id + '|' + m.action_key;
+      var noBase = isTiered(m.action_key) && !!baseTaken[partKey];
+      if (isTiered(m.action_key)) baseTaken[partKey] = true;
+      var a = markPrice(m, rates, noBase);
       if (!a) return;
       var per = out.perOpening[o.id];
       if (a.adjMins > 0 || a.adjCost > 0) {
         out.adjustments.mins += a.adjMins; out.adjustments.materials += a.adjCost; out.adjustments.count++;
         out.adjustments.items.push({ mark_id: m.id, opening_id: o.id, element_id: m.element_id, action_key: m.action_key,
           stage: m.stage === 'variation' ? 'variation' : 'quote', variation_id: m.stage === 'variation' ? (m.variation_id || null) : null,
-          from: a.from, to: a.to, mins: a.adjMins, materials: a.adjCost });
+          from: a.from, to: a.to, count: a.count, mins: a.adjMins, materials: a.adjCost });
         per.adjMins += a.adjMins; per.adjMaterials += a.adjCost;
       }
       if (m.stage === 'variation') {
@@ -1324,10 +1348,12 @@
         return a.verb + ' x' + list.length + ' ' + what;
       }
       var names = list.map(function (m) { return els[m.element_id] ? els[m.element_id].label : m.element_id; });
+      // Two repairs on one part say so wherever the part is named.
+      if (a.tiered && !tierWords) names = names.map(function (nm, i) { var n = repairCount(list[i]); return n > 1 ? nm + ' \u00d7' + n : nm; });
       if (a.tiered && tierWords) {
         return a.verb + ' (' + list.map(function (m, i) {
-          var td = repairTierDef(markTier(m));
-          return names[i] + ', ' + (tierWords === 'short' ? td.short : td.label.toLowerCase());
+          var td = repairTierDef(markTier(m)), n = repairCount(m);
+          return names[i] + (n > 1 ? ' \u00d7' + n : '') + ', ' + (tierWords === 'short' ? td.short : td.label.toLowerCase());
         }).join('; ') + ')';
       }
       return a.verb + ' (' + names.join(', ') + ')';
@@ -1394,7 +1420,7 @@
     var qMarks = marks.filter(function (m) { return m.stage !== 'variation' && inQuote[m.opening_id]; });
     if (qMarks.length) {
       var perAction = {}, aOrder = [];
-      qMarks.forEach(function (m) { if (!perAction[m.action_key]) { perAction[m.action_key] = 0; aOrder.push(m.action_key); } perAction[m.action_key]++; });
+      qMarks.forEach(function (m) { if (!perAction[m.action_key]) { perAction[m.action_key] = 0; aOrder.push(m.action_key); } perAction[m.action_key] += repairCount(m); });
       var keys = ACTIONS.map(function (a) { return a.key; }).filter(function (k) { return perAction[k]; });
       text += ' Includes ' + keys.map(function (k) { return actionDef(k).verb + ' x' + perAction[k]; }).join(', ') + '.';
     }
@@ -2656,10 +2682,12 @@
     });
     // Counted up by action, in the Rates card's order: "Reputty x14 panes".
     var counts = {};
-    marks.forEach(function (m) { counts[m.action_key] = (counts[m.action_key] || 0) + 1; });
+    marks.forEach(function (m) { counts[m.action_key] = (counts[m.action_key] || 0) + repairCount(m); });
     var totals = ACTIONS.filter(function (a) { return counts[a.key]; }).map(function (a) {
       var n = counts[a.key];
-      return { key: a.key, label: a.label, count: n, text: a.label + ' x' + n + ' ' + (a.on === 'pane' ? (n === 1 ? 'pane' : 'panes') : (n === 1 ? 'part' : 'parts')) };
+      // A tiered action counts repairs, not parts: two on one cill are two.
+      var unit = a.on === 'pane' ? (n === 1 ? 'pane' : 'panes') : a.tiered ? (n === 1 ? 'repair' : 'repairs') : (n === 1 ? 'part' : 'parts');
+      return { key: a.key, label: a.label, count: n, text: a.label + ' x' + n + ' ' + unit };
     });
     return { sides: sides, sections: sections, highlight: openingsWithWork, marks: marks, totals: totals, todo: todo };
   }
@@ -2739,7 +2767,7 @@
     openingCode: openingCode, openingLabel: openingLabel, sortOpenings: sortOpenings,
     effectivePrep: effectivePrep, quotePrep: quotePrep, prepChange: prepChange, prepChangeText: prepChangeText, prepSteps: prepSteps, prepChain: prepChain, prepStep: prepStep, baseMinutes: baseMinutes, paintedMinutes: paintedMinutes,
     REPAIR_TIERS: REPAIR_TIERS, isTiered: isTiered, repairTierDef: repairTierDef, repairTierRank: repairTierRank, markTier: markTier, agreedTier: agreedTier,
-    isUpgraded: isUpgraded, actionPrice: actionPrice, markPrice: markPrice, tierStamps: tierStamps,
+    isUpgraded: isUpgraded, repairCount: repairCount, MAX_REPAIRS: MAX_REPAIRS, actionPrice: actionPrice, markPrice: markPrice, tierStamps: tierStamps,
     priceJob: priceJob, openingPaintM2: openingPaintM2, paintAreas: paintAreas, marksClause: marksClause, describeVariation: describeVariation, itemLineText: itemLineText,
     workFlags: workFlags, elevationSvg: elevationSvg, detailSvg: detailSvg,
     OTHER_PAINT: OTHER_PAINT, otherName: otherName, PORCH_STYLES: PORCH_STYLES, sideGeometry: sideGeometry, otherDraw: otherDraw, otherDoor: otherDoor, porchStyleFor: porchStyleFor, porchPreviewSvg: porchPreviewSvg, drawPorchGlyph: drawPorchGlyph, OTHER_PRICING: OTHER_PRICING, OTHER_UNITS: OTHER_UNITS, OTHER_MAX_MINS: OTHER_MAX_MINS, OTHER_MAX_PRICE: OTHER_MAX_PRICE,

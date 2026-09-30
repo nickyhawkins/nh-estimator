@@ -117,6 +117,10 @@ A line under the W&D total: **Repair size adjustments +£X** (only when non-zero
 - Pre-acceptance: tier changes move the quote, adjustments always zero.
 - Work report shows the upgraded tier.
 
+## 8a. Two repairs on one part (v2.93.0)
+
+A mark can stand for more than one repair of its size on the same part (`opening_marks.repair_count`, NULL = 1): a small patch at each end of a cill. The **base is charged once per part**, since both patches share the setup and the cure wait. The tier's minutes and £ are charged once per repair. The count can change while the size is freely editable (before acceptance, or on a draft variation). After that, a patch found on site beside a quoted repair is a new variation mark with its own size, priced at its tier only, because the part's base is already in the quote. An upgrade is the tier difference times the count.
+
 ## 9. Out of scope
 
 - Tiers for any action other than resin.

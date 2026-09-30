@@ -1506,13 +1506,13 @@ router.put('/windoors/marks/:id', async (req, res) => {
   try {
     const result = await db.query(`
       INSERT INTO opening_marks (id, job_id, opening_id, element_id, action_key, stage, variation_id, done_at,
-                                 size_tier, agreed_size_tier, upgraded_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                                 size_tier, agreed_size_tier, upgraded_at, repair_count)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       ON CONFLICT (id) DO UPDATE SET element_id = $4, action_key = $5, stage = $6, variation_id = $7, done_at = $8,
-                                     size_tier = $9, agreed_size_tier = $10, upgraded_at = $11
+                                     size_tier = $9, agreed_size_tier = $10, upgraded_at = $11, repair_count = $12
       RETURNING *
     `, [req.params.id, jobId, m.opening_id, m.element_id, m.action_key, m.stage, m.variation_id, m.done_at,
-        m.size_tier, m.agreed_size_tier, m.upgraded_at]);
+        m.size_tier, m.agreed_size_tier, m.upgraded_at, m.repair_count]);
     res.json({ ok: true, id: req.params.id, mark: mapMark(result.rows[0]) });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2755,14 +2755,14 @@ async function copyJobRows(entry, newJobId) {
       const oid = openingIds.get(m.opening_id);
       if (!oid) continue;
       const n = normaliseMark({ openingId: oid, elementId: m.element_id, actionKey: m.action_key, stage: m.stage, variationId: m.variation_id, doneAt: m.done_at,
-        sizeTier: m.size_tier, agreedSizeTier: m.agreed_size_tier, upgradedAt: m.upgraded_at });
+        sizeTier: m.size_tier, agreedSizeTier: m.agreed_size_tier, upgradedAt: m.upgraded_at, repairCount: m.repair_count });
       if (n.error) continue;
       await db.query(
         `INSERT INTO opening_marks (id, job_id, opening_id, element_id, action_key, stage, variation_id, created_at, done_at,
-                                    size_tier, agreed_size_tier, upgraded_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::timestamp, NOW()), $9, $10, $11, $12)`,
+                                    size_tier, agreed_size_tier, upgraded_at, repair_count)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::timestamp, NOW()), $9, $10, $11, $12, $13)`,
         [crypto.randomUUID(), newJobId, oid, n.element_id, n.action_key, n.stage, n.variation_id, m.created_at || null, n.done_at,
-          n.size_tier, n.agreed_size_tier, n.upgraded_at]
+          n.size_tier, n.agreed_size_tier, n.upgraded_at, n.repair_count]
       );
     }
   }
