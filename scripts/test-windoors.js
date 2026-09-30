@@ -138,6 +138,34 @@ eq('the badge counts it as site work', W.workFlags({ property: stdProp, openings
 // A drop the default later overtakes is still a drop, from the new level.
 const stdToHeavy = W.priceJob({ property: { default_prep: 'heavy' }, openings: [lowered], marks: [] }, R);
 near('...measured from what the quote now prices', stdToHeavy.variations.v3.mins, 119.5 * 1.1 * (1.1 - 1.4));
+// ── After an answered change: steps (v2.91.1) ─────────────────────────────
+// Nicky's W1: quoted Standard, raised to Heavy on a variation the client
+// approved, then found better than feared and lowered to Standard on site.
+// The approved raise must stay exactly as agreed; the drop is a NEW credit.
+const stepped = Object.assign({}, sash, { prep_stage: 'variation', quote_prep_level: 'standard',
+  prep_steps: [{ variation_id: 'vA', level: 'heavy' }], prep_level: 'standard', prep_variation_id: 'vB' });
+const stepPrice = W.priceJob({ property: stdProp, openings: [stepped], marks: [] }, R);
+const unit = 119.5 * 1.1;
+near('the approved raise still prices as agreed, in its own variation', stepPrice.variations.vA.mins, unit * (1.4 - 1.25));
+near('the drop is a credit on the new one, from the AGREED level', stepPrice.variations.vB.mins, unit * (1.25 - 1.4));
+near('the quote is untouched', stepPrice.quote.mins, stdQuote.quote.mins);
+eq('each variation reads its own step', [W.describeVariation({ property: stdProp, openings: [stepped], marks: [] }, 'vA'),
+  W.describeVariation({ property: stdProp, openings: [stepped], marks: [] }, 'vB')].join(' | '),
+  'Front, first floor, W2: prep raised to heavy. | Front, first floor, W2: prep lowered to standard.');
+eq('the live level is the one set last, taken as it is', W.effectivePrep(stepped, stdProp), 'standard');
+eq('the live step is the lowering', W.prepChange(stepped, stdProp), 'lowered');
+// Down below the quote from there, even below the default.
+const stepped2 = Object.assign({}, stepped, { prep_level: 'light' });
+near('below the quote after an agreed raise: the credit runs from the agreed level', W.priceJob({ property: stdProp, openings: [stepped2], marks: [] }, R).variations.vB.mins, unit * (1.1 - 1.4));
+// And a second raise on top of an approved one no longer drags the approved
+// part into the new variation.
+const stepped3 = Object.assign({}, stepped, { prep_level: 'restoration' });
+const sp3 = W.priceJob({ property: stdProp, openings: [stepped3], marks: [] }, R);
+near('a further raise prices only the extra step', sp3.variations.vB.mins, unit * (1.75 - 1.4));
+near('...leaving the approved raise where it was', sp3.variations.vA.mins, unit * (1.4 - 1.25));
+eq('a step back to the agreed level is no change on the live variation', W.prepChain(Object.assign({}, stepped, { prep_level: 'heavy' }), stdProp).length, 1);
+eq('rows saved before steps existed read as none', W.prepSteps({ prep_stage: 'variation' }).length, 0);
+
 // The report: an approved drop is listed as done, like a raise.
 const dropReport = JSON.stringify(W.reportModel({ property: stdProp, openings: [lowered], marks: [] }, [{ id: 'v3', status: 'approved' }]));
 check('the report names an approved drop', dropReport.indexOf('rep lowered to light') >= 0, dropReport.slice(0, 300));
@@ -743,7 +771,7 @@ check('loading the fixture recovers orphaned variations', /wdRecoverVariations\(
     const ctx = {
       windoors: { jobId: 'j', marks, openings: openings || [] }, activeJobId: 'j', jobs: [job],
       activeJob: () => job, wdVariationList: j => (j && Array.isArray(j.windoorsVariations)) ? j.windoorsVariations : [],
-      localStorage: { setItem() {} }, persisted: 0, toasts: [], JSON, Date,
+      localStorage: { setItem() {} }, persisted: 0, toasts: [], JSON, Date, Windoors: W,
     };
     ctx.persistJobData = () => { ctx.persisted++; };
     ctx.toast = m => ctx.toasts.push(m);
@@ -760,6 +788,9 @@ check('loading the fixture recovers orphaned variations', /wdRecoverVariations\(
   eq('...dated from their earliest mark', t1.job.windoorsVariations[1].createdAt, '2026-09-19T09:00:00Z');
   check('...as unanswered drafts', t1.job.windoorsVariations.slice(1).every(v => v.sentAt === null && !v.variationStatus && v.recoveredAt));
   check('...saved to the server, and said so', t1.ctx.persisted === 1 && /Recovered 2/.test(t1.ctx.toasts[0]));
+  const t3 = make([{ id: 'live' }], [], [{ id: 'd', prep_stage: 'variation', prep_variation_id: 'live',
+    prep_steps: [{ variation_id: 'agreedLost', level: 'heavy' }] }]);
+  eq('an answered prep step\'s variation is recovered too', recover(t3.ctx) + ':' + t3.job.windoorsVariations.map(v => v.id).join(','), '1:live,agreedLost');
   eq('running it again finds nothing', recover(t1.ctx), 0);
   const t2 = make(undefined, [{ opening_id: 'a', stage: 'quote' }]);
   check('nothing orphaned: nothing written', recover(t2.ctx) === 0 && t2.ctx.persisted === 0 && t2.job.windoorsVariations === undefined);

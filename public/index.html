@@ -25195,7 +25195,11 @@ function wdRecoverVariations() {
     else if (at && (!lost[id].at || at < lost[id].at)) lost[id].at = at;
   };
   (windoors.marks || []).forEach(function(m) { if (m.stage === 'variation') note(m.variation_id, m.created_at); });
-  (windoors.openings || []).forEach(function(o) { if (o.prep_stage === 'variation') note(o.prep_variation_id, null); });
+  (windoors.openings || []).forEach(function(o) {
+    if (o.prep_stage !== 'variation') return;
+    note(o.prep_variation_id, null);
+    Windoors.prepSteps(o).forEach(function(st) { note(st.variation_id, null); });
+  });
   if (!order.length) return 0;
   var now = new Date().toISOString();
   job.windoorsVariations = wdVariationList(job).slice();
@@ -25341,7 +25345,7 @@ function wdPutOpening(o) {
   return apiPutStrict('/api/windoors/openings/' + encodeURIComponent(o.id) + wdQ(), {
     jobId: windoors.jobId, side: o.side, floor: o.floor, level: Windoors.levelOf(o), kind: o.kind, position: o.position,
     nickname: o.nickname || '', type: o.type, sizeTier: o.size_tier, rows: o.rows, cols: o.cols,
-    prepLevel: o.prep_level, prepStage: o.prep_stage, quotePrepLevel: o.quote_prep_level,
+    prepLevel: o.prep_level, prepStage: o.prep_stage, quotePrepLevel: o.quote_prep_level, prepSteps: o.prep_steps || [],
     prepVariationId: o.prep_variation_id, rowsBottom: o.rows_bottom == null ? null : o.rows_bottom,
     bayShape: o.bay_shape || null, bayStoreys: o.bay_storeys || null, parentOpeningId: o.parent_opening_id || null,
     panesSet: !!o.panes_set, access: o.access || null,
@@ -26145,7 +26149,7 @@ function editWdLayout() {
 // bay window's parent.
 function wdNewOpening(fields) {
   var o = Object.assign({ id: uid(), side: wdSide, level: 'standard', floor: 0, nickname: null,
-    prep_level: null, prep_stage: 'quote', quote_prep_level: null, prep_variation_id: null,
+    prep_level: null, prep_stage: 'quote', quote_prep_level: null, prep_variation_id: null, prep_steps: [],
     bay_shape: null, bay_storeys: null, parent_opening_id: null, panes_set: false }, fields);
   windoors.openings.push(o);
   wdPutOpening(o);
@@ -26412,12 +26416,9 @@ function renderWdDetail() {
   if (scope.excluded) { box.innerHTML = h; return; }
   var eff = Windoors.effectivePrep(o, p);
   var floorLevel = wdPrepFloor(o, site);
-  var levels = Windoors.PREP_LEVELS.filter(function(l) { return Windoors.prepRank(l.key) >= Windoors.prepRank(floorLevel)
-    && (!wdPrepLocked(o, site) || l.key === eff); });
+  var levels = Windoors.PREP_LEVELS.filter(function(l) { return Windoors.prepRank(l.key) >= Windoors.prepRank(floorLevel); });
   // A set price isn't scaled by prep, so there's no prep to pick.
-  var prepCh = site ? Windoors.prepChange(o, p) : null;
-  if (!(isOther && Windoors.otherPricing(o) === 'price')) h += '<div class="subsection-label">Prep' + (prepCh
-      ? '<small>' + prepCh + ' on site from ' + Windoors.prepLabel(Windoors.quotePrep(o, p)) + (prepCh === 'lowered' ? ' — a credit on the variation' : ' — a variation') + '</small>' : '') + '</div>'
+  if (!(isOther && Windoors.otherPricing(o) === 'price')) h += '<div class="subsection-label">Prep' + wdPrepNote(o, site) + '</div>'
     + '<div style="padding:0 16px 10px">' + wdSegHtml(levels, eff, 'setWdPrep') + '</div>';
   if (!isOther) h += wdAccessHtml(o);
   // The diagram and the marking tools.
@@ -26483,8 +26484,7 @@ function renderWdBay(o, box) {
   if (o.excluded) { box.innerHTML = h; return; }
   var eff = Windoors.effectivePrep(o, p);
   var floorLevel = wdPrepFloor(o, site);
-  var levels = Windoors.PREP_LEVELS.filter(function(l) { return Windoors.prepRank(l.key) >= Windoors.prepRank(floorLevel)
-    && (!wdPrepLocked(o, site) || l.key === eff); });
+  var levels = Windoors.PREP_LEVELS.filter(function(l) { return Windoors.prepRank(l.key) >= Windoors.prepRank(floorLevel); });
   h += '<div class="subsection-label">Prep<small>the bay\'s own timber — each window has its own</small></div>'
     + '<div style="padding:0 16px 10px">' + wdSegHtml(levels, eff, 'setWdPrep') + '</div>';
   h += wdAccessHtml(o);
@@ -26571,12 +26571,12 @@ function wdWorkListHtml(o, oMarks) {
   if (qc) rows += line(escapeHtml(qc.charAt(0).toUpperCase() + qc.slice(1)), 'quote');
   var byVar = {};
   varMarks.forEach(function(m) { (byVar[m.variation_id || ''] = byVar[m.variation_id || ''] || []).push(m); });
-  if (Windoors.prepChange(o, p)) byVar[o.prep_variation_id || ''] = byVar[o.prep_variation_id || ''] || [];
+  Windoors.prepChain(o, p).forEach(function(st) { byVar[st.variation_id || ''] = byVar[st.variation_id || ''] || []; });
   Object.keys(byVar).forEach(function(vid) {
     var v = wdVariationList().find(function(x) { return x.id === vid; });
     var st = v ? variationStatusOf(v) : 'pending';
     var bits = [];
-    if (Windoors.prepChange(o, p) && (o.prep_variation_id || '') === vid) bits.push(Windoors.prepChangeText(o, p));
+    if (Windoors.prepStep(o, p, vid || null)) bits.push(Windoors.prepChangeText(o, p, vid || null));
     var vc = Windoors.marksClause(o, byVar[vid]);
     if (vc) bits.push(vc);
     if (!bits.length) return;
@@ -26728,28 +26728,38 @@ function setWdAccess(key) {
   wdPutOpening(o); wdChanged();
 }
 // The lowest prep level the picker offers. From Measure (and for an opening
-// added on site) that's the job default. On site, any level -- a window
-// found better than quoted comes down, and the difference is a credit on
-// the variation (v2.91.0) -- unless the change already made has been
-// answered by the client, which locks it where it is.
+// added on site) that's the job default. On site, any level: up is extra
+// work, down (below what was quoted or agreed) a credit.
 function wdPrepFloor(o, site) {
   var p = windoors.property;
   if (!site || wdSiteAdded(o)) return p.default_prep || 'light';
-  if (o.prep_stage === 'variation' && !wdVariationEditable(o.prep_variation_id)) return Windoors.effectivePrep(o, p);
   return Windoors.PREP_LEVELS[0].key;
 }
-// An answered credit is fixed both ways (setWdPrep): only its own level.
-function wdPrepLocked(o, site) {
-  return !!site && o.prep_stage === 'variation' && !wdVariationEditable(o.prep_variation_id)
-    && Windoors.prepChange(o, windoors.property) === 'lowered';
+// Under the Prep heading on site: where the level came from, e.g. "raised
+// on site from Standard — a variation", or, after an answered change,
+// "lowered on site from Heavy (agreed) — a credit on the variation".
+function wdPrepNote(o, site) {
+  if (!site) return '';
+  var p = windoors.property;
+  var st = Windoors.prepStep(o, p);
+  if (!st || !wdVariationEditable(o.prep_variation_id)) {
+    var ch = Windoors.prepChain(o, p);
+    return ch.length ? '<small>' + Windoors.prepLabel(ch[ch.length - 1].to) + ' agreed on site — a change from here is a new variation</small>' : '';
+  }
+  var agreed = Windoors.prepSteps(o).length > 0;
+  return '<small>' + st.change + ' on site from ' + Windoors.prepLabel(st.from) + (agreed ? ' (agreed)' : '')
+    + (st.change === 'lowered' ? ' — a credit on the variation' : ' — a variation') + '</small>';
 }
 // Prep. From Measure it simply sets the level the quote prices. On site a
 // change either way is a variation: the level in force before it is stamped
-// as quote_prep_level (the first time only -- a second change on site is
-// still measured from what the QUOTE had), and the change joins the open
-// draft. Up is extra work; down is a credit, netted against the rest of the
-// draft. Back at the quote's level the change dissolves. An answered change
-// is locked.
+// as quote_prep_level (the first time only -- later changes are still
+// measured from what the QUOTE had), and the change joins the open draft.
+// Up is extra work; down is a credit, netted against the rest of the draft.
+// Back at the level it started from, the change dissolves.
+//
+// A change the client has ANSWERED is never rewritten (v2.91.1): it's
+// filed in prep_steps exactly as agreed, and whatever happens next -- up
+// or down -- is a new step on the open draft, priced from the agreed level.
 function setWdPrep(level) {
   var o = wdOpening(); if (!o) return;
   var p = windoors.property;
@@ -26758,25 +26768,30 @@ function setWdPrep(level) {
     // simply set (while the variation is still open), not raised.
     if (Windoors.prepRank(level) < Windoors.prepRank(p.default_prep || 'light')) return;
     o.prep_level = level === (p.default_prep || 'light') ? null : level;
-    o.prep_stage = 'quote'; o.quote_prep_level = null; o.prep_variation_id = null;
+    o.prep_stage = 'quote'; o.quote_prep_level = null; o.prep_variation_id = null; o.prep_steps = [];
   } else if (wdMode === 'site') {
     var was = Windoors.effectivePrep(o, p);
     if (Windoors.prepRank(level) < 0 || level === was) return;
+    var steps = Windoors.prepSteps(o).slice();
     if (o.prep_stage === 'variation' && !wdVariationEditable(o.prep_variation_id)) {
-      // Answered: the client has agreed to that level, so it's fixed -- a
-      // further RAISE is new extra work on the open draft, as it always was.
-      // An answered CREDIT can't be moved at all: raising it would re-price
-      // it in the new draft and take the agreed credit off the final invoice
-      // while the client's page still shows it.
-      if (Windoors.prepRank(level) < Windoors.prepRank(was) || Windoors.prepChange(o, p) === 'lowered') return;
+      // The live change has been answered: it becomes a fixed step, at the
+      // level agreed, and this change starts the next one.
+      steps.push({ variation_id: o.prep_variation_id, level: was });
+      o.prep_steps = steps;
       o.prep_level = level;
       o.prep_variation_id = wdDraft(true).id;
     } else {
-      var q = Windoors.quotePrep(o, p);
-      if (level === q) {
-        // Back to what the quote priced: no change at all.
-        o.prep_level = q === (p.default_prep || 'light') ? null : q;
-        o.prep_stage = 'quote'; o.quote_prep_level = null; o.prep_variation_id = null;
+      var base = steps.length ? steps[steps.length - 1].level : Windoors.quotePrep(o, p);
+      if (level === base) {
+        if (steps.length) {
+          // Back to what was agreed: the answered step is the live one again.
+          var last = steps.pop();
+          o.prep_steps = steps; o.prep_level = last.level; o.prep_variation_id = last.variation_id;
+        } else {
+          // Back to what the quote priced: no change at all.
+          o.prep_level = base === (p.default_prep || 'light') ? null : base;
+          o.prep_stage = 'quote'; o.quote_prep_level = null; o.prep_variation_id = null; o.prep_steps = [];
+        }
       } else {
         if (o.prep_stage !== 'variation') { o.quote_prep_level = was; o.prep_stage = 'variation'; }
         o.prep_level = level;
@@ -26786,12 +26801,16 @@ function setWdPrep(level) {
   } else {
     if (Windoors.prepRank(level) < Windoors.prepRank(p.default_prep || 'light')) return;
     if (o.prep_stage === 'variation') {
-      // Editing the quote's level under an on-site raise: the quote's level
-      // moves, the raise stays a raise above it (or dissolves if the quote
-      // now matches it).
+      // Editing the quote's level under an on-site change: the quote's level
+      // moves and the site change is measured from it. A single unanswered
+      // change the new quote level meets or passes dissolves (a raise the
+      // quote now covers, a drop to a level the quote now prices at or
+      // under); once anything has been agreed on site it stands.
+      var dir = Windoors.prepRank(o.prep_level) - Windoors.prepRank(o.quote_prep_level || p.default_prep || 'light');
       o.quote_prep_level = level;
-      if (Windoors.prepRank(level) >= Windoors.prepRank(o.prep_level)) {
-        o.prep_level = level; o.prep_stage = 'quote'; o.quote_prep_level = null; o.prep_variation_id = null;
+      var now = Windoors.prepRank(o.prep_level) - Windoors.prepRank(level);
+      if (!Windoors.prepSteps(o).length && (now === 0 || (dir > 0) !== (now > 0))) {
+        o.prep_level = level; o.prep_stage = 'quote'; o.quote_prep_level = null; o.prep_variation_id = null; o.prep_steps = [];
       }
     } else {
       o.prep_level = level === (p.default_prep || 'light') ? null : level;

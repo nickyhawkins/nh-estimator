@@ -672,11 +672,12 @@ CREATE TABLE IF NOT EXISTS job_openings (
   size_tier VARCHAR NOT NULL,             -- small|medium|large|xlarge / standard|oversized
   rows INTEGER NOT NULL DEFAULT 1,        -- pane rows (per sash for sash windows)
   cols INTEGER NOT NULL DEFAULT 1,
-  prep_level VARCHAR,                     -- NULL = the job default; only ever raised
+  prep_level VARCHAR,                     -- NULL = the job default; raised or lowered on site
   prep_stage VARCHAR NOT NULL DEFAULT 'quote',
-  -- When prep was raised ON SITE: the level the quote priced before the raise,
-  -- and the draft variation the raise belongs to. The variation is priced as
-  -- base x (new multiplier - this one) and is never negative.
+  -- When prep was changed ON SITE: the level the quote priced before the
+  -- change, and the variation the change belongs to. Priced as base x (new
+  -- multiplier - this one): a raise is extra work, a drop a credit (v2.91.0).
+  -- Answered changes before the live one are in prep_steps (v2.91.1).
   quote_prep_level VARCHAR,
   prep_variation_id VARCHAR,
   created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -688,6 +689,8 @@ CREATE TABLE IF NOT EXISTS job_openings (
 -- window points at it by parent_opening_id and is numbered 100 x bay + 10 x
 -- storey + face), and whether the pane layout was set by hand.
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS level VARCHAR NOT NULL DEFAULT 'standard'; -- lower_ground | standard | roof
+-- v2.91.1: site prep changes already answered, before the live one: [{variation_id, level}].
+ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS prep_steps JSONB NOT NULL DEFAULT '[]';
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS bay_shape VARCHAR;                           -- canted | square (kind = 'bay')
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS bay_storeys INTEGER;                         -- 1 or 2 (kind = 'bay')
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS parent_opening_id VARCHAR;                   -- the bay, on a bay's window

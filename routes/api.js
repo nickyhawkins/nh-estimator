@@ -1447,22 +1447,23 @@ router.put('/windoors/openings/:id', async (req, res) => {
                                 prep_level, prep_stage, quote_prep_level, prep_variation_id,
                                 level, bay_shape, bay_storeys, parent_opening_id, panes_set, rows_bottom,
                                 other_mins, other_cost, other_m2, access,
-                                excluded, include_variation_id, other_pricing, other_price, other_unit, other_draw, other_door, updated_at)
+                                excluded, include_variation_id, other_pricing, other_price, other_unit, other_draw, other_door, prep_steps, updated_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25,
-              $26, $27, $28, $29, $30, $31, $32, NOW())
+              $26, $27, $28, $29, $30, $31, $32, $33::jsonb, NOW())
       ON CONFLICT (job_id, side, level, floor, kind, position) DO UPDATE SET
         nickname = $7, type = $8, size_tier = $9, rows = $10, cols = $11, prep_level = $12,
         prep_stage = $13, quote_prep_level = $14, prep_variation_id = $15,
         bay_shape = $17, bay_storeys = $18, parent_opening_id = $19, panes_set = $20, rows_bottom = $21,
         other_mins = $22, other_cost = $23, other_m2 = $24, access = $25,
         excluded = $26, include_variation_id = $27, other_pricing = $28, other_price = $29, other_unit = $30,
-        other_draw = $31, other_door = $32, updated_at = NOW()
+        other_draw = $31, other_door = $32, prep_steps = $33::jsonb, updated_at = NOW()
       RETURNING *
     `, [req.params.id, jobId, o.side, o.floor, o.kind, o.position, o.nickname, o.type, o.size_tier, o.rows, o.cols,
         o.prep_level, o.prep_stage, o.quote_prep_level, o.prep_variation_id,
         o.level, o.bay_shape, o.bay_storeys, o.parent_opening_id, o.panes_set, o.rows_bottom,
         o.other_mins, o.other_cost, o.other_m2, o.access,
-        o.excluded, o.include_variation_id, o.other_pricing, o.other_price, o.other_unit, o.other_draw, o.other_door]);
+        o.excluded, o.include_variation_id, o.other_pricing, o.other_price, o.other_unit, o.other_draw, o.other_door,
+        JSON.stringify(o.prep_steps || [])]);
     res.json({ ok: true, id: result.rows[0].id, opening: mapOpening(result.rows[0]) });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2706,7 +2707,7 @@ async function copyJobRows(entry, newJobId) {
       if (o.parent_opening_id && !parent) { openingIds.delete(o.id); continue; }
       const n = normaliseOpening({ side: o.side, floor: o.floor, level: o.level, kind: o.kind, position: o.position, nickname: o.nickname,
         type: o.type, sizeTier: o.size_tier, rows: o.rows, cols: o.cols, prepLevel: o.prep_level, prepStage: o.prep_stage,
-        quotePrepLevel: o.quote_prep_level, prepVariationId: o.prep_variation_id,
+        quotePrepLevel: o.quote_prep_level, prepVariationId: o.prep_variation_id, prepSteps: o.prep_steps,
         bayShape: o.bay_shape, bayStoreys: o.bay_storeys, parentOpeningId: parent, panesSet: o.panes_set, rowsBottom: o.rows_bottom,
         otherMins: o.other_mins, otherCost: o.other_cost, otherM2: o.other_m2, access: o.access,
         excluded: o.excluded, includeVariationId: o.include_variation_id,
@@ -2719,15 +2720,16 @@ async function copyJobRows(entry, newJobId) {
                                    prep_level, prep_stage, quote_prep_level, prep_variation_id,
                                    level, bay_shape, bay_storeys, parent_opening_id, panes_set, rows_bottom,
                                    other_mins, other_cost, other_m2, access,
-                                   excluded, include_variation_id, other_pricing, other_price, other_unit, other_draw, other_door)
+                                   excluded, include_variation_id, other_pricing, other_price, other_unit, other_draw, other_door, prep_steps)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25,
-                 $26, $27, $28, $29, $30, $31, $32)
+                 $26, $27, $28, $29, $30, $31, $32, $33::jsonb)
          ON CONFLICT (job_id, side, level, floor, kind, position) DO NOTHING`,
         [nid, newJobId, n.side, n.floor, n.kind, n.position, n.nickname, n.type, n.size_tier, n.rows, n.cols,
           n.prep_level, n.prep_stage, n.quote_prep_level, n.prep_variation_id,
           n.level, n.bay_shape, n.bay_storeys, n.parent_opening_id, n.panes_set, n.rows_bottom,
           n.other_mins, n.other_cost, n.other_m2, n.access,
-          n.excluded, n.include_variation_id, n.other_pricing, n.other_price, n.other_unit, n.other_draw, n.other_door]
+          n.excluded, n.include_variation_id, n.other_pricing, n.other_price, n.other_unit, n.other_draw, n.other_door,
+          JSON.stringify(n.prep_steps || [])]
       );
     }
     for (const m of (wd.marks || [])) {
@@ -2896,7 +2898,7 @@ router.post('/jobs/:id/duplicate', async (req, res) => {
         return {
           property: wd.property,
           openings: wd.openings.map(o => (o.prep_stage === 'variation'
-            ? Object.assign({}, o, { prep_level: o.quote_prep_level, prep_stage: 'quote', quote_prep_level: null, prep_variation_id: null })
+            ? Object.assign({}, o, { prep_level: o.quote_prep_level, prep_stage: 'quote', quote_prep_level: null, prep_variation_id: null, prep_steps: [] })
             : o)),
           // A copy is a fresh job: nothing on it has been done yet.
           marks: wd.marks.filter(m => m.stage !== 'variation').map(m => Object.assign({}, m, { done_at: null })),
