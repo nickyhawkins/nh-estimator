@@ -114,13 +114,26 @@
     { key: 'reputty', label: 'Reputty', verb: 'reputty', on: 'pane' },
     { key: 'replace_glass', label: 'Replace glass', verb: 'replace glass', on: 'pane', glass: true },
     { key: 'filler', label: 'Filler', verb: 'filler', on: 'part' },
-    { key: 'resin', label: 'Resin repair', verb: 'resin repair', on: 'part' },
+    { key: 'resin', label: 'Resin repair', verb: 'resin repair', on: 'part', tiered: true },
     { key: 'splice', label: 'Splice timber', verb: 'splice timber', on: 'part' },
     { key: 'record', label: 'Re-cord', verb: 're-cord', on: 'part', sashOnly: true },
     { key: 'beads', label: 'Replace beads', verb: 'replace beads', on: 'part', sashOnly: true },
     { key: 'overhaul', label: 'Ease & overhaul', verb: 'ease and overhaul', on: 'part', sashOnly: true },
     { key: 'ironmongery', label: 'Ironmongery off & on', verb: 'ironmongery off and on', on: 'part', doorOnly: true },
     { key: 'ease', label: 'Ease', verb: 'ease', on: 'part', doorOnly: true }
+  ];
+
+  // ── Repair size tiers (RESIN_REPAIR_TIERS_SPEC.md) ───────────────────────
+  // A tiered action (only resin, for now) is priced as a fixed base -- setup,
+  // consolidating, the cure wait, the return visit -- plus its tier's own
+  // minutes and £. Lightest first: like prep, a tier is only compared by its
+  // position here, which keeps "the quoted tier is the floor" a one-liner.
+  // The hints are fixed text, not settings.
+  var REPAIR_TIERS = [
+    { key: 'small', label: 'Small', short: 'S', hint: 'nail hole to thumb-sized' },
+    { key: 'medium', label: 'Medium', short: 'M', hint: 'up to palm-sized' },
+    { key: 'large', label: 'Large', short: 'L', hint: 'rail end, cill corner' },
+    { key: 'xlarge', label: 'X-Large', short: 'XL', hint: 'sill nose or rail rebuild' }
   ];
 
   // ── Appearance (stage 2) ─────────────────────────────────────────────────
@@ -389,7 +402,9 @@
       reputty: { mins: 20, cost: 0 },
       replace_glass: { mins: 30, cost: 25 },
       filler: { mins: 10, cost: 0 },
-      resin: { mins: 25, cost: 4 },
+      // Medium (15 + 10 = 25 mins, £4) is the flat figure resin had before
+      // it took tiers, so a quote priced then doesn't move.
+      resin: { baseMins: 15, tiers: { small: { mins: 5, cost: 2 }, medium: { mins: 10, cost: 4 }, large: { mins: 25, cost: 8 }, xlarge: { mins: 45, cost: 15 } } },
       splice: { mins: 60, cost: 8 },
       record: { mins: 40, cost: 6 },
       beads: { mins: 20, cost: 4 },
@@ -448,12 +463,37 @@
     out.paint.bay = Math.max(0, num(sp.bay, dp.bay));
     ACTIONS.forEach(function (a) {
       var saved = (raw.actions || {})[a.key] || {};
+      if (a.tiered) { out.actions[a.key] = mergeTiered(saved, DEFAULT_RATES.actions[a.key]); return; }
       out.actions[a.key] = {
         mins: Math.max(0, num(saved.mins, DEFAULT_RATES.actions[a.key].mins)),
         cost: Math.max(0, num(saved.cost, DEFAULT_RATES.actions[a.key].cost))
       };
     });
     out.access = mergeAccess(raw.access);
+    return out;
+  }
+  // A tiered action's rates: { baseMins, tiers: { small: {mins, cost}, ... } }.
+  // An old flat { mins, cost } (resin before it took tiers) becomes the
+  // default base, with Medium carrying the rest of its minutes and its £ --
+  // so the Medium figure is exactly the old one and nothing already quoted
+  // moves. The other tiers take their defaults.
+  function mergeTiered(saved, def) {
+    saved = saved || {};
+    var out = { baseMins: 0, tiers: {} };
+    var flat = saved.tiers == null && saved.baseMins == null && (saved.mins != null || saved.cost != null);
+    out.baseMins = flat ? def.baseMins : Math.max(0, num(saved.baseMins, def.baseMins));
+    REPAIR_TIERS.forEach(function (t) {
+      var st = (saved.tiers || {})[t.key] || {};
+      var d = def.tiers[t.key];
+      if (flat && t.key === 'medium') {
+        out.tiers[t.key] = {
+          mins: Math.max(0, num(saved.mins, def.baseMins + d.mins) - def.baseMins),
+          cost: Math.max(0, num(saved.cost, d.cost))
+        };
+        return;
+      }
+      out.tiers[t.key] = { mins: Math.max(0, num(st.mins, d.mins)), cost: Math.max(0, num(st.cost, d.cost)) };
+    });
     return out;
   }
   function mergeAccess(raw) {
@@ -478,6 +518,51 @@
     return null;
   }
   function actionDef(key) { return findKey(ACTIONS, key); }
+  function isTiered(actionKey) { var a = actionDef(actionKey); return !!(a && a.tiered); }
+  function repairTierDef(key) { return findKey(REPAIR_TIERS, key); }
+  function repairTierRank(key) {
+    for (var i = 0; i < REPAIR_TIERS.length; i++) if (REPAIR_TIERS[i].key === key) return i;
+    return -1;
+  }
+  // A mark's tier as it stands now. NULL (every resin mark from before
+  // tiers) reads as Medium, which is what it was priced at.
+  function markTier(m) { return repairTierRank(m && m.size_tier) >= 0 ? m.size_tier : 'medium'; }
+  // The tier the client agreed -- the floor -- or null while it is still
+  // freely editable (a quote not yet accepted, a variation still a draft).
+  function agreedTier(m) { return repairTierRank(m && m.agreed_size_tier) >= 0 ? m.agreed_size_tier : null; }
+  // Above what was agreed = an upgrade on site.
+  function isUpgraded(m) {
+    var ag = agreedTier(m);
+    return !!ag && isTiered(m.action_key) && repairTierRank(markTier(m)) > repairTierRank(ag);
+  }
+  // One action's figures, at a tier where it takes one.
+  function actionPrice(rates, actionKey, tier) {
+    var a = rates.actions[actionKey];
+    if (!a) return null;
+    if (!a.tiers) return { mins: a.mins, cost: a.cost };
+    var t = a.tiers[repairTierRank(tier) >= 0 ? tier : 'medium'];
+    return { mins: a.baseMins + t.mins, cost: t.cost };
+  }
+  // A mark priced: what its stage carries (the agreed tier, or the tier it's
+  // at while nothing is agreed yet), and the upgrade above that, if any.
+  // The floor holds here as well as in the UI: a tier set BELOW the agreed
+  // one still prices at the agreed one. An upgrade is the tier difference
+  // only -- the base is the same whatever the size.
+  function markPrice(m, rates) {
+    var cur = markTier(m);
+    var ag = isTiered(m.action_key) ? agreedTier(m) : null;
+    var billed = ag && repairTierRank(ag) > repairTierRank(cur) ? ag : (ag || cur);
+    var p = actionPrice(rates, m.action_key, billed);
+    if (!p) return null;
+    var out = { mins: p.mins, cost: p.cost, adjMins: 0, adjCost: 0, from: billed, to: billed };
+    if (ag && repairTierRank(cur) > repairTierRank(ag)) {
+      var up = actionPrice(rates, m.action_key, cur);
+      out.adjMins = Math.max(0, up.mins - p.mins);
+      out.adjCost = Math.max(0, up.cost - p.cost);
+      out.to = cur;
+    }
+    return out;
+  }
   function prepRank(key) {
     for (var i = 0; i < PREP_LEVELS.length; i++) if (PREP_LEVELS[i].key === key) return i;
     return -1;
@@ -1039,6 +1124,12 @@
   //               one). A lowering is NEGATIVE minutes -- a credit netted
   //               against the rest of that variation, which can leave the
   //               whole variation below zero (v2.91.0).
+  //   adjustments repair size upgrades on site (RESIN_REPAIR_TIERS_SPEC.md):
+  //               a resin repair found bigger once cut out, above the tier
+  //               the client agreed. The quote terms already say repairs are
+  //               priced on estimated size, so this is neither the quote nor
+  //               a variation -- its own figure, never folded into either,
+  //               and it needs no approval. `items` lists each upgraded mark.
   //   perOpening  the same split per opening, for the detail view's line list
   //
   // Materials are the actions' £ before markup; the caller turns minutes into
@@ -1049,7 +1140,7 @@
     var openings = liveOpenings(data && data.openings, data && data.property);
     var marks = (data && data.marks) || [];
     var coats = coatsFactor(property);
-    var out = { quote: { mins: 0, materials: 0, fixed: 0, count: 0 }, variations: {}, perOpening: {}, excluded: 0 };
+    var out = { quote: { mins: 0, materials: 0, fixed: 0, count: 0 }, variations: {}, adjustments: { mins: 0, materials: 0, count: 0, items: [] }, perOpening: {}, excluded: 0 };
     var byId = {};
     var scope = scopeMap(openings);
     var varBucket = function (id) {
@@ -1076,7 +1167,7 @@
       // access don't touch it.
       var fixed = o.kind === 'other' ? otherSetPrice(o) : 0;
       var per = { painted: painted, coatsFactor: cf, accessMult: am, access: o.kind === 'other' ? 'ground' : openingAccess(o), scaled: scaled,
-                  quoteMins: scaled * qMult, quoteMaterials: own, quoteFixed: fixed, varMins: 0, varMaterials: 0 };
+                  quoteMins: scaled * qMult, quoteMaterials: own, quoteFixed: fixed, varMins: 0, varMaterials: 0, adjMins: 0, adjMaterials: 0 };
       out.perOpening[o.id] = per;
       if (sc.variationId) {
         // Added to the job on site: all of it is that variation's, at the
@@ -1103,9 +1194,16 @@
     marks.forEach(function (m) {
       var o = byId[m.opening_id];
       if (!o) return;
-      var a = rates.actions[m.action_key];
+      var a = markPrice(m, rates);
       if (!a) return;
       var per = out.perOpening[o.id];
+      if (a.adjMins > 0 || a.adjCost > 0) {
+        out.adjustments.mins += a.adjMins; out.adjustments.materials += a.adjCost; out.adjustments.count++;
+        out.adjustments.items.push({ mark_id: m.id, opening_id: o.id, element_id: m.element_id, action_key: m.action_key,
+          stage: m.stage === 'variation' ? 'variation' : 'quote', variation_id: m.stage === 'variation' ? (m.variation_id || null) : null,
+          from: a.from, to: a.to, mins: a.adjMins, materials: a.adjCost });
+        per.adjMins += a.adjMins; per.adjMaterials += a.adjCost;
+      }
       if (m.stage === 'variation') {
         var vb = varBucket(m.variation_id);
         vb.mins += a.mins; vb.materials += a.cost; vb.marks++;
@@ -1114,6 +1212,42 @@
         out.quote.mins += a.mins; out.quote.materials += a.cost;
         per.quoteMins += a.mins; per.quoteMaterials += a.cost;
       }
+    });
+    return out;
+  }
+
+  // When a repair's tier stops being freely editable (RESIN_REPAIR_TIERS_SPEC.md
+  // section 5): the marks whose agreed_size_tier has to change, as
+  // [{ mark, agreed }] (agreed null = unlock). The caller writes them.
+  //
+  //   opts.accepted          the job's quote is accepted (or completed,
+  //                          invoiced): quote marks lock at the tier they're
+  //                          at. Before that they're just quoting, so any
+  //                          lock is lifted -- the tier they're at (never
+  //                          below the old lock) is the quote.
+  //   opts.variationLocked   (id) => true once that variation has gone to
+  //                          the client or been answered. Its marks lock
+  //                          then; a draft's are left alone.
+  //   opts.restamp           amending the accepted quote re-agrees it: every
+  //                          quote mark locks at the tier it's at now, so any
+  //                          upgrade so far becomes part of the quote.
+  //
+  // Idempotent: a mark already as it should be isn't listed. Jobs accepted
+  // before tiers existed stamp on their first pass, at Medium (NULL), which
+  // is what they were priced at.
+  function tierStamps(data, opts) {
+    opts = opts || {};
+    var out = [];
+    ((data && data.marks) || []).forEach(function (m) {
+      if (!isTiered(m.action_key)) return;
+      var ag = agreedTier(m), cur = markTier(m);
+      if (m.stage === 'variation') {
+        if (!ag && opts.variationLocked && m.variation_id && opts.variationLocked(m.variation_id)) out.push({ mark: m, agreed: cur });
+        return;
+      }
+      if (!opts.accepted) { if (ag) out.push({ mark: m, agreed: null }); return; }
+      if (!ag) out.push({ mark: m, agreed: cur });
+      else if (opts.restamp && ag !== cur) out.push({ mark: m, agreed: repairTierRank(cur) > repairTierRank(ag) ? cur : ag });
     });
     return out;
   }
@@ -1165,7 +1299,13 @@
   // One opening's marks as a clause: "reputty x4 panes, resin repair (cill)".
   // Pane actions count panes (a client can count them); part actions name the
   // parts, because "resin repair x2" says nothing about where.
-  function marksClause(o, marks) {
+  //
+  // A tiered action names each part's tier too: `tiers: 'short'` for the
+  // app ("resin repair (cill, L)"), 'long' for the report ("resin repair
+  // (cill, large)"). Without it the clause is as it always was -- the
+  // variation text the client approves doesn't change wording under them.
+  function marksClause(o, marks, opts) {
+    var tierWords = opts && opts.tiers;
     var byAction = {}, order = [];
     var els = {};
     openingElements(o).forEach(function (e) { els[e.id] = e; });
@@ -1184,6 +1324,12 @@
         return a.verb + ' x' + list.length + ' ' + what;
       }
       var names = list.map(function (m) { return els[m.element_id] ? els[m.element_id].label : m.element_id; });
+      if (a.tiered && tierWords) {
+        return a.verb + ' (' + list.map(function (m, i) {
+          var td = repairTierDef(markTier(m));
+          return names[i] + ', ' + (tierWords === 'short' ? td.short : td.label.toLowerCase());
+        }).join('; ') + ')';
+      }
       return a.verb + ' (' + names.join(', ') + ')';
     }).filter(Boolean).join(', ');
   }
@@ -2465,9 +2611,10 @@
       // tick, so the reputty can be done before the glass arrives.
       var clauses = function (list) {
         var cap = function (t) { return t.charAt(0).toUpperCase() + t.slice(1); };
-        if (!todo) { var c = marksClause(o, list); return c ? [cap(c)] : []; }
+        // A repair shows the tier it ended up at, upgrades and all.
+        if (!todo) { var c = marksClause(o, list, { tiers: 'long' }); return c ? [cap(c)] : []; }
         return ACTIONS.map(function (a) {
-          return marksClause(o, list.filter(function (m) { return m.action_key === a.key; }));
+          return marksClause(o, list.filter(function (m) { return m.action_key === a.key; }), { tiers: 'long' });
         }).filter(Boolean).map(cap);
       };
       clauses(quoteMarks).forEach(function (t) { quoted.push(t); });
@@ -2490,7 +2637,7 @@
           });
           return;
         }
-        var vc = marksClause(o, byVar[vid]);
+        var vc = marksClause(o, byVar[vid], { tiers: 'long' });
         if (vc) parts.push(vc);
         if (parts.length) {
           var t = parts.join(', ');
@@ -2591,6 +2738,8 @@
     openingElements: openingElements, elementKind: elementKind, actionsFor: actionsFor, paneCount: paneCount,
     openingCode: openingCode, openingLabel: openingLabel, sortOpenings: sortOpenings,
     effectivePrep: effectivePrep, quotePrep: quotePrep, prepChange: prepChange, prepChangeText: prepChangeText, prepSteps: prepSteps, prepChain: prepChain, prepStep: prepStep, baseMinutes: baseMinutes, paintedMinutes: paintedMinutes,
+    REPAIR_TIERS: REPAIR_TIERS, isTiered: isTiered, repairTierDef: repairTierDef, repairTierRank: repairTierRank, markTier: markTier, agreedTier: agreedTier,
+    isUpgraded: isUpgraded, actionPrice: actionPrice, markPrice: markPrice, tierStamps: tierStamps,
     priceJob: priceJob, openingPaintM2: openingPaintM2, paintAreas: paintAreas, marksClause: marksClause, describeVariation: describeVariation, itemLineText: itemLineText,
     workFlags: workFlags, elevationSvg: elevationSvg, detailSvg: detailSvg,
     OTHER_PAINT: OTHER_PAINT, otherName: otherName, PORCH_STYLES: PORCH_STYLES, sideGeometry: sideGeometry, otherDraw: otherDraw, otherDoor: otherDoor, porchStyleFor: porchStyleFor, porchPreviewSvg: porchPreviewSvg, drawPorchGlyph: drawPorchGlyph, OTHER_PRICING: OTHER_PRICING, OTHER_UNITS: OTHER_UNITS, OTHER_MAX_MINS: OTHER_MAX_MINS, OTHER_MAX_PRICE: OTHER_MAX_PRICE,

@@ -236,7 +236,7 @@ eq('an unapproved variation is not in the report', noApproval.sections.filter(s 
 eq('...but quoted work is', noApproval.sections.map(s => s.label).join('|'), 'Front, ground floor, D1');
 const approved = W.reportModel(data, [{ id: 'v1', status: 'approved', approvedAt: '2026-09-20T10:00:00Z' }]);
 eq('an approved variation is', approved.sections.length, 2);
-eq('...with what was done', approved.sections.find(s => s.opening.id === 's').variations[0].text, 'Reputty x4 panes, resin repair (cill)');
+eq('...with what was done', approved.sections.find(s => s.opening.id === 's').variations[0].text, 'Reputty x4 panes, resin repair (cill, medium)');
 const html = W.reportHtml(data, [{ id: 'v1', status: 'approved', approvedAt: '2026-09-20T10:00:00Z' }]);
 check('the report carries no prices', !/£|\d+\.\d\d\b/.test(html.replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<style>[\s\S]*?<\/style>/g, '')));
 check('the report dates the approval', html.indexOf('approved 20 Sep 2026') >= 0);
@@ -708,7 +708,7 @@ eq('...4-over-8 beside 8-over-8', W.sashPattern(W.openingDefaults(g8, 'window', 
   eq('its painting is the first line', td.sections.find(s => s.opening.id === 'a1').quoted[0], 'Paint: light prep, 2 coats, first floor access');
   eq('...ground floor names no access', td.sections.find(s => s.opening.id === 'a2').quoted[0], 'Paint: light prep, 2 coats');
   eq('...a dormer is ladder/tower', td.sections.find(s => s.opening.id === 'dm2').quoted[0], 'Paint: light prep, 2 coats, ladder/tower access');
-  eq('work already ticked off is left off, one line per action', td.sections.find(s => s.opening.id === 'a1').quoted.slice(1).join('|'), 'Reputty x1 pane|Resin repair (cill)');
+  eq('work already ticked off is left off, one line per action', td.sections.find(s => s.opening.id === 'a1').quoted.slice(1).join('|'), 'Reputty x1 pane|Resin repair (cill, medium)');
   eq('a hand-set access is always named', W.reportModel({ property: tp, openings: [Object.assign({}, a1, { access: 'ground' })], marks: [] }, [], { todo: true }).sections[0].quoted[0], 'Paint: light prep, 2 coats, ground access (set by hand)');
   eq('an approved variation is on it', td.sections.find(s => s.opening.id === 'a2').variations.map(v => v.text).join('|'), 'Splice timber (cill)');
   check('a pending variation is not', !td.marks.some(m => m.id === 't5'));
@@ -904,6 +904,118 @@ check('a left-out opening takes no marks', /excluded\) return/.test(body('wdTogg
 }
 check('the porch style is saved', /otherDraw: o\.other_draw/.test(body('wdPutOpening')));
 check('the Other sheet has the Drawn as picker', /wdOtherDrawHtml\(o\)/.test(body('renderWdDetail')));
+
+// ── Repair size tiers (RESIN_REPAIR_TIERS_SPEC.md) ─────────────────────────
+{
+  const resin = (extra) => Object.assign({ id: 'rz', opening_id: 's', element_id: 'cill', action_key: 'resin', stage: 'quote' }, extra || {});
+  const job = (marks) => W.priceJob({ property, openings: [sash], marks }, R);
+  const base = job([]).quote;
+  const tierMins = t => R.actions.resin.baseMins + R.actions.resin.tiers[t].mins;
+
+  // Rates: an old flat figure migrates with Medium exactly as it was.
+  const old = W.mergeRates({ actions: { resin: { mins: 25, cost: 4 } } });
+  eq('old flat resin rates: base 15', old.actions.resin.baseMins, 15);
+  eq('...Medium takes the rest of the minutes', old.actions.resin.tiers.medium.mins, 10);
+  eq('...and the £', old.actions.resin.tiers.medium.cost, 4);
+  eq('...other tiers default', old.actions.resin.tiers.large.mins, 25);
+  const oldJob = W.priceJob({ property, openings: [sash], marks: [resin()] }, old).quote;
+  near('...and a resin mark still prices at 25 mins', oldJob.mins - base.mins, 25);
+  near('...and £4', oldJob.materials - base.materials, 4);
+  eq('a tuned old figure keeps its total at Medium', W.mergeRates({ actions: { resin: { mins: 40, cost: 6 } } }).actions.resin.tiers.medium.mins, 25);
+  eq('an old figure below the base floors Medium at 0', W.mergeRates({ actions: { resin: { mins: 10, cost: 1 } } }).actions.resin.tiers.medium.mins, 0);
+  eq('the new shape round-trips', W.mergeRates({ actions: { resin: { baseMins: 20, tiers: { xlarge: { mins: 50, cost: 16 } } } } }).actions.resin.tiers.xlarge.mins, 50);
+  eq('...with the base kept', W.mergeRates({ actions: { resin: { baseMins: 20 } } }).actions.resin.baseMins, 20);
+  eq('a saved 0 base is kept', W.mergeRates({ actions: { resin: { baseMins: 0 } } }).actions.resin.baseMins, 0);
+  eq('the default Medium is the old flat 25', tierMins('medium'), 25);
+  eq('only resin is tiered', W.ACTIONS.filter(a => a.tiered).map(a => a.key).join(','), 'resin');
+
+  // NULL = Medium.
+  near('a NULL size prices as Medium', job([resin()]).quote.mins - base.mins, tierMins('medium'));
+  near('a Large priced before acceptance moves the quote', job([resin({ size_tier: 'large' })]).quote.mins - base.mins, tierMins('large'));
+  near('...with its £', job([resin({ size_tier: 'large' })]).quote.materials - base.materials, R.actions.resin.tiers.large.cost);
+  eq('pre-acceptance: no adjustments, ever', job([resin({ size_tier: 'xlarge' })]).adjustments.count, 0);
+  near('pre-acceptance: down a size moves the quote down too', job([resin({ size_tier: 'small' })]).quote.mins - base.mins, tierMins('small'));
+
+  // Agreed M, upgraded to L.
+  const up = job([resin({ size_tier: 'large', agreed_size_tier: 'medium' })]);
+  near('agreed M, now L: the quote carries M', up.quote.mins - base.mins, tierMins('medium'));
+  near('...adjustments carry L less M (tier only; the base is the same)', up.adjustments.mins, R.actions.resin.tiers.large.mins - R.actions.resin.tiers.medium.mins);
+  near('...and the £ difference', up.adjustments.materials, R.actions.resin.tiers.large.cost - R.actions.resin.tiers.medium.cost);
+  eq('...counted once', up.adjustments.count, 1);
+  eq('...variations untouched', Object.keys(up.variations).length, 0);
+  eq('...the item says M to L', up.adjustments.items[0].from + '>' + up.adjustments.items[0].to, 'medium>large');
+  near('...and per opening', up.perOpening.s.adjMins, up.adjustments.mins);
+  near('...never in the opening\'s quote figure', up.perOpening.s.quoteMins, job([resin({ size_tier: 'medium' })]).perOpening.s.quoteMins);
+  check('W.isUpgraded sees it', W.isUpgraded(resin({ size_tier: 'large', agreed_size_tier: 'medium' })));
+
+  // Agreed L, set to S: the floor.
+  const floored = job([resin({ size_tier: 'small', agreed_size_tier: 'large' })]);
+  near('agreed L, set to S: still prices as L', floored.quote.mins - base.mins, tierMins('large'));
+  eq('...adjustments zero', floored.adjustments.mins, 0);
+  check('...and it is not an upgrade', !W.isUpgraded(resin({ size_tier: 'small', agreed_size_tier: 'large' })));
+  eq('agreed at the tier it is at: no adjustment', job([resin({ size_tier: 'large', agreed_size_tier: 'large' })]).adjustments.count, 0);
+
+  // Variation-stage.
+  const vm = (extra) => resin(Object.assign({ stage: 'variation', variation_id: 'v9' }, extra));
+  const draftM = job([vm({ size_tier: 'medium' })]), draftL = job([vm({ size_tier: 'large' })]);
+  near('a draft variation: tier edits change the variation', draftL.variations.v9.mins - draftM.variations.v9.mins, R.actions.resin.tiers.large.mins - R.actions.resin.tiers.medium.mins);
+  eq('...with no adjustment', draftL.adjustments.count, 0);
+  near('...and the quote untouched', draftL.quote.mins, base.mins);
+  const sentUp = job([vm({ size_tier: 'xlarge', agreed_size_tier: 'large' })]);
+  near('after send, the variation holds at what was sent', sentUp.variations.v9.mins, tierMins('large'));
+  near('...and an upgrade lands in adjustments', sentUp.adjustments.mins, R.actions.resin.tiers.xlarge.mins - R.actions.resin.tiers.large.mins);
+  eq('...tagged with its variation', sentUp.adjustments.items[0].variation_id, 'v9');
+  near('the three figures never mix', sentUp.quote.mins, base.mins);
+
+  // Non-tiered actions ignore any stray tier.
+  near('a tier on a non-tiered action is ignored', job([{ opening_id: 's', element_id: 'cill', action_key: 'splice', stage: 'quote', size_tier: 'xlarge', agreed_size_tier: 'small' }]).quote.mins - base.mins, R.actions.splice.mins);
+
+  // Locking.
+  const d0 = { marks: [resin({ id: 'q1', size_tier: 'large' }), resin({ id: 'q2' }), vm({ id: 'v1m', variation_id: 'vd' }), vm({ id: 'v2m', variation_id: 'vs', size_tier: 'small' }),
+                       { id: 'n1', opening_id: 's', element_id: 'cill', action_key: 'filler', stage: 'quote' }] };
+  const locked = W.tierStamps(d0, { accepted: true, variationLocked: id => id === 'vs' });
+  eq('acceptance locks quote repairs at their tier (NULL as Medium), and sent variations', locked.map(c => c.mark.id + '=' + c.agreed).join(','), 'q1=large,q2=medium,v2m=small');
+  eq('not accepted: nothing to lock', W.tierStamps(d0, { accepted: false }).length, 0);
+  const d1 = { marks: [resin({ id: 'q1', size_tier: 'large', agreed_size_tier: 'medium' })] };
+  eq('stamping is idempotent', W.tierStamps(d1, { accepted: true }).length, 0);
+  eq('withdrawing acceptance unlocks', W.tierStamps(d1, { accepted: false }).map(c => c.agreed).join(), '');
+  eq('...to null', W.tierStamps(d1, { accepted: false })[0].agreed, null);
+  eq('amending re-agrees at today\'s tier', W.tierStamps(d1, { accepted: true, restamp: true })[0].agreed, 'large');
+  eq('a draft variation stays unlocked', W.tierStamps({ marks: [vm({ size_tier: 'large' })] }, { accepted: true, variationLocked: () => false }).length, 0);
+
+  // Words.
+  const cl = W.marksClause(sash, [resin({ size_tier: 'large' })], { tiers: 'short' });
+  eq('the app\'s label names the size', cl, 'resin repair (cill, L)');
+  eq('the variation text the client approves is unchanged', W.marksClause(sash, [resin({ size_tier: 'large' })]), 'resin repair (cill)');
+  const rep = W.reportModel({ property, openings: [sash], marks: [resin({ size_tier: 'large', agreed_size_tier: 'medium', done_at: '2026-09-21T09:00:00Z' })] }, []);
+  eq('the work report shows the upgraded tier', rep.sections[0].quoted.find(t => /resin/i.test(t)), 'Resin repair (cill, large)');
+  const rhtml = W.reportHtml({ property, openings: [sash], marks: [resin({ size_tier: 'large', agreed_size_tier: 'medium', done_at: '2026-09-21T09:00:00Z' })] }, []);
+  check('...still with no prices', !/£/.test(rhtml));
+
+  // Server gate.
+  const L = require('../lib/windoors');
+  const nm = L.normaliseMark({ openingId: 's', elementId: 'cill', actionKey: 'resin', sizeTier: 'large', agreedSizeTier: 'medium', upgradedAt: '2026-09-30T10:00:00Z' });
+  eq('the server keeps the size', nm.size_tier, 'large');
+  eq('...and the agreed size', nm.agreed_size_tier, 'medium');
+  check('...and when it was upgraded', !!nm.upgraded_at);
+  check('an unknown size is refused', !!L.normaliseMark({ openingId: 's', elementId: 'cill', actionKey: 'resin', sizeTier: 'huge' }).error);
+  eq('a size on a non-tiered action is dropped', L.normaliseMark({ openingId: 's', elementId: 'cill', actionKey: 'filler', sizeTier: 'large' }).size_tier, null);
+  eq('the row maps back', L.mapMark({ id: 'x', size_tier: 'xlarge', agreed_size_tier: 'large', upgraded_at: null }).size_tier, 'xlarge');
+  check('the client page knows the adjustment kind', require('../lib/clientQuote').VARIATION_KINDS.has('windoorsadj'));
+}
+// The app wiring.
+check('marks save their size', /sizeTier: m\.size_tier/.test(body('wdPutMark')) && /agreedSizeTier: m\.agreed_size_tier/.test(body('wdPutMark')));
+check('acceptance locks the repairs', /wdStampTiers\(\)/.test(body('setJobStatusById')));
+check('sending a variation locks its repairs', /wdStampTiers\(\)/.test(body('wdCloseDraftsSent')));
+check('loading a job locks repairs accepted before tiers shipped', /wdStampTiers\(\)/.test(body('loadWindoors')));
+check('amending re-agrees the repairs before the capture', /wdStampTiers\(\{ restamp: true \}\)[\s\S]*captureQuoteSnapshot/.test(body('confirmAmendAcceptedQuote')));
+check('the final invoice bills the adjustments', /wdAdjustments\(job\)/.test(body('buildFinalInvoiceModel')));
+check('the client page shows them', /windoorsadj/.test(body('buildClientVariationLines')));
+check('the quote never sees them (calcWindoors prices .quote only)', !/adjustments/.test(body('calcWindoors')));
+check('variations never see them', !/adjustments/.test(body('windoorsVariationLines')));
+check('a new repair starts at the last size used', /wdDefaultRepairTier/.test(body('wdApplyAction')));
+check('the detail sheet has the size control', /wdRepairTiersHtml\(o, oMarks\)/.test(body('renderWdDetail')) && /wdRepairTiersHtml\(o, oMarks\)/.test(body('renderWdBay')));
+check('profitability counts them as invoiced, not quoted', /quotedAll \+ repairAdjustments/.test(body('computeProfitability')));
 
 console.log(pass.length + ' passed, ' + fail.length + ' failed');
 fail.forEach(f => console.log('  ✗ ' + f));

@@ -722,5 +722,8 @@ CREATE TABLE IF NOT EXISTS opening_marks (
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 ALTER TABLE opening_marks ADD COLUMN IF NOT EXISTS done_at TIMESTAMP;                          -- ticked off on site; the report shows only ticked marks
+ALTER TABLE opening_marks ADD COLUMN IF NOT EXISTS size_tier VARCHAR;         -- small | medium | large | xlarge; tiered actions only; NULL = medium
+ALTER TABLE opening_marks ADD COLUMN IF NOT EXISTS agreed_size_tier VARCHAR;  -- the tier the client agreed (quote, or a sent variation); the floor
+ALTER TABLE opening_marks ADD COLUMN IF NOT EXISTS upgraded_at TIMESTAMP;     -- when size_tier was last raised above agreed_size_tier
 CREATE INDEX IF NOT EXISTS opening_marks_job ON opening_marks (job_id);
 CREATE INDEX IF NOT EXISTS opening_marks_opening ON opening_marks (opening_id);

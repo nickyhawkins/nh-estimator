@@ -161,7 +161,12 @@ function notFoundPage() {
 function variationHtml(v, base) {
   const action = base + '/variations/' + encodeURIComponent(v.id);
   let state = '';
-  if (v.amount < 0 && v.status !== 'declined') {
+  if (v.kind === 'windoorsadj') {
+    // Repair size adjustments: shown so the total is the real one, nothing
+    // to answer (RESIN_REPAIR_TIERS_SPEC.md).
+    state = '<div class="state approved">Per the quote terms: repairs are priced on their estimated size '
+      + 'and adjusted once exposed. Added to your final invoice.</div>';
+  } else if (v.amount < 0 && v.status !== 'declined') {
     // A credit: money off, nothing to answer (see the publish route).
     state = '<div class="state approved">Credit — taken off your final invoice</div>';
   } else if (v.status === 'approved') {
@@ -215,7 +220,7 @@ function quotePage(view, base, flash) {
       + '<div class="note">The price already agreed for the original scope of work. Unchanged.</div>'
       + '</div>';
 
-  const pending = view.variations.filter(v => v.status === 'pending' && !(v.amount < 0)).length;
+  const pending = view.variations.filter(v => v.status === 'pending' && !(v.amount < 0) && v.kind !== 'windoorsadj').length;
   const variations = '<div class="card"><h2>Extras since then</h2>'
     + (view.variations.length
         ? view.variations.map(v => variationHtml(v, base)).join('')
@@ -282,10 +287,13 @@ function quotePage(view, base, flash) {
 // someone who has never seen this page before, so it names the parts rather
 // than assuming the arithmetic is obvious.
 function breakdownText(view) {
-  const n = view.variations.filter(v => v.status === 'approved' && !(v.amount < 0)).length;
+  const adj = v => v.kind === 'windoorsadj';
+  const n = view.variations.filter(v => v.status === 'approved' && !(v.amount < 0) && !adj(v)).length;
   const c = view.variations.filter(v => v.status === 'approved' && v.amount < 0).length;
   const credits = c ? ', less ' + (c === 1 ? 'a credit' : c + ' credits') : '';
-  return breakdownBase(view, n) + credits;
+  const repairs = view.variations.some(v => adj(v) && v.status === 'approved' && v.amount > 0)
+    ? ', plus repair size adjustments' : '';
+  return breakdownBase(view, n) + credits + repairs;
 }
 function breakdownBase(view, n) {
   if (view.originalTotal == null) {
