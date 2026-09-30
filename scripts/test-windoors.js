@@ -299,10 +299,10 @@ const body = name => {
   const xrefCount = +(/xref\n0 (\d+)/.exec(report) || [])[1];
   check('the xref table counts every object', xrefCount === (report.match(/\d+ 0 obj\n/g) || []).length + 1);
 }
-check('the final invoice attaches the report when ticked',
-  /s\.attachWindoorsReport !== false && result\.invoiceId/.test(body('createFinalInvoice')) && body('createFinalInvoice').indexOf('attachWindoorsReportToInvoice(') >= 0);
+check('the final invoice asks the server to attach the report when ticked',
+  /jobId: job\.id/.test(body('createFinalInvoice')) && /attachWindoorsReport: wdReportGoesOn\(s\)/.test(body('createFinalInvoice')));
 check('a failed attach never un-creates the invoice (it is reported beside the success)',
-  body('attachWindoorsReportToInvoice').indexOf('never throws') >= 0 || /catch \(err\) \{\n\s*return \{ ok: false/.test(body('attachWindoorsReportToInvoice')));
+  /result\.attachment\.syncState === 'synced'/.test(body('createFinalInvoice')) && body('createFinalInvoice').indexOf('wdAttachFailureText(') >= 0);
 check('the windows and doors paint carries its own product', /extTopcoatRangeOverride: prod \? prod\.range/.test(body('windoorsPaintItems')));
 check('the product picker treats windows and doors as roles', /role === 'wdwindow' \|\| role === 'wddoor'/.test(body('overrideState')));
 

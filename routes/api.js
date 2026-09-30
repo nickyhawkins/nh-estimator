@@ -12,7 +12,7 @@ const {
 } = require('../lib/supplierOrders');
 const {
   ensureWindoorsSchema, normalisePaintProducts, normaliseProperty, normaliseOpening, normaliseMark,
-  mapProperty, mapOpening, mapMark, readWindoors,
+  mapProperty, mapOpening, mapMark, readWindoors, buildWorkReport, workReportFileName,
 } = require('../lib/windoors');
 const Windoors = require('../public/windoors');
 // Aliased so the import loop below reads like its neighbours (SNAG_STATUSES,
@@ -144,7 +144,9 @@ router.delete('/jobs/:id', async (req, res) => {
       }),
       // Windows and doors (lib/windoors.js): no foreign keys, so by hand like
       // the snags, tolerating tables that were never created.
-      ...['job_property', 'job_openings', 'opening_marks'].map(t =>
+      // invoice_attachments is only this app's record of a file on a Xero
+      // invoice (the file itself stays in Xero), so it goes with the job.
+      ...['job_property', 'job_openings', 'opening_marks', 'invoice_attachments'].map(t =>
         db.query(`DELETE FROM ${t} WHERE job_id = $1`, [id]).catch(err => {
           if (err.code !== '42P01') throw err;
         })),
@@ -1412,6 +1414,27 @@ router.get('/windoors', async (req, res) => {
   try {
     res.json(await readWindoors(jobId));
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// The work report PDF (WINDOWS_DOORS_INVOICE_SPEC.md section 2), exactly as
+// it will be attached to the final invoice -- so it can be checked first.
+// ?job_id=...&download=1 for a download rather than opening it.
+router.get('/windoors/work-report.pdf', async (req, res) => {
+  const jobId = requireJobId(req, res); if (!jobId) return;
+  try {
+    const job = await db.query('SELECT data FROM jobs WHERE id = $1', [jobId]);
+    const invoiceNumber = (job.rows[0] && job.rows[0].data && job.rows[0].data.xeroInvoiceNumber) || null;
+    const built = await buildWorkReport(jobId, { invoiceNumber });
+    if (!built) return res.status(404).json({ error: 'This job has no windows and doors to report on' });
+    const name = invoiceNumber ? workReportFileName(invoiceNumber) : 'Work-Report-draft.pdf';
+    res.set('Content-Type', 'application/pdf');
+    res.set('Content-Disposition', (req.query.download ? 'attachment' : 'inline') + '; filename="' + name + '"');
+    res.set('Cache-Control', 'no-store');
+    res.send(built.buffer);
+  } catch (err) {
+    console.error('Work report error:', err);
     res.status(500).json({ error: err.message });
   }
 });

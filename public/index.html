@@ -1626,6 +1626,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
         <button id="xero-connect-btn" onclick="window.location='/auth/connect'" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:12px;padding:12px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Connect Xero</button>
         <button id="xero-disconnect-btn" onclick="disconnectXero()" style="display:none;background:var(--danger-soft-bg);border:1px solid var(--danger-soft-border);color:var(--danger);border-radius:12px;padding:12px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Disconnect Xero</button>
       </div>
+      <div id="xero-attach-note" style="display:none;margin:0 16px 12px;padding:10px 12px;border-radius:10px;background:var(--warn-soft-bg,rgba(243,156,18,.12));border:1px solid var(--warn,#f39c12);font-size:13px;line-height:1.45"></div>
       <div class="settings-note">Connect your Xero account to send quotes directly from the Summary tab.</div>
     </div>
     <div class="card">
@@ -3474,8 +3475,22 @@ function clearEverything() {
 }
 
 var xeroConnected = false;
-function updateXeroButton(connected) {
+function updateXeroButton(connected, status) {
   xeroConnected = !!connected;
+  // Attaching the windows and doors work report to invoices needs the
+  // accounting.attachments permission, which a connection made before it was
+  // asked for doesn't have (WINDOWS_DOORS_INVOICE_SPEC.md section 3).
+  var note = document.getElementById('xero-attach-note');
+  if (note) {
+    var missing = !!(connected && status && status.attachments === false);
+    note.style.display = missing ? 'block' : 'none';
+    if (missing) {
+      note.innerHTML = status.attachmentsRefused
+        ? '<b>Work reports can\'t be attached.</b> Xero turned down this app\'s request to add attachments to invoices, so the windows and doors report has to be added in Xero by hand (open it from the job\'s Windows &amp; Doors screen). Invoices themselves are unaffected.'
+        : '<b>Reconnect Xero to attach work reports.</b> The windows and doors work report goes on the final invoice as a PDF, and this connection was made before that permission was asked for. Reconnecting once fixes it — quotes and invoices keep working either way.'
+          + '<button onclick="window.location=\'/auth/connect\'" style="display:block;width:100%;margin-top:8px;background:var(--accent);color:#fff;border:none;border-radius:10px;padding:10px;font-size:14px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer">Reconnect Xero</button>';
+    }
+  }
   var btn = document.getElementById('xero-connect-btn');
   var discBtn = document.getElementById('xero-disconnect-btn');
   if (!btn) return;
@@ -6185,7 +6200,7 @@ async function initApp() {
       // status fetch itself deliberately has no catch: like before, its
       // failure falls through to the outer catch and marks the sync failed.
       apiGet('/auth/status').then(function(xeroStatus) {
-        updateXeroButton(xeroStatus.connected);
+        updateXeroButton(xeroStatus.connected, xeroStatus);
         if (!xeroStatus.connected) return;
         return apiGet('/auth/material-groups').then(function(resp) {
           applyMaterialGroupsResponse(resp);
@@ -19261,6 +19276,13 @@ function interimInvoiceMath(p) {
 //   "Labour: 40% of quoted works (previously invoiced 0%)"
 // for the lines' total. The per-line record underneath is unchanged, so a later
 // invoice can still go room by room. A one-line quote keeps its own wording.
+// WINDOWS AND DOORS ride as ONE line (WINDOWS_DOORS_INVOICE_SPEC.md): the
+// fixture's quote line ('windoors:windoors') and every site addition billed
+// with it (variations 'windoors:<id>' and the repair size adjustments
+// 'windoorsadj:repairs') go on the invoice together, under p.windoors.description
+// ("Exterior windows and doors: ... (stage 2 of 3)"). Each still keeps its own
+// record underneath, so the final invoice deducts exactly what was billed.
+// Without p.windoors every line is laid out as it always was.
 function interimInvoiceLineItems(p) {
   var pct = function(n) { return Math.round((+n || 0) * 100) / 100; };
   var text = function(l) {
@@ -19268,7 +19290,9 @@ function interimInvoiceLineItems(p) {
       (pct(l.prevPct) > 0 ? ' (previously invoiced ' + fmtInvoicePct(l.prevPct) + '%)' : '');
   };
   var billing = function(l) { return Math.abs(+l.amount || 0) > 0.005; };
-  var labour = p.labour || [];
+  var isWd = function(l) { return !!p.windoors && /^windoors(adj)?:/.test(String(l.key || '')); };
+  var notWd = function(l) { return !isWd(l); };
+  var labour = (p.labour || []).filter(notWd);
   var first = labour[0];
   var wholeJob = labour.length > 1 && labour.some(billing) && labour.every(function(l) {
     return pct(l.pct) === pct(first.pct) && pct(l.prevPct) === pct(first.prevPct);
@@ -19279,7 +19303,16 @@ function interimInvoiceLineItems(p) {
     lines.push({ description: 'Labour: ' + fmtInvoicePct(first.pct) + '% of quoted works (previously invoiced ' + fmtInvoicePct(first.prevPct) + '%)',
                  quantity: 1, unitAmount: total, accountCode: '201' });
   }
-  (wholeJob ? [] : labour).concat(p.variations || []).forEach(function(l) {
+  (wholeJob ? [] : labour).forEach(function(l) {
+    if (!billing(l)) return;
+    lines.push({ description: text(l), quantity: 1, unitAmount: +l.amount, accountCode: '201' });
+  });
+  var wd = (p.labour || []).concat(p.variations || []).filter(isWd).filter(billing);
+  if (wd.length) {
+    var wdTotal = Math.round(wd.reduce(function(t, l) { return t + (+l.amount || 0); }, 0) * 100) / 100;
+    lines.push({ description: String(p.windoors.description || 'Exterior windows and doors'), quantity: 1, unitAmount: wdTotal, accountCode: '201' });
+  }
+  (p.variations || []).filter(notWd).forEach(function(l) {
     if (!billing(l)) return;
     lines.push({ description: text(l), quantity: 1, unitAmount: +l.amount, accountCode: '201' });
   });
@@ -19375,6 +19408,9 @@ function interimPreviewModel(job) {
   var withPct = function(l, had, pcts) {
     var prev = had ? had.pct : 0;
     var asked = pcts[l.key];
+    // Windows and doors added on site before this interim is raised are
+    // billed on it in full (WINDOWS_DOORS_INVOICE_SPEC.md) unless a % was set.
+    if (asked == null && /^windoors(adj)?:/.test(l.key) && pcts === d.variationPcts) asked = 100;
     return Object.assign({}, l, { prevPct: prev, billedBefore: had ? had.billed : 0,
                                   pct: asked == null ? prev : asked });
   };
@@ -19391,8 +19427,10 @@ function interimPreviewModel(job) {
   var amounts = function(lines, billed) {
     return lines.map(function(l, i) { return Object.assign({}, l, { amount: billed[i].amount }); });
   };
+  var windoorsText = interimWindoorsText(basis, d, labour);
   var lines = interimInvoiceLineItems({
-    labour: amounts(labour, math.labourLines), variations: amounts(variations, math.variationLines), materials: mats
+    labour: amounts(labour, math.labourLines), variations: amounts(variations, math.variationLines), materials: mats,
+    windoors: windoorsText ? { description: windoorsText } : null
   });
   // The ceiling: everything this job could ever bill -- the quote plus every
   // approved extra, billed or not.
@@ -19400,7 +19438,21 @@ function interimPreviewModel(job) {
   var ceiling = Math.round(((basis ? basis.total : 0) + approvedVars) * 100) / 100;
   var afterThis = Math.round((so.subtotal + math.subtotal) * 100) / 100;
   return { basis: basis, so: so, draft: d, labour: labour, variations: variations, mat: mat, mats: mats,
-           math: math, lines: lines, ceiling: ceiling, afterThis: afterThis, overCeiling: afterThis > ceiling + 0.005 };
+           math: math, lines: lines, windoorsText: windoorsText, ceiling: ceiling, afterThis: afterThis, overCeiling: afterThis > ceiling + 0.005 };
+}
+
+// The windows and doors line's words on an interim: the same generated
+// description as the final's, saying where the job is -- "(stage 2 of 3)"
+// when a quote stage was picked, else how far the fixture's line has got.
+// null when the job has no windows and doors to bill.
+function interimWindoorsText(basis, d, labour) {
+  var wdLine = (labour || []).find(function(l) { return l.key === 'windoors:windoors'; });
+  var stages = (basis && basis.stages) || [];
+  var at = d && d.stageRef ? stages.findIndex(function(st) { return st.ref === d.stageRef; }) : -1;
+  if (!wdLine && !wdLoadedForActiveJob()) return null;
+  if (!wdLine && !(windoors.openings || []).length) return null;
+  return wdInvoiceText({ report: 'final', stage: at >= 0 ? { n: at + 1, of: stages.length } : null,
+                         pct: at >= 0 || !wdLine ? null : wdLine.pct });
 }
 
 function interimPreviewHtml(m) {
@@ -19646,6 +19698,7 @@ async function issueInterimInvoice() {
       body: JSON.stringify({
         idempotencyKey: d.idempotencyKey,
         stageRef: d.stageRef || null,
+        windoorsText: m.windoorsText || null,
         depositToApply: d.depositToApply == null ? null : +d.depositToApply,
         // Every line goes, changed or not: the server checks each one's
         // "invoiced before" against its own record (a stale view is refused)
@@ -19983,13 +20036,14 @@ function buildFinalInvoiceModel() {
     labour.push({ id: 'fu' + i, desc: fittedUnitName(e.unit), raw: fc.total,
                   scope: buildFuScopeSentence('invoice', [e.unit], invTplValues) });
   });
-  // Windows and doors: the quote-stage fixture as ONE line, worded the way
-  // the quote worded it. The invoice keeps a single total line for the
-  // fixture; what was done where goes on the report attached beside it.
+  // Windows and doors: the quote-stage fixture as ONE line
+  // (WINDOWS_DOORS_INVOICE_SPEC.md). Everything added on site joins this same
+  // line further down, once the variations are priced; the per-opening detail
+  // goes in the work report attached beside it, never on the invoice.
   var wdInv = calcWindoors();
   if (wdInv.total > 0.005) {
     rawOrig += wdInv.total; ttOrig += wdInv.time;
-    labour.push({ id: 'wd', desc: windoorsLineText(), raw: wdInv.total, ownText: true });
+    labour.push({ id: 'wd', desc: windoorsLineText(), raw: wdInv.total, ownText: true, wd: true });
   }
   var muVal = effectiveMarkup();
   var fixed = effectiveMarkupType() === 'fixed';
@@ -20103,7 +20157,7 @@ function buildFinalInvoiceModel() {
       frozenWorkRows.forEach(function(row, i) {
         labour.push({ id: 'fz' + i, desc: row.description || 'Labour',
                       raw: +row.lineTotal || 0, amount: +row.lineTotal || 0, dropped: false,
-                      ownText: frozenRowOwnText(row) });
+                      ownText: frozenRowOwnText(row), wd: row.sourceKey === 'windoors:windoors' });
       });
       frozenImportedRows.forEach(function(row, i) {
         labour.push({ id: 'fzi' + i, desc: row.description || 'Original quote',
@@ -20210,24 +20264,39 @@ function buildFinalInvoiceModel() {
                       amount: l.raw * varMk, dropped: l.status === 'declined',
                       signoff: l.status, note: l.obj.variationApprovalNote || '' });
   });
-  // Windows and doors marked on site, one line per variation.
+  // Windows and doors added on site (WINDOWS_DOORS_INVOICE_SPEC.md section 1):
+  // every site variation the client hasn't declined, and the repairs found
+  // bigger once exposed (RESIN_REPAIR_TIERS_SPEC.md, covered by the quote
+  // terms), all at the figures the client was shown -- each with its own
+  // sundries share and the variations markup, the composition
+  // buildClientVariationLines publishes. They are NOT variation lines here:
+  // they ride on the fixture's single line below, so they stay out of varRaw
+  // (their sundries are already inside them). The quote is the floor: a net
+  // credit (prep lowered on site) can't take the line below what was quoted.
+  var wdSPct = (settings.sundriesPct || 0) / 100;
+  var wdSite = { amount: 0, pending: 0, approved: 0, adjustments: 0, credit: 0 };
   windoorsVariationLines(job).forEach(function(l) {
-    if (l.status !== 'declined') varRaw += l.raw;
-    variations.push({ id: 'vwd' + l.id, desc: 'Variation: ' + l.name, amount: l.raw * varMk,
-                      dropped: l.status === 'declined', signoff: l.status, note: l.obj.variationApprovalNote || '' });
+    if (l.status === 'declined') return;
+    wdSite.amount += (l.raw + l.raw * wdSPct) * varMk;
+    if (l.status === 'pending') wdSite.pending++; else wdSite.approved++;
   });
-  // Repairs found bigger once exposed (RESIN_REPAIR_TIERS_SPEC.md): billed
-  // HERE and only here -- not in the agreed quote above, not on an interim.
-  // Its own line rather than folded into the fixture's quote line, so the
-  // labour "as quoted" stays exactly as quoted and the client can see what
-  // the extra is for. The quote terms cover it, so it needs no sign-off; it
-  // carries its own sundries share (the same figure the Summary line and the
-  // client's page show), so it stays out of varRaw.
   var wdAdjInv = wdAdjustments(job);
   if (wdAdjInv.amount > 0.005) {
-    variations.push({ id: 'wdadj', desc: 'Resin repairs: size adjustments once exposed (per quote terms)',
-                      amount: wdAdjInv.raw * (1 + (settings.sundriesPct || 0) / 100) * varMk,
-                      dropped: false, signoff: 'adjustment', note: '' });
+    wdSite.adjustments = wdAdjInv.raw * (1 + wdSPct) * varMk;
+    wdSite.amount += wdSite.adjustments;
+  }
+  wdSite.amount = Math.round(wdSite.amount * 100) / 100;
+  if (wdSite.amount < 0) { wdSite.credit = -wdSite.amount; wdSite.amount = 0; }
+  var wdLabourLine = honouredLabourInv != null ? null : labour.find(function(l) { return l.wd; });
+  if (wdLabourLine) {
+    wdLabourLine.quoted = wdLabourLine.amount;
+    wdLabourLine.site = wdSite;
+    wdLabourLine.amount = Math.round((wdLabourLine.amount + wdSite.amount) * 100) / 100;
+  } else if (wdSite.amount > 0.005) {
+    // No quoted fixture line to join (a honoured job, or windows and doors
+    // only ever added on site): the site work is the one line, on its own.
+    labour.push({ id: 'wdsite', desc: windoorsLineText(), raw: 0, quoted: 0, site: wdSite,
+                  amount: wdSite.amount, dropped: false, ownText: true, wd: true });
   }
   var hourlyRate = (settings.dr || 0) / (settings.hpd || 7);
   var freeHoursRaw = 0;
@@ -20422,6 +20491,9 @@ function renderFinalInvoice() {
   // see buildFinalInvoiceModel).
   var isHonouredInv = s.honouredLabour != null;
   var labourHtml = s.labour.map(function(l) {
+      // The windows and doors line: one line on the invoice, and here the
+      // sum that makes it up, so the figure can be checked before it goes.
+      if (l.wd) return lineRow('labour', Object.assign({}, l, { desc: wdInvoiceText({ report: wdReportGoesOn(s) ? 'attached' : false }) }), wdInvoiceLineDetail(l));
       return lineRow('labour', l, isHonouredInv ? 'agreed before this job was measured here' : 'as quoted');
     }).join('')
     + (s.sundries.amount > 0.005 ? lineRow('sundries', Object.assign({ desc: 'Sundries & Consumables' }, s.sundries), '% of labour, as quoted') : '')
@@ -20523,9 +20595,10 @@ function renderFinalInvoice() {
     // Windows and doors: the work report goes on the invoice as a PDF
     // attachment (WINDOWS_DOORS_SPEC.md section 7). On by default whenever
     // there is a report; untick to leave it off.
-    (wdHasReport() ? '<label class="card" style="display:flex;gap:10px;align-items:flex-start;padding:12px 14px;margin-bottom:12px;cursor:pointer">'
-      + '<input type="checkbox" id="fi-wd-report" '+(finalInvState.attachWindoorsReport !== false ? 'checked' : '')+' onchange="finalInvState.attachWindoorsReport=this.checked" style="width:20px;height:20px;flex:none;margin-top:1px;accent-color:var(--accent)">'
-      + '<span style="font-size:14px"><b>Attach the windows &amp; doors report</b><small style="display:block;font-size:12px;color:var(--text2);margin-top:2px">What was done where, with the drawings — no prices. Added to the Xero invoice as a PDF the client can open from it.</small></span></label>' : '')+
+    (wdInvoiceHasLine(s) ? '<label class="card" style="display:flex;gap:10px;align-items:flex-start;padding:12px 14px;margin-bottom:12px;cursor:pointer">'
+      + '<input type="checkbox" id="fi-wd-report" '+(finalInvState.attachWindoorsReport !== false ? 'checked' : '')+' onchange="finalInvState.attachWindoorsReport=this.checked;renderFinalInvoice()" style="width:20px;height:20px;flex:none;margin-top:1px;accent-color:var(--accent)">'
+      + '<span style="font-size:14px"><b>Attach the windows &amp; doors work report</b><small style="display:block;font-size:12px;color:var(--text2);margin-top:2px">Every opening and the work done to it, with the drawings and what was found on site — no prices. Added to the Xero invoice as a PDF the client can open from it. '
+      + '<a href="#" onclick="event.preventDefault();event.stopPropagation();openWorkReportPdf()" style="color:var(--accent);font-weight:600">Check the report</a></small></span></label>' : '')+
     // The report shows only work ticked off as done: say so before it goes,
     // while there's still time to tick the rest.
     (wdUntickedCount() ? '<div style="font-size:13px;color:var(--danger);margin:-4px 0 12px">⚠ ' + wdUntickedCount() + ' piece' + (wdUntickedCount() === 1 ? '' : 's') + ' of windows &amp; doors work '
@@ -20544,7 +20617,8 @@ async function createFinalInvoice() {
   // Materials list: pending variations aren't blocked (the sign-off is an
   // internal record and the client may well have agreed verbally), but
   // they never slide onto an invoice without an explicit yes here.
-  var pendingLive = s.variations.filter(function(l) { return l.signoff === 'pending' && !l.dropped; }).length;
+  var pendingLive = s.variations.filter(function(l) { return l.signoff === 'pending' && !l.dropped; }).length
+    + s.labour.reduce(function(n, l) { return n + (l.wd && !l.dropped && l.site ? l.site.pending : 0); }, 0);
   if (pendingLive && !confirm(pendingLive + ' variation line' + (pendingLive === 1 ? ' is' : 's are') + ' still Pending — never marked "Approved by client" on the On Site screen.\n\nInclude ' + (pendingLive === 1 ? 'it' : 'them') + ' on the invoice anyway?')) return;
   var interimsFi = s.interims || [];
   if (interimsFi.some(function(i) { return !i.inXero; })) {
@@ -20561,6 +20635,13 @@ async function createFinalInvoice() {
   if (!confirm('Create a draft invoice in Xero for ' + fmt(t.gross) + (interimsFi.length ? ' (after deducting ' + interimsFi.length + ' interim invoice' + (interimsFi.length === 1 ? '' : 's') + ')' : ' (full amount)') + '?\n\nApply the payments already received against it in Xero, then send.')) return;
   var btn = document.getElementById('fi-create-btn');
   btn.disabled = true; btn.textContent = 'Creating…';
+  // The server builds the work report from what it has saved: let this
+  // phone's last ticks and marks land first.
+  if (wdReportGoesOn(s) && !(await wdSettleWrites()) &&
+      !confirm('Some windows and doors changes on this phone haven\'t reached the server yet, so the work report may not show them.\n\nCreate the invoice anyway?')) {
+    btn.disabled = false; btn.textContent = 'Create draft invoice in Xero';
+    return;
+  }
 
   var lines = [];
   // Template block on the first non-dropped labour line, "same as above" on
@@ -20603,6 +20684,9 @@ async function createFinalInvoice() {
     // lines and the rounding adjustment carry no scope, so nothing moves
     // for them.
     if (l.ownText && l.scope) desc = l.desc + '\n\n' + l.scope;
+    // Windows and doors: one line, its words generated from the job's
+    // openings -- the per-opening detail is in the report attached to it.
+    if (l.wd) desc = wdInvoiceText({ report: wdReportGoesOn(s) ? 'attached' : false });
     if (invBlock && !l.ownText) {
       // The block already opens by naming this line ("Painting — Lounge"),
       // so the label goes above it only where it doesn't -- see
@@ -20665,7 +20749,11 @@ async function createFinalInvoice() {
         contactId: job.xeroContactId || null,
         clientName: job.xeroClient || job.name,
         reference: job.xeroRef || job.name,
-        lineItems: lines
+        lineItems: lines,
+        // The server builds the work report from the job's rows and attaches
+        // it once the invoice exists (WINDOWS_DOORS_INVOICE_SPEC.md).
+        jobId: job.id,
+        attachWindoorsReport: wdReportGoesOn(s)
       })
     });
     var result = await resp.json();
@@ -20697,14 +20785,14 @@ async function createFinalInvoice() {
         .catch(function(e) { console.warn('Final invoice record not saved (the Xero invoice is fine):', e); });
     }
     setJobStatusById(job.id, 'invoiced'); // persists + pipeline hook
-    // The windows and doors report, as a PDF on the invoice. After the
-    // invoice exists and never able to undo it: a failure here is said
-    // plainly beside the success, with where to retry.
+    // The windows and doors report went on server-side, after the invoice
+    // existed and never able to undo it: a failure is said plainly beside
+    // the success, with where to retry.
     var wdNote = '';
-    if (wdHasReport() && s.attachWindoorsReport !== false && result.invoiceId) {
-      btn.textContent = 'Attaching the report…';
-      var att = await attachWindoorsReportToInvoice(result.invoiceId);
-      wdNote = att.ok ? '\n\nThe windows and doors report is attached ✓' : '\n\n' + wdAttachFailureText(att);
+    if (result.attachment) {
+      wdAttachment = Object.assign({ jobId: job.id }, result.attachment);
+      wdNote = result.attachment.syncState === 'synced' ? '\n\nThe windows and doors work report is attached ✓ (' + result.attachment.fileName + ')'
+        : '\n\n' + wdAttachFailureText({ error: result.attachment.lastError, reconnect: result.attachment.reconnect });
     }
     alert('Invoice ' + (result.invoiceNumber || '') + ' created as a DRAFT in Xero ✓\n\nApply the payments already received against it there, review, then send.' + wdNote);
     goTab('summary');
@@ -25823,17 +25911,12 @@ function renderWindoors() {
   // Work to do (v2.88.0): from Measure, the schedule of work behind the
   // quote; on site, the list to hand the team. Whenever there are openings.
   if (wdInUse()) html += '<button onclick="saveWindoorsReportPdf(true)" style="' + soft + '">📋 Work to do (PDF)</button>';
-  if (wdReportModelNow().sections.length) {
-    html += '<button onclick="saveWindoorsReportPdf()" style="' + soft + '">📄 Work report (PDF)</button>';
-    // Once the job has its final invoice in Xero: attach (or re-attach) the
-    // report there -- the retry for an attach that failed at invoicing.
-    var ij = activeJob();
-    if (ij && ij.xeroInvoiceId) {
-      var attached = ij.windoorsReportAttachedTo === ij.xeroInvoiceId;
-      html += '<button id="wd-attach-btn" class="xero-live-btn" onclick="attachWindoorsReportNow()" style="' + soft + '">'
-        + (attached ? '↻ Attach the report to ' : '📎 Attach the report to ') + 'invoice ' + escapeHtml(ij.xeroInvoiceNumber || '') + '</button>'
-        + (attached ? '<div style="font-size:12px;color:var(--text2);text-align:center;margin:-2px 0 8px">Attached ✓ — attach again after changes to replace it</div>' : '');
-    }
+  if (wdInUse()) {
+    // The work report (WINDOWS_DOORS_INVOICE_SPEC.md): built by the server
+    // from the saved rows, exactly as it goes on the final invoice -- so it
+    // can be checked before invoicing.
+    html += '<button onclick="openWorkReportPdf()" style="' + soft + '">📄 Work report (PDF)</button>';
+    html += wdAttachmentHtml(soft);
     html += '<div style="height:8px"></div>';
   }
   body.innerHTML = html;
@@ -27341,10 +27424,13 @@ function windoorsReportFilename(todo) {
   return 'NH-Windows-Doors-' + (todo ? 'Work-To-Do-' : 'Report-') + (base || 'Job') + '-' + new Date().toISOString().slice(0, 10) + '.pdf';
 }
 
-// "Work report (PDF)": same three visible outcomes as the quote's Save PDF --
-// the share sheet, a download, or a message saying what went wrong.
+// "Work to do (PDF)": built on the phone, so it works with no signal on
+// site. Same three visible outcomes as the quote's Save PDF -- the share
+// sheet, a download, or a message saying what went wrong. (The work REPORT
+// for the client is the server's -- openWorkReportPdf below.)
 async function saveWindoorsReportPdf(todo) {
   todo = todo === true;
+  if (!todo) { openWorkReportPdf(); return; }
   try {
     var bytes = await buildWindoorsReportPdf({ todo: todo });
     var blob = new Blob([bytes], { type: 'application/pdf' });
@@ -27354,58 +27440,133 @@ async function saveWindoorsReportPdf(todo) {
     var canShare = false;
     try { canShare = !!(file && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })); } catch (e) { canShare = false; }
     if (canShare) {
-      try { await navigator.share({ files: [file], title: todo ? 'Windows and doors: work to do' : 'Windows and doors report' }); return; }
+      try { await navigator.share({ files: [file], title: 'Windows and doors: work to do' }); return; }
       catch (e) { if (e && (e.name === 'AbortError' || e.name === 'NotAllowedError')) return; }
     }
     downloadBlob(blob, filename);
-    toast('Report saved as ' + filename);
+    toast('Saved as ' + filename);
   } catch (err) {
-    reportFailure(todo ? 'Couldn\'t build the windows and doors work-to-do list' : 'Couldn\'t build the windows and doors report', err);
+    reportFailure('Couldn\'t build the windows and doors work-to-do list', err);
   }
 }
 
-// Upload the report to a Xero invoice as an attachment, shown to the client
-// on the online invoice. Resolves { ok } or { ok:false, error, reconnect }
-// and never throws: a report that fails to attach must never make an invoice
-// that WAS created look like it wasn't.
-async function attachWindoorsReportToInvoice(invoiceId) {
-  try {
-    var bytes = await buildWindoorsReportPdf();
-    var bin = '';
-    for (var i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-    var resp = await fetch('/auth/invoice-attachment', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ invoiceId: invoiceId, fileName: windoorsReportFilename(), pdfBase64: btoa(bin) })
-    });
-    var result = await readJsonResponse(resp);
-    if (!resp.ok || !result.ok) return { ok: false, error: (result && result.error) || ('HTTP ' + resp.status), reconnect: !!(result && result.reconnect) };
-    var job = activeJob();
-    if (job) {
-      job.windoorsReportAttachedTo = invoiceId;
-      localStorage.setItem('pe-jobs', JSON.stringify(jobs));
-      persistJobData(job);
-    }
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err.message };
+// ── The invoice line and the work report (WINDOWS_DOORS_INVOICE_SPEC.md) ──
+// All the windows and doors money is ONE line on the Xero invoice; the
+// per-opening detail is the work report, a PDF the SERVER builds from the
+// saved On Site rows (lib/workReportPdf.js) and attaches to the invoice.
+
+// The colours to name on the invoice line: only ones that have a name.
+function wdInvoiceColours() {
+  if (!wdLoadedForActiveJob()) return {};
+  var name = function(kind) { var n = wdColourOf(kind); return colourIsNamed(n) ? colourLabelFor(n) : null; };
+  return { frames: name('window'), doors: name('door') };
+}
+// The line's words. opts: { report: 'attached' | 'final' | false,
+// stage: { n, of }, pct } -- see Windoors.invoiceLineText.
+function wdInvoiceText(opts) {
+  opts = opts || {};
+  var counts = wdLoadedForActiveJob() ? Windoors.invoiceCounts(windoors, wdReportVariations()) : { windows: 0, doors: 0 };
+  return Windoors.invoiceLineText({ windows: counts.windows, doors: counts.doors, colours: wdInvoiceColours(),
+                                    report: opts.report, stage: opts.stage, pct: opts.pct });
+}
+function wdInvoiceHasLine(s) { return !!(s && s.labour.some(function(l) { return l.wd && !l.dropped; })); }
+// The report goes on the invoice unless it was unticked -- and only when
+// there's a windows and doors line for it to explain.
+function wdReportGoesOn(s) { return wdInvoiceHasLine(s) && wdInUse() && s.attachWindoorsReport !== false; }
+// What makes up the one line, for the invoice builder.
+function wdInvoiceLineDetail(l) {
+  var site = l.site || { amount: 0 };
+  var bits = [l.quoted > 0.005 ? fmt(l.quoted) + ' as quoted' : 'nothing quoted'];
+  if (site.amount > 0.005) {
+    var what = [];
+    if (site.approved) what.push(site.approved + ' approved variation' + (site.approved === 1 ? '' : 's'));
+    if (site.pending) what.push('<span style="color:var(--warn,#f39c12);font-weight:600">' + site.pending + ' PENDING</span>');
+    if (site.adjustments > 0.005) what.push('repair sizes ' + fmt(site.adjustments));
+    bits.push('+ ' + fmt(site.amount) + ' added on site' + (what.length ? ' (' + what.join(', ') + ')' : ''));
   }
+  if (site.credit > 0.005) bits.push('<span style="color:var(--warn,#f39c12)">' + fmt(site.credit) + ' net credit from site changes not taken off — the quote is the floor</span>');
+  return bits.join(' · ');
+}
+
+// Wait for this phone's own writes to reach the server, so the report the
+// server builds has the latest ticks and marks. true when nothing is left.
+async function wdSettleWrites() {
+  try { await flushOfflineQueue(); } catch (e) { /* reported by the queue */ }
+  var until = Date.now() + 6000;
+  while (pendingWrites > 0 && Date.now() < until) await new Promise(function(r) { setTimeout(r, 150); });
+  return pendingWrites === 0 && !offlineQueue.length;
+}
+
+// Open the report as it stands (the server's PDF, the same one Xero gets).
+async function openWorkReportPdf() {
+  if (blockIfOffline('Building the work report')) return;
+  var job = activeJob();
+  if (!job) return;
+  // A new window first, while the tap still counts as a user gesture (iOS
+  // blocks one opened after an await); pointed at the PDF once writes land.
+  var win = null;
+  try { win = window.open('', '_blank'); } catch (e) { win = null; }
+  var settled = await wdSettleWrites();
+  if (!settled) toast('Some changes are still saving — the report may not show them yet');
+  var url = '/api/windoors/work-report.pdf?job_id=' + encodeURIComponent(job.id) + '&t=' + Date.now();
+  if (win) win.location = url; else window.location = url;
+}
+
+// Whether the report made it onto the job's final invoice: the server's
+// record (invoice_attachments), read when the Windows & doors screen opens.
+var wdAttachment = null;
+async function loadWdAttachment() {
+  var job = activeJob();
+  if (!job || !job.xeroInvoiceId || !navigator.onLine) return;
+  try {
+    var r = await apiGet('/auth/invoice-attachment?jobId=' + encodeURIComponent(job.id) + '&invoiceId=' + encodeURIComponent(job.xeroInvoiceId));
+    var before = JSON.stringify(wdAttachment);
+    wdAttachment = r && r.attachment ? Object.assign({ jobId: job.id }, r.attachment) : { jobId: job.id, syncState: 'none', xeroInvoiceId: job.xeroInvoiceId };
+    if (JSON.stringify(wdAttachment) !== before) renderWindoors();
+  } catch (e) { /* the button still works; it just can't say what happened last time */ }
+}
+function wdAttachmentHtml(soft) {
+  var job = activeJob();
+  if (!job || !job.xeroInvoiceId) return '';
+  var a = wdAttachment && wdAttachment.jobId === job.id && wdAttachment.xeroInvoiceId === job.xeroInvoiceId ? wdAttachment : null;
+  if (!a) { loadWdAttachment(); return ''; }
+  var num = escapeHtml(job.xeroInvoiceNumber || '');
+  if (a.syncState === 'synced') {
+    return '<div style="font-size:12px;color:var(--success);text-align:center;margin:-2px 0 8px">✓ Attached to invoice ' + num + ' as ' + escapeHtml(a.fileName) + '</div>';
+  }
+  var failed = a.syncState === 'failed';
+  return '<button id="wd-attach-btn" class="xero-live-btn" onclick="attachWindoorsReportNow()" style="' + soft + '">'
+      + (failed ? '↻ Try attaching the report again' : '📎 Attach the report to invoice ' + num) + '</button>'
+    + (failed ? '<div style="font-size:12px;color:var(--danger);text-align:center;margin:-2px 0 8px;line-height:1.4">Not attached to invoice ' + num + ': ' + escapeHtml(a.lastError || 'unknown error')
+      + (a.reconnect ? ' — reconnect Xero in Settings first' : '') + '</div>' : '');
 }
 function wdAttachFailureText(r) {
-  return 'The windows and doors report was NOT attached: ' + r.error
-    + (r.reconnect ? '\n\nXero needs reconnecting once to allow attachments (Summary → Connect Xero), then attach it from the Windows & Doors screen.'
-                   : '\n\nYou can attach it from the Windows & Doors screen, or save the PDF and add it in Xero.');
+  return 'The windows and doors work report was NOT attached: ' + (r.error || 'unknown error')
+    + (r.reconnect ? '\n\nXero needs reconnecting once to allow attachments (Settings → Xero Integration), then attach it from the Windows & Doors screen.'
+                   : '\n\nThe invoice itself is fine. Try again from the Windows & Doors screen, or open the report there and add it in Xero.');
 }
 // The retry, from the fixture screen: to the job's final invoice in Xero.
+// Safe to repeat: the server skips the upload if Xero already has the file.
 async function attachWindoorsReportNow() {
   if (blockIfOffline('Attaching the report to the Xero invoice')) return;
   var job = activeJob();
   if (!job || !job.xeroInvoiceId) return;
   var btn = document.getElementById('wd-attach-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Attaching…'; }
-  var r = await attachWindoorsReportToInvoice(job.xeroInvoiceId);
-  if (r.ok) toast('Report attached to invoice ' + (job.xeroInvoiceNumber || ''));
-  else alert(wdAttachFailureText(r));
+  await wdSettleWrites();
+  var r;
+  try {
+    var resp = await fetch('/auth/invoice-attachment', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jobId: job.id, invoiceId: job.xeroInvoiceId })
+    });
+    r = await readJsonResponse(resp);
+  } catch (err) {
+    r = { attachment: null, error: err.message };
+  }
+  if (r && r.attachment) wdAttachment = Object.assign({ jobId: job.id }, r.attachment);
+  if (r && r.ok) toast('Report attached to invoice ' + (job.xeroInvoiceNumber || ''));
+  else alert(wdAttachFailureText({ error: (r && r.error) || 'no reply', reconnect: !!(r && r.reconnect) }));
   renderWindoors();
 }
 

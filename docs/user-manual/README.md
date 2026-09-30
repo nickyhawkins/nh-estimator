@@ -468,7 +468,7 @@ The litres are for the **timber only** — a window is mostly glass. Each window
 ![Rates — Windows & Doors paint areas](images/26j-windoors-paint-rates.png)
  The paint goes on Summary in the same **Exterior Woodwork** and **Exterior Primer** rows as any exterior item, using the exterior woodwork product from Settings, so windows and a fascia in the same colour are one lot of tins. It's also on the job spec sheet as its own rows. On a job whose materials list was already made, tap **Recalculate** on Summary to bring it in.
 
-**On the quote** the whole fixture is **one line**, worded from what's in it — *Exterior windows and doors (outside faces): 5 sash windows, 1 front door. Includes reputty x3, resin repair x1.* (or, with the newer pieces, *…10 sash windows, 3 dormer windows, 1 canted bay, 1 lower ground door, 1 front door.*) — through Summary, the client's quote, Xero and the final invoice. The minutes behind it (see [Rates](#14-rates)) go into the job's time like any other labour.
+**On the quote** the whole fixture is **one line**, worded from what's in it — *Exterior windows and doors (outside faces): 5 sash windows, 1 front door. Includes reputty x3, resin repair x1.* (or, with the newer pieces, *…10 sash windows, 3 dormer windows, 1 canted bay, 1 lower ground door, 1 front door.*) — through Summary, the client's quote and Xero. On the final invoice it becomes one line worded for the client, with everything added on site included (see [Windows and doors on the invoice](#windows-and-doors-on-the-invoice)). The minutes behind it (see [Rates](#14-rates)) go into the job's time like any other labour.
 
 The work report — what was done where, with the drawings — is covered under [On Site](#windows-and-doors-on-site).
 
@@ -1297,7 +1297,7 @@ Old windows are where the surprises are. On a job with [Windows and doors](#wind
 
 - The size a repair was quoted at is locked when the job is **accepted**. A repair added on site (a variation) is locked at the size it was **sent** to the client at; while its variation is still a draft you can change it either way.
 - The extra is a **repair size adjustment**, kept apart from everything else. The accepted quote doesn't change, and it isn't a variation. It shows as **Repair size adjustments +£X** under the Windows & Doors total on Summary, on the On Site card and at the top of the On Site windows screen. Tap it for the list: *Front, ground floor, W1: resin repair (cill) M → L, +£18.54*. The figure includes sundries and markup, as the invoice bills it.
-- It goes on the **final invoice** as its own line, *Resin repairs: size adjustments once exposed (per quote terms)*, with the variations. It isn't billed on an interim invoice.
+- It's billed on the invoice as part of the **one Windows and doors line** (see [Windows and doors on the invoice](#windows-and-doors-on-the-invoice)), not a line of its own. An interim invoice raised after the upgrade includes it; otherwise it's on the final invoice.
 - The **client's approval page** shows it as its own line, *Repair size adjustments (per quote terms)*, with no Approve button, so the total they see matches what they'll be invoiced. It updates each time you send or update that page.
 - The **work report** shows the size each repair ended up at: *resin repair (cill, large)*.
 - **Amending** the accepted quote takes each repair's current size into the new revision, so the upgrade becomes part of the quote.
@@ -1309,7 +1309,7 @@ Old windows are where the surprises are. On a job with [Windows and doors](#wind
 
 Everything you mark collects into one **draft** variation, worded for you from the marks — *Front, first floor, W2: reputty x4 panes, resin repair (cill).* — and shown at the top of the screen. It sits on the Variations card like any other extra; **reword for the client** changes what they'll read. Prep raised on site is charged as the difference between the old prep level and the new one. Prep lowered is taken off the same way, so a draft with W2 raised and W4 lowered comes to the difference between the two (*Front, ground floor, W4: prep lowered to light.*).
 
-**When a variation comes out as money off.** If the credits in a draft are worth more than the extras, the whole variation is a credit and shows as **−£** on the Variations card. **Send for approval** puts it on the client's page as *Credit — taken off your final invoice*, with no Approve or Decline buttons, and it counts in their running total straight away. It isn't billed on an interim invoice. The final invoice takes it off as a minus line. A credit isn't sent on a Xero variation quote, because there's nothing for the client to agree to.
+**When a variation comes out as money off.** If the credits in a draft are worth more than the extras, the whole variation is a credit and shows as **−£** on the Variations card. **Send for approval** puts it on the client's page as *Credit — taken off your final invoice*, with no Approve or Decline buttons, and it counts in their running total straight away. It isn't billed on an interim invoice. On the final invoice it's netted against everything else added on site on the one Windows and doors line, but that line **never goes below the quoted figure**: a credit bigger than the site extras isn't taken off, and the invoice builder says so beside the line so you can adjust it in Xero if you've promised the client money off. A credit isn't sent on a Xero variation quote, because there's nothing for the client to agree to.
 
 ![The draft on the Variations card](images/26f-windoors-variation-card.png)
 
@@ -1319,7 +1319,7 @@ Everything you mark collects into one **draft** variation, worded for you from t
 
 #### Work to do
 
-**📋 Work to do (PDF)** is on the Windows & Doors screen from Measure and from On Site, as soon as the job has any windows or doors. It's the list of what's still to be done, built on the phone with no signal needed and handed to the share sheet, like the work report.
+**📋 Work to do (PDF)** is on the Windows & Doors screen from Measure and from On Site, as soon as the job has any windows or doors. It's the list of what's still to be done, built on the phone with no signal needed and handed to the share sheet.
 
 - **At the top, *In all*:** how many openings there are to paint, and the marked work counted up (*Reputty x14 panes, Replace glass x3 panes, Resin repair x5 repairs*).
 - **Then each side**, with its drawing, and **every opening on it**, each with a box to tick on paper for each job: the painting first (*Paint: light prep, 2 coats, first floor access*), then one line per kind of repair (*Reputty x2 panes*, *Replace glass x1 pane*, *Resin repair (cill)*). An access you set by hand is always named (*ground access (set by hand)*), so the team knows the scaffold should be up.
@@ -1333,17 +1333,48 @@ Like the work report, it has **no prices on it**. From Measure it's the schedule
 
 #### The work report
 
-Once any work is ticked off as done, the fixture screen has a **📄 Work report (PDF)** button. It builds the report as a PDF on the phone — it works with no signal — and hands it to the share sheet to save, email or print. The same report appears on the client's approval page, under their extras.
+The **work report** is what goes to the client with the final invoice: every window and door on the house, and the work done to each, with the drawings. **There are no prices anywhere on it.** **📄 Work report (PDF)** on the Windows & Doors screen (Measure or On Site) opens it, exactly as Xero will get it, so you can check it before invoicing. The app builds it on the server from what's saved, so it needs a signal; it waits for any changes still saving from your phone first. (The same work, as a web page, is on the client's approval page under their extras.)
 
-**On the invoice.** When you build the final invoice, a tick box — on whenever there's a report — attaches it to the Xero invoice as a PDF the client can open from the online invoice. Untick it to leave it off. If any quoted or approved work still isn't ticked off, a red warning under it says how much. That work would be left out of the report, so tick it on site first.
+![The work report: header, summary and the first elevation](images/26zm-windoors-work-report-pdf.png)
 
-![Attaching the report to the final invoice](images/26k-windoors-invoice-attach.png)
+- **The header** has your logo and business name, the client's name and address, the date the job was completed, and the invoice number once there is one.
+- **The summary** counts the windows and the doors, and how many openings had **work found on site**.
+- **Each side** has its elevation, with every opening numbered (W1, W2… D1…) and the ones with work beyond the painting picked out.
+- **Each opening with work** gets its own drawing with the worked panes and parts coloured in, its label (*Back, first floor, W3*), and a list of what was done: prep, repairs with their size, glass replaced, and the painting (*Prepared (light) and painted, 2 coats in Dead Salmon*).
+- **Anything that wasn't in the quote** is tagged **FOUND ON SITE**, with an orange bar down the side of that opening, so the client can see why the invoice is above the quote. That's approved site variations (work marked on site, prep changed on site, an opening added to the job) and resin repairs found bigger than quoted.
+- **Openings that only had their painting done** get one compact line each, with a small drawing, to keep the report short.
 
-The first time, **Xero needs reconnecting once** (Summary → Connect Xero) so it grants the app permission to add attachments; until then the invoice is still created, and the message says the report wasn't attached and why. Once the job has its invoice, the fixture screen also has **📎 Attach the report to invoice INV-…** — for a report that didn't go on first time, or to replace it after a change (attaching again replaces the earlier copy).
+![Found on site: tagged, with an orange bar](images/26zn-windoors-work-report-found-on-site.png)
+
+Only work **ticked off as done** is listed, and variation work only once the client has approved it. Variations still waiting for an answer, or declined, aren't on it. Openings left out of the job aren't on it or counted.
+
+**Work to do (PDF)**, the list for the team, is different: it's still built on the phone and works with no signal (see [Work to do](#work-to-do)).
+
+#### Windows and doors on the invoice
+
+**The invoice has one line for all the windows and doors work.** Not a line per variation, not a line for repair sizes: one line, for the quoted price **plus everything added on site** (approved variations, repair size upgrades, prep changes, openings added to the job), each at the figure the client was shown. It never comes to less than the quoted figure. Its wording is generated from the job, so there's nothing to type:
+
+*Exterior windows and doors: preparation and painting of outside faces, 19 windows and 3 doors. Full breakdown of work per opening in attached report. Colours: Farrow & Ball No. 28 Dead Salmon (frames), Farrow & Ball No. 57 Off-Black (doors).*
+
+A count of zero is left out (*…outside faces, 14 windows.*), and the colours are only named once you've named them on the Paint card. Under the line, the builder shows what makes it up: the quoted figure, what was added on site, and how many of those variations are still **PENDING** (the app asks before invoicing a pending one, as for any variation). Everything else on the invoice (rooms, kitchen, materials, custom lines, sundries) is exactly as before.
+
+![One line for all the windows and doors work](images/26k-windoors-invoice-attach.png)
+
+**The report goes on the invoice.** Below the totals, **Attach the windows & doors work report** is ticked whenever the job has windows and doors; **Check the report** opens it first. When you create the invoice, the app attaches the report to it in Xero as **Work-Report-INV-0421.pdf** (with the invoice's own number), set to show on the online invoice, so the client can open it from the invoice Xero emails them. Untick it to leave it off; the line then doesn't mention a report. If some quoted or approved work isn't ticked off yet, a red warning says so, because the report would leave it out.
+
+![Attaching the report, and checking it first](images/26zj-windoors-invoice-report-tick.png)
+
+**If the report doesn't attach**, the invoice is still created; the message says the report wasn't attached and why. The Windows & Doors screen then shows **↻ Try attaching the report again** with the reason underneath. Trying again is safe: if Xero already has the report on that invoice, it isn't added a second time. Once it's on, the screen says **✓ Attached to invoice INV-… as Work-Report-INV-….pdf**. Xero doesn't let an app remove an attachment, so a report that's already attached isn't replaced; if you need to change it after that, open it from the Windows & Doors screen and swap it in Xero by hand.
+
+![The retry, with the reason it didn't attach](images/26zk-windoors-report-attach-retry.png)
+
+**Xero needs one reconnect for this.** Attaching files needs a permission that older Xero connections weren't given. Until you reconnect, **Settings → Xero Integration** shows **Reconnect Xero to attach work reports** with a **Reconnect Xero** button. Quotes and invoices keep working either way; only the attachment waits. (If Xero ever refuses this app the permission, the note says so instead, and the report has to be added in Xero by hand.)
+
+![Settings: reconnect once to allow attachments](images/26zl-xero-reconnect-attachments.png)
+
+**Interim invoices** carry the same single line: the fixture's share for that invoice plus anything added on site so far, which is billed on that interim in full. It says which stage it is, *(stage 2 of 3)*, when you picked a stage from the quote's payment plan, or how far through it is, *(40% complete)*. The report is attached to the **final** invoice only, and the interim's line says so.
 
 ![The report on the client's page](images/26g-windoors-report.png)
-
-For each side with work on it, it shows the elevation with the windows and doors that had work picked out, then a drawing of each of those with the panes and parts marked, and a list of the work split into **quoted work** and **approved variations** (with the date each was approved). Openings with no work are left out, work not yet ticked off isn't on it, variations still waiting for an answer aren't on it, and **there are no prices anywhere on it** — the invoice itself keeps one total line for the whole fixture.
 
 When the work's done, tap **Mark Completed** — the job moves on, and Home reminds you it needs invoicing until you do.
 
@@ -1355,7 +1386,7 @@ On a **Completed** job, On Site shows **Build final invoice**. The builder assem
 
 - labour **as quoted** (the frozen accepted figure, not the hours it took),
 - plus **approved variations** (including the ones the client approved on their own link),
-- plus any **repair size adjustments**, resin repairs found bigger on site (see [Windows and doors on site](#windows-and-doors-on-site)), as their own line,
+- with **all the windows and doors work as one line**, the quote plus everything added on site, and the work report attached (see [Windows and doors on the invoice](#windows-and-doors-on-the-invoice)),
 - plus the **actual materials** used (from your ticked-off list),
 - minus any **deposit already recorded and synced to Xero**.
 
@@ -1385,6 +1416,7 @@ On a long job you don't have to wait until the end to invoice. While a job is **
   - **Sundries & Consumables** aren't on interims. They're billed in full on the final invoice.
 - **Materials are itemised.** Every product you've ticked as **bought** on the On Site list and haven't invoiced yet is listed, with its quantity and price. These are the same lines and prices the final invoice uses. They're all ticked to start with; untick anything you'd rather hold back until later. If you bought 2 tins, invoiced them, then bought a third, the next interim offers just the one. A product with no price is shown in red and can't be billed until you set its price on the On Site screen.
 - **Approved variations** work the same way as rooms: a % box and **Done** for each one, so you can bill half an extra now and the rest later.
+- **Windows and doors** are one line, the fixture's % plus everything added on site so far (those start at 100%). See [Windows and doors on the invoice](#windows-and-doors-on-the-invoice).
 
 ![Preview, running totals and Issue](images/25c-interim-invoice-preview.png)
 
@@ -1569,6 +1601,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.93.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.94.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

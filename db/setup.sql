@@ -728,3 +728,28 @@ ALTER TABLE opening_marks ADD COLUMN IF NOT EXISTS upgraded_at TIMESTAMP;     --
 ALTER TABLE opening_marks ADD COLUMN IF NOT EXISTS repair_count INTEGER;      -- repairs of that size on the part; tiered actions only; NULL = 1
 CREATE INDEX IF NOT EXISTS opening_marks_job ON opening_marks (job_id);
 CREATE INDEX IF NOT EXISTS opening_marks_opening ON opening_marks (opening_id);
+
+-- ── The Windows and doors work report on the Xero invoice (v2.94.0) ─────────
+-- WINDOWS_DOORS_INVOICE_SPEC.md. Whether the report PDF made it onto the Xero
+-- invoice, kept apart from the invoice (the deposit's pattern): a failed
+-- attachment never un-creates the invoice, and this row is what the job's
+-- retry button reads. Created lazily by lib/windoors.js ensureAttachmentSchema().
+CREATE TABLE IF NOT EXISTS invoice_attachments (
+  id VARCHAR PRIMARY KEY,                 -- xero_invoice_id || ':' || file_name
+  job_id VARCHAR NOT NULL,
+  xero_invoice_id VARCHAR NOT NULL,
+  xero_invoice_number VARCHAR,
+  file_name VARCHAR NOT NULL,             -- Work-Report-{InvoiceNumber}.pdf
+  sync_state VARCHAR NOT NULL DEFAULT 'notSynced',  -- notSynced | failed | synced
+  last_error VARCHAR,
+  needs_reconnect BOOLEAN NOT NULL DEFAULT FALSE,   -- failed for want of accounting.attachments
+  attempts INTEGER NOT NULL DEFAULT 0,
+  xero_attachment_id VARCHAR,
+  bytes INTEGER,
+  last_attempt_at TIMESTAMP,
+  synced_at TIMESTAMP,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS invoice_attachments_file ON invoice_attachments (xero_invoice_id, file_name);
+CREATE INDEX IF NOT EXISTS invoice_attachments_job ON invoice_attachments (job_id);

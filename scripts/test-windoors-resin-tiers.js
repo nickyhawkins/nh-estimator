@@ -195,12 +195,13 @@ const SEED = () => {
   eq('5. a declined variation\'s upgrade is not billed', (await state()).adj.items.map(i => i.mark_id), ['r1']);
   await page.evaluate(() => { const v = wdVariationList()[0]; v.variationStatus = 'approved'; });
 
-  // ── The final invoice: its own line, not the quote's ─────────────────────
-  const inv = await page.evaluate(() => { try { const m = buildFinalInvoiceModel(); return { v: m.variations.filter(l => l.id === 'wdadj'), labour: m.labour.map(l => l.desc) }; } catch (e) { return { error: e.message }; } });
+  // ── The final invoice: on the one windows and doors line ─────────────────
+  // (WINDOWS_DOORS_INVOICE_SPEC.md: all of it is ONE line, quote + site.)
+  const inv = await page.evaluate(() => { try { const m = buildFinalInvoiceModel(); return { wd: m.labour.filter(l => l.wd).map(l => ({ amount: l.amount, quoted: l.quoted, adj: l.site.adjustments })), vars: m.variations.map(l => l.desc) }; } catch (e) { return { error: e.message }; } });
   check('6. the final invoice builds', !inv.error, inv.error);
   if (!inv.error) {
-    eq('6. one adjustments line, needing no sign-off', inv.v.map(l => [l.signoff, l.dropped]), [['adjustment', false]]);
-    near('6. ...at the same figure the client sees', inv.v[0].amount, (await state()).adj.amount);
+    eq('6. one windows and doors line, and no separate adjustments line', [inv.wd.length, inv.vars.filter(d => /Windows|Resin/i.test(d)).length], [1, 0]);
+    near('6. ...carrying the adjustment at the figure the client sees', inv.wd[0].adj, (await state()).adj.amount);
   }
 
   // ── Amending re-agrees the repairs ───────────────────────────────────────
