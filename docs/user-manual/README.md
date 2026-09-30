@@ -397,6 +397,12 @@ On a Georgian house a new dormer starts as a **3-over-6** sash, one row fewer on
 
 ![Marking panes and parts on one window](images/26c-windoors-detail.png)
 
+**Resin repairs have a size.** A nail-hole fill and a rebuilt sill nose aren't the same job, so each resin repair gets a size under **Repair size** on the window's sheet: **S** (nail hole to thumb-sized), **M** (up to palm-sized), **L** (a rail end or a cill corner) or **XL** (a sill nose or a rail rebuilt). A new repair starts at the size you last picked on the job, or Medium. The list under the diagram says it, *Resin repair (cill, L)*. The price is a fixed part for any size (setting up, consolidating, the wait for it to cure, coming back to it) plus the size's own time and resin, from **Rates → Windows & Doors**. Repairs marked before sizes existed are Medium, which is exactly what they cost before, so no quote moves. Until the quote is accepted you can change a size up or down freely; it's just quoting.
+
+**Two repairs on the same part**, such as a small patch at each end of a cill: mark the cill with **Resin repair** once, pick the size, then set **Repairs on this part** to **2**. The label reads *Resin repair (cill ×2, S)*. The base (setting up, the cure wait, coming back) is charged **once for the part**, and the size's time and resin once for each repair. Tapping Resin repair on the cill again doesn't add a second one; it reminds you to use the count. If the two patches are different sizes, pick the size that covers the bigger one, or split the difference. The count can be changed until the quote is accepted.
+
+![Two small resin repairs on one cill](images/26zh-windoors-two-repairs.png)
+
 Orange is work, blue is glass being replaced. Work marked here is **quoted** work and shows solid; work added on site shows dashed. Changing the type or the pane grid clears that opening's marks, so it asks first if there are any. The list under the diagram says, in words, everything on this opening. The first line is the painting itself, with what it was priced on: *Paint, outside face · light prep · 2 coats · first floor access* (with *(set by hand)* when you chose the access).
 
 ![First floor W2's access set to Ground by hand (scaffold already up): the dark dot at its bottom corner](images/26y-windoors-access-dot.png)
@@ -1287,6 +1293,20 @@ Old windows are where the surprises are. On a job with [Windows and doors](#wind
 
 ![Ticking the work off](images/26w-windoors-tick-off.png)
 
+**A resin repair turns out bigger once it's cut out.** Open the window and tap the bigger size under **Repair size**. That's all: there's no variation and nothing to send, because the quote terms already say repairs are priced on their estimated size and may go up once exposed. A badge shows the change (*M → L*); tap the agreed size again to undo it. Sizes **below** what the client agreed are greyed out. A repair that turns out smaller stays at its quoted price.
+
+- The size a repair was quoted at is locked when the job is **accepted**. A repair added on site (a variation) is locked at the size it was **sent** to the client at; while its variation is still a draft you can change it either way.
+- The extra is a **repair size adjustment**, kept apart from everything else. The accepted quote doesn't change, and it isn't a variation. It shows as **Repair size adjustments +£X** under the Windows & Doors total on Summary, on the On Site card and at the top of the On Site windows screen. Tap it for the list: *Front, ground floor, W1: resin repair (cill) M → L, +£18.54*. The figure includes sundries and markup, as the invoice bills it.
+- It goes on the **final invoice** as its own line, *Resin repairs: size adjustments once exposed (per quote terms)*, with the variations. It isn't billed on an interim invoice.
+- The **client's approval page** shows it as its own line, *Repair size adjustments (per quote terms)*, with no Approve button, so the total they see matches what they'll be invoiced. It updates each time you send or update that page.
+- The **work report** shows the size each repair ended up at: *resin repair (cill, large)*.
+- **Amending** the accepted quote takes each repair's current size into the new revision, so the upgrade becomes part of the quote.
+- **Another patch found on a part that already has a quoted repair** (a second soft spot on the cill): select the cill and tap **Resin repair**. It goes on the draft variation as a repair of its own, with its own size, for the client to approve like any other extra. It's charged its size only, because the cill's base is already in the quote. An upgrade to a repair counted ×2 is charged twice, once for each repair.
+
+![Upgrading a resin repair on site: M → L](images/26ze-windoors-repair-size.png)
+
+![Repair size adjustments: the list behind the Summary line](images/26zf-windoors-repair-adjustments.png)
+
 Everything you mark collects into one **draft** variation, worded for you from the marks — *Front, first floor, W2: reputty x4 panes, resin repair (cill).* — and shown at the top of the screen. It sits on the Variations card like any other extra; **reword for the client** changes what they'll read. Prep raised on site is charged as the difference between the old prep level and the new one. Prep lowered is taken off the same way, so a draft with W2 raised and W4 lowered comes to the difference between the two (*Front, ground floor, W4: prep lowered to light.*).
 
 **When a variation comes out as money off.** If the credits in a draft are worth more than the extras, the whole variation is a credit and shows as **−£** on the Variations card. **Send for approval** puts it on the client's page as *Credit — taken off your final invoice*, with no Approve or Decline buttons, and it counts in their running total straight away. It isn't billed on an interim invoice. The final invoice takes it off as a minus line. A credit isn't sent on a Xero variation quote, because there's nothing for the client to agree to.
@@ -1301,7 +1321,7 @@ Everything you mark collects into one **draft** variation, worded for you from t
 
 **📋 Work to do (PDF)** is on the Windows & Doors screen from Measure and from On Site, as soon as the job has any windows or doors. It's the list of what's still to be done, built on the phone with no signal needed and handed to the share sheet, like the work report.
 
-- **At the top, *In all*:** how many openings there are to paint, and the marked work counted up (*Reputty x14 panes, Replace glass x3 panes, Resin repair x5 parts*).
+- **At the top, *In all*:** how many openings there are to paint, and the marked work counted up (*Reputty x14 panes, Replace glass x3 panes, Resin repair x5 repairs*).
 - **Then each side**, with its drawing, and **every opening on it**, each with a box to tick on paper for each job: the painting first (*Paint: light prep, 2 coats, first floor access*), then one line per kind of repair (*Reputty x2 panes*, *Replace glass x1 pane*, *Resin repair (cill)*). An access you set by hand is always named (*ground access (set by hand)*), so the team knows the scaffold should be up.
 - **Openings with repairs get their drawing** with the panes and parts marked. Openings that are only being painted get just their lines, to keep it short.
 - **Approved variations are on it**, under their own heading. Drafts and variations still waiting for the client aren't: they haven't been agreed.
@@ -1335,6 +1355,7 @@ On a **Completed** job, On Site shows **Build final invoice**. The builder assem
 
 - labour **as quoted** (the frozen accepted figure, not the hours it took),
 - plus **approved variations** (including the ones the client approved on their own link),
+- plus any **repair size adjustments**, resin repairs found bigger on site (see [Windows and doors on site](#windows-and-doors-on-site)), as their own line,
 - plus the **actual materials** used (from your ticked-off list),
 - minus any **deposit already recorded and synced to Xero**.
 
@@ -1443,6 +1464,10 @@ The window, pane, door and bay minutes are **for 2 coats**, and scale with the j
 
 ![Rates — bay base minutes](images/26r-windoors-bay-rates.png)
 
+**Resin repair** is priced by size. **Resin repair base** is the part every repair takes whatever its size (15 minutes to start: setting up, consolidating, the cure wait and coming back). Each size then adds its own minutes and £ of resin: Small 5 min / £2, Medium 10 / £4, Large 25 / £8, X-Large 45 / £15. Medium (15 + 10 = 25 minutes, £4) is exactly what the single resin figure was before, and if you'd changed that figure, Medium takes your figure. These are starting points: adjust them to match your own jobs.
+
+![Rates — resin repair, base and sizes](images/26zg-windoors-resin-rates.png)
+
 > **Calibrate as you go:** after a few jobs, compare the logged time and actual materials on On Site with what was estimated, and nudge the time and coverage rates here. The estimates get sharper with every job.
 
 ---
@@ -1544,6 +1569,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.91.1. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.93.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

@@ -3284,6 +3284,19 @@ function populateWindoorsRates() {
   h += row('Bay timber', 'm² per storey — cornice, fascia, mullions, cill', inp('s-wd-pbay', R.paint.bay, 0.05));
   h += '<div class="subsection-label">Actions<small>minutes and material £ per pane or part marked</small></div>';
   Windoors.ACTIONS.forEach(function(a) {
+    // A tiered action (resin): a base once per repair, plus each size's own
+    // minutes and £ (RESIN_REPAIR_TIERS_SPEC.md). Medium is what the single
+    // figure used to be.
+    if (a.tiered) {
+      var ta = R.actions[a.key];
+      h += row(a.label + ' base', 'once per repair, any size — setup, cure wait, return visit',
+        '<span style="display:flex;gap:6px;align-items:center;font-size:11px;color:var(--text2)">' + inp('s-wd-act-' + a.key + '-base', ta.baseMins) + 'min</span>');
+      Windoors.REPAIR_TIERS.forEach(function(t) {
+        h += row(a.label + ' · ' + t.label, t.hint,
+          '<span style="display:flex;gap:6px;align-items:center;font-size:11px;color:var(--text2)">' + inp('s-wd-act-' + a.key + '-' + t.key + '-mins', ta.tiers[t.key].mins) + 'min £' + inp('s-wd-act-' + a.key + '-' + t.key + '-cost', ta.tiers[t.key].cost, 0.5) + '</span>');
+      });
+      return;
+    }
     h += row(a.label, a.on === 'pane' ? 'pane action' : (a.doorOnly ? 'door action' : a.sashOnly ? 'sash action, per part' : 'frame action'),
       '<span style="display:flex;gap:6px;align-items:center;font-size:11px;color:var(--text2)">' + inp('s-wd-act-' + a.key + '-mins', R.actions[a.key].mins) + 'min £' + inp('s-wd-act-' + a.key + '-cost', R.actions[a.key].cost, 0.5) + '</span>');
   });
@@ -3314,6 +3327,15 @@ function readWindoorsRates() {
   R.paint.doorFrame = v('s-wd-pdoorframe', R.paint.doorFrame);
   R.paint.bay = v('s-wd-pbay', R.paint.bay);
   Windoors.ACTIONS.forEach(function(a) {
+    if (a.tiered) {
+      var ta = R.actions[a.key];
+      ta.baseMins = v('s-wd-act-' + a.key + '-base', ta.baseMins);
+      Windoors.REPAIR_TIERS.forEach(function(t) {
+        ta.tiers[t.key].mins = v('s-wd-act-' + a.key + '-' + t.key + '-mins', ta.tiers[t.key].mins);
+        ta.tiers[t.key].cost = v('s-wd-act-' + a.key + '-' + t.key + '-cost', ta.tiers[t.key].cost);
+      });
+      return;
+    }
     R.actions[a.key].mins = v('s-wd-act-' + a.key + '-mins', R.actions[a.key].mins);
     R.actions[a.key].cost = v('s-wd-act-' + a.key + '-cost', R.actions[a.key].cost);
   });
@@ -6941,6 +6963,12 @@ function setJobStatusById(jobId, newStatus, confirmMsg, opts) {
     // (variationApplies() is false), so keeping them costs nothing and makes
     // the round trip a no-op, which is what it should be.
   }
+  // Windows and doors repairs lock at their quoted size on acceptance (the
+  // floor an upgrade on site is measured from), and unlock again if the
+  // acceptance is withdrawn -- RESIN_REPAIR_TIERS_SPEC.md section 5. Only
+  // the loaded job's marks are in memory; any other job stamps on its next
+  // load. The snapshot above was taken at the same tiers, so the two agree.
+  if (jobId === activeJobId) wdStampTiers();
   // THE ACCEPTED-QUOTE FREEZE (see the Accepted-quote snapshots section).
   // acceptedSnapshot above is a handful of comparison figures for the labour
   // log and the scheduler; this is the agreed QUOTE -- every line item, price
@@ -7810,6 +7838,10 @@ function confirmAmendAcceptedQuote() {
   var noteEl = document.getElementById('amend-note');
   var note = ((noteEl && noteEl.value) || '').trim();
   closeScheduleSheet();
+  // Re-agreeing the quote re-agrees its repairs at the size they are now, so
+  // the new revision carries any upgrade so far and no adjustment is left
+  // over for it. Before the capture, so the revision prices them that way.
+  wdStampTiers({ restamp: true });
   captureQuoteSnapshot(job, 'amended' + (note ? ': ' + note : ''));
   // Re-freeze the agreed SCOPE against the new revision, absorbing any
   // classified extras into it (VARIATIONS_SPEC.md Part 2). Ordered after the
@@ -10687,6 +10719,14 @@ function buildClientVariationLines() {
   windoorsVariationLines(job).forEach(function(l) {
     add('windoors', l.id, l.name, (l.raw + l.raw * sPct) * varMk, l.status, l.credit);
   });
+  // Repair size adjustments (RESIN_REPAIR_TIERS_SPEC.md): one line, shown so
+  // the running total the client sees matches what will be invoiced, with
+  // nothing to approve -- the server lands it approved and keeps it current.
+  var wdAdjCl = wdAdjustments(job);
+  if (wdAdjCl.amount > 0.005) {
+    out.push({ kind: 'windoorsadj', sourceId: 'repairs', description: 'Repair size adjustments (per quote terms)',
+               amount: Math.round(wdAdjCl.amount * 100) / 100, status: 'approved' });
+  }
   // Extra work inside an already-measured carrier (VARIATIONS_SPEC.md Part 2),
   // published under its OWN source kind. job_variations is unique on
   // (job_id, source_kind, source_id), so a delta sharing 'room' with a
@@ -10876,6 +10916,8 @@ function clientApprovalBlockHtml(v) {
   var url = clientQuoteLinkUrl();
   var approved = 0, declined = 0, awaiting = 0;
   activeJobClientVariations().forEach(function(cv) {
+    // Repair size adjustments ride the page with nothing to answer.
+    if (cv.kind === 'windoorsadj') return;
     if (cv.status === 'approved') approved++;
     else if (cv.status === 'declined') declined++;
     else awaiting++;
@@ -20174,6 +20216,19 @@ function buildFinalInvoiceModel() {
     variations.push({ id: 'vwd' + l.id, desc: 'Variation: ' + l.name, amount: l.raw * varMk,
                       dropped: l.status === 'declined', signoff: l.status, note: l.obj.variationApprovalNote || '' });
   });
+  // Repairs found bigger once exposed (RESIN_REPAIR_TIERS_SPEC.md): billed
+  // HERE and only here -- not in the agreed quote above, not on an interim.
+  // Its own line rather than folded into the fixture's quote line, so the
+  // labour "as quoted" stays exactly as quoted and the client can see what
+  // the extra is for. The quote terms cover it, so it needs no sign-off; it
+  // carries its own sundries share (the same figure the Summary line and the
+  // client's page show), so it stays out of varRaw.
+  var wdAdjInv = wdAdjustments(job);
+  if (wdAdjInv.amount > 0.005) {
+    variations.push({ id: 'wdadj', desc: 'Resin repairs: size adjustments once exposed (per quote terms)',
+                      amount: wdAdjInv.raw * (1 + (settings.sundriesPct || 0) / 100) * varMk,
+                      dropped: false, signoff: 'adjustment', note: '' });
+  }
   var hourlyRate = (settings.dr || 0) / (settings.hpd || 7);
   var freeHoursRaw = 0;
   ((job && job.freeVariations) || []).forEach(function(v) {
@@ -20378,7 +20433,8 @@ function renderFinalInvoice() {
         // Sign-off state per line: approved shows the record (note + who
         // said yes), pending is flagged amber for review, declined explains
         // why the line arrived pre-dropped.
-        var detail = l.signoff === 'approved' ? '✓ approved by client' + (l.note ? ' — ' + escapeHtml(l.note) : '')
+        var detail = l.signoff === 'adjustment' ? 'repairs upgraded on site — covered by the quote terms, no approval needed'
+          : l.signoff === 'approved' ? '✓ approved by client' + (l.note ? ' — ' + escapeHtml(l.note) : '')
           : l.signoff === 'declined' ? 'declined by client — dropped (↩ restores it)'
           : '<span style="color:var(--warn,#f39c12);font-weight:600">PENDING — never marked approved</span>';
         return lineRow('variations', l, detail);
@@ -25173,6 +25229,9 @@ async function loadWindoors(jobId) {
     apply(wdReadMirror(jobId));
   }
   wdRecoverVariations();
+  // Jobs accepted before repair tiers shipped (and anything answered since
+  // the last look) lock their repairs' tiers now.
+  wdStampTiers();
 }
 
 // Every on-site mark and prep raise names its variation by id, and the
@@ -25295,6 +25354,99 @@ function windoorsVariationRaw(id) {
   var l = windoorsVariationLines().find(function(x) { return x.id === id; });
   return l ? l.raw : 0;
 }
+// ── Repair size adjustments (RESIN_REPAIR_TIERS_SPEC.md) ──────────────────
+// A resin repair is quoted at a size, and the quote terms say repairs are
+// priced on their estimated size and may go up once exposed. So a repair
+// found bigger on site is upgraded in place -- no variation, no approval --
+// and the difference is an ADJUSTMENT: its own figure, never in the quote
+// (the agreed total doesn't move) and never in the variations (nothing to
+// approve). It's billed on the final invoice only.
+//
+// The quoted tier is the floor: a repair can go up, never down, and the
+// floor is the tier the client agreed -- stamped on quote marks when the job
+// is accepted, and on a variation's marks when it's sent (or answered).
+// Until then a tier is just quoting and moves freely either way.
+function wdJobAccepted(job) {
+  var st = job && job.status;
+  return st === 'accepted' || st === 'completed' || st === 'invoiced';
+}
+function wdVariationLocked(id) {
+  var v = wdVariationList().find(function(x) { return x.id === id; });
+  return !!v && (!!v.sentAt || variationStatusOf(v) !== 'pending');
+}
+// Bring every repair's lock up to date with the job: accepted or not, each
+// variation sent or not. Idempotent; writes only the marks that change.
+// opts.restamp: amending the accepted quote re-agrees it at today's tiers.
+function wdStampTiers(opts) {
+  if (!wdLoadedForActiveJob()) return 0;
+  var list = Windoors.tierStamps(windoors, { accepted: wdJobAccepted(activeJob()), variationLocked: wdVariationLocked,
+                                             restamp: !!(opts && opts.restamp) });
+  list.forEach(function(c) {
+    c.mark.agreed_size_tier = c.agreed;
+    if (!Windoors.isUpgraded(c.mark)) c.mark.upgraded_at = null;
+    wdPutMark(c.mark);
+  });
+  if (list.length) wdSaveMirror();
+  return list.length;
+}
+// The job's adjustments so far, in the variations' units: raw £ before
+// sundries and markup, and `amount` as billed -- the sundries share and the
+// variations markup, the same composition a variation line gets, so the
+// client's page, the Summary line and the final invoice all say one figure.
+// Repairs on a declined variation aren't being done, so aren't billed.
+function wdAdjustments(job) {
+  job = job || activeJob();
+  var out = { raw: 0, amount: 0, time: 0, items: [] };
+  if (!job || job.id !== activeJobId || !wdInUse()) return out;
+  var p = Windoors.priceJob(windoors, wdRates());
+  var declined = {};
+  wdVariationList(job).forEach(function(v) { if (variationStatusOf(v) === 'declined') declined[v.id] = true; });
+  var r = rpm(), mins = 0;
+  p.adjustments.items.forEach(function(it) {
+    if (it.variation_id && declined[it.variation_id]) return;
+    var raw = it.mins * r + it.materials;
+    mins += it.mins; out.raw += raw;
+    out.items.push(Object.assign({}, it, { raw: raw, amount: variationDeltaAmount({ raw: raw, spray: 0 }) }));
+  });
+  out.amount = variationDeltaAmount({ raw: out.raw, spray: 0 });
+  out.time = mins / 60 / (settings.hpd || 7);
+  return out;
+}
+// "Front, ground floor, W1: resin repair (cill) M → L"
+function wdAdjustmentText(it) {
+  var o = windoors.openings.find(function(x) { return x.id === it.opening_id; });
+  if (!o) return 'Repair';
+  var el = Windoors.openingElements(o).find(function(e) { return e.id === it.element_id; });
+  var a = Windoors.actionDef(it.action_key);
+  return Windoors.openingLabel(o) + ': ' + (a ? a.verb : 'repair') + ' (' + (el ? el.label : it.element_id) + (it.count > 1 ? ' \u00d7' + it.count : '') + ') '
+    + Windoors.repairTierDef(it.from).short + '\u00a0\u2192\u00a0' + Windoors.repairTierDef(it.to).short;
+}
+// The "Repair size adjustments +£X" line under a W&D total, tapping through
+// to the list. '' when there are none.
+function wdAdjustmentsRowHtml(adj, style) {
+  adj = adj || wdAdjustments();
+  if (!(adj.amount > 0.005)) return '';
+  return '<div onclick="event.stopPropagation();openWdAdjustmentsSheet()" style="display:flex;justify-content:space-between;gap:10px;align-items:center;cursor:pointer;font-size:13px;' + (style || '') + '">'
+    + '<span>Repair size adjustments <small style="color:var(--text2)">· ' + adj.items.length + ' upgraded on site</small></span>'
+    + '<span style="font-weight:700;color:var(--accent);white-space:nowrap">+' + fmt(adj.amount) + ' ›</span></div>';
+}
+function openWdAdjustmentsSheet() {
+  var adj = wdAdjustments();
+  openScheduleSheet('<div class="card">'
+    + '<div class="card-header">Repair size adjustments</div>'
+    + '<div style="padding:0 16px 8px;font-size:12px;color:var(--text2);line-height:1.45">Repairs found bigger once cut out, above the size the client agreed. The quote terms cover this, so there is nothing for them to approve: it goes on the final invoice as its own line, and the agreed quote is unchanged.</div>'
+    + (adj.items.length ? adj.items.map(function(it) {
+        return '<div style="display:flex;justify-content:space-between;gap:10px;padding:8px 16px;border-top:1px solid var(--border);font-size:13px">'
+          + '<span>' + escapeHtml(wdAdjustmentText(it)) + (it.stage === 'variation' ? ' <small style="color:var(--text2)">(variation work)</small>' : '') + '</span>'
+          + '<span style="white-space:nowrap;font-weight:600">+' + fmt(it.amount) + '</span></div>';
+      }).join('')
+      + '<div style="display:flex;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border);font-weight:700"><span>Total</span><span>+' + fmt(adj.amount) + '</span></div>'
+      : '<div style="padding:8px 16px;font-size:13px;color:var(--text2)">No repairs have been upgraded.</div>')
+    + '<div style="padding:4px 16px 8px;font-size:11px;color:var(--text2)">Sundries and markup included, as the final invoice bills it.</div>'
+    + '<button onclick="closeScheduleSheet()" style="margin:6px 16px 12px;width:calc(100% - 32px);background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:var(--rs);padding:10px;font-size:14px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer">Close</button>'
+    + '</div>');
+}
+
 // "Send for approval" published these: the drafts are closed, so the next
 // mark made on site starts a new one.
 function wdCloseDraftsSent(lines) {
@@ -25307,6 +25459,8 @@ function wdCloseDraftsSent(lines) {
     if (!v.sentAt && sent[v.id]) { v.sentAt = new Date().toISOString(); changed = true; }
   });
   if (changed) { localStorage.setItem('pe-jobs', JSON.stringify(jobs)); persistJobData(job); }
+  // Sent: its repairs lock at the size the client was asked about.
+  wdStampTiers();
 }
 function rewordWindoorsVariation(id) {
   var job = activeJob();
@@ -25374,7 +25528,9 @@ function wdDeleteOpening(o) {
 function wdPutMark(m) {
   return apiPutStrict('/api/windoors/marks/' + encodeURIComponent(m.id) + wdQ(), {
     jobId: windoors.jobId, openingId: m.opening_id, elementId: m.element_id,
-    actionKey: m.action_key, stage: m.stage, variationId: m.variation_id, doneAt: m.done_at || null
+    actionKey: m.action_key, stage: m.stage, variationId: m.variation_id, doneAt: m.done_at || null,
+    sizeTier: m.size_tier || null, agreedSizeTier: m.agreed_size_tier || null, upgradedAt: m.upgraded_at || null,
+    repairCount: m.repair_count || null
   }).catch(function(e) { wdFail('that mark', e); });
 }
 function wdDeleteMark(m) {
@@ -25618,6 +25774,8 @@ function renderWindoors() {
       + (dLine ? '<div style="margin-top:8px;font-size:13px"><b>Draft:</b> ' + escapeHtml(wdVariationText(d))
           + ' <span style="color:var(--accent);font-weight:700">' + fmtSigned(variationDeltaAmount({ raw: dLine.raw, spray: 0 })) + (dLine.credit ? ' credit' : '') + '</span>'
           + ' <span onclick="rewordWindoorsVariation(\'' + d.id + '\')" style="color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline;margin-left:4px">reword</span></div>' : '')
+      + '<div style="font-size:12px;color:var(--text2);margin-top:6px">A resin repair bigger than quoted: open the window and pick its size — an upgrade, not a variation.</div>'
+      + wdAdjustmentsRowHtml(null, 'margin-top:8px;padding-top:8px;border-top:1px solid var(--border)')
       + '</div>';
   } else {
     // Collapsible: open while the house is being designed, folded to one
@@ -25658,6 +25816,7 @@ function renderWindoors() {
       + '<div style="font-size:12px;color:var(--text2);margin-top:4px">Labour cost before markup' + (c.materials > 0.005 ? ', incl. ' + fmt(c.materials) + ' materials' : '')
       + (c.fixed > 0.005 ? (c.materials > 0.005 ? ' and ' : ', incl. ') + fmt(c.fixed) + ' set prices' : '')
       + (c.excluded ? '. ' + c.excluded + ' not in this job (drawn, not priced)' : '') + '. On the quote as: <i>' + escapeHtml(windoorsLineText()) + '</i></div>'
+      + wdAdjustmentsRowHtml(null, 'margin-top:8px;padding-top:8px;border-top:1px solid var(--border)')
       + '</div>';
   }
   var soft = 'width:100%;margin:4px 0 8px;background:var(--accent-soft-bg);color:var(--accent);border:1px solid var(--accent-soft-border);border-radius:12px;padding:11px;font-size:14px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer';
@@ -26444,6 +26603,7 @@ function renderWdDetail() {
         + (site ? ' · the quote\'s marks are locked here' : '') + '</div>';
     }
   }
+  h += wdRepairTiersHtml(o, oMarks);
   h += wdWorkListHtml(o, oMarks);
   if (isOther && !site) h += '<div style="padding:12px 16px 4px"><span onclick="deleteWdOther()" style="color:var(--danger);font-size:13px;font-weight:600;cursor:pointer">Remove this item</span></div>';
   box.innerHTML = h;
@@ -26503,6 +26663,7 @@ function renderWdBay(o, box) {
   } else {
     h += '<div style="padding:4px 16px 8px;font-size:12px;color:var(--text2)">Tap a window to open it' + (detail ? '; tap the cornice, fascia, a mullion or the cill to mark the bay\'s own timber' : '') + '. A badge on a window means it has work on it.</div>';
   }
+  h += wdRepairTiersHtml(o, oMarks);
   h += wdWorkListHtml(o, oMarks);
   box.innerHTML = h;
   var fig = document.getElementById('wd-detail-fig');
@@ -26567,7 +26728,7 @@ function wdWorkListHtml(o, oMarks) {
   }
   rows += line((o.kind === 'bay' ? 'Paint, the bay\'s own timber' : o.kind === 'other' ? 'Paint' : 'Paint, outside face') + ' · ' + paintBits.join(' · '),
     addedIn ? 'variation, added on site · ' + (av && !av.sentAt && ast === 'pending' ? 'draft' : ast) : 'quote');
-  var qc = Windoors.marksClause(o, quoteMarks);
+  var qc = Windoors.marksClause(o, quoteMarks, { tiers: 'short' });
   if (qc) rows += line(escapeHtml(qc.charAt(0).toUpperCase() + qc.slice(1)), 'quote');
   var byVar = {};
   varMarks.forEach(function(m) { (byVar[m.variation_id || ''] = byVar[m.variation_id || ''] || []).push(m); });
@@ -26577,15 +26738,19 @@ function wdWorkListHtml(o, oMarks) {
     var st = v ? variationStatusOf(v) : 'pending';
     var bits = [];
     if (Windoors.prepStep(o, p, vid || null)) bits.push(Windoors.prepChangeText(o, p, vid || null));
-    var vc = Windoors.marksClause(o, byVar[vid]);
+    var vc = Windoors.marksClause(o, byVar[vid], { tiers: 'short' });
     if (vc) bits.push(vc);
     if (!bits.length) return;
     var t = bits.join(', ');
     rows += line(escapeHtml(t.charAt(0).toUpperCase() + t.slice(1)),
       'variation · ' + (v && !v.sentAt && st === 'pending' ? 'draft' : st));
   });
-  var money = (wdMode === 'quote' ? fmt((perOpen.quoteMins || 0) * r + (perOpen.quoteMaterials || 0) + (perOpen.quoteFixed || 0)) + ' quoted' : '')
-    + (perOpen.varMins ? (wdMode === 'quote' ? ' · ' : '') + fmtSigned((perOpen.varMins || 0) * r + (perOpen.varMaterials || 0)) + ' variation' : '');
+  var money = [
+    wdMode === 'quote' ? fmt((perOpen.quoteMins || 0) * r + (perOpen.quoteMaterials || 0) + (perOpen.quoteFixed || 0)) + ' quoted' : '',
+    perOpen.varMins ? fmtSigned((perOpen.varMins || 0) * r + (perOpen.varMaterials || 0)) + ' variation' : '',
+    // Repairs upgraded on site: their own figure, in neither of the above.
+    perOpen.adjMins || perOpen.adjMaterials ? '+' + fmt((perOpen.adjMins || 0) * r + (perOpen.adjMaterials || 0)) + ' size adjustment' : ''
+  ].filter(Boolean).join(' · ');
   return '<div style="margin-top:6px"><div class="subsection-label" style="display:flex;justify-content:space-between"><span>Work on this ' + (o.kind === 'door' ? 'door' : o.kind === 'bay' ? 'bay' : o.kind === 'other' ? 'item' : 'window') + '</span>'
     + (money ? '<small style="text-transform:none;letter-spacing:0">' + money + ' <span style="opacity:.7">before markup</span></small>' : '') + '</div>' + rows + '</div>'
     + (wdMode === 'site' ? wdTickListHtml(o, oMarks) : '');
@@ -26620,7 +26785,8 @@ function wdTickListHtml(o, oMarks) {
     var done = !!m.done_at;
     h += '<div onclick="wdToggleDone(\'' + escapeHtml(m.id) + '\')" style="display:flex;gap:10px;align-items:center;padding:8px 16px;border-top:1px solid var(--border);cursor:pointer;font-size:13px">'
       + '<span style="flex:none;width:20px;height:20px;border-radius:6px;border:2px solid ' + (done ? 'var(--accent)' : 'var(--border)') + ';background:' + (done ? 'var(--accent)' : 'transparent') + ';color:#fff;font-size:13px;line-height:16px;text-align:center">' + (done ? '✓' : '') + '</span>'
-      + '<span style="' + (done ? 'color:var(--text2);text-decoration:line-through' : '') + '">' + escapeHtml((a ? a.label : m.action_key) + ' · ' + (els[m.element_id] || m.element_id))
+      + '<span style="' + (done ? 'color:var(--text2);text-decoration:line-through' : '') + '">' + escapeHtml((a ? a.label : m.action_key) + ' · ' + (els[m.element_id] || m.element_id)
+        + (Windoors.isTiered(m.action_key) ? ' (' + (Windoors.repairCount(m) > 1 ? '\u00d7' + Windoors.repairCount(m) + ', ' : '') + Windoors.repairTierDef(Windoors.markTier(m)).short + ')' : ''))
       + (m.stage === 'variation' ? ' <small style="color:var(--text2)">(variation)</small>' : '') + '</span></div>';
   });
   return h + '</div>';
@@ -26848,18 +27014,125 @@ function wdApplyAction(actionKey) {
   var o = wdOpening(); if (!o) return;
   var site = wdMode === 'site';
   var draft = site ? wdDraft(true) : null;
+  var tiered = Windoors.isTiered(actionKey), counted = false;
   Object.keys(wdSel.ids).forEach(function(elId) {
-    var dup = windoors.marks.some(function(m) { return m.opening_id === o.id && m.element_id === elId && m.action_key === actionKey; });
-    if (dup) return;
+    var same = windoors.marks.filter(function(m) { return m.opening_id === o.id && m.element_id === elId && m.action_key === actionKey; });
+    // A resin repair can be more than one per part: another patch at the
+    // other end of the cill. While the part's repair can still be counted
+    // from here, that's its ×2, not a second mark. Once it's locked (the
+    // quote accepted, its variation sent), a patch found on site beside it
+    // is a new repair on the draft -- sized on its own, the part's base
+    // already paid by the first.
+    var dup = tiered ? same.some(wdRepairCountEditable) : same.length > 0;
+    if (dup) { if (tiered) counted = true; return; }
     var m = { id: uid(), opening_id: o.id, element_id: elId, action_key: actionKey,
               stage: site ? 'variation' : 'quote', variation_id: site ? draft.id : null,
               created_at: new Date().toISOString() };
+    if (Windoors.isTiered(actionKey)) m.size_tier = wdDefaultRepairTier(actionKey);
     windoors.marks.push(m);
     wdPutMark(m);
   });
   wdSel = { kind: null, ids: {} };
   wdChanged();
+  if (counted) toast('Already down for a resin repair — set how many under Repair size');
 }
+// ── A repair's size (RESIN_REPAIR_TIERS_SPEC.md) ─────────────────────────
+// A new repair starts at the size last used on this job (the last one set,
+// else the newest repair's), else Medium.
+var wdLastRepairTier = {};
+function wdDefaultRepairTier(actionKey) {
+  var k = windoors.jobId + ':' + actionKey;
+  if (wdLastRepairTier[k]) return wdLastRepairTier[k];
+  var mine = windoors.marks.filter(function(m) { return m.action_key === actionKey && m.size_tier; });
+  mine.sort(function(a, b) { return String(a.created_at || '').localeCompare(String(b.created_at || '')); });
+  return mine.length ? Windoors.markTier(mine[mine.length - 1]) : 'medium';
+}
+// Can this repair's size be changed from here? From Measure: the quote's
+// own repairs. On site: any repair being done -- the quote's and every
+// variation's, bar a declined one -- because a repair is only sized properly
+// once it's cut out. Below the agreed size is never offered (the floor).
+function wdTierEditable(m) {
+  if (m.stage === 'variation') {
+    var v = wdVariationList().find(function(x) { return x.id === m.variation_id; });
+    if (v && variationStatusOf(v) === 'declined') return false;
+    return wdMode === 'site';
+  }
+  return true;
+}
+function wdRepairTiersHtml(o, oMarks) {
+  var list = oMarks.filter(function(m) { return Windoors.isTiered(m.action_key); });
+  if (!list.length) return '';
+  var els = {};
+  Windoors.openingElements(o).forEach(function(e) { els[e.id] = e.label; });
+  var h = '<div style="margin-top:6px"><div class="subsection-label">Repair size'
+    + '<small>' + (wdMode === 'site' ? 'once it\'s cut out: up a size if it\'s bigger, never below what was agreed — the quote terms cover it, no approval needed' : 'priced on its estimated size') + '</small></div>';
+  list.forEach(function(m) {
+    var a = Windoors.actionDef(m.action_key);
+    var cur = Windoors.markTier(m), ag = Windoors.agreedTier(m);
+    var up = Windoors.isUpgraded(m);
+    var can = wdTierEditable(m);
+    h += '<div style="padding:6px 16px 8px;border-top:1px solid var(--border)">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;margin-bottom:5px">'
+      + '<span>' + escapeHtml((a ? a.label : m.action_key) + ' (' + (els[m.element_id] || m.element_id).toLowerCase()
+        + (Windoors.repairCount(m) > 1 ? ' \u00d7' + Windoors.repairCount(m) : '') + ', ' + Windoors.repairTierDef(cur).short + ')')
+      + (m.stage === 'variation' ? ' <small style="color:var(--text2)">(variation)</small>' : '') + '</span>'
+      + (up ? '<span style="flex:none;font-size:11px;font-weight:700;color:#fff;background:var(--accent);border-radius:10px;padding:2px 8px">'
+          + Windoors.repairTierDef(ag).short + ' \u2192 ' + Windoors.repairTierDef(cur).short + '</span>' : '')
+      + '</div>'
+      + wdSegHtml(Windoors.REPAIR_TIERS.map(function(t) { return { key: t.key, label: t.short }; }), cur,
+          'setWdMarkTier.bind(null,\'' + escapeHtml(m.id) + '\')',
+          { disabled: function(t) { return !can || (ag && Windoors.repairTierRank(t.key) < Windoors.repairTierRank(ag)); } })
+      + '<div style="font-size:11px;color:var(--text2);margin-top:3px">' + escapeHtml(Windoors.repairTierDef(cur).label + ': ' + Windoors.repairTierDef(cur).hint)
+      + (ag ? ' · agreed at ' + Windoors.repairTierDef(ag).label.toLowerCase() : '') + '</div>'
+      // Two patches the same size on one part: one mark, ×2. The base is
+      // charged once for the part, the size once per repair.
+      + (wdRepairCountEditable(m)
+        ? '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px;font-size:13px">'
+          + '<span>Repairs on this part<small style="display:block;font-size:11px;color:var(--text2)">e.g. one at each end — the base is charged once</small></span>'
+          + wdStepper('', Windoors.repairCount(m), 'setWdRepairCount(\'' + escapeHtml(m.id) + '\',-1)', 'setWdRepairCount(\'' + escapeHtml(m.id) + '\',1)') + '</div>'
+        : '')
+      + '</div>';
+  });
+  return h + '</div>';
+}
+// Set a repair's size. Up past the agreed size is an upgrade (an
+// adjustment, straight onto the final invoice); back down to it undoes one.
+// How many repairs a part's mark stands for can change while its size can
+// change freely: before the quote is accepted, or on a draft. After that an
+// extra patch is new work -- a repair of its own on the draft (wdApplyAction).
+function wdRepairCountEditable(m) {
+  return Windoors.isTiered(m.action_key) && wdTierEditable(m) && !Windoors.agreedTier(m)
+    && (m.stage === 'variation') === (wdMode === 'site');
+}
+function setWdRepairCount(id, delta) {
+  wdStampTiers();
+  var m = windoors.marks.find(function(x) { return x.id === id; });
+  if (!m || !wdRepairCountEditable(m)) return;
+  var n = Math.max(1, Math.min(Windoors.MAX_REPAIRS, Windoors.repairCount(m) + delta));
+  if (n === Windoors.repairCount(m)) return;
+  m.repair_count = n > 1 ? n : null;
+  wdPutMark(m);
+  wdChanged();
+}
+function setWdMarkTier(id, tier) {
+  // Locks first: a job accepted since the last look must not have its quote
+  // moved by the first tap on site.
+  wdStampTiers();
+  var m = windoors.marks.find(function(x) { return x.id === id; });
+  if (!m || !Windoors.isTiered(m.action_key) || !wdTierEditable(m)) return;
+  if (Windoors.repairTierRank(tier) < 0) return;
+  var ag = Windoors.agreedTier(m);
+  if (ag && Windoors.repairTierRank(tier) < Windoors.repairTierRank(ag)) return;
+  if (m.size_tier === tier) return;
+  var wasUp = Windoors.isUpgraded(m) ? Windoors.markTier(m) : null;
+  m.size_tier = tier;
+  if (!Windoors.isUpgraded(m)) m.upgraded_at = null;
+  else if (wasUp !== tier) m.upgraded_at = new Date().toISOString();
+  wdLastRepairTier[windoors.jobId + ':' + m.action_key] = tier;
+  wdPutMark(m);
+  wdChanged();
+}
+
 // Remove work from the selection: every mark this screen is allowed to take
 // off (see wdMarkEditable) on the selected elements.
 function wdRemoveWork() {
@@ -27166,7 +27439,9 @@ function windoorsOnSiteCardHtml() {
         var open = wdUntickedCount();
         return all.length ? '<div style="font-size:12px;margin-top:3px;color:' + (open ? 'var(--text2)' : 'var(--accent)') + '">' + (all.length - open) + ' of ' + all.length + ' pieces of work ticked off' + (open ? '' : ' ✓') + '</div>' : '';
       })() + '</div>'
-    + '<span class="nav-menu-arrow">›</span></div></div>';
+    + '<span class="nav-menu-arrow">›</span></div>'
+    + wdAdjustmentsRowHtml(null, 'margin-top:8px;padding-top:8px;border-top:1px solid var(--border)')
+    + '</div>';
 }
 
 // ── Custom line items (ad-hoc description + price) ─────────────────────────
@@ -30863,7 +31138,11 @@ function computeProfitability(q) {
   var interimSum = invoiceList.filter(function(i) { return i.type === 'interim'; })
     .reduce(function(t, i) { return t + (+i.subtotal || 0); }, 0);
   var hasInvoiceTotal = !!(job && job.finalInvoiceTotal != null && (+job.finalInvoiceTotal > 0 || interimSum > 0));
-  var invoiced = hasInvoiceTotal ? +job.finalInvoiceTotal + interimSum : quotedAll;
+  // Repair size adjustments (RESIN_REPAIR_TIERS_SPEC.md) are invoiced but
+  // were never quoted: in the invoiced figure, never in quotedAll. A built
+  // final invoice already carries them as a line; the fallback adds them.
+  var repairAdjustments = wdAdjustments(job).amount;
+  var invoiced = hasInvoiceTotal ? +job.finalInvoiceTotal + interimSum : quotedAll + repairAdjustments;
   var billingDelta = hasInvoiceTotal ? invoiced - quotedAll : 0;
   // Schedule — variance only exists once both sides are real: a quote with
   // no stored day estimate (imported from Xero) or a job with nothing
@@ -30911,7 +31190,7 @@ function computeProfitability(q) {
   return {
     upchargeTotal: upchargeTotal, roundingDelta: roundingDelta,
     quotedTotal: q.quotedTotal, approvedVariations: q.approvedVariations,
-    quotedAll: quotedAll, hasInvoiceTotal: hasInvoiceTotal,
+    quotedAll: quotedAll, hasInvoiceTotal: hasInvoiceTotal, repairAdjustments: repairAdjustments,
     invoices: invoiceList, interimSum: interimSum,
     invoiced: invoiced, billingDelta: billingDelta,
     quotedDays: quotedDays, days: days, dayVariance: dayVariance,
@@ -30997,7 +31276,7 @@ function profitabilityCardHtml(p, vView, job) {
   // and if not, was the difference deliberate (saving passed on)?
   var revenueBasis = p.hasInvoiceTotal
     ? 'final invoice' + (job && job.xeroInvoiceNumber ? ' ' + escapeHtml(job.xeroInvoiceNumber) : '')
-    : 'quoted + approved variations — no final invoice built in the app';
+    : 'quoted + approved variations' + (p.repairAdjustments > 0.005 ? ' + repair size adjustments' : '') + ' — no final invoice built in the app';
   var billingNote = '';
   if (p.hasInvoiceTotal && Math.abs(p.billingDelta) >= 0.005) {
     billingNote = p.billingDelta < 0
@@ -31022,6 +31301,7 @@ function profitabilityCardHtml(p, vView, job) {
     row('Quoted total', 'labour + materials, as quoted', fmt(p.quotedTotal))+
     adjustments+
     (p.approvedVariations > 0.005 ? row('Approved variations', 'client-approved extras', fmt(p.approvedVariations)) : '')+
+    (p.repairAdjustments > 0.005 ? row('Repair size adjustments', 'resin repairs upgraded on site — per the quote terms, not quoted', fmt(p.repairAdjustments)) : '')+
     row('Invoiced', revenueBasis, fmt(p.invoiced), { bold: true })+
     billingNote;
   // Staged invoicing: a job billed in stages reads as the running account it
@@ -31991,6 +32271,9 @@ function renderSummary() {
         '<div class="room-cost">'+fmt(wdCalc.total*mk)+'</div>'+
         '<div style="color:var(--text3);font-size:16px">›</div>'+
       '</div>'+
+      // Repairs upgraded on site: their own line under the fixture, never
+      // in its total (the agreed quote doesn't move) -- RESIN_REPAIR_TIERS_SPEC.md.
+      wdAdjustmentsRowHtml(null, 'padding:0 16px 10px 56px')+
       '<div style="height:1px;background:var(--border)"></div>';
     })():'')+
     // Custom line items -- no expandable sub-breakdown (there's no

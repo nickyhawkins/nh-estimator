@@ -191,7 +191,8 @@ const SEED = () => {
     const d = wdDraft(false);
     windoors.marks.push({ id: 'm1', opening_id: 'w2', element_id: 'cill', action_key: 'resin', stage: 'variation', variation_id: d.id });
     const after = windoorsVariationLines();
-    const a = wdRates().actions.resin;
+    // A resin repair with no size is a Medium (RESIN_REPAIR_TIERS_SPEC.md).
+    const a = Windoors.actionPrice(wdRates(), 'resin', 'medium');
     const out = { n: after.length, delta: Math.round((after[0].raw - before) * 100) / 100, want: Math.round((a.mins * rpm() + a.cost) * 100) / 100 };
     windoors.marks = [];
     return out;
