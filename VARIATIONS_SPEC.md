@@ -546,6 +546,13 @@ drops anything not `> 0.005`. A negative delta therefore offers **Correction** o
 the quote. Pretending to price a credit through a pipeline that filters negatives out is
 worse than declining to.
 
+**One exception since v2.91.0:** windows and doors prep lowered on site. It's netted into
+its W&D variation, and a variation that comes out below zero is a credit that the whole
+pipeline now carries: published approved, shown as a credit on the client page, kept off
+interims, and taken off the final invoice as a `quantity: -1` line (see `FEATURES.md`,
+v2.91.0). `buildClientVariationLines()` lets through a negative line only when it's
+flagged `credit`, so measured-carrier deltas are still as described above.
+
 ## Totalling — every consumer, listed
 
 Part 1's gotcha stands and is the risk area again: *"Grep every consumer of the room

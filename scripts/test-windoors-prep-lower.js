@@ -8,21 +8,24 @@
 // brought back down -- tap Heavy by mistake, or find the timber better than
 // feared once scraped, and the only way out was Measure. What is held here:
 //
-//   1. On site, a quoted opening with no raise offers only its own level and
-//      up -- nothing below what the quote priced.
+// v2.91.0 then went further (Nicky: "sometimes it is better than expected,
+// same as sometimes it's worse"): prep can go BELOW what the quote priced,
+// and the difference is a credit on the variation.
+//
+//   1. On site, every level is offered.
 //   2. A raise is a variation: quote_prep_level stamped, draft created.
-//   3. While that variation is unanswered, the picker offers every level
-//      down to the QUOTE's level (not the job default below it).
+//   3. While that variation is unanswered, every level is still offered.
 //   4. Lowering to a level still above the quote keeps it a raise, in the
 //      same variation, measured from the same quote level.
 //   5. Lowering all the way to the quote's level dissolves the raise: the
 //      opening reads exactly as it did before (stage quote, nothing stamped).
-//   6. Nothing below the quote's level can be set, even by calling the
-//      handler directly.
-//   7. Once the variation is answered, the raise is locked: no level below
-//      it is offered and a call to lower it does nothing.
-//   8. An opening whose quoted level is above the job default still floors
-//      at its quoted level, not the default.
+//   6. Below the quote's level -- even below the job default -- is a CREDIT:
+//      a negative variation line, worded "prep lowered to", published to the
+//      client as a negative line, netted against extra work in the same
+//      draft, kept off interim invoices and carried by the final. Once
+//      answered it's fixed both ways, so the agreed credit can't vanish.
+//   7. Once the variation is answered, a raise is locked: no level below it
+//      is offered and a call to lower it does nothing.
 //
 // Driven in a real browser against the real public/index.html (served off
 // disk, no server, no database -- writes 404 and queue, as offline on site).
@@ -130,8 +133,8 @@ const SEED = () => {
     b.click(); return true;
   }, level);
 
-  // ── 1. No raise: nothing below the quote ─────────────────────────────────
-  eq('1. a quoted opening offers its own level and up', await offered(), ['light*', 'standard', 'heavy', 'restoration']);
+  // ── 1. Every level on offer ──────────────────────────────────────────────
+  eq('1. a quoted opening offers every level', await offered(), ['light*', 'standard', 'heavy', 'restoration']);
 
   // ── 2. Raise ─────────────────────────────────────────────────────────────
   check('2. tapped Heavy', await tap('heavy'));
@@ -153,22 +156,70 @@ const SEED = () => {
   check('5. tapped Light', await tap('light'));
   eq('5. the raise dissolves: back to exactly as quoted', await row('w1'),
     { prep_level: null, prep_stage: 'quote', quote_prep_level: null, hasVar: false });
-  eq('5. and the picker is back to the quote\'s level and up', await offered(), ['light*', 'standard', 'heavy', 'restoration']);
+  eq('5. and the picker still offers every level', await offered(), ['light*', 'standard', 'heavy', 'restoration']);
+  eq('5. and the draft has nothing left in it', await page.evaluate(() => windoorsVariationLines().length), 0);
 
-  // ── 6. Never below the quote ─────────────────────────────────────────────
-  await page.evaluate(() => { openWdDetail('w2'); setWdPrep('light'); });
-  eq('6. a direct call below the quote does nothing', await row('w2'),
-    { prep_level: 'standard', prep_stage: 'quote', quote_prep_level: null, hasVar: false });
+  // ── 6. Below the quote: a credit ─────────────────────────────────────────
+  await page.evaluate(() => openWdDetail('w2'));
+  eq('6. quoted at Standard (above the default): Light is offered too', await offered(), ['light', 'standard*', 'heavy', 'restoration']);
+  check('6. tapped Light', await tap('light'));
+  eq('6. lowered as a variation from the quote\'s level', await row('w2'),
+    { prep_level: 'light', prep_stage: 'variation', quote_prep_level: 'standard', hasVar: true });
+  const credit = await page.evaluate(() => {
+    const o = windoors.openings.find(x => x.id === 'w2');
+    const per = Windoors.priceJob(windoors, wdRates()).perOpening.w2;
+    const lines = windoorsVariationLines();
+    return { lines: lines.map(l => ({ raw: Math.round(l.raw * 100) / 100, credit: l.credit, status: l.status })),
+             expect: Math.round(per.scaled * (wdRates().prep.light - wdRates().prep.standard) * rpm() * 100) / 100,
+             text: Windoors.describeVariation(windoors, o.prep_variation_id),
+             client: buildClientVariationLines().filter(l => l.kind === 'windoors').map(l => l.amount < 0) };
+  });
+  eq('6. the draft is one line, below zero, marked a credit', credit.lines.map(l => [l.credit, l.status, l.raw < 0]), [[true, 'pending', true]]);
+  eq('6. priced as the scaled opening × (Light − Standard)', credit.lines[0].raw, credit.expect);
+  check('6. and worded as lowered', /W2: prep lowered to light\./.test(credit.text), credit.text);
+  eq('6. it is published to the client as a negative line', credit.client, [true]);
+  check('6. the sheet says it is a credit',
+    /lowered on site from Standard — a credit/.test(await page.evaluate(() => document.getElementById('wd-sheet-body').textContent)));
+  check('6. the Variations card shows it as money off', await page.evaluate(() =>
+    /−£/.test(fmtSigned(-12.5)) && fmtSigned(-12.5) === '−£12.50' && fmtSigned(12.5) === '£12.50'));
 
-  // ── 8. Floors at the quoted level, not the default ───────────────────────
-  eq('8. quoted at Standard: Standard and up only', await offered(), ['standard*', 'heavy', 'restoration']);
-  await tap('restoration');
-  eq('8. raised from Standard', await row('w2'),
-    { prep_level: 'restoration', prep_stage: 'variation', quote_prep_level: 'standard', hasVar: true });
-  eq('8. and can come back to Standard but not Light', await offered(), ['standard', 'heavy', 'restoration*']);
-  await tap('standard');
-  eq('8. back to Standard, as quoted', await row('w2'),
-    { prep_level: 'standard', prep_stage: 'quote', quote_prep_level: null, hasVar: false });
+  // Netted against extra work in the same draft.
+  const netted = await page.evaluate(() => {
+    const before = windoorsVariationLines()[0].raw;
+    const d = wdDraft(false);
+    windoors.marks.push({ id: 'm1', opening_id: 'w2', element_id: 'cill', action_key: 'resin', stage: 'variation', variation_id: d.id });
+    const after = windoorsVariationLines();
+    const a = wdRates().actions.resin;
+    const out = { n: after.length, delta: Math.round((after[0].raw - before) * 100) / 100, want: Math.round((a.mins * rpm() + a.cost) * 100) / 100 };
+    windoors.marks = [];
+    return out;
+  });
+  eq('6. extra work in the same draft nets against the credit, on one line', [netted.n, netted.delta], [1, netted.want]);
+
+  // Answered: approved like any variation, then on the invoices.
+  const billed = await page.evaluate(() => {
+    const o = windoors.openings.find(x => x.id === 'w2');
+    const v = activeJob().windoorsVariations.find(x => x.id === o.prep_variation_id);
+    v.sentAt = new Date().toISOString(); v.variationStatus = 'approved';
+    let interim = null, fin = null;
+    try { interim = interimVariationCandidates(activeJob()).filter(l => l.kind === 'windoors').length; } catch (e) { interim = 'error: ' + e.message; }
+    try { fin = buildFinalInvoiceModel().variations.filter(l => /Windows and doors/.test(l.desc)).map(l => l.amount < 0 && !l.dropped); } catch (e) { fin = 'error: ' + e.message; }
+    renderWdDetail();
+    return { interim, fin };
+  });
+  eq('6. an approved credit is not billed on an interim (the final squares it)', billed.interim, 0);
+  eq('6. the final invoice carries it as money off', billed.fin, [true]);
+  eq('6. once answered, a credit is fixed: only its own level is offered', await offered(), ['light*']);
+  await page.evaluate(() => setWdPrep('heavy'));
+  eq('6. ...and a direct call to raise it does nothing (the agreed credit stays on the final)', await row('w2'),
+    { prep_level: 'light', prep_stage: 'variation', quote_prep_level: 'standard', hasVar: true });
+
+  // Reset w2 to exactly as quoted for the lock test below.
+  await page.evaluate(() => {
+    const o = windoors.openings.find(x => x.id === 'w2');
+    Object.assign(o, { prep_level: 'standard', prep_stage: 'quote', quote_prep_level: null, prep_variation_id: null });
+    renderWdDetail();
+  });
 
   // ── 7. Answered: locked ──────────────────────────────────────────────────
   await tap('heavy');

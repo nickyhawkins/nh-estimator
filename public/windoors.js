@@ -16,9 +16,13 @@
 //
 // Three rules from the spec are enforced HERE rather than in the UI, so no
 // screen can get them wrong:
-//   1. The quote is the floor. Per-opening detail only ever ADDS minutes --
-//      there is no negative action, and prep can only go up (effectivePrep).
-//   2. Prep is a job default an opening can raise, never lower.
+//   1. The quote is never changed by site work. Per-opening detail only ever
+//      ADDS minutes -- there is no negative action. The one thing that can
+//      come in under the quote is prep: a window found better than expected
+//      is lowered on site, and the difference is a CREDIT on that site
+//      variation (v2.91.0), netted against whatever else it carries.
+//   2. Prep is a job default an opening can raise, never lower -- from
+//      Measure. On site an opening can go either way (effectivePrep).
 //   3. Every mark belongs to a stage: 'quote' marks are the quote, 'variation'
 //      marks are extras, and the two are never summed into the same figure.
 (function (root, factory) {
@@ -874,17 +878,39 @@
   // The job default and the opening's own level, whichever is higher. An
   // opening that was set to Heavy keeps Heavy if the default later moves to
   // Standard; one left at the default follows it up.
+  //
+  // Except a level LOWERED on site (v2.91.0): below the level stamped when
+  // it was changed (quote_prep_level) it is taken as it is, even under the
+  // job default -- that one window turned out better than the rest of the
+  // house. Measured against the STAMP, not the default, so a raise the
+  // default has since overtaken from Measure stays a raise (worth nothing),
+  // never turns into a credit.
   function effectivePrep(o, property) {
     var dflt = (property && property.default_prep) || 'light';
+    if (o.prep_stage === 'variation' && prepRank(o.prep_level) >= 0
+        && prepRank(o.prep_level) < prepRank(o.quote_prep_level || dflt)) return o.prep_level;
     return maxPrep(o.prep_level || dflt, dflt);
   }
-  // The level the QUOTE priced. A level raised on site is a variation, and
-  // the quote keeps the level that was in force before it (quote_prep_level,
-  // stamped at the moment of the raise).
+  // The level the QUOTE priced. A level raised (or lowered) on site is a
+  // variation, and the quote keeps the level that was in force before it
+  // (quote_prep_level, stamped at the moment of the change).
   function quotePrep(o, property) {
     var dflt = (property && property.default_prep) || 'light';
     if (o.prep_stage === 'variation') return maxPrep(o.quote_prep_level || dflt, dflt);
     return effectivePrep(o, property);
+  }
+  // Which way prep moved on site, if it did: 'raised', 'lowered' or null.
+  // A quoted opening only -- one added on site has no quote level to move
+  // from (its whole painting is the variation).
+  function prepChange(o, property) {
+    if (o.prep_stage !== 'variation') return null;
+    var now = prepRank(effectivePrep(o, property)), was = prepRank(quotePrep(o, property));
+    return now > was ? 'raised' : now < was ? 'lowered' : null;
+  }
+  // "prep raised to heavy" / "prep lowered to light", or ''.
+  function prepChangeText(o, property) {
+    var ch = prepChange(o, property);
+    return ch ? 'prep ' + ch + ' to ' + prepLabel(effectivePrep(o, property)).toLowerCase() : '';
   }
 
   // Tier minutes are for 2 coats: 1 coat is half, 3 is one and a half.
@@ -970,9 +996,11 @@
   //               access before prep; the marks are one-off jobs and are not
   //               (the Exterior form's repair minutes take no access either).
   //   variations  keyed by variation id: that draft/sent variation's marks,
-  //               plus any prep raised on site into it (priced as the base at
-  //               the new multiplier less the base at the old one -- never
-  //               negative, the quote is the floor)
+  //               plus any prep raised or lowered on site into it (priced as
+  //               the base at the new multiplier less the base at the old
+  //               one). A lowering is NEGATIVE minutes -- a credit netted
+  //               against the rest of that variation, which can leave the
+  //               whole variation below zero (v2.91.0).
   //   perOpening  the same split per opening, for the detail view's line list
   //
   // Materials are the actions' £ before markup; the caller turns minutes into
@@ -988,7 +1016,7 @@
     var scope = scopeMap(openings);
     var varBucket = function (id) {
       var k = id || 'unassigned';
-      if (!out.variations[k]) out.variations[k] = { mins: 0, materials: 0, marks: 0, prepRaises: 0, includes: 0 };
+      if (!out.variations[k]) out.variations[k] = { mins: 0, materials: 0, marks: 0, prepRaises: 0, prepDrops: 0, includes: 0 };
       return out.variations[k];
     };
     openings.forEach(function (o) {
@@ -1026,14 +1054,14 @@
       out.quote.materials += own;
       out.quote.fixed += fixed;
       out.quote.count++;
-      if (o.prep_stage === 'variation') {
+      var ch = prepChange(o, property);
+      if (ch) {
         var nowMult = rates.prep[effectivePrep(o, property)] || 1;
-        var extra = Math.max(0, scaled * (nowMult - qMult));
-        if (extra > 0) {
-          var vb = varBucket(o.prep_variation_id);
-          vb.mins += extra; vb.prepRaises++;
-          per.varMins += extra;
-        }
+        var delta = scaled * (nowMult - qMult);
+        var vb = varBucket(o.prep_variation_id);
+        vb.mins += delta;
+        if (ch === 'raised') vb.prepRaises++; else vb.prepDrops++;
+        per.varMins += delta;
       }
     });
     marks.forEach(function (m) {
@@ -1124,7 +1152,7 @@
     }).filter(Boolean).join(', ');
   }
 
-  // A variation's text, generated from its marks and prep raises, e.g.
+  // A variation's text, generated from its marks and prep changes, e.g.
   // "Front, first floor, W2: reputty x4 panes, resin repair (cill)."
   function describeVariation(data, variationId) {
     var openings = sortOpenings(liveOpenings(data && data.openings, data && data.property));
@@ -1136,9 +1164,8 @@
       var bits = [];
       if (!o.excluded && o.include_variation_id && o.include_variation_id === variationId) {
         bits.push('added to the job, ' + prepLabel(effectivePrep(o, property)).toLowerCase() + ' prep and paint');
-      } else if (o.prep_stage === 'variation' && (o.prep_variation_id || 'unassigned') === (variationId || 'unassigned')
-          && prepRank(effectivePrep(o, property)) > prepRank(quotePrep(o, property))) {
-        bits.push('prep raised to ' + prepLabel(effectivePrep(o, property)).toLowerCase());
+      } else if (prepChange(o, property) && (o.prep_variation_id || 'unassigned') === (variationId || 'unassigned')) {
+        bits.push(prepChangeText(o, property));
       }
       var clause = marksClause(o, mine);
       if (clause) bits.push(clause);
@@ -1258,7 +1285,8 @@
   }
 
   // What each opening's markers should say: quote work (solid badge) and/or
-  // variation work (dashed badge). Raised prep counts as work at its stage.
+  // variation work (dashed badge). Raised prep counts as work at its stage,
+  // and so does prep lowered on site (a credit is still a site change).
   function workFlags(data) {
     var flags = {};
     var property = (data && data.property) || {};
@@ -1270,7 +1298,7 @@
       if (ownScope(o).variationId) { f.variation++; return; }
       var dflt = property.default_prep || 'light';
       if (prepRank(quotePrep(o, property)) > prepRank(dflt)) f.quote++;
-      if (o.prep_stage === 'variation' && prepRank(effectivePrep(o, property)) > prepRank(quotePrep(o, property))) f.variation++;
+      if (prepChange(o, property)) f.variation++;
     });
     ((data && data.marks) || []).forEach(function (m) {
       var f = flags[m.opening_id];
@@ -2411,17 +2439,15 @@
       mine.filter(function (m) { return m.stage === 'variation'; }).forEach(function (m) {
         (byVar[m.variation_id] = byVar[m.variation_id] || []).push(m);
       });
-      if (!sc.variationId && o.prep_stage === 'variation' && approved[o.prep_variation_id]
-          && prepRank(effectivePrep(o, property)) > prepRank(quotePrep(o, property))) {
+      if (!sc.variationId && prepChange(o, property) && approved[o.prep_variation_id]) {
         byVar[o.prep_variation_id] = byVar[o.prep_variation_id] || [];
       }
       Object.keys(byVar).forEach(function (vid) {
         var v = approved[vid];
         if (!v) return;
         var parts = [];
-        if (!sc.variationId && o.prep_stage === 'variation' && o.prep_variation_id === vid
-            && prepRank(effectivePrep(o, property)) > prepRank(quotePrep(o, property))) {
-          parts.push('prep raised to ' + prepLabel(effectivePrep(o, property)).toLowerCase());
+        if (!sc.variationId && prepChange(o, property) && o.prep_variation_id === vid) {
+          parts.push(prepChangeText(o, property));
         }
         if (todo) {
           // One line each, like the quoted work.
@@ -2530,7 +2556,7 @@
     liveOpenings: liveOpenings, onHouse: onHouse, dormersAllowed: dormersAllowed, periodSashGrid: periodSashGrid, sashRows: sashRows, sashTopShare: sashTopShare, sashPattern: sashPattern,
     openingElements: openingElements, elementKind: elementKind, actionsFor: actionsFor, paneCount: paneCount,
     openingCode: openingCode, openingLabel: openingLabel, sortOpenings: sortOpenings,
-    effectivePrep: effectivePrep, quotePrep: quotePrep, baseMinutes: baseMinutes, paintedMinutes: paintedMinutes,
+    effectivePrep: effectivePrep, quotePrep: quotePrep, prepChange: prepChange, prepChangeText: prepChangeText, baseMinutes: baseMinutes, paintedMinutes: paintedMinutes,
     priceJob: priceJob, openingPaintM2: openingPaintM2, paintAreas: paintAreas, marksClause: marksClause, describeVariation: describeVariation, itemLineText: itemLineText,
     workFlags: workFlags, elevationSvg: elevationSvg, detailSvg: detailSvg,
     OTHER_PAINT: OTHER_PAINT, otherName: otherName, PORCH_STYLES: PORCH_STYLES, sideGeometry: sideGeometry, otherDraw: otherDraw, otherDoor: otherDoor, porchStyleFor: porchStyleFor, porchPreviewSvg: porchPreviewSvg, drawPorchGlyph: drawPorchGlyph, OTHER_PRICING: OTHER_PRICING, OTHER_UNITS: OTHER_UNITS, OTHER_MAX_MINS: OTHER_MAX_MINS, OTHER_MAX_PRICE: OTHER_MAX_PRICE,

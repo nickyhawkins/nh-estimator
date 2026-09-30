@@ -10505,12 +10505,13 @@ function variationsCardHtml(v) {
         + 'reword for the client</span>'
       : l.kind === 'windoors'
         ? (findVariationEntry('windoors', l.id) && !findVariationEntry('windoors', l.id).obj.sentAt && l.status === 'pending' ? 'draft \u2014 ' : '')
-          + 'marked on site \u2014 <span onclick="event.stopPropagation();openWindoors(\'site\')" style="color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline">open</span> \u00b7 '
+          + (l.raw < 0 ? 'a credit, prep lowered on site \u2014' : 'marked on site \u2014')
+          + ' <span onclick="event.stopPropagation();openWindoors(\'site\')" style="color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline">open</span> \u00b7 '
           + '<span onclick="event.stopPropagation();rewordWindoorsVariation(\'' + l.id + '\')" style="color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline">reword for the client</span>'
       : 'measured item \u2014 edit from its own form';
     rows += '<div class="breakdown-row"><span class="breakdown-label"><span'+(l.status==='declined'?' style="'+struck+'"':'')+'>'+escapeHtml(l.name)+'</span><small style="display:block;font-weight:400;color:var(--text2)">'+sub+'</small>'+
       variationSignoffHtml(l.kind, l.id, l.status, l.approvedAt, l.note)+'</span>'+
-      '<span class="breakdown-value"'+(l.status==='declined'?' style="'+struck+'"':'')+'>'+fmt(l.raw*varMk)+'</span></div>';
+      '<span class="breakdown-value"'+(l.status==='declined'?' style="'+struck+'"':'')+'>'+fmtSigned(l.raw*varMk)+'</span></div>';
   });
   freeVars.forEach(function(v) {
     var st = variationStatusOf(v);
@@ -10521,9 +10522,9 @@ function variationsCardHtml(v) {
       '<span style="display:flex;align-items:center;gap:8px"><span class="breakdown-value"'+(st==='declined'?' style="'+struck+'"':'')+'>'+fmt(amount)+'</span>'+
       '<span onclick="deleteFreeVariation(\''+v.id+'\')" style="color:var(--danger);font-size:18px;cursor:pointer;padding:0 2px">×</span></span></div>';
   });
-  if (hasAny && varSundries > 0.005) {
+  if (hasAny && Math.abs(varSundries) > 0.005) {
     rows += '<div class="breakdown-row"><span class="breakdown-label">Sundries<small style="display:block;font-weight:400;color:var(--text2)">same % as the main quote</small></span>'+
-      '<span class="breakdown-value">'+fmt(varSundries*varMk)+'</span></div>';
+      '<span class="breakdown-value">'+fmtSigned(varSundries*varMk)+'</span></div>';
   }
   var form = '';
   if (freeVarFormOpen) {
@@ -10660,8 +10661,11 @@ function buildClientVariationLines() {
   var sPct = (settings.sundriesPct || 0) / 100;
   var spPct = (settings.sundriesSprayPct || 0) / 100;
   var out = [];
-  var add = function(kind, id, name, amount, status) {
-    if (!(amount > 0.005)) return;
+  // credit: the one negative line a variation can be -- windows and doors
+  // prep lowered on site (v2.91.0). Everything else below zero is dropped,
+  // as it always was.
+  var add = function(kind, id, name, amount, status, credit) {
+    if (!(amount > 0.005) && !(credit && amount < -0.005)) return;
     if (status === 'declined') return;
     out.push({ kind: kind, sourceId: String(id), description: name || 'Variation',
                amount: Math.round(amount * 100) / 100, status: status });
@@ -10681,7 +10685,7 @@ function buildClientVariationLines() {
   // Windows and doors marked on site: priced like any measured labour
   // (sundries share + markup folded in), one line per variation.
   windoorsVariationLines(job).forEach(function(l) {
-    add('windoors', l.id, l.name, (l.raw + l.raw * sPct) * varMk, l.status);
+    add('windoors', l.id, l.name, (l.raw + l.raw * sPct) * varMk, l.status, l.credit);
   });
   // Extra work inside an already-measured carrier (VARIATIONS_SPEC.md Part 2),
   // published under its OWN source kind. job_variations is unique on
@@ -10751,7 +10755,11 @@ function adoptClientVariationAnswers(jobId) {
     if (!t || variationStatusOf(t.obj) !== 'pending') return;
     t.obj.variationStatus = cv.status;
     t.obj.variationApprovedAt = cv.status === 'approved' ? (cv.approvedAt || new Date().toISOString()) : null;
-    t.obj.variationApprovalNote = cv.status === 'approved' ? 'Approved by the client on the shared link' : '';
+    // A credit lands approved by itself (the publish route) -- nobody tapped
+    // anything, so the note says what it is rather than crediting the client
+    // with an answer.
+    t.obj.variationApprovalNote = cv.status !== 'approved' ? ''
+      : (+cv.amount < 0 ? 'A credit — applied when sent to the client' : 'Approved by the client on the shared link');
     t.obj.variationApprovedRaw = cv.status === 'approved' ? variationRawOf(cv.kind, t.obj) : null;
     adopted++;
     // 'roomdelta' saves through the rooms collection like 'room' does -- the
@@ -10797,10 +10805,13 @@ async function sendVariationsForApproval() {
     return;
   }
   var already = !!clientQuoteLinkPath;
-  var pending = lines.filter(function(l) { return l.status === 'pending'; });
+  var pending = lines.filter(function(l) { return l.status === 'pending' && l.amount > 0; });
+  var credits = lines.filter(function(l) { return l.status === 'pending' && l.amount < 0; });
   var listText = pending.map(function(l) { return '• ' + l.description + ' — ' + fmt(l.amount); }).join('\n');
+  var creditText = credits.map(function(l) { return '• ' + l.description + ' — ' + fmtSigned(l.amount); }).join('\n');
   if (!confirm((already ? 'Update the client\'s approval page?' : 'Send these variations for client approval?')
-    + (pending.length ? '\n\nAwaiting their answer:\n' + listText : '\n\nNothing is awaiting an answer — this just refreshes the page.')
+    + (pending.length ? '\n\nAwaiting their answer:\n' + listText : (credits.length ? '' : '\n\nNothing is awaiting an answer — this just refreshes the page.'))
+    + (credits.length ? '\n\nCredits — shown to them as money off, nothing to approve:\n' + creditText : '')
     + '\n\nThey get a private link showing the original quote total, these extras, and an Approve/Decline button on each.'
     + ' Nothing goes to Xero.')) return;
   var btn = document.getElementById('client-approval-btn');
@@ -10949,7 +10960,10 @@ function buildVariationQuoteLines() {
     if (fc.total > 0.005) { sundriesBase += fc.total; items.push({ description: 'Variation: ' + fittedUnitName(f), amount: fc.total * varMk }); }
   });
   windoorsVariationLines(job).forEach(function(l) {
-    if (l.status !== 'pending') return;
+    // A credit isn't something to quote: Xero drops a line below zero from a
+    // quote, and there's nothing for the client to agree to. It comes off
+    // the final invoice (and shows on the approval link).
+    if (l.status !== 'pending' || l.credit) return;
     sundriesBase += l.raw;
     items.push({ description: 'Variation: ' + l.name, amount: l.raw * varMk });
   });
@@ -13687,6 +13701,8 @@ function prepLabelFor(pct) {
   return pct===10?'Minimal':pct===25?'Standard Prep':pct===40?'Heavy Prep':'Custom '+pct+'%';
 }
 function fmt(n)     { return '£'+n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,','); }
+// A figure that can be a credit: "−£25.00" rather than fmt's "£-25.00".
+function fmtSigned(n) { return n < -0.004 ? '\u2212' + fmt(-n) : fmt(Math.abs(n)); }
 function fmtD(d)    { return d<0.1?'<0.1d':d.toFixed(1)+'d'; }
 function fmtM(n)    { return n.toFixed(2)+' m²'; }
 // Paint quantity. One decimal because every litre figure calcRoom() hands
@@ -19024,7 +19040,9 @@ function interimQuoteBasis(job) {
 // not something to invoice part way through.
 function interimVariationCandidates(job) {
   var so = interimBillingSoFar(job);
-  return buildClientVariationLines().filter(function(l) { return l.status === 'approved'; })
+  // Credits (a negative line) aren't billed part way: they come off the final
+  // invoice, which squares everything up.
+  return buildClientVariationLines().filter(function(l) { return l.status === 'approved' && l.amount > 0; })
     .map(function(l) {
       var key = l.kind + ':' + l.sourceId;
       var had = so.variations[key] || { pct: 0, billed: 0 };
@@ -20335,7 +20353,7 @@ function renderFinalInvoice() {
         '<div style="font-size:14px;font-weight:600;color:'+(l.blocked && !l.dropped ? 'var(--danger)' : 'var(--text)')+'">'+escapeHtml(l.desc)+'</div>'+
         (detail ? '<div style="font-size:12px;color:'+(l.blocked && !l.dropped ? 'var(--danger)' : 'var(--text2)')+';margin-top:1px">'+detail+'</div>' : '')+
       '</div>'+
-      '<div style="font-size:14px;font-weight:600;white-space:nowrap'+struck+'">'+fmt(l.amount)+'</div>'+
+      '<div style="font-size:14px;font-weight:600;white-space:nowrap'+struck+'">'+fmtSigned(l.amount)+'</div>'+
       '<div onclick="toggleFinalInvLine(\''+section+'\',\''+l.id+'\')" style="color:'+(l.dropped ? 'var(--accent)' : 'var(--text3)')+';font-size:16px;cursor:pointer;padding:4px">'+(l.dropped ? '↩' : '×')+'</div>'+
     '</div>';
   }
@@ -20365,7 +20383,7 @@ function renderFinalInvoice() {
           : '<span style="color:var(--warn,#f39c12);font-weight:600">PENDING — never marked approved</span>';
         return lineRow('variations', l, detail);
       }).join('')
-      + (s.varSundries.amount > 0.005 ? lineRow('varSundries', Object.assign({ desc: 'Sundries — variations' }, s.varSundries), '') : '')
+      + (Math.abs(s.varSundries.amount) > 0.005 ? lineRow('varSundries', Object.assign({ desc: 'Sundries — variations' }, s.varSundries), '') : '')
       + (pendingLive ? '<div style="font-size:12px;color:var(--warn,#f39c12);padding-top:8px">⚠ ' + pendingLive + ' variation line' + (pendingLive === 1 ? '' : 's') + ' still Pending — approve on the On Site screen (Variations card), or drop here.</div>' : '')
     : '<div style="font-size:13px;color:var(--text2);padding:4px 0">No variations on this job.</div>';
 
@@ -20546,7 +20564,15 @@ async function createFinalInvoice() {
     btn.disabled = false; btn.textContent = 'Create draft invoice in Xero';
     return;
   }
-  s.variations.forEach(function(l) { if (!l.dropped) lines.push({ description: l.desc, quantity: 1, unitAmount: l.amount, accountCode: '201' }); });
+  // A credit (windows and doors prep lowered on site) goes on as a
+  // negative-quantity line, the same way this invoice has always shown a
+  // deduction: "−1 × £25.00" reads plainly on the PDF.
+  s.variations.forEach(function(l) {
+    if (l.dropped) return;
+    lines.push(l.amount < 0
+      ? { description: l.desc, quantity: -1, unitAmount: -l.amount, accountCode: '201' }
+      : { description: l.desc, quantity: 1, unitAmount: l.amount, accountCode: '201' });
+  });
   var mats = s.materials.filter(function(l) { return !l.dropped; });
   if (mats.length) {
     lines.push({ description: 'MATERIALS' });
@@ -20561,8 +20587,10 @@ async function createFinalInvoice() {
   // lines sit together after the MATERIALS block: they're consumables
   // (account 202), not labour, and that's where Nicky expects to read them.
   if (!s.sundries.dropped && s.sundries.amount > 0.005) lines.push({ description: 'Sundries & Consumables', quantity: 1, unitAmount: s.sundries.amount, accountCode: '202' });
-  if (s.variations.some(function(l) { return !l.dropped; }) && !s.varSundries.dropped && s.varSundries.amount > 0.005) {
-    lines.push({ description: 'Sundries — variations', quantity: 1, unitAmount: s.varSundries.amount, accountCode: '202' });
+  if (s.variations.some(function(l) { return !l.dropped; }) && !s.varSundries.dropped && Math.abs(s.varSundries.amount) > 0.005) {
+    lines.push(s.varSundries.amount < 0
+      ? { description: 'Sundries — variations', quantity: -1, unitAmount: -s.varSundries.amount, accountCode: '202' }
+      : { description: 'Sundries — variations', quantity: 1, unitAmount: s.varSundries.amount, accountCode: '202' });
   }
   // No deduction lines: per Nicky (2026-07-22), payments are applied in
   // Xero — the invoice goes out at the FULL amount and the deposit/
@@ -25086,10 +25114,11 @@ function _renderFittedUnitInner() {
 //   variation  what On Site records. Collects into a DRAFT variation on
 //              jobs.data.windoorsVariations until it is sent for approval,
 //              then rides the ordinary variation pipeline as kind 'windoors'.
-// The quote is the floor: nothing on site can take a minute off it (the
-// module prices prep raises as the difference, never below zero, and site
-// mode offers no way to lower a type or size, nor prep below what the quote
-// priced -- an unanswered raise can come back down to it, no further).
+// The quote itself is never changed from site: site mode offers no way to
+// lower a type or size, and its marks only add. Prep is the one exception
+// (v2.91.0): an opening lowered on site prices as a CREDIT on its variation,
+// netted against the rest of it -- a whole variation can come out below
+// zero, and then it's a credit to the client.
 var windoors = { jobId: null, property: null, openings: [], marks: [] };
 var wdMode = 'quote';        // 'quote' (from Measure) or 'site' (from On Site)
 var wdSide = 'front';
@@ -25233,6 +25262,11 @@ function wdVariationText(v) {
 // One line per variation with money in it, in the shape every variation
 // consumer reads: raw £ before sundries/markup, time in days.
 //
+// A line can be NEGATIVE (v2.91.0): prep lowered on site is a credit, netted
+// against the rest of its variation, and a variation that is mostly credit
+// comes out below zero. It's the one kind of variation that can -- every
+// consumer below takes the sign as it comes (credit: true marks it).
+//
 // A job whose rows are not in memory (offline on a phone that has never held
 // them) still has to bill what the client APPROVED -- that figure is on the
 // carrier as variationApprovedRaw, so it stands in rather than the line
@@ -25249,9 +25283,9 @@ function windoorsVariationLines(job) {
     var raw = b ? b.mins * r + b.materials : 0;
     var time = b ? b.mins / 60 / hpd : 0;
     if (!loaded && variationStatusOf(v) === 'approved') raw = +v.variationApprovedRaw || 0;
-    return { kind: 'windoors', id: v.id, obj: v, raw: raw, time: time, status: variationStatusOf(v),
+    return { kind: 'windoors', id: v.id, obj: v, raw: raw, time: time, status: variationStatusOf(v), credit: raw < -0.005,
              name: 'Windows and doors — ' + wdVariationText(v) };
-  }).filter(function(l) { return l.raw > 0.005; });
+  }).filter(function(l) { return Math.abs(l.raw) > 0.005; });
 }
 function windoorsVariationRaw(id) {
   var l = windoorsVariationLines().find(function(x) { return x.id === id; });
@@ -25575,10 +25609,10 @@ function renderWindoors() {
     var d = wdDraft(false);
     var dLine = d ? windoorsVariationLines().find(function(l) { return l.id === d.id; }) : null;
     html += '<div class="card" style="padding:12px 14px;border:1px solid var(--accent)">'
-      + '<div style="font-size:13px;color:var(--text2);line-height:1.5">New marks and prep raised here are <b>variations</b>. The quote\'s own work is shown, locked. '
+      + '<div style="font-size:13px;color:var(--text2);line-height:1.5">New marks and prep changed here are <b>variations</b> — prep lowered is a credit. The quote\'s own work is shown, locked. '
       + 'They collect into a draft, sent for the client\'s approval from On Site › Variations.</div>'
       + (dLine ? '<div style="margin-top:8px;font-size:13px"><b>Draft:</b> ' + escapeHtml(wdVariationText(d))
-          + ' <span style="color:var(--accent);font-weight:700">' + fmt(variationDeltaAmount({ raw: dLine.raw, spray: 0 })) + '</span>'
+          + ' <span style="color:var(--accent);font-weight:700">' + fmtSigned(variationDeltaAmount({ raw: dLine.raw, spray: 0 })) + (dLine.credit ? ' credit' : '') + '</span>'
           + ' <span onclick="rewordWindoorsVariation(\'' + d.id + '\')" style="color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline;margin-left:4px">reword</span></div>' : '')
       + '</div>';
   } else {
@@ -26371,17 +26405,19 @@ function renderWdDetail() {
     h += '<div style="padding:0 16px 8px;font-size:13px;color:var(--text2)">' + escapeHtml(Windoors.typeLabel(o) + (isDoor ? ' door' : ' window'))
       + ' · ' + Windoors.paneCount(o) + (isDoor ? ' glass' : ' panes') + (scope.excluded || scope.variationId ? '' : ' · as quoted') + '</div>';
   }
-  // Prep: levels below the job default hidden; on site, below what the
-  // quote priced too (a raise is a variation, a drop below the quote is not
-  // a thing -- but a raise can come back down while it's unanswered).
+  // Prep: from Measure, levels below the job default hidden. On site every
+  // level is offered while the change is unanswered -- up is a variation,
+  // down below the quote a credit on one (wdPrepFloor).
   // Not in this job: the drawing only -- no prep, access, marks or work.
   if (scope.excluded) { box.innerHTML = h; return; }
   var eff = Windoors.effectivePrep(o, p);
   var floorLevel = wdPrepFloor(o, site);
-  var levels = Windoors.PREP_LEVELS.filter(function(l) { return Windoors.prepRank(l.key) >= Windoors.prepRank(floorLevel); });
+  var levels = Windoors.PREP_LEVELS.filter(function(l) { return Windoors.prepRank(l.key) >= Windoors.prepRank(floorLevel)
+    && (!wdPrepLocked(o, site) || l.key === eff); });
   // A set price isn't scaled by prep, so there's no prep to pick.
-  if (!(isOther && Windoors.otherPricing(o) === 'price')) h += '<div class="subsection-label">Prep' + (site && o.prep_stage === 'variation' && Windoors.prepRank(eff) > Windoors.prepRank(Windoors.quotePrep(o, p))
-      ? '<small>raised on site from ' + Windoors.prepLabel(Windoors.quotePrep(o, p)) + ' — a variation</small>' : '') + '</div>'
+  var prepCh = site ? Windoors.prepChange(o, p) : null;
+  if (!(isOther && Windoors.otherPricing(o) === 'price')) h += '<div class="subsection-label">Prep' + (prepCh
+      ? '<small>' + prepCh + ' on site from ' + Windoors.prepLabel(Windoors.quotePrep(o, p)) + (prepCh === 'lowered' ? ' — a credit on the variation' : ' — a variation') + '</small>' : '') + '</div>'
     + '<div style="padding:0 16px 10px">' + wdSegHtml(levels, eff, 'setWdPrep') + '</div>';
   if (!isOther) h += wdAccessHtml(o);
   // The diagram and the marking tools.
@@ -26447,7 +26483,8 @@ function renderWdBay(o, box) {
   if (o.excluded) { box.innerHTML = h; return; }
   var eff = Windoors.effectivePrep(o, p);
   var floorLevel = wdPrepFloor(o, site);
-  var levels = Windoors.PREP_LEVELS.filter(function(l) { return Windoors.prepRank(l.key) >= Windoors.prepRank(floorLevel); });
+  var levels = Windoors.PREP_LEVELS.filter(function(l) { return Windoors.prepRank(l.key) >= Windoors.prepRank(floorLevel)
+    && (!wdPrepLocked(o, site) || l.key === eff); });
   h += '<div class="subsection-label">Prep<small>the bay\'s own timber — each window has its own</small></div>'
     + '<div style="padding:0 16px 10px">' + wdSegHtml(levels, eff, 'setWdPrep') + '</div>';
   h += wdAccessHtml(o);
@@ -26534,14 +26571,12 @@ function wdWorkListHtml(o, oMarks) {
   if (qc) rows += line(escapeHtml(qc.charAt(0).toUpperCase() + qc.slice(1)), 'quote');
   var byVar = {};
   varMarks.forEach(function(m) { (byVar[m.variation_id || ''] = byVar[m.variation_id || ''] || []).push(m); });
-  if (o.prep_stage === 'variation' && Windoors.prepRank(Windoors.effectivePrep(o, p)) > Windoors.prepRank(qPrep)) byVar[o.prep_variation_id || ''] = byVar[o.prep_variation_id || ''] || [];
+  if (Windoors.prepChange(o, p)) byVar[o.prep_variation_id || ''] = byVar[o.prep_variation_id || ''] || [];
   Object.keys(byVar).forEach(function(vid) {
     var v = wdVariationList().find(function(x) { return x.id === vid; });
     var st = v ? variationStatusOf(v) : 'pending';
     var bits = [];
-    if (o.prep_stage === 'variation' && (o.prep_variation_id || '') === vid && Windoors.prepRank(Windoors.effectivePrep(o, p)) > Windoors.prepRank(qPrep)) {
-      bits.push('prep raised to ' + Windoors.prepLabel(Windoors.effectivePrep(o, p)).toLowerCase());
-    }
+    if (Windoors.prepChange(o, p) && (o.prep_variation_id || '') === vid) bits.push(Windoors.prepChangeText(o, p));
     var vc = Windoors.marksClause(o, byVar[vid]);
     if (vc) bits.push(vc);
     if (!bits.length) return;
@@ -26550,7 +26585,7 @@ function wdWorkListHtml(o, oMarks) {
       'variation · ' + (v && !v.sentAt && st === 'pending' ? 'draft' : st));
   });
   var money = (wdMode === 'quote' ? fmt((perOpen.quoteMins || 0) * r + (perOpen.quoteMaterials || 0) + (perOpen.quoteFixed || 0)) + ' quoted' : '')
-    + (perOpen.varMins ? (wdMode === 'quote' ? ' · ' : '') + fmt((perOpen.varMins || 0) * r + (perOpen.varMaterials || 0)) + ' variation' : '');
+    + (perOpen.varMins ? (wdMode === 'quote' ? ' · ' : '') + fmtSigned((perOpen.varMins || 0) * r + (perOpen.varMaterials || 0)) + ' variation' : '');
   return '<div style="margin-top:6px"><div class="subsection-label" style="display:flex;justify-content:space-between"><span>Work on this ' + (o.kind === 'door' ? 'door' : o.kind === 'bay' ? 'bay' : o.kind === 'other' ? 'item' : 'window') + '</span>'
     + (money ? '<small style="text-transform:none;letter-spacing:0">' + money + ' <span style="opacity:.7">before markup</span></small>' : '') + '</div>' + rows + '</div>'
     + (wdMode === 'site' ? wdTickListHtml(o, oMarks) : '');
@@ -26693,22 +26728,28 @@ function setWdAccess(key) {
   wdPutOpening(o); wdChanged();
 }
 // The lowest prep level the picker offers. From Measure (and for an opening
-// added on site) that's the job default. On site it's what the quote priced
-// while a raise is still unanswered -- so a raise can be brought back down,
-// or undone altogether -- and the current level once the raise has been
-// answered (or if there's no raise), as an answered variation is locked.
+// added on site) that's the job default. On site, any level -- a window
+// found better than quoted comes down, and the difference is a credit on
+// the variation (v2.91.0) -- unless the change already made has been
+// answered by the client, which locks it where it is.
 function wdPrepFloor(o, site) {
   var p = windoors.property;
   if (!site || wdSiteAdded(o)) return p.default_prep || 'light';
-  if (o.prep_stage === 'variation' && wdVariationEditable(o.prep_variation_id)) return Windoors.quotePrep(o, p);
-  return Windoors.effectivePrep(o, p);
+  if (o.prep_stage === 'variation' && !wdVariationEditable(o.prep_variation_id)) return Windoors.effectivePrep(o, p);
+  return Windoors.PREP_LEVELS[0].key;
+}
+// An answered credit is fixed both ways (setWdPrep): only its own level.
+function wdPrepLocked(o, site) {
+  return !!site && o.prep_stage === 'variation' && !wdVariationEditable(o.prep_variation_id)
+    && Windoors.prepChange(o, windoors.property) === 'lowered';
 }
 // Prep. From Measure it simply sets the level the quote prices. On site a
-// rise is a variation: the level in force before it is stamped as
-// quote_prep_level (the first time only -- a second raise on site is still
-// measured from what the QUOTE had), and the raise joins the open draft. It
-// can come back down while that variation is unanswered, never below what
-// the quote priced; back at the quote's level the raise dissolves.
+// change either way is a variation: the level in force before it is stamped
+// as quote_prep_level (the first time only -- a second change on site is
+// still measured from what the QUOTE had), and the change joins the open
+// draft. Up is extra work; down is a credit, netted against the rest of the
+// draft. Back at the quote's level the change dissolves. An answered change
+// is locked.
 function setWdPrep(level) {
   var o = wdOpening(); if (!o) return;
   var p = windoors.property;
@@ -26720,22 +26761,27 @@ function setWdPrep(level) {
     o.prep_stage = 'quote'; o.quote_prep_level = null; o.prep_variation_id = null;
   } else if (wdMode === 'site') {
     var was = Windoors.effectivePrep(o, p);
-    if (Windoors.prepRank(level) === Windoors.prepRank(was)) return;
-    if (Windoors.prepRank(level) < Windoors.prepRank(was)) {
-      // Bringing an unanswered raise back down. It stays in the variation
-      // it was raised into; at the quote's level it's no raise at all.
-      if (Windoors.prepRank(level) < Windoors.prepRank(wdPrepFloor(o, true))) return;
+    if (Windoors.prepRank(level) < 0 || level === was) return;
+    if (o.prep_stage === 'variation' && !wdVariationEditable(o.prep_variation_id)) {
+      // Answered: the client has agreed to that level, so it's fixed -- a
+      // further RAISE is new extra work on the open draft, as it always was.
+      // An answered CREDIT can't be moved at all: raising it would re-price
+      // it in the new draft and take the agreed credit off the final invoice
+      // while the client's page still shows it.
+      if (Windoors.prepRank(level) < Windoors.prepRank(was) || Windoors.prepChange(o, p) === 'lowered') return;
+      o.prep_level = level;
+      o.prep_variation_id = wdDraft(true).id;
+    } else {
       var q = Windoors.quotePrep(o, p);
       if (level === q) {
+        // Back to what the quote priced: no change at all.
         o.prep_level = q === (p.default_prep || 'light') ? null : q;
         o.prep_stage = 'quote'; o.quote_prep_level = null; o.prep_variation_id = null;
       } else {
+        if (o.prep_stage !== 'variation') { o.quote_prep_level = was; o.prep_stage = 'variation'; }
         o.prep_level = level;
+        o.prep_variation_id = wdDraft(true).id;
       }
-    } else {
-      if (o.prep_stage !== 'variation') { o.quote_prep_level = was; o.prep_stage = 'variation'; }
-      o.prep_level = level;
-      o.prep_variation_id = wdDraft(true).id;
     }
   } else {
     if (Windoors.prepRank(level) < Windoors.prepRank(p.default_prep || 'light')) return;

@@ -8,9 +8,11 @@
 // (public/windoors.js is required directly -- the app, the server and this
 // test all run the same file):
 //
-//   · the quote is the floor: on-site work only ever adds, prep raised on
-//     site prices as the difference and never below zero
-//   · prep is a job default an opening can raise and never lower
+//   · the quote is never changed by site work: marks only ever add, prep
+//     raised on site prices as the difference, and prep LOWERED on site
+//     (v2.91.0) is a credit on its variation, netted against the rest
+//   · prep is a job default an opening can raise and never lower from
+//     Measure; a raise the default overtakes is worth nothing, never a credit
 //   · every mark belongs to a stage, and quote/variation money never mixes
 //   · the pricing formula of section 5, to the minute
 //   · the words: the auto label, the variation text, the item line
@@ -106,8 +108,39 @@ near('the raise is priced as the difference, on the scaled figure', pr.variation
 // A raise the default has since overtaken is worth nothing -- never negative.
 const overtaken = W.priceJob({ property: { default_prep: 'restoration' },
   openings: [Object.assign({}, raised, { prep_level: 'standard', quote_prep_level: 'light' })], marks: [] }, R);
-check('a raise is never negative', !overtaken.variations.v2 || overtaken.variations.v2.mins >= 0);
+check('a raise the default overtook is worth nothing, never a credit', !overtaken.variations.v2 || overtaken.variations.v2.mins >= 0);
+eq('...and reads as no change at all', W.prepChange(Object.assign({}, raised, { prep_level: 'standard', quote_prep_level: 'light' }), { default_prep: 'restoration' }), null);
 eq('the quote prices the level before the raise', W.quotePrep(raised, property), 'light');
+
+// ── Prep lowered on site: a credit (v2.91.0) ───────────────────────────────
+// Quoted at the job default of Standard; one window found better, dropped to
+// Light on site. Below the default, too -- that one window is the exception.
+const stdProp = { style: 'georgian', default_prep: 'standard', layout: {} };
+const lowered = Object.assign({}, sash, { prep_level: 'light', prep_stage: 'variation', quote_prep_level: 'standard', prep_variation_id: 'v3' });
+eq('a site drop is taken as it is, below the job default', W.effectivePrep(lowered, stdProp), 'light');
+eq('the quote still prices what it quoted', W.quotePrep(lowered, stdProp), 'standard');
+eq('it reads as lowered', W.prepChange(lowered, stdProp), 'lowered');
+const stdQuote = W.priceJob({ property: stdProp, openings: [sash], marks: [] }, R);
+const pl = W.priceJob({ property: stdProp, openings: [lowered], marks: [] }, R);
+near('prep lowered on site leaves the quote as it was', pl.quote.mins, stdQuote.quote.mins);
+near('the drop is priced as the (negative) difference', pl.variations.v3.mins, 119.5 * 1.1 * (1.1 - 1.25));
+eq('...counted as a drop, not a raise', pl.variations.v3.prepDrops + '/' + pl.variations.v3.prepRaises, '1/0');
+near('the per-opening split carries it too', pl.perOpening.s.varMins, 119.5 * 1.1 * (1.1 - 1.25));
+// Netted against the same variation's other work.
+const netted = W.priceJob({ property: stdProp, openings: [lowered], marks: [
+  { opening_id: 's', element_id: 'cill', action_key: 'resin', stage: 'variation', variation_id: 'v3' },
+] }, R);
+near('a drop nets against the same variation\'s marks', netted.variations.v3.mins, 25 + 119.5 * 1.1 * (1.1 - 1.25));
+eq('...and its materials are untouched', netted.variations.v3.materials, 4);
+eq('the variation text says it was lowered', W.describeVariation({ property: stdProp, openings: [lowered], marks: [] }, 'v3'),
+  'Front, first floor, W2: prep lowered to light.');
+eq('the badge counts it as site work', W.workFlags({ property: stdProp, openings: [lowered], marks: [] }).s.variation, 1);
+// A drop the default later overtakes is still a drop, from the new level.
+const stdToHeavy = W.priceJob({ property: { default_prep: 'heavy' }, openings: [lowered], marks: [] }, R);
+near('...measured from what the quote now prices', stdToHeavy.variations.v3.mins, 119.5 * 1.1 * (1.1 - 1.4));
+// The report: an approved drop is listed as done, like a raise.
+const dropReport = JSON.stringify(W.reportModel({ property: stdProp, openings: [lowered], marks: [] }, [{ id: 'v3', status: 'approved' }]));
+check('the report names an approved drop', dropReport.indexOf('rep lowered to light') >= 0, dropReport.slice(0, 300));
 
 // ── Words ──────────────────────────────────────────────────────────────────
 const data = { property, openings: [sash, door], marks: [

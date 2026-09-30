@@ -54,7 +54,11 @@ function recordMiss(ip) {
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
 ));
-const money = (n) => '£' + (Math.round((+n || 0) * 100) / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+// A credit (a negative variation) reads "−£25.00", not "£-25.00".
+const money = (n) => {
+  const v = Math.round((+n || 0) * 100) / 100;
+  return (v < 0 ? '\u2212' : '') + '£' + Math.abs(v).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+};
 const shortDate = (d) => {
   if (!d) return '';
   const dt = d instanceof Date ? d : new Date(d);
@@ -157,7 +161,10 @@ function notFoundPage() {
 function variationHtml(v, base) {
   const action = base + '/variations/' + encodeURIComponent(v.id);
   let state = '';
-  if (v.status === 'approved') {
+  if (v.amount < 0 && v.status !== 'declined') {
+    // A credit: money off, nothing to answer (see the publish route).
+    state = '<div class="state approved">Credit — taken off your final invoice</div>';
+  } else if (v.status === 'approved') {
     state = '<div class="state approved">✓ Approved'
       + (v.answeredAt ? ' <span class="when">· ' + esc(shortDate(v.answeredAt)) + '</span>' : '') + '</div>';
   } else if (v.status === 'declined') {
@@ -208,7 +215,7 @@ function quotePage(view, base, flash) {
       + '<div class="note">The price already agreed for the original scope of work. Unchanged.</div>'
       + '</div>';
 
-  const pending = view.variations.filter(v => v.status === 'pending').length;
+  const pending = view.variations.filter(v => v.status === 'pending' && !(v.amount < 0)).length;
   const variations = '<div class="card"><h2>Extras since then</h2>'
     + (view.variations.length
         ? view.variations.map(v => variationHtml(v, base)).join('')
@@ -275,7 +282,12 @@ function quotePage(view, base, flash) {
 // someone who has never seen this page before, so it names the parts rather
 // than assuming the arithmetic is obvious.
 function breakdownText(view) {
-  const n = view.variations.filter(v => v.status === 'approved').length;
+  const n = view.variations.filter(v => v.status === 'approved' && !(v.amount < 0)).length;
+  const c = view.variations.filter(v => v.status === 'approved' && v.amount < 0).length;
+  const credits = c ? ', less ' + (c === 1 ? 'a credit' : c + ' credits') : '';
+  return breakdownBase(view, n) + credits;
+}
+function breakdownBase(view, n) {
   if (view.originalTotal == null) {
     return n ? n + ' approved extra' + (n === 1 ? '' : 's') + ', on top of your original quote'
              : 'Nothing extra approved yet';
@@ -467,7 +479,7 @@ function answerRoute(status) {
         : 'declined_at = NOW(), approved_at = NULL';
       const updated = await db.query(
         `UPDATE job_variations SET status = $3, ${stamp}, updated_at = NOW()
-          WHERE id = $1 AND job_id = $2 AND status = 'pending'
+          WHERE id = $1 AND job_id = $2 AND status = 'pending' AND amount >= 0
         RETURNING id`,
         [variationId, jobId, status]
       );
