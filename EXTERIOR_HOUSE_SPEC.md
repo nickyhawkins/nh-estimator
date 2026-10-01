@@ -1,7 +1,6 @@
 # The whole exterior on the drawing (Windows & Doors stage 3, and 4)
 
-Status: **draft, second round** (2026-10-01). Nothing here is built. The only
-question still blocking a start is the door price (step 1).
+Status: **step 1 built (v2.95.0)**; steps 2–4 are a draft, not built.
 
 Builds on WINDOWS_DOORS_SPEC.md (stage 1), WINDOWS_DOORS_STAGE2_SPEC.md (the
 house drawing) and WINDOWS_DOORS_INVOICE_SPEC.md (one invoice line + report).
@@ -54,15 +53,28 @@ time**. These are the shipped defaults: if the live Settings or Rates have
 been changed, the live figures differ, and should be checked the same way
 before choosing.
 
-**Decision needed before step 1:** which is right for a typical front door
-and frame, outside face, 2 coats?
+**Decided 2026-10-01: (b), 90 min is the closer figure** — the fixture's
+door rates stay as they are. For the door that takes longer, each window and
+door now has a **time override** (below). A one-door job that would come to
+£70 is covered by the existing **Standalone job** toggle, which rounds a small
+job up to its diary days. The options were:
 - **(a)** The Exterior form's (230 min). Raise the fixture's door tiers to
   match (panelled standard 90 → 230, the other types in proportion).
 - **(b)** The fixture's (90 min). Leave rates alone; new door quotes go down.
 - **(c)** Another figure: give the minutes and the tiers get set to it.
 
-Also: a Garage door preset for Other items (150 min to start, editable), so
-it isn't typed from scratch each time.
+### Built in step 1 (v2.95.0)
+- The Exterior form's *Exterior Doors*, *Garage Doors* and *Porch / Feature
+  Door* sections are hidden on any job that doesn't already have doors,
+  frames, garage doors or a porch priced there (`extItemHasLegacyDoors`),
+  judged separately from the old windows sections. The pointer card names
+  what moved.
+- **Time override** on every window and door (`job_openings.time_override`,
+  minutes for 2 coats before prep and access, NULL = Rates): replaces the
+  size/type/panes figure in `Windoors.paintedMinutes`; `ratesMinutes` keeps
+  the Rates figure to show beside it. Set from Measure only.
+- An Other item named *garage…* starts at the Settings exterior garage
+  minutes (150) and paint area (6 m²).
 
 ---
 
@@ -187,13 +199,9 @@ on the jobs that still have it.
 
 ## Open questions
 
-1. **Door price (blocks step 1):** (a), (b) or (c) above?
-2. **Full breakdown with interims:** a staged invoice on a full-breakdown
-   job bills each element line by its own %. Fine, or keep interims to the
-   two lines whatever the quote showed?
-3. **Cutting-in minutes:** the starting figures per opening size (Rates,
-   editable) — happy to start from 10 min per window, 12 per door, per coat?
-
-Answered 2026-10-01: invoice lines (separate, with a quote-stage choice of
-full breakdown), fascia sections (left/middle/right), the extras list (all
-of them), cutting in on render jobs (priced).
+None at the moment. Answered 2026-10-01: door price (90 min, with a
+per-opening override), invoice lines (separate, with a quote-stage choice of
+full breakdown), interims on a full-breakdown job (each element line by its
+own %), fascia sections (left/middle/right), the extras list (all of them),
+cutting in on render jobs (priced, starting at 10 min per window and 12 per
+door, per coat).

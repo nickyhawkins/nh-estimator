@@ -328,9 +328,9 @@ Exterior work is priced per *item* — typically one per elevation ("Front eleva
 
 - **Masonry / Render** — area in m² and coats, with toggles for **textured render** (more paint, more time) and **spray render**.
 - **Fascias & Soffits** — linear metres and coats.
-- **Exterior Doors & Frames** — same fire-door/ironmongery/self-priming options as interior doors, split the same way.
-- **Garage Doors**, **Porch / Feature Door** — priced in days.
-- **Windows** — now priced in their own fixture, [Windows and doors](#windows-and-doors) below, with a drawing of each side of the house. The form's old *Exterior Windows* and *Sash Window Restoration* sections only appear on a job that already has windows priced that way, so nothing you quoted before changes.
+- **Windows, doors, garage doors and porches** — now priced in their own fixture, [Windows and doors](#windows-and-doors) below, with a drawing of each side of the house. The form's old sections for these (*Exterior Windows*, *Sash Window Restoration*, *Exterior Doors*, *Garage Doors*, *Porch / Feature Door*) only appear on a job that already has them priced that way, so nothing you quoted before changes. A note in the form points to the fixture instead.
+
+![The Exterior form on a new job: masonry and fascias, and a pointer to Windows and doors](images/26zo-exterior-form-pointer.png)
 - **Preparation** — Light (10%), Standard (25%) or Heavy (40%), or a custom percentage, on the item's labour. New items start on Light. An older item saved at 0% prep opens as **Custom** 0%, so its price stays the same. **Making Good** adds a fixed £ amount, as on rooms.
 - **Paint Colours** — one masonry colour and one exterior woodwork colour per item, in the same free-text boxes the rooms use.
 
@@ -391,6 +391,7 @@ On a Georgian house a new dormer starts as a **3-over-6** sash, one row fewer on
 - **Type** — casement, sash or fixed; or for doors panelled, flush, half glazed, fully glazed, stable or French (double).
 - **Pane rows and columns** — on a sash window, the **top sash rows** and **bottom sash rows** are set separately, with the columns shared, so a 3-over-6 is 1 row over 2 rows of 3 columns. The line under them spells it out (*3 over 6 · 9 panes*). For doors these are the panel or glass grid.
 - **Size** — each button shows the area it covers (Small is under 0.5m², Medium 0.5 to 1m², Large 1 to 2m², X-Large over 2m²).
+- **Time** — under Size, the minutes this one takes for 2 coats before prep, as Rates works it out (*from Rates: 90 min*). For the one door or window that takes longer or less than its size and type say — a front door with mouldings, a tiny fanlight — type your own figure. The box outlines in blue and the line says *set by hand · Rates say 90 min*; coats, prep and access still apply on top, the same as for a Rates figure. Clear the box to go back to Rates. Set from Measure; on site it's shown, not changed.
 - **Prep** — only levels at or above the job's default are offered. An opening can go up, never down.
 - **Access** — how you reach it. **Auto** (the default) works it out from where the opening sits: the lower ground and ground floor are **Ground**, the first floor is **First floor**, and the second floor up and every dormer are **Ladder/tower**. The Auto button names what it picked, e.g. *Auto (First floor)*. Set it by hand when the house says otherwise — **Ground** when the scaffold is already up, **Ladder/tower** for a ground-floor window over a basement well. An opening set by hand shows a small dark dot at the bottom corner on the house drawing. Access is set at quoting; on site the sheet just says what was priced.
 - **Marking work** (with Individual detail on) — tap panes, or tap frame parts (head, stiles, rails, cill; for doors the panels, frame and threshold). A tick shows what's selected. You select one kind at a time: tapping a frame part while panes are selected starts a fresh selection. **Select all panes** and **Clear selection** do what they say. Then tap the work — **Reputty** or **Replace glass** for panes; **Filler**, **Resin repair** or **Splice timber** for parts, plus **Ironmongery off & on** and **Ease** on doors, and **Re-cord**, **Replace beads** and **Ease & overhaul** on a sash window's parts — or **Remove work**. The selection clears after each one. On a sash, each mark is for that part: re-cording the left stile is the cords on that side, so mark both stiles for a full re-cord.
@@ -427,7 +428,7 @@ A bay's price is its own **bay base minutes** (Rates, by shape and storeys, cove
 
 If it turns out on site that it does need doing after all, open it on **On Site** and tap **Add to this job — as a variation** (see [Windows and doors on site](#windows-and-doors-on-site)).
 
-**Other items.** Garage doors, fanlights, porches, porticos and lean-tos don't sit on a floor. Under each side's drawing, **+ Add other item** asks what it is, then opens it. Choose how it's **Priced**:
+**Other items.** Garage doors, fanlights, porches, porticos and lean-tos don't sit on a floor. Under each side's drawing, **+ Add other item** asks what it is, then opens it. Call it a **garage door** and it starts from the figures the Exterior form used for one: your Settings' exterior garage door minutes (150 to start) and paint area (6 m²). Choose how it's **Priced**:
 
 - **By time** — how long it takes to do, before prep, as you'll actually do it (it isn't scaled by coats or access). Pick **Minutes**, **Hours** or **Days** and type the figure: *1.5 days* for a portico. A day is your **hours per day** from Settings, and the time goes into the job's days like any other labour.
 - **Set price** — a £ figure for the labour, e.g. **£300**. It goes into the Windows & Doors total as it is and takes your markup like everything else. Prep and access don't change it (so there's no prep to pick), and it adds no days to the job.
@@ -1601,6 +1602,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.94.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.95.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

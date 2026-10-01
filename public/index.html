@@ -2292,7 +2292,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
          The two old window sections below only show on an item or job that
          already uses them -- existing data is left exactly as it was. -->
     <div class="card" id="ext-windoors-pointer" style="display:none;padding:12px 16px;font-size:13px;color:var(--text2);line-height:1.5">
-      Windows and doors are priced in their own fixture now, with a drawing of each side of the house: <span onclick="goBack();openWindoors('quote')" style="color:var(--accent);font-weight:600;cursor:pointer">Measure › + › Windows and doors ›</span>
+      <span id="ext-windoors-pointer-what">Windows and doors are</span> priced in their own fixture now, with a drawing of each side of the house: <span onclick="goBack();openWindoors('quote')" style="color:var(--accent);font-weight:600;cursor:pointer">Measure › + › Windows and doors ›</span>
     </div>
     <div class="card" id="ext-windows-card">
       <div class="card-header sec-toggle" onclick="toggleFormSection('ext-windows')"><span>Exterior Windows<small>casement — one row per matching group</small></span><span class="sec-chev open" id="sec-chev-ext-windows">›</span></div>
@@ -2302,7 +2302,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       <div class="field-row"><div class="field-label">Coats</div><div class="seg" id="seg-ex-wins"><button class="seg-btn" onclick="setExtSeg('ex-wins',1)">1</button><button class="seg-btn active" onclick="setExtSeg('ex-wins',2)">2</button><button class="seg-btn" onclick="setExtSeg('ex-wins',3)">3</button></div></div>
       </div>
     </div>
-    <div class="card">
+    <div class="card" id="ext-doors-card">
       <div class="card-header sec-toggle" onclick="toggleFormSection('ext-doors')"><span>Exterior Doors</span><span class="sec-chev open" id="sec-chev-ext-doors">›</span></div>
       <div class="card-body open" id="sec-ext-doors">
       <div class="subsection-label">Door<small>leave qty at 0 to price frames only</small></div>
@@ -2333,14 +2333,14 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
       </div>
       </div>
     </div>
-    <div class="card">
+    <div class="card" id="ext-garage-card">
       <div class="card-header sec-toggle" onclick="toggleFormSection('ext-garage')"><span>Garage Doors</span><span class="sec-chev open" id="sec-chev-ext-garage">›</span></div>
       <div class="card-body open" id="sec-ext-garage">
       <div class="field-row"><div class="field-label">Qty</div><input type="number" class="field-input" id="ex-garage" placeholder="0" min="0" step="1" inputmode="numeric" oninput="previewExterior()"></div>
       <div class="field-row"><div class="field-label">Coats</div><div class="seg" id="seg-ex-garage"><button class="seg-btn" onclick="setExtSeg('ex-garage',1)">1</button><button class="seg-btn active" onclick="setExtSeg('ex-garage',2)">2</button><button class="seg-btn" onclick="setExtSeg('ex-garage',3)">3</button></div></div>
       </div>
     </div>
-    <div class="card">
+    <div class="card" id="ext-porch-card">
       <div class="card-header sec-toggle" onclick="toggleFormSection('ext-porch')"><span>Porch / Feature Door</span><span class="sec-chev open" id="sec-chev-ext-porch">›</span></div>
       <div class="card-body open" id="sec-ext-porch">
       <div class="field-row"><div class="field-label">Days<small>your estimate on site</small></div><input type="number" class="field-input" id="ex-porch" placeholder="0" min="0" step="0.5" inputmode="decimal" oninput="previewExterior()"></div>
@@ -2370,7 +2370,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
         <input type="number" class="field-input" id="ex-prep-custom" placeholder="0" min="0" max="100" step="5" inputmode="numeric" oninput="previewExterior()">
       </div>
       <div class="toggle-row" style="border-top:1px solid var(--border)">
-        <div class="toggle-label">Self-priming paint<small>Fascia/windows/garage woodwork — skips the primer coat, adds one extra topcoat instead. Doors/frames have their own toggle above.</small></div>
+        <div class="toggle-label">Self-priming paint<small>Fascia/windows/garage woodwork — skips the primer coat, adds one extra topcoat instead. Old-style doors/frames, where shown, have their own toggle.</small></div>
         <div class="toggle" id="tog-ex-selfprimingwoodwork" onclick="toggleExSelfPrimingWoodwork()"></div>
       </div>
       <div class="field-row" style="border-top:1px solid var(--border)">
@@ -24983,13 +24983,29 @@ function getExtFormData() {
 function extItemHasLegacyWindows(it) {
   return !!it && ((it.windows && it.windows.length) || (it.sashWindows && it.sashWindows.length) || +it.wins > 0 || +it.sash > 0);
 }
+// Doors, frames, garage doors and porches went the same way (v2.95.0,
+// EXTERIOR_HOUSE_SPEC.md step 1): the fixture has doors by type and size and
+// garage doors and porches as Other items. Each group is judged on its own,
+// so a job with old-style doors but no old-style windows shows just the doors.
+function extItemHasLegacyDoors(it) {
+  if (!it) return false;
+  migrateExtDoorFields(it);
+  return +it.doorQty > 0 || +it.frameQty > 0 || +it.garage > 0 || +it.porch > 0;
+}
 function applyExtWindowsVisibility(item) {
   var legacy = extItemHasLegacyWindows(item) || extItems.some(extItemHasLegacyWindows);
+  var legacyDoors = extItemHasLegacyDoors(item) || extItems.some(extItemHasLegacyDoors);
   ['ext-windows-card', 'ext-sash-card'].forEach(function(id) {
     var el = document.getElementById(id); if (el) el.style.display = legacy ? '' : 'none';
   });
+  ['ext-doors-card', 'ext-garage-card', 'ext-porch-card'].forEach(function(id) {
+    var el = document.getElementById(id); if (el) el.style.display = legacyDoors ? '' : 'none';
+  });
   var ptr = document.getElementById('ext-windoors-pointer');
-  if (ptr) ptr.style.display = legacy ? 'none' : 'block';
+  if (ptr) ptr.style.display = legacy && legacyDoors ? 'none' : 'block';
+  var what = document.getElementById('ext-windoors-pointer-what');
+  if (what) what.textContent = !legacy && !legacyDoors ? 'Windows, doors, garage doors and porches are'
+    : !legacy ? 'Windows are' : 'Doors, garage doors and porches are';
 }
 
 function showAddExterior() {
@@ -25600,7 +25616,8 @@ function wdPutOpening(o) {
     otherMins: o.other_mins || 0, otherCost: o.other_cost || 0, otherM2: o.other_m2 || 0,
     otherPricing: o.other_pricing || 'time', otherPrice: o.other_price || 0, otherUnit: o.other_unit || 'mins',
     excluded: !!o.excluded, includeVariationId: o.include_variation_id || null,
-    otherDraw: o.other_draw || null, otherDoor: o.other_door || null
+    otherDraw: o.other_draw || null, otherDoor: o.other_door || null,
+    timeOverride: o.time_override || null
   }).then(function(resp) {
     // Another phone already holds this slot: adopt its id, and re-point the
     // marks made against ours (same contract as /snag-rooms) -- and, for a
@@ -26097,8 +26114,13 @@ function addWdOther() {
   var name = prompt('What is it? (e.g. garage door, porch, fanlight)', '');
   if (name === null || !name.trim()) return;
   var pos = wdOthersOn(wdSide).reduce(function(m, o) { return Math.max(m, +o.position || 0); }, 0) + 1;
+  // A garage door starts from the figures the Exterior form priced one at
+  // (Settings: exterior garage minutes and paint area), now that the form's
+  // own garage section is hidden on new jobs (v2.95.0). Editable as ever.
+  var garage = /garage/i.test(name);
   var o = wdNewOpening({ side: wdSide, level: 'standard', floor: 0, kind: 'other', position: pos, nickname: name.trim().slice(0, 60),
-    type: 'door', size_tier: 'standard', rows: 1, cols: 1, other_mins: 60, other_cost: 0, other_m2: 0,
+    type: 'door', size_tier: 'standard', rows: 1, cols: 1,
+    other_mins: garage ? (settings.rExtGarage || 150) : 60, other_cost: 0, other_m2: garage ? (settings.extAreaGarage != null ? +settings.extAreaGarage : 6) : 0,
     other_pricing: 'time', other_price: 0, other_unit: 'mins',
     // "Portico", "porch", "canopy"... over the first door, if the side has one.
     other_draw: wdGroundDoors(wdSide).length ? Windoors.porchStyleFor(name, wdAppearance().period) : null,
@@ -26653,9 +26675,11 @@ function renderWdDetail() {
     }
     h += '<div class="subsection-label">Size</div>'
       + '<div style="padding:0 16px 8px">' + wdSegHtml(isDoor ? Windoors.DOOR_TIERS : Windoors.WINDOW_TIERS, o.size_tier, 'setWdTier', { guides: true }) + '</div>';
+    h += wdTimeOverrideHtml(o);
   } else {
     h += '<div style="padding:0 16px 8px;font-size:13px;color:var(--text2)">' + escapeHtml(Windoors.typeLabel(o) + (isDoor ? ' door' : ' window'))
-      + ' · ' + Windoors.paneCount(o) + (isDoor ? ' glass' : ' panes') + (scope.excluded || scope.variationId ? '' : ' · as quoted') + '</div>';
+      + ' · ' + Windoors.paneCount(o) + (isDoor ? ' glass' : ' panes') + (+o.time_override > 0 ? ' · ' + wdFmtN(+o.time_override) + ' min set by hand' : '')
+      + (scope.excluded || scope.variationId ? '' : ' · as quoted') + '</div>';
   }
   // Prep: from Measure, levels below the job default hidden. On site every
   // level is offered while the change is unanswered -- up is a variation,
@@ -26974,6 +26998,26 @@ function wdAccessHtml(o) {
   var items = [{ key: 'auto', label: 'Auto (' + Windoors.accessLabel(auto) + ')' }].concat(Windoors.ACCESS_LEVELS);
   return '<div class="subsection-label">Access' + (sub ? '<small>' + sub + '</small>' : '') + '</div>'
     + '<div style="padding:0 16px 10px">' + wdSegHtml(items, set || 'auto', 'setWdAccess') + '</div>';
+}
+// Time set by hand for this one window or door (v2.95.0): for the one that
+// takes longer, or less, than its size and type say. Same units as the Rates
+// card -- minutes for 2 coats, before prep and access -- so coats, prep and
+// access still apply on top. Blank = from Rates.
+function wdTimeOverrideHtml(o) {
+  var rates = Windoors.ratesMinutes(o, wdRates());
+  var set = +o.time_override > 0;
+  return '<div class="field-row"><div class="field-label">Time<small>' + (set ? 'set by hand · Rates say ' : 'from Rates: ') + wdFmtN(Math.round(rates))
+    + ' min for 2 coats, before prep — type a figure to override</small></div>'
+    + '<input type="number" inputmode="decimal" min="0" step="5" placeholder="' + wdFmtN(Math.round(rates)) + '" value="' + (set ? wdFmtN(+o.time_override) : '') + '" onchange="setWdTimeOverride(this.value)"'
+    + ' style="width:84px;text-align:right;padding:7px 8px;border:1px solid ' + (set ? 'var(--accent)' : 'var(--border)') + ';border-radius:8px;background:var(--surface2);color:var(--text);font-size:14px;font-family:\'DM Mono\',monospace"></div>';
+}
+function setWdTimeOverride(v) {
+  var o = wdOpening(); if (!o || o.kind === 'other' || wdMode === 'site') return;
+  var n = Math.round((+v || 0) * 10) / 10;
+  var next = n > 0 ? Math.min(Windoors.OTHER_MAX_MINS, n) : null;
+  if ((o.time_override || null) === next) return;
+  o.time_override = next;
+  wdPutOpening(o); wdChanged();
 }
 function setWdAccess(key) {
   var o = wdOpening(); if (!o || o.kind === 'other' || wdMode === 'site') return;

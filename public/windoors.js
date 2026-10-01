@@ -1096,7 +1096,16 @@
   // The painted opening before prep: base by tier and type, plus the panes
   // (glazing-bar cutting in). A bay's is its own timber only -- its windows
   // are openings of their own.
+  // A window, door or bay can have its time set by hand (time_override,
+  // v2.95.0): the same units as the Rates figures -- minutes for 2 coats,
+  // before prep and access -- standing in for the size, type and panes.
   function paintedMinutes(o, rates) {
+    if (o.kind !== 'other' && +o.time_override > 0) return +o.time_override;
+    return baseMinutes(o, rates) + paneCount(o) * rates.perPane;
+  }
+  // The figure from Rates, whatever the override says: what the sheet shows
+  // as "auto".
+  function ratesMinutes(o, rates) {
     return baseMinutes(o, rates) + paneCount(o) * rates.perPane;
   }
   // Can this side have dormers? Not under a parapet -- the side's own roof if
@@ -2902,7 +2911,7 @@
     effectivePrep: effectivePrep, quotePrep: quotePrep, prepChange: prepChange, prepChangeText: prepChangeText, prepSteps: prepSteps, prepChain: prepChain, prepStep: prepStep, baseMinutes: baseMinutes, paintedMinutes: paintedMinutes,
     REPAIR_TIERS: REPAIR_TIERS, isTiered: isTiered, repairTierDef: repairTierDef, repairTierRank: repairTierRank, markTier: markTier, agreedTier: agreedTier,
     isUpgraded: isUpgraded, repairCount: repairCount, MAX_REPAIRS: MAX_REPAIRS, actionPrice: actionPrice, markPrice: markPrice, tierStamps: tierStamps,
-    priceJob: priceJob, openingPaintM2: openingPaintM2, paintAreas: paintAreas, marksClause: marksClause, describeVariation: describeVariation, itemLineText: itemLineText,
+    ratesMinutes: ratesMinutes, priceJob: priceJob, openingPaintM2: openingPaintM2, paintAreas: paintAreas, marksClause: marksClause, describeVariation: describeVariation, itemLineText: itemLineText,
     workFlags: workFlags, elevationSvg: elevationSvg, detailSvg: detailSvg,
     OTHER_PAINT: OTHER_PAINT, otherName: otherName, PORCH_STYLES: PORCH_STYLES, sideGeometry: sideGeometry, otherDraw: otherDraw, otherDoor: otherDoor, porchStyleFor: porchStyleFor, porchPreviewSvg: porchPreviewSvg, drawPorchGlyph: drawPorchGlyph, OTHER_PRICING: OTHER_PRICING, OTHER_UNITS: OTHER_UNITS, OTHER_MAX_MINS: OTHER_MAX_MINS, OTHER_MAX_PRICE: OTHER_MAX_PRICE,
     otherPricing: otherPricing, otherUnit: otherUnit, otherSetPrice: otherSetPrice, ownScope: ownScope, scopeMap: scopeMap, openingScope: openingScope, quotedOpenings: quotedOpenings, untickedMarks: untickedMarks, reportableMarks: reportableMarks,
