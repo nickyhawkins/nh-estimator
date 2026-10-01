@@ -187,6 +187,50 @@
     return withNoun === false ? amt : amt + ' ' + n;
   }
   function extraSectioned(o) { return extraType(o).unit !== 'each'; }
+
+  // ── Walls (EXTERIOR_HOUSE_SPEC.md step 4) ────────────────────────────────
+  // The house's own walls, one row per side (kind 'wall', position 1): its
+  // width (run_length) and height to the eaves (run_extra) in metres, the
+  // gable's height above the eaves (wall_gable, 0 = none), the finish
+  // (type: smooth or textured render) and whether it's sprayed (wall_spray,
+  // paint only -- the Exterior form's spray never changed the time).
+  //
+  // The area is semi-accurate by design: width × height plus the gable's
+  // triangle, less every window and door on that side -- painted or not, so
+  // a render-only job with the windows left out still takes them off -- at
+  // each one's typical opening area by size (Rates). The lower ground (below
+  // the measured height) and dormers (in the roof) aren't in it.
+  //
+  // Cutting in round each of those openings is priced too, per coat
+  // (Nicky, 2026-10-01: it's real work), whether or not the opening is
+  // painted.
+  var WALL_FINISHES = [
+    { key: 'smooth', label: 'Smooth render / masonry' },
+    { key: 'textured', label: 'Textured render (pebbledash)' }
+  ];
+  var WALL_MAX_M = 60;
+  function wallFinish(o) { return findKey(WALL_FINISHES, o && o.type) || WALL_FINISHES[0]; }
+  function wallFig(v) { var n = +v; return isFinite(n) && n > 0 ? Math.min(WALL_MAX_M, n) : 0; }
+  // The openings a side's wall is measured round: windows and doors on its
+  // floors (bay windows included), whether in the job or not.
+  function wallOpenings(o, openings) {
+    return (openings || []).filter(function (x) {
+      return x.side === o.side && (x.kind === 'window' || x.kind === 'door') && levelOf(x) === 'standard';
+    });
+  }
+  // { gross, openings, net, cutIn: { windows, doors } } in m².
+  function wallGeometry(o, openings, rawRates) {
+    var R = rawRates && rawRates.wall ? rawRates : mergeRates(rawRates);
+    var w = wallFig(o.run_length), h = wallFig(o.run_extra), g = wallFig(o.wall_gable);
+    var gross = w * h + w * g / 2;
+    var ops = wallOpenings(o, openings);
+    var holes = ops.reduce(function (t, x) {
+      var a = R.wall.openingArea[x.size_tier] != null ? R.wall.openingArea[x.size_tier] : (x.kind === 'door' ? R.wall.openingArea.standard : R.wall.openingArea.medium);
+      return t + a * (x.kind === 'door' && x.type === 'french_double' ? 2 : 1);
+    }, 0);
+    return { width: w, height: h, gable: g, gross: gross, openings: Math.min(gross, holes), net: Math.max(0, gross - holes),
+             cutIn: { windows: ops.filter(function (x) { return x.kind === 'window'; }).length, doors: ops.filter(function (x) { return x.kind === 'door'; }).length } };
+  }
   function runType(o) { return findKey(RUN_TYPES, o && o.type) || RUN_TYPES[0]; }
   function runMetres(o) {
     var f = function (v) { var n = +v; return isFinite(n) && n > 0 ? Math.min(RUN_MAX_M, n) : 0; };
@@ -487,7 +531,15 @@
       bargeboard: { mins: 14, m2: 0.3 }
     },
     // Extras, per unit (EXTRA_TYPES' own figures) -- filled in below.
-    extra: {}
+    extra: {},
+    // Walls: minutes a m² for 2 coats by finish (the Exterior form's masonry
+    // 5 and textured 7 a coat); cutting in round each opening, a coat; and
+    // each opening's typical area to take off the wall, by its size.
+    wall: {
+      mins: { smooth: 10, textured: 14 },
+      cutIn: { window: 10, door: 12 },
+      openingArea: { small: 0.6, medium: 1.2, large: 2, xlarge: 3, standard: 1.9, oversized: 2.6 }
+    }
   };
   EXTRA_TYPES.forEach(function (t) { DEFAULT_RATES.extra[t.key] = { mins: t.mins, m2: t.m2 }; });
 
@@ -551,6 +603,11 @@
       var saved = (raw.run || {})[t.key] || {}, d = DEFAULT_RATES.run[t.key];
       out.run[t.key] = { mins: Math.max(0, num(saved.mins, d.mins)), m2: Math.max(0, num(saved.m2, d.m2)) };
     });
+    var sw = raw.wall || {}, dw = DEFAULT_RATES.wall;
+    out.wall = { mins: {}, cutIn: {}, openingArea: {} };
+    WALL_FINISHES.forEach(function (f) { out.wall.mins[f.key] = Math.max(0, num((sw.mins || {})[f.key], dw.mins[f.key])); });
+    ['window', 'door'].forEach(function (k) { out.wall.cutIn[k] = Math.max(0, num((sw.cutIn || {})[k], dw.cutIn[k])); });
+    Object.keys(dw.openingArea).forEach(function (k) { out.wall.openingArea[k] = Math.max(0, num((sw.openingArea || {})[k], dw.openingArea[k])); });
     out.extra = {};
     EXTRA_TYPES.forEach(function (t) {
       var saved = (raw.extra || {})[t.key] || {}, d = DEFAULT_RATES.extra[t.key];
@@ -689,6 +746,7 @@
   function kindNoun(o) {
     if (o.kind === 'run') return runType(o).label + ', ' + fmtMetres(runMetres(o)) + 'm';
     if (o.kind === 'extra') return extraType(o).label + (o.nickname ? ' (' + o.nickname + ')' : '') + ', ' + extraAmount(o, false);
+    if (o.kind === 'wall') return 'Walls, ' + wallFinish(o).label.toLowerCase();
     if (o.kind === 'other') return otherName(o);
     if (o.kind === 'bay') return typeLabel(o) + ' bay';
     if (o.kind === 'door') return typeLabel(o) + ' door';
@@ -953,7 +1011,7 @@
   }
 
   function paneCount(o) {
-    if (o.kind === 'bay' || o.kind === 'other' || o.kind === 'run' || o.kind === 'extra') return 0;
+    if (o.kind === 'bay' || o.kind === 'other' || o.kind === 'run' || o.kind === 'extra' || o.kind === 'wall') return 0;
     if (o.kind === 'door') return doorGlass(o);
     if (o.type === 'sash') { var sr = sashRows(o); return (sr.top + sr.bottom) * clampGrid(o.cols); }
     return clampGrid(o.rows) * clampGrid(o.cols);
@@ -972,7 +1030,7 @@
 
   function openingElements(o) {
     var out = [];
-    if (o.kind === 'run' || (o.kind === 'extra' && extraSectioned(o))) {
+    if (o.kind === 'run' || o.kind === 'wall' || (o.kind === 'extra' && extraSectioned(o))) {
       RUN_SECTIONS.forEach(function (sec) { out.push({ id: sec.id, kind: 'part', label: sec.label + ' section' }); });
       return out;
     }
@@ -1022,6 +1080,8 @@
   }
   // The actions that can go on a selection of this kind, for this opening.
   function actionsFor(o, kind) {
+    // A wall's work is filling: cracks and holes in the render.
+    if (o && o.kind === 'wall') return ACTIONS.filter(function (a) { return a.key === 'filler' && a.on === kind; });
     return ACTIONS.filter(function (a) {
       return a.on === kind && (!a.doorOnly || o.kind === 'door' || o.kind === 'other')
         && (!a.sashOnly || (o.kind === 'window' && o.type === 'sash'));
@@ -1034,6 +1094,7 @@
   function openingCode(o) {
     if (o.kind === 'run') return runType(o).label;
     if (o.kind === 'extra') return extraType(o).label;
+    if (o.kind === 'wall') return 'Walls';
     if (o.kind === 'other') return 'O' + (+o.position || 1);
     if (isBayChild(o)) { var c = bayChildInfo(o); return 'B' + c.bay + ' ' + c.face; }
     return (o.kind === 'door' ? 'D' : o.kind === 'bay' ? 'B' : 'W') + (+o.position || 1);
@@ -1042,6 +1103,7 @@
   function levelLabel(o) {
     if (o.kind === 'run') return 'roofline';
     if (o.kind === 'extra') return 'extras';
+    if (o.kind === 'wall') return 'walls';
     if (o.kind === 'other') return 'other items';
     var lv = levelOf(o);
     return lv === 'lower_ground' ? 'lower ground' : lv === 'roof' ? 'dormer' : floorLabel(o.floor);
@@ -1057,6 +1119,7 @@
     if (o.kind === 'run') return sideLabel(o.side) + ', ' + runType(o).label.toLowerCase();
     // "Back, gutters"; "Left, other walls (garden wall)".
     if (o.kind === 'extra') return sideLabel(o.side) + ', ' + extraType(o).label.toLowerCase() + (o.nickname ? ' (' + o.nickname + ')' : '');
+    if (o.kind === 'wall') return sideLabel(o.side) + ', walls';
     var s = sideLabel(o.side) + ', ' + levelLabel(o) + ', ' + openingCode(o);
     if (withNickname !== false && o.nickname) s += ' (' + o.nickname + ')';
     return s;
@@ -1069,7 +1132,7 @@
     var kindRank = function (o) { return isBayChild(o) || o.kind === 'bay' ? 1 : o.kind === 'door' ? 2 : 0; };
     // Other items come after everything on the side's floors.
     // ...and the roofline runs after those, in RUN_TYPES order.
-    var lvl = function (o) { return o.kind === 'extra' ? 5 + extraType(o).position / 100 : o.kind === 'run' ? 4 : o.kind === 'other' ? 3 : levelRank[levelOf(o)]; };
+    var lvl = function (o) { return o.kind === 'wall' ? 7 : o.kind === 'extra' ? 5 + extraType(o).position / 100 : o.kind === 'run' ? 4 : o.kind === 'other' ? 3 : levelRank[levelOf(o)]; };
     var posKey = function (o) {
       if (o.kind === 'bay') return (+o.position || 0) * 100;
       if (isBayChild(o)) { var c = bayChildInfo(o); return c.bay * 100 + (+o.position % 10); }
@@ -1173,7 +1236,7 @@
   // ladders, as the Exterior form's fascia figure always did: no uplift
   // unless it's set by hand (a tower on a tall house).
   function autoAccess(o) {
-    if (o && (o.kind === 'run' || o.kind === 'extra')) return 'ground';
+    if (o && (o.kind === 'run' || o.kind === 'extra' || o.kind === 'wall')) return 'ground';
     var lv = levelOf(o);
     if (lv === 'roof') return 'ladderTower';
     if (lv === 'lower_ground' || !o || o.kind === 'other') return 'ground';
@@ -1190,7 +1253,14 @@
     return Math.max(1, num(acc[k], DEFAULT_RATES.access[k]));
   }
 
-  function baseMinutes(o, rates) {
+  function baseMinutes(o, rates, openings) {
+    if (o.kind === 'wall') {
+      var wg = wallGeometry(o, openings, rates);
+      var wr = (rates.wall || DEFAULT_RATES.wall);
+      // Cutting in is a figure a coat: twice that for the 2-coat basis the
+      // rest is in (coats scale it after, like everything).
+      return wg.net * (wr.mins[wallFinish(o).key] || 0) + 2 * (wg.cutIn.windows * wr.cutIn.window + wg.cutIn.doors * wr.cutIn.door);
+    }
     if (o.kind === 'run') {
       var rr = (rates.run && rates.run[runType(o).key]) || DEFAULT_RATES.run[runType(o).key];
       return runMetres(o) * rr.mins;
@@ -1218,14 +1288,14 @@
   // A window, door or bay can have its time set by hand (time_override,
   // v2.96.0): the same units as the Rates figures -- minutes for 2 coats,
   // before prep and access -- standing in for the size, type and panes.
-  function paintedMinutes(o, rates) {
+  function paintedMinutes(o, rates, openings) {
     if (o.kind !== 'other' && +o.time_override > 0) return +o.time_override;
-    return baseMinutes(o, rates) + paneCount(o) * rates.perPane;
+    return baseMinutes(o, rates, openings) + paneCount(o) * rates.perPane;
   }
   // The figure from Rates, whatever the override says: what the sheet shows
   // as "auto".
-  function ratesMinutes(o, rates) {
-    return baseMinutes(o, rates) + paneCount(o) * rates.perPane;
+  function ratesMinutes(o, rates, openings) {
+    return baseMinutes(o, rates, openings) + paneCount(o) * rates.perPane;
   }
   // Can this side have dormers? Not under a parapet -- the side's own roof if
   // it has one, else the house's.
@@ -1296,7 +1366,7 @@
       // Not in this job: no price, and (not in byId) its marks price as nothing.
       if (sc.excluded) { out.excluded++; return; }
       byId[o.id] = o;
-      var painted = paintedMinutes(o, rates);
+      var painted = paintedMinutes(o, rates, openings);
       // An Other item's minutes are its own total, typed in as it is to be
       // done -- not a 2-coat tier figure -- so neither scaling touches it.
       var cf = o.kind === 'other' ? 1 : coats;
@@ -1425,6 +1495,7 @@
       var R2 = rawRates && rawRates.run ? rawRates : mergeRates(rawRates);
       return runMetres(o) * R2.run[runType(o).key].m2;
     }
+    if (o.kind === 'wall') return 0; // see paintAreas: needs the side's openings
     if (o.kind === 'extra') {
       var R3 = rawRates && rawRates.extra ? rawRates : mergeRates(rawRates);
       return extraQty(o) * R3.extra[extraType(o).key].m2;
@@ -1446,7 +1517,8 @@
   // tins.
   function paintAreas(data, rawRates) {
     var rates = rawRates && rawRates.paint && rawRates.paint.area ? rawRates : mergeRates(rawRates);
-    var out = { window: 0, door: 0, masonry: 0, windows: 0, doors: 0 };
+    var out = { window: 0, door: 0, masonry: 0, windows: 0, doors: 0, walls: [] };
+    var allLive = liveOpenings(data && data.openings, data && data.property);
     // A bay's own timber is painted with the windows (it is the window
     // joinery), but it is not a window to count. Only what the quote is for:
     // not an opening that's out of the job, or one added to it on site.
@@ -1459,6 +1531,12 @@
       // Extras: wood and metal with the windows, walls and stone with the
       // masonry.
       if (o.kind === 'extra') { if (extraType(o).paint === 'masonry') out.masonry += m2; else out.window += m2; return; }
+      // Walls: their own rows, each at its finish's coverage.
+      if (o.kind === 'wall') {
+        var wg = wallGeometry(o, allLive, rates);
+        if (wg.net > 0) out.walls.push({ id: o.id, side: o.side, m2: wg.net, textured: wallFinish(o).key === 'textured', spray: !!o.wall_spray });
+        return;
+      }
       if (o.kind === 'door') { out.door += m2; out.doors++; } else { out.window += m2; if (o.kind !== 'bay') out.windows++; }
     });
     return out;
@@ -1541,6 +1619,10 @@
         var rk = 'run:' + runType(o).key;
         if (!counts[rk]) { counts[rk] = 0; order.push(rk); }
         counts[rk] += runMetres(o);
+      } else if (o.kind === 'wall') {
+        // In m², net of the openings: "96m² walls".
+        if (!counts.walls) { counts.walls = 0; order.push('walls'); }
+        counts.walls += wallGeometry(o, liveOpenings(data && data.openings, data && data.property), data && data.rates).net;
       } else if (o.kind === 'extra') {
         // In its own unit: "18m gutters", "4 downpipes".
         var ek = 'extra:' + extraType(o).key;
@@ -1560,18 +1642,19 @@
       }
     });
     // With the roofline in it, it's more than windows and doors.
-    var head = exteriorHead(order.some(function (k) { return /^extra:/.test(k) && findKey(EXTRA_TYPES, k.slice(6)).paint === 'masonry'; }),
+    var head = exteriorHead(order.some(function (k) { return k === 'walls' || (/^extra:/.test(k) && findKey(EXTRA_TYPES, k.slice(6)).paint === 'masonry'); }),
       order.some(function (k) { return /^(run|extra):/.test(k); })) + ' (outside faces)';
     if (!order.length) return head + '.';
     // Windows, then bays, then doors, whatever order the house was walked
     // in. (A bay's own windows are counted among the windows.)
-    var rank = function (k) { return /^extra:/.test(k) ? 5 : /^run:/.test(k) ? 4 : /^other:/.test(k) ? 3 : /door$/.test(k) ? 2 : /bay$/.test(k) ? 1 : 0; };
+    var rank = function (k) { return k === 'walls' ? 6 : /^extra:/.test(k) ? 5 : /^run:/.test(k) ? 4 : /^other:/.test(k) ? 3 : /door$/.test(k) ? 2 : /bay$/.test(k) ? 1 : 0; };
     order.sort(function (a, b) { return rank(a) - rank(b); });
     var text = head + ': ' + order.map(function (k) {
       // An Other item's name is whatever was typed: named, never pluralised.
       if (/^other:/.test(k)) { var nm = k.slice(6); return counts[k] === 1 ? nm : counts[k] + ' × ' + nm; }
       if (/^run:/.test(k)) return fmtMetres(counts[k]) + 'm ' + findKey(RUN_TYPES, k.slice(4)).noun;
       if (/^extra:/.test(k)) return extraAmount({ type: k.slice(6), run_length: counts[k] });
+      if (k === 'walls') return fmtMetres(counts[k]) + 'm\u00b2 walls';
       return counts[k] + ' ' + k + (counts[k] === 1 ? '' : (/s$/.test(k) ? 'es' : 's'));
     }).join(', ') + '.';
     var inQuote = {};
@@ -2295,6 +2378,21 @@
       s += rect(x0, groundY, W, lowerH, 'rgba(30,30,30,.13)');
       s += rect(x0 - 8, groundY + lowerH - 3, W + 16, 3, '#a9aa9f');
     }
+    // The side's wall (step 4), once it's measured: tap the wall itself to
+    // open it, under the openings so they still take their own taps. Work
+    // marked on a third of it tints that third.
+    ((data && data.openings) || []).filter(function (o) { return o.side === side && o.kind === 'wall'; }).forEach(function (o) {
+      var wm = ((data && data.marks) || []).filter(function (m) { return m.opening_id === o.id; });
+      var tw3 = W / 3, tint = '';
+      RUN_SECTIONS.forEach(function (sec, i) {
+        var st = elementStyle(sec.id, wm, false);
+        if (st.fill || st.stroke) tint += rect(x0 + i * tw3, topY, tw3, bodyH, st.fill ? 'rgba(240,160,32,.22)' : 'none', st.dash ? ' stroke="#c07a00" stroke-width="1.6" stroke-dasharray="' + st.dash + '"' : '');
+      });
+      var dim = (hl && !hl[o.id]) || o.excluded ? ' opacity="0.5"' : '';
+      s += opts.interactive && o.id
+        ? '<g class="wd-open wd-wall" data-open-id="' + esc(o.id) + '" style="cursor:pointer"' + dim + '>' + tint + rect(x0, topY, W, bodyH, 'transparent') + '</g>'
+        : (tint ? '<g' + dim + '>' + tint + '</g>' : '');
+    });
     // roof
     var chim = chimneyFill(a, fp);
     var roofSvg = '';
@@ -2631,6 +2729,15 @@
           + '<text x="' + r1(W + 10) + '" y="' + r1(top + fh + sh / 2 + 4) + '" font-family="Barlow, Arial, sans-serif" font-size="10" fill="#5a6270" pointer-events="none">soffit</text>';
         if (fascia && soffit) ext.r = 40;
       }
+    } else if (o.kind === 'wall') {
+      // The side's wall, face on, in its three sections.
+      W = 360; H = 150;
+      var ww3 = W / 3;
+      RUN_SECTIONS.forEach(function (sec, i) {
+        s += draw(sec.id, R(i * ww3, 18, ww3, 100, '#ece4d2'));
+        s += '<text x="' + r1(i * ww3 + ww3 / 2) + '" y="140" text-anchor="middle" font-family="Barlow, Arial, sans-serif" font-size="13" font-weight="700" fill="' + PAL.ink + '" pointer-events="none">' + sec.label.charAt(0).toUpperCase() + sec.label.slice(1) + '</text>';
+      });
+      s += '<text x="' + r1(W / 2) + '" y="11" text-anchor="middle" font-family="Barlow, Arial, sans-serif" font-size="12" font-weight="700" fill="' + PAL.ink + '" pointer-events="none">' + esc(wallFinish(o).label) + '</text>';
     } else if (o.kind === 'extra') {
       // An extra: in metres or m², a strip in its three sections; counted,
       // the thing itself, named, to mark as a whole.
@@ -2995,12 +3102,13 @@
     (variations || []).forEach(function (v) { if (v && v.status === 'declined') declined[v.id] = true; });
     var live = liveOpenings(data && data.openings, data && data.property);
     var sc = scopeMap(live);
-    var out = { windows: 0, doors: 0, bays: 0, other: 0, runs: {}, extras: {} };
+    var out = { windows: 0, doors: 0, bays: 0, other: 0, runs: {}, extras: {}, walls: 0 };
     live.forEach(function (o) {
       var s = sc[o.id];
       if (s.excluded || (s.variationId && declined[s.variationId])) return;
       if (o.kind === 'run') { var rk = runType(o).key; out.runs[rk] = (out.runs[rk] || 0) + runMetres(o); return; }
       if (o.kind === 'extra') { var xk = extraType(o).key; out.extras[xk] = (out.extras[xk] || 0) + extraQty(o); return; }
+      if (o.kind === 'wall') { out.walls += wallGeometry(o, live, data && data.rates).net; return; }
       if (o.kind === 'door') out.doors++;
       else if (o.kind === 'window') out.windows++;
       else if (o.kind === 'bay') out.bays++;
@@ -3036,10 +3144,11 @@
       var q = p.extras && +p.extras[t.key];
       if (q > 0) what.push(t.unit === 'each' ? extraAmount({ type: t.key, run_length: q }) : extraAmount({ type: t.key, run_length: q }, false) + ' of ' + t.noun);
     });
+    if (+p.walls > 0) what.push(fmtMetres(+p.walls) + 'm\u00b2 of walls');
     var list = what.length > 1 ? what.slice(0, -1).join(', ') + ' and ' + what[what.length - 1] : what.join('');
     var has = function (pred) { return EXTRA_TYPES.some(function (t) { return pred(t) && p.extras && +p.extras[t.key] > 0; }); };
     var anyRun = RUN_TYPES.some(function (t) { return p.runs && +p.runs[t.key] > 0; }) || has(function () { return true; });
-    var s = exteriorHead(has(function (t) { return t.paint === 'masonry'; }), anyRun) + ': preparation and painting of outside faces' + (list ? ', ' + list : '') + '.';
+    var s = exteriorHead(has(function (t) { return t.paint === 'masonry'; }) || +p.walls > 0, anyRun) + ': preparation and painting of outside faces' + (list ? ', ' + list : '') + '.';
     if (p.report === 'attached') s += ' Full breakdown of work per opening in attached report.';
     else if (p.report === 'final') s += ' Full breakdown of work per opening in the report attached to the final invoice.';
     var c = p.colours || {};
@@ -3116,6 +3225,7 @@
       var paint = o.kind === 'other' ? 'Prepared and painted' : 'Prepared (' + prepLabel(prep).toLowerCase() + ') and painted, ' + coats + ' coat' + (coats === 1 ? '' : 's');
       if (o.kind === 'run') paint += ', ' + fmtMetres(runMetres(o)) + 'm';
       if (o.kind === 'extra') paint += ', ' + extraAmount(o, extraType(o).unit === 'each');
+      if (o.kind === 'wall') paint += ', ' + fmtMetres(wallGeometry(o, live, data && data.rates).net) + 'm\u00b2, ' + wallFinish(o).label.toLowerCase();
       if (o.kind === 'bay') paint = "Bay's own timber " + paint.charAt(0).toLowerCase() + paint.slice(1);
       if (colourName) paint += ' in ' + colourName;
       var onSite = items.some(function (it) { return it.onSite; });
@@ -3214,6 +3324,7 @@
     otherPricing: otherPricing, otherUnit: otherUnit, otherSetPrice: otherSetPrice, ownScope: ownScope, scopeMap: scopeMap, openingScope: openingScope, quotedOpenings: quotedOpenings, untickedMarks: untickedMarks, reportableMarks: reportableMarks,
     reportModel: reportModel, reportHtml: reportHtml, fmtDate: fmtDate,
     invoiceCounts: invoiceCounts, invoiceLineText: invoiceLineText, workReportModel: workReportModel,
+    WALL_FINISHES: WALL_FINISHES, WALL_MAX_M: WALL_MAX_M, wallFinish: wallFinish, wallGeometry: wallGeometry, wallOpenings: wallOpenings,
     EXTRA_TYPES: EXTRA_TYPES, EXTRA_MAX: EXTRA_MAX, extraType: extraType, extraQty: extraQty, extraAmount: extraAmount, extraSectioned: extraSectioned, exteriorHead: exteriorHead,
     RUN_TYPES: RUN_TYPES, RUN_SECTIONS: RUN_SECTIONS, RUN_MAX_M: RUN_MAX_M, runType: runType, runMetres: runMetres, fmtMetres: fmtMetres
   };

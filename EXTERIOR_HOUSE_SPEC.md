@@ -1,6 +1,6 @@
 # The whole exterior on the drawing (Windows & Doors stage 3, and 4)
 
-Status: **steps 1–3 built (v2.96.0, v2.97.0, v2.98.0)**; step 4 (walls) is a draft, not built.
+Status: **steps 1–4 built (v2.96.0 – v2.99.0)**. Still to come: the invoice layout (walls and woodwork as separate lines, or a full breakdown chosen at the quote).
 
 Builds on WINDOWS_DOORS_SPEC.md (stage 1), WINDOWS_DOORS_STAGE2_SPEC.md (the
 house drawing) and WINDOWS_DOORS_INVOICE_SPEC.md (one invoice line + report).
@@ -207,6 +207,24 @@ Designed for now, so steps 1–3 don't paint it into a corner.
 
 ---
 
+### Built in step 4 (v2.99.0)
+- Kind `wall`, one per side (position 1): width `run_length`, height to the
+  eaves `run_extra`, `wall_gable`, `wall_spray`, finish as `type`
+  (`smooth` | `textured`). `Windoors.wallGeometry`: gross (+ gable triangle)
+  less each window and door on the side's floors (bay windows included,
+  excluded ones too; lower ground and dormers not) at `rates.wall.openingArea`
+  by tier (French doors ×2). Priced net m² × `rates.wall.mins[finish]` +
+  2 × cutting in (`rates.wall.cutIn` a coat, window 10 / door 12), coats
+  and prep on top, access in the rate. Filler on thirds.
+- Paint: `paintAreas().walls`, each at the Exterior form's masonry coverage
+  for its finish and spray, in the new `job_property.wall_colour` (Paint
+  card; also the masonry extras' colour).
+- Drawn: the wall is tappable under the openings; marked thirds tinted.
+- The screen is titled **Exterior**; the + menu offers the old Exterior
+  form only on a job with exterior items already.
+- **Not yet:** the separate woodwork / walls invoice lines and the
+  full-breakdown option (next step).
+
 ## What the Exterior form does that this doesn't yet (checked 2026-10-01)
 
 Everything else in the form is covered by steps 1–4. These need a home
@@ -214,7 +232,7 @@ before the form can be hidden on new jobs:
 
 | In the Exterior form | Where it should go |
 |---|---|
-| Masonry: **textured render** and **spray render** toggles | step 4, per side's wall finish |
+| Masonry: **textured render** and **spray render** toggles | **done (v2.99.0)**: the wall's finish and spray |
 | **Making good** (a fixed £) | **done (v2.98.0)**: *Making good £* on the totals card |
 | Walls **not on the house** (garden walls, outbuildings, a second building), as their own items | **done (v2.98.0)**: the *Other walls* extra, m², masonry rate, named |
 | Several items per job (a garage block priced apart) | the same *Other walls* extra, named — one per side |

@@ -470,6 +470,18 @@ It's drawn on the house: the fascia along the eaves, the bargeboards up the verg
 
 It's priced by the metre from **Rates → Windows & Doors → Roofline, per metre**: fascia and soffit start at **16 minutes a metre** for 2 coats (the Exterior form's fascia figure), with prep and coats on top, like a window. The rate already allows for ladders, so **Access** says *Auto (in the rate)*; set **Ladder/tower** by hand for a house that needs a tower. It's painted in the **windows' colour** and goes in the same paint rows. **In this job / Not in this job** works as for a window: a run that isn't being painted stays on the drawing, unpriced. On the quote and invoice the line becomes *Exterior woodwork*, with the metres: *…14 windows, 3 doors and 12.5m of fascia and soffit.* The work report lists each run with its sections.
 
+**Walls.** Each side has a **Walls** card: tap **+ Measure the walls on this side** and give the **width** and the **height to the eaves** in metres. On its sheet, add the **gable** (its height above the eaves) if that side has one, pick the **finish** — **smooth render / masonry** or **textured render (pebbledash)** — and whether it's **rolled / brushed** or **sprayed**. Once the walls are measured you can tap the wall itself on the drawing to open them.
+
+The area is worked out for you, semi-accurately: width × height (plus the gable's triangle), **less every window and door on that side** at a typical size for each (*Rates → Windows & Doors → Walls*: a Medium window takes 1.2 m² off, a standard door 1.9 m², French doors twice that). The sheet shows the sum: *71.5m² of wall − 13.5m² for 8 windows and doors = 58m²*. **Cutting in** round each of those windows and doors is priced on top — 10 minutes a coat round a window, 12 round a door to start — whether or not the window or door itself is being painted. So for a **render-only job**, set the windows and doors to **Not in this job**: they stay on the drawing, still come off the wall and still take their cutting in, but aren't priced themselves.
+
+The wall is priced at **10 minutes a m²** for 2 coats on smooth (the Exterior form's masonry rate) or **14** on textured, with prep and coats on top and access in the rate. Spraying changes the paint (the Exterior form's sprayed coverages), not the time. Cracks and holes can be marked with **Filler** on the wall's left, middle or right third, which shows tinted on the drawing. The paint goes on the **Masonry / Render** rows, in the **Walls colour** on the Paint card (which also covers other walls and stonework). The lower ground floor and dormers aren't part of a side's wall.
+
+![Walls measured on the front, with the left third marked](images/26zw-walls-elevation.png)
+
+![The walls' sheet: width, height, gable, finish, and the sum](images/26zx-walls-sheet.png)
+
+With walls in it, the screen is titled **Exterior**, and on **Measure → +** it's **Exterior — windows, doors, walls, roofline**. The old **Exterior item** form is only offered on a job that already has exterior items priced that way, so nothing quoted before changes.
+
 **Extras.** Under the roofline, each side has an **Extras** card for the things painted on some houses and not others. Pick one from **+ Add an extra…** and it asks how much — metres, m² or how many — then opens it:
 
 | Extra | Measured in | Painted with |
@@ -1632,6 +1644,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.98.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.99.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

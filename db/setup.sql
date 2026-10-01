@@ -709,7 +709,10 @@ ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS other_draw VARCHAR;           
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS other_door INTEGER;                            -- ...over this ground-floor door (D1 = 1)
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS run_length REAL;                               -- kind 'run': metres along the side (v2.97.0)
 ALTER TABLE job_property ADD COLUMN IF NOT EXISTS making_good REAL NOT NULL DEFAULT 0;           -- a fixed £ for the exterior, before markup (v2.98.0)
-ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS run_extra REAL;                                -- ...and the odd extra bit, priced not drawn
+ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS run_extra REAL;
+ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS wall_gable REAL;                               -- kind 'wall': the gable's height above the eaves (v2.99.0)
+ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS wall_spray BOOLEAN NOT NULL DEFAULT FALSE;      -- ...the render is sprayed (paint coverage only)
+ALTER TABLE job_property ADD COLUMN IF NOT EXISTS wall_colour INTEGER;                           -- the walls' colour number; NULL = colour 1 (v2.99.0)                                -- ...and the odd extra bit, priced not drawn
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS time_override REAL;                             -- minutes set by hand (2 coats, before prep/access); NULL = Rates (v2.96.0)
 DROP INDEX IF EXISTS job_openings_slot;
 CREATE UNIQUE INDEX IF NOT EXISTS job_openings_slot2 ON job_openings (job_id, side, level, floor, kind, position);
