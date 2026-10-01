@@ -540,9 +540,9 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
   <div id="add-chooser" style="display:none;position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.4)" onclick="closeAddChooser()">
     <div style="position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-radius:16px 16px 0 0;padding:10px 0 calc(var(--sb) + 10px);box-shadow:0 -4px 24px rgba(0,0,0,.2)" onclick="event.stopPropagation()">
       <div class="nav-menu-item" onclick="closeAddChooser();goScreen('room')"><div>🏠&ensp;Room</div><span class="nav-menu-arrow">›</span></div>
-      <div class="nav-menu-item" onclick="closeAddChooser();showAddExterior()"><div>🏡&ensp;Exterior item</div><span class="nav-menu-arrow">›</span></div>
+      <div class="nav-menu-item" id="add-chooser-ext" onclick="closeAddChooser();showAddExterior()"><div>🏡&ensp;Exterior item <small style="color:var(--text2)">(old form)</small></div><span class="nav-menu-arrow">›</span></div>
       <div class="nav-menu-item" onclick="closeAddChooser();goScreen('kitchen')"><div>🍳&ensp;Kitchen</div><span class="nav-menu-arrow">›</span></div>
-      <div class="nav-menu-item" onclick="closeAddChooser();openWindoors('quote')"><div>🪟&ensp;Windows and doors</div><span class="nav-menu-arrow">›</span></div>
+      <div class="nav-menu-item" onclick="closeAddChooser();openWindoors('quote')"><div>🪟&ensp;Exterior <small style="color:var(--text2)">— windows, doors, walls, roofline</small></div><span class="nav-menu-arrow">›</span></div>
       <div class="nav-menu-item" onclick="closeAddChooser();addFittedUnit()"><div>📚&ensp;Fitted Unit</div><span class="nav-menu-arrow">›</span></div>
       <div class="nav-menu-item" onclick="closeAddChooser();showAddCustomItem()"><div>✏️&ensp;Custom line</div><span class="nav-menu-arrow">›</span></div>
     </div>
@@ -3276,6 +3276,12 @@ function populateWindoorsRates() {
   Windoors.RUN_TYPES.forEach(function(t) {
     h += row(t.label, 'min a metre · m² a metre', '<span style="display:flex;gap:6px">' + inp('s-wd-run-' + t.key + '-mins', R.run[t.key].mins) + inp('s-wd-run-' + t.key + '-m2', R.run[t.key].m2, 0.05) + '</span>');
   });
+  h += '<div class="subsection-label">Walls<small>minutes a m² for 2 coats by finish · cutting in round each opening, a coat · each opening\'s area taken off the wall</small></div>';
+  Windoors.WALL_FINISHES.forEach(function(f) { h += row(f.label, 'min a m², 2 coats', inp('s-wd-wall-' + f.key, R.wall.mins[f.key])); });
+  h += row('Cutting in, window', 'min a coat, round each one', inp('s-wd-cutin-window', R.wall.cutIn.window));
+  h += row('Cutting in, door', 'min a coat, round each one', inp('s-wd-cutin-door', R.wall.cutIn.door));
+  Windoors.WINDOW_TIERS.forEach(function(t) { h += row(t.label + ' window opening', 'm² taken off the wall', inp('s-wd-oparea-' + t.key, R.wall.openingArea[t.key], 0.1)); });
+  Windoors.DOOR_TIERS.forEach(function(t) { h += row(t.label + ' door opening', 'm² taken off the wall (French doors count twice)', inp('s-wd-oparea-' + t.key, R.wall.openingArea[t.key], 0.1)); });
   h += '<div class="subsection-label">Extras, per unit<small>minutes for 2 coats before prep · m² of paint — a metre, a m² or each</small></div>';
   Windoors.EXTRA_TYPES.forEach(function(t) {
     h += row(t.label, 'min · m², ' + (t.unit === 'm' ? 'a metre' : t.unit === 'm2' ? 'a m²' : 'each') + (t.paint === 'masonry' ? ' · masonry paint' : ''), '<span style="display:flex;gap:6px">' + inp('s-wd-extra-' + t.key + '-mins', R.extra[t.key].mins) + inp('s-wd-extra-' + t.key + '-m2', R.extra[t.key].m2, 0.05) + '</span>');
@@ -3335,6 +3341,10 @@ function readWindoorsRates() {
   R.paint.cap = Math.min(1, v('s-wd-pcap', R.paint.cap));
   R.paint.doorFrame = v('s-wd-pdoorframe', R.paint.doorFrame);
   R.paint.bay = v('s-wd-pbay', R.paint.bay);
+  Windoors.WALL_FINISHES.forEach(function(f) { R.wall.mins[f.key] = v('s-wd-wall-' + f.key, R.wall.mins[f.key]); });
+  R.wall.cutIn.window = v('s-wd-cutin-window', R.wall.cutIn.window);
+  R.wall.cutIn.door = v('s-wd-cutin-door', R.wall.cutIn.door);
+  Windoors.WINDOW_TIERS.concat(Windoors.DOOR_TIERS).forEach(function(t) { R.wall.openingArea[t.key] = v('s-wd-oparea-' + t.key, R.wall.openingArea[t.key]); });
   Windoors.EXTRA_TYPES.forEach(function(t) {
     R.extra[t.key].mins = v('s-wd-extra-' + t.key + '-mins', R.extra[t.key].mins);
     R.extra[t.key].m2 = v('s-wd-extra-' + t.key + '-m2', R.extra[t.key].m2);
@@ -20905,7 +20915,7 @@ var AREA_ROLE_WORDS = {
   radiator: 'Radiators',
   masonry: 'Masonry', extwoodwork: 'Woodwork',
   // Windows and doors fixture: its two colours ("Exterior Windows").
-  wdwindows: 'Windows', wddoors: 'Doors'
+  wdwindows: 'Windows', wddoors: 'Doors', wdwalls: 'Walls'
 };
 
 function areaPlaceholder(owner, role) {
@@ -21006,6 +21016,8 @@ function colourAreas(live) {
     add('Exterior', it.wdPaint === 'door' ? 'wddoors' : 'wdwindows', it.extWoodworkColourNumber,
         { kind: 'windoors', id: 'windoors', role: it.wdPaint });
   });
+  // ...and the walls (and the masonry extras), in the walls' colour.
+  if (windoorsMasonryItems().length) add('Exterior', 'wdwalls', wdColourOf('wall'), { kind: 'windoors', id: 'windoors', role: 'wall' });
   // Snag groups with no measured room behind them (SNAGS_SPEC.md). They are
   // areas like any other here -- which is the point: it means the Colours tab
   // lists them beside real rooms, an unnamed colour can read as one of them,
@@ -22710,7 +22722,7 @@ function setAreaColourNumber(ref, num) {
     return;
   }
   if (ref.kind === 'windoors') {
-    setWdColour(ref.role === 'door' ? 'door' : 'window', num);
+    setWdColour(ref.role === 'door' ? 'door' : ref.role === 'wall' ? 'wall' : 'window', num);
   }
 }
 
@@ -25623,7 +25635,8 @@ function wdPutProperty() {
     defaultPrep: p.default_prep, layout: p.layout || {},
     coats: p.coats || 2, windowColour: p.window_colour || null, doorColour: p.door_colour || null,
     paintProducts: p.paint_products || {},
-    makingGood: +p.making_good || 0
+    makingGood: +p.making_good || 0,
+    wallColour: p.wall_colour || null
   }).catch(function(e) { wdFail('the house settings', e); });
 }
 function wdPutOpening(o) {
@@ -25639,7 +25652,8 @@ function wdPutOpening(o) {
     excluded: !!o.excluded, includeVariationId: o.include_variation_id || null,
     otherDraw: o.other_draw || null, otherDoor: o.other_door || null,
     timeOverride: o.time_override || null,
-    runLength: o.run_length || null, runExtra: o.run_extra || null
+    runLength: o.run_length || null, runExtra: o.run_extra || null,
+    wallGable: o.wall_gable || null, wallSpray: !!o.wall_spray
   }).then(function(resp) {
     // Another phone already holds this slot: adopt its id, and re-point the
     // marks made against ours (same contract as /snag-rooms) -- and, for a
@@ -25726,17 +25740,25 @@ function windoorsPaintItems() {
   return out;
 }
 
-// The masonry the extras need (other walls, stone sills, lintels), as one
-// stand-in exterior item for the Masonry / Render rows: the Settings masonry
-// product and coverage, the job's colour 1 until the walls get their own
-// colour (step 4).
+// The masonry: the walls (step 4), and the extras painted in masonry paint
+// (other walls, stone sills, lintels), as one stand-in exterior item for the
+// Masonry / Render rows -- the Settings masonry product, each wall at its
+// own coverage (textured, sprayed), all in the walls' colour.
 function windoorsMasonryItems() {
   if (!wdInUse()) return [];
   var a = Windoors.paintAreas(windoors, wdRates());
-  if (!(a.masonry > 0)) return [];
   var coats = Math.max(1, Math.min(3, +windoors.property.coats || 2));
-  return [{ wdMasonry: true, label: 'Other walls and stonework', masonryColourNumber: 1,
-            masonryL: a.masonry * coats / (settings.extMasonryCov || 6) }];
+  var num = wdColourOf('wall');
+  var cov = function(textured, spray) {
+    // The Exterior form's four masonry coverages (extMasonryLitres).
+    var smooth = settings.extMasonryCov || 6;
+    if (textured) return spray ? (settings.extMasonryCovTexSpray || settings.extMasonryCovTex || 3) : (settings.extMasonryCovTex || 4);
+    return spray ? (settings.extMasonryCovSpray || smooth) : smooth;
+  };
+  var litres = a.masonry * coats / cov(false, false);
+  (a.walls || []).forEach(function(w) { litres += w.m2 * coats / cov(w.textured, w.spray); });
+  if (!(litres > 0)) return [];
+  return [{ wdMasonry: true, label: (a.walls || []).length ? 'Walls' : 'Other walls and stonework', masonryColourNumber: num, masonryL: litres }];
 }
 function wdPaintCardHtml() {
   var p = windoors.property;
@@ -25758,6 +25780,7 @@ function wdPaintCardHtml() {
     var bits = [coats + ' coat' + (coats === 1 ? '' : 's')];
     if (n.windows || !n.doors) bits.push(what('window'));
     if (n.doors) bits.push(what('door'));
+    if (windoorsMasonryItems().length) bits.push('walls ' + colourLabelFor(wdColourOf('wall')));
     return head + '<div onclick="toggleWdCard(\'paint\')" style="padding:10px 16px 12px;font-size:13px;color:var(--text2);cursor:pointer">' + escapeHtml(bits.join(' · ')) + '</div></div>';
   }
   return head
@@ -25766,6 +25789,7 @@ function wdPaintCardHtml() {
     + '</div></div>'
     + (n.windows || !n.doors ? wdProductRowHtml('window') + '<div class="field-row" style="flex-wrap:wrap"><div class="field-label">Windows colour</div><div id="seg-colour-wd-window" style="width:100%"></div></div>' : '')
     + (n.doors ? wdProductRowHtml('door') + '<div class="field-row" style="flex-wrap:wrap"><div class="field-label">Doors colour</div><div id="seg-colour-wd-door" style="width:100%"></div></div>' : '')
+    + (windoorsMasonryItems().length ? '<div class="field-row" style="flex-wrap:wrap"><div class="field-label">Walls colour<small>the walls, other walls and stonework — masonry paint from Settings</small></div><div id="seg-colour-wd-wall" style="width:100%"></div></div>' : '')
     + '<div style="padding:0 16px 12px;font-size:11px;color:var(--text2)">Painted on the timber only: each window\'s size less its glass, from Rates › Windows &amp; Doors › Paint areas. Litres use the exterior woodwork coverage, and join the exterior woodwork tins on Summary wherever the product and colour match.</div>'
     + '</div>';
 }
@@ -25814,17 +25838,19 @@ function wdPersistProduct(kind) {
 
 function wdColourOf(kind) {
   var p = windoors.property || {};
-  return +(kind === 'door' ? p.door_colour : p.window_colour) || 1;
+  return +(kind === 'door' ? p.door_colour : kind === 'wall' ? p.wall_colour : p.window_colour) || 1;
 }
 function setWdColour(kind, num) {
   invalidateColourPlaceholders();
   if (!windoors.property) return;
-  if (kind === 'door') windoors.property.door_colour = num; else windoors.property.window_colour = num;
+  if (kind === 'door') windoors.property.door_colour = num;
+  else if (kind === 'wall') windoors.property.wall_colour = num;
+  else windoors.property.window_colour = num;
   wdSaveMirror();
   wdPutProperty();
 }
 function populateWdColourSlots() {
-  ['window', 'door'].forEach(function(kind) {
+  ['window', 'door', 'wall'].forEach(function(kind) {
     var seg = document.getElementById('seg-colour-wd-' + kind);
     if (!seg || !windoors.property) return;
     ensureDefaultColour();
@@ -25845,7 +25871,7 @@ function populateWdColourSlots() {
         refreshColourSlots();
       }
     });
-    seg.innerHTML = colourSlotHtml(slot, cur, areaPlaceholder('Exterior', kind === 'door' ? 'wddoors' : 'wdwindows'), liveColourState());
+    seg.innerHTML = colourSlotHtml(slot, cur, areaPlaceholder('Exterior', kind === 'door' ? 'wddoors' : kind === 'wall' ? 'wdwalls' : 'wdwindows'), liveColourState());
   });
 }
 
@@ -25898,7 +25924,8 @@ function renderWindoors() {
   if (!body || inSub !== 'windoors') return;
   var p = windoors.property;
   var site = wdMode === 'site';
-  document.getElementById('wd-title').textContent = site ? 'Windows & Doors · On Site' : 'Windows & Doors';
+  // Exterior (v2.99.0): with the walls on it, it's the whole outside now.
+  document.getElementById('wd-title').textContent = site ? 'Exterior · On Site' : 'Exterior';
   var chip = document.getElementById('wd-chip');
   var c = calcWindoors();
   if (chip) {
@@ -26050,11 +26077,92 @@ function wdSideCardHtml() {
       html += '<div style="padding:12px 16px;color:var(--text2);font-size:13px">' + (site ? 'Nothing was set up on this side at the quote.' : 'No windows or doors on this side.') + '</div>';
     } else {
       html += '<div id="wd-elev" style="padding:10px 12px">' + Windoors.elevationSvg(windoors, wdSide, { interactive: true, maxWidth: 440, selected: wdOpenId }) + '</div>'
-        + '<div style="padding:0 16px 10px;font-size:12px;color:var(--text2)">Tap a window or door' + (wdRunsOn(wdSide).length || wdExtrasOn(wdSide).length ? ' (or the roofline, gutters, downpipes)' : '') + ' to set it up' + (windoors.property.detail_enabled !== false ? ' and mark panes or frame parts' : '') + '.'
+        + '<div style="padding:0 16px 10px;font-size:12px;color:var(--text2)">Tap a window or door' + (wdWallOn(wdSide) ? ' (or the wall, the roofline, gutters, downpipes)' : wdRunsOn(wdSide).length || wdExtrasOn(wdSide).length ? ' (or the roofline, gutters, downpipes)' : '') + ' to set it up' + (windoors.property.detail_enabled !== false ? ' and mark panes or frame parts' : '') + '.'
         + (wdSideOpenings(wdSide).some(function(o) { return !!o.access; }) ? ' A dark dot at the bottom corner means its access was set by hand.' : '') + '</div>';
     }
   }
-  return html + wdRunsHtml() + wdExtrasHtml() + wdOthersHtml() + '</div>';
+  return html + wdWallsHtml() + wdRunsHtml() + wdExtrasHtml() + wdOthersHtml() + '</div>';
+}
+// ── Walls (EXTERIOR_HOUSE_SPEC.md step 4, v2.99.0) ────────────────────────
+// The side's own walls: width and height to the eaves (and the gable), the
+// finish, sprayed or not. The area is the side less every window and door on
+// it, at each one's typical size; cutting in round each is priced on top.
+function wdWallOn(side) { return windoors.openings.find(function(o) { return o.side === side && o.kind === 'wall'; }) || null; }
+function wdWallGeom(o) { return Windoors.wallGeometry(o, Windoors.liveOpenings(windoors.openings, windoors.property), wdRates()); }
+function wdWallsHtml() {
+  var site = wdMode === 'site';
+  var w = wdWallOn(wdSide);
+  if (site && !w) return '';
+  var h = '<div class="subsection-label" style="border-top:1px solid var(--border);padding-top:10px">Walls<small>render or masonry on this side — the windows and doors come off</small></div>';
+  if (w) {
+    var g = wdWallGeom(w);
+    var marked = windoors.marks.some(function(m) { return m.opening_id === w.id; });
+    h += '<div onclick="openWdDetail(\'' + escapeHtml(w.id) + '\')" style="display:flex;justify-content:space-between;gap:10px;padding:9px 16px;border-top:1px solid var(--border);cursor:pointer;font-size:14px">'
+      + '<span><b>Walls</b> <small style="color:var(--text2)">' + escapeHtml(Windoors.wallFinish(w).label.toLowerCase()) + (w.wall_spray ? ', sprayed' : '') + '</small>'
+      + (marked ? ' <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#1e6497;vertical-align:1px"></span>' : '') + '</span>'
+      + '<span style="color:var(--text2);font-size:12px;white-space:nowrap">' + Windoors.fmtMetres(g.net) + 'm²' + (w.excluded ? ' · not in this job' : '') + ' ›</span></div>';
+  } else {
+    h += '<div style="padding:10px 16px 12px;border-top:1px solid var(--border)"><span onclick="addWdWall()" style="color:var(--accent);font-size:13px;font-weight:600;cursor:pointer">+ Measure the walls on this side</span></div>';
+  }
+  return h;
+}
+function addWdWall() {
+  if (wdMode === 'site' || wdWallOn(wdSide)) return;
+  var wv = prompt('Walls on the ' + Windoors.sideLabel(wdSide).toLowerCase() + ': width in metres?', '');
+  if (wv === null) return;
+  var hv = prompt('Height to the eaves in metres?', '');
+  if (hv === null) return;
+  var fig = function(v) { return Math.max(0, Math.min(Windoors.WALL_MAX_M, Math.round((+v || 0) * 10) / 10)); };
+  if (!(fig(wv) > 0) || !(fig(hv) > 0)) { toast('Type the width and the height in metres'); return; }
+  var o = wdNewOpening({ side: wdSide, level: 'standard', floor: 0, kind: 'wall', position: 1, type: 'smooth',
+    size_tier: 'standard', rows: 1, cols: 1, run_length: fig(wv), run_extra: fig(hv), wall_gable: null, wall_spray: false });
+  wdChanged();
+  openWdDetail(o.id);
+}
+function setWdWallFigure(field, v) {
+  var o = wdOpening(); if (!o || o.kind !== 'wall' || wdMode === 'site') return;
+  var n = Math.max(0, Math.min(Windoors.WALL_MAX_M, Math.round((+v || 0) * 10) / 10));
+  if ((+o[field] || 0) === n) return;
+  o[field] = n || null;
+  wdPutOpening(o); wdChanged();
+}
+function setWdWallFinish(k) {
+  var o = wdOpening(); if (!o || o.kind !== 'wall' || wdMode === 'site' || o.type === k) return;
+  o.type = k; wdPutOpening(o); wdChanged();
+}
+function setWdWallSpray(k) {
+  var o = wdOpening(); if (!o || o.kind !== 'wall' || wdMode === 'site') return;
+  var next = k === 'spray';
+  if (!!o.wall_spray === next) return;
+  o.wall_spray = next; wdPutOpening(o); wdChanged();
+}
+function deleteWdWall() {
+  var o = wdOpening(); if (!o || o.kind !== 'wall' || wdMode === 'site') return;
+  var marked = windoors.marks.some(function(m) { return m.opening_id === o.id; });
+  if (!confirm('Remove the walls from the ' + Windoors.sideLabel(o.side).toLowerCase() + '?' + (marked ? '\n\nThe work marked on them goes too.' : ''))) return;
+  windoors.marks = windoors.marks.filter(function(m) { return m.opening_id !== o.id; });
+  windoors.openings = windoors.openings.filter(function(x) { return x.id !== o.id; });
+  wdDeleteOpening(o);
+  closeWdDetail();
+  wdChanged();
+}
+function wdWallFiguresHtml(o, site) {
+  var g = wdWallGeom(o), R = wdRates().wall;
+  var summary = Windoors.fmtMetres(g.gross) + 'm² of wall − ' + Windoors.fmtMetres(g.openings) + 'm² for ' + (g.cutIn.windows + g.cutIn.doors) + ' windows and doors = <b>' + Windoors.fmtMetres(g.net) + 'm²</b>'
+    + ' · cutting in round ' + g.cutIn.windows + ' window' + (g.cutIn.windows === 1 ? '' : 's') + ' and ' + g.cutIn.doors + ' door' + (g.cutIn.doors === 1 ? '' : 's');
+  if (site) return '<div style="padding:0 16px 8px;font-size:13px;color:var(--text2)">' + escapeHtml(Windoors.wallFinish(o).label) + (o.wall_spray ? ', sprayed' : '') + ' · ' + summary + ' · as quoted</div>';
+  var fig = function(label, sub, field) {
+    return '<div class="field-row"><div class="field-label">' + label + '<small>' + sub + '</small></div>'
+      + '<input type="number" inputmode="decimal" min="0" step="0.1" value="' + (+o[field] ? wdFmtN(+o[field]) : '') + '" placeholder="0" onchange="setWdWallFigure(\'' + field + '\',this.value)"'
+      + ' style="width:84px;text-align:right;padding:7px 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);color:var(--text);font-size:14px;font-family:\'DM Mono\',monospace"></div>';
+  };
+  return fig('Width, metres', 'along the ' + Windoors.sideLabel(o.side).toLowerCase(), 'run_length')
+    + fig('Height to the eaves, metres', 'from the ground', 'run_extra')
+    + fig('Gable, metres', 'its height above the eaves, if this side has one — 0 for none', 'wall_gable')
+    + '<div class="subsection-label">Finish</div><div style="padding:0 16px 8px">' + wdSegHtml(Windoors.WALL_FINISHES, Windoors.wallFinish(o).key, 'setWdWallFinish') + '</div>'
+    + '<div style="padding:0 16px 8px">' + wdSegHtml([{ key: 'roll', label: 'Rolled / brushed' }, { key: 'spray', label: 'Sprayed' }], o.wall_spray ? 'spray' : 'roll', 'setWdWallSpray') + '</div>'
+    + '<div style="padding:0 16px 8px;font-size:12px;color:var(--text2);line-height:1.45">' + summary + '. ' + wdFmtN(R.mins[Windoors.wallFinish(o).key]) + ' min a m² for 2 coats, '
+    + wdFmtN(R.cutIn.window) + ' / ' + wdFmtN(R.cutIn.door) + ' min a coat cutting in round each window / door (Rates). Sprayed changes the paint, not the time.</div>';
 }
 function setWdMakingGood(v) {
   if (!windoors.property || wdMode === 'site') return;
@@ -26672,7 +26780,7 @@ function confirmWdLayout() {
   var doomed = mine.filter(function(o) {
     // Other items and the roofline runs aren't part of the layout: the
     // counts never touch them.
-    if (Windoors.isBayChild(o) || o.kind === 'other' || o.kind === 'run' || o.kind === 'extra') return false;
+    if (Windoors.isBayChild(o) || o.kind === 'other' || o.kind === 'run' || o.kind === 'extra' || o.kind === 'wall') return false;
     var lv = Windoors.levelOf(o);
     if (lv === 'lower_ground') return !lg || o.position > countOf(lg, o);
     if (lv === 'roof') return !roofHidden && (!rf || o.position > rf.windows);
@@ -26834,12 +26942,13 @@ function renderWdDetail() {
   var isOther = o.kind === 'other';
   var isRun = o.kind === 'run';
   var isExtra = o.kind === 'extra';
+  var isWall = o.kind === 'wall';
   var oMarks = windoors.marks.filter(function(m) { return m.opening_id === o.id; });
   var parentBay = o.parent_opening_id ? windoors.openings.find(function(x) { return x.id === o.parent_opening_id; }) : null;
   var h = (parentBay ? '<div onclick="openWdDetail(\'' + escapeHtml(parentBay.id) + '\')" style="padding:0 16px 6px;font-size:13px;font-weight:600;color:var(--accent);cursor:pointer">‹ ' + escapeHtml(Windoors.openingCode(parentBay)) + ', the whole bay</div>' : '')
     + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:0 16px 8px">'
     + '<div><div style="font-size:16px;font-weight:700">' + escapeHtml(Windoors.openingLabel(o, false)) + '</div>'
-    + (isRun || isExtra ? (isExtra && o.type === 'other_walls' && !site ? '<div onclick="editWdNickname()" style="font-size:12px;color:var(--accent);cursor:pointer;margin-top:2px">rename</div>' : '') : isOther ? (site ? '' : '<div onclick="editWdNickname()" style="font-size:12px;color:var(--accent);cursor:pointer;margin-top:2px">rename</div>')
+    + (isRun || isExtra || isWall ? (isExtra && o.type === 'other_walls' && !site ? '<div onclick="editWdNickname()" style="font-size:12px;color:var(--accent);cursor:pointer;margin-top:2px">rename</div>' : '') : isOther ? (site ? '' : '<div onclick="editWdNickname()" style="font-size:12px;color:var(--accent);cursor:pointer;margin-top:2px">rename</div>')
       : '<div onclick="editWdNickname()" style="font-size:12px;color:' + (o.nickname ? 'var(--text2)' : 'var(--accent)') + ';cursor:pointer;margin-top:2px">'
       + (o.nickname ? '“' + escapeHtml(o.nickname) + '” · rename' : '+ nickname (e.g. landing, above porch)') + '</div>') + '</div>'
     + '<div onclick="closeWdDetail()" style="font-size:14px;font-weight:700;color:var(--accent);cursor:pointer;padding:4px 2px">Done</div></div>';
@@ -26852,6 +26961,8 @@ function renderWdDetail() {
     h += wdRunFiguresHtml(o, site);
   } else if (isExtra) {
     h += wdExtraFiguresHtml(o, site);
+  } else if (isWall) {
+    h += wdWallFiguresHtml(o, site);
   } else if (isOther) {
     if (!site) {
       var fig = function(label, sub, field, step) {
@@ -26920,7 +27031,7 @@ function renderWdDetail() {
     var btn = 'border:1px solid var(--border);background:var(--surface2);color:var(--text);border-radius:10px;padding:8px 10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer';
     var abtn = 'border:none;background:var(--accent);color:#fff;border-radius:10px;padding:9px 11px;font-size:13px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer';
     h += '<div style="display:flex;gap:8px;flex-wrap:wrap;padding:4px 16px">'
-      + (isOther || isRun || isExtra ? '' : '<button type="button" style="' + btn + '" onclick="wdSelectAllPanes()">Select all ' + (isDoor ? 'glass' : 'panes') + '</button>')
+      + (isOther || isRun || isExtra || isWall ? '' : '<button type="button" style="' + btn + '" onclick="wdSelectAllPanes()">Select all ' + (isDoor ? 'glass' : 'panes') + '</button>')
       + (selCount ? '<button type="button" style="' + btn + '" onclick="wdClearSel()">Clear selection</button>' : '') + '</div>';
     if (selCount) {
       var acts = Windoors.actionsFor(o, wdSel.kind);
@@ -26930,7 +27041,7 @@ function renderWdDetail() {
         + acts.map(function(a) { return '<button type="button" style="' + abtn + '" onclick="wdApplyAction(\'' + a.key + '\')">' + escapeHtml(a.label) + '</button>'; }).join('')
         + '<button type="button" style="' + btn + ';color:var(--danger)" onclick="wdRemoveWork()">Remove work</button></div>';
     } else {
-      h += '<div style="padding:4px 16px 8px;font-size:12px;color:var(--text2)">' + (isRun || (isExtra && Windoors.extraSectioned(o)) ? 'Tap the left, middle or right section to mark where the work is. ' : isExtra ? 'Tap it to mark work on it. ' : 'Tap panes or frame parts to select them — one kind at a time. ')
+      h += '<div style="padding:4px 16px 8px;font-size:12px;color:var(--text2)">' + (isRun || isWall || (isExtra && Windoors.extraSectioned(o)) ? 'Tap the left, middle or right section to mark where the work is. ' : isExtra ? 'Tap it to mark work on it. ' : 'Tap panes or frame parts to select them — one kind at a time. ')
         + '<span style="display:inline-block;width:10px;height:10px;background:#f0a020;vertical-align:-1px"></span> work · '
         + '<span style="display:inline-block;width:10px;height:10px;background:#5fb3e6;vertical-align:-1px"></span> glass · dashed = variation'
         + (site ? ' · the quote\'s marks are locked here' : '') + '</div>';
@@ -26941,6 +27052,7 @@ function renderWdDetail() {
   if (isOther && !site) h += '<div style="padding:12px 16px 4px"><span onclick="deleteWdOther()" style="color:var(--danger);font-size:13px;font-weight:600;cursor:pointer">Remove this item</span></div>';
   if (isRun && !site) h += '<div style="padding:12px 16px 4px"><span onclick="deleteWdRun()" style="color:var(--danger);font-size:13px;font-weight:600;cursor:pointer">Remove this run</span></div>';
   if (isExtra && !site) h += '<div style="padding:12px 16px 4px"><span onclick="deleteWdExtra()" style="color:var(--danger);font-size:13px;font-weight:600;cursor:pointer">Remove this extra</span></div>';
+  if (isWall && !site) h += '<div style="padding:12px 16px 4px"><span onclick="deleteWdWall()" style="color:var(--danger);font-size:13px;font-weight:600;cursor:pointer">Remove these walls</span></div>';
   box.innerHTML = h;
   var fig = document.getElementById('wd-detail-fig');
   if (fig) fig.onclick = function(ev) {
@@ -27086,7 +27198,7 @@ function wdWorkListHtml(o, oMarks) {
     // Repairs upgraded on site: their own figure, in neither of the above.
     perOpen.adjMins || perOpen.adjMaterials ? '+' + fmt((perOpen.adjMins || 0) * r + (perOpen.adjMaterials || 0)) + ' size adjustment' : ''
   ].filter(Boolean).join(' · ');
-  return '<div style="margin-top:6px"><div class="subsection-label" style="display:flex;justify-content:space-between"><span>Work on this ' + (o.kind === 'door' ? 'door' : o.kind === 'bay' ? 'bay' : o.kind === 'other' || o.kind === 'extra' ? 'item' : o.kind === 'run' ? 'run' : 'window') + '</span>'
+  return '<div style="margin-top:6px"><div class="subsection-label" style="display:flex;justify-content:space-between"><span>Work on this ' + (o.kind === 'door' ? 'door' : o.kind === 'bay' ? 'bay' : o.kind === 'other' || o.kind === 'extra' ? 'item' : o.kind === 'run' ? 'run' : o.kind === 'wall' ? 'wall' : 'window') + '</span>'
     + (money ? '<small style="text-transform:none;letter-spacing:0">' + money + ' <span style="opacity:.7">before markup</span></small>' : '') + '</div>' + rows + '</div>'
     + (wdMode === 'site' ? wdTickListHtml(o, oMarks) : '');
 }
@@ -27213,12 +27325,12 @@ function wdAccessHtml(o) {
   var auto = Windoors.autoAccess(o);
   var set = Windoors.ACCESS_LEVELS.some(function(a) { return a.key === o.access; }) ? o.access : null;
   var sub = o.kind === 'bay' ? 'the bay\'s own timber — each window has its own'
-    : o.kind === 'run' || o.kind === 'extra' ? 'the rate already allows for ladders; set Ladder/tower for a tower' : '';
+    : o.kind === 'run' || o.kind === 'extra' || o.kind === 'wall' ? 'the rate already allows for ladders; set Ladder/tower for a tower' : '';
   if (wdMode === 'site') {
     return '<div style="padding:0 16px 8px;font-size:13px;color:var(--text2)">Access: ' + escapeHtml(Windoors.accessLabel(set || auto))
       + (set ? ' (set by hand)' : '') + ' · as quoted</div>';
   }
-  var items = [{ key: 'auto', label: o.kind === 'run' || o.kind === 'extra' ? 'Auto (in the rate)' : 'Auto (' + Windoors.accessLabel(auto) + ')' }].concat(Windoors.ACCESS_LEVELS);
+  var items = [{ key: 'auto', label: o.kind === 'run' || o.kind === 'extra' || o.kind === 'wall' ? 'Auto (in the rate)' : 'Auto (' + Windoors.accessLabel(auto) + ')' }].concat(Windoors.ACCESS_LEVELS);
   return '<div class="subsection-label">Access' + (sub ? '<small>' + sub + '</small>' : '') + '</div>'
     + '<div style="padding:0 16px 10px">' + wdSegHtml(items, set || 'auto', 'setWdAccess') + '</div>';
 }
@@ -27739,8 +27851,10 @@ function wdInvoiceColours() {
 function wdInvoiceText(opts) {
   opts = opts || {};
   var counts = wdLoadedForActiveJob() ? Windoors.invoiceCounts(windoors, wdReportVariations()) : { windows: 0, doors: 0 };
-  return Windoors.invoiceLineText({ windows: counts.windows, doors: counts.doors, runs: counts.runs, extras: counts.extras, colours: wdInvoiceColours(),
-                                    report: opts.report, stage: opts.stage, pct: opts.pct });
+  // Everything invoiceCounts counts goes through as it is -- passing fields
+  // one by one dropped the extras, then the walls, as each was added.
+  return Windoors.invoiceLineText(Object.assign({}, counts, { colours: wdInvoiceColours(),
+                                    report: opts.report, stage: opts.stage, pct: opts.pct }));
 }
 function wdInvoiceHasLine(s) { return !!(s && s.labour.some(function(l) { return l.wd && !l.dropped; })); }
 // The report goes on the invoice unless it was unticked -- and only when
@@ -27855,10 +27969,11 @@ function windoorsMeasureRowHtml() {
   var nO = live.filter(function(o) { return o.kind === 'other'; }).length;
   var mR = live.filter(function(o) { return o.kind === 'run'; }).reduce(function(t, o) { return t + Windoors.runMetres(o); }, 0);
   var nX = live.filter(function(o) { return o.kind === 'extra'; }).length;
-  var meta = [nV ? nV + ' window' + (nV === 1 ? '' : 's') : '', nB ? nB + ' bay' + (nB === 1 ? '' : 's') : '', nD ? nD + ' door' + (nD === 1 ? '' : 's') : '', nO ? nO + ' other' : '', mR ? Windoors.fmtMetres(mR) + 'm roofline' : '', nX ? nX + ' extra' + (nX === 1 ? '' : 's') : '', fmtD(c.time)].filter(Boolean).join(' · ');
+  var mW = live.filter(function(o) { return o.kind === 'wall' && !o.excluded; }).reduce(function(t, o) { return t + wdWallGeom(o).net; }, 0);
+  var meta = [nV ? nV + ' window' + (nV === 1 ? '' : 's') : '', nB ? nB + ' bay' + (nB === 1 ? '' : 's') : '', nD ? nD + ' door' + (nD === 1 ? '' : 's') : '', nO ? nO + ' other' : '', mR ? Windoors.fmtMetres(mR) + 'm roofline' : '', nX ? nX + ' extra' + (nX === 1 ? '' : 's') : '', mW ? Windoors.fmtMetres(mW) + 'm² walls' : '', fmtD(c.time)].filter(Boolean).join(' · ');
   return '<div class="room-item" onclick="openWindoors(\'quote\')">'
     + '<div class="room-icon">🪟</div>'
-    + '<div class="room-info"><div class="room-name">Windows &amp; Doors</div><div class="room-meta">' + meta + '</div></div>'
+    + '<div class="room-info"><div class="room-name">Exterior <small style="color:var(--text2);font-weight:400">windows, doors, walls</small></div><div class="room-meta">' + meta + '</div></div>'
     + '<div class="room-cost">' + fmt(c.total) + '</div>'
     + '<div style="color:var(--text3);font-size:16px">›</div></div>';
 }
@@ -28076,7 +28191,14 @@ function _renderCustomInner() {
 // ── Combined Measure screen chrome ─────────────────────────────────────────
 // The + chooser sheet (Room vs Exterior item) — same bottom-sheet pattern
 // as the notes panel.
-function openAddChooser() { document.getElementById('add-chooser').style.display = 'block'; }
+// The old Exterior form (EXTERIOR_HOUSE_SPEC.md step 4): everything it priced
+// is on the house drawing now, so it's only offered on a job that already
+// has exterior items priced that way -- nothing quoted before changes.
+function openAddChooser() {
+  var ext = document.getElementById('add-chooser-ext');
+  if (ext) ext.style.display = extItems.length ? '' : 'none';
+  document.getElementById('add-chooser').style.display = 'block';
+}
 function closeAddChooser() { document.getElementById('add-chooser').style.display = 'none'; }
 
 // Raw (pre-markup) totals from each half's last render, so the topbar chip

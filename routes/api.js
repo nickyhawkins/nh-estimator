@@ -1444,14 +1444,16 @@ router.put('/windoors/property', async (req, res) => {
   const p = normaliseProperty(req.body);
   try {
     const result = await db.query(`
-      INSERT INTO job_property (job_id, style, detail_enabled, default_prep, layout, coats, window_colour, door_colour, paint_products, appearance, making_good, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, 0), NOW())
+      INSERT INTO job_property (job_id, style, detail_enabled, default_prep, layout, coats, window_colour, door_colour, paint_products, appearance, making_good, wall_colour, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, 0), CASE WHEN $13 THEN $12::integer END, NOW())
       ON CONFLICT (job_id) DO UPDATE SET style = $2, detail_enabled = $3, default_prep = $4, layout = $5,
         coats = $6, window_colour = $7, door_colour = $8, paint_products = $9,
         appearance = COALESCE($10, job_property.appearance),
-        making_good = COALESCE($11, job_property.making_good), updated_at = NOW()
+        making_good = COALESCE($11, job_property.making_good),
+        wall_colour = CASE WHEN $13 THEN $12::integer ELSE job_property.wall_colour END, updated_at = NOW()
       RETURNING *
-    `, [jobId, p.style, p.detail_enabled, p.default_prep, p.layout, p.coats, p.window_colour, p.door_colour, p.paint_products, p.appearance, p.making_good]);
+    `, [jobId, p.style, p.detail_enabled, p.default_prep, p.layout, p.coats, p.window_colour, p.door_colour, p.paint_products, p.appearance, p.making_good,
+        p.wall_colour === undefined ? null : p.wall_colour, p.wall_colour !== undefined]);
     res.json({ ok: true, property: mapProperty(result.rows[0]) });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1487,23 +1489,23 @@ router.put('/windoors/openings/:id', async (req, res) => {
                                 prep_level, prep_stage, quote_prep_level, prep_variation_id,
                                 level, bay_shape, bay_storeys, parent_opening_id, panes_set, rows_bottom,
                                 other_mins, other_cost, other_m2, access,
-                                excluded, include_variation_id, other_pricing, other_price, other_unit, other_draw, other_door, prep_steps, time_override, run_length, run_extra, updated_at)
+                                excluded, include_variation_id, other_pricing, other_price, other_unit, other_draw, other_door, prep_steps, time_override, run_length, run_extra, wall_gable, wall_spray, updated_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25,
-              $26, $27, $28, $29, $30, $31, $32, $33::jsonb, $34, $35, $36, NOW())
+              $26, $27, $28, $29, $30, $31, $32, $33::jsonb, $34, $35, $36, $37, $38, NOW())
       ON CONFLICT (job_id, side, level, floor, kind, position) DO UPDATE SET
         nickname = $7, type = $8, size_tier = $9, rows = $10, cols = $11, prep_level = $12,
         prep_stage = $13, quote_prep_level = $14, prep_variation_id = $15,
         bay_shape = $17, bay_storeys = $18, parent_opening_id = $19, panes_set = $20, rows_bottom = $21,
         other_mins = $22, other_cost = $23, other_m2 = $24, access = $25,
         excluded = $26, include_variation_id = $27, other_pricing = $28, other_price = $29, other_unit = $30,
-        other_draw = $31, other_door = $32, prep_steps = $33::jsonb, time_override = $34, run_length = $35, run_extra = $36, updated_at = NOW()
+        other_draw = $31, other_door = $32, prep_steps = $33::jsonb, time_override = $34, run_length = $35, run_extra = $36, wall_gable = $37, wall_spray = $38, updated_at = NOW()
       RETURNING *
     `, [req.params.id, jobId, o.side, o.floor, o.kind, o.position, o.nickname, o.type, o.size_tier, o.rows, o.cols,
         o.prep_level, o.prep_stage, o.quote_prep_level, o.prep_variation_id,
         o.level, o.bay_shape, o.bay_storeys, o.parent_opening_id, o.panes_set, o.rows_bottom,
         o.other_mins, o.other_cost, o.other_m2, o.access,
         o.excluded, o.include_variation_id, o.other_pricing, o.other_price, o.other_unit, o.other_draw, o.other_door,
-        JSON.stringify(o.prep_steps || []), o.time_override, o.run_length, o.run_extra]);
+        JSON.stringify(o.prep_steps || []), o.time_override, o.run_length, o.run_extra, o.wall_gable, o.wall_spray]);
     res.json({ ok: true, id: result.rows[0].id, opening: mapOpening(result.rows[0]) });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2733,14 +2735,14 @@ async function copyJobRows(entry, newJobId) {
     await ensureWindoorsSchema();
     const p = wd.property;
     await db.query(
-      `INSERT INTO job_property (job_id, style, detail_enabled, default_prep, layout, coats, window_colour, door_colour, paint_products, appearance, making_good)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `INSERT INTO job_property (job_id, style, detail_enabled, default_prep, layout, coats, window_colour, door_colour, paint_products, appearance, making_good, wall_colour)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        ON CONFLICT (job_id) DO NOTHING`,
       [newJobId, p.style || 'georgian', p.detail_enabled !== false, p.default_prep || 'light', p.layout || {},
         Math.max(1, Math.min(3, +p.coats || 2)), p.window_colour == null ? null : +p.window_colour,
         p.door_colour == null ? null : +p.door_colour, normalisePaintProducts(p.paint_products),
         p.appearance && typeof p.appearance === 'object' ? Windoors.normaliseAppearance(p.appearance, p.style) : null,
-        Math.max(0, +p.making_good || 0)]
+        Math.max(0, +p.making_good || 0), p.wall_colour == null ? null : +p.wall_colour]
     );
     // Every opening gets its new id first, so a bay's windows can be pointed
     // at their bay's new id whatever order the rows come in.
@@ -2757,7 +2759,7 @@ async function copyJobRows(entry, newJobId) {
         excluded: o.excluded, includeVariationId: o.include_variation_id,
         otherPricing: o.other_pricing, otherPrice: o.other_price, otherUnit: o.other_unit,
         otherDraw: o.other_draw, otherDoor: o.other_door, timeOverride: o.time_override,
-        runLength: o.run_length, runExtra: o.run_extra });
+        runLength: o.run_length, runExtra: o.run_extra, wallGable: o.wall_gable, wallSpray: o.wall_spray });
       if (n.error) { openingIds.delete(o.id); continue; }
       const nid = openingIds.get(o.id);
       await db.query(
@@ -2765,16 +2767,16 @@ async function copyJobRows(entry, newJobId) {
                                    prep_level, prep_stage, quote_prep_level, prep_variation_id,
                                    level, bay_shape, bay_storeys, parent_opening_id, panes_set, rows_bottom,
                                    other_mins, other_cost, other_m2, access,
-                                   excluded, include_variation_id, other_pricing, other_price, other_unit, other_draw, other_door, prep_steps, time_override, run_length, run_extra)
+                                   excluded, include_variation_id, other_pricing, other_price, other_unit, other_draw, other_door, prep_steps, time_override, run_length, run_extra, wall_gable, wall_spray)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25,
-                 $26, $27, $28, $29, $30, $31, $32, $33::jsonb, $34, $35, $36)
+                 $26, $27, $28, $29, $30, $31, $32, $33::jsonb, $34, $35, $36, $37, $38)
          ON CONFLICT (job_id, side, level, floor, kind, position) DO NOTHING`,
         [nid, newJobId, n.side, n.floor, n.kind, n.position, n.nickname, n.type, n.size_tier, n.rows, n.cols,
           n.prep_level, n.prep_stage, n.quote_prep_level, n.prep_variation_id,
           n.level, n.bay_shape, n.bay_storeys, n.parent_opening_id, n.panes_set, n.rows_bottom,
           n.other_mins, n.other_cost, n.other_m2, n.access,
           n.excluded, n.include_variation_id, n.other_pricing, n.other_price, n.other_unit, n.other_draw, n.other_door,
-          JSON.stringify(n.prep_steps || []), n.time_override, n.run_length, n.run_extra]
+          JSON.stringify(n.prep_steps || []), n.time_override, n.run_length, n.run_extra, n.wall_gable, n.wall_spray]
       );
     }
     for (const m of (wd.marks || [])) {
