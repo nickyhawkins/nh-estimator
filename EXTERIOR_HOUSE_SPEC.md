@@ -1,6 +1,7 @@
 # The whole exterior on the drawing (Windows & Doors stage 3, and 4)
 
-Status: **draft for Nicky's sign-off** (2026-10-01). Nothing here is built.
+Status: **draft, second round** (2026-10-01). Nothing here is built. The only
+question still blocking a start is the door price (step 1).
 
 Builds on WINDOWS_DOORS_SPEC.md (stage 1), WINDOWS_DOORS_STAGE2_SPEC.md (the
 house drawing) and WINDOWS_DOORS_INVOICE_SPEC.md (one invoice line + report).
@@ -38,23 +39,27 @@ keeps them.
 
 ### The prices don't match today (checked 2026-10-01, default rates)
 
-| Same door | Exterior form | Windows & doors fixture |
+Both figures are **totals for 2 coats**, not per coat. Per coat they are:
+
+| Front door, outside face | Exterior form | Windows & doors fixture |
 |---|---|---|
-| Front door, outside face | 150 min, £107.14 | panelled 99 min, £70.71 (half-glazed £89.57) |
-| Door + frame | 230 min, £164.29 | frame is included in the door |
-| Garage door | 150 min, £107.14 | typed in by hand (Other item) |
+| Door leaf | 75 min per coat (Settings: exterior door) | — |
+| Frame | 40 min per coat (Settings: exterior frame) | — |
+| Door + frame | **115 min per coat → 230 min for 2** | panelled **45 min per coat → 90 min for 2** (the frame is part of the door) |
+| Then prep | the item's prep % (0 by default) | × the prep level (Light ×1.10 → 99 min) |
+| Raw £ at £300/day, 7h | £164.29 | £70.71 |
 
-Raw £ before markup, at £300/day, 7h, light prep. The fixture prices a
-panelled front door about **35% cheaper** (57% cheaper if the frame was being
-counted separately). Retiring the Exterior doors without fixing this would
-quietly cut every new door quote.
+So for the same door and frame, before prep, the fixture allows **61% less
+time**. These are the shipped defaults: if the live Settings or Rates have
+been changed, the live figures differ, and should be checked the same way
+before choosing.
 
-**Decision needed before step 1:** which figure is right for a typical front
-door, outside face and frame?
-- **(a)** The Exterior form's (230 min with frame). Raise the fixture's door
-  tier minutes on Rates to match.
-- **(b)** The fixture's. Leave rates alone; new door quotes go down.
-- **(c)** Somewhere between: give a number and the tiers get set to it.
+**Decision needed before step 1:** which is right for a typical front door
+and frame, outside face, 2 coats?
+- **(a)** The Exterior form's (230 min). Raise the fixture's door tiers to
+  match (panelled standard 90 → 230, the other types in proportion).
+- **(b)** The fixture's (90 min). Leave rates alone; new door quotes go down.
+- **(c)** Another figure: give the minutes and the tiers get set to it.
 
 Also: a Garage door preset for Other items (150 min to start, editable), so
 it isn't typed from scratch each time.
@@ -81,15 +86,14 @@ A **run** is a new kind of element: woodwork measured in metres along a side.
 
 ### Drawn and tappable
 - The run is drawn along the eaves (or up the gable) of each side's elevation.
-- It is split into **sections**, so a repair can be marked where it is. One
-  section per metre, numbered from the left as you face the side (the
-  windows' rule), shown as "F1, F2…". Up to 12 metres a section each; past
-  that, sections of the length ÷ 12.
+- It is split into **three sections — left, middle and right** as you face
+  the side (decided 2026-10-01: keeps it simple), so a repair can be marked
+  where it is.
 - Tap sections, pick an action: **resin repair** (with S/M/L/XL and count,
   as on windows), **splice timber**, **filler**, and for fascia/soffit **soffit
   board replace** (per section). Same quote/variation stages, same tick off
   as done, same "found on site" in the report.
-- The label reads *Front, fascia & soffit, section 3 (of 9)*.
+- The label reads *Front, fascia & soffit, left*.
 
 ### Pricing
 - Painting: **minutes per metre** on Rates (start at the Exterior form's
@@ -113,10 +117,17 @@ quantity per side (or for the house) and its own rate on Rates:
 | Downpipes | each, or m | yes, down the corner |
 | Cladding / weatherboard | m² (per side) | as a hatched panel |
 | Railings | m | the lower ground's railings already drawn |
+| Stone sills (painted) | each, or m | on the windows they sit under |
+| Lintels | each | over the windows |
+| Window boards | each | — (listed per side) |
+| Porch roofs | each | on the porch drawing |
+| Gates | each | a tile |
+| Fences | m | a tile |
 | Meter box, vents, other | each | a tile, like Other items |
 
-Gutters and downpipes take section marking like runs (*"downpipe 2, rusted
-bracket"*). Anything not on this list stays an **Other item** (already built:
+All of these confirmed as useful (2026-10-01). Gutters and fences take
+left/middle/right marking like runs; downpipes are numbered (*"downpipe 2,
+rusted bracket"*). Anything not on this list stays an **Other item** (already built:
 a name, minutes or a set price, materials).
 
 ---
@@ -136,6 +147,12 @@ Designed for now, so steps 1–3 don't paint it into a corner.
   area* per tier on Rates, e.g. Medium window 1.2 m², standard door 1.9 m²),
   so the wall figure is semi-accurate without measuring every window.
 - Lower ground and dormers come off their own walls; a bay adds its faces.
+- **Cutting in around openings is priced** (decided 2026-10-01: it's real
+  work). Every opening on a painted wall adds cutting-in minutes by its size
+  tier (Rates: e.g. Medium window 10 min, standard door 12 min, per coat),
+  whether or not the opening itself is painted. On a render-only job that's
+  the time spent working round the windows; on a whole-house job it's still
+  there, because the walls and the joinery are separate jobs.
 
 ### Pricing
 - The Exterior form's masonry rates move here: finish (smooth render,
@@ -147,11 +164,18 @@ Designed for now, so steps 1–3 don't paint it into a corner.
 
 ## Invoice and report
 
-- **Invoice:** one line per area of work, worded from the job:
-  *Exterior woodwork: preparation and painting of outside faces, 14 windows,
-  3 doors, 24m fascia and soffit, 18m gutters…*; and later *Exterior walls:
-  preparation and painting of 96m² render*. Site additions ride the line they
-  belong to, as now. (Or everything on one *Exterior* line — question below.)
+- **Invoice (decided 2026-10-01): walls and woodwork on separate lines by
+  default, with a per-job choice made at the quote stage** (it carries
+  through to the Xero quote, the client's page and the invoices):
+  - **Woodwork and walls** (default): *Exterior woodwork: preparation and
+    painting of outside faces, 14 windows, 3 doors, 24m fascia and soffit,
+    18m gutters…* and *Exterior walls: preparation and painting of 96m²
+    render*.
+  - **Full breakdown**: one line per element type — windows, doors, fascia
+    and soffit, gutters, each extra, walls — for clients who want to see what
+    each part costs. Site additions go on the element's own line.
+  - Site additions ride the line they belong to in every layout, and an
+    agreed credit comes off it (as now).
 - **Report:** runs and extras get their own entries per side, sections with
   work drawn highlighted, "found on site" as for windows. Still no prices.
 
@@ -164,11 +188,12 @@ on the jobs that still have it.
 ## Open questions
 
 1. **Door price (blocks step 1):** (a), (b) or (c) above?
-2. **One invoice line or two** once walls arrive: *Exterior woodwork* +
-   *Exterior walls*, or a single *Exterior* line?
-3. **Fascia sections:** one per metre, or simpler — left / middle / right
-   thirds per side?
-4. **Extras list:** anything missing — sills (stone, painted), lintels,
-   window boards, porch roofs, gates, fences?
-5. **Render-only jobs:** should the windows' frames still be counted for
-   masking/cutting-in time (a small per-opening allowance), or nothing?
+2. **Full breakdown with interims:** a staged invoice on a full-breakdown
+   job bills each element line by its own %. Fine, or keep interims to the
+   two lines whatever the quote showed?
+3. **Cutting-in minutes:** the starting figures per opening size (Rates,
+   editable) — happy to start from 10 min per window, 12 per door, per coat?
+
+Answered 2026-10-01: invoice lines (separate, with a quote-stage choice of
+full breakdown), fascia sections (left/middle/right), the extras list (all
+of them), cutting in on render jobs (priced).
