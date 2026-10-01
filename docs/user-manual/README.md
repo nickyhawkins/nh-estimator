@@ -1354,7 +1354,7 @@ Old windows are where the surprises are. On a job with [Windows and doors](#wind
 
 ![On site: prep raised and glass marked for replacing, added as a variation](images/26d-windoors-onsite-detail.png)
 
-**Tick off as done.** On site, each window's sheet ends with a **Tick off as done** list: every piece of work on it, quoted or added on site, one line each (*Reputty · top pane 3*). Tap a line as you finish it, or **tick all**. Ticks don't change the price. They decide what the work report shows, because the report lists only what was done. The On Site card counts how many are ticked off. Work on a variation the client declined isn't listed.
+**Tick off as done.** On site, each window's sheet ends with a **Tick off as done** list: the painting first (*Paint · outside face*), then every piece of work on it, quoted or added on site, one line each (*Reputty · top pane 3*). An opening with nothing but painting still gets the list, with just its painting on it. Tap a line as you finish it, or **tick all** (the painting included). Tap again to untick. Ticks don't change the price. They decide what the work report shows, because the report lists only what was done. The On Site card counts how many are ticked off. Work on a variation the client declined isn't listed.
 
 ![Ticking the work off](images/26w-windoors-tick-off.png)
 
@@ -1391,7 +1391,7 @@ Everything you mark collects into one **draft** variation, worded for you from t
 - **Openings with repairs get their drawing** with the panes and parts marked. Openings that are only being painted get just their lines, to keep it short.
 - **Approved variations are on it**, under their own heading. Drafts and variations still waiting for the client aren't: they haven't been agreed.
 - **Prep changed on site is in the painting line**, at the level it ended up at once the client agreed (*Paint: heavy prep (agreed on site), …*). If prep was raised and later brought back down, the list just shows where it finished: the steps in between aren't jobs to do.
-- **Work already ticked off as done is left off**, so printing it again mid-job gives what's left. The painting has no tick of its own, so every opening's painting stays on the list.
+- **Work already ticked off as done is left off**, painting included, so printing it again mid-job gives what's left. Once an opening's painting and repairs are all ticked off, it's off the list altogether, and *In all* counts only the openings still to paint.
 
 Like the work report, it has **no prices on it**. From Measure it's the schedule of work behind a quote, to send with it or to talk a client through what they're paying for; on site it's the list to hand the team.
 
@@ -1669,6 +1669,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v3.2.4. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v3.2.5. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
