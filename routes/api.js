@@ -1,7 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const db = require('../db');
-const { ensureClientQuoteSchema, ensureClientToken, VARIATION_KINDS, VARIATION_STATUSES, ADJUSTMENT_KINDS } = require('../lib/clientQuote');
+const { ensureClientQuoteSchema, ensureClientToken, VARIATION_KINDS, VARIATION_STATUSES, ADJUSTMENT_KINDS, LEGACY_KINDS } = require('../lib/clientQuote');
 const {
   ensureSpecSchema, ensureSpecToken, specSheetPath, normaliseSpecModel,
   readSpecTicks, writeSpecTick, SPEC_STEPS, SPEC_TICK_STATUSES, ITEM_KEY_MAX,
@@ -467,8 +467,8 @@ router.put('/jobs/:id/client-variations', async (req, res) => {
       // The one exception to rule 3 above, and it only ever runs in the
       // client's favour.
       const credit = l.amount < 0;
-      // Repair size adjustments (RESIN_REPAIR_TIERS_SPEC.md) are the other
-      // exception, and the same shape: the quote terms already cover them,
+      // Repair size adjustments (RESIN_REPAIR_TIERS_SPEC.md) and windows and
+      // doors found on site (v3.3.0) are the other exception, and the same shape: the quote terms already cover them,
       // so the line lands approved -- and it is re-priced on every publish,
       // answered or not, because it is a running figure, not an answer.
       if (ADJUSTMENT_KINDS.has(l.kind)) {
@@ -500,7 +500,7 @@ router.put('/jobs/:id/client-variations', async (req, res) => {
       `DELETE FROM job_variations
              WHERE job_id = $1 AND (status = 'pending' OR source_kind = ANY($3::text[]))
                AND source_kind || ':' || source_id <> ALL($2::text[])`,
-      [jobId, clean.map(l => l.kind + ':' + l.sourceId), Array.from(ADJUSTMENT_KINDS)]
+      [jobId, clean.map(l => l.kind + ':' + l.sourceId), Array.from(ADJUSTMENT_KINDS).concat(Array.from(LEGACY_KINDS))]
     );
     await client.query('COMMIT');
     const out = await readClientVariations(jobId);

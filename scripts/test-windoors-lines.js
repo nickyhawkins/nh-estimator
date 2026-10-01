@@ -140,7 +140,7 @@ const { interimInvoiceLineItems, planInterimInvoice } = require('../lib/invoices
     out.inv = wd.map(l => ({ key: l.wdKey, quoted: Math.round(l.quoted * 100) / 100, site: Math.round(l.site.amount * 100) / 100, amount: l.amount }));
     out.invText = wd.map(l => wdLineInvoiceText(l.wdKey, { report: wdFirstLine(m) === l ? 'attached' : false }));
     // What the variation adds, all told, and the wall's share of it.
-    const vars = windoorsVariationLines(activeJob());
+    const vars = windoorsFoundLines(activeJob());
     const sPct = (settings.sundriesPct || 0) / 100;
     const varMk = (1 + commercialRatio()) * (effectiveMarkupType() === 'fixed' ? 1 : 1 + effectiveMarkup() / 100);
     out.siteAll = Math.round(vars.filter(v => v.status !== 'declined').reduce((t, v) => t + v.raw, 0) * (1 + sPct) * varMk * 100) / 100

@@ -398,7 +398,7 @@ On a Georgian house a new dormer starts as a **3-over-6** sash, one row fewer on
 
 ![Marking panes and parts on one window](images/26c-windoors-detail.png)
 
-**Taking off one piece of work.** Tap the part (or pane) and, under the work buttons, **On the selected part** lists everything already marked on it — *Filler · cill*, *Resin repair · cill (L)* — each with its own **Remove**. Tap Remove on the one you want gone and the rest stays; the part stays selected, so you can take off another straight away. Select several parts and the list covers all of them. On site, the quote's work (and work on a variation that's been answered) shows *locked* instead of Remove, the same as Remove all work.
+**Taking off one piece of work.** Tap the part (or pane) and, under the work buttons, **On the selected part** lists everything already marked on it — *Filler · cill*, *Resin repair · cill (L)* — each with its own **Remove**. Tap Remove on the one you want gone and the rest stays; the part stays selected, so you can take off another straight away. Select several parts and the list covers all of them. On site, the quote's own work shows *locked* instead of Remove, the same as Remove all work; work found on site can always be taken off.
 
 ![One part selected: each piece of work on it with its own Remove](images/26zi-windoors-remove-one.png)
 
@@ -430,7 +430,7 @@ A bay's price is its own **bay base minutes** (Rates, by shape and storeys, cove
 
 ![Front D1 not in this job: drawn, faded, not priced](images/26za-windoors-not-in-job.png)
 
-If it turns out on site that it does need doing after all, open it on **On Site** and tap **Add to this job — as a variation** (see [Windows and doors on site](#windows-and-doors-on-site)).
+If it turns out on site that it does need doing after all, open it on **On Site** and tap **Add to this job — found on site** (see [Windows and doors on site](#windows-and-doors-on-site)).
 
 **Other items.** Garage doors, fanlights, porches, porticos and lean-tos don't sit on a floor. Under each side's drawing, **+ Add other item** asks what it is, then opens it. Call it a **garage door** and it starts from the figures the Exterior form used for one: your Settings' exterior garage door minutes (150 to start) and paint area (6 m²). Choose how it's **Priced**:
 
@@ -512,7 +512,7 @@ Pick it before you send the quote. It goes on the Xero quote, the client's copy 
 
 ![Gutters and downpipes on the house, and the Extras card](images/26zt-extras-elevation.png)
 
-**Tudor framing.** For the black-and-white timbers on a mock Tudor house (or a real one), pick **Tudor framing (set price)** from **+ Add an extra…**. It asks for one price for that side — your labour and the stain, before markup — and nothing is worked out from minutes or paint: the price is the price. It's drawn on the house, over the **Upper floor** to begin with; on its sheet you can change the price and pick **Where it is**: *Upper floor*, *Whole side* or *Gable only* (on a side with a gable, the upper floor and whole side take the gable too). Prep, coats and access don't apply, so they aren't offered. You can still mark work on its **left, middle or right** — filler, a resin repair — and that's priced on top as usual. *Not in this job* works as for anything else, and brought in on site its price goes on that variation. On the quote and invoice it's named in the woodwork line (*…14 windows, 3 doors and Tudor framing*), or on a line of its own with **Full breakdown**; the work report says *Prepared and stained, upper floor*. Each side takes one.
+**Tudor framing.** For the black-and-white timbers on a mock Tudor house (or a real one), pick **Tudor framing (set price)** from **+ Add an extra…**. It asks for one price for that side — your labour and the stain, before markup — and nothing is worked out from minutes or paint: the price is the price. It's drawn on the house, over the **Upper floor** to begin with; on its sheet you can change the price and pick **Where it is**: *Upper floor*, *Whole side* or *Gable only* (on a side with a gable, the upper floor and whole side take the gable too). Prep, coats and access don't apply, so they aren't offered. You can still mark work on its **left, middle or right** — filler, a resin repair — and that's priced on top as usual. *Not in this job* works as for anything else, and brought in on site its price is billed as work found on site. On the quote and invoice it's named in the woodwork line (*…14 windows, 3 doors and Tudor framing*), or on a line of its own with **Full breakdown**; the work report says *Prepared and stained, upper floor*. Each side takes one.
 
 ![Tudor framing on a modern house's upper floor and gable](images/26zz-tudor-elevation.png)
 
@@ -1346,41 +1346,44 @@ A few things worth knowing:
 
 Old windows are where the surprises are. On a job with [Windows and doors](#windows-and-doors) set up, On Site has a **🪟 Windows & doors** card near the top. It opens the same drawings and the same detail view, with two differences:
 
-- **Anything you add here is a variation.** New marks, and prep raised on an opening, are extra work on top of the quote. They show dashed on the diagram and as a dashed badge on the elevation.
-- **Prep can go down as well as up.** If a window turns out better than expected once you've scraped it, tap a lower prep level. Below what was quoted, it's a **credit**: money off, on the same draft variation as everything else you've marked. Tapping the quoted level again undoes the change. You can move it freely while the variation is a draft or waiting for an answer. Once the client has answered, that change stays exactly as agreed, but you can still change the level. For example, if they approved a raise to Heavy and the window turns out better once scraped, tap Standard. The approved raise stays on its variation, and the drop is a credit on your new draft, worked out from Heavy. The sheet says *lowered on site from Heavy (agreed)*. Tapping Heavy again takes the new change back off.
+- **Anything you add here is work found on site.** New marks, and prep changed on an opening, are work on top of the quote. They show dashed on the diagram and as a dashed badge on the elevation. **They aren't variations, and there's nothing to send for approval.** It's agreed at the start of the job that what needs doing gets done (you can't find a rotten stile and then leave it), so the work is recorded as you mark it and billed as it's done.
+- **Prep can go down as well as up.** If a window turns out better than expected once you've scraped it, tap a lower prep level. Below what was quoted, it's a **credit**: money off that window. Tapping the quoted level again undoes the change. You can change it as often as you like: what's billed is where it ends up against the quote, so raising a window to Heavy and then bringing it back to the quoted level costs the client nothing and isn't mentioned anywhere. The sheet says where it stands, e.g. *raised on site from Standard (the quote) — found work*.
 - **Bays, dormers and lower ground windows work the same way** — open a bay and tap one of its windows to mark it, or mark the bay's own parts.
-- **The quote's own work is locked.** It's shown, solid, so you can see what was already allowed for, but you can't take it off here — and type, size and pane layout are as quoted. The quote is the floor: nothing done on site ever takes money off it.
-- **A window or door that was left out of the job** can be brought in. Its sheet says *Not in this job* with an **Add to this job — as a variation** button. Tapping it puts the whole opening — its prep and painting — on the draft variation (*Front, ground floor, D1: added to the job, light prep and paint.*), shown with a dashed badge. You can then mark work on it like any other. While the variation is still a draft or waiting for an answer, you can set its prep freely, and **Take it back out** undoes it (clearing any work you marked on it). Once approved, its painting is on the work-to-do list.
+- **The quote's own work is locked.** It's shown, solid, so you can see what was already allowed for, but you can't take it off here — and type, size and pane layout are as quoted. The quote is the floor: nothing done on site ever takes money off it, apart from prep lowered below the quoted level.
+- **A window or door that was left out of the job** can be brought in. Its sheet says *Not in this job* with an **Add to this job — found on site** button. Tapping it adds the whole opening, its prep and painting, as found work (*added to the job, light prep and paint*), shown with a dashed badge. You can then mark work on it like any other, set its prep freely, and **Take it back out** undoes it (clearing any work you marked on it).
 
-![On site: prep raised and glass marked for replacing, added as a variation](images/26d-windoors-onsite-detail.png)
+![On site: prep raised and glass marked for replacing, found on site](images/26d-windoors-onsite-detail.png)
 
-**Tick off as done.** On site, each window's sheet ends with a **Tick off as done** list: the painting first (*Paint · outside face*), then every piece of work on it, quoted or added on site, one line each (*Reputty · top pane 3*). An opening with nothing but painting still gets the list, with just its painting on it. Tap a line as you finish it, or **tick all** (the painting included). Tap again to untick. Ticks don't change the price. They decide what the work report shows, because the report lists only what was done. The On Site card counts how many are ticked off. Work on a variation the client declined isn't listed.
+**Tick off as done.** On site, each window's sheet ends with a **Tick off as done** list: the painting first (*Paint · outside face*), then every piece of work on it, quoted or found on site, one line each (*Reputty · top pane 3*). An opening with nothing but painting still gets the list, with just its painting on it. Tap a line as you finish it, or **tick all** (the painting included). Tap again to untick. Ticks don't change the price. They decide what the work report shows, because the report lists only what was done. The On Site card counts how many are ticked off.
 
 ![Ticking the work off](images/26w-windoors-tick-off.png)
 
-**A resin repair turns out bigger once it's cut out.** Open the window and tap the bigger size under **Repair size**. That's all: there's no variation and nothing to send, because the quote terms already say repairs are priced on their estimated size and may go up once exposed. A badge shows the change (*M → L*); tap the agreed size again to undo it. Sizes **below** what the client agreed are greyed out. A repair that turns out smaller stays at its quoted price.
+**A resin repair turns out bigger once it's cut out.** Open the window and tap the bigger size under **Repair size**. That's all: there's nothing to send, because the quote terms already say repairs are priced on their estimated size and may go up once exposed. A badge shows the change (*M → L*); tap the agreed size again to undo it. Sizes **below** what the client agreed are greyed out. A repair that turns out smaller stays at its quoted price.
 
-- The size a repair was quoted at is locked when the job is **accepted**. A repair added on site (a variation) is locked at the size it was **sent** to the client at; while its variation is still a draft you can change it either way.
-- The extra is a **repair size adjustment**, kept apart from everything else. The accepted quote doesn't change, and it isn't a variation. It shows as **Repair size adjustments +£X** under the Windows & Doors total on Summary, on the On Site card and at the top of the On Site windows screen. Tap it for the list: *Front, ground floor, W1: resin repair (cill) M → L, +£18.54*. The figure includes sundries and markup, as the invoice bills it.
+- The size a **quoted** repair was priced at is locked when the job is **accepted**. A repair **found on site** isn't locked at all: nobody agreed a size for it, so set it to whatever it turns out to be and it's billed at that size, as part of that window's found work.
+- The extra on a quoted repair is a **repair size adjustment**, kept apart from everything else. The accepted quote doesn't change. It shows as **Repair size adjustments +£X** under the Windows & Doors total on Summary, on the On Site card and at the top of the On Site windows screen. Tap it for the list: *Front, ground floor, W1: resin repair (cill) M → L, +£18.54*. The figure includes sundries and markup, as the invoice bills it.
 - It's billed on the invoice as part of the **one Windows and doors line** (see [Windows and doors on the invoice](#windows-and-doors-on-the-invoice)), not a line of its own. An interim invoice raised after the upgrade includes it; otherwise it's on the final invoice.
-- The **client's approval page** shows it as its own line, *Repair size adjustments (per quote terms)*, with no Approve button, so the total they see matches what they'll be invoiced. It updates each time you send or update that page.
+- The **client's page** shows it as its own line, *Repair size adjustments (per quote terms)*, with no Approve button, so the total they see matches what they'll be invoiced. It updates each time you send or update that page.
 - The **work report** shows the size each repair ended up at: *resin repair (cill, large)*.
 - **Amending** the accepted quote takes each repair's current size into the new revision, so the upgrade becomes part of the quote.
-- **Another patch found on a part that already has a quoted repair** (a second soft spot on the cill): select the cill and tap **Resin repair**. It goes on the draft variation as a repair of its own, with its own size, for the client to approve like any other extra. It's charged its size only, because the cill's base is already in the quote. An upgrade to a repair counted ×2 is charged twice, once for each repair.
+- **Another patch found on a part that already has a quoted repair** (a second soft spot on the cill): select the cill and tap **Resin repair**. It's found work, a repair of its own with its own size. It's charged its size only, because the cill's base is already in the quote. An upgrade to a repair counted ×2 is charged twice, once for each repair.
 
 ![Upgrading a resin repair on site: M → L](images/26ze-windoors-repair-size.png)
 
 ![Repair size adjustments: the list behind the Summary line](images/26zf-windoors-repair-adjustments.png)
 
-Everything you mark collects into one **draft** variation, worded for you from the marks — *Front, first floor, W2: reputty x4 panes, resin repair (cill).* — and shown at the top of the screen. It sits on the Variations card like any other extra; **reword for the client** changes what they'll read. Prep raised on site is charged as the difference between the old prep level and the new one. Prep lowered is taken off the same way, so a draft with W2 raised and W4 lowered comes to the difference between the two (*Front, ground floor, W4: prep lowered to light.*).
+**Found on site, window by window.** Everything found on a window is added up for that window, whenever you marked it: *Back, first floor, W1 — reputty x5 panes, replace glass x2 panes, resin repair (cill)*. The top of the On Site windows screen shows how many windows have found work and what it comes to. On the **Variations card** it's one block, **Windows and doors — found on site** (*agreed at the outset: done as needed, no approval*), with its total and a row under it for each window, its work and its figure. There's no Approve or Decline on them. Tap the block to open the windows. A window whose prep was lowered below the quote, with nothing else found on it, is a credit and shows as **−£**.
 
-**When a variation comes out as money off.** If the credits in a draft are worth more than the extras, the whole variation is a credit and shows as **−£** on the Variations card. **Send for approval** puts it on the client's page as *Credit — taken off your final invoice*, with no Approve or Decline buttons, and it counts in their running total straight away. It isn't billed on an interim invoice. On the final invoice it comes off the one Windows and doors line, netted against everything else added on site. If the credit is bigger than the site extras, the line comes to less than the quoted figure, as the client's page told them it would; the builder shows it under the line (*− £40.00 credit agreed on site, net of site work*). A credit isn't sent on a Xero variation quote, because there's nothing for the client to agree to.
+![Found on site on the Variations card: one block, a row per window](images/26f-windoors-variation-card.png)
 
-![The draft on the Variations card](images/26f-windoors-variation-card.png)
+- **On the client's page** each window is its own line, with *Found on site, done as needed as agreed — added to your final invoice* under it (or *taken off your final invoice* for a credit), and no Approve or Decline. It counts in their running total straight away. When there's nothing else on the card, the button reads **Share with the client** rather than *Send for approval*.
+- **On an interim invoice** each window's found work is offered for billing, in full unless you set a %. A credit isn't billed part way; the final invoice squares it.
+- **On the final invoice** it's part of the one Windows and doors line (see [Windows and doors on the invoice](#windows-and-doors-on-the-invoice)).
+- **It isn't sent on a Xero variation quote**, because there's nothing for the client to agree to.
 
-**Send for approval** puts the draft on the client's page like any other extra. Once it's sent — or you've recorded their answer by hand — the draft is closed, and the next thing you mark starts a new one. Work on a variation the client has already answered is locked too.
+**Jobs from before v3.3.0.** Window and door work marked on site used to collect into draft variations, each sent for approval, so one window could be spread across several of them, and a prep change undone later showed as a charge on one and a credit on another. Opening such a job folds them in: every one of them that wasn't declined becomes found work (approved, if it was still waiting), and the job is shown window by window as above, so a raise and its undoing cancel out. Anything an interim invoice already billed on the old variations is carried onto the windows they were for, so it isn't billed twice. A variation the client declined stays declined, and its work isn't billed. Next time you tap **Update the client's page**, the old variation lines on their page are replaced by the window lines.
 
-**Variations that went missing before v2.88.1.** Before v2.88.1 the Windows and doors variations were only kept on the phone, so reloading the app could lose them. The work marked on the windows stayed, but it was left out of the Variations card and billed nowhere. They now save with the job. When the app loads a job with any of that orphaned work, it puts each lost variation back on the Variations card as a **draft**, with a message saying how many it recovered. Any answer the client had already given went with the lost copy, so check each recovered one: send it for approval again, or record the client's answer with **Approved by client**.
+**Work that went missing before v2.88.1.** Before v2.88.1 the on-site window work was only kept on the phone, so reloading the app could lose its record. The marks on the windows stayed, but they were billed nowhere. When the app loads a job with any of that orphaned work, it puts it back as found work, with a message saying it did.
 
 #### Work to do
 
@@ -1389,8 +1392,8 @@ Everything you mark collects into one **draft** variation, worded for you from t
 - **At the top, *In all*:** how many openings there are to paint, and the marked work counted up (*Reputty x14 panes, Replace glass x3 panes, Resin repair x5 repairs*).
 - **Then each side**, with its drawing, and **every opening on it**, each with a box to tick on paper for each job: the painting first (*Paint: light prep, 2 coats, first floor access*), then one line per kind of repair (*Reputty x2 panes*, *Replace glass x1 pane*, *Resin repair (cill)*). An access you set by hand is always named (*ground access (set by hand)*), so the team knows the scaffold should be up.
 - **Openings with repairs get their drawing** with the panes and parts marked. Openings that are only being painted get just their lines, to keep it short.
-- **Approved variations are on it**, under their own heading. Drafts and variations still waiting for the client aren't: they haven't been agreed.
-- **Prep changed on site is in the painting line**, at the level it ended up at once the client agreed (*Paint: heavy prep (agreed on site), …*). If prep was raised and later brought back down, the list just shows where it finished: the steps in between aren't jobs to do.
+- **Work found on site is on it**, under its own heading.
+- **Prep changed on site is in the painting line**, at the level it ended up at (*Paint: heavy prep (agreed on site), …*). If prep was raised and later brought back down, the list just shows where it finished: the steps in between aren't jobs to do.
 - **Work already ticked off as done is left off**, painting included, so printing it again mid-job gives what's left. Once an opening's painting and repairs are all ticked off, it's off the list altogether, and *In all* counts only the openings still to paint.
 
 Like the work report, it has **no prices on it**. From Measure it's the schedule of work behind a quote, to send with it or to talk a client through what they're paying for; on site it's the list to hand the team.
@@ -1407,22 +1410,22 @@ The **work report** is what goes to the client with the final invoice: every win
 - **The summary** counts the windows and the doors, and how many openings had **work found on site**.
 - **Each side** has its elevation, with every opening numbered (W1, W2… D1…) and the ones with work beyond the painting picked out.
 - **Each opening with work** gets its own drawing with the worked panes and parts coloured in, its label (*Back, first floor, W3*), and a list of what was done: prep, repairs with their size, glass replaced, and the painting (*Prepared (light) and painted, 2 coats in Dead Salmon*).
-- **Anything that wasn't in the quote** is tagged **FOUND ON SITE**, with an orange bar down the side of that opening, so the client can see why the invoice is above the quote. That's approved site variations (work marked on site, prep changed on site, an opening added to the job) and resin repairs found bigger than quoted.
+- **Anything that wasn't in the quote** is tagged **FOUND ON SITE**, with an orange bar down the side of that opening, so the client can see why the invoice is above the quote. That's work found on site (work marked on site, prep changed on site, an opening added to the job) and resin repairs found bigger than quoted. Prep raised and then brought back to the quoted level isn't flagged: nothing changed.
 - **Openings that only had their painting done** get one compact line each, with a small drawing, to keep the report short.
 
 ![Found on site: tagged, with an orange bar](images/26zn-windoors-work-report-found-on-site.png)
 
-Only work **ticked off as done** is listed, and variation work only once the client has approved it. Variations still waiting for an answer, or declined, aren't on it. Openings left out of the job aren't on it or counted.
+Only work **ticked off as done** is listed. Work on a variation the client declined (before v3.3.0) isn't on it. Openings left out of the job aren't on it or counted.
 
 **Work to do (PDF)**, the list for the team, is different: it's still built on the phone and works with no signal (see [Work to do](#work-to-do)).
 
 #### Windows and doors on the invoice
 
-**The invoice has one line for all the windows and doors work.** Not a line per variation, not a line for repair sizes: one line, for the quoted price **plus everything added on site** (approved variations, repair size upgrades, prep changes, openings added to the job), each at the figure the client was shown. A credit agreed on site (prep lowered) comes off it too, so if the credits outweigh the extras the line is below the quoted figure. Its wording is generated from the job, so there's nothing to type:
+**The invoice has one line for all the windows and doors work.** Not a line per window, not a line for repair sizes: one line, for the quoted price **plus everything added on site** (work found on site, repair size upgrades, prep changes, openings added to the job), each at the figure the client was shown. A credit (prep lowered below the quote) comes off it too, so if the credits outweigh the extras the line is below the quoted figure. Its wording is generated from the job, so there's nothing to type:
 
 *Exterior windows and doors: preparation and painting of outside faces, 19 windows and 3 doors. Full breakdown of work per opening in attached report. Colours: Farrow & Ball No. 28 Dead Salmon (frames), Farrow & Ball No. 57 Off-Black (doors).*
 
-A count of zero is left out (*…outside faces, 14 windows.*), and the colours are only named once you've named them on the Paint card. Under the line, the builder shows what makes it up: the quoted figure, what was added on site, and how many of those variations are still **PENDING** (the app asks before invoicing a pending one, as for any variation). Everything else on the invoice (rooms, kitchen, materials, custom lines, sundries) is exactly as before.
+A count of zero is left out (*…outside faces, 14 windows.*), and the colours are only named once you've named them on the Paint card. Under the line, the builder shows what makes it up: the quoted figure, what was added on site, and how many windows had work found. Everything else on the invoice (rooms, kitchen, materials, custom lines, sundries) is exactly as before.
 
 ![One line for all the windows and doors work](images/26k-windoors-invoice-attach.png)
 
@@ -1669,6 +1672,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v3.2.5. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v3.3.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

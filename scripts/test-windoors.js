@@ -239,7 +239,7 @@ eq('an approved variation is', approved.sections.length, 2);
 eq('...with what was done', approved.sections.find(s => s.opening.id === 's').variations[0].text, 'Reputty x4 panes, resin repair (cill, medium)');
 const html = W.reportHtml(data, [{ id: 'v1', status: 'approved', approvedAt: '2026-09-20T10:00:00Z' }]);
 check('the report carries no prices', !/£|\d+\.\d\d\b/.test(html.replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<style>[\s\S]*?<\/style>/g, '')));
-check('the report dates the approval', html.indexOf('approved 20 Sep 2026') >= 0);
+check('the report lists it as found on site, undated (v3.3.0: nothing was asked)', html.indexOf('Found on site') >= 0 && html.indexOf('approved 20 Sep 2026') < 0);
 check('openings with no work are left out',
   W.reportModel({ property, openings: [sash, door], marks: [] }, []).sections.length === 0);
 eq('an empty report is an empty string', W.reportHtml({ property, openings: [sash], marks: [] }, []), '');
@@ -258,10 +258,9 @@ const body = name => {
   ['buildClientQuoteModel', 'calcWindoors()'],
   ['buildAcceptedQuoteSnapshot', 'calcWindoors()'],
   ['buildFinalInvoiceModel', 'calcWindoors()'],
-  ['buildFinalInvoiceModel', 'windoorsVariationLines('],
-  ['computeVariationsView', 'windoorsVariationLines('],
-  ['buildClientVariationLines', 'windoorsVariationLines('],
-  ['buildVariationQuoteLines', 'windoorsVariationLines('],
+  ['buildFinalInvoiceModel', 'windoorsFoundLines('],
+  ['computeVariationsView', 'windoorsFoundLines('],
+  ['buildClientVariationLines', 'windoorsFoundLines('],
   ['findVariationEntry', "kind === 'windoors'"],
   ['variationRawOf', "'windoors'"],
   ['loadActiveJobData', 'loadWindoors('],
@@ -309,13 +308,17 @@ check('the product picker treats windows and doors as roles', /role === 'wdwindo
 check('the Xero quote carries it as lines, by the job\'s layout', /wdQuoteLines\(\)\.forEach\(function\(l\) \{\n\s*exteriorData\.push\(\{ label: l\.text/.test(SRC));
 check('the shell loads the shared module', SRC.indexOf('<script src="/windoors.js"></script>') >= 0);
 check('the server accepts the windoors variation kind', require('../lib/clientQuote').VARIATION_KINDS.has('windoors'));
+check('...and found on site, landed approved and kept current like the repair adjustments',
+  require('../lib/clientQuote').VARIATION_KINDS.has('windoorsfound') && require('../lib/clientQuote').ADJUSTMENT_KINDS.has('windoorsfound'));
+check('...and a publish clears the old per-batch rows', require('../lib/clientQuote').LEGACY_KINDS.has('windoors'));
+check('found on site is never put on a variation quote (nothing to ask)', body('buildVariationQuoteLines').indexOf('windoorsFoundLines(') < 0);
 check('the service worker precaches the module',
   /CORE = \[[^\]]*'\/windoors\.js'/.test(fs.readFileSync(path.join(__dirname, '..', 'public', 'sw.js'), 'utf8')));
 
 // Variations must not be subtracted from original scope: they were never in
 // it. computeVariationsView's *All accumulators are what Summary takes off.
 const cvv = body('computeVariationsView');
-const wdPart = cvv.slice(cvv.indexOf('windoorsVariationLines('), cvv.indexOf('// ── Extra work inside'));
+const wdPart = cvv.slice(cvv.indexOf('windoorsFoundLines('), cvv.indexOf('// ── Extra work inside'));
 check('windoors variations stay out of the original-scope subtraction', wdPart && !/varLabourAll|varTimeAll/.test(wdPart));
 
 // ══ Stage 2 (WINDOWS_DOORS_STAGE2_SPEC.md) ══════════════════════════════════
@@ -731,7 +734,12 @@ eq('...4-over-8 beside 8-over-8', W.sashPattern(W.openingDefaults(g8, 'window', 
   eq('...and the old steps are not listed as work', ps.variations.length, 0);
   const pu = W.reportModel({ property: tp, openings: [pw], marks: [] }, [pv[0], { id: 'vdown', status: 'pending' }], { todo: true }).sections[0];
   eq('a raise still standing paints at the raised level', pu.quoted.join('|') + ' ' + pu.variations.length, 'Paint: heavy prep (agreed on site), 2 coats, first floor access 0');
-  eq('the client-facing report still names each agreed change', W.reportModel({ property: tp, openings: [pw], marks: [] }, pv).sections[0].variations.map(v => v.text).join('|'), 'Prep raised to heavy|Prep lowered to standard');
+  // v3.3.0: the client's report gives the NET change from the quote -- raised
+  // and lowered back again is no change at all.
+  const pwSec = W.reportModel({ property: tp, openings: [pw], marks: [] }, pv).sections[0];
+  eq('the client-facing report nets a change undone on site', pwSec ? pwSec.variations.length : 0, 0);
+  const pwUp = Object.assign({}, pw, { quote_prep_level: 'light' });
+  eq('...and gives one standing as one line', W.reportModel({ property: tp, openings: [pwUp], marks: [] }, pv).sections[0].variations.map(v => v.text).join('|'), 'Prep raised to standard');
   // v3.2.5: the painting has a tick of its own (painted_at).
   const pa = Object.assign({}, dm, { painted_at: '2026-10-01T15:00:00Z' });
   const tdp = W.reportModel({ property: tp, openings: [a1, a2, pa], marks: tm }, vars, { todo: true });
@@ -816,8 +824,8 @@ check('loading the fixture recovers orphaned variations', /wdRecoverVariations\(
   eq('orphaned variation ids get their carrier back', recover(t1.ctx), 2);
   eq('...after the ones already there, so new marks still join the open draft', t1.job.windoorsVariations.map(v => v.id).join(','), 'kept,lost1,lost2');
   eq('...dated from their earliest mark', t1.job.windoorsVariations[1].createdAt, '2026-09-19T09:00:00Z');
-  check('...as unanswered drafts', t1.job.windoorsVariations.slice(1).every(v => v.sentAt === null && !v.variationStatus && v.recoveredAt));
-  check('...saved to the server, and said so', t1.ctx.persisted === 1 && /Recovered 2/.test(t1.ctx.toasts[0]));
+  check('...as found work (v3.3.0: billed as done, nothing to ask)', t1.job.windoorsVariations.slice(1).every(v => v.found && v.variationStatus === 'approved' && v.recoveredAt));
+  check('...saved to the server, and said so', t1.ctx.persisted === 1 && /Recovered/.test(t1.ctx.toasts[0]));
   const t3 = make([{ id: 'live' }], [], [{ id: 'd', prep_stage: 'variation', prep_variation_id: 'live',
     prep_steps: [{ variation_id: 'agreedLost', level: 'heavy' }] }]);
   eq('an answered prep step\'s variation is recovered too', recover(t3.ctx) + ':' + t3.job.windoorsVariations.map(v => v.id).join(','), '1:live,agreedLost');
