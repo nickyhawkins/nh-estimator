@@ -482,6 +482,16 @@ The wall is priced at **10 minutes a m²** for 2 coats on smooth (the Exterior f
 
 With walls in it, the screen is titled **Exterior**, and on **Measure → +** it's **Exterior — windows, doors, walls, roofline**. The old **Exterior item** form is only offered on a job that already has exterior items priced that way, so nothing quoted before changes.
 
+**How it goes on the quote and invoices.** The totals card at the bottom of the Exterior screen has **On the quote and invoices as**, with three choices, and lists the lines it makes with their prices:
+
+- **Woodwork & walls** (the default): the windows, doors, roofline and wooden extras on one line (*Exterior woodwork: …*), and the walls, other walls and stonework on another (*Exterior walls: …*).
+- **One line**: all of it together, as before.
+- **Full breakdown**: a line for each element — windows, doors, other items, each roofline run, each extra, the walls, and making good — for a client who wants to see what each part costs.
+
+Pick it before you send the quote. It goes on the Xero quote, the client's copy and the accepted quote, and **once the quote is accepted it's fixed** — the invoices bill the lines the client agreed to. Work added on site goes on the line it belongs to: filler on the wall goes on the walls line, new glass on the woodwork (or the windows' line in a breakdown). On an interim invoice each line is billed separately, with anything added on site on the first. The work report's sentence (*Full breakdown of work per opening in attached report*) is on the first line only.
+
+![On the quote and invoices as: woodwork and walls apart](images/26zy-exterior-lines.png)
+
 **Extras.** Under the roofline, each side has an **Extras** card for the things painted on some houses and not others. Pick one from **+ Add an extra…** and it asks how much — metres, m² or how many — then opens it:
 
 | Extra | Measured in | Painted with |
@@ -1644,6 +1654,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.99.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v3.0.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

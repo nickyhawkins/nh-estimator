@@ -5624,11 +5624,11 @@ async function createXeroQuote(forceNew) {
     // the fixture needs nothing new on the server. Its label IS the item
     // line text ("Exterior windows and doors (outside faces): 8 sash
     // windows, 1 front door."), per WINDOWS_DOORS_SPEC.md section 8.
-    var wdXero = calcWindoors();
-    if (wdXero.total > 0.005) {
-      exteriorData.push({ label: windoorsLineText(), total: wdXero.total, windoors: true });
-      extTotal += wdXero.total; extTimeTotal += wdXero.time;
-    }
+    // One line per the job's layout (woodwork and walls apart by default).
+    wdQuoteLines().forEach(function(l) {
+      exteriorData.push({ label: l.text, total: l.total, windoors: true });
+      extTotal += l.total; extTimeTotal += l.time;
+    });
 
     // Materials sent to Xero come from the editable snapshot, not a fresh
     // live calculation -- that's the whole point of the snapshot (see
@@ -6924,7 +6924,7 @@ function persistJobData(job) {
   // interimDraft: the interim invoice builder's saved-as-you-go draft,
   // idempotency key included (STAGED_INVOICING_SPEC.md) -- null, not omitted,
   // once issued, or the merge would keep the spent draft forever.
-  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, quoteTextEdited: job.quoteTextEdited != null ? job.quoteTextEdited : null, invoiceTextEdited: job.invoiceTextEdited != null ? job.invoiceTextEdited : null, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, variationBaselinesAt: job.variationBaselinesAt || null, variationBaselinesLate: !!job.variationBaselinesLate, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, deposit: job.deposit, notes: job.notes, kitchen: job.kitchen, fittedUnits: job.fittedUnits, fittedUnit: Array.isArray(job.fittedUnits) ? null : job.fittedUnit, customItems: job.customItems, isXeroImported: !!job.isXeroImported, honouredLabourAmount: job.honouredLabourAmount != null ? job.honouredLabourAmount : null, depositRequired: job.depositRequired !== false, upchargeTotal: job.upchargeTotal != null ? job.upchargeTotal : null, roundingDelta: job.roundingDelta != null ? job.roundingDelta : null, interimDraft: job.interimDraft || null, windoorsVariations: Array.isArray(job.windoorsVariations) ? job.windoorsVariations : undefined });
+  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, quoteTextEdited: job.quoteTextEdited != null ? job.quoteTextEdited : null, invoiceTextEdited: job.invoiceTextEdited != null ? job.invoiceTextEdited : null, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, variationBaselinesAt: job.variationBaselinesAt || null, variationBaselinesLate: !!job.variationBaselinesLate, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, deposit: job.deposit, notes: job.notes, kitchen: job.kitchen, fittedUnits: job.fittedUnits, fittedUnit: Array.isArray(job.fittedUnits) ? null : job.fittedUnit, customItems: job.customItems, isXeroImported: !!job.isXeroImported, honouredLabourAmount: job.honouredLabourAmount != null ? job.honouredLabourAmount : null, depositRequired: job.depositRequired !== false, upchargeTotal: job.upchargeTotal != null ? job.upchargeTotal : null, roundingDelta: job.roundingDelta != null ? job.roundingDelta : null, interimDraft: job.interimDraft || null, windoorsVariations: Array.isArray(job.windoorsVariations) ? job.windoorsVariations : undefined, exteriorLineLayout: job.exteriorLineLayout || undefined });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -19339,8 +19339,20 @@ function interimInvoiceLineItems(p) {
   });
   var wd = (p.labour || []).concat(p.variations || []).filter(isWd).filter(billing);
   if (wd.length) {
-    var wdTotal = Math.round(wd.reduce(function(t, l) { return t + (+l.amount || 0); }, 0) * 100) / 100;
-    lines.push({ description: String(p.windoors.description || 'Exterior windows and doors'), quantity: 1, unitAmount: wdTotal, accountCode: '201' });
+    // One line per exterior quote line when given them (p.windoors.lines:
+    // { key: description }, the woodwork and the walls apart...); the site
+    // additions (variation keys) ride the first. Else all of it as one.
+    var wdLines = p.windoors.lines || null;
+    var wdKeys = wdLines ? Object.keys(wdLines) : ['*'];
+    var wdSum = {};
+    wd.forEach(function(l) {
+      var k = wdLines && wdLines[l.key] ? l.key : wdKeys[0];
+      wdSum[k] = Math.round(((wdSum[k] || 0) + (+l.amount || 0)) * 100) / 100;
+    });
+    wdKeys.forEach(function(k) {
+      if (!(Math.abs(wdSum[k] || 0) > 0.005)) return;
+      lines.push({ description: String((wdLines ? wdLines[k] : p.windoors.description) || 'Exterior windows and doors'), quantity: 1, unitAmount: wdSum[k], accountCode: '201' });
+    });
   }
   (p.variations || []).filter(notWd).forEach(function(l) {
     if (!billing(l)) return;
@@ -19460,7 +19472,7 @@ function interimPreviewModel(job) {
   var windoorsText = interimWindoorsText(basis, d, labour);
   var lines = interimInvoiceLineItems({
     labour: amounts(labour, math.labourLines), variations: amounts(variations, math.variationLines), materials: mats,
-    windoors: windoorsText ? { description: windoorsText } : null
+    windoors: !windoorsText ? null : typeof windoorsText === 'object' ? { lines: windoorsText } : { description: windoorsText }
   });
   // The ceiling: everything this job could ever bill -- the quote plus every
   // approved extra, billed or not.
@@ -19476,13 +19488,23 @@ function interimPreviewModel(job) {
 // when a quote stage was picked, else how far the fixture's line has got.
 // null when the job has no windows and doors to bill.
 function interimWindoorsText(basis, d, labour) {
-  var wdLine = (labour || []).find(function(l) { return l.key === 'windoors:windoors'; });
+  var wdLabour = (labour || []).filter(function(l) { return /^windoors:/.test(l.key); });
   var stages = (basis && basis.stages) || [];
   var at = d && d.stageRef ? stages.findIndex(function(st) { return st.ref === d.stageRef; }) : -1;
-  if (!wdLine && !wdLoadedForActiveJob()) return null;
-  if (!wdLine && !(windoors.openings || []).length) return null;
-  return wdInvoiceText({ report: 'final', stage: at >= 0 ? { n: at + 1, of: stages.length } : null,
-                         pct: at >= 0 || !wdLine ? null : wdLine.pct });
+  if (!wdLabour.length && !wdLoadedForActiveJob()) return null;
+  if (!wdLabour.length && !(windoors.openings || []).length) return null;
+  var text = function(l) {
+    return wdLineInvoiceText(l ? l.key : null, { report: 'final', stage: at >= 0 ? { n: at + 1, of: stages.length } : null,
+                                                 pct: at >= 0 || !l ? null : l.pct });
+  };
+  // Quoted on several lines: each its own, in the quote's order, keyed as
+  // the quote is; the site additions ride the first.
+  if (wdLabour.length > 1) {
+    var out = {};
+    wdLabour.forEach(function(l) { out[l.key] = text(l); });
+    return out;
+  }
+  return text(wdLabour[0] || null);
 }
 
 function interimPreviewHtml(m) {
@@ -20073,7 +20095,9 @@ function buildFinalInvoiceModel() {
   var wdInv = calcWindoors();
   if (wdInv.total > 0.005) {
     rawOrig += wdInv.total; ttOrig += wdInv.time;
-    labour.push({ id: 'wd', desc: windoorsLineText(), raw: wdInv.total, ownText: true, wd: true });
+    wdQuoteLines().forEach(function(l) {
+      labour.push({ id: 'wd:' + l.key, desc: l.text, raw: l.total, ownText: true, wd: true, wdKey: l.key });
+    });
   }
   var muVal = effectiveMarkup();
   var fixed = effectiveMarkupType() === 'fixed';
@@ -20187,7 +20211,7 @@ function buildFinalInvoiceModel() {
       frozenWorkRows.forEach(function(row, i) {
         labour.push({ id: 'fz' + i, desc: row.description || 'Labour',
                       raw: +row.lineTotal || 0, amount: +row.lineTotal || 0, dropped: false,
-                      ownText: frozenRowOwnText(row), wd: row.sourceKey === 'windoors:windoors' });
+                      ownText: frozenRowOwnText(row), wd: /^windoors:/.test(row.sourceKey || ''), wdKey: row.sourceKey || null });
       });
       frozenImportedRows.forEach(function(row, i) {
         labour.push({ id: 'fzi' + i, desc: row.description || 'Original quote',
@@ -20305,29 +20329,60 @@ function buildFinalInvoiceModel() {
   // site, v2.91.0) nets against the rest, and when it wins the line goes
   // below the quoted figure: the client's page already told them it would
   // come off their final invoice, so it does.
+  //
+  // With the exterior on several lines (walls apart, or a full breakdown),
+  // each addition goes on the line its opening is billed on: filler on the
+  // wall to the walls, glass to the windows. Money that can't be placed (a
+  // variation priced on another phone, its rows not in memory here) goes on
+  // the first line.
   var wdSPct = (settings.sundriesPct || 0) / 100;
-  var wdSite = { amount: 0, pending: 0, approved: 0, adjustments: 0 };
+  var wdLines = honouredLabourInv != null ? [] : labour.filter(function(l) { return l.wd; });
+  var wdSiteBy = {};
+  var siteOf = function(key) {
+    var k = wdLines.some(function(l) { return l.wdKey === key; }) ? key : (wdLines[0] ? wdLines[0].wdKey : '*');
+    return wdSiteBy[k] || (wdSiteBy[k] = { amount: 0, pending: 0, approved: 0, adjustments: 0, vars: {} });
+  };
+  var wdPricedVars = wdLoadedForActiveJob() && job && job.id === activeJobId ? Windoors.priceJob(windoors, wdRates()).variations : {};
+  var wdR = rpm();
   windoorsVariationLines(job).forEach(function(l) {
     if (l.status === 'declined') return;
-    wdSite.amount += (l.raw + l.raw * wdSPct) * varMk;
-    if (l.status === 'pending') wdSite.pending++; else wdSite.approved++;
+    var by = wdPricedVars[l.id] && wdPricedVars[l.id].byOpening;
+    var placed = 0;
+    if (by) Object.keys(by).forEach(function(oid) {
+      var raw = by[oid].mins * wdR + by[oid].materials;
+      if (Math.abs(raw) < 0.00001) return;
+      var st = siteOf(wdGroupKeyOf(oid));
+      st.amount += (raw + raw * wdSPct) * varMk;
+      st.vars[l.id] = l.status;
+      placed += raw;
+    });
+    // Whatever wasn't placed by opening (or all of it, rows not in memory).
+    var rest = l.raw - placed;
+    if (Math.abs(rest) > 0.00001) { var s0 = siteOf(null); s0.amount += (rest + rest * wdSPct) * varMk; s0.vars[l.id] = l.status; }
   });
   var wdAdjInv = wdAdjustments(job);
-  if (wdAdjInv.amount > 0.005) {
-    wdSite.adjustments = wdAdjInv.raw * (1 + wdSPct) * varMk;
-    wdSite.amount += wdSite.adjustments;
-  }
-  wdSite.amount = Math.round(wdSite.amount * 100) / 100;
-  var wdLabourLine = honouredLabourInv != null ? null : labour.find(function(l) { return l.wd; });
-  if (wdLabourLine) {
-    wdLabourLine.quoted = wdLabourLine.amount;
-    wdLabourLine.site = wdSite;
-    wdLabourLine.amount = Math.round((wdLabourLine.amount + wdSite.amount) * 100) / 100;
-  } else if (Math.abs(wdSite.amount) > 0.005) {
+  (wdAdjInv.items || []).forEach(function(it) {
+    var st = siteOf(wdGroupKeyOf(it.opening_id));
+    var amt = it.raw * (1 + wdSPct) * varMk;
+    st.adjustments += amt; st.amount += amt;
+  });
+  Object.keys(wdSiteBy).forEach(function(k) {
+    var st = wdSiteBy[k];
+    st.amount = Math.round(st.amount * 100) / 100;
+    Object.keys(st.vars).forEach(function(v) { if (st.vars[v] === 'pending') st.pending++; else st.approved++; });
+  });
+  if (wdLines.length) {
+    wdLines.forEach(function(line) {
+      var st = wdSiteBy[line.wdKey] || { amount: 0, pending: 0, approved: 0, adjustments: 0 };
+      line.quoted = line.amount;
+      line.site = st;
+      line.amount = Math.round((line.amount + st.amount) * 100) / 100;
+    });
+  } else if (wdSiteBy['*'] && Math.abs(wdSiteBy['*'].amount) > 0.005) {
     // No quoted fixture line to join (a honoured job, or windows and doors
     // only ever added on site): the site work is the one line, on its own.
-    labour.push({ id: 'wdsite', desc: windoorsLineText(), raw: 0, quoted: 0, site: wdSite,
-                  amount: wdSite.amount, dropped: false, ownText: true, wd: true });
+    labour.push({ id: 'wdsite', desc: windoorsLineText(), raw: 0, quoted: 0, site: wdSiteBy['*'],
+                  amount: wdSiteBy['*'].amount, dropped: false, ownText: true, wd: true, wdKey: 'windoors:windoors' });
   }
   var hourlyRate = (settings.dr || 0) / (settings.hpd || 7);
   var freeHoursRaw = 0;
@@ -20524,7 +20579,7 @@ function renderFinalInvoice() {
   var labourHtml = s.labour.map(function(l) {
       // The windows and doors line: one line on the invoice, and here the
       // sum that makes it up, so the figure can be checked before it goes.
-      if (l.wd) return lineRow('labour', Object.assign({}, l, { desc: wdInvoiceText({ report: wdReportGoesOn(s) ? 'attached' : false }) }), wdInvoiceLineDetail(l));
+      if (l.wd) return lineRow('labour', Object.assign({}, l, { desc: wdLineInvoiceText(l.wdKey, { report: wdReportGoesOn(s) && wdFirstLine(s) === l ? 'attached' : false }) }), wdInvoiceLineDetail(l));
       return lineRow('labour', l, isHonouredInv ? 'agreed before this job was measured here' : 'as quoted');
     }).join('')
     + (s.sundries.amount > 0.005 ? lineRow('sundries', Object.assign({ desc: 'Sundries & Consumables' }, s.sundries), '% of labour, as quoted') : '')
@@ -20717,7 +20772,7 @@ async function createFinalInvoice() {
     if (l.ownText && l.scope) desc = l.desc + '\n\n' + l.scope;
     // Windows and doors: one line, its words generated from the job's
     // openings -- the per-opening detail is in the report attached to it.
-    if (l.wd) desc = wdInvoiceText({ report: wdReportGoesOn(s) ? 'attached' : false });
+    if (l.wd) desc = wdLineInvoiceText(l.wdKey, { report: wdReportGoesOn(s) && wdFirstLine(s) === l ? 'attached' : false });
     if (invBlock && !l.ownText) {
       // The block already opens by naming this line ("Painting — Lounge"),
       // so the label goes above it only where it doesn't -- see
@@ -25433,6 +25488,36 @@ function calcWindoors() {
   };
 }
 function windoorsLineText() { return Windoors.itemLineText(windoors); }
+// ── The quote's lines (EXTERIOR_HOUSE_SPEC.md, invoice layout, v3.0.0) ────
+// How the exterior goes on the quote and the invoices, chosen per job at the
+// quote stage (job.exteriorLineLayout): one line, the woodwork and the walls
+// apart (the default), or a line per element. Once the quote is accepted
+// it's fixed -- the accepted quote's own lines are what the invoices bill.
+function wdLineLayout(job) { job = job || activeJob(); return Windoors.lineLayout(job && job.exteriorLineLayout); }
+function wdLayoutLocked(job) { job = job || activeJob(); return !!(job && ['accepted', 'completed', 'invoiced'].indexOf(job.status) !== -1); }
+function setWdLineLayout(k) {
+  var job = activeJob();
+  if (!job || wdLayoutLocked(job) || wdLineLayout(job) === k) return;
+  job.exteriorLineLayout = Windoors.lineLayout(k);
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  renderWindoors();
+}
+// The quote's exterior lines, in the calc engine's units like calcWindoors:
+// [{ key, group, total (raw £), time (days), text }]. Their totals add up to
+// calcWindoors().total exactly.
+function wdQuoteLines() {
+  if (!wdInUse()) return [];
+  var r = rpm(), hpd = settings.hpd || 7;
+  return Windoors.quoteGroups(windoors, wdRates(), wdLineLayout()).map(function(g) {
+    return { key: g.key, group: g, total: g.mins * r + g.materials + g.fixed, time: g.mins / 60 / hpd, text: Windoors.groupQuoteText(windoors, g) };
+  }).filter(function(l) { return l.total > 0.005; });
+}
+// Which quote line each opening's money lands on, by key.
+function wdGroupKeyOf(openingId) {
+  var o = (windoors.openings || []).find(function(x) { return x.id === openingId; });
+  return o ? Windoors.lineGroupOf(o, wdLineLayout()).key : 'windoors:windoors';
+}
 // ── Variations: the on-site drafts ────────────────────────────────────────
 // job.windoorsVariations: [{ id, createdAt, sentAt, description,
 //   variationStatus, variationApprovedAt, variationApprovalNote,
@@ -25987,7 +26072,8 @@ function renderWindoors() {
       + '<span style="font-weight:700">' + fmt(c.total) + '</span></div>'
       + '<div style="font-size:12px;color:var(--text2);margin-top:4px">Labour cost before markup' + (c.materials > 0.005 ? ', incl. ' + fmt(c.materials) + ' materials' : '')
       + (c.fixed > 0.005 ? (c.materials > 0.005 ? ' and ' : ', incl. ') + fmt(c.fixed) + (+windoors.property.making_good > 0 ? ' set prices and making good' : ' set prices') : '')
-      + (c.excluded ? '. ' + c.excluded + ' not in this job (drawn, not priced)' : '') + '. On the quote as: <i>' + escapeHtml(windoorsLineText()) + '</i></div>'
+      + (c.excluded ? '. ' + c.excluded + ' not in this job (drawn, not priced)' : '') + '.</div>'
+      + wdLineLayoutHtml()
  + wdAdjustmentsRowHtml(null, 'margin-top:8px;padding-top:8px;border-top:1px solid var(--border)')
       // Making good (step 3): a fixed £ for the whole exterior, as the
       // Exterior form's own box.
@@ -26163,6 +26249,19 @@ function wdWallFiguresHtml(o, site) {
     + '<div style="padding:0 16px 8px">' + wdSegHtml([{ key: 'roll', label: 'Rolled / brushed' }, { key: 'spray', label: 'Sprayed' }], o.wall_spray ? 'spray' : 'roll', 'setWdWallSpray') + '</div>'
     + '<div style="padding:0 16px 8px;font-size:12px;color:var(--text2);line-height:1.45">' + summary + '. ' + wdFmtN(R.mins[Windoors.wallFinish(o).key]) + ' min a m² for 2 coats, '
     + wdFmtN(R.cutIn.window) + ' / ' + wdFmtN(R.cutIn.door) + ' min a coat cutting in round each window / door (Rates). Sprayed changes the paint, not the time.</div>';
+}
+// "On the quote as": the layout, and the lines it makes with their prices.
+function wdLineLayoutHtml() {
+  var locked = wdLayoutLocked();
+  var lines = wdQuoteLines();
+  var h = '<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">'
+    + '<div style="font-size:13px;margin-bottom:6px">On the quote and invoices as' + (locked ? ' <small style="color:var(--text2)">· fixed now the quote is accepted</small>' : '') + '</div>';
+  if (!locked) h += wdSegHtml(Windoors.LINE_LAYOUTS, wdLineLayout(), 'setWdLineLayout');
+  h += lines.map(function(l) {
+    return '<div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;color:var(--text2);padding-top:6px">'
+      + '<i style="flex:1;min-width:0">' + escapeHtml(l.text) + '</i><span style="white-space:nowrap">' + fmt(applyMarkupAmount(l.total)) + '</span></div>';
+  }).join('');
+  return h + '</div>';
 }
 function setWdMakingGood(v) {
   if (!windoors.property || wdMode === 'site') return;
@@ -27844,10 +27943,22 @@ async function saveWindoorsReportPdf(todo) {
 function wdInvoiceColours() {
   if (!wdLoadedForActiveJob()) return {};
   var name = function(kind) { var n = wdColourOf(kind); return colourIsNamed(n) ? colourLabelFor(n) : null; };
-  return { frames: name('window'), doors: name('door') };
+  return { frames: name('window'), doors: name('door'), walls: name('wall') };
 }
 // The line's words. opts: { report: 'attached' | 'final' | false,
 // stage: { n, of }, pct } -- see Windoors.invoiceLineText.
+// One line's words on the invoice: its group's (walls, doors...) when the
+// job's layout has it, else the whole exterior's.
+function wdLineInvoiceText(key, opts) {
+  opts = opts || {};
+  if (key && wdLoadedForActiveJob()) {
+    var g = Windoors.quoteGroups(windoors, wdRates(), wdLineLayout()).find(function(x) { return x.key === key; });
+    var single = wdLineLayout() === 'single';
+    if (g && !single) return Windoors.groupInvoiceText(windoors, g, { variations: wdReportVariations(), colours: wdInvoiceColours(),
+                                                                       report: opts.report, stage: opts.stage, pct: opts.pct });
+  }
+  return wdInvoiceText(opts);
+}
 function wdInvoiceText(opts) {
   opts = opts || {};
   var counts = wdLoadedForActiveJob() ? Windoors.invoiceCounts(windoors, wdReportVariations()) : { windows: 0, doors: 0 };
@@ -27856,6 +27967,8 @@ function wdInvoiceText(opts) {
   return Windoors.invoiceLineText(Object.assign({}, counts, { colours: wdInvoiceColours(),
                                     report: opts.report, stage: opts.stage, pct: opts.pct }));
 }
+// The report sentence goes on the first exterior line only.
+function wdFirstLine(s) { return (s && s.labour.find(function(l) { return l.wd && !l.dropped; })) || null; }
 function wdInvoiceHasLine(s) { return !!(s && s.labour.some(function(l) { return l.wd && !l.dropped; })); }
 // The report goes on the invoice unless it was unticked -- and only when
 // there's a windows and doors line for it to explain.
@@ -33307,9 +33420,12 @@ function buildClientQuoteModel(job, quoteRooms, quoteExtItems, quoteKitchen, kit
   });
   if (wdQuote.total > 0.005) {
     // The label IS the item line text, because a frozen snapshot's row label
-    // is what the final invoice later bills it under.
-    workRows.push({ emoji: '🪟', label: windoorsLineText(), sub: '',
-                    amount: wdQuote.total * lineMult, labour: true, key: 'windoors:windoors' });
+    // is what the final invoice later bills it under. One row per line of
+    // the job's layout; the first keeps the key every quote has carried.
+    wdQuoteLines().forEach(function(l) {
+      workRows.push({ emoji: l.key === 'windoors:walls' ? '🧱' : '🪟', label: l.text, sub: '',
+                      amount: l.total * lineMult, labour: true, key: l.key });
+    });
   }
   // Custom lines: marked ones ride the same proportional multiplier as
   // every other work line; markup-off ones print the entered price

@@ -306,7 +306,7 @@ check('a failed attach never un-creates the invoice (it is reported beside the s
 check('the windows and doors paint carries its own product', /extTopcoatRangeOverride: prod \? prod\.range/.test(body('windoorsPaintItems')));
 check('the product picker treats windows and doors as roles', /role === 'wdwindow' \|\| role === 'wddoor'/.test(body('overrideState')));
 
-check('the Xero quote carries it as a line', /exteriorData\.push\(\{ label: windoorsLineText\(\)/.test(SRC));
+check('the Xero quote carries it as lines, by the job\'s layout', /wdQuoteLines\(\)\.forEach\(function\(l\) \{\n\s*exteriorData\.push\(\{ label: l\.text/.test(SRC));
 check('the shell loads the shared module', SRC.indexOf('<script src="/windoors.js"></script>') >= 0);
 check('the server accepts the windoors variation kind', require('../lib/clientQuote').VARIATION_KINDS.has('windoors'));
 check('the service worker precaches the module',
