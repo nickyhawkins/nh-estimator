@@ -1386,6 +1386,7 @@ Everything you mark collects into one **draft** variation, worded for you from t
 - **Then each side**, with its drawing, and **every opening on it**, each with a box to tick on paper for each job: the painting first (*Paint: light prep, 2 coats, first floor access*), then one line per kind of repair (*Reputty x2 panes*, *Replace glass x1 pane*, *Resin repair (cill)*). An access you set by hand is always named (*ground access (set by hand)*), so the team knows the scaffold should be up.
 - **Openings with repairs get their drawing** with the panes and parts marked. Openings that are only being painted get just their lines, to keep it short.
 - **Approved variations are on it**, under their own heading. Drafts and variations still waiting for the client aren't: they haven't been agreed.
+- **Prep changed on site is in the painting line**, at the level it ended up at once the client agreed (*Paint: heavy prep (agreed on site), …*). If prep was raised and later brought back down, the list just shows where it finished: the steps in between aren't jobs to do.
 - **Work already ticked off as done is left off**, so printing it again mid-job gives what's left. The painting has no tick of its own, so every opening's painting stays on the list.
 
 Like the work report, it has **no prices on it**. From Measure it's the schedule of work behind a quote, to send with it or to talk a client through what they're paying for; on site it's the list to hand the team.
@@ -1664,6 +1665,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v3.2.1. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v3.2.2. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
