@@ -1841,3 +1841,28 @@ and where savings now correctly contributes nothing. Each of those blocks is
 about the waterfall below the buffer rather than about the arrears gate, so
 each now runs against the same plan with the arrears cleared. The assertions
 themselves are unchanged.
+
+## Feature 23 — Moving buffer money into a pot to pay a bill — BUILT (v2.94.0)
+
+Nicky: *"I need a way of moving money from the buffer pot to the actual bills
+pot to make the payment."* The only route out of the buffer was *Fund this
+month* (Feature 13), which moves exactly what the cycle's **minimums** are
+short by — and only once a buffer target is set. A real bill doesn't always
+fit that: a payment above the minimum, a debt outside the plan, or money in
+the jar with no target set at all.
+
+1. **"Move buffer to a pot"** — a button on the buffer strip whenever the
+   buffer holds money, target or not. Pick Business or Personal, type an
+   amount (or tap *Pot shortfall* / *All of it*), and the money moves from
+   that account's jar into the same account's pot. Pre-filled with the pot's
+   shortfall against this cycle's minimums, capped at what the jar holds.
+2. **From the Pay modal.** When a payment is bigger than the pot, the warning
+   now carries *Move £X from the buffer to the pot* — it moves just the
+   difference (or what the jar holds, if less) and keeps the modal open so
+   the next tap is *Record payment*.
+
+Same rules as Fund this month: each account draws only on its own jar (they
+are the same bank's money), and it is a **transfer, not a payment** — the
+money lands in the pot and the payment is recorded normally, so the ledger and
+undo are untouched. Undoing the payment puts it back in the pot, not the
+buffer: the transfer was a real one. Covered by `npm run test:buffer-move`.
