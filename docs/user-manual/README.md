@@ -1479,6 +1479,8 @@ On a long job you don't have to wait until the end to invoice. While a job is **
 - **Approved variations** work the same way as rooms: a % box and **Done** for each one, so you can bill half an extra now and the rest later.
 - **Windows and doors** are one line, the fixture's % plus everything added on site so far (those start at 100%). See [Windows and doors on the invoice](#windows-and-doors-on-the-invoice).
 
+- **A line that's left the quote.** If an earlier interim billed a line that's since gone (say the old exterior windows item, replaced by the Windows & Doors drawing and deleted), a **Billed before, no longer on the quote** card appears at the top, showing what was billed on it and on which invoice. Pick the line that replaced it under **Counts towards**. That amount is then taken off the new line, and the new line shows as that far through. For example, £812.48 billed on the old windows item counts as about 35% of a £2,351.53 Windows & Doors line, so **Done** bills the other £1,539.05. Until you choose, it shows **⚠ Not taken off anything on this invoice yet**. The final invoice always squares up, because it deducts each interim in full.
+
 ![Preview, running totals and Issue](images/25c-interim-invoice-preview.png)
 
 - **Deposit to take off.** While some of the deposit hasn't been set against an invoice yet, a **Deposit** box appears. It starts at all of what's left, up to the invoice total. Lower it to keep a float for materials on the next invoice. For example, take £600 of a £1,250 deposit now, and the other £650 is offered on the next invoice. Whatever's still unused comes off the final invoice. If the deposit covers the whole invoice, that's allowed; there's just nothing for the client to pay on it.
@@ -1662,6 +1664,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v3.2.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v3.2.1. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

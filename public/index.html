@@ -6926,7 +6926,7 @@ function persistJobData(job) {
   // interimDraft: the interim invoice builder's saved-as-you-go draft,
   // idempotency key included (STAGED_INVOICING_SPEC.md) -- null, not omitted,
   // once issued, or the merge would keep the spent draft forever.
-  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, quoteTextEdited: job.quoteTextEdited != null ? job.quoteTextEdited : null, invoiceTextEdited: job.invoiceTextEdited != null ? job.invoiceTextEdited : null, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, variationBaselinesAt: job.variationBaselinesAt || null, variationBaselinesLate: !!job.variationBaselinesLate, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, deposit: job.deposit, notes: job.notes, kitchen: job.kitchen, fittedUnits: job.fittedUnits, fittedUnit: Array.isArray(job.fittedUnits) ? null : job.fittedUnit, customItems: job.customItems, isXeroImported: !!job.isXeroImported, honouredLabourAmount: job.honouredLabourAmount != null ? job.honouredLabourAmount : null, depositRequired: job.depositRequired !== false, upchargeTotal: job.upchargeTotal != null ? job.upchargeTotal : null, roundingDelta: job.roundingDelta != null ? job.roundingDelta : null, interimDraft: job.interimDraft || null, windoorsVariations: Array.isArray(job.windoorsVariations) ? job.windoorsVariations : undefined, exteriorLineLayout: job.exteriorLineLayout || undefined });
+  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, quoteTextEdited: job.quoteTextEdited != null ? job.quoteTextEdited : null, invoiceTextEdited: job.invoiceTextEdited != null ? job.invoiceTextEdited : null, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, variationBaselinesAt: job.variationBaselinesAt || null, variationBaselinesLate: !!job.variationBaselinesLate, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, deposit: job.deposit, notes: job.notes, kitchen: job.kitchen, fittedUnits: job.fittedUnits, fittedUnit: Array.isArray(job.fittedUnits) ? null : job.fittedUnit, customItems: job.customItems, isXeroImported: !!job.isXeroImported, honouredLabourAmount: job.honouredLabourAmount != null ? job.honouredLabourAmount : null, depositRequired: job.depositRequired !== false, upchargeTotal: job.upchargeTotal != null ? job.upchargeTotal : null, roundingDelta: job.roundingDelta != null ? job.roundingDelta : null, interimDraft: job.interimDraft || null, interimCarry: job.interimCarry || null, windoorsVariations: Array.isArray(job.windoorsVariations) ? job.windoorsVariations : undefined, exteriorLineLayout: job.exteriorLineLayout || undefined });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -19030,17 +19030,62 @@ function jobInterimInvoices(job) {
 // What the job has billed so far -- the same figures the server reads.
 //   labour / variations  per line key: { pct: highest % reached, billed: £ so far }
 //   billedQty            per product (materialKey): quantity already invoiced
+// Billing carried from a line that has left the quote (v3.2.1). When the
+// quote is reworked after an interim -- the old exterior items replaced by
+// the windows and doors drawing, say -- what an earlier interim billed on the
+// old line would otherwise be forgotten, and the new line billed again from
+// nothing. carry: { oldKey: newKey }, chosen on the interim screen. Each old
+// line's £ is added to the new line's "billed before", and the new line
+// counts as that far through (its £ against its own price), so the next
+// interim bills only the difference. A carry only applies while the old line
+// is off the quote and the new one on it. Pure; labour is
+// { key: { pct, billed } }, lines are the quote's [{ key, lineTotal }].
+function carryInterimLabour(labour, carry, lines) {
+  var money = function(n) { return Math.round((+n || 0) * 100) / 100; };
+  var out = {};
+  Object.keys(labour || {}).forEach(function(k) { out[k] = { pct: +labour[k].pct || 0, billed: money(labour[k].billed) }; });
+  var onQuote = {};
+  (lines || []).forEach(function(l) { if (l && l.key != null) onQuote[String(l.key)] = +l.lineTotal || 0; });
+  Object.keys(carry || {}).forEach(function(from) {
+    var to = String((carry || {})[from] || '');
+    if (!out[from] || from === to || Object.prototype.hasOwnProperty.call(onQuote, from) || !Object.prototype.hasOwnProperty.call(onQuote, to)) return;
+    var t = out[to] || (out[to] = { pct: 0, billed: 0 });
+    t.billed = money(t.billed + out[from].billed);
+    var share = onQuote[to] > 0 ? Math.round(Math.min(100, t.billed / onQuote[to] * 100) * 100) / 100 : 100;
+    t.pct = Math.max(t.pct, share);
+    delete out[from];
+  });
+  return out;
+}
+
+// The job's carries, by old line key -> new.
+function interimCarryOf(job) { return job && job.interimCarry && typeof job.interimCarry === 'object' ? job.interimCarry : {}; }
+// What each current quote line has been billed so far, carries included.
+function interimLabourSoFar(job, so, basis) {
+  return carryInterimLabour(so.labour, interimCarryOf(job), basis ? basis.lines : []);
+}
+// Lines an earlier interim billed that are no longer on the quote, carried
+// or not: [{ key, description, pct, billed, invoices }].
+function interimOrphanLabour(job, so, basis) {
+  var on = {};
+  (basis ? basis.lines : []).forEach(function(l) { on[l.key] = true; });
+  return Object.keys(so.labour).filter(function(k) { return !on[k] && so.labour[k].billed > 0.005; })
+    .map(function(k) { return Object.assign({ key: k }, so.labour[k]); });
+}
+
 function interimBillingSoFar(job) {
   var all = jobInvoiceList(job);
   var interims = all.filter(function(i) { return i.type === 'interim'; });
   var labour = {}, variations = {}, billedQty = {};
-  var track = function(map, l) {
-    var t = map[l.key] || (map[l.key] = { pct: 0, billed: 0 });
+  var track = function(map, l, inv) {
+    var t = map[l.key] || (map[l.key] = { pct: 0, billed: 0, description: '', invoices: [] });
+    if (l.description) t.description = l.description;
+    if (inv && t.invoices.indexOf(inv) === -1) t.invoices.push(inv);
     t.pct = Math.max(t.pct, +l.pct || 0);
     t.billed = Math.round((t.billed + (+l.amount || 0)) * 100) / 100;
   };
   all.forEach(function(i) {
-    (i.labourLines || []).forEach(function(l) { track(labour, l); });
+    (i.labourLines || []).forEach(function(l) { track(labour, l, interimInvoiceLabel(i)); });
     (i.variationLines || []).forEach(function(l) { track(variations, l); });
     (i.materialLines || []).forEach(function(m) {
       billedQty[m.key] = Math.round(((billedQty[m.key] || 0) + (+m.quantity || 0)) * 10000) / 10000;
@@ -19459,7 +19504,8 @@ function interimPreviewModel(job) {
     return Object.assign({}, l, { prevPct: prev, billedBefore: had ? had.billed : 0,
                                   pct: asked == null ? prev : asked });
   };
-  var labour = (basis ? basis.lines : []).map(function(l) { return withPct(l, so.labour[l.key], d.labourPcts); });
+  var soLabour = interimLabourSoFar(job, so, basis);
+  var labour = (basis ? basis.lines : []).map(function(l) { return withPct(l, soLabour[l.key], d.labourPcts); });
   var cands = interimVariationCandidates(job);
   var variations = cands.map(function(c) { return withPct(c, so.variations[c.key], d.variationPcts); });
   var mat = interimMaterialCandidates(job);
@@ -19482,7 +19528,7 @@ function interimPreviewModel(job) {
   var approvedVars = cands.reduce(function(t, c) { return t + (+c.lineTotal || 0); }, 0);
   var ceiling = Math.round(((basis ? basis.total : 0) + approvedVars) * 100) / 100;
   var afterThis = Math.round((so.subtotal + math.subtotal) * 100) / 100;
-  return { basis: basis, so: so, draft: d, labour: labour, variations: variations, mat: mat, mats: mats,
+  return { basis: basis, so: so, draft: d, labour: labour, orphans: interimOrphanLabour(job, so, basis), carry: interimCarryOf(job), variations: variations, mat: mat, mats: mats,
            math: math, lines: lines, windoorsText: windoorsText, ceiling: ceiling, afterThis: afterThis, overCeiling: afterThis > ceiling + 0.005 };
 }
 
@@ -19608,6 +19654,28 @@ function renderInterimInvoice() {
     '<div style="border-top:1px solid var(--border);margin-top:4px">' + m.labour.map(function(l) { return lineRow('labour', l); }).join('') + '</div>' +
     '<div style="font-size:12px;color:var(--text2);padding-top:8px;line-height:1.45">Each line is <strong>cumulative</strong> — how far through that room or item is in total. Sundries are billed on the final invoice.</div>';
 
+  // Billing on lines that have left the quote: say where it counts.
+  var carryHtml = '';
+  if (m.orphans.length) {
+    carryHtml = section('Billed before, no longer on the quote',
+      '<div style="font-size:12px;color:var(--text2);line-height:1.45;padding-bottom:6px">An earlier interim billed these, and the quote has changed since. Pick the line that replaced each one, so what was billed is taken off it here — or leave it, and only the final invoice squares it up.</div>' +
+      m.orphans.map(function(o) {
+        var to = m.carry[o.key] || '';
+        return '<div style="padding:8px 0;border-top:1px solid var(--border)">' +
+          '<div style="font-size:14px">' + escapeHtml(o.description || o.key) + '</div>' +
+          '<small style="display:block;color:var(--text2)">' + fmt(o.billed) + ' billed (' + fmtInvoicePct(o.pct) + '%)' + (o.invoices.length ? ' on ' + escapeHtml(o.invoices.join(', ')) : '') + '</small>' +
+          '<div class="field-row" style="padding:6px 0 0"><div class="field-label">Counts towards</div>' +
+            '<select class="field-input" data-key="' + escapeHtml(o.key) + '" onchange="setInterimCarry(this.dataset.key,this.value)" style="max-width:60%">' +
+              '<option value="">— not carried —</option>' +
+              m.basis.lines.map(function(l) {
+                return '<option value="' + escapeHtml(l.key) + '"' + (to === l.key ? ' selected' : '') + '>' + escapeHtml(l.description) + '</option>';
+              }).join('') +
+            '</select></div>' +
+          (to ? '' : '<div style="font-size:12px;color:var(--warn,#f39c12);padding-top:4px">⚠ Not taken off anything on this invoice yet.</div>') +
+        '</div>';
+      }).join(''));
+  }
+
   var materialsHtml = m.mat.lines.length ? m.mat.lines.map(function(l) {
     var on = l.priced && d.materialExcludeKeys.indexOf(l.key) === -1;
     var detail = (l.itemCode ? escapeHtml(l.itemCode) + ' · ' : '') + (+l.quantity) + ' × ' + fmt(l.unitAmount) +
@@ -19645,6 +19713,7 @@ function renderInterimInvoice() {
     '<div style="font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.5">Interim invoice ' + (m.so.count + 1) +
       ' · mark each room or item done, or give it a % complete — this invoice bills only the difference from what it was already invoiced. Materials are itemised: what has been bought and not yet invoiced. ' +
       escapeHtml(m.basis.source) + '.</div>' +
+    carryHtml +
     section('Labour', labourHtml) +
     section('Materials bought — not yet invoiced', materialsHtml) +
     section('Approved variations', varHtml) +
@@ -19682,6 +19751,20 @@ function setInterimDeposit(v, reset) {
   if (reset) { saveInterimDraft(); renderInterimInvoice(); return; }
   refreshInterimPreview();
 }
+// Where an old line's billing counts (interimCarryOf). A % already typed for
+// the line it now counts towards is dropped if it's below where the carry
+// puts that line, so the box starts from there.
+function setInterimCarry(fromKey, toKey) {
+  var job = activeJob(); if (!job) return;
+  var c = Object.assign({}, interimCarryOf(job));
+  if (toKey) c[fromKey] = toKey; else delete c[fromKey];
+  job.interimCarry = Object.keys(c).length ? c : null;
+  var m = interimPreviewModel(job);
+  var l = toKey && m.labour.find(function(x) { return x.key === toKey; });
+  if (l && m.draft.labourPcts[toKey] != null && +m.draft.labourPcts[toKey] < l.prevPct) delete m.draft.labourPcts[toKey];
+  saveInterimDraft();
+  renderInterimInvoice();
+}
 // A line's % box. kind is 'labour' or 'var'.
 function setInterimLinePct(kind, key, v) {
   var job = activeJob(); if (!job) return;
@@ -19705,10 +19788,10 @@ function setInterimAllLabour(v) {
   var job = activeJob(); if (!job) return;
   var pct = Math.max(0, Math.min(100, parseFloat(v) || 0));
   var d = interimDraftFor(job);
-  var so = interimBillingSoFar(job);
   var basis = interimQuoteBasis(job);
+  var soLabour = interimLabourSoFar(job, interimBillingSoFar(job), basis);
   (basis ? basis.lines : []).forEach(function(l) {
-    var prev = so.labour[l.key] ? so.labour[l.key].pct : 0;
+    var prev = soLabour[l.key] ? soLabour[l.key].pct : 0;
     d.labourPcts[l.key] = Math.max(prev, +d.labourPcts[l.key] || 0, pct);
   });
   saveInterimDraft();
@@ -19754,6 +19837,7 @@ async function issueInterimInvoice() {
         idempotencyKey: d.idempotencyKey,
         stageRef: d.stageRef || null,
         windoorsText: m.windoorsText || null,
+        carry: m.carry,
         depositToApply: d.depositToApply == null ? null : +d.depositToApply,
         // Every line goes, changed or not: the server checks each one's
         // "invoiced before" against its own record (a stale view is refused)
@@ -32875,7 +32959,18 @@ function renderSummary() {
       // background stop), which made this line invisible. Every other colour
       // in the hero is likewise hardcoded against the fixed dark background
       // rather than theme-reactive.
-      (hasVariations ? '<div class="hero-sub" style="color:#ffd166;font-weight:600">+ '+fmt(variationsTotal)+' variations → '+fmt(agreedJobTotal)+' job total</div>' : '')+
+      // The repair size adjustments (resin repairs found bigger on site, per
+      // the quote's terms) are billed like an approved extra -- the invoices
+      // card counts them -- so the job total here counts them too.
+      (function() {
+        var adj = wdLoadedForActiveJob() ? wdAdjustments() : { amount: 0 };
+        var adjAmt = adj.amount > 0.005 ? Math.round(adj.amount * 100) / 100 : 0;
+        if (!hasVariations && !adjAmt) return '';
+        return '<div class="hero-sub" style="color:#ffd166;font-weight:600">'
+          + (hasVariations ? '+ '+fmt(variationsTotal)+' variations ' : '')
+          + (adjAmt ? '+ '+fmt(adjAmt)+' repair sizes ' : '')
+          + '→ '+fmt(agreedJobTotal + adjAmt)+' job total</div>';
+      })()+
     '</div>'+
     '<div class="stat-grid">'+
       // On a flagged job this is the app's OWN labour figure, which is not

@@ -187,6 +187,45 @@ const { interimInvoiceLineItems, planInterimInvoice } = require('../lib/invoices
   const one = interimInvoiceLineItems({ labour: lab, variations: vr, materials: [], windoors: { description: 'All of it' } });
   eq('4. one description still makes one line, as before', one.filter(l => l.description === 'All of it').map(l => l.unitAmount), [1290]);
 
+  // ── 6. A line that left the quote, carried to the one that replaced it ──
+  const carry = await page.evaluate(() => {
+    const job = activeJob(); job.status = 'accepted';
+    const snapWd = latestQuoteSnapshot(job).data.lines.work.find(r => r.sourceKey === 'windoors:windoors');
+    jobInvoicesJobId = job.id;
+    jobInvoices = [{ id: 'i1', type: 'interim', sequence: 1, xeroInvoiceNumber: 'INV-0548', subtotal: 3270, labourAmount: 812.48, depositApplied: 0,
+      labourLines: [{ key: 'exterior:old', description: 'Prepping and painting of windows', pct: 25, amount: 812.48 }], variationLines: [], materialLines: [] }];
+    job.interimCarry = null; job.interimDraft = null;
+    const out = {};
+    let m = interimPreviewModel(job);
+    out.orphans = m.orphans.map(o => [o.description, o.billed, o.invoices.join()]);
+    out.before = m.labour.find(l => l.key === 'windoors:windoors').billedBefore;
+    let el = document.getElementById('interiminvoice-body');
+    if (!el) { el = document.createElement('div'); el.id = 'interiminvoice-body'; document.body.appendChild(el); }
+    renderInterimInvoice();
+    out.card = /Billed before, no longer on the quote/.test(el.textContent) && /Not taken off anything/.test(el.textContent);
+    setInterimCarry('exterior:old', 'windoors:windoors');
+    m = interimPreviewModel(job);
+    const l = m.labour.find(x => x.key === 'windoors:windoors');
+    out.after = [l.billedBefore, l.prevPct === Math.round(812.48 / snapWd.lineTotal * 10000) / 100];
+    out.saved = job.interimCarry;
+    out.cardAfter = !/Not taken off anything/.test(el.textContent) && el.querySelector('select[data-key="exterior:old"]').value;
+    markInterimLineDone('labour', 'windoors:windoors');
+    m = interimPreviewModel(job);
+    out.bills = Math.round((m.math.labourLines[m.labour.indexOf(m.labour.find(x => x.key === 'windoors:windoors'))].amount) * 100) / 100;
+    out.want = Math.round((snapWd.lineTotal - 812.48) * 100) / 100;
+    setInterimCarry('exterior:old', '');
+    out.cleared = [job.interimCarry, interimPreviewModel(job).labour.find(x => x.key === 'windoors:windoors').billedBefore];
+    return out;
+  });
+  eq('6. a line billed before and since taken off the quote is found', carry.orphans, [['Prepping and painting of windows', 812.48, 'Interim 1 · INV-0548']]);
+  eq('6. ...and until it\'s carried, nothing is taken off the new line', carry.before, 0);
+  eq('6. the interim screen asks where it counts', carry.card, true);
+  eq('6. carried to Windows & Doors: billed before, and that far through', carry.after, [812.48, true]);
+  eq('6. the choice is kept on the job', carry.saved, { 'exterior:old': 'windoors:windoors' });
+  eq('6. the card shows the choice', carry.cardAfter, 'windoors:windoors');
+  eq('6. marked done, it bills its price less what the old line billed', carry.bills, carry.want);
+  eq('6. un-carried, back as it was', carry.cleared, [null, 0]);
+
   check('no page errors', errors.length === 0, errors);
   await browser.close();
   srv.close();

@@ -61,7 +61,7 @@ function extractFn(src, name, where) {
 }
 
 // ── 1. One set of maths ─────────────────────────────────────────────────────
-const SHARED = ['fmtInvoicePct', 'interimInvoiceMath', 'interimInvoiceLineItems'];
+const SHARED = ['fmtInvoicePct', 'interimInvoiceMath', 'interimInvoiceLineItems', 'carryInterimLabour'];
 SHARED.forEach(name => {
   const a = extractFn(LIB, name, 'lib/invoices.js');
   const b = extractFn(SRC, name, 'public/index.html');
@@ -318,6 +318,35 @@ const TINS = [{ amount: 180 }, { amount: 320 }];
     { description: 'Less: interim invoice INV-0042', quantity: 1, unitAmount: -1920, accountCode: '201' },
     { description: 'Less: interim invoice INV-0051', quantity: 1, unitAmount: -1200, accountCode: '201' }
   ]);
+}
+
+// ── A line that left the quote: its billing carried to the one that replaced it
+{
+  // The David Porter job: interim 1 billed the old exterior windows item at
+  // 25% (£812.48) and the joinery in full; the windows were then redrawn as
+  // Windows & Doors and the old item deleted.
+  const existing = [{ id: 'i1', jobId: 'j', type: 'interim', sequence: 1, labourAmount: 2812.48, depositApplied: 0, subtotal: 3270,
+    labourLines: [{ key: 'exterior:old', description: 'Prepping and painting of windows', pct: 25, amount: 812.48 },
+                  { key: 'custom:joinery', description: 'Joinery Work @ Day Rate', pct: 100, amount: 2000 }],
+    variationLines: [], materialLines: [] }];
+  const lines = [{ key: 'windoors:windoors', lineTotal: 2351.53 }, { key: 'custom:joinery', lineTotal: 2000 }];
+  const so = lib.billingSoFar(existing);
+  const carried = lib.carryInterimLabour(so.labour, { 'exterior:old': 'windoors:windoors' }, lines);
+  eq('carry: the old line\'s £ counts against the new one, as that far through', carried['windoors:windoors'], { pct: 34.55, billed: 812.48 });
+  check('carry: ...and the old line is gone', !carried['exterior:old']);
+  eq('carry: the browser copy agrees', JSON.parse(JSON.stringify(sandbox.carryInterimLabour(so.labour, { 'exterior:old': 'windoors:windoors' }, lines))), carried);
+  eq('carry: nothing chosen, nothing moves', lib.carryInterimLabour(so.labour, {}, lines), so.labour);
+  eq('carry: not while the old line is still on the quote', lib.carryInterimLabour(so.labour, { 'exterior:old': 'windoors:windoors' }, lines.concat([{ key: 'exterior:old', lineTotal: 3000 }]))['exterior:old'], so.labour['exterior:old']);
+  eq('carry: not to a line that isn\'t on the quote', lib.carryInterimLabour(so.labour, { 'exterior:old': 'nope' }, lines), so.labour);
+  const wd = { key: 'windoors:windoors', description: 'Exterior windows and doors', lineTotal: 2351.53, pct: 100, prevPct: 34.55, billedBefore: 812.48 };
+  const joinery = { key: 'custom:joinery', description: 'Joinery Work @ Day Rate', lineTotal: 2000, pct: 100, prevPct: 100, billedBefore: 2000 };
+  const plan = lib.planInterimInvoice({ existing, depositTotal: 0, body: { idempotencyKey: 'carry0123456789', labour: [wd, joinery], variations: [], materials: [],
+    carry: { 'exterior:old': 'windoors:windoors' } } });
+  eq('carry: the interim bills the windows less what was billed on the old line', plan.row && plan.row.labourLines.map(l => [l.key, l.prevPct, l.amount]), [['windoors:windoors', 34.55, 1539.05]]);
+  const noCarry = lib.planInterimInvoice({ existing, depositTotal: 0, body: { idempotencyKey: 'carry1123456789', labour: [wd, joinery], variations: [], materials: [] } });
+  check('carry: the server refuses a "billed before" it wasn\'t told to carry', noCarry.conflict === true, noCarry);
+  const later = existing.concat([Object.assign({ id: 'i2', jobId: 'j' }, plan.row)]);
+  eq('carry: after that, the new line reads as invoiced in full', lib.carryInterimLabour(lib.billingSoFar(later).labour, { 'exterior:old': 'windoors:windoors' }, lines)['windoors:windoors'], { pct: 100, billed: 2351.53 });
 }
 
 // ── The Xero payload ────────────────────────────────────────────────────────
