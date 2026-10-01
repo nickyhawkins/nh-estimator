@@ -206,13 +206,14 @@ const MONEY = /£|\b\d+\.\d\d\b/;
     windoors = { jobId: 'j1', property: Object.assign({ job_id: 'j1' }, fx.data.property), openings: fx.data.openings, marks: fx.data.marks };
     const m = buildFinalInvoiceModel();
     const wd = m.labour.filter(l => l.wd);
-    const vars = windoorsVariationLines();
+    const vars = windoorsFoundLines();
     return {
       wd: wd.map(l => ({ amount: l.amount, quoted: l.quoted, site: l.site })),
       otherWd: m.variations.filter(l => /windows|resin/i.test(l.desc)).length,
       text: wdInvoiceText({ report: 'attached' }),
-      pendingRaw: vars.filter(v => v.status === 'pending').reduce((t, v) => t + v.raw, 0),
-      approvedRaw: vars.filter(v => v.status === 'approved').reduce((t, v) => t + v.raw, 0),
+      // Found on site (v3.3.0): every window's site work, nothing pending.
+      pendingRaw: 0,
+      approvedRaw: vars.reduce((t, v) => t + v.raw, 0), windows: vars.length,
       adj: wdAdjustments().raw, sPct: (settings.sundriesPct || 0) / 100,
       varMk: (1 + commercialRatio()) * (effectiveMarkupType() === 'fixed' ? 1 : 1 + effectiveMarkup() / 100),
     };
@@ -222,7 +223,7 @@ const MONEY = /£|\b\d+\.\d\d\b/;
     const want = (app.approvedRaw + app.pendingRaw + app.adj) * (1 + app.sPct) * app.varMk;
     near('6. its amount is the quote plus every site addition', app.wd[0].amount, app.wd[0].quoted + Math.round(want * 100) / 100);
     check('6. ...above the quote, the site work being extra', app.wd[0].amount > app.wd[0].quoted);
-    check('6. ...and the site additions are there to be billed', app.wd[0].site.amount > 0.005 && app.wd[0].site.pending === 1 && app.wd[0].site.approved === 1, app.wd[0].site);
+    check('6. ...and the site additions are there to be billed, a window at a time', app.wd[0].site.amount > 0.005 && app.wd[0].site.found === app.windows && app.windows > 0, app.wd[0].site);
   }
   eq('6. the counts and colours on the line', app.text,
     'Exterior windows and doors: preparation and painting of outside faces, 19 windows and 3 doors. Full breakdown of work per opening in attached report. Colours: Dead Salmon (frames), Off-Black (doors).');

@@ -1634,6 +1634,36 @@
     return sentences.join(' ');
   }
 
+  // Found on site (v3.3.0): everything done on one opening beyond the quote,
+  // across every site record bar the ones in `skip` (declined, by variation
+  // id), as one clause -- "reputty x5 panes, prep raised to heavy". Prep is
+  // the NET change from what the quote priced, so a level raised and then
+  // lowered back says nothing at all. '' when there's nothing.
+  function describeOpeningSite(data, openingId, skip) {
+    skip = skip || {};
+    var openings = liveOpenings(data && data.openings, data && data.property);
+    var o = openings.find(function (x) { return x.id === openingId; });
+    if (!o) return '';
+    var property = (data && data.property) || {};
+    var sc = scopeMap(openings)[o.id] || {};
+    var bits = [];
+    if (sc.variationId && !sc.excluded) {
+      if (!skip[sc.variationId]) bits.push('added to the job, ' + prepLabel(effectivePrep(o, property)).toLowerCase() + ' prep and paint');
+    } else {
+      var chain = prepChain(o, property).filter(function (st) { return !skip[st.variation_id || 'unassigned']; });
+      if (chain.length) {
+        var from = chain[0].from, to = chain[chain.length - 1].to;
+        if (from !== to) bits.push('prep ' + (prepRank(to) > prepRank(from) ? 'raised' : 'lowered') + ' to ' + prepLabel(to).toLowerCase());
+      }
+    }
+    var mine = ((data && data.marks) || []).filter(function (m) {
+      return m.opening_id === o.id && m.stage === 'variation' && !skip[m.variation_id || 'unassigned'];
+    });
+    var clause = marksClause(o, mine);
+    if (clause) bits.push(clause);
+    return bits.join(', ');
+  }
+
   // The fixture's quote/invoice item line: what is included, in words, e.g.
   // "Exterior windows and doors (outside faces): 8 sash windows, 1 front door."
   // Quote-stage marked work is summarised briefly after it.
@@ -3148,7 +3178,26 @@
       if (!sc.variationId) prepChain(o, property).forEach(function (st) {
         if (approved[st.variation_id]) byVar[st.variation_id] = byVar[st.variation_id] || [];
       });
-      Object.keys(byVar).forEach(function (vid) {
+      // The client's report (v3.3.0): everything found on site on this
+      // opening as one line -- it was done as needed, not batch by batch --
+      // with prep as the net change from the quote.
+      if (!todo) {
+        var all = [], ch = [];
+        Object.keys(byVar).forEach(function (vid) { if (approved[vid]) all = all.concat(byVar[vid]); });
+        if (!sc.variationId) ch = prepChain(o, property).filter(function (st) { return approved[st.variation_id]; });
+        var fparts = [];
+        if (ch.length && ch[0].from !== ch[ch.length - 1].to) {
+          var pto = ch[ch.length - 1].to;
+          fparts.push('prep ' + (prepRank(pto) > prepRank(ch[0].from) ? 'raised' : 'lowered') + ' to ' + prepLabel(pto).toLowerCase());
+        }
+        var fc = marksClause(o, all, { tiers: 'long' });
+        if (fc) fparts.push(fc);
+        if (fparts.length) {
+          var ft = fparts.join(', ');
+          varied.push({ text: ft.charAt(0).toUpperCase() + ft.slice(1), approvedAt: null });
+        }
+      }
+      if (todo) Object.keys(byVar).forEach(function (vid) {
         var v = approved[vid];
         if (!v) return;
         var parts = [];
@@ -3405,6 +3454,8 @@
       if (!sc.variationId) prepChain(o, property).forEach(function (st) {
         if (approved[st.variation_id]) { prep = st.to; prepOnSite = true; }
       });
+      // Raised and lowered back again: no change, nothing to flag.
+      if (prepOnSite && prep === quotePrep(o, property)) prepOnSite = false;
       if (sc.variationId && ownScope(o).variationId) items.push({ text: 'Added to the job on site', onSite: true });
       if (prepOnSite) items.push({ text: 'Preparation: ' + prepLabel(prep).toLowerCase() + ' (changed on site)', onSite: true });
       else if (prepRank(prep) > prepRank(dflt)) items.push({ text: 'Preparation: ' + prepLabel(prep).toLowerCase(), onSite: !!sc.variationId });
@@ -3476,7 +3527,7 @@
     out += '<p class="wdr-note">Outside faces only. Openings are numbered left to right as you face each side of the house. Only work ticked off as done is listed.</p>';
     out += '<div class="wdr-key"><span><i class="wdr-sw" style="background:' + PAL.work + '"></i>work</span>'
       + '<span><i class="wdr-sw" style="background:' + PAL.glassWork + '"></i>glass replaced</span>'
-      + '<span><i class="wdr-sw" style="background:rgba(240,160,32,.25);border:2px dashed #c07a00"></i>agreed as a variation</span></div>';
+      + '<span><i class="wdr-sw" style="background:rgba(240,160,32,.25);border:2px dashed #c07a00"></i>found on site</span></div>';
     model.sides.forEach(function (side) {
       out += '<div class="wdr-side"><h3>' + esc(sideLabel(side)) + '</h3>';
       out += elevationSvg(reportData, side, { highlight: model.highlight, markers: false, maxWidth: 460 });
@@ -3487,7 +3538,7 @@
           out += '<div class="wdr-k">Quoted work</div><ul>' + sec.quoted.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>';
         }
         if (sec.variations.length) {
-          out += '<div class="wdr-k">Approved variations</div><ul>' + sec.variations.map(function (v) {
+          out += '<div class="wdr-k">Found on site</div><ul>' + sec.variations.map(function (v) {
             return '<li>' + esc(v.text) + (v.approvedAt ? ' <span style="color:#5a6270">(approved ' + esc(fmtDate(v.approvedAt)) + ')</span>' : '') + '</li>';
           }).join('') + '</ul>';
         }
@@ -3518,7 +3569,7 @@
     effectivePrep: effectivePrep, quotePrep: quotePrep, prepChange: prepChange, prepChangeText: prepChangeText, prepSteps: prepSteps, prepChain: prepChain, prepStep: prepStep, baseMinutes: baseMinutes, paintedMinutes: paintedMinutes,
     REPAIR_TIERS: REPAIR_TIERS, isTiered: isTiered, repairTierDef: repairTierDef, repairTierRank: repairTierRank, markTier: markTier, agreedTier: agreedTier,
     isUpgraded: isUpgraded, repairCount: repairCount, MAX_REPAIRS: MAX_REPAIRS, actionPrice: actionPrice, markPrice: markPrice, tierStamps: tierStamps,
-    ratesMinutes: ratesMinutes, priceJob: priceJob, openingPaintM2: openingPaintM2, paintAreas: paintAreas, marksClause: marksClause, describeVariation: describeVariation, itemLineText: itemLineText,
+    ratesMinutes: ratesMinutes, priceJob: priceJob, openingPaintM2: openingPaintM2, paintAreas: paintAreas, marksClause: marksClause, describeVariation: describeVariation, describeOpeningSite: describeOpeningSite, itemLineText: itemLineText,
     workFlags: workFlags, elevationSvg: elevationSvg, detailSvg: detailSvg,
     OTHER_PAINT: OTHER_PAINT, otherName: otherName, PORCH_STYLES: PORCH_STYLES, sideGeometry: sideGeometry, otherDraw: otherDraw, otherDoor: otherDoor, porchStyleFor: porchStyleFor, porchPreviewSvg: porchPreviewSvg, drawPorchGlyph: drawPorchGlyph, OTHER_PRICING: OTHER_PRICING, OTHER_UNITS: OTHER_UNITS, OTHER_MAX_MINS: OTHER_MAX_MINS, OTHER_MAX_PRICE: OTHER_MAX_PRICE,
     otherPricing: otherPricing, otherUnit: otherUnit, otherSetPrice: otherSetPrice, ownScope: ownScope, scopeMap: scopeMap, openingScope: openingScope, quotedOpenings: quotedOpenings, untickedMarks: untickedMarks, reportableMarks: reportableMarks,

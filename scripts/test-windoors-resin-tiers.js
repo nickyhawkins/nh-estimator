@@ -120,7 +120,7 @@ const SEED = () => {
   }, [id, tier]);
   const state = () => page.evaluate(() => {
     const p = Windoors.priceJob(windoors, wdRates());
-    return { quoteMins: Math.round(p.quote.mins * 100) / 100, adj: wdAdjustments(), vars: windoorsVariationLines().map(l => Math.round(l.raw * 100) / 100),
+    return { quoteMins: Math.round(p.quote.mins * 100) / 100, adj: wdAdjustments(), vars: windoorsFoundLines().map(l => Math.round(l.raw * 100) / 100),
              marks: windoors.marks.map(m => ({ id: m.id, size: m.size_tier || null, agreed: m.agreed_size_tier || null, up: !!m.upgraded_at })) };
   });
   const R = await page.evaluate(() => wdRates().actions.resin);
@@ -173,27 +173,26 @@ const SEED = () => {
   eq('4. ...and so is the adjustment', s4.adj.items.length, 0);
   check('4. tapped XL again', await tap('r1', 'xlarge'));
 
-  // ── A repair found on site: a variation, then an upgrade once sent ───────
+  // ── A repair found on site (v3.3.0): never locked, priced as it is ───────
   await page.evaluate(() => { wdSel = { kind: 'part', ids: { left_stile: true } }; wdApplyAction('resin'); });
   const vm = await page.evaluate(() => windoors.marks.find(m => m.element_id === 'left_stile'));
   eq('5. a new repair starts at the last size used', vm.size_tier, 'xlarge');
-  eq('5. ...as a variation', vm.stage, 'variation');
+  eq('5. ...found on site', vm.stage, 'variation');
   const d0 = (await state()).vars[0];
-  check('5. tapped M on the draft', await tap(vm.id, 'medium'));
+  check('5. tapped M', await tap(vm.id, 'medium'));
   const s5 = await state();
-  near('5. a draft\'s size edits move the variation', s5.vars[0] - d0, -((R.tiers.xlarge.mins - R.tiers.medium.mins) * rpm + (R.tiers.xlarge.cost - R.tiers.medium.cost)));
+  near('5. its size moves the window\'s found work', s5.vars[0] - d0, -((R.tiers.xlarge.mins - R.tiers.medium.mins) * rpm + (R.tiers.xlarge.cost - R.tiers.medium.cost)));
   eq('5. ...not the adjustments (only the quote repair\'s)', s5.adj.items.map(i => i.mark_id), ['r1']);
-  await page.evaluate(() => wdCloseDraftsSent([{ kind: 'windoors', sourceId: wdVariationList()[0].id }]));
-  eq('5. sending it locks its repair', (await state()).marks.find(m => m.id === vm.id).agreed, 'medium');
-  await page.evaluate(() => renderWdDetail());
-  eq('5. ...so below it is off', await offered(vm.id), ['small!', 'medium*', 'large', 'xlarge']);
-  check('5. tapped L on the sent repair', await tap(vm.id, 'large'));
+  await page.evaluate(() => { wdStampTiers(); renderWdDetail(); });
+  eq('5. nothing locks it: nobody agreed a size', (await state()).marks.find(m => m.id === vm.id).agreed, null);
+  eq('5. ...so every size is offered', await offered(vm.id), ['small', 'medium*', 'large', 'xlarge']);
+  check('5. tapped L', await tap(vm.id, 'large'));
   const s6 = await state();
-  near('5. the sent variation holds its price', s6.vars[0], s5.vars[0]);
-  eq('5. the upgrade is an adjustment', s6.adj.items.map(i => i.mark_id).sort(), ['r1', vm.id].sort());
-  await page.evaluate((id) => { const v = wdVariationList()[0]; v.variationStatus = 'declined'; }, vm.id);
-  eq('5. a declined variation\'s upgrade is not billed', (await state()).adj.items.map(i => i.mark_id), ['r1']);
-  await page.evaluate(() => { const v = wdVariationList()[0]; v.variationStatus = 'approved'; });
+  near('5. the found work is priced at the bigger size', s6.vars[0] - s5.vars[0], (R.tiers.large.mins - R.tiers.medium.mins) * rpm + (R.tiers.large.cost - R.tiers.medium.cost));
+  eq('5. ...and it is not an adjustment', s6.adj.items.map(i => i.mark_id), ['r1']);
+  // A size stamped on a batch sent before v3.3.0 is lifted once folded in.
+  await page.evaluate((id) => { const m = windoors.marks.find(x => x.id === id); m.agreed_size_tier = 'medium'; m.upgraded_at = '2026-09-29T09:00:00Z'; wdStampTiers(); }, vm.id);
+  eq('5. an old stamped size is lifted', (await state()).marks.find(m => m.id === vm.id), { id: vm.id, size: 'large', agreed: null, up: false });
 
   // ── The final invoice: on the one windows and doors line ─────────────────
   // (WINDOWS_DOORS_INVOICE_SPEC.md: all of it is ONE line, quote + site.)
@@ -206,7 +205,7 @@ const SEED = () => {
 
   // ── Amending re-agrees the repairs ───────────────────────────────────────
   await page.evaluate(() => wdStampTiers({ restamp: true }));
-  eq('7. amending folds the quote repair\'s upgrade into the quote', (await state()).adj.items.map(i => i.mark_id), [vm.id]);
+  eq('7. amending folds the quote repair\'s upgrade into the quote', (await state()).adj.items.map(i => i.mark_id), []);
 
   // ── Two repairs on one part (v2.93.0) ─────────────────────────────────────
   await page.evaluate(async () => {

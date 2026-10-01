@@ -166,6 +166,12 @@ function variationHtml(v, base) {
     // to answer (RESIN_REPAIR_TIERS_SPEC.md).
     state = '<div class="state approved">Per the quote terms: repairs are priced on their estimated size '
       + 'and adjusted once exposed. Added to your final invoice.</div>';
+  } else if (v.kind === 'windoorsfound') {
+    // Found on site (v3.3.0): agreed at the outset to be done as needed, so
+    // shown for the running total, nothing to answer.
+    state = '<div class="state approved">' + (v.amount < 0
+      ? 'Found on site: less preparation than quoted — taken off your final invoice'
+      : 'Found on site, done as needed as agreed — added to your final invoice') + '</div>';
   } else if (v.amount < 0 && v.status !== 'declined') {
     // A credit: money off, nothing to answer (see the publish route).
     state = '<div class="state approved">Credit — taken off your final invoice</div>';
@@ -220,7 +226,7 @@ function quotePage(view, base, flash) {
       + '<div class="note">The price already agreed for the original scope of work. Unchanged.</div>'
       + '</div>';
 
-  const pending = view.variations.filter(v => v.status === 'pending' && !(v.amount < 0) && v.kind !== 'windoorsadj').length;
+  const pending = view.variations.filter(v => v.status === 'pending' && !(v.amount < 0) && v.kind !== 'windoorsadj' && v.kind !== 'windoorsfound').length;
   const variations = '<div class="card"><h2>Extras since then</h2>'
     + (view.variations.length
         ? view.variations.map(v => variationHtml(v, base)).join('')
@@ -288,12 +294,16 @@ function quotePage(view, base, flash) {
 // than assuming the arithmetic is obvious.
 function breakdownText(view) {
   const adj = v => v.kind === 'windoorsadj';
-  const n = view.variations.filter(v => v.status === 'approved' && !(v.amount < 0) && !adj(v)).length;
-  const c = view.variations.filter(v => v.status === 'approved' && v.amount < 0).length;
+  const found = v => v.kind === 'windoorsfound';
+  const n = view.variations.filter(v => v.status === 'approved' && !(v.amount < 0) && !adj(v) && !found(v)).length;
+  const c = view.variations.filter(v => v.status === 'approved' && v.amount < 0 && !found(v)).length;
   const credits = c ? ', less ' + (c === 1 ? 'a credit' : c + ' credits') : '';
   const repairs = view.variations.some(v => adj(v) && v.status === 'approved' && v.amount > 0)
     ? ', plus repair size adjustments' : '';
-  return breakdownBase(view, n) + credits + repairs;
+  const foundNet = view.variations.filter(v => found(v) && v.status === 'approved').reduce((t, v) => t + (+v.amount || 0), 0);
+  const foundText = Math.abs(foundNet) > 0.005
+    ? (foundNet > 0 ? ', plus windows and doors work found on site' : ', less a windows and doors credit') : '';
+  return breakdownBase(view, n) + credits + repairs + foundText;
 }
 function breakdownBase(view, n) {
   if (view.originalTotal == null) {

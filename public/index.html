@@ -246,7 +246,7 @@ select.field-input{-webkit-appearance:none;appearance:none;background-image:url(
 .breakdown-row{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border)}
 .breakdown-row:last-child{border-bottom:none}
 .breakdown-label{font-size:14px;color:var(--text2)}
-.breakdown-value{font-family:'DM Mono',monospace;font-size:14px;font-weight:500}
+.breakdown-value{font-family:'DM Mono',monospace;font-size:14px;font-weight:500;white-space:nowrap}
 .colour-schedule-row{padding:12px 16px;border-bottom:1px solid var(--border)}
 .colour-schedule-row:last-child{border-bottom:none}
 .colour-schedule-room{font-size:14px;color:var(--text2);margin-bottom:2px}
@@ -6923,10 +6923,12 @@ function persistJobData(job) {
   // a reload from the server dropped them, orphaning their marks (which are
   // saved on the server) -- see wdRecoverVariations(). Omitted, not [], when
   // this copy has none, so a phone that never held the list can't wipe it.
+  // windoorsFound: the found-on-site lines as last worked out with the rows
+  // in memory (windoorsFoundLines), so a phone without them still bills them.
   // interimDraft: the interim invoice builder's saved-as-you-go draft,
   // idempotency key included (STAGED_INVOICING_SPEC.md) -- null, not omitted,
   // once issued, or the merge would keep the spent draft forever.
-  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, quoteTextEdited: job.quoteTextEdited != null ? job.quoteTextEdited : null, invoiceTextEdited: job.invoiceTextEdited != null ? job.invoiceTextEdited : null, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, variationBaselinesAt: job.variationBaselinesAt || null, variationBaselinesLate: !!job.variationBaselinesLate, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, deposit: job.deposit, notes: job.notes, kitchen: job.kitchen, fittedUnits: job.fittedUnits, fittedUnit: Array.isArray(job.fittedUnits) ? null : job.fittedUnit, customItems: job.customItems, isXeroImported: !!job.isXeroImported, honouredLabourAmount: job.honouredLabourAmount != null ? job.honouredLabourAmount : null, depositRequired: job.depositRequired !== false, upchargeTotal: job.upchargeTotal != null ? job.upchargeTotal : null, roundingDelta: job.roundingDelta != null ? job.roundingDelta : null, interimDraft: job.interimDraft || null, interimCarry: job.interimCarry || null, windoorsVariations: Array.isArray(job.windoorsVariations) ? job.windoorsVariations : undefined, exteriorLineLayout: job.exteriorLineLayout || undefined });
+  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, quoteTextEdited: job.quoteTextEdited != null ? job.quoteTextEdited : null, invoiceTextEdited: job.invoiceTextEdited != null ? job.invoiceTextEdited : null, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, variationBaselinesAt: job.variationBaselinesAt || null, variationBaselinesLate: !!job.variationBaselinesLate, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, deposit: job.deposit, notes: job.notes, kitchen: job.kitchen, fittedUnits: job.fittedUnits, fittedUnit: Array.isArray(job.fittedUnits) ? null : job.fittedUnit, customItems: job.customItems, isXeroImported: !!job.isXeroImported, honouredLabourAmount: job.honouredLabourAmount != null ? job.honouredLabourAmount : null, depositRequired: job.depositRequired !== false, upchargeTotal: job.upchargeTotal != null ? job.upchargeTotal : null, roundingDelta: job.roundingDelta != null ? job.roundingDelta : null, interimDraft: job.interimDraft || null, interimCarry: job.interimCarry || null, windoorsVariations: Array.isArray(job.windoorsVariations) ? job.windoorsVariations : undefined, windoorsFound: Array.isArray(job.windoorsFound) ? job.windoorsFound : undefined, exteriorLineLayout: job.exteriorLineLayout || undefined });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -9828,7 +9830,7 @@ function variationRawOf(kind, obj) {
   if (!obj) return null;
   var carrier = String(kind).replace(/delta$/, '');
   if (carrier === 'free') return null; // typed figure; changing it is explicit
-  if (carrier === 'windoors') return windoorsVariationRaw(obj.id);
+  if (carrier === 'windoors' || carrier === 'windoorsfound') return null; // never signed off (v3.3.0)
   if (/delta$/.test(kind)) {
     var d = variationDeltaOf(carrier, obj);
     return d ? d.raw : 0;
@@ -10002,14 +10004,16 @@ function computeVariationsView(roomCalcs, extCalcs, kitchenCalc) {
     if (fuSt !== 'declined') { varLabour+=fc.total; varTime+=fc.time; }
     if (fuSt === 'approved') appLabour+=fc.total;
   });
-  // Windows and doors marked on site: one line per draft/sent variation.
+  // Windows and doors found on site (v3.3.0): one line per window, always
+  // approved -- agreed at the outset, nothing to ask.
   // Deliberately NOT added to the *All accumulators: those are subtracted
   // from the Summary job total to leave original scope, and on-site marks
   // were never IN that total (calcWindoors() prices the quote stage only).
-  windoorsVariationLines(job).forEach(function(l) {
-    var wSt = addLine('windoors', l.id, l.name, l.raw, l.obj);
-    if (wSt !== 'declined') { varLabour += l.raw; varTime += l.time; }
-    if (wSt === 'approved') appLabour += l.raw;
+  windoorsFoundLines(job).forEach(function(l) {
+    addLine(l.kind, l.id, l.name, l.raw, l.obj);
+    var last = varLines[varLines.length - 1];
+    last.label = l.label; last.work = l.work;
+    varLabour += l.raw; varTime += l.time; appLabour += l.raw;
   });
   // ── Extra work inside an already-measured carrier (Part 2) ──────────────
   // A classified delta is a variation line like any other. An UNCLASSIFIED one
@@ -10530,6 +10534,26 @@ function offerVariationDeltaOnSave(kind, obj) {
   openVariationDeltaSheet(kind, carrierId(kind, obj));
 }
 
+// Windows and doors found on site (v3.3.0), as one block on the Variations
+// card: a heading saying what it is, then a row per window -- its name, what
+// was found, its figure. No sign-off: nothing here is asked of the client.
+function wdFoundGroupHtml(lines, varMk) {
+  if (!lines.length) return '';
+  var total = lines.reduce(function(t, l) { return t + l.raw; }, 0);
+  var h = '<div class="breakdown-row" onclick="openWindoors(\'site\')" style="cursor:pointer;background:var(--surface2)">'
+    + '<span class="breakdown-label">Windows and doors \u2014 found on site'
+    + '<small style="display:block;font-weight:400;color:var(--text2)">agreed at the outset: done as needed, no approval \u00b7 '
+    + '<span style="color:var(--accent);font-weight:600;text-decoration:underline">open</span></small></span>'
+    + '<span class="breakdown-value" style="white-space:nowrap">' + fmtSigned(total * varMk) + '</span></div>';
+  lines.forEach(function(l) {
+    h += '<div class="breakdown-row" style="padding-left:28px">'
+      + '<span class="breakdown-label" style="font-weight:600">' + escapeHtml(l.label || l.name)
+      + (l.work ? '<small style="display:block;font-weight:400;color:var(--text2)">' + escapeHtml(l.work) + '</small>' : '')
+      + '</span><span class="breakdown-value" style="white-space:nowrap;font-weight:500">' + fmtSigned(l.raw * varMk) + '</span></div>';
+  });
+  return h;
+}
+
 function variationsCardHtml(v) {
   var varLines = v.varLines, freeVars = v.freeVars, varSundries = v.varSundries,
       varMk = v.varMk, variationsTotal = v.variationsTotal;
@@ -10573,16 +10597,13 @@ function variationsCardHtml(v) {
       + '<span class="breakdown-value" style="color:var(--warn,#f39c12)">'
       + (down ? '\u2212' : '+') + fmt(Math.abs(amount)) + '</span></div>';
   });
+  rows += wdFoundGroupHtml(varLines.filter(function(l) { return l.kind === 'windoorsfound'; }), varMk);
   varLines.forEach(function(l) {
+    if (l.kind === 'windoorsfound') return;
     var sub = /delta$/.test(l.kind)
       ? 'added since the quote \u2014 <span onclick="event.stopPropagation();editVariationDeltaNote(\''
         + l.kind + '\',\'' + l.id + '\')" style="color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline">'
         + 'reword for the client</span>'
-      : l.kind === 'windoors'
-        ? (findVariationEntry('windoors', l.id) && !findVariationEntry('windoors', l.id).obj.sentAt && l.status === 'pending' ? 'draft \u2014 ' : '')
-          + (l.raw < 0 ? 'a credit, prep lowered on site \u2014' : 'marked on site \u2014')
-          + ' <span onclick="event.stopPropagation();openWindoors(\'site\')" style="color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline">open</span> \u00b7 '
-          + '<span onclick="event.stopPropagation();rewordWindoorsVariation(\'' + l.id + '\')" style="color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline">reword for the client</span>'
       : 'measured item \u2014 edit from its own form';
     rows += '<div class="breakdown-row"><span class="breakdown-label"><span'+(l.status==='declined'?' style="'+struck+'"':'')+'>'+escapeHtml(l.name)+'</span><small style="display:block;font-weight:400;color:var(--text2)">'+sub+'</small>'+
       variationSignoffHtml(l.kind, l.id, l.status, l.approvedAt, l.note)+'</span>'+
@@ -10757,10 +10778,11 @@ function buildClientVariationLines() {
   fittedUnitList(job).forEach(function(f) {
     if (f.isVariation) measured('fittedunit', f.id, fittedUnitName(f), calcFittedUnit(f), f);
   });
-  // Windows and doors marked on site: priced like any measured labour
-  // (sundries share + markup folded in), one line per variation.
-  windoorsVariationLines(job).forEach(function(l) {
-    add('windoors', l.id, l.name, (l.raw + l.raw * sPct) * varMk, l.status, l.credit);
+  // Windows and doors found on site (v3.3.0): priced like any measured
+  // labour (sundries share + markup folded in), one line per window. Shown,
+  // never asked about -- the server lands them approved and keeps them current.
+  windoorsFoundLines(job).forEach(function(l) {
+    add(l.kind, l.id, l.name, (l.raw + l.raw * sPct) * varMk, 'approved', l.credit);
   });
   // Repair size adjustments (RESIN_REPAIR_TIERS_SPEC.md): one line, shown so
   // the running total the client sees matches what will be invoiced, with
@@ -10965,10 +10987,15 @@ function clientApprovalBlockHtml(v) {
     else if (cv.status === 'declined') declined++;
     else awaiting++;
   });
+  // Only work found on site (v3.3.0) on the card: nothing for the client to
+  // answer, so the link is something to share, not an approval to ask for.
+  var onlyFound = v && !(v.freeVars || []).length && (v.varLines || []).every(function(l) { return l.kind === 'windoorsfound'; });
   var bits = '<button id="client-approval-btn" onclick="sendVariationsForApproval()" style="width:100%;background:var(--accent);color:white;border:none;border-radius:var(--rs);padding:10px;font-size:13px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer">'
-    + (url ? 'Update the client\'s approval page' : 'Send for approval') + '</button>';
+    + (url ? 'Update the client\'s page' : onlyFound ? 'Share with the client' : 'Send for approval') + '</button>';
   if (!url) {
-    bits += '<div style="font-size:11px;color:var(--text2);margin-top:6px">Creates a private link showing the original quote total, these extras and an Approve/Decline on each. No login for them, nothing to Xero.</div>';
+    bits += '<div style="font-size:11px;color:var(--text2);margin-top:6px">' + (onlyFound
+      ? 'Creates a private link showing the original quote total and the work found on site, window by window. Nothing for them to answer. No login for them, nothing to Xero.'
+      : 'Creates a private link showing the original quote total, these extras and an Approve/Decline on each. No login for them, nothing to Xero.') + '</div>';
   } else {
     bits += '<div style="margin-top:8px;font-size:11px;color:var(--text2)">Client link — press and hold to copy, or tap Copy:</div>'
       + '<div style="display:flex;gap:8px;align-items:center;margin-top:4px">'
@@ -11044,14 +11071,8 @@ function buildVariationQuoteLines() {
     var fc = calcFittedUnit(f);
     if (fc.total > 0.005) { sundriesBase += fc.total; items.push({ description: 'Variation: ' + fittedUnitName(f), amount: fc.total * varMk }); }
   });
-  windoorsVariationLines(job).forEach(function(l) {
-    // A credit isn't something to quote: Xero drops a line below zero from a
-    // quote, and there's nothing for the client to agree to. It comes off
-    // the final invoice (and shows on the approval link).
-    if (l.status !== 'pending' || l.credit) return;
-    sundriesBase += l.raw;
-    items.push({ description: 'Variation: ' + l.name, amount: l.raw * varMk });
-  });
+  // Windows and doors found on site (v3.3.0) are never pending: nothing to
+  // quote for.
   var hourlyRate = (settings.dr || 0) / (settings.hpd || 7);
   ((job && job.freeVariations) || []).forEach(function(fv) {
     if (variationStatusOf(fv) !== 'pending') return;
@@ -19094,12 +19115,49 @@ function interimBillingSoFar(job) {
   return {
     count: interims.length,
     hasFinal: all.some(function(i) { return i.type === 'final'; }),
-    labour: labour, variations: variations, billedQty: billedQty,
+    labour: labour, variations: wdCarryLegacyBilling(job, variations), billedQty: billedQty,
     labourBilled: interims.reduce(function(t, i) { return t + (+i.labourAmount || 0); }, 0),
     depositApplied: all.reduce(function(t, i) { return t + (+i.depositApplied || 0); }, 0),
     subtotal: all.reduce(function(t, i) { return t + (+i.subtotal || 0); }, 0),
     interimSubtotal: interims.reduce(function(t, i) { return t + (+i.subtotal || 0); }, 0)
   };
+}
+
+// Before v3.3.0 an interim billed windows and doors site work per batch
+// ('windoors:<variation id>'). Folded into found work, that billing carries
+// onto the windows it was for ('windoorsfound:<opening id>'), shared by what
+// each window's work in the batch is worth -- so the next interim bills each
+// window less what it has had, never twice. Shared by the lines' amounts when
+// the batch can't be priced here.
+function wdCarryLegacyBilling(job, variations) {
+  var old = Object.keys(variations).filter(function(k) { return /^windoors:/.test(k) && variations[k].billed > 0.005; });
+  if (!old.length || !job || job !== activeJob()) return variations;
+  var lines = buildClientVariationLines().filter(function(l) { return l.kind === 'windoorsfound' && l.amount > 0; });
+  if (!lines.length) return variations;
+  var amountOf = {};
+  lines.forEach(function(l) { amountOf[l.sourceId] = l.amount; });
+  var priced = wdLoadedForActiveJob() && job.id === activeJobId ? Windoors.priceJob(windoors, wdRates()).variations : {};
+  var r = rpm(), carried = {};
+  old.forEach(function(k) {
+    var vid = k.slice('windoors:'.length), billed = variations[k].billed;
+    var by = (priced[vid] && priced[vid].byOpening) || {};
+    var w = {}, tot = 0;
+    Object.keys(by).forEach(function(oid) {
+      var raw = by[oid].mins * r + by[oid].materials;
+      if (raw > 0 && amountOf[oid]) { w[oid] = raw; tot += raw; }
+    });
+    if (!(tot > 0)) lines.forEach(function(l) { w[l.sourceId] = l.amount; tot += l.amount; });
+    Object.keys(w).forEach(function(oid) { carried[oid] = (carried[oid] || 0) + billed * w[oid] / tot; });
+  });
+  var out = Object.assign({}, variations);
+  Object.keys(carried).forEach(function(oid) {
+    var key = 'windoorsfound:' + oid;
+    var t = Object.assign({ pct: 0, billed: 0, description: '', invoices: [] }, out[key] || {});
+    t.billed = Math.round((t.billed + carried[oid]) * 100) / 100;
+    t.pct = Math.max(t.pct, Math.min(100, Math.floor(t.billed / amountOf[oid] * 10000) / 100));
+    out[key] = t;
+  });
+  return out;
 }
 
 // The deposit actually RECEIVED -- never the plan's forecast. A deposit that
@@ -19181,7 +19239,7 @@ function interimVariationCandidates(job) {
     .map(function(l) {
       var key = l.kind + ':' + l.sourceId;
       var had = so.variations[key] || { pct: 0, billed: 0 };
-      return { key: key, kind: l.kind, sourceId: l.sourceId, description: 'Variation: ' + l.description,
+      return { key: key, kind: l.kind, sourceId: l.sourceId, description: (l.kind === 'windoorsfound' ? 'Found on site: ' : 'Variation: ') + l.description,
                lineTotal: l.amount, amount: l.amount, prevPct: had.pct, billedBefore: had.billed };
     });
 }
@@ -19368,7 +19426,7 @@ function interimInvoiceLineItems(p) {
       (pct(l.prevPct) > 0 ? ' (previously invoiced ' + fmtInvoicePct(l.prevPct) + '%)' : '');
   };
   var billing = function(l) { return Math.abs(+l.amount || 0) > 0.005; };
-  var isWd = function(l) { return !!p.windoors && /^windoors(adj)?:/.test(String(l.key || '')); };
+  var isWd = function(l) { return !!p.windoors && /^windoors(adj|found)?:/.test(String(l.key || '')); };
   var notWd = function(l) { return !isWd(l); };
   var labour = (p.labour || []).filter(notWd);
   var first = labour[0];
@@ -19500,7 +19558,7 @@ function interimPreviewModel(job) {
     var asked = pcts[l.key];
     // Windows and doors added on site before this interim is raised are
     // billed on it in full (WINDOWS_DOORS_INVOICE_SPEC.md) unless a % was set.
-    if (asked == null && /^windoors(adj)?:/.test(l.key) && pcts === d.variationPcts) asked = 100;
+    if (asked == null && /^windoors(adj|found)?:/.test(l.key) && pcts === d.variationPcts) asked = 100;
     return Object.assign({}, l, { prevPct: prev, billedBefore: had ? had.billed : 0,
                                   pct: asked == null ? prev : asked });
   };
@@ -20429,23 +20487,13 @@ function buildFinalInvoiceModel() {
     var k = wdLines.some(function(l) { return l.wdKey === key; }) ? key : (wdLines[0] ? wdLines[0].wdKey : '*');
     return wdSiteBy[k] || (wdSiteBy[k] = { amount: 0, pending: 0, approved: 0, adjustments: 0, vars: {} });
   };
-  var wdPricedVars = wdLoadedForActiveJob() && job && job.id === activeJobId ? Windoors.priceJob(windoors, wdRates()).variations : {};
-  var wdR = rpm();
-  windoorsVariationLines(job).forEach(function(l) {
-    if (l.status === 'declined') return;
-    var by = wdPricedVars[l.id] && wdPricedVars[l.id].byOpening;
-    var placed = 0;
-    if (by) Object.keys(by).forEach(function(oid) {
-      var raw = by[oid].mins * wdR + by[oid].materials;
-      if (Math.abs(raw) < 0.00001) return;
-      var st = siteOf(wdGroupKeyOf(oid));
-      st.amount += (raw + raw * wdSPct) * varMk;
-      st.vars[l.id] = l.status;
-      placed += raw;
-    });
-    // Whatever wasn't placed by opening (or all of it, rows not in memory).
-    var rest = l.raw - placed;
-    if (Math.abs(rest) > 0.00001) { var s0 = siteOf(null); s0.amount += (rest + rest * wdSPct) * varMk; s0.vars[l.id] = l.status; }
+  // Found on site (v3.3.0): a line per window, so each goes straight onto
+  // the line its window is billed on (all on the first when the rows aren't
+  // in memory here).
+  windoorsFoundLines(job).forEach(function(l) {
+    var st = siteOf(wdLoadedForActiveJob() ? wdGroupKeyOf(l.id) : null);
+    st.amount += (l.raw + l.raw * wdSPct) * varMk;
+    st.found = (st.found || 0) + 1;
   });
   var wdAdjInv = wdAdjustments(job);
   (wdAdjInv.items || []).forEach(function(it) {
@@ -25513,6 +25561,8 @@ async function loadWindoors(jobId) {
     apply(wdReadMirror(jobId));
   }
   wdRecoverVariations();
+  // Site work batched as variations before v3.3.0 becomes found work.
+  if (jobId === activeJobId) wdFoldInVariations();
   // Jobs accepted before repair tiers shipped (and anything answered since
   // the last look) lock their repairs' tiers now.
   wdStampTiers();
@@ -25523,8 +25573,8 @@ async function loadWindoors(jobId) {
 // bills) lives on the job. Before v2.88.1 that list never reached the server,
 // so a reload could drop it and leave the marks priced into a variation that
 // no longer existed -- on the window's own sheet, but billed nowhere. Any such
-// id gets its carrier back, as an unanswered draft: what was agreed (if
-// anything) went with the lost copy, so it's asked again rather than guessed.
+// id gets its carrier back, as found work (v3.3.0): site work is billed as
+// it's done, so there is nothing to ask again.
 function wdRecoverVariations() {
   if (windoors.jobId !== activeJobId) return 0;
   var job = activeJob();
@@ -25547,11 +25597,12 @@ function wdRecoverVariations() {
   var now = new Date().toISOString();
   job.windoorsVariations = wdVariationList(job).slice();
   order.forEach(function(id) {
-    job.windoorsVariations.push({ id: id, createdAt: lost[id].at || now, sentAt: null, description: '', recoveredAt: now });
+    job.windoorsVariations.push({ id: id, createdAt: lost[id].at || now, sentAt: now, description: '', recoveredAt: now,
+                                  found: true, variationStatus: 'approved', variationApprovedAt: now });
   });
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   persistJobData(job);
-  toast('Recovered ' + order.length + ' windows and doors variation' + (order.length === 1 ? '' : 's') + ' — check the Variations card');
+  toast('Recovered windows and doors work found on site — check the On Site list');
   return order.length;
 }
 
@@ -25605,68 +25656,123 @@ function wdGroupKeyOf(openingId) {
   var o = (windoors.openings || []).find(function(x) { return x.id === openingId; });
   return o ? Windoors.lineGroupOf(o, wdLineLayout()).key : 'windoors:windoors';
 }
-// ── Variations: the on-site drafts ────────────────────────────────────────
-// job.windoorsVariations: [{ id, createdAt, sentAt, description,
+// ── Found on site (v3.3.0) ────────────────────────────────────────────────
+// Windows and doors work found once the job is under way is NOT a variation
+// (per Nicky, 2026-10-01): it was agreed at the outset that what needs doing
+// gets done, and a rotten stile can't be found and then left. So there is
+// nothing to send and nothing to approve. Marks and prep changes made on site
+// go straight onto the job's site record, and are billed per WINDOW -- each
+// opening's on-site work netted against the quote, so a level raised and then
+// lowered back costs nothing and says nothing.
+//
+// job.windoorsVariations: [{ id, createdAt, sentAt, description, found,
 //   variationStatus, variationApprovedAt, variationApprovalNote,
-//   variationApprovedRaw }]. One carrier per draft, so the sign-off fields are
-// the same ones every other variation uses and findVariationEntry() can
-// resolve it like a free line.
+//   variationApprovedRaw }]. The marks still name one of these by id (the
+// rows carry variation_id), so the list stays: every entry that isn't
+// declined is FOUND work -- recorded, always approved, always editable. The
+// old per-batch drafts were folded in that way (wdFoldInVariations). A
+// declined one (only ever from before v3.3.0) is work that isn't being done.
 function wdVariationList(job) { job = job || activeJob(); return (job && Array.isArray(job.windoorsVariations)) ? job.windoorsVariations : []; }
-// The open draft: not yet sent, not yet answered. New site marks go here;
-// once it is sent (or answered by hand), the next mark starts a fresh one.
+function wdIsFound(v) { return !!v && variationStatusOf(v) !== 'declined'; }
+// Before v3.3.0 each batch of site marks was a variation of its own, sent and
+// answered. Fold them in: an unanswered one becomes found work like the rest
+// (approved, since it's being done), an answered one just carries on. A
+// declined one stays declined. Idempotent; writes the job only on a change.
+function wdFoldInVariations(job) {
+  job = job || activeJob();
+  if (!job) return 0;
+  var now = new Date().toISOString(), n = 0;
+  wdVariationList(job).forEach(function(v) {
+    if (!v || v.found || variationStatusOf(v) === 'declined') return;
+    v.found = true;
+    if (variationStatusOf(v) !== 'approved') {
+      v.variationStatus = 'approved';
+      v.variationApprovedAt = v.variationApprovedAt || now;
+    }
+    if (!v.sentAt) v.sentAt = now;
+    n++;
+  });
+  if (n) { localStorage.setItem('pe-jobs', JSON.stringify(jobs)); persistJobData(job); }
+  return n;
+}
+// The site record new marks go on: the job's first found entry, made on the
+// first mark. (The name is from when it was a draft for approval.)
 function wdDraft(create) {
   var job = activeJob();
   if (!job) return null;
-  var d = wdVariationList(job).find(function(v) { return !v.sentAt && variationStatusOf(v) === 'pending'; });
+  var d = wdVariationList(job).find(function(v) { return v.found && wdIsFound(v); });
   if (!d && create) {
+    var now = new Date().toISOString();
     job.windoorsVariations = wdVariationList(job).slice();
-    d = { id: uid(), createdAt: new Date().toISOString(), sentAt: null, description: '' };
+    d = { id: uid(), createdAt: now, sentAt: now, description: '', found: true,
+          variationStatus: 'approved', variationApprovedAt: now };
     job.windoorsVariations.push(d);
     localStorage.setItem('pe-jobs', JSON.stringify(jobs));
     persistJobData(job);
   }
   return d || null;
 }
-// A variation's marks can be changed only while nobody has answered it.
+// Site work can be changed while it's being done -- all of it, bar work on a
+// variation declined before v3.3.0.
 function wdVariationEditable(variationId) {
   var v = wdVariationList().find(function(x) { return x.id === variationId; });
-  return !v || variationStatusOf(v) === 'pending';
+  return !v || wdIsFound(v);
 }
-function wdVariationAutoText(id) { return Windoors.describeVariation(windoors, id); }
-function wdVariationText(v) {
-  return (v && v.description && v.description.trim()) || wdVariationAutoText(v && v.id) || 'Windows and doors work';
+// Declined entries, by id: their marks and prep aren't being done.
+function wdDeclinedIds(job) {
+  var out = {};
+  wdVariationList(job).forEach(function(v) { if (v && variationStatusOf(v) === 'declined') out[v.id] = true; });
+  return out;
 }
-// One line per variation with money in it, in the shape every variation
-// consumer reads: raw £ before sundries/markup, time in days.
-//
-// A line can be NEGATIVE (v2.91.0): prep lowered on site is a credit, netted
-// against the rest of its variation, and a variation that is mostly credit
-// comes out below zero. It's the one kind of variation that can -- every
-// consumer below takes the sign as it comes (credit: true marks it).
+// One line per OPENING with site work on it, in the shape every variation
+// consumer reads: kind 'windoorsfound', id the opening's id, raw £ before
+// sundries/markup, time in days, always approved. A line can be NEGATIVE --
+// an opening whose prep was lowered below the quote, and nothing else added,
+// is a credit (credit: true).
 //
 // A job whose rows are not in memory (offline on a phone that has never held
-// them) still has to bill what the client APPROVED -- that figure is on the
-// carrier as variationApprovedRaw, so it stands in rather than the line
-// silently disappearing off the final invoice.
-function windoorsVariationLines(job) {
+// them) still has to bill this, so the lines are kept on the job
+// (job.windoorsFound) every time they're worked out, and read from there.
+function windoorsFoundLines(job) {
   job = job || activeJob();
-  var list = wdVariationList(job);
-  if (!list.length) return [];
-  var loaded = job && job.id === activeJobId && wdLoadedForActiveJob();
-  var priced = loaded ? Windoors.priceJob(windoors, wdRates()).variations : {};
+  if (!job) return [];
+  var loaded = job.id === activeJobId && wdLoadedForActiveJob();
+  var obj = { variationStatus: 'approved' };
+  var line = function(c) {
+    return { kind: 'windoorsfound', id: c.id, obj: obj, raw: c.raw, time: c.time, status: 'approved',
+             credit: c.raw < -0.005, label: c.label, work: c.work,
+             name: 'Windows and doors — ' + c.label + (c.work ? ': ' + c.work : '') };
+  };
+  if (!loaded) return (Array.isArray(job.windoorsFound) ? job.windoorsFound : []).map(line);
+  var skip = wdDeclinedIds(job);
+  var priced = Windoors.priceJob(windoors, wdRates()).variations;
+  var per = {};
+  Object.keys(priced).forEach(function(vid) {
+    if (skip[vid]) return;
+    var by = priced[vid].byOpening || {};
+    Object.keys(by).forEach(function(oid) {
+      var e = per[oid] || (per[oid] = { mins: 0, materials: 0 });
+      e.mins += by[oid].mins; e.materials += by[oid].materials;
+    });
+  });
   var r = rpm(), hpd = settings.hpd || 7;
-  return list.map(function(v) {
-    var b = priced[v.id];
-    var raw = b ? b.mins * r + b.materials : 0;
-    var time = b ? b.mins / 60 / hpd : 0;
-    if (!loaded && variationStatusOf(v) === 'approved') raw = +v.variationApprovedRaw || 0;
-    return { kind: 'windoors', id: v.id, obj: v, raw: raw, time: time, status: variationStatusOf(v), credit: raw < -0.005,
-             name: 'Windows and doors — ' + wdVariationText(v) };
-  }).filter(function(l) { return Math.abs(l.raw) > 0.005; });
+  var cache = Windoors.sortOpenings(windoors.openings.filter(function(o) { return per[o.id]; })).map(function(o) {
+    var e = per[o.id];
+    return { id: o.id, raw: Math.round((e.mins * r + e.materials) * 10000) / 10000,
+             time: Math.round(e.mins / 60 / hpd * 10000) / 10000,
+             label: Windoors.openingLabel(o), work: Windoors.describeOpeningSite(windoors, o.id, skip) };
+  }).filter(function(c) { return Math.abs(c.raw) > 0.005; });
+  if (JSON.stringify(cache) !== JSON.stringify(job.windoorsFound || [])) {
+    job.windoorsFound = cache;
+    localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+    clearTimeout(windoorsFoundLines.t);
+    windoorsFoundLines.t = setTimeout(function() { persistJobData(job); }, 800);
+  }
+  return cache.map(line);
 }
-function windoorsVariationRaw(id) {
-  var l = windoorsVariationLines().find(function(x) { return x.id === id; });
-  return l ? l.raw : 0;
+// The found lines' total, raw £ before sundries and markup.
+function windoorsFoundRaw(job) {
+  return windoorsFoundLines(job).reduce(function(t, l) { return t + l.raw; }, 0);
 }
 // ── Repair size adjustments (RESIN_REPAIR_TIERS_SPEC.md) ──────────────────
 // A resin repair is quoted at a size, and the quote terms say repairs are
@@ -25684,9 +25790,12 @@ function wdJobAccepted(job) {
   var st = job && job.status;
   return st === 'accepted' || st === 'completed' || st === 'invoiced';
 }
+// Found work (v3.3.0) never locks: nobody agreed a size, so a repair is
+// simply priced at the size it turns out to be. Only a pre-v3.3.0 variation
+// that was sent or answered (and not folded in) still holds its tiers.
 function wdVariationLocked(id) {
   var v = wdVariationList().find(function(x) { return x.id === id; });
-  return !!v && (!!v.sentAt || variationStatusOf(v) !== 'pending');
+  return !!v && !v.found && (!!v.sentAt || variationStatusOf(v) !== 'pending');
 }
 // Bring every repair's lock up to date with the job: accepted or not, each
 // variation sent or not. Idempotent; writes only the marks that change.
@@ -25695,6 +25804,14 @@ function wdStampTiers(opts) {
   if (!wdLoadedForActiveJob()) return 0;
   var list = Windoors.tierStamps(windoors, { accepted: wdJobAccepted(activeJob()), variationLocked: wdVariationLocked,
                                              restamp: !!(opts && opts.restamp) });
+  // Found work's repairs hold no agreed size (v3.3.0) -- one stamped when its
+  // batch was sent, before then, is lifted, so a bigger repair is just the
+  // found work costing more rather than a separate adjustment.
+  windoors.marks.forEach(function(m) {
+    if (m.stage !== 'variation' || !Windoors.isTiered(m.action_key) || !Windoors.agreedTier(m)) return;
+    var v = wdVariationList().find(function(x) { return x.id === m.variation_id; });
+    if (v && v.found && wdIsFound(v)) list.push({ mark: m, agreed: null });
+  });
   list.forEach(function(c) {
     c.mark.agreed_size_tier = c.agreed;
     if (!Windoors.isUpgraded(c.mark)) c.mark.upgraded_at = null;
@@ -25775,18 +25892,6 @@ function wdCloseDraftsSent(lines) {
   if (changed) { localStorage.setItem('pe-jobs', JSON.stringify(jobs)); persistJobData(job); }
   // Sent: its repairs lock at the size the client was asked about.
   wdStampTiers();
-}
-function rewordWindoorsVariation(id) {
-  var job = activeJob();
-  var v = wdVariationList(job).find(function(x) { return x.id === id; });
-  if (!v) return;
-  var next = prompt('What the client sees for this variation (clear it to go back to the automatic wording):', wdVariationText(v));
-  if (next === null) return;
-  v.description = next.trim() === wdVariationAutoText(id) ? '' : next.trim();
-  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
-  persistJobData(job);
-  renderActuals(); renderSummary();
-  if (inSub === 'windoors') renderWindoors();
 }
 
 // ── Saving ────────────────────────────────────────────────────────────────
@@ -26122,15 +26227,13 @@ function renderWindoors() {
   }
   var html = '';
   if (site) {
-    var d = wdDraft(false);
-    var dLine = d ? windoorsVariationLines().find(function(l) { return l.id === d.id; }) : null;
+    var found = windoorsFoundLines();
+    var foundRaw = found.reduce(function(t, l) { return t + l.raw; }, 0);
     html += '<div class="card" style="padding:12px 14px;border:1px solid var(--accent)">'
-      + '<div style="font-size:13px;color:var(--text2);line-height:1.5">New marks and prep changed here are <b>variations</b> — prep lowered is a credit. The quote\'s own work is shown, locked. '
-      + 'They collect into a draft, sent for the client\'s approval from On Site › Variations.</div>'
-      + (dLine ? '<div style="margin-top:8px;font-size:13px"><b>Draft:</b> ' + escapeHtml(wdVariationText(d))
-          + ' <span style="color:var(--accent);font-weight:700">' + fmtSigned(variationDeltaAmount({ raw: dLine.raw, spray: 0 })) + (dLine.credit ? ' credit' : '') + '</span>'
-          + ' <span onclick="rewordWindoorsVariation(\'' + d.id + '\')" style="color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline;margin-left:4px">reword</span></div>' : '')
-      + '<div style="font-size:12px;color:var(--text2);margin-top:6px">A resin repair bigger than quoted: open the window and pick its size — an upgrade, not a variation.</div>'
+      + '<div style="font-size:13px;color:var(--text2);line-height:1.5">Work marked and prep changed here is <b>found on site</b>: done as needed, as agreed at the outset — nothing to send for approval. '
+      + 'It\'s billed window by window; prep lowered below the quote is a credit. The quote\'s own work is shown, locked.</div>'
+      + (found.length ? '<div style="margin-top:8px;font-size:13px"><b>Found so far:</b> ' + found.length + ' window' + (found.length === 1 ? '' : 's')
+          + ' <span style="color:var(--accent);font-weight:700;white-space:nowrap">' + fmtSigned(variationDeltaAmount({ raw: foundRaw, spray: 0 })) + '</span></div>' : '')
       + wdAdjustmentsRowHtml(null, 'margin-top:8px;padding-top:8px;border-top:1px solid var(--border)')
       + '</div>';
   } else {
@@ -26162,7 +26265,7 @@ function renderWindoors() {
   html += wdSideCardHtml();
   html += '<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--text2);margin:6px 2px 12px">'
     + '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#1e6497;vertical-align:-1px"></span> quoted work</span>'
-    + '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;border:1.6px dashed #1e6497;vertical-align:-2px"></span> variation</span>'
+    + '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;border:1.6px dashed #1e6497;vertical-align:-2px"></span> found on site</span>'
     + (windoors.openings.some(function(o) { return o.excluded; }) ? '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#8a929b;vertical-align:-1px;color:#fff;font-size:9px;line-height:10px;text-align:center;font-weight:700">–</span> not in this job</span>' : '')
     + '<span>W1, W2… and D1… numbered left to right as you face that side; O1… other items, under the house</span></div>';
   if (!site && c.count) {
@@ -27171,19 +27274,19 @@ function wdScopeHtml(o) {
   var btn = 'border:1px solid var(--border);background:var(--surface2);color:var(--text);border-radius:10px;padding:8px 10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer';
   // Inherited from its bay: said, not set, here.
   if (parent && (sc.excluded !== own.excluded || sc.variationId !== own.variationId)) {
-    return note(sc.excluded ? 'Not in this job, with its bay — drawn, not priced.' : 'Added to the job on site with its bay, as a variation.');
+    return note(sc.excluded ? 'Not in this job, with its bay — drawn, not priced.' : 'Added to the job on site with its bay.');
   }
   if (!site) {
-    if (own.variationId) return note('Added to the job on site, as a variation.');
+    if (own.variationId) return note('Added to the job on site.');
     return '<div class="subsection-label" style="padding-top:4px">In this job<small>' + (own.excluded ? 'drawn on the house, not priced' : 'switch off for one that\'s already done or not being painted') + '</small></div>'
       + '<div style="padding:0 16px 8px">' + wdSegHtml([{ key: 'in', label: 'In the job' }, { key: 'out', label: 'Not in this job' }], own.excluded ? 'out' : 'in', 'setWdExcluded') + '</div>';
   }
   if (own.excluded) {
     return note('Not in this job — drawn, not priced.')
-      + '<div style="padding:0 16px 10px"><button type="button" style="' + btn + '" onclick="wdIncludeOnSite()">Add to this job — as a variation</button></div>';
+      + '<div style="padding:0 16px 10px"><button type="button" style="' + btn + '" onclick="wdIncludeOnSite()">Add to this job — found on site</button></div>';
   }
   if (own.variationId) {
-    return note('Added to the job on site, as a variation' + (wdVariationEditable(own.variationId) ? '.' : ' (answered).'))
+    return note('Added to the job on site' + (wdVariationEditable(own.variationId) ? '.' : ' (declined).'))
       + (wdVariationEditable(own.variationId) ? '<div style="padding:0 16px 10px"><span onclick="wdTakeOutOnSite()" style="color:var(--danger);font-size:13px;font-weight:600;cursor:pointer">Take it back out</span></div>' : '');
   }
   return '';
@@ -27198,7 +27301,7 @@ function setWdExcluded(k) {
     var ids = {}; wdWithKids(o).forEach(function(x) { ids[x.id] = true; });
     var mine = windoors.marks.filter(function(m) { return ids[m.opening_id]; });
     if (mine.some(function(m) { return m.stage === 'variation'; })) {
-      alert('This ' + o.kind + ' has work added on site as a variation, so it can\'t be taken out of the job.');
+      alert('This ' + o.kind + ' has work found on site, so it can\'t be taken out of the job.');
       return;
     }
     if (mine.length && !confirm('Taking this ' + o.kind + ' out of the job clears the ' + mine.length + ' mark' + (mine.length === 1 ? '' : 's') + ' on it.\n\nCarry on?')) return;
@@ -27212,7 +27315,7 @@ function setWdExcluded(k) {
 }
 function wdIncludeOnSite() {
   var o = wdOpening(); if (!o || !o.excluded || wdMode !== 'site') return;
-  if (!confirm('Add ' + Windoors.openingLabel(o) + ' to the job? It goes on the current variation for the client to approve.')) return;
+  if (!confirm('Add ' + Windoors.openingLabel(o) + ' to the job? Its painting is billed as work found on site.')) return;
   o.excluded = false;
   o.include_variation_id = wdDraft(true).id;
   wdPutOpening(o); wdChanged();
@@ -27224,7 +27327,7 @@ function wdTakeOutOnSite() {
   var ids = {}; wdWithKids(o).forEach(function(x) { ids[x.id] = true; });
   var mine = windoors.marks.filter(function(m) { return ids[m.opening_id]; });
   if (mine.some(function(m) { return !wdMarkEditable(m); })) {
-    alert('Some of the work on this ' + o.kind + ' is on an answered variation, so it can\'t be taken back out.');
+    alert('Some of the work on this ' + o.kind + ' was declined, so it can\'t be taken back out.');
     return;
   }
   if (mine.length && !confirm('Taking it back out also clears the ' + mine.length + ' mark' + (mine.length === 1 ? '' : 's') + ' added on it.\n\nCarry on?')) return;
@@ -27342,7 +27445,7 @@ function renderWdDetail() {
     if (selCount) {
       var acts = Windoors.actionsFor(o, wdSel.kind);
       h += '<div style="padding:6px 16px 2px;font-size:12px;color:var(--text2)">' + selCount + ' ' + (wdSel.kind === 'pane' ? (isDoor ? 'glass' : (selCount === 1 ? 'pane' : 'panes')) : (selCount === 1 ? 'part' : 'parts')) + ' selected — '
-        + (site ? 'added as a variation' : 'added to the quote') + '</div>'
+        + (site ? 'found on site' : 'added to the quote') + '</div>'
         + '<div style="display:flex;gap:8px;flex-wrap:wrap;padding:4px 16px 8px">'
         + acts.map(function(a) { return '<button type="button" style="' + abtn + '" onclick="wdApplyAction(\'' + a.key + '\')">' + escapeHtml(a.label) + '</button>'; }).join('')
         + '<button type="button" style="' + btn + ';color:var(--danger)" onclick="wdRemoveWork()">Remove all work</button></div>'
@@ -27350,7 +27453,7 @@ function renderWdDetail() {
     } else {
       h += '<div style="padding:4px 16px 8px;font-size:12px;color:var(--text2)">' + (isRun || isWall || (isExtra && Windoors.extraSectioned(o)) ? 'Tap the left, middle or right section to mark where the work is. ' : isExtra ? 'Tap it to mark work on it. ' : 'Tap panes or frame parts to select them — one kind at a time. ')
         + '<span style="display:inline-block;width:10px;height:10px;background:#f0a020;vertical-align:-1px"></span> work · '
-        + '<span style="display:inline-block;width:10px;height:10px;background:#5fb3e6;vertical-align:-1px"></span> glass · dashed = variation'
+        + '<span style="display:inline-block;width:10px;height:10px;background:#5fb3e6;vertical-align:-1px"></span> glass · dashed = found on site'
         + (site ? ' · the quote\'s marks are locked here' : '') + '</div>';
     }
   }
@@ -27409,7 +27512,7 @@ function renderWdBay(o, box) {
   var btn = 'border:1px solid var(--border);background:var(--surface2);color:var(--text);border-radius:10px;padding:8px 10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer';
   var abtn = 'border:none;background:var(--accent);color:#fff;border-radius:10px;padding:9px 11px;font-size:13px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer';
   if (detail && selCount) {
-    h += '<div style="padding:6px 16px 2px;font-size:12px;color:var(--text2)">' + selCount + ' part' + (selCount === 1 ? '' : 's') + ' selected — ' + (site ? 'added as a variation' : 'added to the quote') + '</div>'
+    h += '<div style="padding:6px 16px 2px;font-size:12px;color:var(--text2)">' + selCount + ' part' + (selCount === 1 ? '' : 's') + ' selected — ' + (site ? 'found on site' : 'added to the quote') + '</div>'
       + '<div style="display:flex;gap:8px;flex-wrap:wrap;padding:4px 16px 8px">'
       + Windoors.actionsFor(o, 'part').map(function(a) { return '<button type="button" style="' + abtn + '" onclick="wdApplyAction(\'' + a.key + '\')">' + escapeHtml(a.label) + '</button>'; }).join('')
       + '<button type="button" style="' + btn + '" onclick="wdClearSel()">Clear selection</button>'
@@ -27477,33 +27580,35 @@ function wdWorkListHtml(o, oMarks) {
     paintBits.push(Windoors.accessLabel(Windoors.openingAccess(o)).toLowerCase() + ' access' + (o.access ? ' (set by hand)' : ''));
   }
   var addedIn = Windoors.openingScope(o, windoors.openings).variationId;
+  var declinedIds = wdDeclinedIds();
   if (addedIn) {
-    var av = wdVariationList().find(function(x) { return x.id === addedIn; });
-    var ast = av ? variationStatusOf(av) : 'pending';
     if (!Windoors.isTudor(o)) paintBits[0] = Windoors.prepLabel(Windoors.effectivePrep(o, p)).toLowerCase() + ' prep';
   }
   rows += line((Windoors.isTudor(o) ? 'Stain' : o.kind === 'bay' ? 'Paint, the bay\'s own timber' : o.kind === 'other' ? 'Paint' : 'Paint, outside face') + ' · ' + paintBits.join(' · '),
-    addedIn ? 'variation, added on site · ' + (av && !av.sentAt && ast === 'pending' ? 'draft' : ast) : 'quote');
+    addedIn ? (declinedIds[addedIn] ? 'added on site · declined' : 'found on site') : 'quote');
   var qc = Windoors.marksClause(o, quoteMarks, { tiers: 'short' });
   if (qc) rows += line(escapeHtml(qc.charAt(0).toUpperCase() + qc.slice(1)), 'quote');
-  var byVar = {};
-  varMarks.forEach(function(m) { (byVar[m.variation_id || ''] = byVar[m.variation_id || ''] || []).push(m); });
-  Windoors.prepChain(o, p).forEach(function(st) { byVar[st.variation_id || ''] = byVar[st.variation_id || ''] || []; });
-  Object.keys(byVar).forEach(function(vid) {
-    var v = wdVariationList().find(function(x) { return x.id === vid; });
-    var st = v ? variationStatusOf(v) : 'pending';
+  // Found on site (v3.3.0): all of it as one line, prep as the net change
+  // from the quote. Work declined before v3.3.0 on a line of its own.
+  [false, true].forEach(function(declined) {
+    var isMine = function(vid) { return !!declinedIds[vid || 'unassigned'] === declined; };
     var bits = [];
-    if (Windoors.prepStep(o, p, vid || null)) bits.push(Windoors.prepChangeText(o, p, vid || null));
-    var vc = Windoors.marksClause(o, byVar[vid], { tiers: 'short' });
+    if (!addedIn) {
+      var ch = Windoors.prepChain(o, p).filter(function(st) { return isMine(st.variation_id); });
+      if (ch.length && ch[0].from !== ch[ch.length - 1].to) {
+        var to = ch[ch.length - 1].to;
+        bits.push('prep ' + (Windoors.prepRank(to) > Windoors.prepRank(ch[0].from) ? 'raised' : 'lowered') + ' to ' + Windoors.prepLabel(to).toLowerCase());
+      }
+    }
+    var vc = Windoors.marksClause(o, varMarks.filter(function(m) { return isMine(m.variation_id); }), { tiers: 'short' });
     if (vc) bits.push(vc);
     if (!bits.length) return;
     var t = bits.join(', ');
-    rows += line(escapeHtml(t.charAt(0).toUpperCase() + t.slice(1)),
-      'variation · ' + (v && !v.sentAt && st === 'pending' ? 'draft' : st));
+    rows += line(escapeHtml(t.charAt(0).toUpperCase() + t.slice(1)), declined ? 'declined' : 'found on site');
   });
   var money = [
     wdMode === 'quote' ? fmt((perOpen.quoteMins || 0) * r + (perOpen.quoteMaterials || 0) + (perOpen.quoteFixed || 0)) + ' quoted' : '',
-    perOpen.varMins ? fmtSigned((perOpen.varMins || 0) * r + (perOpen.varMaterials || 0)) + ' variation' : '',
+    perOpen.varMins ? fmtSigned((perOpen.varMins || 0) * r + (perOpen.varMaterials || 0)) + ' found on site' : '',
     // Repairs upgraded on site: their own figure, in neither of the above.
     perOpen.adjMins || perOpen.adjMaterials ? '+' + fmt((perOpen.adjMins || 0) * r + (perOpen.adjMaterials || 0)) + ' size adjustment' : ''
   ].filter(Boolean).join(' · ');
@@ -27702,20 +27807,17 @@ function wdPrepFloor(o, site) {
   if (!site || wdSiteAdded(o)) return p.default_prep || 'light';
   return Windoors.PREP_LEVELS[0].key;
 }
-// Under the Prep heading on site: where the level came from, e.g. "raised
-// on site from Standard — a variation", or, after an answered change,
-// "lowered on site from Heavy (agreed) — a credit on the variation".
+// Under the Prep heading on site: where the level stands against the quote,
+// e.g. "raised on site from Standard (the quote) — found work". Net, so a
+// level raised and lowered back again says nothing (v3.3.0).
 function wdPrepNote(o, site) {
-  if (!site) return '';
+  if (!site || o.prep_stage !== 'variation') return '';
   var p = windoors.property;
-  var st = Windoors.prepStep(o, p);
-  if (!st || !wdVariationEditable(o.prep_variation_id)) {
-    var ch = Windoors.prepChain(o, p);
-    return ch.length ? '<small>' + Windoors.prepLabel(ch[ch.length - 1].to) + ' agreed on site — a change from here is a new variation</small>' : '';
-  }
-  var agreed = Windoors.prepSteps(o).length > 0;
-  return '<small>' + st.change + ' on site from ' + Windoors.prepLabel(st.from) + (agreed ? ' (agreed)' : '')
-    + (st.change === 'lowered' ? ' — a credit on the variation' : ' — a variation') + '</small>';
+  var q = Windoors.quotePrep(o, p), now = Windoors.effectivePrep(o, p);
+  if (q === now) return '';
+  var up = Windoors.prepRank(now) > Windoors.prepRank(q);
+  return '<small>' + (up ? 'raised' : 'lowered') + ' on site from ' + Windoors.prepLabel(q) + ' (the quote) — '
+    + (up ? 'found work' : 'a credit') + '</small>';
 }
 // Prep. From Measure it simply sets the level the quote prices. On site a
 // change either way is a variation: the level in force before it is stamped
@@ -27876,7 +27978,7 @@ function wdRepairTiersHtml(o, oMarks) {
       + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;margin-bottom:5px">'
       + '<span>' + escapeHtml((a ? a.label : m.action_key) + ' (' + (els[m.element_id] || m.element_id).toLowerCase()
         + (Windoors.repairCount(m) > 1 ? ' \u00d7' + Windoors.repairCount(m) : '') + ', ' + Windoors.repairTierDef(cur).short + ')')
-      + (m.stage === 'variation' ? ' <small style="color:var(--text2)">(variation)</small>' : '') + '</span>'
+      + (m.stage === 'variation' ? ' <small style="color:var(--text2)">(' + (wdVariationEditable(m.variation_id) ? 'found on site' : 'declined') + ')</small>' : '') + '</span>'
       + (up ? '<span style="flex:none;font-size:11px;font-weight:700;color:#fff;background:var(--accent);border-radius:10px;padding:2px 8px">'
           + Windoors.repairTierDef(ag).short + ' \u2192 ' + Windoors.repairTierDef(cur).short + '</span>' : '')
       + '</div>'
@@ -27946,7 +28048,7 @@ function wdRemoveWork() {
   wdChanged();
 }
 function wdLockedText() {
-  return wdMode === 'site' ? 'That work is part of the quote (or an answered variation), so it is locked here.' : 'That work was added on site as a variation — take it off from On Site.';
+  return wdMode === 'site' ? 'That work is part of the quote (or was declined), so it is locked here.' : 'That work was found on site — take it off from On Site.';
 }
 function wdTakeOffMarks(list) {
   list.forEach(function(m) { wdDeleteMark(m); });
@@ -27971,7 +28073,7 @@ function wdSelWorkHtml(o) {
     h += '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 16px;border-top:1px solid var(--border);font-size:13px">'
       + '<span>' + escapeHtml((a ? a.label : m.action_key) + ' · ' + (els[m.element_id] || m.element_id)
         + (Windoors.isTiered(m.action_key) ? ' (' + (Windoors.repairCount(m) > 1 ? '\u00d7' + Windoors.repairCount(m) + ', ' : '') + Windoors.repairTierDef(Windoors.markTier(m)).short + ')' : ''))
-      + (m.stage === 'variation' ? ' <small style="color:var(--text2)">(variation)</small>' : '') + '</span>'
+      + (m.stage === 'variation' ? ' <small style="color:var(--text2)">(' + (wdVariationEditable(m.variation_id) ? 'found on site' : 'declined') + ')</small>' : '') + '</span>'
       + (can ? '<span onclick="wdRemoveMark(\'' + escapeHtml(m.id) + '\')" style="flex:none;color:var(--danger);font-size:13px;font-weight:600;cursor:pointer">Remove</span>'
              : '<small style="flex:none;color:var(--text2)">locked</small>')
       + '</div>';
@@ -28095,9 +28197,9 @@ async function buildWindoorsReportPdf(opts) {
   d.rule(L, d.y, R, PDF_STEEL);
   d.y -= 8;
   pdfWrap(pdfSanitise('Outside faces only. Openings are numbered left to right as you face each side of the house. '
-    + (todo ? 'Every opening is painted; repairs are drawn on the openings that have them, work in orange, glass to replace in blue, agreed variations dashed. '
+    + (todo ? 'Every opening is painted; repairs are drawn on the openings that have them, work in orange, glass to replace in blue, work found on site dashed. '
         + 'Work already ticked off as done, painting included, is left off. Tick each box as it\'s done.'
-      : 'Only work ticked off as done is listed. Work in orange; glass replaced in blue; work agreed as a variation drawn dashed.')), false, 9, W)
+      : 'Only work ticked off as done is listed. Work in orange; glass replaced in blue; work found on site drawn dashed.')), false, 9, W)
     .forEach(function(ln) { d.text(ln, L, d.y - 9, { size: 9, rgb: PDF_MUT }); d.y -= 12; });
   d.y -= 6;
   if (todo) {
@@ -28274,12 +28376,11 @@ function wdInvoiceLineDetail(l) {
   var bits = [l.quoted > 0.005 ? fmt(l.quoted) + ' as quoted' : 'nothing quoted'];
   if (Math.abs(site.amount) > 0.005) {
     var what = [];
-    if (site.approved) what.push(site.approved + ' approved variation' + (site.approved === 1 ? '' : 's'));
-    if (site.pending) what.push('<span style="color:var(--warn,#f39c12);font-weight:600">' + site.pending + ' PENDING</span>');
+    if (site.found) what.push(site.found + ' window' + (site.found === 1 ? '' : 's') + ' with work found');
     if (site.adjustments > 0.005) what.push('repair sizes ' + fmt(site.adjustments));
     bits.push(site.amount > 0
       ? '+ ' + fmt(site.amount) + ' added on site' + (what.length ? ' (' + what.join(', ') + ')' : '')
-      : '− ' + fmt(-site.amount) + ' credit agreed on site, net of site work' + (what.length ? ' (' + what.join(', ') + ')' : ''));
+      : '− ' + fmt(-site.amount) + ' credit on site, net of site work' + (what.length ? ' (' + what.join(', ') + ')' : ''));
   }
   return bits.join(' · ');
 }
@@ -28387,12 +28488,11 @@ function windoorsMeasureRowHtml() {
 }
 function windoorsOnSiteCardHtml() {
   if (!wdInUse()) return '';
-  var d = wdDraft(false);
-  var dl = d ? windoorsVariationLines().find(function(l) { return l.id === d.id; }) : null;
+  var found = windoorsFoundLines();
   return '<div class="card" style="padding:12px 14px;margin-bottom:12px;cursor:pointer" onclick="openWindoors(\'site\')">'
     + '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px">'
     + '<div><div style="font-weight:700;font-size:15px">🪟 Windows &amp; doors</div>'
-    + '<div style="font-size:12px;color:var(--text2);margin-top:2px">' + (dl ? 'Draft variation: ' + escapeHtml(wdVariationText(d)) : 'Mark problems found once work starts — they become a variation') + '</div>'
+    + '<div style="font-size:12px;color:var(--text2);margin-top:2px">' + (found.length ? 'Work found on site on ' + found.length + ' window' + (found.length === 1 ? '' : 's') : 'Mark problems found once work starts — they\'re billed as found, no approval needed') + '</div>'
     + (function() {
         // Ticked off so far, over everything the report could show.
         var all = Windoors.reportableMarks(windoors, wdReportVariations()).marks;

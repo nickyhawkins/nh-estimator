@@ -20,14 +20,12 @@
 //   5. Lowering all the way to the quote's level dissolves the raise: the
 //      opening reads exactly as it did before (stage quote, nothing stamped).
 //   6. Below the quote's level -- even below the job default -- is a CREDIT:
-//      a negative variation line, worded "prep lowered to", published to the
-//      client as a negative line, netted against extra work in the same
-//      draft, kept off interim invoices and carried by the final.
-//   7. v2.91.1 (Nicky's W1): an ANSWERED change is never rewritten. Lowering
-//      a raise the client approved files the raise as agreed (prep_steps)
-//      and puts the drop on a new variation as a credit from the agreed
-//      level; going back to the agreed level removes the new step. Raising
-//      an agreed credit works the same way the other way round.
+//      a negative line for that window, worded "prep lowered to", shown to
+//      the client as a negative line, netted against other work found on the
+//      window, kept off interim invoices and carried by the final.
+//   7. v3.3.0: work found on site is never "answered", so a change is just
+//      a change. A job from before -- a raise approved on one variation,
+//      lowered back on another -- folds in and nets to nothing.
 //
 // Driven in a real browser against the real public/index.html (served off
 // disk, no server, no database -- writes 404 and queue, as offline on site).
@@ -159,72 +157,67 @@ const SEED = () => {
   eq('5. the raise dissolves: back to exactly as quoted', await row('w1'),
     { prep_level: null, prep_stage: 'quote', quote_prep_level: null, hasVar: false });
   eq('5. and the picker still offers every level', await offered(), ['light*', 'standard', 'heavy', 'restoration']);
-  eq('5. and the draft has nothing left in it', await page.evaluate(() => windoorsVariationLines().length), 0);
+  eq('5. and nothing is found on site', await page.evaluate(() => windoorsFoundLines().length), 0);
 
   // ── 6. Below the quote: a credit ─────────────────────────────────────────
   await page.evaluate(() => openWdDetail('w2'));
   eq('6. quoted at Standard (above the default): Light is offered too', await offered(), ['light', 'standard*', 'heavy', 'restoration']);
   check('6. tapped Light', await tap('light'));
-  eq('6. lowered as a variation from the quote\'s level', await row('w2'),
+  eq('6. lowered on site from the quote\'s level', await row('w2'),
     { prep_level: 'light', prep_stage: 'variation', quote_prep_level: 'standard', hasVar: true });
   const credit = await page.evaluate(() => {
-    const o = windoors.openings.find(x => x.id === 'w2');
     const per = Windoors.priceJob(windoors, wdRates()).perOpening.w2;
-    const lines = windoorsVariationLines();
-    return { lines: lines.map(l => ({ raw: Math.round(l.raw * 100) / 100, credit: l.credit, status: l.status })),
+    const lines = windoorsFoundLines();
+    return { lines: lines.map(l => ({ id: l.id, raw: Math.round(l.raw * 100) / 100, credit: l.credit, status: l.status })),
              expect: Math.round(per.scaled * (wdRates().prep.light - wdRates().prep.standard) * rpm() * 100) / 100,
-             text: Windoors.describeVariation(windoors, o.prep_variation_id),
-             client: buildClientVariationLines().filter(l => l.kind === 'windoors').map(l => l.amount < 0) };
+             text: lines[0] && lines[0].name,
+             client: buildClientVariationLines().filter(l => l.kind === 'windoorsfound').map(l => [l.status, l.amount < 0]) };
   });
-  eq('6. the draft is one line, below zero, marked a credit', credit.lines.map(l => [l.credit, l.status, l.raw < 0]), [[true, 'pending', true]]);
+  // v3.3.0: found on site, a line per WINDOW, approved -- nothing to ask.
+  eq('6. one line, for the window, below zero, a credit, approved', credit.lines.map(l => [l.id, l.credit, l.status, l.raw < 0]), [['w2', true, 'approved', true]]);
   eq('6. priced as the scaled opening × (Light − Standard)', credit.lines[0].raw, credit.expect);
-  check('6. and worded as lowered', /W2: prep lowered to light\./.test(credit.text), credit.text);
-  eq('6. it is published to the client as a negative line', credit.client, [true]);
+  check('6. and worded as lowered, under the window\'s name', /W2: prep lowered to light$/.test(credit.text), credit.text);
+  eq('6. it is shown to the client as a negative line, nothing to answer', credit.client, [['approved', true]]);
   check('6. the sheet says it is a credit',
-    /lowered on site from Standard — a credit/.test(await page.evaluate(() => document.getElementById('wd-sheet-body').textContent)));
+    /lowered on site from Standard \(the quote\) — a credit/.test(await page.evaluate(() => document.getElementById('wd-sheet-body').textContent)));
   check('6. the Variations card shows it as money off', await page.evaluate(() =>
     /−£/.test(fmtSigned(-12.5)) && fmtSigned(-12.5) === '−£12.50' && fmtSigned(12.5) === '£12.50'));
 
-  // Netted against extra work in the same draft.
+  // Netted against other work found on the same window.
   const netted = await page.evaluate(() => {
-    const before = windoorsVariationLines()[0].raw;
+    const before = windoorsFoundLines()[0].raw;
     const d = wdDraft(false);
     windoors.marks.push({ id: 'm1', opening_id: 'w2', element_id: 'cill', action_key: 'resin', stage: 'variation', variation_id: d.id });
-    const after = windoorsVariationLines();
+    const after = windoorsFoundLines();
     // A resin repair with no size is a Medium (RESIN_REPAIR_TIERS_SPEC.md).
     const a = Windoors.actionPrice(wdRates(), 'resin', 'medium');
     const out = { n: after.length, delta: Math.round((after[0].raw - before) * 100) / 100, want: Math.round((a.mins * rpm() + a.cost) * 100) / 100 };
     windoors.marks = [];
     return out;
   });
-  eq('6. extra work in the same draft nets against the credit, on one line', [netted.n, netted.delta], [1, netted.want]);
+  eq('6. other work on the window nets against the credit, on its one line', [netted.n, netted.delta], [1, netted.want]);
 
-  // Answered: approved like any variation, then on the invoices.
   const billed = await page.evaluate(() => {
-    const o = windoors.openings.find(x => x.id === 'w2');
-    const v = activeJob().windoorsVariations.find(x => x.id === o.prep_variation_id);
-    v.sentAt = new Date().toISOString(); v.variationStatus = 'approved';
     let interim = null, fin = null;
-    try { interim = interimVariationCandidates(activeJob()).filter(l => l.kind === 'windoors').length; } catch (e) { interim = 'error: ' + e.message; }
+    try { interim = interimVariationCandidates(activeJob()).filter(l => l.kind === 'windoorsfound').length; } catch (e) { interim = 'error: ' + e.message; }
     try { fin = buildFinalInvoiceModel().labour.filter(l => l.wd).map(l => [l.site.amount < -0.005, Math.abs(l.amount - (l.quoted + l.site.amount)) < 0.005]); } catch (e) { fin = 'error: ' + e.message; }
     renderWdDetail();
     return { interim, fin };
   });
-  eq('6. an approved credit is not billed on an interim (the final squares it)', billed.interim, 0);
-  // WINDOWS_DOORS_INVOICE_SPEC.md: one windows and doors line, and an agreed
+  eq('6. a credit is not billed on an interim (the final squares it)', billed.interim, 0);
+  // WINDOWS_DOORS_INVOICE_SPEC.md: one windows and doors line, and the
   // credit comes off it -- below the quote when it outweighs the site work.
   eq('6. the final invoice takes the credit off the one windows and doors line', billed.fin, [[true, true]]);
-  eq('6. once answered, every level is still offered', await offered(), ['light*', 'standard', 'heavy', 'restoration']);
+  eq('6. every level is still offered', await offered(), ['light*', 'standard', 'heavy', 'restoration']);
   await page.evaluate(() => setWdPrep('heavy'));
   const afterCredit = await page.evaluate(() => {
     const o = windoors.openings.find(x => x.id === 'w2');
-    const lines = windoorsVariationLines().map(l => ({ credit: l.credit, status: l.status }));
-    return { steps: (o.prep_steps || []).map(st => st.level), level: o.prep_level, lines };
+    const lines = windoorsFoundLines().map(l => ({ credit: l.credit, status: l.status }));
+    return { steps: (o.prep_steps || []).length, level: o.prep_level, lines };
   });
-  eq('6. raising an agreed credit files it as agreed and starts a new step',
-    [afterCredit.steps, afterCredit.level], [['light'], 'heavy']);
-  eq('6. ...so the approved credit stays on its variation, and the raise is a new pending one',
-    afterCredit.lines, [{ credit: true, status: 'approved' }, { credit: false, status: 'pending' }]);
+  // Found work is never "answered", so a change is just a change.
+  eq('6. raised again: the level simply moves, no step filed', [afterCredit.steps, afterCredit.level], [0, 'heavy']);
+  eq('6. ...and the window is one line, now extra work', afterCredit.lines, [{ credit: false, status: 'approved' }]);
 
   // Reset w2 to exactly as quoted for the next section.
   await page.evaluate(() => {
@@ -235,40 +228,33 @@ const SEED = () => {
     renderWdDetail();
   });
 
-  // ── 7. Nicky's W1: an APPROVED raise, then found better (v2.91.1) ────────
-  await tap('heavy');
-  const vA = await page.evaluate(() => {
+  // ── 7. Nicky's W1, from before v3.3.0: folded in ─────────────────────────
+  // Raised to Heavy on one approved variation, lowered back to Standard (the
+  // quote) on a second: a charge and a credit for nothing. Folded in, it nets.
+  const w1 = await page.evaluate(() => {
     const o = windoors.openings.find(x => x.id === 'w2');
-    const v = activeJob().windoorsVariations.find(x => x.id === o.prep_variation_id);
-    v.sentAt = new Date().toISOString(); v.variationStatus = 'approved';
+    Object.assign(o, { prep_stage: 'variation', quote_prep_level: 'standard', prep_level: 'standard',
+                       prep_variation_id: 'vdown', prep_steps: [{ variation_id: 'vup', level: 'heavy' }] });
+    windoors.marks.push({ id: 'mr', opening_id: 'w2', element_id: 'cill', action_key: 'resin', stage: 'variation', variation_id: 'vup' });
+    activeJob().windoorsVariations = [
+      { id: 'vup', sentAt: '2026-09-29T09:00:00Z', variationStatus: 'approved', variationApprovedAt: '2026-09-29T09:00:00Z' },
+      { id: 'vdown', sentAt: null }];
+    const folded = wdFoldInVariations();
+    const lines = windoorsFoundLines();
+    const a = Windoors.actionPrice(wdRates(), 'resin', 'medium');
     renderWdDetail();
-    return v.id;
-  });
-  const approvedRaw = await page.evaluate((id) => windoorsVariationLines().find(l => l.id === id).raw, vA);
-  eq('7. an approved raise offers every level, below it too', await offered(), ['light', 'standard', 'heavy*', 'restoration']);
-  check('7. tapped Standard', await tap('standard'));
-  const w1 = await page.evaluate((id) => {
-    const o = windoors.openings.find(x => x.id === 'w2');
-    const lines = windoorsVariationLines();
-    return { level: o.prep_level, steps: o.prep_steps, sameVar: o.prep_variation_id === id,
-             approved: lines.find(l => l.id === id), draft: lines.find(l => l.id !== id),
+    return { folded, all: activeJob().windoorsVariations.map(v => [v.found, v.variationStatus]),
+             lines: lines.map(l => [l.id, Math.round(l.raw * 100) / 100, l.work]), want: Math.round((a.mins * rpm() + a.cost) * 100) / 100,
              note: document.getElementById('wd-sheet-body').textContent };
-  }, vA);
-  eq('7. the approved raise is filed as agreed', w1.steps, [{ variation_id: vA, level: 'heavy' }]);
-  check('7. the drop is on a new variation', !w1.sameVar && w1.level === 'standard');
-  check('7. the approved raise keeps its agreed price', w1.approved && Math.abs(w1.approved.raw - approvedRaw) < 0.005, w1.approved);
-  check('7. the drop is a credit of the same size on the new draft', w1.draft && w1.draft.credit && w1.draft.status === 'pending'
-    && Math.abs(w1.draft.raw + approvedRaw) < 0.005, w1.draft);
-  check('7. the sheet says where it came from', /lowered on site from Heavy \(agreed\) — a credit/.test(w1.note));
+  });
+  eq('7. both old variations are folded in, approved', [w1.folded, w1.all], [2, [[true, 'approved'], [true, 'approved']]]);
+  eq('7. the window is one line: the repair, the prep netted to nothing', w1.lines, [['w2', w1.want, 'resin repair (cill)']]);
+  check('7. and the sheet says nothing about prep', !/on site from/.test(w1.note));
   check('7. tapped Light, below the quote', await tap('light'));
-  eq('7. the credit now runs from Heavy down to Light', await page.evaluate(() => windoors.openings.find(x => x.id === 'w2').prep_level), 'light');
-  check('7. tapped Heavy again', await tap('heavy'));
-  eq('7. back at the agreed level: the new step is gone, the agreed one is live again', await page.evaluate((id) => {
+  eq('7. it moves straight there, no new step', await page.evaluate(() => {
     const o = windoors.openings.find(x => x.id === 'w2');
-    return [o.prep_level, (o.prep_steps || []).length, o.prep_variation_id === id, windoorsVariationLines().length];
-  }, vA), ['heavy', 0, true, 1]);
-  check('7. and the sheet says a change from here is new', /Heavy agreed on site — a change from here is a new variation/.test(
-    await page.evaluate(() => document.getElementById('wd-sheet-body').textContent)));
+    return [o.prep_level, (o.prep_steps || []).length, windoorsFoundLines().length];
+  }), ['light', 1, 1]);
 
   check('no page errors', errors.length === 0, errors);
 
