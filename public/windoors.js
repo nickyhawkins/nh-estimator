@@ -1097,7 +1097,7 @@
   // (glazing-bar cutting in). A bay's is its own timber only -- its windows
   // are openings of their own.
   // A window, door or bay can have its time set by hand (time_override,
-  // v2.95.0): the same units as the Rates figures -- minutes for 2 coats,
+  // v2.96.0): the same units as the Rates figures -- minutes for 2 coats,
   // before prep and access -- standing in for the size, type and panes.
   function paintedMinutes(o, rates) {
     if (o.kind !== 'other' && +o.time_override > 0) return +o.time_override;

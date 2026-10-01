@@ -70,7 +70,7 @@ Generated server-side from On Site data when the invoice is pushed to Xero. Also
 
 ---
 
-## Implementation notes (v2.94.0)
+## Implementation notes (v2.95.0)
 
 **Where it lives**
 - `public/windoors.js` — `invoiceCounts(data, variations)`, `invoiceLineText(p)` (the line's words; `report: 'attached' | 'final' | false`, `stage`, `pct`) and `workReportModel(data, variations, {colours})` (every opening, each work item flagged `onSite`, `standard` for painting-only openings). Pure and price-free, like `reportModel`.

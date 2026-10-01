@@ -1,6 +1,6 @@
 # The whole exterior on the drawing (Windows & Doors stage 3, and 4)
 
-Status: **step 1 built (v2.95.0)**; steps 2–4 are a draft, not built.
+Status: **step 1 built (v2.96.0)**; steps 2–4 are a draft, not built.
 
 Builds on WINDOWS_DOORS_SPEC.md (stage 1), WINDOWS_DOORS_STAGE2_SPEC.md (the
 house drawing) and WINDOWS_DOORS_INVOICE_SPEC.md (one invoice line + report).
@@ -63,7 +63,7 @@ job up to its diary days. The options were:
 - **(b)** The fixture's (90 min). Leave rates alone; new door quotes go down.
 - **(c)** Another figure: give the minutes and the tiers get set to it.
 
-### Built in step 1 (v2.95.0)
+### Built in step 1 (v2.96.0)
 - The Exterior form's *Exterior Doors*, *Garage Doors* and *Porch / Feature
   Door* sections are hidden on any job that doesn't already have doors,
   frames, garage doors or a porch priced there (`extItemHasLegacyDoors`),

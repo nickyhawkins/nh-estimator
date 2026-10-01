@@ -1047,7 +1047,7 @@ check('a new repair starts at the last size used', /wdDefaultRepairTier/.test(bo
 check('the detail sheet has the size control', /wdRepairTiersHtml\(o, oMarks\)/.test(body('renderWdDetail')) && /wdRepairTiersHtml\(o, oMarks\)/.test(body('renderWdBay')));
 check('profitability counts them as invoiced, not quoted', /quotedAll \+ repairAdjustments/.test(body('computeProfitability')));
 
-// ── Time set by hand on one opening, and the Exterior form's doors (v2.95.0)
+// ── Time set by hand on one opening, and the Exterior form's doors (v2.96.0)
 {
   const R2 = W.mergeRates({});
   const door = { id: 'd', side: 'front', floor: 0, level: 'standard', kind: 'door', position: 1, type: 'panelled', size_tier: 'standard', rows: 3, cols: 2, prep_stage: 'quote' };

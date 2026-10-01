@@ -707,7 +707,7 @@ ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS other_price REAL;             
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS other_unit VARCHAR;                            -- ...mins | hours | days: how its time is shown
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS other_draw VARCHAR;                            -- ...drawn as a porch in this style (v2.90.0); NULL = a tile
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS other_door INTEGER;                            -- ...over this ground-floor door (D1 = 1)
-ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS time_override REAL;                             -- minutes set by hand (2 coats, before prep/access); NULL = Rates (v2.95.0)
+ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS time_override REAL;                             -- minutes set by hand (2 coats, before prep/access); NULL = Rates (v2.96.0)
 DROP INDEX IF EXISTS job_openings_slot;
 CREATE UNIQUE INDEX IF NOT EXISTS job_openings_slot2 ON job_openings (job_id, side, level, floor, kind, position);
 CREATE INDEX IF NOT EXISTS job_openings_parent ON job_openings (parent_opening_id);
@@ -730,7 +730,7 @@ ALTER TABLE opening_marks ADD COLUMN IF NOT EXISTS repair_count INTEGER;      --
 CREATE INDEX IF NOT EXISTS opening_marks_job ON opening_marks (job_id);
 CREATE INDEX IF NOT EXISTS opening_marks_opening ON opening_marks (opening_id);
 
--- ── The Windows and doors work report on the Xero invoice (v2.94.0) ─────────
+-- ── The Windows and doors work report on the Xero invoice (v2.95.0) ─────────
 -- WINDOWS_DOORS_INVOICE_SPEC.md. Whether the report PDF made it onto the Xero
 -- invoice, kept apart from the invoice (the deposit's pattern): a failed
 -- attachment never un-creates the invoice, and this row is what the job's
