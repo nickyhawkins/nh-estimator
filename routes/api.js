@@ -12,7 +12,7 @@ const {
 } = require('../lib/supplierOrders');
 const {
   ensureWindoorsSchema, normalisePaintProducts, normaliseProperty, normaliseOpening, normaliseMark,
-  mapProperty, mapOpening, mapMark, readWindoors,
+  mapProperty, mapOpening, mapMark, readWindoors, buildWorkReport, workReportFileName,
 } = require('../lib/windoors');
 const Windoors = require('../public/windoors');
 // Aliased so the import loop below reads like its neighbours (SNAG_STATUSES,
@@ -144,7 +144,9 @@ router.delete('/jobs/:id', async (req, res) => {
       }),
       // Windows and doors (lib/windoors.js): no foreign keys, so by hand like
       // the snags, tolerating tables that were never created.
-      ...['job_property', 'job_openings', 'opening_marks'].map(t =>
+      // invoice_attachments is only this app's record of a file on a Xero
+      // invoice (the file itself stays in Xero), so it goes with the job.
+      ...['job_property', 'job_openings', 'opening_marks', 'invoice_attachments'].map(t =>
         db.query(`DELETE FROM ${t} WHERE job_id = $1`, [id]).catch(err => {
           if (err.code !== '42P01') throw err;
         })),
@@ -1416,6 +1418,27 @@ router.get('/windoors', async (req, res) => {
   }
 });
 
+// The work report PDF (WINDOWS_DOORS_INVOICE_SPEC.md section 2), exactly as
+// it will be attached to the final invoice -- so it can be checked first.
+// ?job_id=...&download=1 for a download rather than opening it.
+router.get('/windoors/work-report.pdf', async (req, res) => {
+  const jobId = requireJobId(req, res); if (!jobId) return;
+  try {
+    const job = await db.query('SELECT data FROM jobs WHERE id = $1', [jobId]);
+    const invoiceNumber = (job.rows[0] && job.rows[0].data && job.rows[0].data.xeroInvoiceNumber) || null;
+    const built = await buildWorkReport(jobId, { invoiceNumber });
+    if (!built) return res.status(404).json({ error: 'This job has no windows and doors to report on' });
+    const name = invoiceNumber ? workReportFileName(invoiceNumber) : 'Work-Report-draft.pdf';
+    res.set('Content-Type', 'application/pdf');
+    res.set('Content-Disposition', (req.query.download ? 'attachment' : 'inline') + '; filename="' + name + '"');
+    res.set('Cache-Control', 'no-store');
+    res.send(built.buffer);
+  } catch (err) {
+    console.error('Work report error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.put('/windoors/property', async (req, res) => {
   const jobId = requireJobId(req, res); if (!jobId) return;
   const p = normaliseProperty(req.body);
@@ -1463,23 +1486,23 @@ router.put('/windoors/openings/:id', async (req, res) => {
                                 prep_level, prep_stage, quote_prep_level, prep_variation_id,
                                 level, bay_shape, bay_storeys, parent_opening_id, panes_set, rows_bottom,
                                 other_mins, other_cost, other_m2, access,
-                                excluded, include_variation_id, other_pricing, other_price, other_unit, other_draw, other_door, prep_steps, updated_at)
+                                excluded, include_variation_id, other_pricing, other_price, other_unit, other_draw, other_door, prep_steps, time_override, updated_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25,
-              $26, $27, $28, $29, $30, $31, $32, $33::jsonb, NOW())
+              $26, $27, $28, $29, $30, $31, $32, $33::jsonb, $34, NOW())
       ON CONFLICT (job_id, side, level, floor, kind, position) DO UPDATE SET
         nickname = $7, type = $8, size_tier = $9, rows = $10, cols = $11, prep_level = $12,
         prep_stage = $13, quote_prep_level = $14, prep_variation_id = $15,
         bay_shape = $17, bay_storeys = $18, parent_opening_id = $19, panes_set = $20, rows_bottom = $21,
         other_mins = $22, other_cost = $23, other_m2 = $24, access = $25,
         excluded = $26, include_variation_id = $27, other_pricing = $28, other_price = $29, other_unit = $30,
-        other_draw = $31, other_door = $32, prep_steps = $33::jsonb, updated_at = NOW()
+        other_draw = $31, other_door = $32, prep_steps = $33::jsonb, time_override = $34, updated_at = NOW()
       RETURNING *
     `, [req.params.id, jobId, o.side, o.floor, o.kind, o.position, o.nickname, o.type, o.size_tier, o.rows, o.cols,
         o.prep_level, o.prep_stage, o.quote_prep_level, o.prep_variation_id,
         o.level, o.bay_shape, o.bay_storeys, o.parent_opening_id, o.panes_set, o.rows_bottom,
         o.other_mins, o.other_cost, o.other_m2, o.access,
         o.excluded, o.include_variation_id, o.other_pricing, o.other_price, o.other_unit, o.other_draw, o.other_door,
-        JSON.stringify(o.prep_steps || [])]);
+        JSON.stringify(o.prep_steps || []), o.time_override]);
     res.json({ ok: true, id: result.rows[0].id, opening: mapOpening(result.rows[0]) });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2731,7 +2754,7 @@ async function copyJobRows(entry, newJobId) {
         otherMins: o.other_mins, otherCost: o.other_cost, otherM2: o.other_m2, access: o.access,
         excluded: o.excluded, includeVariationId: o.include_variation_id,
         otherPricing: o.other_pricing, otherPrice: o.other_price, otherUnit: o.other_unit,
-        otherDraw: o.other_draw, otherDoor: o.other_door });
+        otherDraw: o.other_draw, otherDoor: o.other_door, timeOverride: o.time_override });
       if (n.error) { openingIds.delete(o.id); continue; }
       const nid = openingIds.get(o.id);
       await db.query(
@@ -2739,16 +2762,16 @@ async function copyJobRows(entry, newJobId) {
                                    prep_level, prep_stage, quote_prep_level, prep_variation_id,
                                    level, bay_shape, bay_storeys, parent_opening_id, panes_set, rows_bottom,
                                    other_mins, other_cost, other_m2, access,
-                                   excluded, include_variation_id, other_pricing, other_price, other_unit, other_draw, other_door, prep_steps)
+                                   excluded, include_variation_id, other_pricing, other_price, other_unit, other_draw, other_door, prep_steps, time_override)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25,
-                 $26, $27, $28, $29, $30, $31, $32, $33::jsonb)
+                 $26, $27, $28, $29, $30, $31, $32, $33::jsonb, $34)
          ON CONFLICT (job_id, side, level, floor, kind, position) DO NOTHING`,
         [nid, newJobId, n.side, n.floor, n.kind, n.position, n.nickname, n.type, n.size_tier, n.rows, n.cols,
           n.prep_level, n.prep_stage, n.quote_prep_level, n.prep_variation_id,
           n.level, n.bay_shape, n.bay_storeys, n.parent_opening_id, n.panes_set, n.rows_bottom,
           n.other_mins, n.other_cost, n.other_m2, n.access,
           n.excluded, n.include_variation_id, n.other_pricing, n.other_price, n.other_unit, n.other_draw, n.other_door,
-          JSON.stringify(n.prep_steps || [])]
+          JSON.stringify(n.prep_steps || []), n.time_override]
       );
     }
     for (const m of (wd.marks || [])) {

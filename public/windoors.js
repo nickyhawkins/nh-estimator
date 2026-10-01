@@ -1096,7 +1096,16 @@
   // The painted opening before prep: base by tier and type, plus the panes
   // (glazing-bar cutting in). A bay's is its own timber only -- its windows
   // are openings of their own.
+  // A window, door or bay can have its time set by hand (time_override,
+  // v2.96.0): the same units as the Rates figures -- minutes for 2 coats,
+  // before prep and access -- standing in for the size, type and panes.
   function paintedMinutes(o, rates) {
+    if (o.kind !== 'other' && +o.time_override > 0) return +o.time_override;
+    return baseMinutes(o, rates) + paneCount(o) * rates.perPane;
+  }
+  // The figure from Rates, whatever the override says: what the sheet shows
+  // as "auto".
+  function ratesMinutes(o, rates) {
     return baseMinutes(o, rates) + paneCount(o) * rates.perPane;
   }
   // Can this side have dormers? Not under a parapet -- the side's own roof if
@@ -2692,6 +2701,140 @@
     return { sides: sides, sections: sections, highlight: openingsWithWork, marks: marks, totals: totals, todo: todo };
   }
 
+  // ── The invoice line and the work report attached to it ─────────────────
+  // WINDOWS_DOORS_INVOICE_SPEC.md. All the windows and doors money goes on the
+  // Xero invoice as ONE line -- the quoted figure plus everything added on
+  // site -- and what was done where goes in the work report beside it.
+
+  // The openings the invoice is for, counted: every opening in the job, and
+  // one brought into it on site unless the client turned that down.
+  // variations: [{ id, status }]; with none given, every one counts.
+  function invoiceCounts(data, variations) {
+    var declined = {};
+    (variations || []).forEach(function (v) { if (v && v.status === 'declined') declined[v.id] = true; });
+    var live = liveOpenings(data && data.openings, data && data.property);
+    var sc = scopeMap(live);
+    var out = { windows: 0, doors: 0, bays: 0, other: 0 };
+    live.forEach(function (o) {
+      var s = sc[o.id];
+      if (s.excluded || (s.variationId && declined[s.variationId])) return;
+      if (o.kind === 'door') out.doors++;
+      else if (o.kind === 'window') out.windows++;
+      else if (o.kind === 'bay') out.bays++;
+      else out.other++;
+    });
+    return out;
+  }
+
+  // The invoice line's description, written for the client:
+  //   "Exterior windows and doors: preparation and painting of outside faces,
+  //    14 windows and 3 doors. Full breakdown of work per opening in attached
+  //    report. Colours: Dead Salmon (frames), Off-Black (doors)."
+  //   p.windows / p.doors   the counts (invoiceCounts); a zero is left out
+  //   p.colours             { frames, doors }: colour names, or null where the
+  //                         colour hasn't been named (then it isn't mentioned)
+  //   p.report              'attached' (the final invoice, report attached),
+  //                         'final' (an interim: the report comes with the
+  //                         final) or false (no report sentence at all)
+  //   p.stage               { n, of } on an interim: "(stage 2 of 3)"
+  //   p.pct                 an interim with no quote stage picked: "(40% complete)"
+  function invoiceLineText(p) {
+    p = p || {};
+    var plural = function (n, one) { return n + ' ' + one + (n === 1 ? '' : 's'); };
+    var what = [];
+    if (+p.windows > 0) what.push(plural(+p.windows, 'window'));
+    if (+p.doors > 0) what.push(plural(+p.doors, 'door'));
+    var s = 'Exterior windows and doors: preparation and painting of outside faces' + (what.length ? ', ' + what.join(' and ') : '') + '.';
+    if (p.report === 'attached') s += ' Full breakdown of work per opening in attached report.';
+    else if (p.report === 'final') s += ' Full breakdown of work per opening in the report attached to the final invoice.';
+    var c = p.colours || {};
+    var frames = +p.windows > 0 || p.windows == null ? c.frames : null;
+    var doors = +p.doors > 0 || p.doors == null ? c.doors : null;
+    var named = [];
+    if (frames && doors && frames === doors) named.push(frames + ' (frames and doors)');
+    else {
+      if (frames) named.push(frames + ' (frames)');
+      if (doors) named.push(doors + ' (doors)');
+    }
+    if (named.length) s += ' Colour' + (named.length > 1 ? 's' : '') + ': ' + named.join(', ') + '.';
+    if (p.stage && +p.stage.n > 0 && +p.stage.of > 0) s += ' (stage ' + (+p.stage.n) + ' of ' + (+p.stage.of) + ')';
+    else if (p.pct != null) s += ' (' + (Math.round(+p.pct * 100) / 100 >= 100 ? 'complete' : (Math.round(+p.pct * 100) / 100) + '% complete') + ')';
+    return s;
+  }
+
+  // The work report attached to the final invoice: EVERY opening in the job
+  // and what was done to it, the work found on site flagged so the client
+  // can see why the total is above the quote. No prices anywhere -- nothing
+  // in the model carries one.
+  //
+  // Same rules as reportModel for what counts as done: a mark is listed once
+  // it's ticked off on site, and variation work only once the client has
+  // approved it. What's different is that nothing is left out: an opening
+  // with only its painting done gets a line (standard: true) so the client
+  // can count their windows, and every line of work says whether it was
+  // quoted or found on site (onSite). Found on site is: an approved site
+  // variation's work (marks, prep changed, an opening added to the job) and
+  // a resin repair found bigger than quoted once exposed.
+  //
+  // opts.colours { window, door }: the colour names, or null.
+  function workReportModel(data, variations, opts) {
+    opts = opts || {};
+    var property = (data && data.property) || {};
+    var colours = opts.colours || {};
+    var rm = reportableMarks(data, variations);
+    var approved = rm.approved;
+    var done = rm.marks.filter(function (m) { return !!m.done_at; });
+    var live = liveOpenings(data && data.openings, data && data.property);
+    var scope = scopeMap(live);
+    var dflt = property.default_prep || 'light';
+    var coats = Math.round(coatsFactor(property) * 2);
+    var cap = function (t) { return t ? t.charAt(0).toUpperCase() + t.slice(1) : t; };
+    var sections = [], highlight = {}, onSiteCount = 0;
+    sortOpenings(live).forEach(function (o) {
+      var sc = scope[o.id];
+      if (sc.excluded) return;
+      // Brought into the job on site: only once the client said yes.
+      if (sc.variationId && !approved[sc.variationId]) return;
+      var mine = done.filter(function (m) { return m.opening_id === o.id; });
+      var items = [];
+      // Preparation: what the quote priced, moved by any approved site change.
+      var prep = sc.variationId ? effectivePrep(o, property) : quotePrep(o, property), prepOnSite = false;
+      if (!sc.variationId) prepChain(o, property).forEach(function (st) {
+        if (approved[st.variation_id]) { prep = st.to; prepOnSite = true; }
+      });
+      if (sc.variationId && ownScope(o).variationId) items.push({ text: 'Added to the job on site', onSite: true });
+      if (prepOnSite) items.push({ text: 'Preparation: ' + prepLabel(prep).toLowerCase() + ' (changed on site)', onSite: true });
+      else if (prepRank(prep) > prepRank(dflt)) items.push({ text: 'Preparation: ' + prepLabel(prep).toLowerCase(), onSite: !!sc.variationId });
+      // The marks, one line per action -- quoted, then found on site.
+      var perAction = function (list, onSite, suffix) {
+        ACTIONS.forEach(function (a) {
+          var t = marksClause(o, list.filter(function (m) { return m.action_key === a.key; }), { tiers: 'long' });
+          if (t) items.push({ text: cap(t) + (suffix || ''), onSite: onSite });
+        });
+      };
+      var quoteMarks = mine.filter(function (m) { return m.stage !== 'variation'; });
+      perAction(quoteMarks.filter(function (m) { return !isUpgraded(m); }), !!sc.variationId);
+      perAction(quoteMarks.filter(isUpgraded), true, ' \u2014 larger than quoted once exposed');
+      perAction(mine.filter(function (m) { return m.stage === 'variation' && approved[m.variation_id]; }), true);
+      // The painting itself, which every opening has.
+      var colourName = (o.kind === 'door' || (o.kind === 'other' && o.type !== 'window')) ? colours.door : colours.window;
+      var paint = o.kind === 'other' ? 'Prepared and painted' : 'Prepared (' + prepLabel(prep).toLowerCase() + ') and painted, ' + coats + ' coat' + (coats === 1 ? '' : 's');
+      if (o.kind === 'bay') paint = "Bay's own timber " + paint.charAt(0).toLowerCase() + paint.slice(1);
+      if (colourName) paint += ' in ' + colourName;
+      var onSite = items.some(function (it) { return it.onSite; });
+      var standard = !items.length;
+      if (!standard) highlight[o.id] = true;
+      if (onSite) onSiteCount++;
+      sections.push({ opening: o, code: openingCode(o), label: openingLabel(o), what: kindNoun(o), paint: paint, items: items,
+                      standard: standard, onSite: onSite, marks: mine, children: o.kind === 'bay' ? bayChildren(o, live) : null });
+    });
+    var sides = SIDES.map(function (s) { return s.key; }).filter(function (side) {
+      return sections.some(function (sec) { return sec.opening.side === side; });
+    });
+    return { counts: invoiceCounts(data, variations), onSiteOpenings: onSiteCount, sides: sides, sections: sections,
+             highlight: highlight, marks: done, unticked: rm.marks.filter(function (m) { return !m.done_at; }).length };
+  }
+
   function fmtDate(iso) {
     if (!iso) return '';
     var d = new Date(iso);
@@ -2768,10 +2911,11 @@
     effectivePrep: effectivePrep, quotePrep: quotePrep, prepChange: prepChange, prepChangeText: prepChangeText, prepSteps: prepSteps, prepChain: prepChain, prepStep: prepStep, baseMinutes: baseMinutes, paintedMinutes: paintedMinutes,
     REPAIR_TIERS: REPAIR_TIERS, isTiered: isTiered, repairTierDef: repairTierDef, repairTierRank: repairTierRank, markTier: markTier, agreedTier: agreedTier,
     isUpgraded: isUpgraded, repairCount: repairCount, MAX_REPAIRS: MAX_REPAIRS, actionPrice: actionPrice, markPrice: markPrice, tierStamps: tierStamps,
-    priceJob: priceJob, openingPaintM2: openingPaintM2, paintAreas: paintAreas, marksClause: marksClause, describeVariation: describeVariation, itemLineText: itemLineText,
+    ratesMinutes: ratesMinutes, priceJob: priceJob, openingPaintM2: openingPaintM2, paintAreas: paintAreas, marksClause: marksClause, describeVariation: describeVariation, itemLineText: itemLineText,
     workFlags: workFlags, elevationSvg: elevationSvg, detailSvg: detailSvg,
     OTHER_PAINT: OTHER_PAINT, otherName: otherName, PORCH_STYLES: PORCH_STYLES, sideGeometry: sideGeometry, otherDraw: otherDraw, otherDoor: otherDoor, porchStyleFor: porchStyleFor, porchPreviewSvg: porchPreviewSvg, drawPorchGlyph: drawPorchGlyph, OTHER_PRICING: OTHER_PRICING, OTHER_UNITS: OTHER_UNITS, OTHER_MAX_MINS: OTHER_MAX_MINS, OTHER_MAX_PRICE: OTHER_MAX_PRICE,
     otherPricing: otherPricing, otherUnit: otherUnit, otherSetPrice: otherSetPrice, ownScope: ownScope, scopeMap: scopeMap, openingScope: openingScope, quotedOpenings: quotedOpenings, untickedMarks: untickedMarks, reportableMarks: reportableMarks,
-    reportModel: reportModel, reportHtml: reportHtml, fmtDate: fmtDate
+    reportModel: reportModel, reportHtml: reportHtml, fmtDate: fmtDate,
+    invoiceCounts: invoiceCounts, invoiceLineText: invoiceLineText, workReportModel: workReportModel
   };
 });

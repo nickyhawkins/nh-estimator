@@ -206,12 +206,14 @@ const SEED = () => {
     v.sentAt = new Date().toISOString(); v.variationStatus = 'approved';
     let interim = null, fin = null;
     try { interim = interimVariationCandidates(activeJob()).filter(l => l.kind === 'windoors').length; } catch (e) { interim = 'error: ' + e.message; }
-    try { fin = buildFinalInvoiceModel().variations.filter(l => /Windows and doors/.test(l.desc)).map(l => l.amount < 0 && !l.dropped); } catch (e) { fin = 'error: ' + e.message; }
+    try { fin = buildFinalInvoiceModel().labour.filter(l => l.wd).map(l => [l.site.amount < -0.005, Math.abs(l.amount - (l.quoted + l.site.amount)) < 0.005]); } catch (e) { fin = 'error: ' + e.message; }
     renderWdDetail();
     return { interim, fin };
   });
   eq('6. an approved credit is not billed on an interim (the final squares it)', billed.interim, 0);
-  eq('6. the final invoice carries it as money off', billed.fin, [true]);
+  // WINDOWS_DOORS_INVOICE_SPEC.md: one windows and doors line, and an agreed
+  // credit comes off it -- below the quote when it outweighs the site work.
+  eq('6. the final invoice takes the credit off the one windows and doors line', billed.fin, [[true, true]]);
   eq('6. once answered, every level is still offered', await offered(), ['light*', 'standard', 'heavy', 'restoration']);
   await page.evaluate(() => setWdPrep('heavy'));
   const afterCredit = await page.evaluate(() => {

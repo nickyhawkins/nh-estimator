@@ -299,10 +299,10 @@ const body = name => {
   const xrefCount = +(/xref\n0 (\d+)/.exec(report) || [])[1];
   check('the xref table counts every object', xrefCount === (report.match(/\d+ 0 obj\n/g) || []).length + 1);
 }
-check('the final invoice attaches the report when ticked',
-  /s\.attachWindoorsReport !== false && result\.invoiceId/.test(body('createFinalInvoice')) && body('createFinalInvoice').indexOf('attachWindoorsReportToInvoice(') >= 0);
+check('the final invoice asks the server to attach the report when ticked',
+  /jobId: job\.id/.test(body('createFinalInvoice')) && /attachWindoorsReport: wdReportGoesOn\(s\)/.test(body('createFinalInvoice')));
 check('a failed attach never un-creates the invoice (it is reported beside the success)',
-  body('attachWindoorsReportToInvoice').indexOf('never throws') >= 0 || /catch \(err\) \{\n\s*return \{ ok: false/.test(body('attachWindoorsReportToInvoice')));
+  /result\.attachment\.syncState === 'synced'/.test(body('createFinalInvoice')) && body('createFinalInvoice').indexOf('wdAttachFailureText(') >= 0);
 check('the windows and doors paint carries its own product', /extTopcoatRangeOverride: prod \? prod\.range/.test(body('windoorsPaintItems')));
 check('the product picker treats windows and doors as roles', /role === 'wdwindow' \|\| role === 'wddoor'/.test(body('overrideState')));
 
@@ -1046,6 +1046,34 @@ check('variations never see them', !/adjustments/.test(body('windoorsVariationLi
 check('a new repair starts at the last size used', /wdDefaultRepairTier/.test(body('wdApplyAction')));
 check('the detail sheet has the size control', /wdRepairTiersHtml\(o, oMarks\)/.test(body('renderWdDetail')) && /wdRepairTiersHtml\(o, oMarks\)/.test(body('renderWdBay')));
 check('profitability counts them as invoiced, not quoted', /quotedAll \+ repairAdjustments/.test(body('computeProfitability')));
+
+// ── Time set by hand on one opening, and the Exterior form's doors (v2.96.0)
+{
+  const R2 = W.mergeRates({});
+  const door = { id: 'd', side: 'front', floor: 0, level: 'standard', kind: 'door', position: 1, type: 'panelled', size_tier: 'standard', rows: 3, cols: 2, prep_stage: 'quote' };
+  const prop = { style: 'georgian', default_prep: 'light', layout: {}, coats: 2 };
+  const mins = o => W.priceJob({ property: prop, openings: [o], marks: [] }, R2).quote.mins;
+  eq('a door with no override prices from Rates', W.paintedMinutes(door, R2), W.ratesMinutes(door, R2));
+  const slow = Object.assign({}, door, { time_override: 140 });
+  eq('an override replaces the Rates figure', W.paintedMinutes(slow, R2), 140);
+  near('...and prep still applies on top', mins(slow), 140 * R2.prep.light);
+  near('...and coats too', W.priceJob({ property: Object.assign({}, prop, { coats: 3 }), openings: [slow], marks: [] }, R2).quote.mins, 140 * 1.5 * R2.prep.light);
+  eq('the Rates figure is still there to show', W.ratesMinutes(slow, R2), W.ratesMinutes(door, R2));
+  const oth = { id: 'o', side: 'front', floor: 0, level: 'standard', kind: 'other', position: 1, nickname: 'Garage door', type: 'door', size_tier: 'standard', other_mins: 150, time_override: 999 };
+  eq('an Other item ignores it (its minutes are its own)', W.paintedMinutes(oth, R2), 150);
+  const L = require('../lib/windoors');
+  const base = { side: 'front', kind: 'door', type: 'panelled', sizeTier: 'standard', floor: 0, position: 1 };
+  eq('the server keeps an override', L.normaliseOpening(Object.assign({ timeOverride: 140 }, base)).time_override, 140);
+  eq('...and stores blank or 0 as NULL', JSON.stringify([L.normaliseOpening(Object.assign({ timeOverride: 0 }, base)).time_override, L.normaliseOpening(base).time_override]), '[null,null]');
+  eq('...never on an Other item', L.normaliseOpening({ side: 'front', kind: 'other', nickname: 'Gate', timeOverride: 50 }).time_override, null);
+  eq('the server reads it back', L.mapOpening({ id: 'x', side: 'front', kind: 'door', time_override: '140' }).time_override, 140);
+}
+check('openings save their override', /timeOverride: o\.time_override/.test(body('wdPutOpening')));
+check('the sheet has the time control (Measure only)', /wdTimeOverrideHtml\(o\)/.test(body('renderWdDetail')) && /wdMode === 'site'\) return/.test(body('setWdTimeOverride')));
+check('a garage door starts from the Exterior form\'s figures', /settings\.rExtGarage/.test(body('addWdOther')) && /settings\.extAreaGarage/.test(body('addWdOther')));
+check('the Exterior form hides its doors, garage and porch on a job without them', /ext-doors-card', 'ext-garage-card', 'ext-porch-card'/.test(body('applyExtWindowsVisibility')) && /legacyDoors \? '' : 'none'/.test(body('applyExtWindowsVisibility')));
+check('...judged on doors, frames, garage doors and porches', /doorQty > 0 \|\| \+it\.frameQty > 0 \|\| \+it\.garage > 0 \|\| \+it\.porch > 0/.test(body('extItemHasLegacyDoors')));
+check('the cards carry the ids it hides', ['ext-doors-card', 'ext-garage-card', 'ext-porch-card'].every(id => SRC.indexOf('id="' + id + '"') >= 0));
 
 console.log(pass.length + ' passed, ' + fail.length + ' failed');
 fail.forEach(f => console.log('  ✗ ' + f));

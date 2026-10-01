@@ -2,6 +2,8 @@ const express = require('express');
 const axios = require('axios');
 const db = require('../db');
 const { ensureInvoiceSchema, buildInterimXeroInvoice } = require('../lib/invoices');
+const { buildWorkReport, workReportFileName, ensureAttachmentSchema, readAttachment } = require('../lib/windoors');
+const { hasAttachmentsScope, isPermissionError, attachPdfOnce } = require('../lib/xeroAttachments');
 const router = express.Router();
 
 const XERO_AUTH_URL = 'https://login.xero.com/identity/connect/authorize';
@@ -45,7 +47,7 @@ const SCOPES = 'openid profile email offline_access accounting.contacts accounti
 // it -- the worst case is a report that can't be attached, never an app that
 // can't connect. The flag is a column, not a key in settings.data: that blob
 // is rewritten whole by the app's every settings save and would lose it.
-const ATTACHMENTS_SCOPE = 'accounting.attachments';
+const { ATTACHMENTS_SCOPE } = require('../lib/xeroAttachments');
 let attachmentsColumnReady = null;
 function ensureAttachmentsColumn() {
   if (!attachmentsColumnReady) {
@@ -306,9 +308,11 @@ router.get('/status', async (req, res) => {
     // Whether the connection can attach files (the granted scopes are on the
     // token Xero issued). A connection made before attachments were asked for
     // can't, until it is reconnected once.
-    const scope = (xero_token && xero_token.scope) || '';
+    // attachmentsRefused: Xero turned the scope down for this app (see
+    // /connect), so reconnecting won't help -- Settings says which.
     res.json({ connected: !!xero_token, tenantId: xero_tenant_id,
-               attachments: scope.split(/\s+/).indexOf(ATTACHMENTS_SCOPE) !== -1 });
+               attachments: hasAttachmentsScope(xero_token),
+               attachmentsRefused: !!xero_token && !hasAttachmentsScope(xero_token) && await attachmentsRefused() });
   } catch (err) {
     res.json({ connected: false });
   }
@@ -1482,7 +1486,7 @@ router.post('/update-quote-status', async (req, res) => {
 // LineAmountTypes NoTax, description-only rows as dividers, 202 for
 // materials/sundries and 201 for labour.
 router.post('/create-invoice', async (req, res) => {
-  const { contactId, clientName, reference, lineItems } = req.body;
+  const { contactId, clientName, reference, lineItems, jobId, attachWindoorsReport } = req.body;
   if (!Array.isArray(lineItems) || !lineItems.length) {
     return res.status(400).json({ error: 'lineItems required' });
   }
@@ -1537,7 +1541,14 @@ router.post('/create-invoice', async (req, res) => {
     );
     const invoice = invRes.data.Invoices && invRes.data.Invoices[0];
     if (!invoice || !invoice.InvoiceID) throw new Error('Xero did not return an invoice');
-    res.json({ ok: true, invoiceId: invoice.InvoiceID, invoiceNumber: invoice.InvoiceNumber || 'created' });
+    // The Windows and doors work report goes on straight after, built here
+    // from the job's own rows. Whatever happens to it, the invoice stands:
+    // attachWorkReport never throws, and its outcome is its own record.
+    let attachment = null;
+    if (jobId && attachWindoorsReport) {
+      attachment = await attachWorkReport({ jobId: String(jobId), invoiceId: invoice.InvoiceID, invoiceNumber: invoice.InvoiceNumber || null });
+    }
+    res.json({ ok: true, invoiceId: invoice.InvoiceID, invoiceNumber: invoice.InvoiceNumber || 'created', attachment });
   } catch (err) {
     console.error('Create invoice error:', err.response?.data || err.message);
     const status = err.response?.status;
@@ -1551,45 +1562,103 @@ router.post('/create-invoice', async (req, res) => {
   }
 });
 
-// Attach a PDF to an invoice (the Windows and doors work report, built on the
-// phone -- see buildWindoorsReportPdf). IncludeOnline so the client can open
-// it from the online invoice Xero sends them. Xero replaces an attachment of
-// the same file name, so attaching again after a change updates it rather
-// than stacking copies. A 401/403 is the scope this connection wasn't granted
-// (reconnect once) and is reported as such.
-router.post('/invoice-attachment', async (req, res) => {
-  const { invoiceId, fileName, pdfBase64 } = req.body || {};
-  if (!invoiceId || !/^[0-9a-f-]{36}$/i.test(String(invoiceId))) return res.status(400).json({ error: 'invoiceId is required' });
-  const name = String(fileName || 'report.pdf').replace(/[^A-Za-z0-9 ._-]+/g, '').slice(0, 120) || 'report.pdf';
-  const bytes = Buffer.from(String(pdfBase64 || ''), 'base64');
-  if (bytes.length < 8 || bytes.slice(0, 5).toString('latin1') !== '%PDF-') return res.status(400).json({ error: 'that is not a PDF' });
+// ── The Windows and doors work report on the invoice ─────────────────────────
+// WINDOWS_DOORS_INVOICE_SPEC.md section 3. Built on the server from the job's
+// On Site rows (lib/windoors.js buildWorkReport), uploaded with
+// IncludeOnline=true as Work-Report-{InvoiceNumber}.pdf, and recorded in
+// invoice_attachments -- the deposit's pattern: its own sync state, its own
+// error, a retry that can never stack a second copy (attachPdfOnce looks for
+// the file name first). Never throws: an invoice that was created must never
+// look as if it wasn't because its report didn't make it.
+async function attachWorkReport({ jobId, invoiceId, invoiceNumber }) {
+  let fileName = workReportFileName(invoiceNumber);
+  const record = async (state, extra) => {
+    const e = extra || {};
+    try {
+      await ensureAttachmentSchema();
+      await db.query(
+        `INSERT INTO invoice_attachments (id, job_id, xero_invoice_id, xero_invoice_number, file_name, sync_state, last_error,
+                                          needs_reconnect, attempts, xero_attachment_id, bytes, last_attempt_at, synced_at)
+         VALUES ($1, $2, $3, $4, $5, $6::varchar, $7, $8, 1, $9, $10, NOW(), CASE WHEN $6::varchar = 'synced' THEN NOW() END)
+         ON CONFLICT (xero_invoice_id, file_name) DO UPDATE SET
+           job_id = EXCLUDED.job_id, xero_invoice_number = EXCLUDED.xero_invoice_number,
+           sync_state = EXCLUDED.sync_state, last_error = EXCLUDED.last_error, needs_reconnect = EXCLUDED.needs_reconnect,
+           attempts = invoice_attachments.attempts + 1,
+           xero_attachment_id = COALESCE(EXCLUDED.xero_attachment_id, invoice_attachments.xero_attachment_id),
+           bytes = COALESCE(EXCLUDED.bytes, invoice_attachments.bytes),
+           last_attempt_at = NOW(),
+           synced_at = CASE WHEN EXCLUDED.sync_state = 'synced' THEN COALESCE(invoice_attachments.synced_at, NOW()) ELSE invoice_attachments.synced_at END,
+           updated_at = NOW()`,
+        [invoiceId + ':' + fileName, jobId, invoiceId, invoiceNumber || null, fileName, state,
+         e.error ? String(e.error).slice(0, 300) : null, !!e.reconnect, e.attachmentId || null, e.bytes || null]);
+    } catch (err) {
+      console.error('Could not record the report attachment state', err.message);
+    }
+    return { syncState: state, fileName, xeroInvoiceId: invoiceId, xeroInvoiceNumber: invoiceNumber || null,
+             lastError: e.error || null, reconnect: !!e.reconnect, skipped: !!e.skipped };
+  };
   try {
+    const tokenRow = await db.query('SELECT xero_token, xero_tenant_id FROM settings WHERE id = 1');
+    const { xero_token, xero_tenant_id } = tokenRow.rows[0] || {};
+    if (!xero_token || !xero_tenant_id) return await record('failed', { error: 'Xero is not connected' });
+    // No scope, no call: say "reconnect" straight away rather than let Xero 403.
+    if (!hasAttachmentsScope(xero_token)) {
+      return await record('failed', { reconnect: true, error: (await attachmentsRefused())
+        ? 'Xero has not allowed this app to add attachments'
+        : 'Xero needs reconnecting once to allow attachments' });
+    }
     const accessToken = await getAccessToken();
-    const result = await db.query('SELECT xero_tenant_id FROM settings WHERE id = 1');
-    const tenantId = result.rows[0]?.xero_tenant_id;
-    if (!tenantId) return res.status(400).json({ error: 'No Xero tenant found — please reconnect Xero' });
-    await axios.post(
-      `${XERO_API_URL}/Invoices/${encodeURIComponent(invoiceId)}/Attachments/${encodeURIComponent(name.endsWith('.pdf') ? name : name + '.pdf')}?IncludeOnline=true`,
-      bytes,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Xero-Tenant-Id': tenantId,
-          'Content-Type': 'application/pdf',
-          Accept: 'application/json'
-        },
-        maxBodyLength: Infinity
-      }
-    );
-    res.json({ ok: true });
+    const headers = { Authorization: `Bearer ${accessToken}`, 'Xero-Tenant-Id': xero_tenant_id, Accept: 'application/json' };
+    // A retry from the job may not know the number yet: ask Xero.
+    if (!invoiceNumber) {
+      const got = await axios.get(`${XERO_API_URL}/Invoices/${encodeURIComponent(invoiceId)}`, { headers });
+      const inv = got.data && got.data.Invoices && got.data.Invoices[0];
+      invoiceNumber = (inv && inv.InvoiceNumber) || null;
+      fileName = workReportFileName(invoiceNumber);
+    }
+    const built = await buildWorkReport(jobId, { invoiceNumber });
+    if (!built) return await record('failed', { error: 'This job has no windows and doors to report on' });
+    const up = await attachPdfOnce({ http: axios, accessToken, tenantId: xero_tenant_id, invoiceId, fileName, bytes: built.buffer });
+    return await record('synced', { attachmentId: up.attachmentId, bytes: built.buffer.length, skipped: up.skipped });
   } catch (err) {
-    console.error('Invoice attachment error:', err.response?.data || err.message);
-    const status = err.response?.status;
-    const reconnect = status === 401 || status === 403;
-    res.status(reconnect ? 403 : 500).json({
+    console.error('Work report attachment error:', err.response?.data || err.message);
+    const reconnect = isPermissionError(err);
+    return await record('failed', {
+      reconnect,
       error: reconnect ? 'Xero hasn\'t given this app permission to add attachments yet' : xeroErrorMessage(err),
-      reconnect
     });
+  }
+}
+
+// Attach (or retry attaching) the report to the job's final invoice. Body:
+// { jobId, invoiceId? } -- without an invoiceId, the one the job records.
+router.post('/invoice-attachment', async (req, res) => {
+  const { jobId } = req.body || {};
+  if (!jobId) return res.status(400).json({ error: 'jobId is required' });
+  let invoiceId = req.body.invoiceId, invoiceNumber = null;
+  try {
+    const job = await db.query('SELECT data FROM jobs WHERE id = $1', [String(jobId)]);
+    if (!job.rows.length) return res.status(404).json({ error: 'job not found' });
+    const d = job.rows[0].data || {};
+    if (!invoiceId) invoiceId = d.xeroInvoiceId;
+    if (invoiceId && invoiceId === d.xeroInvoiceId) invoiceNumber = d.xeroInvoiceNumber || null;
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+  if (!invoiceId || !/^[0-9a-f-]{36}$/i.test(String(invoiceId))) return res.status(400).json({ error: 'This job has no final invoice in Xero yet' });
+  const attachment = await attachWorkReport({ jobId: String(jobId), invoiceId: String(invoiceId), invoiceNumber });
+  res.status(attachment.syncState === 'synced' ? 200 : (attachment.reconnect ? 403 : 502))
+    .json({ ok: attachment.syncState === 'synced', attachment, error: attachment.lastError, reconnect: attachment.reconnect });
+});
+
+// The job's report attachment state, for the retry button.
+router.get('/invoice-attachment', async (req, res) => {
+  const jobId = String(req.query.jobId || '');
+  if (!jobId) return res.status(400).json({ error: 'jobId is required' });
+  try {
+    res.json({ attachment: await readAttachment(jobId, req.query.invoiceId ? String(req.query.invoiceId) : null) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
