@@ -193,6 +193,20 @@ Designed for now, so steps 1–3 don't paint it into a corner.
 
 ---
 
+## What the Exterior form does that this doesn't yet (checked 2026-10-01)
+
+Everything else in the form is covered by steps 1–4. These need a home
+before the form can be hidden on new jobs:
+
+| In the Exterior form | Where it should go |
+|---|---|
+| Masonry: **textured render** and **spray render** toggles | step 4, per side's wall finish |
+| **Making good** (a fixed £) | a per-job *Making good £* on the Exterior screen |
+| Walls **not on the house** (garden walls, outbuildings, a second building), as their own items | step 3 extra: *Other walls*, m², at the masonry rates |
+| Several items per job (a garage block priced apart) | the same *Other walls* extra, named |
+| Exterior doors: **fire door**, **both sides**, **mask ironmongery** | rare outside; Other item or the door's time override |
+| Custom prep % | the prep levels (Light → Restoration) only |
+
 ## Invoice and report
 
 - **Invoice (decided 2026-10-01): walls and woodwork on separate lines by
