@@ -1,6 +1,6 @@
 # The whole exterior on the drawing (Windows & Doors stage 3, and 4)
 
-Status: **steps 1–4 built (v2.96.0 – v2.99.0)**. Still to come: the invoice layout (walls and woodwork as separate lines, or a full breakdown chosen at the quote).
+Status: **built** — steps 1–4 (v2.96.0 – v2.99.0) and the invoice layout (v3.0.0).
 
 Builds on WINDOWS_DOORS_SPEC.md (stage 1), WINDOWS_DOORS_STAGE2_SPEC.md (the
 house drawing) and WINDOWS_DOORS_INVOICE_SPEC.md (one invoice line + report).
@@ -224,6 +224,23 @@ Designed for now, so steps 1–3 don't paint it into a corner.
   form only on a job with exterior items already.
 - **Not yet:** the separate woodwork / walls invoice lines and the
   full-breakdown option (next step).
+
+### Built: the invoice layout (v3.0.0)
+- `job.exteriorLineLayout`: `single` | `split` (default) | `breakdown`,
+  chosen on the Exterior screen's totals card, fixed once the quote is
+  accepted. `Windoors.quoteGroups` partitions `priceJob`'s quote exactly by
+  each opening's line (`lineGroupOf`); the first group is always
+  `windoors:windoors` (the key every older quote, snapshot and interim
+  record carries), then `windoors:walls`, `windoors:doors`,
+  `windoors:other`, `windoors:run:<type>`, `windoors:extra:<type>`,
+  `windoors:making_good`. Words: `groupQuoteText` / `groupInvoiceText`.
+- Xero quote, client quote and snapshot: a row per line. Final invoice: a
+  line per live group or frozen `windoors:*` row; site additions placed by
+  opening via `priceJob().variations[id].byOpening` and the adjustments'
+  `opening_id` (unplaceable money on the first line). Interims:
+  `interimInvoiceLineItems` takes `windoors.lines` `{ key: text }` (both
+  copies identical), site additions on the first; the server accepts the
+  object or the old string.
 
 ## What the Exterior form does that this doesn't yet (checked 2026-10-01)
 

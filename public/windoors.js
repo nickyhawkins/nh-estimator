@@ -1356,9 +1356,15 @@
     var out = { quote: { mins: 0, materials: 0, fixed: 0, count: 0 }, variations: {}, adjustments: { mins: 0, materials: 0, count: 0, items: [] }, perOpening: {}, excluded: 0 };
     var byId = {};
     var scope = scopeMap(openings);
+    // Each variation's money by the opening it's on, so a split quote can
+    // put a site addition on the line its opening is billed on.
+    var varOpen = function (vb, id, mins, materials) {
+      var e = vb.byOpening[id] || (vb.byOpening[id] = { mins: 0, materials: 0 });
+      e.mins += mins; e.materials += materials;
+    };
     var varBucket = function (id) {
       var k = id || 'unassigned';
-      if (!out.variations[k]) out.variations[k] = { mins: 0, materials: 0, marks: 0, prepRaises: 0, prepDrops: 0, includes: 0 };
+      if (!out.variations[k]) out.variations[k] = { mins: 0, materials: 0, marks: 0, prepRaises: 0, prepDrops: 0, includes: 0, byOpening: {} };
       return out.variations[k];
     };
     openings.forEach(function (o) {
@@ -1388,6 +1394,7 @@
         var ivb = varBucket(sc.variationId);
         var incMins = scaled * (rates.prep[effectivePrep(o, property)] || 1);
         ivb.mins += incMins; ivb.materials += own;
+        varOpen(ivb, o.id, incMins, own);
         if (ownScope(o).variationId) ivb.includes++;
         per.quoteMins = 0; per.quoteMaterials = 0; per.varMins += incMins; per.varMaterials += own;
         return;
@@ -1396,11 +1403,12 @@
       out.quote.materials += own;
       out.quote.fixed += fixed;
       // Openings only: the roofline and the extras aren't openings to count.
-      if (o.kind !== 'run' && o.kind !== 'extra') out.quote.count++;
+      if (o.kind !== 'run' && o.kind !== 'extra' && o.kind !== 'wall') out.quote.count++;
       prepChain(o, property).forEach(function (st) {
         var delta = scaled * ((rates.prep[st.to] || 1) - (rates.prep[st.from] || 1));
         var vb = varBucket(st.variation_id);
         vb.mins += delta;
+        varOpen(vb, o.id, delta, 0);
         if (st.change === 'raised') vb.prepRaises++; else vb.prepDrops++;
         per.varMins += delta;
       });
@@ -1430,6 +1438,7 @@
       if (m.stage === 'variation') {
         var vb = varBucket(m.variation_id);
         vb.mins += a.mins; vb.materials += a.cost; vb.marks++;
+        varOpen(vb, o.id, a.mins, a.cost);
         per.varMins += a.mins; per.varMaterials += a.cost;
       } else {
         out.quote.mins += a.mins; out.quote.materials += a.cost;
@@ -1608,8 +1617,12 @@
   // The fixture's quote/invoice item line: what is included, in words, e.g.
   // "Exterior windows and doors (outside faces): 8 sash windows, 1 front door."
   // Quote-stage marked work is summarised briefly after it.
-  function itemLineText(data) {
+  // opts.ids: only these openings (one line of a split quote); opts.head:
+  // the line's own heading in place of the generated one.
+  function itemLineText(data, opts) {
+    opts = opts || {};
     var openings = quotedOpenings(data && data.openings, data && data.property);
+    if (opts.ids) openings = openings.filter(function (o) { return opts.ids[o.id]; });
     var marks = (data && data.marks) || [];
     var counts = {}, order = [];
     var bump = function (k) { if (!counts[k]) { counts[k] = 0; order.push(k); } counts[k]++; };
@@ -1642,7 +1655,7 @@
       }
     });
     // With the roofline in it, it's more than windows and doors.
-    var head = exteriorHead(order.some(function (k) { return k === 'walls' || (/^extra:/.test(k) && findKey(EXTRA_TYPES, k.slice(6)).paint === 'masonry'); }),
+    var head = opts.head ? opts.head + ' (outside faces)' : exteriorHead(order.some(function (k) { return k === 'walls' || (/^extra:/.test(k) && findKey(EXTRA_TYPES, k.slice(6)).paint === 'masonry'); }),
       order.some(function (k) { return /^(run|extra):/.test(k); })) + ' (outside faces)';
     if (!order.length) return head + '.';
     // Windows, then bays, then doors, whatever order the house was walked
@@ -3082,6 +3095,91 @@
     return { sides: sides, sections: sections, highlight: openingsWithWork, marks: marks, totals: totals, todo: todo };
   }
 
+  // ── The quote's lines (EXTERIOR_HOUSE_SPEC.md, invoice layout) ──────────
+  // How the exterior goes on the quote and the invoices, chosen per job at
+  // the quote stage:
+  //   'single'     one line for all of it (how every job was before)
+  //   'split'      the woodwork and the walls apart (the default)
+  //   'breakdown'  a line per element: windows, doors, other items, each
+  //                roofline run, each extra, the walls, making good
+  // The first group's key is always 'windoors:windoors' -- the key every
+  // quote before this carried -- so a frozen quote, an interim's billing
+  // record and the final invoice all still find it.
+  var LINE_LAYOUTS = [
+    { key: 'single', label: 'One line' },
+    { key: 'split', label: 'Woodwork & walls' },
+    { key: 'breakdown', label: 'Full breakdown' }
+  ];
+  function lineLayout(v) { return findKey(LINE_LAYOUTS, v) ? v : 'split'; }
+  // The line an opening is billed on, as { key, label } (label = the line's
+  // heading where it has one of its own).
+  function lineGroupOf(o, layout) {
+    layout = lineLayout(layout);
+    var masonry = o.kind === 'wall' || (o.kind === 'extra' && extraType(o).paint === 'masonry');
+    if (layout === 'single') return { key: 'windoors:windoors', label: null };
+    if (layout === 'split') return masonry ? { key: 'windoors:walls', label: 'Exterior walls' } : { key: 'windoors:windoors', label: null };
+    if (o.kind === 'wall') return { key: 'windoors:walls', label: 'Walls' };
+    if (o.kind === 'door') return { key: 'windoors:doors', label: 'Doors' };
+    if (o.kind === 'other') return { key: 'windoors:other', label: 'Other items' };
+    if (o.kind === 'run') return { key: 'windoors:run:' + runType(o).key, label: runType(o).label };
+    if (o.kind === 'extra') return { key: 'windoors:extra:' + extraType(o).key, label: extraType(o).label };
+    return { key: 'windoors:windoors', label: 'Windows' };
+  }
+  // The quote's money split into its lines: [{ key, label, ids, mins,
+  // materials, fixed }], the windows' line first. Partitions priceJob's
+  // quote exactly -- each opening's own quoted minutes, materials and set
+  // price -- with making good on the first line (its own in a breakdown).
+  // The bays' own timber goes with the windows.
+  function quoteGroups(data, rawRates, layout) {
+    layout = lineLayout(layout);
+    var rates = rawRates && rawRates.winBase ? rawRates : mergeRates(rawRates);
+    var p = priceJob(data, rates);
+    var live = liveOpenings(data && data.openings, data && data.property);
+    var groups = {}, order = [];
+    var group = function (g) {
+      if (!groups[g.key]) { groups[g.key] = { key: g.key, label: g.label, ids: {}, mins: 0, materials: 0, fixed: 0 }; order.push(g.key); }
+      return groups[g.key];
+    };
+    group(lineGroupOf({ kind: 'window' }, layout));
+    sortOpenings(live).forEach(function (o) {
+      var per = p.perOpening[o.id];
+      var g = group(lineGroupOf(o, layout));
+      g.ids[o.id] = true;
+      if (!per) return;
+      g.mins += per.quoteMins; g.materials += per.quoteMaterials; g.fixed += per.quoteFixed || 0;
+    });
+    var mg = Math.max(0, +((data && data.property && data.property.making_good) || 0));
+    if (mg > 0) (layout === 'breakdown' ? group({ key: 'windoors:making_good', label: 'Making good' }) : groups['windoors:windoors']).fixed += mg;
+    // A fixed order whatever side was walked first: windows, doors, other
+    // items, the roofline, the extras, the walls, making good.
+    var rank = function (k) {
+      if (k === 'windoors:windoors') return 0;
+      if (k === 'windoors:doors') return 1;
+      if (k === 'windoors:other') return 2;
+      if (/^windoors:run:/.test(k)) return 3 + findKey(RUN_TYPES, k.slice(13)).position / 100;
+      if (/^windoors:extra:/.test(k)) return 4 + findKey(EXTRA_TYPES, k.slice(15)).position / 100;
+      if (k === 'windoors:walls') return 5;
+      return 6;
+    };
+    order.sort(function (a, b) { return rank(a) - rank(b); });
+    return order.map(function (k) { return groups[k]; }).filter(function (g, i) {
+      return i === 0 || g.mins > 0.0001 || g.materials > 0.0001 || g.fixed > 0.0001;
+    });
+  }
+  // A line's words on the QUOTE ("Exterior walls (outside faces): 58m²
+  // walls.") -- itemLineText over just its openings.
+  function groupQuoteText(data, g) {
+    if (g.key === 'windoors:making_good') return 'Making good';
+    return itemLineText(data, { ids: g.ids, head: g.label });
+  }
+  // ...and on the INVOICE, from invoiceLineText. p: { variations, colours,
+  // report, stage, pct } as invoiceLineText's.
+  function groupInvoiceText(data, g, p) {
+    if (g.key === 'windoors:making_good') return 'Making good';
+    var c = invoiceCounts(data, p.variations, g.ids);
+    return invoiceLineText(Object.assign({}, c, { head: g.label || null, colours: p.colours, report: p.report, stage: p.stage, pct: p.pct }));
+  }
+
   // What the line is headed: windows and doors alone, then the woodwork
   // once the roofline or wooden extras come in, then everything outside
   // once there's masonry in it.
@@ -3097,7 +3195,7 @@
   // The openings the invoice is for, counted: every opening in the job, and
   // one brought into it on site unless the client turned that down.
   // variations: [{ id, status }]; with none given, every one counts.
-  function invoiceCounts(data, variations) {
+  function invoiceCounts(data, variations, ids) {
     var declined = {};
     (variations || []).forEach(function (v) { if (v && v.status === 'declined') declined[v.id] = true; });
     var live = liveOpenings(data && data.openings, data && data.property);
@@ -3106,6 +3204,7 @@
     live.forEach(function (o) {
       var s = sc[o.id];
       if (s.excluded || (s.variationId && declined[s.variationId])) return;
+      if (ids && !ids[o.id]) return;
       if (o.kind === 'run') { var rk = runType(o).key; out.runs[rk] = (out.runs[rk] || 0) + runMetres(o); return; }
       if (o.kind === 'extra') { var xk = extraType(o).key; out.extras[xk] = (out.extras[xk] || 0) + extraQty(o); return; }
       if (o.kind === 'wall') { out.walls += wallGeometry(o, live, data && data.rates).net; return; }
@@ -3148,7 +3247,7 @@
     var list = what.length > 1 ? what.slice(0, -1).join(', ') + ' and ' + what[what.length - 1] : what.join('');
     var has = function (pred) { return EXTRA_TYPES.some(function (t) { return pred(t) && p.extras && +p.extras[t.key] > 0; }); };
     var anyRun = RUN_TYPES.some(function (t) { return p.runs && +p.runs[t.key] > 0; }) || has(function () { return true; });
-    var s = exteriorHead(has(function (t) { return t.paint === 'masonry'; }) || +p.walls > 0, anyRun) + ': preparation and painting of outside faces' + (list ? ', ' + list : '') + '.';
+    var s = (p.head || exteriorHead(has(function (t) { return t.paint === 'masonry'; }) || +p.walls > 0, anyRun)) + ': preparation and painting of outside faces' + (list ? ', ' + list : '') + '.';
     if (p.report === 'attached') s += ' Full breakdown of work per opening in attached report.';
     else if (p.report === 'final') s += ' Full breakdown of work per opening in the report attached to the final invoice.';
     var c = p.colours || {};
@@ -3160,6 +3259,7 @@
       if (frames) named.push(frames + ' (frames)');
       if (doors) named.push(doors + ' (doors)');
     }
+    if (c.walls && +p.walls > 0) named.push(c.walls + ' (walls)');
     if (named.length) s += ' Colour' + (named.length > 1 ? 's' : '') + ': ' + named.join(', ') + '.';
     if (p.stage && +p.stage.n > 0 && +p.stage.of > 0) s += ' (stage ' + (+p.stage.n) + ' of ' + (+p.stage.of) + ')';
     else if (p.pct != null) s += ' (' + (Math.round(+p.pct * 100) / 100 >= 100 ? 'complete' : (Math.round(+p.pct * 100) / 100) + '% complete') + ')';
@@ -3324,6 +3424,7 @@
     otherPricing: otherPricing, otherUnit: otherUnit, otherSetPrice: otherSetPrice, ownScope: ownScope, scopeMap: scopeMap, openingScope: openingScope, quotedOpenings: quotedOpenings, untickedMarks: untickedMarks, reportableMarks: reportableMarks,
     reportModel: reportModel, reportHtml: reportHtml, fmtDate: fmtDate,
     invoiceCounts: invoiceCounts, invoiceLineText: invoiceLineText, workReportModel: workReportModel,
+    LINE_LAYOUTS: LINE_LAYOUTS, lineLayout: lineLayout, lineGroupOf: lineGroupOf, quoteGroups: quoteGroups, groupQuoteText: groupQuoteText, groupInvoiceText: groupInvoiceText,
     WALL_FINISHES: WALL_FINISHES, WALL_MAX_M: WALL_MAX_M, wallFinish: wallFinish, wallGeometry: wallGeometry, wallOpenings: wallOpenings,
     EXTRA_TYPES: EXTRA_TYPES, EXTRA_MAX: EXTRA_MAX, extraType: extraType, extraQty: extraQty, extraAmount: extraAmount, extraSectioned: extraSectioned, exteriorHead: exteriorHead,
     RUN_TYPES: RUN_TYPES, RUN_SECTIONS: RUN_SECTIONS, RUN_MAX_M: RUN_MAX_M, runType: runType, runMetres: runMetres, fmtMetres: fmtMetres
