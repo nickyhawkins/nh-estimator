@@ -1444,13 +1444,14 @@ router.put('/windoors/property', async (req, res) => {
   const p = normaliseProperty(req.body);
   try {
     const result = await db.query(`
-      INSERT INTO job_property (job_id, style, detail_enabled, default_prep, layout, coats, window_colour, door_colour, paint_products, appearance, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+      INSERT INTO job_property (job_id, style, detail_enabled, default_prep, layout, coats, window_colour, door_colour, paint_products, appearance, making_good, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, 0), NOW())
       ON CONFLICT (job_id) DO UPDATE SET style = $2, detail_enabled = $3, default_prep = $4, layout = $5,
         coats = $6, window_colour = $7, door_colour = $8, paint_products = $9,
-        appearance = COALESCE($10, job_property.appearance), updated_at = NOW()
+        appearance = COALESCE($10, job_property.appearance),
+        making_good = COALESCE($11, job_property.making_good), updated_at = NOW()
       RETURNING *
-    `, [jobId, p.style, p.detail_enabled, p.default_prep, p.layout, p.coats, p.window_colour, p.door_colour, p.paint_products, p.appearance]);
+    `, [jobId, p.style, p.detail_enabled, p.default_prep, p.layout, p.coats, p.window_colour, p.door_colour, p.paint_products, p.appearance, p.making_good]);
     res.json({ ok: true, property: mapProperty(result.rows[0]) });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2732,13 +2733,14 @@ async function copyJobRows(entry, newJobId) {
     await ensureWindoorsSchema();
     const p = wd.property;
     await db.query(
-      `INSERT INTO job_property (job_id, style, detail_enabled, default_prep, layout, coats, window_colour, door_colour, paint_products, appearance)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `INSERT INTO job_property (job_id, style, detail_enabled, default_prep, layout, coats, window_colour, door_colour, paint_products, appearance, making_good)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        ON CONFLICT (job_id) DO NOTHING`,
       [newJobId, p.style || 'georgian', p.detail_enabled !== false, p.default_prep || 'light', p.layout || {},
         Math.max(1, Math.min(3, +p.coats || 2)), p.window_colour == null ? null : +p.window_colour,
         p.door_colour == null ? null : +p.door_colour, normalisePaintProducts(p.paint_products),
-        p.appearance && typeof p.appearance === 'object' ? Windoors.normaliseAppearance(p.appearance, p.style) : null]
+        p.appearance && typeof p.appearance === 'object' ? Windoors.normaliseAppearance(p.appearance, p.style) : null,
+        Math.max(0, +p.making_good || 0)]
     );
     // Every opening gets its new id first, so a bay's windows can be pointed
     // at their bay's new id whatever order the rows come in.

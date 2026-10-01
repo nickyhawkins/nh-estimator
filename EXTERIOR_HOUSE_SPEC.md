@@ -1,6 +1,6 @@
 # The whole exterior on the drawing (Windows & Doors stage 3, and 4)
 
-Status: **steps 1 and 2 built (v2.96.0, v2.97.0)**; steps 3–4 are a draft, not built.
+Status: **steps 1–3 built (v2.96.0, v2.97.0, v2.98.0)**; step 4 (walls) is a draft, not built.
 
 Builds on WINDOWS_DOORS_SPEC.md (stage 1), WINDOWS_DOORS_STAGE2_SPEC.md (the
 house drawing) and WINDOWS_DOORS_INVOICE_SPEC.md (one invoice line + report).
@@ -163,6 +163,20 @@ a name, minutes or a set price, materials).
 
 ---
 
+### Built in step 3 (v2.98.0)
+- Kind `extra` (`Windoors.EXTRA_TYPES`, twelve types incl. *Other walls*),
+  one of each per side (position = the type's), quantity in `run_length` in
+  its unit (m / m² / each). Priced at `rates.extra[type].mins` per unit,
+  paint `.m2` per unit into the windows' paint or the masonry rows
+  (`windoorsMasonryItems`, colour 1 until step 4 gives walls a colour).
+  Metres and m² marked left/middle/right; counted ones as `item`. Gutters
+  and downpipes drawn and tappable; the rest listed on the side's Extras
+  card. *Other walls* named by nickname.
+- `job_property.making_good` (a fixed £ before markup, into `quote.fixed`),
+  on the totals card; an older app's save leaves it alone (COALESCE).
+- Line head: *Exterior woodwork* with roofline/wooden extras, *Exterior
+  painting* once masonry is in it.
+
 ## Step 4 (later) — walls: render and masonry
 
 Designed for now, so steps 1–3 don't paint it into a corner.
@@ -201,9 +215,9 @@ before the form can be hidden on new jobs:
 | In the Exterior form | Where it should go |
 |---|---|
 | Masonry: **textured render** and **spray render** toggles | step 4, per side's wall finish |
-| **Making good** (a fixed £) | a per-job *Making good £* on the Exterior screen |
-| Walls **not on the house** (garden walls, outbuildings, a second building), as their own items | step 3 extra: *Other walls*, m², at the masonry rates |
-| Several items per job (a garage block priced apart) | the same *Other walls* extra, named |
+| **Making good** (a fixed £) | **done (v2.98.0)**: *Making good £* on the totals card |
+| Walls **not on the house** (garden walls, outbuildings, a second building), as their own items | **done (v2.98.0)**: the *Other walls* extra, m², masonry rate, named |
+| Several items per job (a garage block priced apart) | the same *Other walls* extra, named — one per side |
 | Exterior doors: **fire door**, **both sides**, **mask ironmongery** | rare outside; Other item or the door's time override |
 | Custom prep % | the prep levels (Light → Restoration) only |
 
