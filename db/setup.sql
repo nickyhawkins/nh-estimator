@@ -715,6 +715,7 @@ ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS wall_spray BOOLEAN NOT NULL DE
 ALTER TABLE job_property ADD COLUMN IF NOT EXISTS fascia_colour INTEGER;                         -- the roofline's colour; NULL = the windows' (v3.1.0)
 ALTER TABLE job_property ADD COLUMN IF NOT EXISTS runs_split BOOLEAN NOT NULL DEFAULT FALSE;     -- fascia and soffit priced apart on this job (v3.1.0)
 ALTER TABLE job_property ADD COLUMN IF NOT EXISTS wall_colour INTEGER;                           -- the walls' colour number; NULL = colour 1 (v2.99.0)                                -- ...and the odd extra bit, priced not drawn
+ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS painted_at TIMESTAMP;                          -- painting ticked off as done on site; NULL = still to paint (v3.2.5)
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS time_override REAL;                             -- minutes set by hand (2 coats, before prep/access); NULL = Rates (v2.96.0)
 DROP INDEX IF EXISTS job_openings_slot;
 CREATE UNIQUE INDEX IF NOT EXISTS job_openings_slot2 ON job_openings (job_id, side, level, floor, kind, position);

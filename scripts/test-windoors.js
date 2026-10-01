@@ -467,6 +467,12 @@ check('the report html draws the bay view', W.reportHtml({ property, openings: [
   check('a bay needs no type or size of its own', !L.normaliseOpening({ side: 'front', kind: 'bay', bayShape: 'square', bayStoreys: 2 }).error
     && L.normaliseOpening({ side: 'front', kind: 'bay', bayShape: 'square', bayStoreys: 2 }).type === 'square');
   eq('the lower ground and roof have no floor number', L.normaliseOpening({ side: 'front', level: 'lower_ground', floor: 3, kind: 'window', type: 'sash', sizeTier: 'small' }).floor, 0);
+  {
+    const ob = { side: 'front', kind: 'window', type: 'sash', sizeTier: 'small' };
+    eq('painting ticked: kept', L.normaliseOpening(Object.assign({ paintedAt: '2026-10-01T15:00:00Z' }, ob)).painted_at, '2026-10-01T15:00:00.000Z');
+    check('...unticked is null, and said so', L.normaliseOpening(Object.assign({ paintedAt: null }, ob)).painted_at === null && L.normaliseOpening(Object.assign({ paintedAt: null }, ob)).painted_given);
+    check("an older app's save doesn't touch the tick", !L.normaliseOpening(ob).painted_given);
+  }
   eq('a row from an old app is standard', L.normaliseOpening({ side: 'front', kind: 'window', type: 'sash', sizeTier: 'small' }).level, 'standard');
   eq('an old app shell leaves the stored appearance alone', L.normaliseProperty({ style: 'victorian', layout: {} }).appearance, null);
   const np = L.normaliseProperty({ appearance: { period: 'victorian', finish: 'gault_brick' }, layout: { front: { floors: [{ windows: 1, doors: 1, bays: 9 }], roof: { windows: 2 }, lower_ground: null } } });
@@ -726,12 +732,25 @@ eq('...4-over-8 beside 8-over-8', W.sashPattern(W.openingDefaults(g8, 'window', 
   const pu = W.reportModel({ property: tp, openings: [pw], marks: [] }, [pv[0], { id: 'vdown', status: 'pending' }], { todo: true }).sections[0];
   eq('a raise still standing paints at the raised level', pu.quoted.join('|') + ' ' + pu.variations.length, 'Paint: heavy prep (agreed on site), 2 coats, first floor access 0');
   eq('the client-facing report still names each agreed change', W.reportModel({ property: tp, openings: [pw], marks: [] }, pv).sections[0].variations.map(v => v.text).join('|'), 'Prep raised to heavy|Prep lowered to standard');
+  // v3.2.5: the painting has a tick of its own (painted_at).
+  const pa = Object.assign({}, dm, { painted_at: '2026-10-01T15:00:00Z' });
+  const tdp = W.reportModel({ property: tp, openings: [a1, a2, pa], marks: tm }, vars, { todo: true });
+  eq('painting ticked off with nothing else to do: off the list', tdp.sections.map(s => s.opening.id).join(','), 'a2,a1');
+  const a1p = Object.assign({}, a1, { painted_at: '2026-10-01T15:00:00Z' });
+  const tdq = W.reportModel({ property: tp, openings: [a1p], marks: tm }, vars, { todo: true }).sections[0];
+  eq('...with repairs left: just the repairs', tdq.quoted.join('|') + ' ' + tdq.toPaint, 'Reputty x1 pane|Resin repair (cill, medium) false');
+  check('...and an unpainted one is still to paint', td.sections.every(s => s.toPaint));
+  eq("the done report doesn't care", W.reportModel({ property: tp, openings: [a1p, a2, dm], marks: tm }, vars).sections.map(s => s.opening.id).join(','), 'a1');
   const done = W.reportModel({ property: tp, openings: [a1, a2, dm], marks: tm }, vars);
   eq('the work report is unchanged: done work only', done.sections.map(s => s.opening.id).join(',') + ' ' + done.marks.map(m => m.id).join(','), 'a1 t2');
   check('no prices anywhere on it', !/£|\d+\.\d\d/.test(JSON.stringify(td.sections.map(s => [s.quoted, s.variations]))));
 }
 
 // ── The app ────────────────────────────────────────────────────────────────
+check('the painting is saved with the opening', /paintedAt: o\.painted_at/.test(body('wdPutOpening')));
+check('...has a tick on site', /wdTogglePainted\(\)/.test(body('wdTickListHtml')) && /painted_at/.test(body('wdTogglePainted')) && /painted_at/.test(body('wdTickAll')));
+check('...and the to-do totals count only painting left', /sec\.toPaint/.test(body('buildWindoorsReportPdf')));
+check("the server's save leaves the tick alone for an older app", /painted_at = CASE WHEN \$40::boolean THEN \$39::timestamp ELSE job_openings\.painted_at END/.test(fs.readFileSync(path.join(__dirname, '../routes/api.js'), 'utf8')));
 check('openings are saved with their level, bay and pane flag', /level: Windoors\.levelOf\(o\)/.test(body('wdPutOpening')) && /parentOpeningId/.test(body('wdPutOpening')) && /panesSet/.test(body('wdPutOpening')));
 check("a sash's bottom rows are saved", /rowsBottom/.test(body('wdPutOpening')));
 check('an adopted bay re-points its windows', /x\.parent_opening_id === old/.test(body('wdPutOpening')));

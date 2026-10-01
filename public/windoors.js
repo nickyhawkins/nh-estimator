@@ -3095,7 +3095,9 @@
   // the schedule of work behind a quote, or the list a painter works through.
   // Same rows and the same drawings, but: marks NOT yet ticked off, every
   // opening listed with its painting (prep, coats, access), and the whole
-  // lot counted up by action (totals). Still quote and approved-variation
+  // lot counted up by action (totals). An opening whose painting is ticked
+  // off (painted_at) drops its painting line, and drops off altogether once
+  // its marks are done too. Still quote and approved-variation
   // work only, and still no prices.
   function reportModel(data, variations, opts) {
     opts = opts || {};
@@ -3116,14 +3118,17 @@
       var quoteMarks = mine.filter(function (m) { return m.stage !== 'variation'; });
       var quoted = [], varied = [];
       var dflt = property.default_prep || 'light';
+      // Its painting, ticked off on site (painted_at, v3.2.5): off the list.
+      var toPaint = false;
       if (sc.variationId) {
         // Added on site: its painting is the variation's, once approved.
         var iv = approved[sc.variationId];
-        if (iv && (todo || ownScope(o).variationId)) {
+        if (iv && (todo || ownScope(o).variationId) && !(todo && o.painted_at)) {
+          toPaint = todo;
           varied.push({ text: todo ? paintLine(o, property) : 'Added to the job: ' + prepLabel(effectivePrep(o, property)).toLowerCase() + ' prep and paint',
                         approvedAt: iv.approvedAt || null });
         }
-      } else if (todo) quoted.push(paintLine(o, property, approved));
+      } else if (todo) { if (!o.painted_at) { toPaint = true; quoted.push(paintLine(o, property, approved)); } }
       else if (prepRank(quotePrep(o, property)) > prepRank(dflt)) quoted.push('Prep: ' + prepLabel(quotePrep(o, property)).toLowerCase());
       // On the to-do list, one line per action -- each is its own box to
       // tick, so the reputty can be done before the glass arrives.
@@ -3169,7 +3174,7 @@
       var marked = mine.length > 0 || varied.length > 0 || (!todo && quoted.length > 0);
       if (marked) openingsWithWork[o.id] = true;
       sections.push({ opening: o, label: openingLabel(o), type: typeLabel(o), what: kindNoun(o), quoted: quoted, variations: varied,
-                      marked: marked, children: o.kind === 'bay' ? bayChildren(o, live) : null });
+                      marked: marked, toPaint: toPaint, children: o.kind === 'bay' ? bayChildren(o, live) : null });
     });
     var sides = SIDES.map(function (s) { return s.key; }).filter(function (side) {
       return sections.some(function (sec) { return sec.opening.side === side; });
