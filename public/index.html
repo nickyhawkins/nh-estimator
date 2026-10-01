@@ -25878,6 +25878,75 @@ function openWdAdjustmentsSheet() {
     + '</div>');
 }
 
+// ── Price per window (v3.4.0) ─────────────────────────────────────────────
+// What each opening is worth, for Nicky, never the client (a per-window list
+// invites "just do the front", and the quote and invoice bill the exterior as
+// one line on purpose). Per opening: the painting at the quoted prep, the
+// quoted repairs, and -- once there is any -- the work found on site.
+//
+// Quoted figures are at the quote's markup, spread over the openings in
+// proportion (applyMarkupAmount isn't linear in fixed-£ mode), so the rows
+// plus making good add up to the exterior's figure on the quote exactly.
+// Found work is at the figure it's billed at (sundries share and the
+// variations markup, as the client's page shows it).
+function wdPricePerWindow() {
+  var out = { sides: [], quoted: 0, found: 0, makingGood: 0, hasFound: false };
+  if (!wdInUse()) return out;
+  var c = calcWindoors();
+  var mult = c.total > 0.005 ? applyMarkupAmount(c.total) / c.total : 1;
+  var p = c.priced, r = rpm();
+  var found = {};
+  windoorsFoundLines().forEach(function(l) { found[l.id] = variationDeltaAmount({ raw: l.raw, spray: 0 }); });
+  var bySide = {}, order = [];
+  Windoors.sortOpenings(windoors.openings).forEach(function(o) {
+    var per = p.perOpening[o.id];
+    if (!per) return;
+    var paint = ((per.paintMins || 0) * r + (per.paintMaterials || 0) + (per.quoteFixed || 0)) * mult;
+    var repairs = (((per.quoteMins || 0) - (per.paintMins || 0)) * r + ((per.quoteMaterials || 0) - (per.paintMaterials || 0))) * mult;
+    if (Math.abs(repairs) < 0.005) repairs = 0;
+    var f = found[o.id] || 0;
+    if (Math.abs(paint) < 0.005 && !repairs && Math.abs(f) < 0.005) return;
+    if (!bySide[o.side]) { bySide[o.side] = []; order.push(o.side); }
+    bySide[o.side].push({ id: o.id, label: Windoors.openingLabel(o), paint: paint, repairs: repairs, found: f,
+                          addedOnSite: !!Windoors.openingScope(o, windoors.openings).variationId });
+    out.quoted += paint + repairs; out.found += f;
+    if (Math.abs(f) > 0.005) out.hasFound = true;
+  });
+  out.makingGood = Math.max(0, +(windoors.property && windoors.property.making_good) || 0) * mult;
+  out.quoted += out.makingGood;
+  out.sides = order.map(function(k) { return { side: k, rows: bySide[k] }; });
+  return out;
+}
+function openWdPriceSheet() {
+  var m = wdPricePerWindow();
+  var sideName = { front: 'Front', back: 'Back', left: 'Left', right: 'Right' };
+  var cell = 'display:flex;justify-content:space-between;gap:10px;padding:8px 16px;border-top:1px solid var(--border);font-size:13px';
+  var h = '<div class="card"><div class="card-header">Price per window</div>'
+    + '<div style="padding:0 16px 8px;font-size:12px;color:var(--text2);line-height:1.45">For you, not the client: the quote and the invoice bill the exterior as one line. '
+    + 'Each opening\'s <b>painting</b> at the quoted prep, its <b>quoted repairs</b>'
+    + (m.hasFound ? ', and the <b>work found on site</b>' : '') + '. Quoted figures include markup, so they add up to the quote.</div>';
+  m.sides.forEach(function(sd) {
+    h += '<div class="subsection-label" style="padding-top:8px">' + escapeHtml(sideName[sd.side] || sd.side) + '</div>';
+    sd.rows.forEach(function(row) {
+      var bits = [row.addedOnSite ? 'added on site' : 'painting ' + fmt(row.paint)];
+      if (row.repairs) bits.push('repairs ' + fmt(row.repairs));
+      if (Math.abs(row.found) > 0.005) bits.push('found ' + fmtSigned(row.found));
+      h += '<div style="' + cell + '"><span><b>' + escapeHtml((function(t) { return t.charAt(0).toUpperCase() + t.slice(1); })(row.label.replace(/^[^,]+, /, ''))) + '</b>'
+        + '<small style="display:block;color:var(--text2)">' + bits.join(' · ') + '</small></span>'
+        + '<span style="white-space:nowrap;font-weight:600">' + fmtSigned(row.paint + row.repairs + row.found) + '</span></div>';
+    });
+  });
+  if (m.makingGood > 0.005) h += '<div style="' + cell + '"><span>Making good</span><span style="white-space:nowrap;font-weight:600">' + fmt(m.makingGood) + '</span></div>';
+  h += '<div style="' + cell + ';font-weight:700"><span>As quoted</span><span style="white-space:nowrap">' + fmt(m.quoted) + '</span></div>';
+  if (m.hasFound) {
+    h += '<div style="' + cell + '"><span>Found on site</span><span style="white-space:nowrap;font-weight:600">' + fmtSigned(m.found) + '</span></div>'
+      + '<div style="' + cell + ';font-weight:700"><span>Now</span><span style="white-space:nowrap">' + fmt(m.quoted + m.found) + '</span></div>'
+      + '<div style="padding:4px 16px 0;font-size:11px;color:var(--text2)">Found work includes its sundries share, as it\'s billed. Repair size adjustments are on their own line.</div>';
+  }
+  h += '<button onclick="closeScheduleSheet()" style="margin:10px 16px 12px;width:calc(100% - 32px);background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:var(--rs);padding:10px;font-size:14px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer">Close</button></div>';
+  openScheduleSheet(h);
+}
+
 // "Send for approval" published these: the drafts are closed, so the next
 // mark made on site starts a new one.
 function wdCloseDraftsSent(lines) {
@@ -26290,6 +26359,8 @@ function renderWindoors() {
   // quote; on site, the list to hand the team. Whenever there are openings.
   // It opens on a page of its own, which on an installed iPhone app has no
   // share button -- so Share sits beside it.
+  // Price per window (v3.4.0): yours, never the client's.
+  if (wdInUse()) html += '<button onclick="openWdPriceSheet()" style="' + soft + '">💷 Price per window</button>';
   if (wdInUse()) html += '<div style="display:flex;gap:8px">'
     + '<button onclick="saveWindoorsReportPdf(true)" style="' + soft + ';flex:1">📋 Work to do (PDF)</button>'
     + '<button onclick="saveWindoorsReportPdf(true, { share: true })" style="' + soft + ';width:auto;flex:none;padding:11px 16px">Share</button></div>';

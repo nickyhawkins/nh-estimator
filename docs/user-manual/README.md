@@ -1385,6 +1385,20 @@ Old windows are where the surprises are. On a job with [Windows and doors](#wind
 
 **Work that went missing before v2.88.1.** Before v2.88.1 the on-site window work was only kept on the phone, so reloading the app could lose its record. The marks on the windows stayed, but they were billed nowhere. When the app loads a job with any of that orphaned work, it puts it back as found work, with a message saying it did.
 
+#### Price per window
+
+**💷 Price per window**, on the Windows & Doors screen from Measure and from On Site, lists what each opening is worth, side by side. Each one shows:
+
+- **Painting:** its prep and painting at the quoted prep level, with its access and coats.
+- **Repairs:** any work marked on it at the quote stage.
+- **Found:** the work found on it on site, once there is any. A window whose prep went below the quote shows a credit here.
+
+The roofline, walls and extras get a row each too, and **Making good** has its own line. The quoted figures include your markup, so **As quoted** is the exterior's figure on the quote. On site there's also **Found on site** and **Now**, the two together. Found work is shown as it's billed, with its sundries share. Repair size adjustments aren't in it; they're on their own line.
+
+It's **for you, not the client**. Use it to tell a client what a window was quoted at next to what the rot adds, to price leaving one out, or to check your figures. It isn't on the quote, the invoice or the client's page, which all bill the exterior as one line, so nobody is invited to pick windows off a list.
+
+![Price per window: painting, quoted repairs and found work for each opening](images/26zr-windoors-price-per-window.png)
+
 #### Work to do
 
 **📋 Work to do (PDF)** is on the Windows & Doors screen from Measure and from On Site, as soon as the job has any windows or doors. It's the list of what's still to be done, built on the phone with no signal needed. Tap it to read it: it opens on its own page, the same way the work report does. To send, save or print it, tap **Share** next to it, which hands the PDF to your phone's share sheet (on a computer it downloads).
@@ -1672,6 +1686,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v3.3.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v3.4.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

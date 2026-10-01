@@ -1404,7 +1404,11 @@
       // access don't touch it.
       var fixed = o.kind === 'other' ? otherSetPrice(o) : isTudor(o) ? tudorPrice(o) : 0;
       var per = { painted: painted, coatsFactor: cf, accessMult: am, access: o.kind === 'other' ? 'ground' : openingAccess(o), scaled: scaled,
-                  quoteMins: scaled * qMult, quoteMaterials: own, quoteFixed: fixed, varMins: 0, varMaterials: 0, adjMins: 0, adjMaterials: 0 };
+                  quoteMins: scaled * qMult, quoteMaterials: own, quoteFixed: fixed, varMins: 0, varMaterials: 0, adjMins: 0, adjMaterials: 0,
+                  // The painting alone, at the quoted prep (v3.4.0, price per
+                  // window): quoteMins/quoteMaterials less this is the quoted
+                  // repairs. Zero for an opening added on site.
+                  paintMins: scaled * qMult, paintMaterials: own };
       out.perOpening[o.id] = per;
       if (sc.variationId) {
         // Added to the job on site: all of it is that variation's, at the
@@ -1415,7 +1419,8 @@
         ivb.mins += incMins; ivb.materials += own + fixed;
         varOpen(ivb, o.id, incMins, own + fixed);
         if (ownScope(o).variationId) ivb.includes++;
-        per.quoteMins = 0; per.quoteMaterials = 0; per.quoteFixed = 0; per.varMins += incMins; per.varMaterials += own + fixed;
+        per.quoteMins = 0; per.quoteMaterials = 0; per.quoteFixed = 0; per.paintMins = 0; per.paintMaterials = 0;
+        per.varMins += incMins; per.varMaterials += own + fixed;
         return;
       }
       out.quote.mins += per.quoteMins;
