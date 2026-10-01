@@ -26185,7 +26185,11 @@ function renderWindoors() {
   var soft = 'width:100%;margin:4px 0 8px;background:var(--accent-soft-bg);color:var(--accent);border:1px solid var(--accent-soft-border);border-radius:12px;padding:11px;font-size:14px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer';
   // Work to do (v2.88.0): from Measure, the schedule of work behind the
   // quote; on site, the list to hand the team. Whenever there are openings.
-  if (wdInUse()) html += '<button onclick="saveWindoorsReportPdf(true)" style="' + soft + '">📋 Work to do (PDF)</button>';
+  // It opens on a page of its own, which on an installed iPhone app has no
+  // share button -- so Share sits beside it.
+  if (wdInUse()) html += '<div style="display:flex;gap:8px">'
+    + '<button onclick="saveWindoorsReportPdf(true)" style="' + soft + ';flex:1">📋 Work to do (PDF)</button>'
+    + '<button onclick="saveWindoorsReportPdf(true, { share: true })" style="' + soft + ';width:auto;flex:none;padding:11px 16px">Share</button></div>';
   if (wdInUse()) {
     // The work report (WINDOWS_DOORS_INVOICE_SPEC.md): built by the server
     // from the saved rows, exactly as it goes on the final invoice -- so it
@@ -28156,12 +28160,13 @@ function windoorsReportFilename(todo) {
 // await (iOS blocks one opened later), then pointed at the file once built:
 // through the service worker (sw.js, /pdf/...) where it controls the page,
 // as that is an ordinary same-origin address that works offline; else a
-// blob URL. With no window at all, the old share sheet or download.
-async function saveWindoorsReportPdf(todo) {
+// blob URL. With no window at all, or from the Share button beside it, the
+// share sheet (else a download).
+async function saveWindoorsReportPdf(todo, opts) {
   todo = todo === true;
   if (!todo) { openWorkReportPdf(); return; }
   var win = null;
-  try { win = window.open('', '_blank'); } catch (e) { win = null; }
+  if (!(opts && opts.share)) try { win = window.open('', '_blank'); } catch (e) { win = null; }
   try { if (win) win.document.write('<!DOCTYPE html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Work to do</title><p style="font-family:sans-serif;padding:24px">Building the work to do list…</p>'); } catch (e) { /* only a placeholder */ }
   try {
     var bytes = await buildWindoorsReportPdf({ todo: todo });

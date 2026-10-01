@@ -796,6 +796,7 @@ check('loading the fixture recovers orphaned variations', /wdRecoverVariations\(
   check('nothing orphaned: nothing written', recover(t2.ctx) === 0 && t2.ctx.persisted === 0 && t2.job.windoorsVariations === undefined);
 }
 check('the work-to-do PDF is offered whenever there are openings', /saveWindoorsReportPdf\(true\)/.test(body('renderWindoors')) && /wdInUse\(\)/.test(body('renderWindoors')));
+check('...with a Share button beside it that goes straight to the share sheet', /saveWindoorsReportPdf\(true, \{ share: true \}\)/.test(body('renderWindoors')) && /opts && opts.share/.test(body('saveWindoorsReportPdf')));
 check('...and builds from the todo model', /todo: true/.test(body('wdTodoModelNow')) && /wdTodoModelNow\(\)/.test(body('buildWindoorsReportPdf')));
 check('confirming a layout never removes an Other item', /o\.kind === 'other'/.test(body('confirmWdLayout')));
 check('the invoice screen warns about unticked work', /wdUntickedCount\(\)/.test(body('renderFinalInvoice')));

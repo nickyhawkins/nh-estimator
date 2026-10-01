@@ -1384,7 +1384,7 @@ Everything you mark collects into one **draft** variation, worded for you from t
 
 #### Work to do
 
-**📋 Work to do (PDF)** is on the Windows & Doors screen from Measure and from On Site, as soon as the job has any windows or doors. It's the list of what's still to be done, built on the phone with no signal needed. It opens on its own page, the same way the work report does. To send or print it, use the share button on that page.
+**📋 Work to do (PDF)** is on the Windows & Doors screen from Measure and from On Site, as soon as the job has any windows or doors. It's the list of what's still to be done, built on the phone with no signal needed. Tap it to read it: it opens on its own page, the same way the work report does. To send, save or print it, tap **Share** next to it, which hands the PDF to your phone's share sheet (on a computer it downloads).
 
 - **At the top, *In all*:** how many openings there are to paint, and the marked work counted up (*Reputty x14 panes, Replace glass x3 panes, Resin repair x5 repairs*).
 - **Then each side**, with its drawing, and **every opening on it**, each with a box to tick on paper for each job: the painting first (*Paint: light prep, 2 coats, first floor access*), then one line per kind of repair (*Reputty x2 panes*, *Replace glass x1 pane*, *Resin repair (cill)*). An access you set by hand is always named (*ground access (set by hand)*), so the team knows the scaffold should be up.
@@ -1668,6 +1668,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v3.2.2. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v3.2.3. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
