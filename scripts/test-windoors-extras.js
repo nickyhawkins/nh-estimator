@@ -87,7 +87,7 @@ const near = (name, got, want) => check(name, Math.abs(got - want) < 0.005, { go
   const mins = (os, p, marks) => W.priceJob({ property: p || prop, openings: os, marks: marks || [] }, R).quote;
 
   // ── 1. Pricing ─────────────────────────────────────────────────────────
-  eq('1. all twelve extras, each with a unit and a paint', W.EXTRA_TYPES.map(t => t.key + ':' + t.unit + ':' + t.paint).length, 12);
+  eq('1. all thirteen extras (Tudor framing last, at a set price), each with a unit and a paint', W.EXTRA_TYPES.map(t => t.key + ':' + t.unit + ':' + t.paint).length, 13);
   near('1. metres', mins([x('gutters', 18)]).mins, 18 * R.extra.gutters.mins * R.prep.light);
   near('1. counted', mins([x('downpipes', 3)]).mins, 3 * R.extra.downpipes.mins * R.prep.light);
   near('1. m², at the Exterior form\'s masonry rate (5 a coat)', mins([x('other_walls', 20)]).mins, 20 * 10 * R.prep.light);

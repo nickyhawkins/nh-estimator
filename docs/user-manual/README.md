@@ -508,6 +508,12 @@ Pick it before you send the quote. It goes on the Xero quote, the client's copy 
 
 ![Gutters and downpipes on the house, and the Extras card](images/26zt-extras-elevation.png)
 
+**Tudor framing.** For the black-and-white timbers on a mock Tudor house (or a real one), pick **Tudor framing (set price)** from **+ Add an extra…**. It asks for one price for that side — your labour and the stain, before markup — and nothing is worked out from minutes or paint: the price is the price. It's drawn on the house, over the **Upper floor** to begin with; on its sheet you can change the price and pick **Where it is**: *Upper floor*, *Whole side* or *Gable only* (on a side with a gable, the upper floor and whole side take the gable too). Prep, coats and access don't apply, so they aren't offered. You can still mark work on its **left, middle or right** — filler, a resin repair — and that's priced on top as usual. *Not in this job* works as for anything else, and brought in on site its price goes on that variation. On the quote and invoice it's named in the woodwork line (*…14 windows, 3 doors and Tudor framing*), or on a line of its own with **Full breakdown**; the work report says *Prepared and stained, upper floor*. Each side takes one.
+
+![Tudor framing on a modern house's upper floor and gable](images/26zz-tudor-elevation.png)
+
+![Its sheet: the set price, and where it is](images/26zz2-tudor-sheet.png)
+
 **Making good.** The totals card at the bottom of the screen has a **Making good £** box: a fixed cost for the exterior, before markup, exactly as the Exterior form's own box.
 
 ![Making good on the totals card](images/26zv-making-good.png)
@@ -1656,6 +1662,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v3.1.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v3.2.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

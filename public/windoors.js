@@ -173,8 +173,23 @@
     // Walls that aren't the house's: a garden wall, an outbuilding, a garage
     // block -- named by its nickname. At the Exterior form's masonry rate
     // (5 min a m² a coat).
-    { key: 'other_walls', label: 'Other walls', noun: 'other walls', unit: 'm2', mins: 10, m2: 1, paint: 'masonry' }
+    { key: 'other_walls', label: 'Other walls', noun: 'other walls', unit: 'm2', mins: 10, m2: 1, paint: 'masonry' },
+    // Tudor framing (v3.2.0): the black timbers over a rendered upper floor
+    // or gable -- mock Tudor on a modern house as often as the real thing.
+    // Stained, at a set price for the side (other_price, £ before markup,
+    // like an Other item's), so no minutes or paint area; where it covers
+    // in other_draw (TUDOR_COVERS). Kept last: a type's position is its
+    // place in this list, and the rows already saved hold theirs.
+    { key: 'tudor', label: 'Tudor framing', noun: 'Tudor framing', unit: 'set', mins: 0, m2: 0, paint: 'stain' }
   ];
+  var TUDOR_COVERS = [
+    { key: 'upper', label: 'Upper floor' },
+    { key: 'whole', label: 'Whole side' },
+    { key: 'gable', label: 'Gable only' }
+  ];
+  function tudorCover(o) { return findKey(TUDOR_COVERS, o && o.other_draw) || TUDOR_COVERS[0]; }
+  function isTudor(o) { return !!o && o.kind === 'extra' && o.type === 'tudor'; }
+  function tudorPrice(o) { var n = +(o && o.other_price); return isFinite(n) && n > 0 ? Math.min(100000, n) : 0; }
   EXTRA_TYPES.forEach(function (t, i) { t.position = i + 1; });
   var EXTRA_MAX = 1000;
   function extraType(o) { return findKey(EXTRA_TYPES, o && o.type) || EXTRA_TYPES[0]; }
@@ -182,6 +197,9 @@
   // "12m gutters", "3 downpipes", "20m² garden wall".
   function extraAmount(o, withNoun) {
     var t = extraType(o), q = extraQty(o);
+    // Tudor framing is one lot a side: where it is, or what it is (and on
+    // how many sides, summed for the line).
+    if (t.unit === 'set') return withNoun === false ? tudorCover(o).label.toLowerCase() : t.noun + (q > 1 ? ' (' + Math.round(q) + ' sides)' : '');
     var n = t.unit === 'each' ? (q === 1 ? t.noun : t.noun + 's') : (o.nickname && t.key === 'other_walls' ? o.nickname.toLowerCase() : t.noun);
     var amt = t.unit === 'm' ? fmtMetres(q) + 'm' : t.unit === 'm2' ? fmtMetres(q) + 'm\u00b2' : String(Math.round(q));
     return withNoun === false ? amt : amt + ' ' + n;
@@ -1118,7 +1136,7 @@
     // "Front, fascia & soffit".
     if (o.kind === 'run') return sideLabel(o.side) + ', ' + runType(o).label.toLowerCase();
     // "Back, gutters"; "Left, other walls (garden wall)".
-    if (o.kind === 'extra') return sideLabel(o.side) + ', ' + extraType(o).label.toLowerCase() + (o.nickname ? ' (' + o.nickname + ')' : '');
+    if (o.kind === 'extra') return sideLabel(o.side) + ', ' + (isTudor(o) ? extraType(o).label : extraType(o).label.toLowerCase()) + (o.nickname ? ' (' + o.nickname + ')' : '');
     if (o.kind === 'wall') return sideLabel(o.side) + ', walls';
     var s = sideLabel(o.side) + ', ' + levelLabel(o) + ', ' + openingCode(o);
     if (withNickname !== false && o.nickname) s += ' (' + o.nickname + ')';
@@ -1384,7 +1402,7 @@
       var own = o.kind === 'other' ? otherFigure(o.other_cost, 100000) : 0;
       // A set price is £ before markup in place of the labour: prep and
       // access don't touch it.
-      var fixed = o.kind === 'other' ? otherSetPrice(o) : 0;
+      var fixed = o.kind === 'other' ? otherSetPrice(o) : isTudor(o) ? tudorPrice(o) : 0;
       var per = { painted: painted, coatsFactor: cf, accessMult: am, access: o.kind === 'other' ? 'ground' : openingAccess(o), scaled: scaled,
                   quoteMins: scaled * qMult, quoteMaterials: own, quoteFixed: fixed, varMins: 0, varMaterials: 0, adjMins: 0, adjMaterials: 0 };
       out.perOpening[o.id] = per;
@@ -1393,10 +1411,11 @@
         // prep it has now.
         var ivb = varBucket(sc.variationId);
         var incMins = scaled * (rates.prep[effectivePrep(o, property)] || 1);
-        ivb.mins += incMins; ivb.materials += own;
-        varOpen(ivb, o.id, incMins, own);
+        // A set price (Tudor framing) comes in as £, with the materials.
+        ivb.mins += incMins; ivb.materials += own + fixed;
+        varOpen(ivb, o.id, incMins, own + fixed);
         if (ownScope(o).variationId) ivb.includes++;
-        per.quoteMins = 0; per.quoteMaterials = 0; per.varMins += incMins; per.varMaterials += own;
+        per.quoteMins = 0; per.quoteMaterials = 0; per.quoteFixed = 0; per.varMins += incMins; per.varMaterials += own + fixed;
         return;
       }
       out.quote.mins += per.quoteMins;
@@ -2407,11 +2426,70 @@
         ? '<g class="wd-open wd-wall" data-open-id="' + esc(o.id) + '" style="cursor:pointer"' + dim + '>' + tint + rect(x0, topY, W, bodyH, 'transparent') + '</g>'
         : (tint ? '<g' + dim + '>' + tint + '</g>' : '');
     });
+    // Tudor framing (v3.2.0): black timbers over white render on the upper
+    // floor, the whole side or just the gable, in its three sections --
+    // coloured where work is marked, tappable as one. Under the openings, so
+    // the windows sit in it; the gable's share is drawn with the roof.
+    var tudor = ((data && data.openings) || []).filter(function (o) { return o.side === side && isTudor(o) && !o.excluded && extraQty(o) > 0; })[0] || null;
+    var tudorGable = '';
+    if (tudor) {
+      var tM = ((data && data.marks) || []).filter(function (m) { return m.opening_id === tudor.id; });
+      var tCol = function (id) { var st = elementStyle(id, tM, false); return { c: st.fill || '#2b2522', dash: st.dash }; };
+      var beam = function (xa, ya, xb, yb, c) { return '<line x1="' + r1(xa) + '" y1="' + r1(ya) + '" x2="' + r1(xb) + '" y2="' + r1(yb) + '" stroke="' + c.c + '" stroke-width="3.2"' + (c.dash ? ' stroke-dasharray="' + c.dash + '"' : '') + '/>'; };
+      var render = '#f3efe4', tw3 = W / 3;
+      var cover = tudorCover(tudor).key;
+      if (cover === 'gable' && rk !== 'gable') cover = 'upper';
+      var tLit = !opts.highlight || opts.highlight[tudor.id];
+      var wrap = function (inner, hitSvg) {
+        inner = '<g' + (tLit ? '' : ' opacity="0.4"') + '>' + inner + '</g>';
+        return opts.interactive && tudor.id ? '<g class="wd-open wd-tudor" data-open-id="' + esc(tudor.id) + '" style="cursor:pointer">' + inner + hitSvg + '</g>' : inner;
+      };
+      // The floors it covers: the upper ones (all of a one-storey side), or
+      // every floor.
+      var bands = [];
+      if (cover !== 'gable') {
+        g.floors.forEach(function (f, fi) {
+          if (cover === 'whole' || fi > 0 || g.floors.length === 1) bands.push([bandTop[fi], g.floorH[fi]]);
+        });
+      }
+      var body = '', hits = '';
+      bands.forEach(function (b) {
+        var top = b[0], h = b[1];
+        body += rect(x0, top, W, h, render);
+        RUN_SECTIONS.forEach(function (sec, i) {
+          var c = tCol(sec.id), xa = x0 + i * tw3, xb = xa + tw3;
+          body += beam(xa, top + 1.6, xb, top + 1.6, c) + beam(xa, top + h - 1.6, xb, top + h - 1.6, c);
+          var n = Math.max(2, Math.round(tw3 / 17));
+          for (var k = 0; k <= n; k++) { var sx = xa + (xb - xa) * k / n; if ((k === 0 && i > 0)) continue; body += beam(sx, top + 1.6, sx, top + h - 1.6, c); }
+          // Braces: out from the corners on the ends, a chevron in the middle.
+          if (i === 0) body += beam(xa + 1.6, top + h * 0.55, xa + (xb - xa) / n, top + 1.6, c);
+          else if (i === 2) body += beam(xb - 1.6, top + h * 0.55, xb - (xb - xa) / n, top + 1.6, c);
+          else { var mx = (xa + xb) / 2; body += beam(mx - (xb - xa) / n, top + h - 1.6, mx, top + h * 0.35, c) + beam(mx + (xb - xa) / n, top + h - 1.6, mx, top + h * 0.35, c); }
+        });
+        hits += rect(x0, top, W, h, 'transparent');
+      });
+      if (body) s += wrap(body, hits);
+      if (rk === 'gable') {
+        // The gable: render inside the verges, a tie beam, a king post, studs
+        // up to the slope and a brace each side.
+        var half = W / 2 + 8, mid = x0 + W / 2, apex = topY - roofH;
+        var hAt = function (x) { return Math.max(0, roofH * (1 - Math.abs(x - mid) / half) - 4); };
+        var gb = poly([[x0 - 2, topY - 1], [mid, apex + 5], [x1 + 2, topY - 1]], render);
+        RUN_SECTIONS.forEach(function (sec, i) {
+          var c = tCol(sec.id), xa = x0 + i * tw3, xb = xa + tw3;
+          gb += beam(xa, topY - 1.6, xb, topY - 1.6, c);
+          for (var gx = xa + 14; gx < xb - 4; gx += 20) if (hAt(gx) > 6 && Math.abs(gx - mid) > 12) gb += beam(gx, topY - 1.6, gx, topY - hAt(gx), c);
+          if (i === 1) gb += beam(mid, topY - 1.6, mid, apex + 6, c) + beam(mid, topY - roofH * 0.6, mid - tw3 * 0.45, topY - 1.6, c) + beam(mid, topY - roofH * 0.6, mid + tw3 * 0.45, topY - 1.6, c);
+        });
+        tudorGable = wrap(gb, poly([[x0, topY], [mid, apex + 4], [x1, topY]], 'transparent'));
+      }
+    }
     // roof
     var chim = chimneyFill(a, fp);
     var roofSvg = '';
     if (rk === 'gable') {
       roofSvg += poly([[x0 - 8, topY], [x0 + W / 2, topY - roofH], [x1 + 8, topY]], fp.wall, ' stroke="' + fp.stroke + '"');
+      roofSvg += tudorGable;
       roofSvg += '<polyline points="' + (x0 - 10) + ',' + r1(topY + 2) + ' ' + r1(x0 + W / 2) + ',' + r1(topY - roofH - 2) + ' ' + (x1 + 10) + ',' + r1(topY + 2) + '" fill="none" stroke="' + p.roof + '" stroke-width="5"/>';
       if (style === 'victorian' && a.victorian.bargeboards && !g.end) {
         // Bargeboards: a trim board under the verge, with drops, and a finial.
@@ -3242,7 +3320,7 @@
     });
     EXTRA_TYPES.forEach(function (t) {
       var q = p.extras && +p.extras[t.key];
-      if (q > 0) what.push(t.unit === 'each' ? extraAmount({ type: t.key, run_length: q }) : extraAmount({ type: t.key, run_length: q }, false) + ' of ' + t.noun);
+      if (q > 0) what.push(t.unit === 'each' || t.unit === 'set' ? extraAmount({ type: t.key, run_length: q }) : extraAmount({ type: t.key, run_length: q }, false) + ' of ' + t.noun);
     });
     if (+p.walls > 0) what.push(fmtMetres(+p.walls) + 'm\u00b2 of walls');
     var list = what.length > 1 ? what.slice(0, -1).join(', ') + ' and ' + what[what.length - 1] : what.join('');
@@ -3329,9 +3407,10 @@
       var paint = o.kind === 'other' ? 'Prepared and painted' : 'Prepared (' + prepLabel(prep).toLowerCase() + ') and painted, ' + coats + ' coat' + (coats === 1 ? '' : 's');
       if (o.kind === 'run') paint += ', ' + fmtMetres(runMetres(o)) + 'm';
       if (o.kind === 'extra') paint += ', ' + extraAmount(o, extraType(o).unit === 'each');
+      if (isTudor(o)) paint = 'Prepared and stained, ' + tudorCover(o).label.toLowerCase();
       if (o.kind === 'wall') paint += ', ' + fmtMetres(wallGeometry(o, live, data && data.rates).net) + 'm\u00b2, ' + wallFinish(o).label.toLowerCase();
       if (o.kind === 'bay') paint = "Bay's own timber " + paint.charAt(0).toLowerCase() + paint.slice(1);
-      if (colourName) paint += ' in ' + colourName;
+      if (colourName && !isTudor(o)) paint += ' in ' + colourName;
       var onSite = items.some(function (it) { return it.onSite; });
       var standard = !items.length;
       if (!standard) highlight[o.id] = true;
@@ -3430,7 +3509,7 @@
     invoiceCounts: invoiceCounts, invoiceLineText: invoiceLineText, workReportModel: workReportModel,
     LINE_LAYOUTS: LINE_LAYOUTS, lineLayout: lineLayout, lineGroupOf: lineGroupOf, quoteGroups: quoteGroups, groupQuoteText: groupQuoteText, groupInvoiceText: groupInvoiceText,
     WALL_FINISHES: WALL_FINISHES, WALL_MAX_M: WALL_MAX_M, wallFinish: wallFinish, wallGeometry: wallGeometry, wallOpenings: wallOpenings,
-    EXTRA_TYPES: EXTRA_TYPES, EXTRA_MAX: EXTRA_MAX, extraType: extraType, extraQty: extraQty, extraAmount: extraAmount, extraSectioned: extraSectioned, exteriorHead: exteriorHead,
+    EXTRA_TYPES: EXTRA_TYPES, TUDOR_COVERS: TUDOR_COVERS, tudorCover: tudorCover, isTudor: isTudor, tudorPrice: tudorPrice, EXTRA_MAX: EXTRA_MAX, extraType: extraType, extraQty: extraQty, extraAmount: extraAmount, extraSectioned: extraSectioned, exteriorHead: exteriorHead,
     RUN_TYPES: RUN_TYPES, RUN_SECTIONS: RUN_SECTIONS, RUN_MAX_M: RUN_MAX_M, runType: runType, runMetres: runMetres, fmtMetres: fmtMetres
   };
 });

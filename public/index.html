@@ -3284,6 +3284,7 @@ function populateWindoorsRates() {
   Windoors.DOOR_TIERS.forEach(function(t) { h += row(t.label + ' door opening', 'm² taken off the wall (French doors count twice)', inp('s-wd-oparea-' + t.key, R.wall.openingArea[t.key], 0.1)); });
   h += '<div class="subsection-label">Extras, per unit<small>minutes for 2 coats before prep · m² of paint — a metre, a m² or each</small></div>';
   Windoors.EXTRA_TYPES.forEach(function(t) {
+    if (t.unit === 'set') return; // Tudor framing: a set price on the job, nothing to rate
     h += row(t.label, 'min · m², ' + (t.unit === 'm' ? 'a metre' : t.unit === 'm2' ? 'a m²' : 'each') + (t.paint === 'masonry' ? ' · masonry paint' : ''), '<span style="display:flex;gap:6px">' + inp('s-wd-extra-' + t.key + '-mins', R.extra[t.key].mins) + inp('s-wd-extra-' + t.key + '-m2', R.extra[t.key].m2, 0.05) + '</span>');
   });
   h += '<div class="subsection-label">Prep multipliers<small>× on the painted opening — an opening can go up from the job\'s default, never down</small></div>';
@@ -3346,6 +3347,7 @@ function readWindoorsRates() {
   R.wall.cutIn.door = v('s-wd-cutin-door', R.wall.cutIn.door);
   Windoors.WINDOW_TIERS.concat(Windoors.DOOR_TIERS).forEach(function(t) { R.wall.openingArea[t.key] = v('s-wd-oparea-' + t.key, R.wall.openingArea[t.key]); });
   Windoors.EXTRA_TYPES.forEach(function(t) {
+    if (t.unit === 'set') return;
     R.extra[t.key].mins = v('s-wd-extra-' + t.key + '-mins', R.extra[t.key].mins);
     R.extra[t.key].m2 = v('s-wd-extra-' + t.key + '-m2', R.extra[t.key].m2);
   });
@@ -26293,6 +26295,9 @@ function wdExtrasOn(side) {
   return windoors.openings.filter(function(o) { return o.side === side && o.kind === 'extra'; })
     .sort(function(a, b) { return Windoors.extraType(a).position - Windoors.extraType(b).position; });
 }
+function wdExtraSummary(o) {
+  return Windoors.isTudor(o) ? fmt(Windoors.tudorPrice(o)) + ' set price · ' + Windoors.extraAmount(o, false) : Windoors.extraAmount(o, false);
+}
 function wdExtraUnitWord(t) { return t.unit === 'm' ? 'metres' : t.unit === 'm2' ? 'm²' : 'how many'; }
 function wdExtrasHtml() {
   var site = wdMode === 'site';
@@ -26304,7 +26309,7 @@ function wdExtrasHtml() {
     h += '<div onclick="openWdDetail(\'' + escapeHtml(o.id) + '\')" style="display:flex;justify-content:space-between;gap:10px;padding:9px 16px;border-top:1px solid var(--border);cursor:pointer;font-size:14px">'
       + '<span><b>' + escapeHtml(Windoors.extraType(o).label) + '</b>' + (o.nickname ? ' ' + escapeHtml(o.nickname) : '')
       + (marked ? ' <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#1e6497;vertical-align:1px"></span>' : '') + '</span>'
-      + '<span style="color:var(--text2);font-size:12px">' + escapeHtml(Windoors.extraAmount(o, false)) + (o.excluded ? ' · not in this job' : '') + ' ›</span></div>';
+      + '<span style="color:var(--text2);font-size:12px">' + escapeHtml(wdExtraSummary(o)) + (o.excluded ? ' · not in this job' : '') + ' ›</span></div>';
   });
   if (!site) {
     var have = {};
@@ -26313,7 +26318,7 @@ function wdExtrasHtml() {
     if (free.length) {
       h += '<div style="padding:8px 16px 12px;border-top:1px solid var(--border)"><select class="field-input" onchange="if(this.value){addWdExtra(this.value);this.value=\'\'}" style="width:100%">'
         + '<option value="">+ Add an extra…</option>'
-        + free.map(function(t) { return '<option value="' + t.key + '">' + escapeHtml(t.label) + ' (' + (t.unit === 'm' ? 'm' : t.unit === 'm2' ? 'm²' : 'each') + ')</option>'; }).join('')
+        + free.map(function(t) { return '<option value="' + t.key + '">' + escapeHtml(t.label) + ' (' + (t.unit === 'm' ? 'm' : t.unit === 'm2' ? 'm²' : t.unit === 'set' ? 'set price' : 'each') + ')</option>'; }).join('')
         + '</select></div>';
     }
   }
@@ -26323,6 +26328,19 @@ function addWdExtra(type) {
   if (wdMode === 'site') return;
   var t = Windoors.EXTRA_TYPES.find(function(x) { return x.key === type; });
   if (!t || wdExtrasOn(wdSide).some(function(o) { return o.type === type; })) return;
+  if (t.unit === 'set') {
+    // Tudor framing: a set price for the side, on the upper floor to begin
+    // with (where mock Tudor usually is) -- changed on its sheet.
+    var pv = prompt('Tudor framing on the ' + Windoors.sideLabel(wdSide).toLowerCase() + ': set price £? (labour and stain, before markup)', '');
+    if (pv === null) return;
+    var price = Math.max(0, Math.min(100000, Math.round((+String(pv).replace(/[£,\s]/g, '') || 0) * 100) / 100));
+    if (!(price > 0)) { toast('Type the price in £'); return; }
+    var to = wdNewOpening({ side: wdSide, level: 'standard', floor: 0, kind: 'extra', position: t.position, type: type,
+      size_tier: 'standard', rows: 1, cols: 1, run_length: 1, run_extra: null, other_pricing: 'price', other_price: price, other_draw: 'upper' });
+    wdChanged();
+    openWdDetail(to.id);
+    return;
+  }
   var name = null;
   if (type === 'other_walls') {
     name = prompt('Which walls? (e.g. garden wall, garage block)', '');
@@ -26350,14 +26368,40 @@ function setWdExtraQty(v) {
 function deleteWdExtra() {
   var o = wdOpening(); if (!o || o.kind !== 'extra' || wdMode === 'site') return;
   var marked = windoors.marks.some(function(m) { return m.opening_id === o.id; });
-  if (!confirm('Remove the ' + Windoors.extraType(o).label.toLowerCase() + ' from the ' + Windoors.sideLabel(o.side).toLowerCase() + '?' + (marked ? '\n\nThe work marked on it goes too.' : ''))) return;
+  if (!confirm('Remove the ' + (Windoors.isTudor(o) ? Windoors.extraType(o).label : Windoors.extraType(o).label.toLowerCase()) + ' from the ' + Windoors.sideLabel(o.side).toLowerCase() + '?' + (marked ? '\n\nThe work marked on it goes too.' : ''))) return;
   windoors.marks = windoors.marks.filter(function(m) { return m.opening_id !== o.id; });
   windoors.openings = windoors.openings.filter(function(x) { return x.id !== o.id; });
   wdDeleteOpening(o);
   closeWdDetail();
   wdChanged();
 }
+function setWdTudorPrice(v) {
+  var o = wdOpening(); if (!Windoors.isTudor(o) || wdMode === 'site') return;
+  var n = Math.max(0, Math.min(100000, Math.round((+String(v).replace(/[£,\s]/g, '') || 0) * 100) / 100));
+  if ((+o.other_price || 0) === n) return;
+  o.other_price = n || null; o.other_pricing = 'price';
+  wdPutOpening(o); wdChanged();
+}
+function setWdTudorCover(key) {
+  var o = wdOpening(); if (!Windoors.isTudor(o) || wdMode === 'site') return;
+  if (!Windoors.TUDOR_COVERS.some(function(c) { return c.key === key; }) || o.other_draw === key) return;
+  o.other_draw = key;
+  wdPutOpening(o); wdChanged();
+}
+function wdTudorFiguresHtml(o, site) {
+  var cover = Windoors.tudorCover(o);
+  if (site) return '<div style="padding:0 16px 8px;font-size:13px;color:var(--text2)">' + fmt(Windoors.tudorPrice(o)) + ' set price · ' + escapeHtml(cover.label.toLowerCase()) + ' · as quoted</div>';
+  return '<div class="field-row"><div class="field-label">Set price, £<small>for this side — labour and stain, before markup</small></div>'
+    + '<input type="number" inputmode="decimal" min="0" step="10" value="' + (+o.other_price ? wdFmtN(+o.other_price) : '') + '" placeholder="0" onchange="setWdTudorPrice(this.value)"'
+    + ' style="width:96px;text-align:right;padding:7px 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);color:var(--text);font-size:14px;font-family:\'DM Mono\',monospace"></div>'
+    + '<div class="field-row" style="flex-wrap:wrap"><div class="field-label">Where it is<small>drawn on the house; the price is the price</small></div>'
+    + '<div class="seg" style="width:100%;margin-top:6px">' + Windoors.TUDOR_COVERS.map(function(c) {
+        return '<button type="button" class="seg-btn' + (c.key === cover.key ? ' active' : '') + '" onclick="setWdTudorCover(\'' + c.key + '\')">' + escapeHtml(c.label) + '</button>';
+      }).join('') + '</div></div>'
+    + '<div style="padding:0 16px 8px;font-size:12px;color:var(--text2)">No paint is worked out for it — the stain is in the price. Work marked on it (filler, resin) is priced on top, as for anything else.</div>';
+}
 function wdExtraFiguresHtml(o, site) {
+  if (Windoors.isTudor(o)) return wdTudorFiguresHtml(o, site);
   var t = Windoors.extraType(o), rate = wdRates().extra[t.key];
   var unit = t.unit === 'm' ? 'a metre' : t.unit === 'm2' ? 'a m²' : 'each';
   if (site) return '<div style="padding:0 16px 8px;font-size:13px;color:var(--text2)">' + escapeHtml(Windoors.extraAmount(o)) + ' · as quoted</div>';
@@ -27194,9 +27238,10 @@ function renderWdDetail() {
   var floorLevel = wdPrepFloor(o, site);
   var levels = Windoors.PREP_LEVELS.filter(function(l) { return Windoors.prepRank(l.key) >= Windoors.prepRank(floorLevel); });
   // A set price isn't scaled by prep, so there's no prep to pick.
-  if (!(isOther && Windoors.otherPricing(o) === 'price')) h += '<div class="subsection-label">Prep' + wdPrepNote(o, site) + '</div>'
+  var setPrice = (isOther && Windoors.otherPricing(o) === 'price') || Windoors.isTudor(o);
+  if (!setPrice) h += '<div class="subsection-label">Prep' + wdPrepNote(o, site) + '</div>'
     + '<div style="padding:0 16px 10px">' + wdSegHtml(levels, eff, 'setWdPrep') + '</div>';
-  if (!isOther) h += wdAccessHtml(o);
+  if (!isOther && !Windoors.isTudor(o)) h += wdAccessHtml(o);
   // The diagram and the marking tools.
   if (p.detail_enabled !== false) {
     h += '<div id="wd-detail-fig" style="padding:6px 16px 4px">' + Windoors.detailSvg(o, windoors.marks, { interactive: true, selected: wdSel.ids, maxWidth: 300, maxHeight: 360 }) + '</div>';
@@ -27335,7 +27380,8 @@ function wdWorkListHtml(o, oMarks) {
   };
   var qPrep = Windoors.quotePrep(o, p);
   var paintBits = [o.kind === 'other' && Windoors.otherPricing(o) === 'price' ? fmt(Windoors.otherSetPrice(o)) + ' set price' : Windoors.prepLabel(qPrep).toLowerCase() + ' prep'];
-  if (o.kind !== 'other') {
+  if (Windoors.isTudor(o)) paintBits = [fmt(Windoors.tudorPrice(o)) + ' set price', Windoors.tudorCover(o).label.toLowerCase()];
+  else if (o.kind !== 'other') {
     var coatsN = Math.round(Windoors.coatsFactor(p) * 2);
     paintBits.push(coatsN + ' coat' + (coatsN === 1 ? '' : 's'));
     paintBits.push(Windoors.accessLabel(Windoors.openingAccess(o)).toLowerCase() + ' access' + (o.access ? ' (set by hand)' : ''));
@@ -27344,9 +27390,9 @@ function wdWorkListHtml(o, oMarks) {
   if (addedIn) {
     var av = wdVariationList().find(function(x) { return x.id === addedIn; });
     var ast = av ? variationStatusOf(av) : 'pending';
-    paintBits[0] = Windoors.prepLabel(Windoors.effectivePrep(o, p)).toLowerCase() + ' prep';
+    if (!Windoors.isTudor(o)) paintBits[0] = Windoors.prepLabel(Windoors.effectivePrep(o, p)).toLowerCase() + ' prep';
   }
-  rows += line((o.kind === 'bay' ? 'Paint, the bay\'s own timber' : o.kind === 'other' ? 'Paint' : 'Paint, outside face') + ' · ' + paintBits.join(' · '),
+  rows += line((Windoors.isTudor(o) ? 'Stain' : o.kind === 'bay' ? 'Paint, the bay\'s own timber' : o.kind === 'other' ? 'Paint' : 'Paint, outside face') + ' · ' + paintBits.join(' · '),
     addedIn ? 'variation, added on site · ' + (av && !av.sentAt && ast === 'pending' ? 'draft' : ast) : 'quote');
   var qc = Windoors.marksClause(o, quoteMarks, { tiers: 'short' });
   if (qc) rows += line(escapeHtml(qc.charAt(0).toUpperCase() + qc.slice(1)), 'quote');
