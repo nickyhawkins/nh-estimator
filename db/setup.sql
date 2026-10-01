@@ -707,6 +707,8 @@ ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS other_price REAL;             
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS other_unit VARCHAR;                            -- ...mins | hours | days: how its time is shown
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS other_draw VARCHAR;                            -- ...drawn as a porch in this style (v2.90.0); NULL = a tile
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS other_door INTEGER;                            -- ...over this ground-floor door (D1 = 1)
+ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS run_length REAL;                               -- kind 'run': metres along the side (v2.97.0)
+ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS run_extra REAL;                                -- ...and the odd extra bit, priced not drawn
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS time_override REAL;                             -- minutes set by hand (2 coats, before prep/access); NULL = Rates (v2.96.0)
 DROP INDEX IF EXISTS job_openings_slot;
 CREATE UNIQUE INDEX IF NOT EXISTS job_openings_slot2 ON job_openings (job_id, side, level, floor, kind, position);

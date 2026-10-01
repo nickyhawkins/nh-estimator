@@ -1,6 +1,6 @@
 # The whole exterior on the drawing (Windows & Doors stage 3, and 4)
 
-Status: **step 1 built (v2.96.0)**; steps 2–4 are a draft, not built.
+Status: **steps 1 and 2 built (v2.96.0, v2.97.0)**; steps 3–4 are a draft, not built.
 
 Builds on WINDOWS_DOORS_SPEC.md (stage 1), WINDOWS_DOORS_STAGE2_SPEC.md (the
 house drawing) and WINDOWS_DOORS_INVOICE_SPEC.md (one invoice line + report).
@@ -117,6 +117,25 @@ A **run** is a new kind of element: woodwork measured in metres along a side.
   Woodwork, in its own colour (a third colour on the Paint card: *fascias*).
 
 ---
+
+### Built in step 2 (v2.97.0)
+- Runs are `job_openings` rows of kind `run` (`run_length`, `run_extra`,
+  lazy columns), type `fascia_soffit` | `fascia` | `soffit` | `bargeboard`,
+  position = the type's, so one of each per side. Elements `left`, `middle`,
+  `right` (parts: filler, resin with tiers, splice). Priced in
+  `Windoors.baseMinutes` at `rates.run[type].mins` a metre, paint at `.m2` a
+  metre, into the windows' colour. `autoAccess` is ground (the rate allows
+  for ladders).
+- Drawn in `elevationSvg` along the eaves (stacked if several) or up the
+  gable's verges for bargeboards, tappable (`data-open-id`), coloured by
+  marks; `detailSvg` draws the three sections.
+- App: the side's **Roofline** card (`wdRunsHtml`, `addWdRun`), the run's
+  sheet (`wdRunFiguresHtml`), Rates rows; confirming a layout never touches
+  runs. Words: *Exterior woodwork* once there's a run, metres in the quote
+  line, the invoice line and the work report.
+- **Not yet:** the separate fascia colour (runs use the windows' colour), and
+  the per-job "split fascia and soffit" switch (the card offers *Fascia
+  only* / *Soffit only* instead).
 
 ## Step 3 — extras (optional, per job)
 

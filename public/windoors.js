@@ -129,6 +129,32 @@
   // minutes and £. Lightest first: like prep, a tier is only compared by its
   // position here, which keeps "the quoted tier is the floor" a one-liner.
   // The hints are fixed text, not settings.
+  // ── Runs (EXTERIOR_HOUSE_SPEC.md step 2) ─────────────────────────────────
+  // Woodwork measured in metres along a side: the fascia and soffit (priced
+  // together, nine jobs in ten), either on its own for the odd job that
+  // needs them split, and the bargeboards up a gable. A run is a
+  // job_openings row of kind 'run': its type is one of these, its position
+  // is the type's own (so a side has at most one of each, and two phones
+  // adding one converge on it), its length is run_length + run_extra
+  // metres (the extra: the odd bit, a bay roof or a porch fascia, priced
+  // not drawn). Marked in three sections, left / middle / right as you face
+  // the side.
+  var RUN_TYPES = [
+    { key: 'fascia_soffit', label: 'Fascia & soffit', noun: 'fascia and soffit', position: 1 },
+    { key: 'fascia', label: 'Fascia', noun: 'fascia', position: 2 },
+    { key: 'soffit', label: 'Soffit', noun: 'soffit', position: 3 },
+    { key: 'bargeboard', label: 'Bargeboards', noun: 'bargeboards', position: 4 }
+  ];
+  var RUN_SECTIONS = [
+    { id: 'left', label: 'left' }, { id: 'middle', label: 'middle' }, { id: 'right', label: 'right' }
+  ];
+  var RUN_MAX_M = 200;
+  function runType(o) { return findKey(RUN_TYPES, o && o.type) || RUN_TYPES[0]; }
+  function runMetres(o) {
+    var f = function (v) { var n = +v; return isFinite(n) && n > 0 ? Math.min(RUN_MAX_M, n) : 0; };
+    return f(o && o.run_length) + f(o && o.run_extra);
+  }
+
   var REPAIR_TIERS = [
     { key: 'small', label: 'Small', short: 'S', hint: 'nail hole to thumb-sized' },
     { key: 'medium', label: 'Medium', short: 'M', hint: 'up to palm-sized' },
@@ -412,7 +438,16 @@
       ironmongery: { mins: 20, cost: 0 },
       ease: { mins: 30, cost: 0 }
     },
-    access: { firstFloor: 1.1, ladderTower: 1.25 }
+    access: { firstFloor: 1.1, ladderTower: 1.25 },
+    // Runs, per metre: minutes for 2 coats before prep (the Exterior form's
+    // fascia figure, 8 min a coat, for fascia and soffit together), and the
+    // m² of timber to buy paint for (the Exterior form's 0.35m fascia width).
+    run: {
+      fascia_soffit: { mins: 16, m2: 0.35 },
+      fascia: { mins: 9, m2: 0.2 },
+      soffit: { mins: 9, m2: 0.2 },
+      bargeboard: { mins: 14, m2: 0.3 }
+    }
   };
 
   function num(v, d) { var n = +v; return isFinite(n) ? n : d; }
@@ -470,6 +505,11 @@
       };
     });
     out.access = mergeAccess(raw.access);
+    out.run = {};
+    RUN_TYPES.forEach(function (t) {
+      var saved = (raw.run || {})[t.key] || {}, d = DEFAULT_RATES.run[t.key];
+      out.run[t.key] = { mins: Math.max(0, num(saved.mins, d.mins)), m2: Math.max(0, num(saved.m2, d.m2)) };
+    });
     return out;
   }
   // A tiered action's rates: { baseMins, tiers: { small: {mins, cost}, ... } }.
@@ -601,6 +641,7 @@
   // "Sash window", "Canted bay", "Panelled door" -- what the thing is, for
   // the report and the detail sheet.
   function kindNoun(o) {
+    if (o.kind === 'run') return runType(o).label + ', ' + fmtMetres(runMetres(o)) + 'm';
     if (o.kind === 'other') return otherName(o);
     if (o.kind === 'bay') return typeLabel(o) + ' bay';
     if (o.kind === 'door') return typeLabel(o) + ' door';
@@ -865,7 +906,7 @@
   }
 
   function paneCount(o) {
-    if (o.kind === 'bay' || o.kind === 'other') return 0;
+    if (o.kind === 'bay' || o.kind === 'other' || o.kind === 'run') return 0;
     if (o.kind === 'door') return doorGlass(o);
     if (o.type === 'sash') { var sr = sashRows(o); return (sr.top + sr.bottom) * clampGrid(o.cols); }
     return clampGrid(o.rows) * clampGrid(o.cols);
@@ -884,6 +925,10 @@
 
   function openingElements(o) {
     var out = [];
+    if (o.kind === 'run') {
+      RUN_SECTIONS.forEach(function (sec) { out.push({ id: sec.id, kind: 'part', label: sec.label + ' section' }); });
+      return out;
+    }
     if (o.kind === 'other') {
       // Generic: the thing itself and whatever it's framed by.
       out.push({ id: 'face', kind: 'part', label: PART_LABELS.face });
@@ -933,13 +978,17 @@
   }
 
   // ── Labels ───────────────────────────────────────────────────────────────
+  // "9", "9.5" -- metres as a painter writes them.
+  function fmtMetres(n) { return String(Math.round((+n || 0) * 10) / 10); }
   function openingCode(o) {
+    if (o.kind === 'run') return runType(o).label;
     if (o.kind === 'other') return 'O' + (+o.position || 1);
     if (isBayChild(o)) { var c = bayChildInfo(o); return 'B' + c.bay + ' ' + c.face; }
     return (o.kind === 'door' ? 'D' : o.kind === 'bay' ? 'B' : 'W') + (+o.position || 1);
   }
   // Where on the side: "first floor", "lower ground", "dormer".
   function levelLabel(o) {
+    if (o.kind === 'run') return 'roofline';
     if (o.kind === 'other') return 'other items';
     var lv = levelOf(o);
     return lv === 'lower_ground' ? 'lower ground' : lv === 'roof' ? 'dormer' : floorLabel(o.floor);
@@ -951,6 +1000,8 @@
     // An Other item's name IS its nickname, so it's always there:
     // "Front, O1 (Garage door)".
     if (o.kind === 'other') return sideLabel(o.side) + ', ' + openingCode(o) + ' (' + otherName(o) + ')';
+    // "Front, fascia & soffit".
+    if (o.kind === 'run') return sideLabel(o.side) + ', ' + runType(o).label.toLowerCase();
     var s = sideLabel(o.side) + ', ' + levelLabel(o) + ', ' + openingCode(o);
     if (withNickname !== false && o.nickname) s += ' (' + o.nickname + ')';
     return s;
@@ -962,7 +1013,8 @@
     var levelRank = { lower_ground: 0, standard: 1, roof: 2 };
     var kindRank = function (o) { return isBayChild(o) || o.kind === 'bay' ? 1 : o.kind === 'door' ? 2 : 0; };
     // Other items come after everything on the side's floors.
-    var lvl = function (o) { return o.kind === 'other' ? 3 : levelRank[levelOf(o)]; };
+    // ...and the roofline runs after those, in RUN_TYPES order.
+    var lvl = function (o) { return o.kind === 'run' ? 4 : o.kind === 'other' ? 3 : levelRank[levelOf(o)]; };
     var posKey = function (o) {
       if (o.kind === 'bay') return (+o.position || 0) * 100;
       if (isBayChild(o)) { var c = bayChildInfo(o); return c.bay * 100 + (+o.position % 10); }
@@ -1062,7 +1114,11 @@
   // height, anything above (and the dormers) ladder or tower. A bay's own
   // timber goes by its top storey, so a two-storey bay from the ground takes
   // the first-floor uplift; its windows go by their own floors.
+  // A run is at the eaves, and its per-metre rate already allows for the
+  // ladders, as the Exterior form's fascia figure always did: no uplift
+  // unless it's set by hand (a tower on a tall house).
   function autoAccess(o) {
+    if (o && o.kind === 'run') return 'ground';
     var lv = levelOf(o);
     if (lv === 'roof') return 'ladderTower';
     if (lv === 'lower_ground' || !o || o.kind === 'other') return 'ground';
@@ -1080,6 +1136,10 @@
   }
 
   function baseMinutes(o, rates) {
+    if (o.kind === 'run') {
+      var rr = (rates.run && rates.run[runType(o).key]) || DEFAULT_RATES.run[runType(o).key];
+      return runMetres(o) * rr.mins;
+    }
     if (o.kind === 'other') return otherPricing(o) === 'price' ? 0 : otherFigure(o.other_mins, OTHER_MAX_MINS);
     if (o.kind === 'bay') {
       var bb = rates.bayBase[o.bay_shape] || rates.bayBase.canted;
@@ -1298,6 +1358,10 @@
   function openingPaintM2(o, rawRates) {
     var P = (rawRates && rawRates.paint && rawRates.paint.area ? rawRates : mergeRates(rawRates)).paint;
     if (o.kind === 'other') return otherFigure(o.other_m2, 200);
+    if (o.kind === 'run') {
+      var R2 = rawRates && rawRates.run ? rawRates : mergeRates(rawRates);
+      return runMetres(o) * R2.run[runType(o).key].m2;
+    }
     if (o.kind === 'bay') return P.bay * bayStoreys(o);
     var area = P.area[o.size_tier] != null ? P.area[o.size_tier] : (o.kind === 'door' ? P.area.standard : P.area.medium);
     if (o.kind === 'door') {
@@ -1323,6 +1387,8 @@
       var m2 = openingPaintM2(o, rates);
       // An Other item goes in with whichever colour it's painted, uncounted.
       if (o.kind === 'other') { if (o.type === 'window') out.window += m2; else out.door += m2; return; }
+      // A run is painted with the windows (the frames' colour), uncounted.
+      if (o.kind === 'run') { out.window += m2; return; }
       if (o.kind === 'door') { out.door += m2; out.doors++; } else { out.window += m2; if (o.kind !== 'bay') out.windows++; }
     });
     return out;
@@ -1400,7 +1466,12 @@
     var counts = {}, order = [];
     var bump = function (k) { if (!counts[k]) { counts[k] = 0; order.push(k); } counts[k]++; };
     sortOpenings(openings).forEach(function (o) {
-      if (o.kind === 'other') {
+      if (o.kind === 'run') {
+        // Counted in metres: "24m fascia and soffit".
+        var rk = 'run:' + runType(o).key;
+        if (!counts[rk]) { counts[rk] = 0; order.push(rk); }
+        counts[rk] += runMetres(o);
+      } else if (o.kind === 'other') {
         bump('other:' + otherName(o).toLowerCase());
       } else if (o.kind === 'door') {
         var where = levelOf(o) === 'lower_ground' ? 'lower ground' : +o.floor > 0 ? 'balcony' : (o.side === 'front' ? 'front' : o.side === 'back' ? 'back' : 'side');
@@ -1413,15 +1484,17 @@
         bump((typeLabel(o) || 'window').toLowerCase() + ' window');
       }
     });
-    var head = 'Exterior windows and doors (outside faces)';
+    // With the roofline in it, it's more than windows and doors.
+    var head = order.some(function (k) { return /^run:/.test(k); }) ? 'Exterior woodwork (outside faces)' : 'Exterior windows and doors (outside faces)';
     if (!order.length) return head + '.';
     // Windows, then bays, then doors, whatever order the house was walked
     // in. (A bay's own windows are counted among the windows.)
-    var rank = function (k) { return /^other:/.test(k) ? 3 : /door$/.test(k) ? 2 : /bay$/.test(k) ? 1 : 0; };
+    var rank = function (k) { return /^run:/.test(k) ? 4 : /^other:/.test(k) ? 3 : /door$/.test(k) ? 2 : /bay$/.test(k) ? 1 : 0; };
     order.sort(function (a, b) { return rank(a) - rank(b); });
     var text = head + ': ' + order.map(function (k) {
       // An Other item's name is whatever was typed: named, never pluralised.
       if (/^other:/.test(k)) { var nm = k.slice(6); return counts[k] === 1 ? nm : counts[k] + ' × ' + nm; }
+      if (/^run:/.test(k)) return fmtMetres(counts[k]) + 'm ' + findKey(RUN_TYPES, k.slice(4)).noun;
       return counts[k] + ' ' + k + (counts[k] === 1 ? '' : (/s$/.test(k) ? 'es' : 's'));
     }).join(', ') + '.';
     var inQuote = {};
@@ -2310,6 +2383,48 @@
         place(o, [o.id], glyph, { x: ox, y: oy, w: OTHER_TILE.w, h: OTHER_TILE.h - 4 }, oy - 1);
       });
     }
+    // The roofline runs (EXTERIOR_HOUSE_SPEC.md step 2): the fascia and
+    // soffit along the eaves, the bargeboards up the verges of a gable --
+    // each in its three sections, coloured where work is marked, tappable as
+    // one in the app. Not drawn when the run isn't painted on this house.
+    var runRows = ((data && data.openings) || []).filter(function (o) {
+      return o.side === side && o.kind === 'run' && !o.excluded && runMetres(o) > 0;
+    });
+    var runMarks = (data && data.marks) || [];
+    var eaveL = rk === 'eaves' ? (nbL ? x0 : x0 - 10) : x0 - 8, eaveR = rk === 'eaves' ? (nbR ? x1 : x1 + 10) : x1 + 8;
+    runRows.sort(function (q, r) { return runType(q).position - runType(r).position; }).forEach(function (o, idx) {
+      var lit = hl && hl[o.id];
+      var oM = runMarks.filter(function (m) { return m.opening_id === o.id; });
+      var colourOf = function (id) {
+        var st = elementStyle(id, oM, false);
+        return { fill: st.fill || '#f7f5ef', stroke: st.stroke || '#6d6552', dash: st.dash };
+      };
+      var inner = '', hit;
+      if (runType(o).key === 'bargeboard' && rk === 'gable') {
+        // Up one verge, over the apex, down the other.
+        var A = [x0 - 10, topY + 2], B = [x0 + W / 2, topY - roofH - 2], C = [x1 + 10, topY + 2];
+        var lerp = function (p0, p1, t) { return [p0[0] + (p1[0] - p0[0]) * t, p0[1] + (p1[1] - p0[1]) * t]; };
+        var segs = { left: [A, lerp(A, B, 0.78)], middle: [lerp(A, B, 0.78), B, lerp(C, B, 0.78)], right: [lerp(C, B, 0.78), C] };
+        RUN_SECTIONS.forEach(function (sec) {
+          var c = colourOf(sec.id), pts = segs[sec.id].map(function (q) { return r1(q[0]) + ',' + r1(q[1]); }).join(' ');
+          inner += '<polyline points="' + pts + '" fill="none" stroke="' + c.stroke + '" stroke-width="7"' + (c.dash ? ' stroke-dasharray="' + c.dash + '"' : '') + '/>'
+            + '<polyline points="' + pts + '" fill="none" stroke="' + c.fill + '" stroke-width="4.6"/>';
+        });
+        hit = '<polyline points="' + [A, B, C].map(function (q) { return r1(q[0]) + ',' + r1(q[1]); }).join(' ') + '" fill="none" stroke="transparent" stroke-width="16"/>';
+      } else {
+        // A board along the eaves (or the top of the wall where the house
+        // shows no eaves on this side), stacked if a side has several.
+        var by = (rk === 'eaves' ? topY - 6 : topY - 7) - idx * 7, bw3 = (eaveR - eaveL) / 3;
+        RUN_SECTIONS.forEach(function (sec, i) {
+          var c = colourOf(sec.id);
+          inner += rect(eaveL + i * bw3, by, bw3, 6, c.fill, ' stroke="' + c.stroke + '" stroke-width="' + (c.dash ? 1.6 : 0.8) + '"' + (c.dash ? ' stroke-dasharray="' + c.dash + '"' : ''));
+        });
+        hit = rect(eaveL, by - 6, eaveR - eaveL, 18, 'transparent');
+      }
+      inner = '<g' + (hl && !lit ? ' opacity="0.4"' : '') + '>' + inner + '</g>';
+      openingsSvg += opts.interactive && o.id
+        ? '<g class="wd-open" data-open-id="' + esc(o.id) + '" style="cursor:pointer">' + inner + hit + '</g>' : inner;
+    });
     s += openingsSvg;
     // Railings: along the top of the light well, stepping round a bridge to
     // each ground-floor door; or a Georgian house's front railings.
@@ -2377,7 +2492,41 @@
     var P = function (pts, base, cx, cy) { return { s: '<polygon points="' + pts.map(function (q) { return r1(q[0]) + ',' + r1(q[1]); }).join(' ') + '" fill="%FILL%" stroke="%STROKE%" stroke-width="%SW%"%DASH%/>', baseFill: base, cx: cx, cy: cy }; };
     var timber = '#f7f5ef', glassFill = '#cfe3ee', panelFill = '#ece7da';
     var W, H;
-    if (o.kind === 'other') {
+    if (o.kind === 'run') {
+      // A run, face on, in its three sections. The fascia (and the soffit
+      // under it) as a long board; the bargeboards as the two verges of a
+      // gable, the middle section the apex.
+      var rt = runType(o).key, label = function (x, y, t) {
+        return '<text x="' + r1(x) + '" y="' + r1(y) + '" text-anchor="middle" font-family="Barlow, Arial, sans-serif" font-size="13" font-weight="700" fill="' + PAL.ink + '" pointer-events="none">' + esc(t) + '</text>';
+      };
+      if (rt === 'bargeboard') {
+        W = 360; H = 170;
+        var ax = W / 2, ay = 18, bw = 20, ex = 10, ey = H - 34;
+        var at = function (t) { return [ex + (ax - ex) * t, ey + (ay - ey) * t]; };
+        var atR = function (t) { return [W - ex - (W - ex - ax) * t, ey + (ay - ey) * t]; };
+        s += poly([[ex, ey], [ax, ay], [W - ex, ey]], '#ece7da', ' stroke="#bbb" stroke-width="1"');
+        var seg = function (a0, a1) { return [a0, a1, [a1[0], a1[1] + bw], [a0[0], a0[1] + bw]]; };
+        var L1 = at(0), L2 = at(0.78), R1 = atR(0.78), R2 = atR(0);
+        s += draw('left', P(seg(L1, L2), timber, (L1[0] + L2[0]) / 2, (L1[1] + L2[1]) / 2 + bw / 2));
+        s += draw('middle', P([L2, [ax, ay], R1, [R1[0], R1[1] + bw], [ax, ay + bw], [L2[0], L2[1] + bw]], timber, ax, ay + bw));
+        s += draw('right', P(seg(R1, R2), timber, (R1[0] + R2[0]) / 2, (R1[1] + R2[1]) / 2 + bw / 2));
+        s += label(W * 0.2, H - 8, 'Left') + label(ax, H - 8, 'Middle (apex)') + label(W * 0.8, H - 8, 'Right');
+      } else {
+        W = 360; H = 120;
+        var soffit = rt === 'fascia_soffit' || rt === 'soffit', fascia = rt !== 'soffit';
+        var top = 22, fh = fascia ? 34 : 0, sh = soffit ? 26 : 0, sw3 = W / 3;
+        s += rect(-6, 0, W + 12, top - 4, '#5c6470');
+        RUN_SECTIONS.forEach(function (sec, i) {
+          var x = i * sw3;
+          s += draw(sec.id, R(x, top, sw3, fh + sh, fascia ? timber : '#e9e5da'));
+          if (fascia && soffit) s += '<line x1="' + r1(x) + '" y1="' + r1(top + fh) + '" x2="' + r1(x + sw3) + '" y2="' + r1(top + fh) + '" stroke="#999" stroke-width="1" pointer-events="none"/>';
+          s += label(x + sw3 / 2, top + fh + sh + 22, sec.label.charAt(0).toUpperCase() + sec.label.slice(1));
+        });
+        if (fascia && soffit) s += '<text x="' + r1(W + 10) + '" y="' + r1(top + fh / 2 + 4) + '" font-family="Barlow, Arial, sans-serif" font-size="10" fill="#5a6270" pointer-events="none">fascia</text>'
+          + '<text x="' + r1(W + 10) + '" y="' + r1(top + fh + sh / 2 + 4) + '" font-family="Barlow, Arial, sans-serif" font-size="10" fill="#5a6270" pointer-events="none">soffit</text>';
+        if (fascia && soffit) ext.r = 40;
+      }
+    } else if (o.kind === 'other') {
       // Nothing to know about its shape: a frame round a face, named.
       W = 240; H = 170;
       s += draw('frame', R(0, 0, W, H, timber));
@@ -2714,10 +2863,11 @@
     (variations || []).forEach(function (v) { if (v && v.status === 'declined') declined[v.id] = true; });
     var live = liveOpenings(data && data.openings, data && data.property);
     var sc = scopeMap(live);
-    var out = { windows: 0, doors: 0, bays: 0, other: 0 };
+    var out = { windows: 0, doors: 0, bays: 0, other: 0, runs: {} };
     live.forEach(function (o) {
       var s = sc[o.id];
       if (s.excluded || (s.variationId && declined[s.variationId])) return;
+      if (o.kind === 'run') { var rk = runType(o).key; out.runs[rk] = (out.runs[rk] || 0) + runMetres(o); return; }
       if (o.kind === 'door') out.doors++;
       else if (o.kind === 'window') out.windows++;
       else if (o.kind === 'bay') out.bays++;
@@ -2744,7 +2894,14 @@
     var what = [];
     if (+p.windows > 0) what.push(plural(+p.windows, 'window'));
     if (+p.doors > 0) what.push(plural(+p.doors, 'door'));
-    var s = 'Exterior windows and doors: preparation and painting of outside faces' + (what.length ? ', ' + what.join(' and ') : '') + '.';
+    // The roofline, in metres: "24m of fascia and soffit".
+    RUN_TYPES.forEach(function (t) {
+      var m = p.runs && +p.runs[t.key];
+      if (m > 0) what.push(fmtMetres(m) + 'm of ' + t.noun);
+    });
+    var list = what.length > 1 ? what.slice(0, -1).join(', ') + ' and ' + what[what.length - 1] : what.join('');
+    var anyRun = RUN_TYPES.some(function (t) { return p.runs && +p.runs[t.key] > 0; });
+    var s = (anyRun ? 'Exterior woodwork' : 'Exterior windows and doors') + ': preparation and painting of outside faces' + (list ? ', ' + list : '') + '.';
     if (p.report === 'attached') s += ' Full breakdown of work per opening in attached report.';
     else if (p.report === 'final') s += ' Full breakdown of work per opening in the report attached to the final invoice.';
     var c = p.colours || {};
@@ -2819,6 +2976,7 @@
       // The painting itself, which every opening has.
       var colourName = (o.kind === 'door' || (o.kind === 'other' && o.type !== 'window')) ? colours.door : colours.window;
       var paint = o.kind === 'other' ? 'Prepared and painted' : 'Prepared (' + prepLabel(prep).toLowerCase() + ') and painted, ' + coats + ' coat' + (coats === 1 ? '' : 's');
+      if (o.kind === 'run') paint += ', ' + fmtMetres(runMetres(o)) + 'm';
       if (o.kind === 'bay') paint = "Bay's own timber " + paint.charAt(0).toLowerCase() + paint.slice(1);
       if (colourName) paint += ' in ' + colourName;
       var onSite = items.some(function (it) { return it.onSite; });
@@ -2916,6 +3074,7 @@
     OTHER_PAINT: OTHER_PAINT, otherName: otherName, PORCH_STYLES: PORCH_STYLES, sideGeometry: sideGeometry, otherDraw: otherDraw, otherDoor: otherDoor, porchStyleFor: porchStyleFor, porchPreviewSvg: porchPreviewSvg, drawPorchGlyph: drawPorchGlyph, OTHER_PRICING: OTHER_PRICING, OTHER_UNITS: OTHER_UNITS, OTHER_MAX_MINS: OTHER_MAX_MINS, OTHER_MAX_PRICE: OTHER_MAX_PRICE,
     otherPricing: otherPricing, otherUnit: otherUnit, otherSetPrice: otherSetPrice, ownScope: ownScope, scopeMap: scopeMap, openingScope: openingScope, quotedOpenings: quotedOpenings, untickedMarks: untickedMarks, reportableMarks: reportableMarks,
     reportModel: reportModel, reportHtml: reportHtml, fmtDate: fmtDate,
-    invoiceCounts: invoiceCounts, invoiceLineText: invoiceLineText, workReportModel: workReportModel
+    invoiceCounts: invoiceCounts, invoiceLineText: invoiceLineText, workReportModel: workReportModel,
+    RUN_TYPES: RUN_TYPES, RUN_SECTIONS: RUN_SECTIONS, RUN_MAX_M: RUN_MAX_M, runType: runType, runMetres: runMetres, fmtMetres: fmtMetres
   };
 });
