@@ -27341,7 +27341,8 @@ function renderWdDetail() {
         + (site ? 'added as a variation' : 'added to the quote') + '</div>'
         + '<div style="display:flex;gap:8px;flex-wrap:wrap;padding:4px 16px 8px">'
         + acts.map(function(a) { return '<button type="button" style="' + abtn + '" onclick="wdApplyAction(\'' + a.key + '\')">' + escapeHtml(a.label) + '</button>'; }).join('')
-        + '<button type="button" style="' + btn + ';color:var(--danger)" onclick="wdRemoveWork()">Remove work</button></div>';
+        + '<button type="button" style="' + btn + ';color:var(--danger)" onclick="wdRemoveWork()">Remove all work</button></div>'
+        + wdSelWorkHtml(o);
     } else {
       h += '<div style="padding:4px 16px 8px;font-size:12px;color:var(--text2)">' + (isRun || isWall || (isExtra && Windoors.extraSectioned(o)) ? 'Tap the left, middle or right section to mark where the work is. ' : isExtra ? 'Tap it to mark work on it. ' : 'Tap panes or frame parts to select them — one kind at a time. ')
         + '<span style="display:inline-block;width:10px;height:10px;background:#f0a020;vertical-align:-1px"></span> work · '
@@ -27408,7 +27409,8 @@ function renderWdBay(o, box) {
       + '<div style="display:flex;gap:8px;flex-wrap:wrap;padding:4px 16px 8px">'
       + Windoors.actionsFor(o, 'part').map(function(a) { return '<button type="button" style="' + abtn + '" onclick="wdApplyAction(\'' + a.key + '\')">' + escapeHtml(a.label) + '</button>'; }).join('')
       + '<button type="button" style="' + btn + '" onclick="wdClearSel()">Clear selection</button>'
-      + '<button type="button" style="' + btn + ';color:var(--danger)" onclick="wdRemoveWork()">Remove work</button></div>';
+      + '<button type="button" style="' + btn + ';color:var(--danger)" onclick="wdRemoveWork()">Remove all work</button></div>'
+      + wdSelWorkHtml(o);
   } else {
     h += '<div style="padding:4px 16px 8px;font-size:12px;color:var(--text2)">Tap a window to open it' + (detail ? '; tap the cornice, fascia, a mullion or the cill to mark the bay\'s own timber' : '') + '. A badge on a window means it has work on it.</div>';
   }
@@ -27910,14 +27912,49 @@ function wdRemoveWork() {
   var o = wdOpening(); if (!o) return;
   var gone = windoors.marks.filter(function(m) { return m.opening_id === o.id && wdSel.ids[m.element_id] && wdMarkEditable(m); });
   var locked = windoors.marks.filter(function(m) { return m.opening_id === o.id && wdSel.ids[m.element_id] && !wdMarkEditable(m); });
-  if (!gone.length && locked.length) {
-    alert(wdMode === 'site' ? 'That work is part of the quote (or an answered variation), so it is locked here.' : 'That work was added on site as a variation — take it off from On Site.');
-    return;
-  }
-  gone.forEach(function(m) { wdDeleteMark(m); });
-  var ids = {}; gone.forEach(function(m) { ids[m.id] = true; });
-  windoors.marks = windoors.marks.filter(function(m) { return !ids[m.id]; });
+  if (!gone.length && locked.length) { alert(wdLockedText()); return; }
+  wdTakeOffMarks(gone);
   wdSel = { kind: null, ids: {} };
+  wdChanged();
+}
+function wdLockedText() {
+  return wdMode === 'site' ? 'That work is part of the quote (or an answered variation), so it is locked here.' : 'That work was added on site as a variation — take it off from On Site.';
+}
+function wdTakeOffMarks(list) {
+  list.forEach(function(m) { wdDeleteMark(m); });
+  var ids = {}; list.forEach(function(m) { ids[m.id] = true; });
+  windoors.marks = windoors.marks.filter(function(m) { return !ids[m.id]; });
+}
+// The work already on the selected parts, one row each, so a single piece --
+// the resin repair on a cill that's also down for filler -- can come off
+// without taking everything else on the part with it. The selection stays,
+// so the next one can go too.
+function wdSelWorkHtml(o) {
+  var list = windoors.marks.filter(function(m) { return m.opening_id === o.id && wdSel.ids[m.element_id]; });
+  if (!list.length) return '';
+  var els = {};
+  Windoors.openingElements(o).forEach(function(e) { els[e.id] = e.label; });
+  var order = Windoors.ACTIONS.map(function(a) { return a.key; });
+  list = list.slice().sort(function(a, b) { return String(a.element_id).localeCompare(String(b.element_id), undefined, { numeric: true }) || (order.indexOf(a.action_key) - order.indexOf(b.action_key)); });
+  var h = '<div style="margin:2px 0 6px"><div class="subsection-label">On the selected ' + (wdSel.kind === 'pane' ? 'glass' : Object.keys(wdSel.ids).length === 1 ? 'part' : 'parts') + '<small>remove one piece of work, leave the rest</small></div>';
+  list.forEach(function(m) {
+    var a = Windoors.actionDef(m.action_key);
+    var can = wdMarkEditable(m);
+    h += '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 16px;border-top:1px solid var(--border);font-size:13px">'
+      + '<span>' + escapeHtml((a ? a.label : m.action_key) + ' · ' + (els[m.element_id] || m.element_id)
+        + (Windoors.isTiered(m.action_key) ? ' (' + (Windoors.repairCount(m) > 1 ? '\u00d7' + Windoors.repairCount(m) + ', ' : '') + Windoors.repairTierDef(Windoors.markTier(m)).short + ')' : ''))
+      + (m.stage === 'variation' ? ' <small style="color:var(--text2)">(variation)</small>' : '') + '</span>'
+      + (can ? '<span onclick="wdRemoveMark(\'' + escapeHtml(m.id) + '\')" style="flex:none;color:var(--danger);font-size:13px;font-weight:600;cursor:pointer">Remove</span>'
+             : '<small style="flex:none;color:var(--text2)">locked</small>')
+      + '</div>';
+  });
+  return h + '</div>';
+}
+function wdRemoveMark(id) {
+  var m = windoors.marks.find(function(x) { return x.id === id; });
+  if (!m) return;
+  if (!wdMarkEditable(m)) { alert(wdLockedText()); return; }
+  wdTakeOffMarks([m]);
   wdChanged();
 }
 

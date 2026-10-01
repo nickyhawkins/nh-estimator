@@ -235,6 +235,35 @@ const SEED = () => {
   const t9 = s9.marks.find(m => m.id !== 'c1').size;
   near('9. ...priced at its size only: the part\'s base is already in the quote', s9.vars[0], Math.round((R.tiers[t9].mins * rpm + R.tiers[t9].cost) * 100) / 100);
 
+  // ── Removing one piece of work from a part (v3.2.2) ──────────────────────
+  // A cill down for filler and a resin repair: select it, and each shows with
+  // its own Remove, so the repair can go and the filler stay.
+  await page.evaluate(async () => {
+    closeWdDetail();
+    jobs[0].status = 'quoted'; jobs[0].windoorsVariations = [];
+    await openWindoors('quote');
+    windoors.marks = [
+      { id: 'f1', opening_id: 'w1', element_id: 'cill', action_key: 'filler', stage: 'quote', created_at: '2026-09-01T09:00:00Z' },
+      { id: 'x1', opening_id: 'w1', element_id: 'cill', action_key: 'resin', stage: 'quote', size_tier: 'medium', created_at: '2026-09-01T09:00:00Z' },
+      { id: 'h1', opening_id: 'w1', element_id: 'head', action_key: 'resin', stage: 'quote', size_tier: 'small', created_at: '2026-09-01T09:00:00Z' }
+    ];
+    wdSaveMirror(); openWdDetail('w1');
+    wdToggleElement('cill');
+  });
+  const removers = () => page.evaluate(() => Array.from(document.querySelectorAll('#wd-sheet-body [onclick^="wdRemoveMark("]')).map(x => x.getAttribute('onclick').match(/'([^']+)'/)[1]));
+  eq('10. the selected cill lists each piece of work with its own Remove', (await removers()).sort(), ['f1', 'x1']);
+  await page.evaluate(() => document.querySelector('#wd-sheet-body [onclick="wdRemoveMark(\'x1\')"]').click());
+  eq('10. Remove takes off just that one', (await state()).marks.map(m => m.id), ['f1', 'h1']);
+  eq('10. ...and the cill stays selected for the next', await page.evaluate(() => Object.keys(wdSel.ids)), ['cill']);
+  eq('10. ...listing what is left', await removers(), ['f1']);
+  // On site, the quote's work is locked: listed, but no Remove.
+  await page.evaluate(async () => { activeJob().status = 'accepted'; wdStampTiers(); closeWdDetail(); await openWindoors('site'); openWdDetail('w1'); wdToggleElement('cill'); });
+  eq('10. on site the quote\'s work has no Remove', await removers(), []);
+  const t10 = await page.evaluate(() => document.getElementById('wd-sheet-body').textContent);
+  check('10. ...it says locked', /On the selected part[\s\S]*Filler · [^·]*?locked/i.test(t10), t10.slice(t10.indexOf('On the selected'), t10.indexOf('On the selected') + 200));
+  await page.evaluate(() => wdRemoveMark('f1'));
+  eq('10. ...and can\'t be removed behind the button\'s back', (await state()).marks.map(m => m.id), ['f1', 'h1']);
+
   check('no page errors', errors.length === 0, errors);
 
   await browser.close();
