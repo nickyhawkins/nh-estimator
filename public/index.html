@@ -20271,10 +20271,12 @@ function buildFinalInvoiceModel() {
   // sundries share and the variations markup, the composition
   // buildClientVariationLines publishes. They are NOT variation lines here:
   // they ride on the fixture's single line below, so they stay out of varRaw
-  // (their sundries are already inside them). The quote is the floor: a net
-  // credit (prep lowered on site) can't take the line below what was quoted.
+  // (their sundries are already inside them). A credit (prep lowered on
+  // site, v2.91.0) nets against the rest, and when it wins the line goes
+  // below the quoted figure: the client's page already told them it would
+  // come off their final invoice, so it does.
   var wdSPct = (settings.sundriesPct || 0) / 100;
-  var wdSite = { amount: 0, pending: 0, approved: 0, adjustments: 0, credit: 0 };
+  var wdSite = { amount: 0, pending: 0, approved: 0, adjustments: 0 };
   windoorsVariationLines(job).forEach(function(l) {
     if (l.status === 'declined') return;
     wdSite.amount += (l.raw + l.raw * wdSPct) * varMk;
@@ -20286,13 +20288,12 @@ function buildFinalInvoiceModel() {
     wdSite.amount += wdSite.adjustments;
   }
   wdSite.amount = Math.round(wdSite.amount * 100) / 100;
-  if (wdSite.amount < 0) { wdSite.credit = -wdSite.amount; wdSite.amount = 0; }
   var wdLabourLine = honouredLabourInv != null ? null : labour.find(function(l) { return l.wd; });
   if (wdLabourLine) {
     wdLabourLine.quoted = wdLabourLine.amount;
     wdLabourLine.site = wdSite;
     wdLabourLine.amount = Math.round((wdLabourLine.amount + wdSite.amount) * 100) / 100;
-  } else if (wdSite.amount > 0.005) {
+  } else if (Math.abs(wdSite.amount) > 0.005) {
     // No quoted fixture line to join (a honoured job, or windows and doors
     // only ever added on site): the site work is the one line, on its own.
     labour.push({ id: 'wdsite', desc: windoorsLineText(), raw: 0, quoted: 0, site: wdSite,
@@ -20697,7 +20698,12 @@ async function createFinalInvoice() {
       else desc = l.desc + ' - same as above';
       invAttached = true;
     }
-    lines.push({ description: desc, quantity: 1, unitAmount: l.amount, accountCode: '201' });
+    // Only the windows and doors line can be below zero here (a site credit
+    // with nothing quoted to net it against): as a negative quantity, the
+    // way this invoice has always shown money off.
+    lines.push(l.amount < 0
+      ? { description: desc, quantity: -1, unitAmount: -l.amount, accountCode: '201' }
+      : { description: desc, quantity: 1, unitAmount: l.amount, accountCode: '201' });
   });
   if (lines.some(function(l) { return (l.description || '').length > 4000; })) {
     alert('The invoice description is over Xero’s 4,000-character line limit — shorten it and try again. Nothing was sent.');
@@ -27477,14 +27483,15 @@ function wdReportGoesOn(s) { return wdInvoiceHasLine(s) && wdInUse() && s.attach
 function wdInvoiceLineDetail(l) {
   var site = l.site || { amount: 0 };
   var bits = [l.quoted > 0.005 ? fmt(l.quoted) + ' as quoted' : 'nothing quoted'];
-  if (site.amount > 0.005) {
+  if (Math.abs(site.amount) > 0.005) {
     var what = [];
     if (site.approved) what.push(site.approved + ' approved variation' + (site.approved === 1 ? '' : 's'));
     if (site.pending) what.push('<span style="color:var(--warn,#f39c12);font-weight:600">' + site.pending + ' PENDING</span>');
     if (site.adjustments > 0.005) what.push('repair sizes ' + fmt(site.adjustments));
-    bits.push('+ ' + fmt(site.amount) + ' added on site' + (what.length ? ' (' + what.join(', ') + ')' : ''));
+    bits.push(site.amount > 0
+      ? '+ ' + fmt(site.amount) + ' added on site' + (what.length ? ' (' + what.join(', ') + ')' : '')
+      : '− ' + fmt(-site.amount) + ' credit agreed on site, net of site work' + (what.length ? ' (' + what.join(', ') + ')' : ''));
   }
-  if (site.credit > 0.005) bits.push('<span style="color:var(--warn,#f39c12)">' + fmt(site.credit) + ' net credit from site changes not taken off — the quote is the floor</span>');
   return bits.join(' · ');
 }
 

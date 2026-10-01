@@ -221,7 +221,7 @@ const MONEY = /£|\b\d+\.\d\d\b/;
   if (app.wd.length) {
     const want = (app.approvedRaw + app.pendingRaw + app.adj) * (1 + app.sPct) * app.varMk;
     near('6. its amount is the quote plus every site addition', app.wd[0].amount, app.wd[0].quoted + Math.round(want * 100) / 100);
-    check('6. ...never below the quote', app.wd[0].amount >= app.wd[0].quoted);
+    check('6. ...above the quote, the site work being extra', app.wd[0].amount > app.wd[0].quoted);
     check('6. ...and the site additions are there to be billed', app.wd[0].site.amount > 0.005 && app.wd[0].site.pending === 1 && app.wd[0].site.approved === 1, app.wd[0].site);
   }
   eq('6. the counts and colours on the line', app.text,
