@@ -17313,13 +17313,14 @@ function jobSpecModel() {
   // Windows and doors: one row per colour it paints, keyed on the fixture
   // (not a room id), so a tick survives the layout being edited.
   windoorsPaintItems().forEach(function(it) {
-    var nW = Windoors.quotedOpenings(windoors.openings, windoors.property).filter(function(o) { return o.kind === it.wdPaint; }).length;
+    var nW = Windoors.quotedOpenings(windoors.openings, windoors.property).filter(function(o) { return o.kind === (it.wdPaint === 'fascia' ? 'run' : it.wdPaint); }).length;
     rows.push({ key: 'windoors:windoors:' + it.wdPaint, areaKey: 'windoors', area: 'Windows & doors', tag: '', areaNote: '',
-      stage: 'other', label: it.wdPaint === 'door' ? 'Doors, outside faces' : 'Windows, outside faces', steps: ['prep', 'done'],
+      stage: 'other', label: it.wdPaint === 'door' ? 'Doors, outside faces' : it.wdPaint === 'fascia' ? 'Roofline: fascia, soffit, bargeboards' : 'Windows, outside faces', steps: ['prep', 'done'],
       coats: specCoatsLabel((windoors.property && windoors.property.coats) || 2),
       colour: colourScheduleLabel(it.extWoodworkColourNumber),
       product: it.extTopcoatRangeOverride || ((settings.materials || {}).extTopcoat || {}).range || '',
-      includes: nW + ' ' + (it.wdPaint === 'door' ? (nW === 1 ? 'door' : 'doors') : (nW === 1 ? 'window' : 'windows')),
+      includes: it.wdPaint === 'fascia' ? Windoors.quotedOpenings(windoors.openings, windoors.property).filter(function(o) { return o.kind === 'run'; }).map(function(o) { return Windoors.sideLabel(o.side).toLowerCase() + ' ' + Windoors.runType(o).noun + ' ' + Windoors.fmtMetres(Windoors.runMetres(o)) + 'm'; }).join(', ')
+        : nW + ' ' + (it.wdPaint === 'door' ? (nW === 1 ? 'door' : 'doors') : (nW === 1 ? 'window' : 'windows')),
       prep: SPEC_PREP_LINES.extwoodwork });
   });
 
@@ -20970,7 +20971,7 @@ var AREA_ROLE_WORDS = {
   radiator: 'Radiators',
   masonry: 'Masonry', extwoodwork: 'Woodwork',
   // Windows and doors fixture: its two colours ("Exterior Windows").
-  wdwindows: 'Windows', wddoors: 'Doors', wdwalls: 'Walls'
+  wdwindows: 'Windows', wddoors: 'Doors', wdwalls: 'Walls', wdfascia: 'Roofline'
 };
 
 function areaPlaceholder(owner, role) {
@@ -21068,7 +21069,7 @@ function colourAreas(live) {
   // Windows and doors: one area per colour the fixture actually paints --
   // windows only if it has windows, doors only if it has doors.
   windoorsPaintItems().forEach(function(it) {
-    add('Exterior', it.wdPaint === 'door' ? 'wddoors' : 'wdwindows', it.extWoodworkColourNumber,
+    add('Exterior', it.wdPaint === 'door' ? 'wddoors' : it.wdPaint === 'fascia' ? 'wdfascia' : 'wdwindows', it.extWoodworkColourNumber,
         { kind: 'windoors', id: 'windoors', role: it.wdPaint });
   });
   // ...and the walls (and the masonry extras), in the walls' colour.
@@ -22777,7 +22778,7 @@ function setAreaColourNumber(ref, num) {
     return;
   }
   if (ref.kind === 'windoors') {
-    setWdColour(ref.role === 'door' ? 'door' : ref.role === 'wall' ? 'wall' : 'window', num);
+    setWdColour(ref.role === 'door' ? 'door' : ref.role === 'wall' ? 'wall' : ref.role === 'fascia' ? 'fascia' : 'window', num);
   }
 }
 
@@ -25721,7 +25722,9 @@ function wdPutProperty() {
     coats: p.coats || 2, windowColour: p.window_colour || null, doorColour: p.door_colour || null,
     paintProducts: p.paint_products || {},
     makingGood: +p.making_good || 0,
-    wallColour: p.wall_colour || null
+    wallColour: p.wall_colour || null,
+    fasciaColour: p.fascia_colour || null,
+    runsSplit: !!p.runs_split
   }).catch(function(e) { wdFail('the house settings', e); });
 }
 function wdPutOpening(o) {
@@ -25809,19 +25812,24 @@ function windoorsPaintItems() {
     // Its own product where one was picked (the gloss for a front door),
     // read by computeRoleGroups exactly as a room's override is. Primer
     // stays the Settings exterior primer, as it does for fitted units.
-    var prod = wdPaintProduct(kind);
+    // The roofline takes the windows' product: the same gloss, in its own
+    // colour.
+    var prod = wdPaintProduct(kind === 'fascia' ? 'window' : kind);
     // Same-tin guard (see calcRoom's): primer product = this topcoat product
     // means one extra coat of the topcoat, not a second buy of it as primer.
     var topRange = prod ? prod.range : (((settings.materials || {}).extTopcoat) || {}).range;
     var primerRange = (((settings.materials || {}).extPrimer) || {}).range;
     var sameTin = !!primerRange && primerRange === topRange;
-    out.push({ wdPaint: kind, label: kind === 'door' ? 'Doors' : 'Windows', extWoodworkColourNumber: num || 1,
+    out.push({ wdPaint: kind, label: kind === 'door' ? 'Doors' : kind === 'fascia' ? 'Roofline' : 'Windows', extWoodworkColourNumber: num || 1,
                extTopcoatRangeOverride: prod ? prod.range : undefined,
                extTopcoatBandOverride: prod ? prod.band : undefined,
                topcoatL: sameTin ? m2 * (coats + 1) / cov : top, primerL: sameTin ? 0 : top * 0.8 });
   };
   push('window', a.window, p.window_colour);
   push('door', a.door, p.door_colour);
+  // The roofline (fascia, soffit, bargeboards) in its own colour -- the
+  // windows' until it's set, so it pools with them in the same tins then.
+  push('fascia', a.fascia, wdColourOf('fascia'));
   return out;
 }
 
@@ -25865,6 +25873,7 @@ function wdPaintCardHtml() {
     var bits = [coats + ' coat' + (coats === 1 ? '' : 's')];
     if (n.windows || !n.doors) bits.push(what('window'));
     if (n.doors) bits.push(what('door'));
+    if (wdHasRuns() && +windoors.property.fascia_colour) bits.push('roofline ' + colourLabelFor(wdColourOf('fascia')));
     if (windoorsMasonryItems().length) bits.push('walls ' + colourLabelFor(wdColourOf('wall')));
     return head + '<div onclick="toggleWdCard(\'paint\')" style="padding:10px 16px 12px;font-size:13px;color:var(--text2);cursor:pointer">' + escapeHtml(bits.join(' · ')) + '</div></div>';
   }
@@ -25874,6 +25883,7 @@ function wdPaintCardHtml() {
     + '</div></div>'
     + (n.windows || !n.doors ? wdProductRowHtml('window') + '<div class="field-row" style="flex-wrap:wrap"><div class="field-label">Windows colour</div><div id="seg-colour-wd-window" style="width:100%"></div></div>' : '')
     + (n.doors ? wdProductRowHtml('door') + '<div class="field-row" style="flex-wrap:wrap"><div class="field-label">Doors colour</div><div id="seg-colour-wd-door" style="width:100%"></div></div>' : '')
+    + (wdHasRuns() ? '<div class="field-row" style="flex-wrap:wrap"><div class="field-label">Roofline colour<small>fascia, soffit and bargeboards — the windows\' paint; starts as the windows\' colour</small></div><div id="seg-colour-wd-fascia" style="width:100%"></div></div>' : '')
     + (windoorsMasonryItems().length ? '<div class="field-row" style="flex-wrap:wrap"><div class="field-label">Walls colour<small>the walls, other walls and stonework — masonry paint from Settings</small></div><div id="seg-colour-wd-wall" style="width:100%"></div></div>' : '')
     + '<div style="padding:0 16px 12px;font-size:11px;color:var(--text2)">Painted on the timber only: each window\'s size less its glass, from Rates › Windows &amp; Doors › Paint areas. Litres use the exterior woodwork coverage, and join the exterior woodwork tins on Summary wherever the product and colour match.</div>'
     + '</div>';
@@ -25923,6 +25933,8 @@ function wdPersistProduct(kind) {
 
 function wdColourOf(kind) {
   var p = windoors.property || {};
+  // The roofline follows the windows until it has a colour of its own.
+  if (kind === 'fascia') return +p.fascia_colour || wdColourOf('window');
   return +(kind === 'door' ? p.door_colour : kind === 'wall' ? p.wall_colour : p.window_colour) || 1;
 }
 function setWdColour(kind, num) {
@@ -25930,12 +25942,13 @@ function setWdColour(kind, num) {
   if (!windoors.property) return;
   if (kind === 'door') windoors.property.door_colour = num;
   else if (kind === 'wall') windoors.property.wall_colour = num;
+  else if (kind === 'fascia') windoors.property.fascia_colour = num;
   else windoors.property.window_colour = num;
   wdSaveMirror();
   wdPutProperty();
 }
 function populateWdColourSlots() {
-  ['window', 'door', 'wall'].forEach(function(kind) {
+  ['window', 'door', 'fascia', 'wall'].forEach(function(kind) {
     var seg = document.getElementById('seg-colour-wd-' + kind);
     if (!seg || !windoors.property) return;
     ensureDefaultColour();
@@ -25956,7 +25969,7 @@ function populateWdColourSlots() {
         refreshColourSlots();
       }
     });
-    seg.innerHTML = colourSlotHtml(slot, cur, areaPlaceholder('Exterior', kind === 'door' ? 'wddoors' : kind === 'wall' ? 'wdwalls' : 'wdwindows'), liveColourState());
+    seg.innerHTML = colourSlotHtml(slot, cur, areaPlaceholder('Exterior', kind === 'door' ? 'wddoors' : kind === 'wall' ? 'wdwalls' : kind === 'fascia' ? 'wdfascia' : 'wdwindows'), liveColourState());
   });
 }
 
@@ -26360,6 +26373,7 @@ function wdExtraFiguresHtml(o, site) {
 // bargeboards up a gable. Each is one length per side plus an extra-metres
 // figure for the odd bit, drawn along the roofline and marked left / middle
 // / right like a window's parts. Added and measured from Measure only.
+function wdHasRuns() { return (windoors.openings || []).some(function(o) { return o.kind === 'run'; }); }
 function wdRunsOn(side) {
   return windoors.openings.filter(function(o) { return o.side === side && o.kind === 'run'; })
     .sort(function(a, b) { return Windoors.runType(a).position - Windoors.runType(b).position; });
@@ -26385,12 +26399,72 @@ function wdRunsHtml() {
     var link = function(key, label) {
       return have[key] ? '' : '<span onclick="addWdRun(\'' + key + '\')" style="color:var(--accent);font-size:13px;font-weight:600;cursor:pointer;margin-right:16px;white-space:nowrap">+ ' + label + '</span>';
     };
-    // Fascia and soffit apart only when they're not already priced together.
-    var adds = link('fascia_soffit', 'Fascia & soffit') + link('bargeboard', 'Bargeboards')
-      + (have.fascia_soffit ? '' : link('fascia', 'Fascia only') + link('soffit', 'Soffit only'));
+    // The job's switch says which: one fascia-and-soffit run (nine jobs in
+    // ten), or a fascia and a soffit of their own.
+    var split = !!windoors.property.runs_split;
+    var adds = (split ? link('fascia', 'Fascia') + link('soffit', 'Soffit') : link('fascia_soffit', 'Fascia & soffit'))
+      + link('bargeboard', 'Bargeboards');
     if (adds) h += '<div style="padding:10px 16px 12px;border-top:1px solid var(--border);line-height:2">' + adds + '</div>';
+    var locked = wdLayoutLocked();
+    h += '<div class="field-row" style="border-top:1px solid var(--border)"><div class="field-label">Price fascia and soffit apart<small>this job, every side' + (locked ? ' — set when the job was accepted' : '') + '</small></div>'
+      + '<div class="toggle' + (split ? ' on' : '') + '" id="wd-runs-split"' + (locked ? ' style="opacity:.5"' : '') + ' onclick="setWdRunsSplit(' + !split + ')"></div></div>';
   }
   return h;
+}
+// The per-job switch. Turning it on turns each side's fascia-and-soffit run
+// into a fascia and a soffit of the same length (and the work marked on it
+// onto both); turning it off puts them back together as one run, from the
+// fascia's figures (the soffit's where there's no fascia). New rows rather
+// than a changed type: a run's slot on its side is its type.
+function setWdRunsSplit(on) {
+  if (wdMode === 'site') return;
+  if (wdLayoutLocked()) { toast('The job is accepted — its roofline is set'); return; }
+  on = !!on;
+  if (!!windoors.property.runs_split === on) return;
+  var byKey = function(o) { return Windoors.runType(o).key; };
+  var runs = windoors.openings.filter(function(o) { return o.kind === 'run'; });
+  var copyRun = function(from, type) {
+    var t = Windoors.RUN_TYPES.find(function(x) { return x.key === type; });
+    return wdNewOpening({ side: from.side, level: from.level, floor: from.floor, kind: 'run', position: t.position, type: type,
+      size_tier: 'standard', rows: 1, cols: 1, run_length: from.run_length, run_extra: from.run_extra,
+      excluded: from.excluded, access: from.access, prep_level: from.prep_level, prep_stage: from.prep_stage,
+      quote_prep_level: from.quote_prep_level, prep_steps: (from.prep_steps || []).slice(), time_override: from.time_override || null });
+  };
+  var moveMarks = function(fromIds, to) {
+    windoors.marks.filter(function(m) { return fromIds.indexOf(m.opening_id) !== -1; }).forEach(function(m) {
+      var dup = windoors.marks.some(function(x) { return x.opening_id === to.id && x.element_id === m.element_id && x.action_key === m.action_key; });
+      if (dup) return;
+      var n = Object.assign({}, m, { id: uid(), opening_id: to.id });
+      windoors.marks.push(n); wdPutMark(n);
+    });
+  };
+  var gone = [];
+  Windoors.SIDES.forEach(function(side) {
+    var mine = runs.filter(function(o) { return o.side === side.key; });
+    if (on) {
+      mine.filter(function(o) { return byKey(o) === 'fascia_soffit'; }).forEach(function(fs) {
+        var have = function(k) { return mine.some(function(o) { return byKey(o) === k; }); };
+        if (!have('fascia')) moveMarks([fs.id], copyRun(fs, 'fascia'));
+        if (!have('soffit')) moveMarks([fs.id], copyRun(fs, 'soffit'));
+        gone.push(fs);
+      });
+    } else {
+      var f = mine.find(function(o) { return byKey(o) === 'fascia'; }), so = mine.find(function(o) { return byKey(o) === 'soffit'; });
+      if (!f && !so) return;
+      var fs = mine.find(function(o) { return byKey(o) === 'fascia_soffit'; }) || copyRun(f || so, 'fascia_soffit');
+      moveMarks([f && f.id, so && so.id].filter(Boolean), fs);
+      if (f) gone.push(f);
+      if (so) gone.push(so);
+    }
+  });
+  var goneIds = gone.map(function(o) { return o.id; });
+  windoors.marks.filter(function(m) { return goneIds.indexOf(m.opening_id) !== -1; }).forEach(function(m) { wdDeleteMark(m); });
+  windoors.marks = windoors.marks.filter(function(m) { return goneIds.indexOf(m.opening_id) === -1; });
+  windoors.openings = windoors.openings.filter(function(o) { return goneIds.indexOf(o.id) === -1; });
+  gone.forEach(function(o) { wdDeleteOpening(o); });
+  windoors.property.runs_split = on;
+  wdPutProperty();
+  wdChanged();
 }
 function addWdRun(type) {
   if (wdMode === 'site') return;
@@ -27943,7 +28017,7 @@ async function saveWindoorsReportPdf(todo) {
 function wdInvoiceColours() {
   if (!wdLoadedForActiveJob()) return {};
   var name = function(kind) { var n = wdColourOf(kind); return colourIsNamed(n) ? colourLabelFor(n) : null; };
-  return { frames: name('window'), doors: name('door'), walls: name('wall') };
+  return { frames: name('window'), doors: name('door'), walls: name('wall'), fascia: name('fascia') };
 }
 // The line's words. opts: { report: 'attached' | 'final' | false,
 // stage: { n, of }, pct } -- see Windoors.invoiceLineText.

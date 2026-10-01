@@ -133,9 +133,13 @@ A **run** is a new kind of element: woodwork measured in metres along a side.
   sheet (`wdRunFiguresHtml`), Rates rows; confirming a layout never touches
   runs. Words: *Exterior woodwork* once there's a run, metres in the quote
   line, the invoice line and the work report.
-- **Not yet:** the separate fascia colour (runs use the windows' colour), and
-  the per-job "split fascia and soffit" switch (the card offers *Fascia
-  only* / *Soffit only* instead).
+- **Done (v3.1.0):** the roofline's own colour (`job_property.fascia_colour`,
+  *Roofline colour* on the Paint card, the windows' colour until set; its
+  own paint row, *Roofline*, in the windows' product), and the per-job
+  switch (`job_property.runs_split`, *Price fascia and soffit apart* on the
+  Roofline card, locked once accepted): turning it on makes each side's
+  fascia-and-soffit run a fascia and a soffit of the same length, the work
+  marked on it copied to both; off puts them back as one run.
 
 ## Step 3 — extras (optional, per job)
 

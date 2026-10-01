@@ -1444,16 +1444,20 @@ router.put('/windoors/property', async (req, res) => {
   const p = normaliseProperty(req.body);
   try {
     const result = await db.query(`
-      INSERT INTO job_property (job_id, style, detail_enabled, default_prep, layout, coats, window_colour, door_colour, paint_products, appearance, making_good, wall_colour, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, 0), CASE WHEN $13 THEN $12::integer END, NOW())
+      INSERT INTO job_property (job_id, style, detail_enabled, default_prep, layout, coats, window_colour, door_colour, paint_products, appearance, making_good, wall_colour, fascia_colour, runs_split, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, 0), CASE WHEN $13 THEN $12::integer END, CASE WHEN $15 THEN $14::integer END, COALESCE($16, FALSE), NOW())
       ON CONFLICT (job_id) DO UPDATE SET style = $2, detail_enabled = $3, default_prep = $4, layout = $5,
         coats = $6, window_colour = $7, door_colour = $8, paint_products = $9,
         appearance = COALESCE($10, job_property.appearance),
         making_good = COALESCE($11, job_property.making_good),
-        wall_colour = CASE WHEN $13 THEN $12::integer ELSE job_property.wall_colour END, updated_at = NOW()
+        wall_colour = CASE WHEN $13 THEN $12::integer ELSE job_property.wall_colour END,
+        fascia_colour = CASE WHEN $15 THEN $14::integer ELSE job_property.fascia_colour END,
+        runs_split = COALESCE($16, job_property.runs_split), updated_at = NOW()
       RETURNING *
     `, [jobId, p.style, p.detail_enabled, p.default_prep, p.layout, p.coats, p.window_colour, p.door_colour, p.paint_products, p.appearance, p.making_good,
-        p.wall_colour === undefined ? null : p.wall_colour, p.wall_colour !== undefined]);
+        p.wall_colour === undefined ? null : p.wall_colour, p.wall_colour !== undefined,
+        p.fascia_colour === undefined ? null : p.fascia_colour, p.fascia_colour !== undefined,
+        p.runs_split === undefined ? null : p.runs_split]);
     res.json({ ok: true, property: mapProperty(result.rows[0]) });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2735,14 +2739,15 @@ async function copyJobRows(entry, newJobId) {
     await ensureWindoorsSchema();
     const p = wd.property;
     await db.query(
-      `INSERT INTO job_property (job_id, style, detail_enabled, default_prep, layout, coats, window_colour, door_colour, paint_products, appearance, making_good, wall_colour)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      `INSERT INTO job_property (job_id, style, detail_enabled, default_prep, layout, coats, window_colour, door_colour, paint_products, appearance, making_good, wall_colour, fascia_colour, runs_split)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        ON CONFLICT (job_id) DO NOTHING`,
       [newJobId, p.style || 'georgian', p.detail_enabled !== false, p.default_prep || 'light', p.layout || {},
         Math.max(1, Math.min(3, +p.coats || 2)), p.window_colour == null ? null : +p.window_colour,
         p.door_colour == null ? null : +p.door_colour, normalisePaintProducts(p.paint_products),
         p.appearance && typeof p.appearance === 'object' ? Windoors.normaliseAppearance(p.appearance, p.style) : null,
-        Math.max(0, +p.making_good || 0), p.wall_colour == null ? null : +p.wall_colour]
+        Math.max(0, +p.making_good || 0), p.wall_colour == null ? null : +p.wall_colour,
+        p.fascia_colour == null ? null : +p.fascia_colour, !!p.runs_split]
     );
     // Every opening gets its new id first, so a bay's windows can be pointed
     // at their bay's new id whatever order the rows come in.

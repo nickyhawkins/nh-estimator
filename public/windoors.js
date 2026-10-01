@@ -1526,7 +1526,7 @@
   // tins.
   function paintAreas(data, rawRates) {
     var rates = rawRates && rawRates.paint && rawRates.paint.area ? rawRates : mergeRates(rawRates);
-    var out = { window: 0, door: 0, masonry: 0, windows: 0, doors: 0, walls: [] };
+    var out = { window: 0, door: 0, fascia: 0, masonry: 0, windows: 0, doors: 0, walls: [] };
     var allLive = liveOpenings(data && data.openings, data && data.property);
     // A bay's own timber is painted with the windows (it is the window
     // joinery), but it is not a window to count. Only what the quote is for:
@@ -1535,8 +1535,9 @@
       var m2 = openingPaintM2(o, rates);
       // An Other item goes in with whichever colour it's painted, uncounted.
       if (o.kind === 'other') { if (o.type === 'window') out.window += m2; else out.door += m2; return; }
-      // A run is painted with the windows (the frames' colour), uncounted.
-      if (o.kind === 'run') { out.window += m2; return; }
+      // A run is painted in the roofline's own colour (v3.1.0; it starts as
+      // the windows'), uncounted.
+      if (o.kind === 'run') { out.fascia += m2; return; }
       // Extras: wood and metal with the windows, walls and stone with the
       // masonry.
       if (o.kind === 'extra') { if (extraType(o).paint === 'masonry') out.masonry += m2; else out.window += m2; return; }
@@ -3259,6 +3260,9 @@
       if (frames) named.push(frames + ' (frames)');
       if (doors) named.push(doors + ' (doors)');
     }
+    // The roofline's colour, named only where it isn't the frames'.
+    var anyRunM = RUN_TYPES.some(function (t) { return p.runs && +p.runs[t.key] > 0; });
+    if (c.fascia && anyRunM && c.fascia !== frames) named.push(c.fascia + ' (fascia and soffit)');
     if (c.walls && +p.walls > 0) named.push(c.walls + ' (walls)');
     if (named.length) s += ' Colour' + (named.length > 1 ? 's' : '') + ': ' + named.join(', ') + '.';
     if (p.stage && +p.stage.n > 0 && +p.stage.of > 0) s += ' (stage ' + (+p.stage.n) + ' of ' + (+p.stage.of) + ')';

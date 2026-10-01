@@ -121,12 +121,15 @@ const near = (name, got, want) => check(name, Math.abs(got - want) < 0.005, { go
   // ── 4. Paint ───────────────────────────────────────────────────────────
   near('4. paint area by the metre', W.openingPaintM2(run({ run_extra: 1 }), R), 10 * 0.35);
   const pa = W.paintAreas(data, R);
-  check('4. painted with the windows, and not counted as one', Math.abs(pa.window - (10.5 * 0.35 + 8 * R.run.bargeboard.m2 + W.openingPaintM2(data.openings[2], R))) < 1e-9 && pa.windows === 1, pa);
+  check('4. the roofline\'s own paint area, apart from the windows, and not counted as one', Math.abs(pa.fascia - (10.5 * 0.35 + 8 * R.run.bargeboard.m2)) < 1e-9 && Math.abs(pa.window - W.openingPaintM2(data.openings[2], R)) < 1e-9 && pa.windows === 1, pa);
+  check('4. a roofline colour of its own is named on the line', /Black \(fascia and soffit\)/.test(W.invoiceLineText(Object.assign({}, c, { colours: { frames: 'White', fascia: 'Black' } }))), W.invoiceLineText(Object.assign({}, c, { colours: { frames: 'White', fascia: 'Black' } })));
+  check('4. ...and not when it\'s the windows\' own', !/fascia and soffit\)/.test(W.invoiceLineText(Object.assign({}, c, { colours: { frames: 'White', fascia: 'White' } }))));
 
   // ── 5. The server ──────────────────────────────────────────────────────
   const n = L.normaliseOpening({ side: 'front', kind: 'run', type: 'bargeboard', runLength: 8.25, runExtra: 0, position: 9, floor: 2 });
   eq('5. a run\'s slot is its type\'s', [n.position, n.floor, n.level], [4, 0, 'standard']);
   eq('5. metres kept, a zero extra stored as NULL', [n.run_length, n.run_extra], [8.25, null]);
+  eq('5. the roofline colour and the switch, and an older app\'s save leaves them alone', [L.normaliseProperty({ fasciaColour: 4, runsSplit: true }).fascia_colour, L.normaliseProperty({ runsSplit: true }).runs_split, L.normaliseProperty({}).fascia_colour, L.normaliseProperty({}).runs_split], [4, true, undefined, undefined]);
   eq('5. capped', L.normaliseOpening({ side: 'front', kind: 'run', type: 'fascia', runLength: 5000 }).run_length, W.RUN_MAX_M);
   check('5. an unknown type is refused', !!L.normaliseOpening({ side: 'front', kind: 'run', type: 'gutter' }).error);
   check('5. not on a level', !!L.normaliseOpening({ side: 'front', kind: 'run', type: 'fascia', level: 'roof' }).error);
@@ -175,7 +178,13 @@ const near = (name, got, want) => check(name, Math.abs(got - want) < 0.005, { go
     out.marked = windoors.marks.filter(m => m.opening_id === r.id).map(m => m.element_id + ':' + m.action_key);
     out.price = Math.round(calcWindoors().mins * 100) / 100;
     closeWdDetail();
-    out.noSeparate = !/\+ Fascia only/.test(document.getElementById('wd-body').textContent);
+    out.noSeparate = !/\+ Fascia\b(?! &)|\+ Soffit/.test(document.getElementById('wd-body').textContent) && !!document.getElementById('wd-runs-split');
+    // The roofline paints in the windows' colour until given its own.
+    const paintNames = () => windoorsPaintItems().map(i => i.wdPaint + ':' + i.extWoodworkColourNumber).join(',');
+    out.paintBefore = paintNames();
+    setWdColour('fascia', 3);
+    out.paintAfter = paintNames();
+    out.colourArea = colourAreas().some(a => a.key === 'wdfascia' || a.area === 'wdfascia' || JSON.stringify(a).indexOf('wdfascia') >= 0);
     // Confirming the layout again must not take the runs with it --
     // bargeboards sit at position 4, past this floor's two windows.
     window.prompt = () => '8';
@@ -185,6 +194,18 @@ const near = (name, got, want) => check(name, Math.abs(got - want) < 0.005, { go
     out.survives = windoors.openings.some(o => o.id === r.id) && !!bb && windoors.openings.some(o => o.id === bb.id);
     out.text = wdInvoiceText({ report: 'attached' });
     out.measureRow = /18\.5m roofline/.test(windoorsMeasureRowHtml());
+    // The switch: apart, the fascia-and-soffit run becomes a fascia and a
+    // soffit of the same length, its marked work on both; and back.
+    setWdRunsSplit(true);
+    const runs = () => windoors.openings.filter(o => o.kind === 'run').map(o => o.type + ':' + o.run_length + '+' + (o.run_extra || 0)).sort();
+    out.split = [windoors.property.runs_split, runs(), windoors.marks.filter(m => m.action_key === 'filler').length];
+    out.splitText = wdInvoiceText({ report: 'attached' });
+    setWdRunsSplit(false);
+    out.merged = [windoors.property.runs_split, runs(), windoors.marks.filter(m => m.action_key === 'filler').length];
+    jobs[0].status = 'accepted';
+    setWdRunsSplit(true);
+    out.locked = windoors.property.runs_split;
+    jobs[0].status = 'quoted';
     return out;
   }, prop);
   eq('7. the side shows a Roofline card to add from', app.card, true);
@@ -193,7 +214,13 @@ const near = (name, got, want) => check(name, Math.abs(got - want) < 0.005, { go
   eq('7. the extra metres save', app.extra, 1.5);
   eq('7. a section is marked like a part', app.marked, ['middle:filler']);
   check('7. ...and priced', app.price > 0);
-  eq('7. fascia-only and soffit-only aren\'t offered beside fascia and soffit', app.noSeparate, true);
+  eq('7. a fascia or soffit alone isn\'t offered until the switch is on', app.noSeparate, true);
+  check('7. the roofline paints in the windows\' colour until it has its own', /fascia:1/.test(app.paintBefore) && /fascia:3/.test(app.paintAfter), [app.paintBefore, app.paintAfter]);
+  eq('7. the roofline has its own colour area', app.colourArea, true);
+  eq('7. switched apart: a fascia and a soffit at the same metres, the marked work on both', app.split, [true, ['bargeboard:8+0', 'fascia:9+1.5', 'soffit:9+1.5'], 2]);
+  check('7. ...named apart on the invoice line', /fascia/.test(app.splitText) && /soffit/.test(app.splitText) && !/fascia and soffit/.test(app.splitText), app.splitText);
+  eq('7. switched back: one run again, its work once', app.merged, [false, ['bargeboard:8+0', 'fascia_soffit:9+1.5'], 1]);
+  eq('7. the switch is set once the job is accepted', app.locked, false);
   eq('7. confirming the layout keeps it', app.survives, true);
   check('7. the invoice line names it', /^Exterior woodwork: .*10\.5m of fascia and soffit/.test(app.text), app.text);
   eq('7. the Measure row counts the roofline', app.measureRow, true);

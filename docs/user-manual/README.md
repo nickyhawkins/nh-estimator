@@ -460,7 +460,7 @@ It's drawing only: the porch is still priced from its own time or set price, and
 
 ![An other item's own figures](images/26v-windoors-other-sheet.png)
 
-**The roofline: fascia and soffit, bargeboards.** Under each side's drawing, the **Roofline** card adds the woodwork along the roof: **+ Fascia & soffit** (priced together, the usual way) and **+ Bargeboards** (up a gable). For the odd job where they're priced apart, **+ Fascia only** and **+ Soffit only** are there instead, until a fascia & soffit is added. It asks for the length along that side in metres. On its sheet you can change the **length**, and add **extra metres** for the odd bit that isn't along the side — a bay roof, a porch fascia — which is priced but not drawn.
+**The roofline: fascia and soffit, bargeboards.** Under each side's drawing, the **Roofline** card adds the woodwork along the roof: **+ Fascia & soffit** (priced together, the usual way) and **+ Bargeboards** (up a gable). For the odd job where they're priced apart, turn on **Price fascia and soffit apart** at the bottom of the card: the card then offers **+ Fascia** and **+ Soffit**, and any fascia & soffit already measured becomes a fascia and a soffit of the same length, with the work marked on it on both. Turning it off puts them back together as one run. The switch covers the whole job, and is set once the job is accepted. It asks for the length along that side in metres. On its sheet you can change the **length**, and add **extra metres** for the odd bit that isn't along the side — a bay roof, a porch fascia — which is priced but not drawn.
 
 It's drawn on the house: the fascia along the eaves, the bargeboards up the verges of a gable. Each is in three sections, **left, middle and right** as you face the side (on bargeboards the middle is the apex). Tap it on the drawing or in the card, then tap a section and mark **Filler**, **Resin repair** (with its size, as on a window) or **Splice timber**, quoted or on site, exactly as for a window's parts. Marked sections show in orange on the drawing.
 
@@ -468,7 +468,9 @@ It's drawn on the house: the fascia along the eaves, the bargeboards up the verg
 
 ![A run's sheet: length, extra metres, and its three sections](images/26zs-roofline-sheet.png)
 
-It's priced by the metre from **Rates → Windows & Doors → Roofline, per metre**: fascia and soffit start at **16 minutes a metre** for 2 coats (the Exterior form's fascia figure), with prep and coats on top, like a window. The rate already allows for ladders, so **Access** says *Auto (in the rate)*; set **Ladder/tower** by hand for a house that needs a tower. It's painted in the **windows' colour** and goes in the same paint rows. **In this job / Not in this job** works as for a window: a run that isn't being painted stays on the drawing, unpriced. On the quote and invoice the line becomes *Exterior woodwork*, with the metres: *…14 windows, 3 doors and 12.5m of fascia and soffit.* The work report lists each run with its sections.
+![Fascia and soffit priced apart: the switch on, the run now a fascia and a soffit](images/26zu-roofline-split.png)
+
+It's priced by the metre from **Rates → Windows & Doors → Roofline, per metre**: fascia and soffit start at **16 minutes a metre** for 2 coats (the Exterior form's fascia figure), with prep and coats on top, like a window. The rate already allows for ladders, so **Access** says *Auto (in the rate)*; set **Ladder/tower** by hand for a house that needs a tower. It's painted in the **windows' colour** to begin with, in the same paint rows; set **Roofline colour** on the **Paint** card (or the *Roofline* row on the Colours tab) to give the fascia, soffit and bargeboards a colour of their own — they keep the windows' paint, in that colour, on a *Roofline* row of their own, and the invoice names it: *Colour: White (frames and doors), Black (fascia and soffit).* **In this job / Not in this job** works as for a window: a run that isn't being painted stays on the drawing, unpriced. On the quote and invoice the line becomes *Exterior woodwork*, with the metres: *…14 windows, 3 doors and 12.5m of fascia and soffit.* The work report lists each run with its sections.
 
 **Walls.** Each side has a **Walls** card: tap **+ Measure the walls on this side** and give the **width** and the **height to the eaves** in metres. On its sheet, add the **gable** (its height above the eaves) if that side has one, pick the **finish** — **smooth render / masonry** or **textured render (pebbledash)** — and whether it's **rolled / brushed** or **sprayed**. Once the walls are measured you can tap the wall itself on the drawing to open them.
 
@@ -1654,6 +1656,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v3.0.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v3.1.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

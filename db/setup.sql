@@ -712,6 +712,8 @@ ALTER TABLE job_property ADD COLUMN IF NOT EXISTS making_good REAL NOT NULL DEFA
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS run_extra REAL;
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS wall_gable REAL;                               -- kind 'wall': the gable's height above the eaves (v2.99.0)
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS wall_spray BOOLEAN NOT NULL DEFAULT FALSE;      -- ...the render is sprayed (paint coverage only)
+ALTER TABLE job_property ADD COLUMN IF NOT EXISTS fascia_colour INTEGER;                         -- the roofline's colour; NULL = the windows' (v3.1.0)
+ALTER TABLE job_property ADD COLUMN IF NOT EXISTS runs_split BOOLEAN NOT NULL DEFAULT FALSE;     -- fascia and soffit priced apart on this job (v3.1.0)
 ALTER TABLE job_property ADD COLUMN IF NOT EXISTS wall_colour INTEGER;                           -- the walls' colour number; NULL = colour 1 (v2.99.0)                                -- ...and the odd extra bit, priced not drawn
 ALTER TABLE job_openings ADD COLUMN IF NOT EXISTS time_override REAL;                             -- minutes set by hand (2 coats, before prep/access); NULL = Rates (v2.96.0)
 DROP INDEX IF EXISTS job_openings_slot;
