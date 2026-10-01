@@ -2127,7 +2127,10 @@ function renderBufferStrip(){
         <div style="font-size:10px;color:#7db87d;text-transform:uppercase;letter-spacing:.08em">Buffer pot</div>
         <div style="font-size:11px;color:#7c7f96;margin-top:2px">${held>0.005?`${fmt(held)} held · no target set`:mm.total>0.005?`Not set up — ${fmt(mm.total)} would put you a month ahead`:'Not set up — a cushion absorbs a bad month'}</div>
       </div>
-      <button onclick="scrollToBufferSetting()" style="padding:5px 10px;border-radius:6px;border:1px solid #2a4a3a;background:transparent;color:#7db87d;font-size:11px;font-weight:600;flex-shrink:0">Set a target</button>
+      <div style="display:flex;gap:6px;flex-shrink:0">
+        ${held>0.005?`<button onclick="openBufferMoveModal()" style="padding:5px 10px;border-radius:6px;border:1px solid #2a4a3a;background:#0f1a15;color:#7db87d;font-size:11px;font-weight:700">Move to pot</button>`:''}
+        <button onclick="scrollToBufferSetting()" style="padding:5px 10px;border-radius:6px;border:1px solid #2a4a3a;background:transparent;color:#7db87d;font-size:11px;font-weight:600">Set a target</button>
+      </div>
     </div>`;
   }
   const pct=Math.min(100,Math.round((held/target)*100));
@@ -2156,6 +2159,7 @@ function renderBufferStrip(){
     ${line('Personal','#5b8def',bufferPer,bufferTargetPer)}
     ${cover.total>0.005?`<button onclick="openBufferCoverModal()" style="width:100%;margin-top:9px;padding:7px;border-radius:7px;border:1px solid #2a4a3a;background:#0f1a15;color:#7db87d;font-size:12px;font-weight:700">Fund this month — move ${fmt(cover.total)} across</button>
       <div style="font-size:10px;color:#555;margin-top:5px;line-height:1.4">Puts every minimum still owing into the pots up front. Income then refills the buffer instead of paying the bills — which is what being a month ahead buys you.</div>`:''}
+    ${held>0.005?`<button onclick="openBufferMoveModal()" style="width:100%;margin-top:${cover.total>0.005?'6':'9'}px;padding:6px;border-radius:7px;border:1px solid #2a4a3a;background:transparent;color:#7db87d;font-size:11px;font-weight:600">Move buffer to a pot to pay a bill…</button>`:''}
     ${emergencyEligible()&&emergencyTarget()>bufferTarget()+0.005?`<div style="margin-top:9px;padding-top:8px;border-top:1px solid #16281f;font-size:10px;color:#e0c060;line-height:1.4">Arrears clear — growing toward a <strong>${fmt(emergencyTarget())}</strong> emergency fund (${fmt(bufferPot())} held). Everything above it goes to the snowball.</div>`:''}
     ${drift.matters?`<div style="margin-top:9px;padding-top:8px;border-top:1px solid #16281f;font-size:10px;color:#e0c060;line-height:1.4">A month of minimums is now <strong>${fmt(drift.mm.total)}</strong> — ${drift.drift>0?`${fmt(drift.drift)} less than you're holding for`:`${fmt(-drift.drift)} more than your target`}. <button onclick="setBufferPreset(1)" style="background:none;border:none;padding:0;color:#e0c060;font-size:10px;font-weight:700;text-decoration:underline">Update the target</button></div>`:''}
   </div>`;
@@ -2274,6 +2278,113 @@ function confirmBufferCover(){
   bufferBiz=round2(bufferBiz-c.biz);bizPot=round2(bizPot+c.biz);
   bufferPer=round2(bufferPer-c.per);perPot=round2(perPot+c.per);
   persist('cashflow');closeModal();renderAll();
+}
+// ---------- Moving any amount from the buffer to a pot ----------
+// "Fund this month" only moves what the cycle's minimums are short by, and
+// only once a target is set. A real bill doesn't always fit that: a payment
+// above the minimum, a debt outside the plan, or a buffer held with no target
+// at all. This moves whatever you choose, from one jar to the pot of the SAME
+// account — the jar and the pot are the same bank's money, so a business jar
+// can never fund a personal bill. Like the cover above it's a transfer, not a
+// payment: the money lands in the pot and the payment is then recorded
+// normally, so every ledger and undo path stays as it was.
+let bufferMoveAccount='business';
+function bufferJarOf(account){return account==='business'?bufferBiz:bufferPer;}
+// How far a pot is short of what the cycle still has to send out of it.
+function potShortfall(account){
+  const need=cycleCommitments();
+  return account==='business'?round2(Math.max(0,need.biz-bizPot)):round2(Math.max(0,need.per-perPot));
+}
+// Moves up to `amount` from the account's jar to its pot and returns what
+// actually moved: never more than the jar holds, never negative.
+function moveBufferToPot(account,amount){
+  const amt=round2(Math.min(Math.max(0,Number(amount)||0),bufferJarOf(account)));
+  if(amt<=0.005)return 0;
+  if(account==='business'){bufferBiz=round2(bufferBiz-amt);bizPot=round2(bizPot+amt);}
+  else{bufferPer=round2(bufferPer-amt);perPot=round2(perPot+amt);}
+  return amt;
+}
+// `account` and `preset` let a caller open it on the right jar with a figure
+// already in the box; with neither it opens on whichever jar holds money.
+function openBufferMoveModal(account,preset){
+  if(account!=='business'&&account!=='personal')account=bufferBiz>0.005||bufferPer<=0.005?'business':'personal';
+  bufferMoveAccount=account;
+  const jar=bufferJarOf(account);
+  const short=potShortfall(account);
+  if(preset==null)preset=short>0.005?Math.min(short,jar):null;
+  const tab=(acc,label,col,held)=>`<button onclick="openBufferMoveModal('${acc}')" style="flex:1;background:${account===acc?'#0f1a15':'#0f1117'};border:1px solid ${account===acc?col:'#2a2d3e'};border-radius:8px;padding:7px 6px;color:${account===acc?col:'#7c7f96'}">
+      <div style="font-size:12px;font-weight:700">${label}</div><div style="font-size:11px;margin-top:2px">${fmt(held)} in buffer</div>
+    </button>`;
+  const chips=[];
+  if(short>0.005&&jar>0.005)chips.push(['Pot shortfall',round2(Math.min(short,jar))]);
+  if(jar>0.005)chips.push(['All of it',round2(jar)]);
+  const seen=[];
+  const chipHtml=chips.filter(([,v])=>{if(seen.some(x=>Math.abs(x-v)<=0.005))return false;seen.push(v);return true;})
+    .map(([label,v])=>`<button onclick="setBufferMoveAmount(${v})" style="flex:1;min-width:88px;background:#0f1117;border:1px solid #2a2d3e;border-radius:8px;padding:8px 6px;color:#e8e8ec">
+      <div style="font-size:10px;color:#7c7f96;text-transform:uppercase;letter-spacing:.05em">${label}</div>
+      <div style="font-size:14px;font-weight:700;margin-top:2px">${fmt(v)}</div>
+    </button>`).join('');
+  document.getElementById('modalRoot').innerHTML=`
+    <div class="modal-bg" onclick="if(event.target===this)closeModal()">
+      <div class="modal" style="max-height:88vh;overflow-y:auto">
+        <h2 style="font-size:18px;margin-bottom:6px">Move buffer to a pot</h2>
+        <div style="font-size:12px;color:#7c7f96;margin-bottom:14px;line-height:1.5">Moves money from the buffer into the pot a bill is paid from, so you can make the payment. Each account draws on its own jar.</div>
+        <div style="display:flex;gap:6px;margin-bottom:12px">${tab('business','Business','#e0923b',bufferBiz)}${tab('personal','Personal','#5b8def',bufferPer)}</div>
+        ${chipHtml?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">${chipHtml}</div>`:''}
+        <div class="field-label">Amount to move (£)</div>
+        <input id="bufferMoveInput" class="field-input" type="number" inputmode="decimal" min="0" step="0.01" value="${preset==null||preset<=0.005?'':Number(preset).toFixed(2)}" style="font-size:18px;padding:12px" oninput="bufferMovePreview()">
+        <div id="bufferMovePreview" style="background:#0f1117;border-radius:8px;padding:12px;font-size:12px;margin-top:12px;line-height:1.6"></div>
+        <div style="font-size:11px;color:#555;margin:12px 0 16px;line-height:1.5">Move the same money in your bank now, then tick the bill as paid.</div>
+        <div style="display:flex;gap:10px">
+          <button class="btn-primary" style="flex:1" onclick="confirmBufferMove()">Move it</button>
+          <button class="btn-ghost" onclick="closeModal()">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+  bufferMovePreview();
+}
+function setBufferMoveAmount(v){
+  const el=document.getElementById('bufferMoveInput');
+  if(!el)return;
+  el.value=Number(v).toFixed(2);
+  bufferMovePreview();
+}
+function bufferMovePreview(){
+  const el=document.getElementById('bufferMovePreview');
+  const input=document.getElementById('bufferMoveInput');
+  if(!el||!input)return;
+  const isBiz=bufferMoveAccount==='business';
+  const jar=bufferJarOf(bufferMoveAccount),pot=isBiz?bizPot:perPot;
+  const typed=round2(parseNum(input.value));
+  const amt=round2(Math.min(Math.max(0,typed),jar));
+  const short=potShortfall(bufferMoveAccount);
+  const line=(label,val)=>`<div class="row"><span style="color:#7c7f96">${label}</span><span style="font-weight:600">${val}</span></div>`;
+  el.innerHTML=
+    line(`${isBiz?'Business':'Personal'} buffer`,`${fmt(jar)} → ${fmt(round2(jar-amt))}`)+
+    line(`${isBiz?'Business':'Personal'} pot`,`${fmt(pot)} → <span style="color:#7db87d">${fmt(round2(pot+amt))}</span>`)+
+    (jar<=0.005?`<div style="color:#e0923b;margin-top:6px">This account's buffer is empty.</div>`
+      :typed>jar+0.005?`<div style="color:#e0923b;margin-top:6px">Capped at the ${fmt(jar)} the buffer holds.</div>`
+      :amt<=0.005?`<div style="color:#7c7f96;margin-top:6px">Enter how much the bill needs.</div>`:'')+
+    (short>0.005?`<div style="color:#7c7f96;margin-top:6px">${amt>=short-0.005?'<span style="color:#7db87d">Covers</span>':'The pot is'} ${fmt(short)} short of this cycle's minimums${amt>=short-0.005?' ✓':''}.</div>`:'');
+}
+function confirmBufferMove(){
+  const input=document.getElementById('bufferMoveInput');
+  const moved=moveBufferToPot(bufferMoveAccount,round2(parseNum(input?input.value:0)));
+  closeModal();
+  if(moved<=0.005)return;
+  persist('cashflow');renderAll();
+}
+// From inside the Pay modal: the payment is bigger than the pot, so pull the
+// difference out of the same account's buffer and keep the modal open — the
+// next tap is "Record payment".
+function topUpPotFromBuffer(){
+  const ctx=payContext(customPayId);
+  const input=document.getElementById('customPayInput');
+  if(!ctx||!input)return;
+  const amount=Math.min(customPayTotal(),ctx.balance);
+  const moved=moveBufferToPot(ctx.isBiz?'business':'personal',round2(amount-ctx.pot));
+  if(moved<=0.005)return;
+  persist('cashflow');renderAll();customPayPreview();
 }
 // Two readings of the cycle. Minimums is the verdict — every one paid means
 // nothing new went overdue, which is what "on track" actually means on an
@@ -3030,7 +3141,13 @@ function customPayPreview(){
     (fromArr>0.005?line('Arrears',`${fmt(fromArr)} → <span style="color:${newArr<=0.005?'#7db87d':'#e05c5c'}">${fmt(newArr)}</span>${newArr<=0.005?' <span style="color:#7db87d">cleared ✓</span>':''}`):'')+
     line(`${ctx.isBiz?'Business':'Personal'} pot`,`${fmt(fromPot)} → ${fmt(Math.max(0,ctx.pot-amount))}`)+
     (total>ctx.balance+0.005?`<div style="color:#e0923b;margin-top:6px">Capped at the ${fmt(adding?round2(ctx.debt.balance):ctx.balance)} still owed — you can't pay more than is owed.</div>`:'')+
-    (shortBy>0.005?`<div style="color:#e0923b;margin-top:6px">${fmt(shortBy)} more than the pot holds. Log the money in first if it has landed, or the pot will just bottom out at zero.</div>`:'')+
+    (shortBy>0.005?`<div style="color:#e0923b;margin-top:6px">${fmt(shortBy)} more than the pot holds. ${(()=>{
+      // The same account's buffer can make up the difference in one tap.
+      const jar=ctx.isBiz?bufferBiz:bufferPer;
+      const can=round2(Math.min(shortBy,jar));
+      return can>0.005?`${can<shortBy-0.005?`The ${ctx.isBiz?'business':'personal'} buffer holds ${fmt(jar)} of it.`:''}<button onclick="topUpPotFromBuffer()" style="display:block;width:100%;margin-top:6px;padding:7px;border-radius:7px;border:1px solid #2a4a3a;background:#0f1a15;color:#7db87d;font-size:12px;font-weight:700">Move ${fmt(can)} from the buffer to the pot</button>`
+        :'Log the money in first if it has landed, or the pot will just bottom out at zero.';
+    })()}</div>`:'')+
     (ctx.minDue>0.005&&amount<ctx.minDue-0.005?`<div style="color:#e0923b;margin-top:6px">Under the ${fmt(ctx.minDue)} minimum — the uncovered part goes into arrears when this cycle closes.</div>`:'')+
     // Short of the agreed instalment but not of the minimum: nothing new goes
     // overdue, but the agreement itself is what's on the line.

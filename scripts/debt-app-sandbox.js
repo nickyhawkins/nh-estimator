@@ -65,6 +65,8 @@ globalThis.__t = {
   openAddLoanModal, openRepayModal, get loanPot(){ return loanPot; },
   renderAll, setView,
   monthlyMinimums, bufferCover, confirmBufferCover, setBufferPreset, setBufferTargetFor,
+  openBufferMoveModal, setBufferMoveAmount, bufferMovePreview, confirmBufferMove,
+  moveBufferToPot, potShortfall, topUpPotFromBuffer, renderBufferStrip,
   confirmLog, deleteIncome, currentAllocation, openLogModal, updateSweepPreview,
   targetQueue, commitmentQueue,
   openPotsModal, confirmPots, openSavingsAdjust, confirmSavings,
