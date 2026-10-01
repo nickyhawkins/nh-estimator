@@ -715,6 +715,17 @@ eq('...4-over-8 beside 8-over-8', W.sashPattern(W.openingDefaults(g8, 'window', 
   check('only openings with work get a drawing', td.sections.find(s => s.opening.id === 'a1').marked && td.sections.find(s => s.opening.id === 'a2').marked && !td.sections.find(s => s.opening.id === 'dm2').marked);
   eq('the totals count the work left', td.totals.map(t => t.text).join('; '), 'Reputty x1 pane; Resin repair x1 repair; Splice timber x1 part');
   eq('3 coats say so', W.reportModel({ property: Object.assign({}, tp, { coats: 3 }), openings: [a2], marks: [] }, [], { todo: true }).sections[0].quoted[0], 'Paint: light prep, 3 coats');
+  // Prep raised to Heavy on one approved variation, lowered to Standard on a
+  // later one: the to-do list paints at Standard and lists neither step.
+  const pw = Object.assign({}, a1, { id: 'pw', prep_stage: 'variation', quote_prep_level: 'standard', prep_level: 'standard',
+    prep_variation_id: 'vdown', prep_steps: [{ variation_id: 'vup', level: 'heavy' }] });
+  const pv = [{ id: 'vup', status: 'approved', approvedAt: '2026-09-29T09:00:00Z' }, { id: 'vdown', status: 'approved', approvedAt: '2026-09-30T09:00:00Z' }];
+  const ps = W.reportModel({ property: tp, openings: [pw], marks: [] }, pv, { todo: true }).sections[0];
+  eq('prep changed back and forth: painted at the agreed level', ps.quoted.join('|'), 'Paint: standard prep, 2 coats, first floor access');
+  eq('...and the old steps are not listed as work', ps.variations.length, 0);
+  const pu = W.reportModel({ property: tp, openings: [pw], marks: [] }, [pv[0], { id: 'vdown', status: 'pending' }], { todo: true }).sections[0];
+  eq('a raise still standing paints at the raised level', pu.quoted.join('|') + ' ' + pu.variations.length, 'Paint: heavy prep (agreed on site), 2 coats, first floor access 0');
+  eq('the client-facing report still names each agreed change', W.reportModel({ property: tp, openings: [pw], marks: [] }, pv).sections[0].variations.map(v => v.text).join('|'), 'Prep raised to heavy|Prep lowered to standard');
   const done = W.reportModel({ property: tp, openings: [a1, a2, dm], marks: tm }, vars);
   eq('the work report is unchanged: done work only', done.sections.map(s => s.opening.id).join(',') + ' ' + done.marks.map(m => m.id).join(','), 'a1 t2');
   check('no prices anywhere on it', !/£|\d+\.\d\d/.test(JSON.stringify(td.sections.map(s => [s.quoted, s.variations]))));

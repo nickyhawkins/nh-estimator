@@ -3068,8 +3068,18 @@
   }
   // The painting itself, in words, for the work-to-do list: every opening is
   // painted, marked or not. "Paint: light prep, 2 coats, first floor access".
-  function paintLine(o, property) {
-    var bits = [prepLabel(o.include_variation_id && !o.excluded ? effectivePrep(o, property) : quotePrep(o, property)).toLowerCase() + ' prep'];
+  //
+  // approved (optional): the approved variations by id. A quoted opening's
+  // prep is then where the AGREED site changes left it -- raised to Heavy
+  // and later lowered to Standard paints at Standard -- not the quote's
+  // level with each step listed as a separate job to tick.
+  function paintLine(o, property, approved) {
+    var prep = o.include_variation_id && !o.excluded ? effectivePrep(o, property) : quotePrep(o, property), agreed = false;
+    if (approved && !(o.include_variation_id && !o.excluded)) prepChain(o, property).forEach(function (st) {
+      if (approved[st.variation_id]) prep = st.to;
+    });
+    if (approved && prep !== quotePrep(o, property) && !(o.include_variation_id && !o.excluded)) agreed = true;
+    var bits = [prepLabel(prep).toLowerCase() + ' prep' + (agreed ? ' (agreed on site)' : '')];
     if (o.kind !== 'other') {
       var n = Math.round(coatsFactor(property) * 2);
       bits.push(n + ' coat' + (n === 1 ? '' : 's'));
@@ -3113,7 +3123,7 @@
           varied.push({ text: todo ? paintLine(o, property) : 'Added to the job: ' + prepLabel(effectivePrep(o, property)).toLowerCase() + ' prep and paint',
                         approvedAt: iv.approvedAt || null });
         }
-      } else if (todo) quoted.push(paintLine(o, property));
+      } else if (todo) quoted.push(paintLine(o, property, approved));
       else if (prepRank(quotePrep(o, property)) > prepRank(dflt)) quoted.push('Prep: ' + prepLabel(quotePrep(o, property)).toLowerCase());
       // On the to-do list, one line per action -- each is its own box to
       // tick, so the reputty can be done before the glass arrives.
@@ -3137,14 +3147,16 @@
         var v = approved[vid];
         if (!v) return;
         var parts = [];
-        if (!sc.variationId && prepStep(o, property, vid)) parts.push(prepChangeText(o, property, vid));
         if (todo) {
+          // Prep is in the painting line at its agreed level; the steps it
+          // took to get there are history, not work to tick off.
           // One line each, like the quoted work.
           parts.concat(clauses(byVar[vid])).forEach(function (t) {
             varied.push({ text: t.charAt(0).toUpperCase() + t.slice(1), approvedAt: v.approvedAt || null });
           });
           return;
         }
+        if (!sc.variationId && prepStep(o, property, vid)) parts.push(prepChangeText(o, property, vid));
         var vc = marksClause(o, byVar[vid], { tiers: 'long' });
         if (vc) parts.push(vc);
         if (parts.length) {
