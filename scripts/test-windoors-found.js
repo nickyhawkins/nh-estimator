@@ -21,6 +21,8 @@
 //   6. The client page gets a 'windoorsfound' line per window, approved.
 //   7. An interim that billed an old batch carries that billing onto its
 //      windows, so the next interim doesn't bill it twice.
+//   8. Price per window (v3.4.0): painting, quoted repairs and found work
+//      per opening, adding up to the quote.
 //
 // Driven in a real browser against the real public/index.html (served off
 // disk, no server, no database -- writes 404 and queue, as offline on site).
@@ -221,6 +223,33 @@ const SEED = () => {
   // positive share) and f2's cill. Nothing lands on a window the batch wasn't on.
   check('7. ...onto the windows the batches were for', carry.by.g1.before > 0 && carry.by.f1.before > 0 && carry.by.f2.before > 0, carry.by);
   check('7. ...with the % so far worked out from it', ['g1', 'f1', 'f2'].every(k => Math.abs(carry.by[k].prev - Math.min(100, Math.floor(carry.by[k].before / carry.by[k].total * 10000) / 100)) < 0.011), carry.by);
+
+  // ── 8. Price per window (v3.4.0) ─────────────────────────────────────────
+  const ppw = await page.evaluate(() => {
+    jobInvoices = [];
+    windoors.marks.push({ id: 'q1', opening_id: 'f2', element_id: 'bottom_rail', action_key: 'filler', stage: 'quote', variation_id: null, created_at: '2026-09-01T09:00:00Z' });
+    windoors.property.making_good = 40;
+    const m = wdPricePerWindow();
+    const rows = [].concat.apply([], m.sides.map(sd => sd.rows));
+    const want = applyMarkupAmount(calcWindoors().total);
+    const fil = Windoors.actionPrice(wdRates(), 'filler');
+    const mult = want / calcWindoors().total;
+    openWdPriceSheet();
+    const text = document.getElementById('schedule-sheet').textContent;
+    closeScheduleSheet();
+    windoors.marks = windoors.marks.filter(x => x.id !== 'q1'); windoors.property.making_good = 0;
+    return { ids: rows.map(r => r.id), sum: m.quoted, want, f2rep: rows.find(r => r.id === 'f2').repairs, filler: (fil.mins * rpm() + fil.cost) * mult,
+             paintAll: rows.every(r => r.paint > 0), found: m.found, foundLines: buildClientVariationLines().filter(l => l.kind === 'windoorsfound').reduce((t, l) => t + l.amount, 0),
+             makingGood: m.makingGood, text };
+  });
+  eq('8. a row for every window in the job', ppw.ids, ['g1', 'f1', 'f2']);
+  check('8. each has its painting', ppw.paintAll);
+  check('8. the rows and making good add up to the exterior on the quote', Math.abs(ppw.sum - ppw.want) < 0.01, [ppw.sum, ppw.want]);
+  check('8. a quoted repair is on its window, at the quote\'s markup', Math.abs(ppw.f2rep - ppw.filler) < 0.01, [ppw.f2rep, ppw.filler]);
+  check('8. found work at the figure the client is shown', Math.abs(ppw.found - ppw.foundLines) < 0.02, [ppw.found, ppw.foundLines]);
+  check('8. the sheet lists them, by side, with the totals', /Price per window/.test(ppw.text) && /Back/.test(ppw.text) && /First floor, W1/.test(ppw.text) && /As quoted/.test(ppw.text) && /Making good/.test(ppw.text) && /Now/.test(ppw.text));
+  // Used by its own sheet and nothing else: no quote, invoice or client page.
+  eq('8. it is nowhere a client sees', (fs.readFileSync(path.join(PUBLIC, 'index.html'), 'utf8').match(/wdPricePerWindow\(/g) || []).length, 2);
 
   if (process.env.SHOT_DIR) {
     await page.evaluate(() => {
