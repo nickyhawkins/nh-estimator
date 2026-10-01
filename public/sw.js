@@ -115,6 +115,24 @@ var OFFLINE_HTML = '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
   + 'somewhere with signal and it will launch without one from then on.</p>'
   + '<button onclick="location.reload()">Try again</button></div></body></html>';
 
+// PDFs the app builds on the phone (the windows and doors work-to-do list),
+// so they can open in a page of their own like the server's work report --
+// offline too. The app puts the file in PDF_CACHE under /pdf/... and points a
+// new window at it; this worker hands it back. Never the network: nothing on
+// the server lives there. Not named nh-estimator-* so a new version's
+// activate doesn't bin it.
+var PDF_CACHE = 'nh-pdfs';
+function localPdf(req) {
+  return caches.open(PDF_CACHE)
+    .then(function (c) { return c.match(req, { ignoreVary: true, ignoreSearch: true }); })
+    .catch(function () { return undefined; })
+    .then(function (hit) {
+      return hit || new Response('<!DOCTYPE html><meta name="viewport" content="width=device-width,initial-scale=1">'
+        + '<p style="font-family:sans-serif;padding:24px">This PDF has been replaced or cleared. Open it again from the app.</p>',
+        { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    });
+}
+
 function offlineFallback(req) {
   if (req.mode !== 'navigate') return Response.error();
   return readCache(SHELL).then(function (shell) {
@@ -218,6 +236,7 @@ self.addEventListener('fetch', function (e) {
   if (FONT_ORIGINS.indexOf(url.origin) !== -1) { e.respondWith(fontFirst(e)); return; }
   if (url.origin !== location.origin) return;
   if (bypassed(url.pathname)) return;
+  if (url.pathname.indexOf('/pdf/') === 0) { e.respondWith(localPdf(req)); return; }
 
   // One shell for every app route (server.js answers app.get('*') with
   // index.html), so a launch at /?xero=connected falls back to the same

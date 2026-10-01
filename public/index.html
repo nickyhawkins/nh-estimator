@@ -28150,16 +28150,24 @@ function windoorsReportFilename(todo) {
 }
 
 // "Work to do (PDF)": built on the phone, so it works with no signal on
-// site. Same three visible outcomes as the quote's Save PDF -- the share
-// sheet, a download, or a message saying what went wrong. (The work REPORT
-// for the client is the server's -- openWorkReportPdf below.)
+// site. It opens in a page of its own, like the work report beside it (the
+// work REPORT for the client is the server's -- openWorkReportPdf below),
+// and is shared from there. The window is opened on the tap, before any
+// await (iOS blocks one opened later), then pointed at the file once built:
+// through the service worker (sw.js, /pdf/...) where it controls the page,
+// as that is an ordinary same-origin address that works offline; else a
+// blob URL. With no window at all, the old share sheet or download.
 async function saveWindoorsReportPdf(todo) {
   todo = todo === true;
   if (!todo) { openWorkReportPdf(); return; }
+  var win = null;
+  try { win = window.open('', '_blank'); } catch (e) { win = null; }
+  try { if (win) win.document.write('<!DOCTYPE html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Work to do</title><p style="font-family:sans-serif;padding:24px">Building the work to do list…</p>'); } catch (e) { /* only a placeholder */ }
   try {
     var bytes = await buildWindoorsReportPdf({ todo: todo });
     var blob = new Blob([bytes], { type: 'application/pdf' });
     var filename = windoorsReportFilename(todo);
+    if (win && !win.closed) { win.location = await localPdfUrl(blob, filename); return; }
     var file = null;
     try { file = new File([blob], filename, { type: 'application/pdf' }); } catch (e) { file = null; }
     var canShare = false;
@@ -28171,8 +28179,24 @@ async function saveWindoorsReportPdf(todo) {
     downloadBlob(blob, filename);
     toast('Saved as ' + filename);
   } catch (err) {
+    try { if (win) win.close(); } catch (e) { /* already gone */ }
     reportFailure('Couldn\'t build the windows and doors work-to-do list', err);
   }
+}
+// An address a new window can open a PDF built on the phone at. Only the
+// latest one is kept: each build replaces the last.
+async function localPdfUrl(blob, filename) {
+  if (navigator.serviceWorker && navigator.serviceWorker.controller && window.caches) {
+    try {
+      var url = '/pdf/' + encodeURIComponent(filename);
+      await caches.delete('nh-pdfs');
+      var c = await caches.open('nh-pdfs');
+      await c.put(url, new Response(blob, { headers: { 'Content-Type': 'application/pdf',
+        'Content-Disposition': 'inline; filename="' + filename + '"' } }));
+      return url;
+    } catch (e) { /* storage refused -- the blob below still opens it */ }
+  }
+  return URL.createObjectURL(blob);
 }
 
 // ── The invoice line and the work report (WINDOWS_DOORS_INVOICE_SPEC.md) ──

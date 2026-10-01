@@ -331,6 +331,25 @@ const online = (opts) => (req) => {
     eq('and answers 200 so the browser renders it', res.status, 200);
   }
 
+  // ── 11. A PDF built on the phone opens from its own cache (v3.2.2) ───────
+  {
+    const sw = loadSW(() => new Error('Failed to fetch'));
+    await sw.activate();
+    const pdfs = await sw.cacheStorage.open('nh-pdfs');
+    await pdfs.put('/pdf/Work-To-Do.pdf', new Response('%PDF-1.4', { headers: { 'Content-Type': 'application/pdf' } }));
+    const r = sw.request('/pdf/Work-To-Do.pdf', { mode: 'navigate' });
+    eq('the work-to-do PDF is served offline', r.handled && (await r.res).body, '%PDF-1.4');
+    eq('...without touching the network', sw.netLog.length, 0);
+    const gone = await sw.request('/pdf/Older.pdf', { mode: 'navigate' }).res;
+    check('a replaced one says so, not the app shell', gone.status === 404 && /Open it again/.test(gone.body), gone.body);
+    const up = loadSW(online());
+    await up.install();
+    await (await up.cacheStorage.open('nh-pdfs')).put('/pdf/a.pdf', new Response('x'));
+    await up.cacheStorage.open('nh-estimator-v1');
+    await up.activate();
+    check('a new version\'s activate leaves the PDFs alone', (await up.cacheStorage.keys()).includes('nh-pdfs'));
+  }
+
   // ── Report ───────────────────────────────────────────────────────────────
   pass.forEach((n) => console.log('  ok   ' + n));
   fail.forEach((n) => console.log('  FAIL ' + n));
