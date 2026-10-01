@@ -102,7 +102,7 @@ const MONEY = /£|\b\d+\.\d\d\b/;
   const { data, variations } = build();
   const colours = { window: 'Farrow & Ball No. 28 Dead Salmon', door: 'Off-Black' };
   const model = W.workReportModel(data, variations, { colours });
-  eq('2. counts from the openings', model.counts, { windows: 19, doors: 3, bays: 0, other: 0, runs: {} });
+  eq('2. counts from the openings', model.counts, { windows: 19, doors: 3, bays: 0, other: 0, runs: {}, extras: {} });
   eq('2. every opening is in the report', model.sections.length, 22);
   eq('2. all four sides', model.sides, ['front', 'back', 'left', 'right']);
   const byCode = {};

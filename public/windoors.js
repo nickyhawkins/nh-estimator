@@ -149,6 +149,44 @@
     { id: 'left', label: 'left' }, { id: 'middle', label: 'middle' }, { id: 'right', label: 'right' }
   ];
   var RUN_MAX_M = 200;
+  // ── Extras (EXTERIOR_HOUSE_SPEC.md step 3) ───────────────────────────────
+  // Everything else on the outside that gets painted on some houses and not
+  // others, picked per side: kind 'extra', one of each type per side
+  // (position = the type's), its quantity in run_length -- metres, m² or a
+  // count, by the type's unit. Priced at the type's minutes per unit for 2
+  // coats before prep (Rates), paint at m² per unit, into the windows' paint
+  // (wood and metal) or the masonry rows (paint: 'masonry'). Metres and m²
+  // are marked left / middle / right like a run; a counted item as a whole.
+  // Gutters and downpipes are drawn on the house; the rest are listed.
+  var EXTRA_TYPES = [
+    { key: 'gutters', label: 'Gutters', noun: 'gutters', unit: 'm', mins: 8, m2: 0.3, paint: 'wood' },
+    { key: 'downpipes', label: 'Downpipes', noun: 'downpipe', unit: 'each', mins: 30, m2: 1, paint: 'wood' },
+    { key: 'cladding', label: 'Cladding', noun: 'cladding', unit: 'm2', mins: 12, m2: 1.2, paint: 'wood' },
+    { key: 'railings', label: 'Railings', noun: 'railings', unit: 'm', mins: 25, m2: 1, paint: 'wood' },
+    { key: 'stone_sills', label: 'Stone sills', noun: 'stone sill', unit: 'each', mins: 15, m2: 0.3, paint: 'masonry' },
+    { key: 'lintels', label: 'Lintels', noun: 'lintel', unit: 'each', mins: 10, m2: 0.2, paint: 'masonry' },
+    { key: 'window_boards', label: 'Window boards', noun: 'window board', unit: 'each', mins: 15, m2: 0.25, paint: 'wood' },
+    { key: 'porch_roof', label: 'Porch roof', noun: 'porch roof', unit: 'each', mins: 120, m2: 4, paint: 'wood' },
+    { key: 'gates', label: 'Gates', noun: 'gate', unit: 'each', mins: 90, m2: 3, paint: 'wood' },
+    { key: 'fences', label: 'Fences', noun: 'fence', unit: 'm', mins: 15, m2: 1.8, paint: 'wood' },
+    { key: 'meter_box', label: 'Meter box', noun: 'meter box', unit: 'each', mins: 20, m2: 0.4, paint: 'wood' },
+    // Walls that aren't the house's: a garden wall, an outbuilding, a garage
+    // block -- named by its nickname. At the Exterior form's masonry rate
+    // (5 min a m² a coat).
+    { key: 'other_walls', label: 'Other walls', noun: 'other walls', unit: 'm2', mins: 10, m2: 1, paint: 'masonry' }
+  ];
+  EXTRA_TYPES.forEach(function (t, i) { t.position = i + 1; });
+  var EXTRA_MAX = 1000;
+  function extraType(o) { return findKey(EXTRA_TYPES, o && o.type) || EXTRA_TYPES[0]; }
+  function extraQty(o) { var n = +(o && o.run_length); return isFinite(n) && n > 0 ? Math.min(EXTRA_MAX, n) : 0; }
+  // "12m gutters", "3 downpipes", "20m² garden wall".
+  function extraAmount(o, withNoun) {
+    var t = extraType(o), q = extraQty(o);
+    var n = t.unit === 'each' ? (q === 1 ? t.noun : t.noun + 's') : (o.nickname && t.key === 'other_walls' ? o.nickname.toLowerCase() : t.noun);
+    var amt = t.unit === 'm' ? fmtMetres(q) + 'm' : t.unit === 'm2' ? fmtMetres(q) + 'm\u00b2' : String(Math.round(q));
+    return withNoun === false ? amt : amt + ' ' + n;
+  }
+  function extraSectioned(o) { return extraType(o).unit !== 'each'; }
   function runType(o) { return findKey(RUN_TYPES, o && o.type) || RUN_TYPES[0]; }
   function runMetres(o) {
     var f = function (v) { var n = +v; return isFinite(n) && n > 0 ? Math.min(RUN_MAX_M, n) : 0; };
@@ -447,8 +485,11 @@
       fascia: { mins: 9, m2: 0.2 },
       soffit: { mins: 9, m2: 0.2 },
       bargeboard: { mins: 14, m2: 0.3 }
-    }
+    },
+    // Extras, per unit (EXTRA_TYPES' own figures) -- filled in below.
+    extra: {}
   };
+  EXTRA_TYPES.forEach(function (t) { DEFAULT_RATES.extra[t.key] = { mins: t.mins, m2: t.m2 }; });
 
   function num(v, d) { var n = +v; return isFinite(n) ? n : d; }
 
@@ -509,6 +550,11 @@
     RUN_TYPES.forEach(function (t) {
       var saved = (raw.run || {})[t.key] || {}, d = DEFAULT_RATES.run[t.key];
       out.run[t.key] = { mins: Math.max(0, num(saved.mins, d.mins)), m2: Math.max(0, num(saved.m2, d.m2)) };
+    });
+    out.extra = {};
+    EXTRA_TYPES.forEach(function (t) {
+      var saved = (raw.extra || {})[t.key] || {}, d = DEFAULT_RATES.extra[t.key];
+      out.extra[t.key] = { mins: Math.max(0, num(saved.mins, d.mins)), m2: Math.max(0, num(saved.m2, d.m2)) };
     });
     return out;
   }
@@ -642,6 +688,7 @@
   // the report and the detail sheet.
   function kindNoun(o) {
     if (o.kind === 'run') return runType(o).label + ', ' + fmtMetres(runMetres(o)) + 'm';
+    if (o.kind === 'extra') return extraType(o).label + (o.nickname ? ' (' + o.nickname + ')' : '') + ', ' + extraAmount(o, false);
     if (o.kind === 'other') return otherName(o);
     if (o.kind === 'bay') return typeLabel(o) + ' bay';
     if (o.kind === 'door') return typeLabel(o) + ' door';
@@ -906,7 +953,7 @@
   }
 
   function paneCount(o) {
-    if (o.kind === 'bay' || o.kind === 'other' || o.kind === 'run') return 0;
+    if (o.kind === 'bay' || o.kind === 'other' || o.kind === 'run' || o.kind === 'extra') return 0;
     if (o.kind === 'door') return doorGlass(o);
     if (o.type === 'sash') { var sr = sashRows(o); return (sr.top + sr.bottom) * clampGrid(o.cols); }
     return clampGrid(o.rows) * clampGrid(o.cols);
@@ -925,8 +972,12 @@
 
   function openingElements(o) {
     var out = [];
-    if (o.kind === 'run') {
+    if (o.kind === 'run' || (o.kind === 'extra' && extraSectioned(o))) {
       RUN_SECTIONS.forEach(function (sec) { out.push({ id: sec.id, kind: 'part', label: sec.label + ' section' }); });
+      return out;
+    }
+    if (o.kind === 'extra') {
+      out.push({ id: 'item', kind: 'part', label: extraType(o).noun });
       return out;
     }
     if (o.kind === 'other') {
@@ -982,6 +1033,7 @@
   function fmtMetres(n) { return String(Math.round((+n || 0) * 10) / 10); }
   function openingCode(o) {
     if (o.kind === 'run') return runType(o).label;
+    if (o.kind === 'extra') return extraType(o).label;
     if (o.kind === 'other') return 'O' + (+o.position || 1);
     if (isBayChild(o)) { var c = bayChildInfo(o); return 'B' + c.bay + ' ' + c.face; }
     return (o.kind === 'door' ? 'D' : o.kind === 'bay' ? 'B' : 'W') + (+o.position || 1);
@@ -989,6 +1041,7 @@
   // Where on the side: "first floor", "lower ground", "dormer".
   function levelLabel(o) {
     if (o.kind === 'run') return 'roofline';
+    if (o.kind === 'extra') return 'extras';
     if (o.kind === 'other') return 'other items';
     var lv = levelOf(o);
     return lv === 'lower_ground' ? 'lower ground' : lv === 'roof' ? 'dormer' : floorLabel(o.floor);
@@ -1002,6 +1055,8 @@
     if (o.kind === 'other') return sideLabel(o.side) + ', ' + openingCode(o) + ' (' + otherName(o) + ')';
     // "Front, fascia & soffit".
     if (o.kind === 'run') return sideLabel(o.side) + ', ' + runType(o).label.toLowerCase();
+    // "Back, gutters"; "Left, other walls (garden wall)".
+    if (o.kind === 'extra') return sideLabel(o.side) + ', ' + extraType(o).label.toLowerCase() + (o.nickname ? ' (' + o.nickname + ')' : '');
     var s = sideLabel(o.side) + ', ' + levelLabel(o) + ', ' + openingCode(o);
     if (withNickname !== false && o.nickname) s += ' (' + o.nickname + ')';
     return s;
@@ -1014,7 +1069,7 @@
     var kindRank = function (o) { return isBayChild(o) || o.kind === 'bay' ? 1 : o.kind === 'door' ? 2 : 0; };
     // Other items come after everything on the side's floors.
     // ...and the roofline runs after those, in RUN_TYPES order.
-    var lvl = function (o) { return o.kind === 'run' ? 4 : o.kind === 'other' ? 3 : levelRank[levelOf(o)]; };
+    var lvl = function (o) { return o.kind === 'extra' ? 5 + extraType(o).position / 100 : o.kind === 'run' ? 4 : o.kind === 'other' ? 3 : levelRank[levelOf(o)]; };
     var posKey = function (o) {
       if (o.kind === 'bay') return (+o.position || 0) * 100;
       if (isBayChild(o)) { var c = bayChildInfo(o); return c.bay * 100 + (+o.position % 10); }
@@ -1118,7 +1173,7 @@
   // ladders, as the Exterior form's fascia figure always did: no uplift
   // unless it's set by hand (a tower on a tall house).
   function autoAccess(o) {
-    if (o && o.kind === 'run') return 'ground';
+    if (o && (o.kind === 'run' || o.kind === 'extra')) return 'ground';
     var lv = levelOf(o);
     if (lv === 'roof') return 'ladderTower';
     if (lv === 'lower_ground' || !o || o.kind === 'other') return 'ground';
@@ -1139,6 +1194,10 @@
     if (o.kind === 'run') {
       var rr = (rates.run && rates.run[runType(o).key]) || DEFAULT_RATES.run[runType(o).key];
       return runMetres(o) * rr.mins;
+    }
+    if (o.kind === 'extra') {
+      var er = (rates.extra && rates.extra[extraType(o).key]) || DEFAULT_RATES.extra[extraType(o).key];
+      return extraQty(o) * er.mins;
     }
     if (o.kind === 'other') return otherPricing(o) === 'price' ? 0 : otherFigure(o.other_mins, OTHER_MAX_MINS);
     if (o.kind === 'bay') {
@@ -1266,7 +1325,8 @@
       out.quote.mins += per.quoteMins;
       out.quote.materials += own;
       out.quote.fixed += fixed;
-      out.quote.count++;
+      // Openings only: the roofline and the extras aren't openings to count.
+      if (o.kind !== 'run' && o.kind !== 'extra') out.quote.count++;
       prepChain(o, property).forEach(function (st) {
         var delta = scaled * ((rates.prep[st.to] || 1) - (rates.prep[st.from] || 1));
         var vb = varBucket(st.variation_id);
@@ -1306,6 +1366,9 @@
         per.quoteMins += a.mins; per.quoteMaterials += a.cost;
       }
     });
+    // Making good (step 3): a fixed £ for the job's exterior, before markup,
+    // in the quote like an Other item's set price.
+    out.quote.fixed += Math.max(0, +property.making_good || 0);
     return out;
   }
 
@@ -1362,6 +1425,10 @@
       var R2 = rawRates && rawRates.run ? rawRates : mergeRates(rawRates);
       return runMetres(o) * R2.run[runType(o).key].m2;
     }
+    if (o.kind === 'extra') {
+      var R3 = rawRates && rawRates.extra ? rawRates : mergeRates(rawRates);
+      return extraQty(o) * R3.extra[extraType(o).key].m2;
+    }
     if (o.kind === 'bay') return P.bay * bayStoreys(o);
     var area = P.area[o.size_tier] != null ? P.area[o.size_tier] : (o.kind === 'door' ? P.area.standard : P.area.medium);
     if (o.kind === 'door') {
@@ -1379,7 +1446,7 @@
   // tins.
   function paintAreas(data, rawRates) {
     var rates = rawRates && rawRates.paint && rawRates.paint.area ? rawRates : mergeRates(rawRates);
-    var out = { window: 0, door: 0, windows: 0, doors: 0 };
+    var out = { window: 0, door: 0, masonry: 0, windows: 0, doors: 0 };
     // A bay's own timber is painted with the windows (it is the window
     // joinery), but it is not a window to count. Only what the quote is for:
     // not an opening that's out of the job, or one added to it on site.
@@ -1389,6 +1456,9 @@
       if (o.kind === 'other') { if (o.type === 'window') out.window += m2; else out.door += m2; return; }
       // A run is painted with the windows (the frames' colour), uncounted.
       if (o.kind === 'run') { out.window += m2; return; }
+      // Extras: wood and metal with the windows, walls and stone with the
+      // masonry.
+      if (o.kind === 'extra') { if (extraType(o).paint === 'masonry') out.masonry += m2; else out.window += m2; return; }
       if (o.kind === 'door') { out.door += m2; out.doors++; } else { out.window += m2; if (o.kind !== 'bay') out.windows++; }
     });
     return out;
@@ -1471,6 +1541,11 @@
         var rk = 'run:' + runType(o).key;
         if (!counts[rk]) { counts[rk] = 0; order.push(rk); }
         counts[rk] += runMetres(o);
+      } else if (o.kind === 'extra') {
+        // In its own unit: "18m gutters", "4 downpipes".
+        var ek = 'extra:' + extraType(o).key;
+        if (!counts[ek]) { counts[ek] = 0; order.push(ek); }
+        counts[ek] += extraQty(o);
       } else if (o.kind === 'other') {
         bump('other:' + otherName(o).toLowerCase());
       } else if (o.kind === 'door') {
@@ -1485,16 +1560,18 @@
       }
     });
     // With the roofline in it, it's more than windows and doors.
-    var head = order.some(function (k) { return /^run:/.test(k); }) ? 'Exterior woodwork (outside faces)' : 'Exterior windows and doors (outside faces)';
+    var head = exteriorHead(order.some(function (k) { return /^extra:/.test(k) && findKey(EXTRA_TYPES, k.slice(6)).paint === 'masonry'; }),
+      order.some(function (k) { return /^(run|extra):/.test(k); })) + ' (outside faces)';
     if (!order.length) return head + '.';
     // Windows, then bays, then doors, whatever order the house was walked
     // in. (A bay's own windows are counted among the windows.)
-    var rank = function (k) { return /^run:/.test(k) ? 4 : /^other:/.test(k) ? 3 : /door$/.test(k) ? 2 : /bay$/.test(k) ? 1 : 0; };
+    var rank = function (k) { return /^extra:/.test(k) ? 5 : /^run:/.test(k) ? 4 : /^other:/.test(k) ? 3 : /door$/.test(k) ? 2 : /bay$/.test(k) ? 1 : 0; };
     order.sort(function (a, b) { return rank(a) - rank(b); });
     var text = head + ': ' + order.map(function (k) {
       // An Other item's name is whatever was typed: named, never pluralised.
       if (/^other:/.test(k)) { var nm = k.slice(6); return counts[k] === 1 ? nm : counts[k] + ' × ' + nm; }
       if (/^run:/.test(k)) return fmtMetres(counts[k]) + 'm ' + findKey(RUN_TYPES, k.slice(4)).noun;
+      if (/^extra:/.test(k)) return extraAmount({ type: k.slice(6), run_length: counts[k] });
       return counts[k] + ' ' + k + (counts[k] === 1 ? '' : (/s$/.test(k) ? 'es' : 's'));
     }).join(', ') + '.';
     var inQuote = {};
@@ -2425,6 +2502,34 @@
       openingsSvg += opts.interactive && o.id
         ? '<g class="wd-open" data-open-id="' + esc(o.id) + '" style="cursor:pointer">' + inner + hit + '</g>' : inner;
     });
+    // Gutters under the eaves and downpipes down the corners (step 3), the
+    // two extras that are drawn. Same colouring and tapping as the runs.
+    ((data && data.openings) || []).filter(function (o) {
+      return o.side === side && o.kind === 'extra' && !o.excluded && extraQty(o) > 0 && (o.type === 'gutters' || o.type === 'downpipes');
+    }).forEach(function (o) {
+      var lit = hl && hl[o.id];
+      var oM = runMarks.filter(function (m) { return m.opening_id === o.id; });
+      var col = function (id) { var st = elementStyle(id, oM, false); return { fill: st.fill || '#3f454d', stroke: st.stroke || '#2a2e33', dash: st.dash }; };
+      var inner = '', hit;
+      if (o.type === 'gutters') {
+        var gy = topY + 1, gw3 = (eaveR - eaveL) / 3;
+        RUN_SECTIONS.forEach(function (sec, i) {
+          var c = col(sec.id);
+          inner += rect(eaveL + i * gw3, gy, gw3, 4, c.fill, ' stroke="' + c.stroke + '" stroke-width="' + (c.dash ? 1.4 : 0.5) + '"' + (c.dash ? ' stroke-dasharray="' + c.dash + '"' : ''));
+        });
+        hit = rect(eaveL, gy - 5, eaveR - eaveL, 14, 'transparent');
+      } else {
+        var c = col('item'), n = Math.max(1, Math.min(4, Math.round(extraQty(o))));
+        var xs = n === 1 ? [x1 - 6] : [x0 + 4, x1 - 6].concat(n > 2 ? [x0 + W * 0.5 - 1] : []).concat(n > 3 ? [x0 + W * 0.25] : []);
+        xs.forEach(function (px) {
+          inner += rect(px, topY + 4, 3, groundY - topY - 6, c.fill, ' stroke="' + c.stroke + '" stroke-width="0.5"' + (c.dash ? ' stroke-dasharray="' + c.dash + '"' : ''));
+        });
+        hit = xs.map(function (px) { return rect(px - 6, topY, 15, groundY - topY, 'transparent'); }).join('');
+      }
+      inner = '<g' + (hl && !lit ? ' opacity="0.4"' : '') + '>' + inner + '</g>';
+      openingsSvg += opts.interactive && o.id
+        ? '<g class="wd-open" data-open-id="' + esc(o.id) + '" style="cursor:pointer">' + inner + hit + '</g>' : inner;
+    });
     s += openingsSvg;
     // Railings: along the top of the light well, stepping round a bridge to
     // each ground-floor door; or a Georgian house's front railings.
@@ -2525,6 +2630,26 @@
         if (fascia && soffit) s += '<text x="' + r1(W + 10) + '" y="' + r1(top + fh / 2 + 4) + '" font-family="Barlow, Arial, sans-serif" font-size="10" fill="#5a6270" pointer-events="none">fascia</text>'
           + '<text x="' + r1(W + 10) + '" y="' + r1(top + fh + sh / 2 + 4) + '" font-family="Barlow, Arial, sans-serif" font-size="10" fill="#5a6270" pointer-events="none">soffit</text>';
         if (fascia && soffit) ext.r = 40;
+      }
+    } else if (o.kind === 'extra') {
+      // An extra: in metres or m², a strip in its three sections; counted,
+      // the thing itself, named, to mark as a whole.
+      var xlabel = function (x, y, t, size) {
+        return '<text x="' + r1(x) + '" y="' + r1(y) + '" text-anchor="middle" font-family="Barlow, Arial, sans-serif" font-size="' + (size || 13) + '" font-weight="700" fill="' + PAL.ink + '" pointer-events="none">' + esc(t) + '</text>';
+      };
+      var xfill = extraType(o).paint === 'masonry' ? '#e8e2d4' : timber;
+      if (extraSectioned(o)) {
+        W = 360; H = 110;
+        var xw3 = W / 3;
+        RUN_SECTIONS.forEach(function (sec, i) {
+          s += draw(sec.id, R(i * xw3, 24, xw3, 46, xfill));
+          s += xlabel(i * xw3 + xw3 / 2, 92, sec.label.charAt(0).toUpperCase() + sec.label.slice(1));
+        });
+        s += xlabel(W / 2, 14, extraType(o).label + ' · ' + extraAmount(o, false), 12);
+      } else {
+        W = 220; H = 150;
+        s += draw('item', R(0, 0, W, H, xfill));
+        s += xlabel(W / 2, H / 2 + 5, extraAmount(o), 15);
       }
     } else if (o.kind === 'other') {
       // Nothing to know about its shape: a frame round a face, named.
@@ -2850,6 +2975,13 @@
     return { sides: sides, sections: sections, highlight: openingsWithWork, marks: marks, totals: totals, todo: todo };
   }
 
+  // What the line is headed: windows and doors alone, then the woodwork
+  // once the roofline or wooden extras come in, then everything outside
+  // once there's masonry in it.
+  function exteriorHead(anyMasonry, anyRunOrExtra) {
+    return anyMasonry ? 'Exterior painting' : anyRunOrExtra ? 'Exterior woodwork' : 'Exterior windows and doors';
+  }
+
   // ── The invoice line and the work report attached to it ─────────────────
   // WINDOWS_DOORS_INVOICE_SPEC.md. All the windows and doors money goes on the
   // Xero invoice as ONE line -- the quoted figure plus everything added on
@@ -2863,11 +2995,12 @@
     (variations || []).forEach(function (v) { if (v && v.status === 'declined') declined[v.id] = true; });
     var live = liveOpenings(data && data.openings, data && data.property);
     var sc = scopeMap(live);
-    var out = { windows: 0, doors: 0, bays: 0, other: 0, runs: {} };
+    var out = { windows: 0, doors: 0, bays: 0, other: 0, runs: {}, extras: {} };
     live.forEach(function (o) {
       var s = sc[o.id];
       if (s.excluded || (s.variationId && declined[s.variationId])) return;
       if (o.kind === 'run') { var rk = runType(o).key; out.runs[rk] = (out.runs[rk] || 0) + runMetres(o); return; }
+      if (o.kind === 'extra') { var xk = extraType(o).key; out.extras[xk] = (out.extras[xk] || 0) + extraQty(o); return; }
       if (o.kind === 'door') out.doors++;
       else if (o.kind === 'window') out.windows++;
       else if (o.kind === 'bay') out.bays++;
@@ -2899,9 +3032,14 @@
       var m = p.runs && +p.runs[t.key];
       if (m > 0) what.push(fmtMetres(m) + 'm of ' + t.noun);
     });
+    EXTRA_TYPES.forEach(function (t) {
+      var q = p.extras && +p.extras[t.key];
+      if (q > 0) what.push(t.unit === 'each' ? extraAmount({ type: t.key, run_length: q }) : extraAmount({ type: t.key, run_length: q }, false) + ' of ' + t.noun);
+    });
     var list = what.length > 1 ? what.slice(0, -1).join(', ') + ' and ' + what[what.length - 1] : what.join('');
-    var anyRun = RUN_TYPES.some(function (t) { return p.runs && +p.runs[t.key] > 0; });
-    var s = (anyRun ? 'Exterior woodwork' : 'Exterior windows and doors') + ': preparation and painting of outside faces' + (list ? ', ' + list : '') + '.';
+    var has = function (pred) { return EXTRA_TYPES.some(function (t) { return pred(t) && p.extras && +p.extras[t.key] > 0; }); };
+    var anyRun = RUN_TYPES.some(function (t) { return p.runs && +p.runs[t.key] > 0; }) || has(function () { return true; });
+    var s = exteriorHead(has(function (t) { return t.paint === 'masonry'; }), anyRun) + ': preparation and painting of outside faces' + (list ? ', ' + list : '') + '.';
     if (p.report === 'attached') s += ' Full breakdown of work per opening in attached report.';
     else if (p.report === 'final') s += ' Full breakdown of work per opening in the report attached to the final invoice.';
     var c = p.colours || {};
@@ -2977,6 +3115,7 @@
       var colourName = (o.kind === 'door' || (o.kind === 'other' && o.type !== 'window')) ? colours.door : colours.window;
       var paint = o.kind === 'other' ? 'Prepared and painted' : 'Prepared (' + prepLabel(prep).toLowerCase() + ') and painted, ' + coats + ' coat' + (coats === 1 ? '' : 's');
       if (o.kind === 'run') paint += ', ' + fmtMetres(runMetres(o)) + 'm';
+      if (o.kind === 'extra') paint += ', ' + extraAmount(o, extraType(o).unit === 'each');
       if (o.kind === 'bay') paint = "Bay's own timber " + paint.charAt(0).toLowerCase() + paint.slice(1);
       if (colourName) paint += ' in ' + colourName;
       var onSite = items.some(function (it) { return it.onSite; });
@@ -3075,6 +3214,7 @@
     otherPricing: otherPricing, otherUnit: otherUnit, otherSetPrice: otherSetPrice, ownScope: ownScope, scopeMap: scopeMap, openingScope: openingScope, quotedOpenings: quotedOpenings, untickedMarks: untickedMarks, reportableMarks: reportableMarks,
     reportModel: reportModel, reportHtml: reportHtml, fmtDate: fmtDate,
     invoiceCounts: invoiceCounts, invoiceLineText: invoiceLineText, workReportModel: workReportModel,
+    EXTRA_TYPES: EXTRA_TYPES, EXTRA_MAX: EXTRA_MAX, extraType: extraType, extraQty: extraQty, extraAmount: extraAmount, extraSectioned: extraSectioned, exteriorHead: exteriorHead,
     RUN_TYPES: RUN_TYPES, RUN_SECTIONS: RUN_SECTIONS, RUN_MAX_M: RUN_MAX_M, runType: runType, runMetres: runMetres, fmtMetres: fmtMetres
   };
 });

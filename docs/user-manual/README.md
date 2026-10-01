@@ -470,6 +470,26 @@ It's drawn on the house: the fascia along the eaves, the bargeboards up the verg
 
 It's priced by the metre from **Rates → Windows & Doors → Roofline, per metre**: fascia and soffit start at **16 minutes a metre** for 2 coats (the Exterior form's fascia figure), with prep and coats on top, like a window. The rate already allows for ladders, so **Access** says *Auto (in the rate)*; set **Ladder/tower** by hand for a house that needs a tower. It's painted in the **windows' colour** and goes in the same paint rows. **In this job / Not in this job** works as for a window: a run that isn't being painted stays on the drawing, unpriced. On the quote and invoice the line becomes *Exterior woodwork*, with the metres: *…14 windows, 3 doors and 12.5m of fascia and soffit.* The work report lists each run with its sections.
 
+**Extras.** Under the roofline, each side has an **Extras** card for the things painted on some houses and not others. Pick one from **+ Add an extra…** and it asks how much — metres, m² or how many — then opens it:
+
+| Extra | Measured in | Painted with |
+|---|---|---|
+| Gutters, railings, fences | metres | the windows' paint |
+| Cladding | m² | the windows' paint |
+| Downpipes, window boards, porch roof, gates, meter box | how many | the windows' paint |
+| Stone sills, lintels | how many | masonry paint |
+| **Other walls** (a garden wall, an outbuilding, a garage block) | m² | masonry paint |
+
+**Other walls** asks for a name first, so the quote and report say which (*Back, other walls (Garden wall)*). Each side takes one of each extra. **Gutters** and **downpipes** are drawn on the house — the gutter under the eaves, the downpipes down the corners — and can be tapped there; the rest are in the list. Extras in metres or m² are marked **left, middle or right**, like the fascia; counted ones are marked as a whole (*filler (downpipe)*). Each is priced at its own figure in **Rates → Windows & Doors → Extras, per unit** — minutes for 2 coats before prep, and the paint area — with prep and coats on top and access in the rate, like the roofline. Walls and stonework go into the **Masonry / Render** paint rows (in the job's first colour for now), everything else with the windows.
+
+![Gutters and downpipes on the house, and the Extras card](images/26zt-extras-elevation.png)
+
+**Making good.** The totals card at the bottom of the screen has a **Making good £** box: a fixed cost for the exterior, before markup, exactly as the Exterior form's own box.
+
+![Making good on the totals card](images/26zv-making-good.png)
+
+Once there are extras or a roofline on the job, the quote and invoice line is headed *Exterior woodwork*, or *Exterior painting* when walls or stonework are in it, and lists each in its own unit: *…11m of gutters, 2 downpipes and 18m² of other walls.*
+
 **Paint.** The **Paint** card under the house settings sets the **coats** (2 to start), and a **product** and **colour** for the windows and for the doors — the satin on the sashes and the gloss on the black front door. The product pickers work like a room's: search the ranges, pick a colour band where the range has more than one, or leave it on *Use default (Settings)* for the exterior woodwork topcoat. The colours are the app's ordinary colour fields — type-ahead from the colour library, one-tap picks from colours already on the job — and they show on the Colours tab as *Exterior Windows* and *Exterior Doors*, beside every other area. Primer always follows the exterior primer in Settings.
 
 ![The Paint card: coats, and a product and colour each for the windows and the doors](images/26i-windoors-paint.png)
@@ -1612,6 +1632,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.97.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.98.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
