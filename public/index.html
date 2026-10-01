@@ -3272,6 +3272,10 @@ function populateWindoorsRates() {
   Windoors.BAY_SHAPES.forEach(function(b) {
     h += row(b.label + ' bay', '', '<span style="display:flex;gap:6px">' + [1, 2].map(function(n) { return inp('s-wd-bay-' + b.key + '-' + n, R.bayBase[b.key][n]); }).join('') + '</span>');
   });
+  h += '<div class="subsection-label">Roofline, per metre<small>minutes for 2 coats before prep (ladders allowed for) · m² of timber to buy paint for</small></div>';
+  Windoors.RUN_TYPES.forEach(function(t) {
+    h += row(t.label, 'min a metre · m² a metre', '<span style="display:flex;gap:6px">' + inp('s-wd-run-' + t.key + '-mins', R.run[t.key].mins) + inp('s-wd-run-' + t.key + '-m2', R.run[t.key].m2, 0.05) + '</span>');
+  });
   h += '<div class="subsection-label">Prep multipliers<small>× on the painted opening — an opening can go up from the job\'s default, never down</small></div>';
   Windoors.PREP_LEVELS.forEach(function(p) { h += row(p.label, '', inp('s-wd-prep-' + p.key, R.prep[p.key], 0.05)); });
   h += '<div class="subsection-label">Paint areas<small>for litres only — the timber on the outside face, not the whole opening</small></div>';
@@ -3327,6 +3331,10 @@ function readWindoorsRates() {
   R.paint.cap = Math.min(1, v('s-wd-pcap', R.paint.cap));
   R.paint.doorFrame = v('s-wd-pdoorframe', R.paint.doorFrame);
   R.paint.bay = v('s-wd-pbay', R.paint.bay);
+  Windoors.RUN_TYPES.forEach(function(t) {
+    R.run[t.key].mins = v('s-wd-run-' + t.key + '-mins', R.run[t.key].mins);
+    R.run[t.key].m2 = v('s-wd-run-' + t.key + '-m2', R.run[t.key].m2);
+  });
   Windoors.ACTIONS.forEach(function(a) {
     if (a.tiered) {
       var ta = R.actions[a.key];
@@ -25617,7 +25625,8 @@ function wdPutOpening(o) {
     otherPricing: o.other_pricing || 'time', otherPrice: o.other_price || 0, otherUnit: o.other_unit || 'mins',
     excluded: !!o.excluded, includeVariationId: o.include_variation_id || null,
     otherDraw: o.other_draw || null, otherDoor: o.other_door || null,
-    timeOverride: o.time_override || null
+    timeOverride: o.time_override || null,
+    runLength: o.run_length || null, runExtra: o.run_extra || null
   }).then(function(resp) {
     // Another phone already holds this slot: adopt its id, and re-point the
     // marks made against ours (same contract as /snag-rooms) -- and, for a
@@ -26010,11 +26019,93 @@ function wdSideCardHtml() {
       html += '<div style="padding:12px 16px;color:var(--text2);font-size:13px">' + (site ? 'Nothing was set up on this side at the quote.' : 'No windows or doors on this side.') + '</div>';
     } else {
       html += '<div id="wd-elev" style="padding:10px 12px">' + Windoors.elevationSvg(windoors, wdSide, { interactive: true, maxWidth: 440, selected: wdOpenId }) + '</div>'
-        + '<div style="padding:0 16px 10px;font-size:12px;color:var(--text2)">Tap a window or door to set it up' + (windoors.property.detail_enabled !== false ? ' and mark panes or frame parts' : '') + '.'
+        + '<div style="padding:0 16px 10px;font-size:12px;color:var(--text2)">Tap a window or door' + (wdRunsOn(wdSide).length ? ' (or the roofline)' : '') + ' to set it up' + (windoors.property.detail_enabled !== false ? ' and mark panes or frame parts' : '') + '.'
         + (wdSideOpenings(wdSide).some(function(o) { return !!o.access; }) ? ' A dark dot at the bottom corner means its access was set by hand.' : '') + '</div>';
     }
   }
-  return html + wdOthersHtml() + '</div>';
+  return html + wdRunsHtml() + wdOthersHtml() + '</div>';
+}
+// ── Runs: the roofline (EXTERIOR_HOUSE_SPEC.md step 2, v2.97.0) ───────────
+// The fascia and soffit along the eaves (one run, priced together -- nine
+// jobs in ten), or fascia and soffit apart for the odd job, and the
+// bargeboards up a gable. Each is one length per side plus an extra-metres
+// figure for the odd bit, drawn along the roofline and marked left / middle
+// / right like a window's parts. Added and measured from Measure only.
+function wdRunsOn(side) {
+  return windoors.openings.filter(function(o) { return o.side === side && o.kind === 'run'; })
+    .sort(function(a, b) { return Windoors.runType(a).position - Windoors.runType(b).position; });
+}
+function wdRunText(o) {
+  var len = +o.run_length || 0, extra = +o.run_extra || 0;
+  return Windoors.fmtMetres(len) + 'm' + (extra > 0 ? ' + ' + Windoors.fmtMetres(extra) + 'm extra' : '') + (o.excluded ? ' · not in this job' : '');
+}
+function wdRunsHtml() {
+  var site = wdMode === 'site';
+  var list = wdRunsOn(wdSide);
+  if (site && !list.length) return '';
+  var h = '<div class="subsection-label" style="border-top:1px solid var(--border);padding-top:10px">Roofline<small>fascia and soffit, bargeboards — one length for the side, tap to mark work</small></div>';
+  list.forEach(function(o) {
+    var marked = windoors.marks.some(function(m) { return m.opening_id === o.id; });
+    h += '<div onclick="openWdDetail(\'' + escapeHtml(o.id) + '\')" style="display:flex;justify-content:space-between;gap:10px;padding:9px 16px;border-top:1px solid var(--border);cursor:pointer;font-size:14px">'
+      + '<span><b>' + escapeHtml(Windoors.runType(o).label) + '</b>' + (marked ? ' <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#1e6497;vertical-align:1px"></span>' : '') + '</span>'
+      + '<span style="color:var(--text2);font-size:12px">' + wdRunText(o) + ' ›</span></div>';
+  });
+  if (!site) {
+    var have = {};
+    list.forEach(function(o) { have[Windoors.runType(o).key] = true; });
+    var link = function(key, label) {
+      return have[key] ? '' : '<span onclick="addWdRun(\'' + key + '\')" style="color:var(--accent);font-size:13px;font-weight:600;cursor:pointer;margin-right:16px;white-space:nowrap">+ ' + label + '</span>';
+    };
+    // Fascia and soffit apart only when they're not already priced together.
+    var adds = link('fascia_soffit', 'Fascia & soffit') + link('bargeboard', 'Bargeboards')
+      + (have.fascia_soffit ? '' : link('fascia', 'Fascia only') + link('soffit', 'Soffit only'));
+    if (adds) h += '<div style="padding:10px 16px 12px;border-top:1px solid var(--border);line-height:2">' + adds + '</div>';
+  }
+  return h;
+}
+function addWdRun(type) {
+  if (wdMode === 'site') return;
+  var t = Windoors.RUN_TYPES.find(function(x) { return x.key === type; });
+  if (!t || wdRunsOn(wdSide).some(function(o) { return o.type === type; })) return;
+  var v = prompt(t.label + ' along the ' + Windoors.sideLabel(wdSide).toLowerCase() + ': how many metres?', '');
+  if (v === null) return;
+  var m = Math.max(0, Math.min(Windoors.RUN_MAX_M, Math.round((+v || 0) * 10) / 10));
+  if (!(m > 0)) { toast('Type the length in metres'); return; }
+  var o = wdNewOpening({ side: wdSide, level: 'standard', floor: 0, kind: 'run', position: t.position, type: type,
+    size_tier: 'standard', rows: 1, cols: 1, run_length: m, run_extra: null });
+  wdChanged();
+  openWdDetail(o.id);
+}
+function setWdRunFigure(field, v) {
+  var o = wdOpening(); if (!o || o.kind !== 'run' || wdMode === 'site') return;
+  var n = Math.max(0, Math.min(Windoors.RUN_MAX_M, Math.round((+v || 0) * 10) / 10));
+  if ((+o[field] || 0) === n) return;
+  o[field] = n || null;
+  wdPutOpening(o); wdChanged();
+}
+function deleteWdRun() {
+  var o = wdOpening(); if (!o || o.kind !== 'run' || wdMode === 'site') return;
+  var marked = windoors.marks.some(function(m) { return m.opening_id === o.id; });
+  if (!confirm('Remove the ' + Windoors.runType(o).label.toLowerCase() + ' from the ' + Windoors.sideLabel(o.side).toLowerCase() + '?' + (marked ? '\n\nThe work marked on it goes too.' : ''))) return;
+  windoors.marks = windoors.marks.filter(function(m) { return m.opening_id !== o.id; });
+  windoors.openings = windoors.openings.filter(function(x) { return x.id !== o.id; });
+  wdDeleteOpening(o);
+  closeWdDetail();
+  wdChanged();
+}
+// The run's own figures on its sheet: length, the extra, and on site just
+// what was quoted.
+function wdRunFiguresHtml(o, site) {
+  var rates = wdRates().run[Windoors.runType(o).key];
+  if (site) return '<div style="padding:0 16px 8px;font-size:13px;color:var(--text2)">' + wdRunText(o) + ' · as quoted</div>';
+  var fig = function(label, sub, field) {
+    return '<div class="field-row"><div class="field-label">' + label + '<small>' + sub + '</small></div>'
+      + '<input type="number" inputmode="decimal" min="0" step="0.5" value="' + (+o[field] ? wdFmtN(+o[field]) : '') + '" placeholder="0" onchange="setWdRunFigure(\'' + field + '\',this.value)"'
+      + ' style="width:84px;text-align:right;padding:7px 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);color:var(--text);font-size:14px;font-family:\'DM Mono\',monospace"></div>';
+  };
+  return fig('Length, metres', 'along the ' + Windoors.sideLabel(o.side).toLowerCase() + ' — drawn in three sections', 'run_length')
+    + fig('Extra metres', 'the odd bit (a bay roof, a porch fascia) — priced, not drawn', 'run_extra')
+    + '<div style="padding:0 16px 8px;font-size:12px;color:var(--text2)">' + wdFmtN(rates.mins) + ' min a metre for 2 coats, before prep (Rates) · ' + Windoors.fmtMetres(Windoors.runMetres(o)) + 'm in all</div>';
 }
 // ── Other items (v2.86.0) ─────────────────────────────────────────────────
 // Garage doors, fanlights, porches, lean-tos: on a side but not on a floor.
@@ -26457,8 +26548,9 @@ function confirmWdLayout() {
   var mine = windoors.openings.filter(function(o) { return o.side === wdSide; });
   var countOf = function(f, o) { return f[o.kind === 'door' ? 'doors' : o.kind === 'bay' ? 'bays' : 'windows']; };
   var doomed = mine.filter(function(o) {
-    // Other items aren't part of the layout: the counts never touch them.
-    if (Windoors.isBayChild(o) || o.kind === 'other') return false;
+    // Other items and the roofline runs aren't part of the layout: the
+    // counts never touch them.
+    if (Windoors.isBayChild(o) || o.kind === 'other' || o.kind === 'run') return false;
     var lv = Windoors.levelOf(o);
     if (lv === 'lower_ground') return !lg || o.position > countOf(lg, o);
     if (lv === 'roof') return !roofHidden && (!rf || o.position > rf.windows);
@@ -26618,12 +26710,13 @@ function renderWdDetail() {
   var site = wdMode === 'site';
   var isDoor = o.kind === 'door';
   var isOther = o.kind === 'other';
+  var isRun = o.kind === 'run';
   var oMarks = windoors.marks.filter(function(m) { return m.opening_id === o.id; });
   var parentBay = o.parent_opening_id ? windoors.openings.find(function(x) { return x.id === o.parent_opening_id; }) : null;
   var h = (parentBay ? '<div onclick="openWdDetail(\'' + escapeHtml(parentBay.id) + '\')" style="padding:0 16px 6px;font-size:13px;font-weight:600;color:var(--accent);cursor:pointer">‹ ' + escapeHtml(Windoors.openingCode(parentBay)) + ', the whole bay</div>' : '')
     + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:0 16px 8px">'
     + '<div><div style="font-size:16px;font-weight:700">' + escapeHtml(Windoors.openingLabel(o, false)) + '</div>'
-    + (isOther ? (site ? '' : '<div onclick="editWdNickname()" style="font-size:12px;color:var(--accent);cursor:pointer;margin-top:2px">rename</div>')
+    + (isRun ? '' : isOther ? (site ? '' : '<div onclick="editWdNickname()" style="font-size:12px;color:var(--accent);cursor:pointer;margin-top:2px">rename</div>')
       : '<div onclick="editWdNickname()" style="font-size:12px;color:' + (o.nickname ? 'var(--text2)' : 'var(--accent)') + ';cursor:pointer;margin-top:2px">'
       + (o.nickname ? '“' + escapeHtml(o.nickname) + '” · rename' : '+ nickname (e.g. landing, above porch)') + '</div>') + '</div>'
     + '<div onclick="closeWdDetail()" style="font-size:14px;font-weight:700;color:var(--accent);cursor:pointer;padding:4px 2px">Done</div></div>';
@@ -26631,8 +26724,10 @@ function renderWdDetail() {
   if (!isOther) h += wdScopeHtml(o);
   // Structure: type, panes, size. Quote-mode only -- on site the quote is
   // the floor, and swapping a sash for a casement could lower it. An Other
-  // item has its own figures instead.
-  if (isOther) {
+  // item has its own figures instead, and so does a run.
+  if (isRun) {
+    h += wdRunFiguresHtml(o, site);
+  } else if (isOther) {
     if (!site) {
       var fig = function(label, sub, field, step) {
         return '<div class="field-row"><div class="field-label">' + label + '<small>' + sub + '</small></div>'
@@ -26700,7 +26795,7 @@ function renderWdDetail() {
     var btn = 'border:1px solid var(--border);background:var(--surface2);color:var(--text);border-radius:10px;padding:8px 10px;font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer';
     var abtn = 'border:none;background:var(--accent);color:#fff;border-radius:10px;padding:9px 11px;font-size:13px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer';
     h += '<div style="display:flex;gap:8px;flex-wrap:wrap;padding:4px 16px">'
-      + (isOther ? '' : '<button type="button" style="' + btn + '" onclick="wdSelectAllPanes()">Select all ' + (isDoor ? 'glass' : 'panes') + '</button>')
+      + (isOther || isRun ? '' : '<button type="button" style="' + btn + '" onclick="wdSelectAllPanes()">Select all ' + (isDoor ? 'glass' : 'panes') + '</button>')
       + (selCount ? '<button type="button" style="' + btn + '" onclick="wdClearSel()">Clear selection</button>' : '') + '</div>';
     if (selCount) {
       var acts = Windoors.actionsFor(o, wdSel.kind);
@@ -26710,7 +26805,7 @@ function renderWdDetail() {
         + acts.map(function(a) { return '<button type="button" style="' + abtn + '" onclick="wdApplyAction(\'' + a.key + '\')">' + escapeHtml(a.label) + '</button>'; }).join('')
         + '<button type="button" style="' + btn + ';color:var(--danger)" onclick="wdRemoveWork()">Remove work</button></div>';
     } else {
-      h += '<div style="padding:4px 16px 8px;font-size:12px;color:var(--text2)">Tap panes or frame parts to select them — one kind at a time. '
+      h += '<div style="padding:4px 16px 8px;font-size:12px;color:var(--text2)">' + (isRun ? 'Tap the left, middle or right section to mark where the work is. ' : 'Tap panes or frame parts to select them — one kind at a time. ')
         + '<span style="display:inline-block;width:10px;height:10px;background:#f0a020;vertical-align:-1px"></span> work · '
         + '<span style="display:inline-block;width:10px;height:10px;background:#5fb3e6;vertical-align:-1px"></span> glass · dashed = variation'
         + (site ? ' · the quote\'s marks are locked here' : '') + '</div>';
@@ -26719,6 +26814,7 @@ function renderWdDetail() {
   h += wdRepairTiersHtml(o, oMarks);
   h += wdWorkListHtml(o, oMarks);
   if (isOther && !site) h += '<div style="padding:12px 16px 4px"><span onclick="deleteWdOther()" style="color:var(--danger);font-size:13px;font-weight:600;cursor:pointer">Remove this item</span></div>';
+  if (isRun && !site) h += '<div style="padding:12px 16px 4px"><span onclick="deleteWdRun()" style="color:var(--danger);font-size:13px;font-weight:600;cursor:pointer">Remove this run</span></div>';
   box.innerHTML = h;
   var fig = document.getElementById('wd-detail-fig');
   if (fig) fig.onclick = function(ev) {
@@ -26864,7 +26960,7 @@ function wdWorkListHtml(o, oMarks) {
     // Repairs upgraded on site: their own figure, in neither of the above.
     perOpen.adjMins || perOpen.adjMaterials ? '+' + fmt((perOpen.adjMins || 0) * r + (perOpen.adjMaterials || 0)) + ' size adjustment' : ''
   ].filter(Boolean).join(' · ');
-  return '<div style="margin-top:6px"><div class="subsection-label" style="display:flex;justify-content:space-between"><span>Work on this ' + (o.kind === 'door' ? 'door' : o.kind === 'bay' ? 'bay' : o.kind === 'other' ? 'item' : 'window') + '</span>'
+  return '<div style="margin-top:6px"><div class="subsection-label" style="display:flex;justify-content:space-between"><span>Work on this ' + (o.kind === 'door' ? 'door' : o.kind === 'bay' ? 'bay' : o.kind === 'other' ? 'item' : o.kind === 'run' ? 'run' : 'window') + '</span>'
     + (money ? '<small style="text-transform:none;letter-spacing:0">' + money + ' <span style="opacity:.7">before markup</span></small>' : '') + '</div>' + rows + '</div>'
     + (wdMode === 'site' ? wdTickListHtml(o, oMarks) : '');
 }
@@ -26990,12 +27086,13 @@ function setWdTier(tier) {
 function wdAccessHtml(o) {
   var auto = Windoors.autoAccess(o);
   var set = Windoors.ACCESS_LEVELS.some(function(a) { return a.key === o.access; }) ? o.access : null;
-  var sub = o.kind === 'bay' ? 'the bay\'s own timber — each window has its own' : '';
+  var sub = o.kind === 'bay' ? 'the bay\'s own timber — each window has its own'
+    : o.kind === 'run' ? 'the rate a metre already allows for ladders; set Ladder/tower for a tower' : '';
   if (wdMode === 'site') {
     return '<div style="padding:0 16px 8px;font-size:13px;color:var(--text2)">Access: ' + escapeHtml(Windoors.accessLabel(set || auto))
       + (set ? ' (set by hand)' : '') + ' · as quoted</div>';
   }
-  var items = [{ key: 'auto', label: 'Auto (' + Windoors.accessLabel(auto) + ')' }].concat(Windoors.ACCESS_LEVELS);
+  var items = [{ key: 'auto', label: o.kind === 'run' ? 'Auto (in the rate)' : 'Auto (' + Windoors.accessLabel(auto) + ')' }].concat(Windoors.ACCESS_LEVELS);
   return '<div class="subsection-label">Access' + (sub ? '<small>' + sub + '</small>' : '') + '</div>'
     + '<div style="padding:0 16px 10px">' + wdSegHtml(items, set || 'auto', 'setWdAccess') + '</div>';
 }
@@ -27516,7 +27613,7 @@ function wdInvoiceColours() {
 function wdInvoiceText(opts) {
   opts = opts || {};
   var counts = wdLoadedForActiveJob() ? Windoors.invoiceCounts(windoors, wdReportVariations()) : { windows: 0, doors: 0 };
-  return Windoors.invoiceLineText({ windows: counts.windows, doors: counts.doors, colours: wdInvoiceColours(),
+  return Windoors.invoiceLineText({ windows: counts.windows, doors: counts.doors, runs: counts.runs, colours: wdInvoiceColours(),
                                     report: opts.report, stage: opts.stage, pct: opts.pct });
 }
 function wdInvoiceHasLine(s) { return !!(s && s.labour.some(function(l) { return l.wd && !l.dropped; })); }
@@ -27630,7 +27727,8 @@ function windoorsMeasureRowHtml() {
   var nD = live.filter(function(o) { return o.kind === 'door'; }).length;
   var nB = live.filter(function(o) { return o.kind === 'bay'; }).length;
   var nO = live.filter(function(o) { return o.kind === 'other'; }).length;
-  var meta = [nV ? nV + ' window' + (nV === 1 ? '' : 's') : '', nB ? nB + ' bay' + (nB === 1 ? '' : 's') : '', nD ? nD + ' door' + (nD === 1 ? '' : 's') : '', nO ? nO + ' other' : '', fmtD(c.time)].filter(Boolean).join(' · ');
+  var mR = live.filter(function(o) { return o.kind === 'run'; }).reduce(function(t, o) { return t + Windoors.runMetres(o); }, 0);
+  var meta = [nV ? nV + ' window' + (nV === 1 ? '' : 's') : '', nB ? nB + ' bay' + (nB === 1 ? '' : 's') : '', nD ? nD + ' door' + (nD === 1 ? '' : 's') : '', nO ? nO + ' other' : '', mR ? Windoors.fmtMetres(mR) + 'm roofline' : '', fmtD(c.time)].filter(Boolean).join(' · ');
   return '<div class="room-item" onclick="openWindoors(\'quote\')">'
     + '<div class="room-icon">🪟</div>'
     + '<div class="room-info"><div class="room-name">Windows &amp; Doors</div><div class="room-meta">' + meta + '</div></div>'

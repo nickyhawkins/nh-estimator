@@ -460,6 +460,16 @@ It's drawing only: the porch is still priced from its own time or set price, and
 
 ![An other item's own figures](images/26v-windoors-other-sheet.png)
 
+**The roofline: fascia and soffit, bargeboards.** Under each side's drawing, the **Roofline** card adds the woodwork along the roof: **+ Fascia & soffit** (priced together, the usual way) and **+ Bargeboards** (up a gable). For the odd job where they're priced apart, **+ Fascia only** and **+ Soffit only** are there instead, until a fascia & soffit is added. It asks for the length along that side in metres. On its sheet you can change the **length**, and add **extra metres** for the odd bit that isn't along the side — a bay roof, a porch fascia — which is priced but not drawn.
+
+It's drawn on the house: the fascia along the eaves, the bargeboards up the verges of a gable. Each is in three sections, **left, middle and right** as you face the side (on bargeboards the middle is the apex). Tap it on the drawing or in the card, then tap a section and mark **Filler**, **Resin repair** (with its size, as on a window) or **Splice timber**, quoted or on site, exactly as for a window's parts. Marked sections show in orange on the drawing.
+
+![The fascia and soffit along the eaves, its left section marked](images/26zq-roofline-elevation.png)
+
+![A run's sheet: length, extra metres, and its three sections](images/26zs-roofline-sheet.png)
+
+It's priced by the metre from **Rates → Windows & Doors → Roofline, per metre**: fascia and soffit start at **16 minutes a metre** for 2 coats (the Exterior form's fascia figure), with prep and coats on top, like a window. The rate already allows for ladders, so **Access** says *Auto (in the rate)*; set **Ladder/tower** by hand for a house that needs a tower. It's painted in the **windows' colour** and goes in the same paint rows. **In this job / Not in this job** works as for a window: a run that isn't being painted stays on the drawing, unpriced. On the quote and invoice the line becomes *Exterior woodwork*, with the metres: *…14 windows, 3 doors and 12.5m of fascia and soffit.* The work report lists each run with its sections.
+
 **Paint.** The **Paint** card under the house settings sets the **coats** (2 to start), and a **product** and **colour** for the windows and for the doors — the satin on the sashes and the gloss on the black front door. The product pickers work like a room's: search the ranges, pick a colour band where the range has more than one, or leave it on *Use default (Settings)* for the exterior woodwork topcoat. The colours are the app's ordinary colour fields — type-ahead from the colour library, one-tap picks from colours already on the job — and they show on the Colours tab as *Exterior Windows* and *Exterior Doors*, beside every other area. Primer always follows the exterior primer in Settings.
 
 ![The Paint card: coats, and a product and colour each for the windows and the doors](images/26i-windoors-paint.png)
@@ -1602,6 +1612,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v2.96.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v2.97.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
