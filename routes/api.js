@@ -1493,23 +1493,24 @@ router.put('/windoors/openings/:id', async (req, res) => {
                                 prep_level, prep_stage, quote_prep_level, prep_variation_id,
                                 level, bay_shape, bay_storeys, parent_opening_id, panes_set, rows_bottom,
                                 other_mins, other_cost, other_m2, access,
-                                excluded, include_variation_id, other_pricing, other_price, other_unit, other_draw, other_door, prep_steps, time_override, run_length, run_extra, wall_gable, wall_spray, updated_at)
+                                excluded, include_variation_id, other_pricing, other_price, other_unit, other_draw, other_door, prep_steps, time_override, run_length, run_extra, wall_gable, wall_spray, painted_at, updated_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25,
-              $26, $27, $28, $29, $30, $31, $32, $33::jsonb, $34, $35, $36, $37, $38, NOW())
+              $26, $27, $28, $29, $30, $31, $32, $33::jsonb, $34, $35, $36, $37, $38, $39, NOW())
       ON CONFLICT (job_id, side, level, floor, kind, position) DO UPDATE SET
         nickname = $7, type = $8, size_tier = $9, rows = $10, cols = $11, prep_level = $12,
         prep_stage = $13, quote_prep_level = $14, prep_variation_id = $15,
         bay_shape = $17, bay_storeys = $18, parent_opening_id = $19, panes_set = $20, rows_bottom = $21,
         other_mins = $22, other_cost = $23, other_m2 = $24, access = $25,
         excluded = $26, include_variation_id = $27, other_pricing = $28, other_price = $29, other_unit = $30,
-        other_draw = $31, other_door = $32, prep_steps = $33::jsonb, time_override = $34, run_length = $35, run_extra = $36, wall_gable = $37, wall_spray = $38, updated_at = NOW()
+        other_draw = $31, other_door = $32, prep_steps = $33::jsonb, time_override = $34, run_length = $35, run_extra = $36, wall_gable = $37, wall_spray = $38,
+        painted_at = CASE WHEN $40::boolean THEN $39::timestamp ELSE job_openings.painted_at END, updated_at = NOW()
       RETURNING *
     `, [req.params.id, jobId, o.side, o.floor, o.kind, o.position, o.nickname, o.type, o.size_tier, o.rows, o.cols,
         o.prep_level, o.prep_stage, o.quote_prep_level, o.prep_variation_id,
         o.level, o.bay_shape, o.bay_storeys, o.parent_opening_id, o.panes_set, o.rows_bottom,
         o.other_mins, o.other_cost, o.other_m2, o.access,
         o.excluded, o.include_variation_id, o.other_pricing, o.other_price, o.other_unit, o.other_draw, o.other_door,
-        JSON.stringify(o.prep_steps || []), o.time_override, o.run_length, o.run_extra, o.wall_gable, o.wall_spray]);
+        JSON.stringify(o.prep_steps || []), o.time_override, o.run_length, o.run_extra, o.wall_gable, o.wall_spray, o.painted_at, o.painted_given]);
     res.json({ ok: true, id: result.rows[0].id, opening: mapOpening(result.rows[0]) });
   } catch (err) {
     res.status(500).json({ error: err.message });
