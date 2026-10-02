@@ -380,6 +380,8 @@ const SEED = () => {
     renderDocs();
     const m = wdWhereModel();
     const card = document.getElementById('docs-body').textContent;
+    // A prep raise standing on a window, for the plain-words check.
+    Object.assign(windoors.openings.find(o => o.id === 'g1'), { prep_stage: 'variation', quote_prep_level: 'light', prep_level: 'heavy', prep_variation_id: wdDraft(true).id, prep_steps: [] });
     const pdf = new TextDecoder('latin1').decode(await buildWdWherePdf());
     window.prompt = () => ''; setWdClientFigure();
     const cleared = activeJob().clientFigure;
@@ -408,6 +410,8 @@ const SEED = () => {
     && /Done so far/.test(wh.pdf) && /Needed now, if you go ahead/.test(wh.pdf) && /Likely total/.test(wh.pdf) && /Invoiced so far/.test(wh.pdf) && /Likely still to come/.test(wh.pdf));
   check('11. ...then window by window, side by side, with the drawings', /WINDOW BY WINDOW/.test(wh.pdf) && /BACK/.test(wh.pdf) && /Done: /.test(wh.pdf) && /Needed now: /.test(wh.pdf) && /\/Im2 Do/.test(wh.pdf));
   check('11. ...and a key: the parts of a sash, drawn and numbered, and the work words', /THE PARTS OF A WINDOW, AND THE WORK/.test(wh.pdf) && /Meeting rail/.test(wh.pdf) && /Stile/.test(wh.pdf) && /Splice timber/.test(wh.pdf));
+  check('11. prep in plain words for the client, and the levels in the key', /more preparation than planned: heavy instead of light/.test(wh.pdf) && !/prep raised to/.test(wh.pdf)
+    && /Preparation, before painting:/.test(wh.pdf) && /taken back to bare wood all over/.test(wh.pdf));
   check('11. estimates in whole pounds', !/Needed now, if you go ahead[^)]*\)\s*Tj[^£]*£[\d,]+\.\d\d/.test(wh.pdf));
 
   // ── 12. Where the carpenter's days went, and billing the days beyond the

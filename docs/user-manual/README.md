@@ -1474,7 +1474,7 @@ When a job is running over, **Where we are** on the [Documents tab](#the-documen
 
 **Window by window.** Each side of the house that has any work is drawn as its elevation, every window numbered (W1, W2… left to right as you face it), the way the work report draws it. A window with work done is outlined in **blue**; one with work needed now in **dashed orange**. Under each drawing, a line per window: *Done:* what was found and done, with its carpenter days and what it cost; *Needed now:* the estimate for it, in orange. The carpenter's days are shown once, against the window they went on, and the page says they're part of the carpenter's figure, not charged again. Days not tied to a window are noted at the end.
 
-**The key.** A drawing of a sash window with its parts numbered (top rail, stile, meeting rail, bottom rail, glazing bar, pane, cill, frame), and a line on each kind of work (reputty, replace glass, filler, resin repair, splice timber, carpenter). So *"resin repair (right stile)"* means something to someone who's never heard the word.
+**The key.** A drawing of a sash window with its parts numbered (top rail, stile, meeting rail, bottom rail, glazing bar, pane, cill, frame), a line on each kind of work (reputty, replace glass, filler, resin repair, splice timber, carpenter), and what each preparation level means (light, standard, heavy, restoration). So *"resin repair (right stile)"* means something to someone who's never heard the word. Prep changed on site is written for the client too: not *prep raised to heavy* but *more preparation than planned: heavy instead of standard*.
 
 **The figure given before starting.** If you gave the client a ballpark before starting (*about £5,000*), tap **add one** under Where we are on the Documents tab and type it.
 
@@ -1770,6 +1770,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v3.9.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v3.9.1. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
