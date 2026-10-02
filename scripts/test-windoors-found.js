@@ -25,6 +25,8 @@
 //      per opening, adding up to the quote.
 //   9. Estimates (v3.5.0): work priced before it's agreed, with carpenter
 //      days, billed nowhere until Go ahead.
+//  10. Forecast (v3.6.0): the windows not opened up yet, from what was
+//      found on the ones that have, as a range.
 //
 // Driven in a real browser against the real public/index.html (served off
 // disk, no server, no database -- writes 404 and queue, as offline on site).
@@ -250,8 +252,9 @@ const SEED = () => {
   check('8. a quoted repair is on its window, at the quote\'s markup', Math.abs(ppw.f2rep - ppw.filler) < 0.01, [ppw.f2rep, ppw.filler]);
   check('8. found work at the figure the client is shown', Math.abs(ppw.found - ppw.foundLines) < 0.02, [ppw.found, ppw.foundLines]);
   check('8. the sheet lists them, by side, with the totals', /Price per window/.test(ppw.text) && /Back/.test(ppw.text) && /First floor, W1/.test(ppw.text) && /As quoted/.test(ppw.text) && /Making good/.test(ppw.text) && /Now/.test(ppw.text));
-  // Used by its own sheet and nothing else: no quote, invoice or client page.
-  eq('8. it is nowhere a client sees', (fs.readFileSync(path.join(PUBLIC, 'index.html'), 'utf8').match(/wdPricePerWindow\(/g) || []).length, 2);
+  // Used by its own sheet and the forecast (v3.6.0), nothing else: no quote,
+  // invoice or client page.
+  eq('8. it is nowhere a client sees', (fs.readFileSync(path.join(PUBLIC, 'index.html'), 'utf8').match(/wdPricePerWindow\(/g) || []).length, 3);
 
   // ── 9. Estimates (v3.5.0) ────────────────────────────────────────────────
   const est = await page.evaluate(async () => {
@@ -306,6 +309,52 @@ const SEED = () => {
   eq('9. ...leaving the rest of the estimate', est.ga.left, ['g1']);
   eq('9. drop: its marks come off, and an empty estimate goes', est.dropped, { est: false, resin: false });
   eq('9. leaving the screen ends estimating', est.estimating, false);
+
+  // ── 10. Forecast (v3.6.0) ────────────────────────────────────────────────
+  const fc = await page.evaluate(async () => {
+    const job = activeJob();
+    job.customItems = [{ id: 'cj', type: 'customLineItem', description: 'Joinery Work @ Day Rate', quantity: 6, unitPrice: 250, total: 1500, applyMarkup: false }];
+    const base = windoors.openings[0];
+    const add = (id, side, floor, pos) => windoors.openings.push(Object.assign({}, base, { id, side, floor, position: pos, prep_stage: 'quote', prep_level: null, quote_prep_level: null, prep_variation_id: null, prep_steps: [], painted_at: null }));
+    add('u1', 'front', 0, 1); add('u2', 'front', 0, 2); add('u3', 'front', 1, 1);
+    const f0 = wdForecastModel();
+    // g1, f1, f2 have found work: opened. u1-u3 aren't.
+    const opened = f0.opened.map(w => w.id), toOpen = f0.toOpen.map(w => w.id);
+    // The ratios: found ÷ painting, per opened window.
+    const ratios = f0.opened.map(w => w.found / w.paint).sort((a, b) => a - b);
+    const mean = ratios.reduce((t, x) => t + x, 0) / ratios.length;
+    const likelyWant = f0.toOpen.reduce((t, w) => t + w.paint * mean, 0);
+    // Mark u1 opened by hand, with nothing found: a 0 in the sample.
+    await openWindoors('site'); openWdDetail('u1');
+    const sheet = document.getElementById('wd-sheet-body').textContent;
+    setWdOpened('yes');
+    const f1 = wdForecastModel();
+    // An estimate on u2 takes it out of the forecast.
+    setWdEstimating(true); openWdDetail('u2'); wdSel = { kind: 'part', ids: { cill: true } }; wdApplyAction('resin');
+    const f2 = wdForecastModel();
+    window.confirm = () => true; wdEstimateDrop(null); setWdEstimating(false);
+    openWdDetail('u1'); setWdOpened('auto');
+    const f3 = wdForecastModel();
+    const card = document.getElementById('wd-body').textContent;
+    openWdForecastSheet(); const fsheet = document.getElementById('schedule-sheet').textContent; closeScheduleSheet();
+    closeWdDetail(); goBack();
+    return { opened, toOpen, likely: f0.likely, likelyWant, low: f0.low, high: f0.high, ready: f0.ready,
+             carp: f0.carpenter && [f0.carpenter.days, f0.carpenter.likely, f0.carpenter.low, f0.carpenter.high],
+             sheet, f1: [f1.opened.length, f1.toOpen.length, f1.likely < f0.likely], f2: [f2.estimated, f2.toOpen.map(w => w.id)],
+             back: [f3.opened.length, f3.toOpen.length], card, fsheet };
+  });
+  eq('10. windows with found work count as opened up', fc.opened, ['g1', 'f1', 'f2']);
+  eq('10. ...the rest are still to open', fc.toOpen, ['u1', 'u2', 'u3']);
+  check('10. likely = each one\'s painting × the average found-to-painting ratio', Math.abs(fc.likely - fc.likelyWant) < 0.02, [fc.likely, fc.likelyWant]);
+  check('10. a range around it, low below and high above', fc.low <= fc.likely && fc.likely <= fc.high && fc.low < fc.high, [fc.low, fc.likely, fc.high]);
+  check('10. three opened is enough to call it ready', fc.ready);
+  eq('10. the carpenter, roughly: 6 days over 3 windows → 6 more likely for 3 (3 to 9)', fc.carp, [6, 6, 3, 9]);
+  check('10. the window\'s sheet has the opened-up setting', /Opened up/.test(fc.sheet) && /Automatic/.test(fc.sheet));
+  eq('10. opened by hand with nothing found: a sample, a 0, pulling the forecast down', fc.f1, [4, 2, true]);
+  eq('10. a window in the estimate is neither', fc.f2, [1, ['u3']]);
+  eq('10. back to automatic', fc.back, [3, 3]);
+  check('10. the card shows it', /Forecast/.test(fc.card) && /3 of 6 windows and doors opened up/.test(fc.card) && /Likely still to come/.test(fc.card), fc.card.slice(fc.card.indexOf('Forecast'), fc.card.indexOf('Forecast') + 400));
+  check('10. window by window', /Still to open/.test(fc.fsheet) && /Front, ground floor, W1/.test(fc.fsheet));
 
   if (process.env.SHOT_DIR) {
     await page.evaluate(() => {
