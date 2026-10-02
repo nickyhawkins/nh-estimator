@@ -6928,7 +6928,7 @@ function persistJobData(job) {
   // interimDraft: the interim invoice builder's saved-as-you-go draft,
   // idempotency key included (STAGED_INVOICING_SPEC.md) -- null, not omitted,
   // once issued, or the merge would keep the spent draft forever.
-  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, quoteTextEdited: job.quoteTextEdited != null ? job.quoteTextEdited : null, invoiceTextEdited: job.invoiceTextEdited != null ? job.invoiceTextEdited : null, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, variationBaselinesAt: job.variationBaselinesAt || null, variationBaselinesLate: !!job.variationBaselinesLate, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, deposit: job.deposit, notes: job.notes, kitchen: job.kitchen, fittedUnits: job.fittedUnits, fittedUnit: Array.isArray(job.fittedUnits) ? null : job.fittedUnit, customItems: job.customItems, isXeroImported: !!job.isXeroImported, honouredLabourAmount: job.honouredLabourAmount != null ? job.honouredLabourAmount : null, depositRequired: job.depositRequired !== false, upchargeTotal: job.upchargeTotal != null ? job.upchargeTotal : null, roundingDelta: job.roundingDelta != null ? job.roundingDelta : null, interimDraft: job.interimDraft || null, interimCarry: job.interimCarry || null, carpenterLineId: job.carpenterLineId || undefined, wdOpened: job.wdOpened || undefined, clientFigure: job.clientFigure === undefined ? undefined : job.clientFigure, windoorsVariations: Array.isArray(job.windoorsVariations) ? job.windoorsVariations : undefined, windoorsFound: Array.isArray(job.windoorsFound) ? job.windoorsFound : undefined, exteriorLineLayout: job.exteriorLineLayout || undefined });
+  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, quoteTextEdited: job.quoteTextEdited != null ? job.quoteTextEdited : null, invoiceTextEdited: job.invoiceTextEdited != null ? job.invoiceTextEdited : null, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, variationBaselinesAt: job.variationBaselinesAt || null, variationBaselinesLate: !!job.variationBaselinesLate, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, deposit: job.deposit, notes: job.notes, kitchen: job.kitchen, fittedUnits: job.fittedUnits, fittedUnit: Array.isArray(job.fittedUnits) ? null : job.fittedUnit, customItems: job.customItems, isXeroImported: !!job.isXeroImported, honouredLabourAmount: job.honouredLabourAmount != null ? job.honouredLabourAmount : null, depositRequired: job.depositRequired !== false, upchargeTotal: job.upchargeTotal != null ? job.upchargeTotal : null, roundingDelta: job.roundingDelta != null ? job.roundingDelta : null, interimDraft: job.interimDraft || null, interimCarry: job.interimCarry || null, carpenterLineId: job.carpenterLineId || undefined, wdOpened: job.wdOpened || undefined, clientFigure: job.clientFigure === undefined ? undefined : job.clientFigure, carpenterPlaced: job.carpenterPlaced || undefined, windoorsVariations: Array.isArray(job.windoorsVariations) ? job.windoorsVariations : undefined, windoorsFound: Array.isArray(job.windoorsFound) ? job.windoorsFound : undefined, exteriorLineLayout: job.exteriorLineLayout || undefined });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -20366,6 +20366,28 @@ function buildFinalInvoiceModel() {
                       raw: +row.lineTotal || 0, amount: +row.lineTotal || 0, dropped: false });
       });
       frozenLabourApplied = true;
+      // The carpenter's line (v3.7.1): it grows on site -- extra days, and
+      // the days an estimate's Go ahead adds -- but the frozen rows bill it
+      // at the accepted quote's days. The days beyond are billed here, as
+      // their own line at the line's own rate (no markup on a no-markup
+      // line), so they're never lost under the frozen figure. Where the
+      // days went (job.carpenterPlaced) goes under the carpenter's line.
+      var cLine = wdCarpenterLine(job);
+      if (cLine) {
+        var cRow = labour.find(function(l, i) { return l.id === 'fz' + i && (frozenWorkRows[i] || {}).sourceKey === 'custom:' + cLine.id; });
+        var cWas = cRow ? cRow.amount : 0;
+        var cNow = customItemTotal(cLine) * (cLine.applyMarkup === false ? 1 : muInv);
+        var cPrice = +cLine.unitPrice || 0;
+        var placed = wdCarpenterPlacedText(job);
+        if (cNow - cWas > 0.005) {
+          var extraDays = cPrice > 0 ? Math.round((cNow - cWas) / (cPrice * (cLine.applyMarkup === false ? 1 : muInv)) * 100) / 100 : 0;
+          labour.push({ id: 'carpx', desc: (cLine.description || 'Carpenter') + ': additional days'
+                          + (extraDays > 0 ? ', ' + (extraDays % 1 === 0 ? extraDays.toFixed(0) : extraDays) + ' × ' + fmt(cPrice) : ''),
+                        raw: cNow - cWas, amount: Math.round((cNow - cWas) * 100) / 100, dropped: false, ownText: true,
+                        scope: cRow ? '' : placed });
+        }
+        if (cRow && placed) cRow.scope = placed;
+      }
     }
   }
   // Both branches below are already answered by the snapshot when one applies:
@@ -25904,6 +25926,69 @@ function wdCarpenterHtml(o) {
     + '<span style="font-size:13px;color:var(--text2)">' + (line ? (days ? fmt(days * wdCarpenterDayAmount()) : fmt(wdCarpenterDayAmount()) + ' a day')
         : '<span onclick="pickWdCarpenterLine()" style="color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline">set the carpenter\'s line</span>') + '</span></div></div>';
 }
+// ── Where the carpenter's days went (v3.7.1) ──────────────────────────────
+// job.carpenterPlaced { openingId: days }: a record of which windows the
+// days on the carpenter's line were spent on. Never charged -- the line is
+// the bill, at its flat rate. It words the line on the final invoice, shows
+// beside each window on Where we are, and lets the forecast use where the
+// days really went instead of spreading them evenly. The days placed can't
+// add up to more than the line has.
+function wdCarpenterPlaced(job) {
+  job = job || activeJob();
+  return job && job.carpenterPlaced && typeof job.carpenterPlaced === 'object' ? job.carpenterPlaced : {};
+}
+function wdCarpenterPlacedTotal(job) {
+  var p = wdCarpenterPlaced(job);
+  return Object.keys(p).reduce(function(t, k) { return t + (+p[k] || 0); }, 0);
+}
+function wdCarpenterLineDays(job) {
+  var l = wdCarpenterLine(job);
+  return l && +l.quantity > 0 ? +l.quantity : 0;
+}
+// "Where the days went: Back, first floor, W1 2 days; Back, dormer, W1 3 days."
+function wdCarpenterPlacedText(job) {
+  job = job || activeJob();
+  var p = wdCarpenterPlaced(job);
+  var ids = Object.keys(p).filter(function(k) { return +p[k] > 0; });
+  if (!ids.length || !wdLoadedForActiveJob() || !job || job.id !== activeJobId) return '';
+  var byId = {};
+  windoors.openings.forEach(function(o) { byId[o.id] = o; });
+  var list = Windoors.sortOpenings(ids.map(function(k) { return byId[k]; }).filter(Boolean));
+  var rest = wdCarpenterLineDays(job) - wdCarpenterPlacedTotal(job);
+  return 'Where the days went: ' + list.map(function(o) { return Windoors.openingLabel(o) + ' ' + wdFmtDays(+p[o.id]); }).join('; ')
+    + (rest >= 0.5 ? '; other work ' + wdFmtDays(rest) : '') + '.';
+}
+function wdSetCarpenterPlaced(delta) {
+  var o = wdOpening(), job = activeJob();
+  if (!o || !job) return;
+  var p = Object.assign({}, wdCarpenterPlaced(job));
+  var cur = +p[o.id] || 0;
+  var n = Math.max(0, Math.round((cur + delta) * 2) / 2);
+  if (delta > 0 && wdCarpenterPlacedTotal(job) - cur + n > wdCarpenterLineDays(job) + 0.001) {
+    toast('All ' + wdFmtDays(wdCarpenterLineDays(job)) + ' on the carpenter\'s line are placed — add days to the line first');
+    return;
+  }
+  if (n > 0) p[o.id] = n; else delete p[o.id];
+  job.carpenterPlaced = p;
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  wdChanged();
+}
+function wdCarpenterPlacedHtml(o) {
+  if (wdMode !== 'site' || wdEstimating || !wdJobAccepted(activeJob())) return '';
+  var line = wdCarpenterLine();
+  if (!line) return '';
+  var days = +wdCarpenterPlaced()[o.id] || 0;
+  var left = wdCarpenterLineDays() - wdCarpenterPlacedTotal();
+  var b = 'border:1px solid var(--border);background:var(--surface2);color:var(--text);border-radius:10px;width:40px;height:36px;font-size:18px;font-weight:700;cursor:pointer';
+  return '<div style="margin-top:6px"><div class="subsection-label">Carpenter days here<small>days already worked on this ' + (o.kind === 'door' ? 'door' : 'window')
+    + ' — recorded, not charged again: they\'re billed on "' + escapeHtml(line.description) + '"</small></div>'
+    + '<div style="display:flex;align-items:center;gap:10px;padding:0 16px 10px">'
+    + '<button type="button" style="' + b + '" onclick="wdSetCarpenterPlaced(-0.5)">−</button>'
+    + '<span style="min-width:70px;text-align:center;font-size:15px;font-weight:700">' + wdFmtDays(days) + '</span>'
+    + '<button type="button" style="' + b + '" onclick="wdSetCarpenterPlaced(0.5)">+</button>'
+    + '<span style="font-size:12px;color:var(--text2)">' + (left >= 0.5 ? wdFmtDays(left) + ' on the line not placed yet' : 'every day on the line is placed') + '</span></div></div>';
+}
 function wdFmtDays(d) {
   if (!(d > 0)) return 'none';
   var whole = Math.floor(d), half = d - whole >= 0.5;
@@ -25932,6 +26017,10 @@ function wdEstimateGoAhead(openingId) {
   if (days > 0) {
     line.quantity = Math.round(((+line.quantity > 0 ? +line.quantity : 1) + days) * 100) / 100;
     line.total = Math.round(line.quantity * (+line.unitPrice || 0) * 100) / 100;
+    // ...and they're placed on their window (v3.7.1).
+    var placed = Object.assign({}, wdCarpenterPlaced(job));
+    lines.forEach(function(l) { if (l.days > 0) placed[l.id] = Math.round(((+placed[l.id] || 0) + l.days) * 2) / 2; });
+    job.carpenterPlaced = placed;
     saveCustomItems();
   }
   est.carpenter = Object.assign({}, est.carpenter || {});
@@ -26217,9 +26306,20 @@ function wdForecastModel() {
   });
   out.ratio = all;
   out.grouped = !!(groups.side || groups.level);
-  // The carpenter, roughly.
+  // The carpenter: from where the days went (v3.7.1), when they've been
+  // placed -- each opened window's days, 0 where none, as a sample like the
+  // repairs -- else roughly, the line's days spread over the windows opened.
   var line = wdCarpenterLine();
-  if (line && out.toOpen.length) {
+  var placedC = wdCarpenterPlaced();
+  if (line && out.toOpen.length && wdCarpenterPlacedTotal() > 0) {
+    var ds = out.opened.map(function(w) { return +placedC[w.id] || 0; }).sort(function(a, b) { return a - b; });
+    var meanD = ds.reduce(function(t, x) { return t + x; }, 0) / ds.length;
+    var n2 = out.toOpen.length, dayA = wdCarpenterDayAmount();
+    var halfR = function(d) { return Math.round(d * 2) / 2; };
+    out.carpenter = { days: wdCarpenterLineDays(), placed: true, perWindow: meanD, low: halfR(wdPercentile(ds, 0.25) * n2), likely: halfR(meanD * n2),
+                      high: halfR(wdPercentile(ds, 0.9) * n2), day: dayA };
+    out.carpenter.lowAmount = out.carpenter.low * dayA; out.carpenter.likelyAmount = out.carpenter.likely * dayA; out.carpenter.highAmount = out.carpenter.high * dayA;
+  } else if (line && out.toOpen.length) {
     var days = +line.quantity > 0 ? +line.quantity : 0;
     var per = days / out.samples, day = wdCarpenterDayAmount();
     var half = function(d) { return Math.round(d * 2) / 2; };
@@ -26251,8 +26351,10 @@ function wdForecastCardHtml() {
   };
   h += row('Your repairs on the ' + f.toOpen.length + ' still to open', f.low, f.likely, f.high);
   if (f.carpenter) {
-    h += row('Carpenter, roughly: ' + (f.carpenter.likely ? wdFmtDays(f.carpenter.likely) : 'none'), f.carpenter.lowAmount, f.carpenter.likelyAmount, f.carpenter.highAmount)
-      + '<div style="font-size:11px;color:var(--text2);margin-top:2px">' + wdFmtDays(f.carpenter.days) + ' so far over ' + f.samples + ' windows opened up. The days weren\'t booked per window, so treat this as a rough guide.</div>';
+    h += row('Carpenter' + (f.carpenter.placed ? '' : ', roughly') + ': ' + (f.carpenter.likely ? wdFmtDays(f.carpenter.likely) : 'none'), f.carpenter.lowAmount, f.carpenter.likelyAmount, f.carpenter.highAmount)
+      + '<div style="font-size:11px;color:var(--text2);margin-top:2px">' + (f.carpenter.placed
+          ? 'From where the days went on the ' + f.samples + ' windows opened up (' + (Math.round(f.carpenter.perWindow * 10) / 10) + ' days a window on average).'
+          : wdFmtDays(f.carpenter.days) + ' so far over ' + f.samples + ' windows opened up. Place the days on the windows they went on (each window\'s sheet) for a better figure.') + '</div>';
   }
   var c = f.carpenter || { lowAmount: 0, likelyAmount: 0, highAmount: 0 };
   h += row('Likely still to come', f.low + c.lowAmount, f.likely + c.likelyAmount, f.high + c.highAmount, true);
@@ -26335,6 +26437,7 @@ function openWdPriceSheet() {
       if (row.repairs) bits.push('repairs ' + fmt(row.repairs));
       if (Math.abs(row.found) > 0.005) bits.push('found ' + fmtSigned(row.found));
       if (row.estimate > 0.005) bits.push('<span style="color:var(--warn,#f39c12)">estimate ' + fmt(row.estimate) + '</span>');
+      if (+wdCarpenterPlaced()[row.id] > 0) bits.push('carpenter ' + wdFmtDays(+wdCarpenterPlaced()[row.id]) + ' (on its line)');
       h += '<div style="' + cell + '"><span><b>' + escapeHtml((function(t) { return t.charAt(0).toUpperCase() + t.slice(1); })(row.label.replace(/^[^,]+, /, ''))) + '</b>'
         + '<small style="display:block;color:var(--text2)">' + bits.join(' · ') + '</small></span>'
         + '<span style="white-space:nowrap;font-weight:600">' + fmtSigned(row.paint + row.repairs + row.found) + '</span></div>';
@@ -27940,6 +28043,7 @@ function renderWdDetail() {
   }
   h += wdRepairTiersHtml(o, oMarks);
   h += wdCarpenterHtml(o);
+  h += wdCarpenterPlacedHtml(o);
   h += wdWorkListHtml(o, oMarks);
   h += wdOpenedHtml(o);
   if (isOther && !site) h += '<div style="padding:12px 16px 4px"><span onclick="deleteWdOther()" style="color:var(--danger);font-size:13px;font-weight:600;cursor:pointer">Remove this item</span></div>';
@@ -28787,8 +28891,9 @@ function wdWhereModel() {
   var t = snap && snap.data && snap.data.totals;
   var planned = t ? (+t.incVat || ((+t.labour || 0) + (+t.importedBaseline || 0) + (+t.materials || 0))) : null;
   if (planned == null && job.acceptedSnapshot) planned = (+job.acceptedSnapshot.estLabourTotal || 0) + (+job.acceptedSnapshot.estMaterialsTotal || 0);
+  var placed = wdCarpenterPlaced(job);
   var found = windoorsFoundLines().map(function(l) {
-    return { id: l.id, label: l.label, work: l.work, amount: variationDeltaAmount({ raw: l.raw, spray: 0 }) };
+    return { id: l.id, label: l.label, work: l.work, amount: variationDeltaAmount({ raw: l.raw, spray: 0 }), carpDays: +placed[l.id] || 0 };
   });
   var adj = wdAdjustments();
   // The carpenter, as one line (v3.7.0, per Nicky): the days the accepted
@@ -28901,8 +29006,10 @@ function buildWdWherePdf() {
     + 'This is where things stand: what has been found so far, what the windows we have looked at closely need, and a fair allowance for the ones not opened up yet.', 9.5);
   head('SO FAR');
   money(m.carpenter.amount > 0.005 ? 'Painting and repairs, as planned' : 'The work as planned', null, fmt(m.plannedWork));
-  if (m.carpenter.amount > 0.005) money('Carpenter', wdWhereCarpText(m.carpenter), fmt(m.carpenter.amount));
-  m.found.forEach(function(f) { money('Found on site: ' + f.label, f.work || '', fmtSigned(f.amount)); });
+  if (m.carpenter.amount > 0.005) money('Carpenter', wdWhereCarpText(m.carpenter) + (wdCarpenterPlacedText(job) ? '. ' + wdCarpenterPlacedText(job) : ''), fmt(m.carpenter.amount));
+  m.found.forEach(function(f) {
+    money('Found on site: ' + f.label, [f.work, f.carpDays > 0 ? 'carpenter ' + wdFmtDays(f.carpDays) + ' (in the carpenter line above)' : ''].filter(Boolean).join('; '), fmtSigned(f.amount));
+  });
   if (m.adjustments > 0.005) money('Repairs larger than estimated once exposed', null, fmt(m.adjustments));
   money('So far', null, fmt(m.soFar), true);
   if (m.estimate.lines.length) {

@@ -28,6 +28,8 @@
 //  10. Forecast (v3.6.0): the windows not opened up yet, from what was
 //      found on the ones that have, as a range.
 //  11. Where we are (v3.7.0): the page for the client, adding it all up.
+//  12. Where the carpenter's days went (v3.7.1), and the days beyond the
+//      accepted quote billed on the final invoice.
 //
 // Driven in a real browser against the real public/index.html (served off
 // disk, no server, no database -- writes 404 and queue, as offline on site).
@@ -315,6 +317,7 @@ const SEED = () => {
   const fc = await page.evaluate(async () => {
     const job = activeJob();
     job.customItems = [{ id: 'cj', type: 'customLineItem', description: 'Joinery Work @ Day Rate', quantity: 6, unitPrice: 250, total: 1500, applyMarkup: false }];
+    job.carpenterPlaced = {}; // section 9's Go ahead placed some; this is the rough forecast
     const base = windoors.openings[0];
     const add = (id, side, floor, pos) => windoors.openings.push(Object.assign({}, base, { id, side, floor, position: pos, prep_stage: 'quote', prep_level: null, quote_prep_level: null, prep_variation_id: null, prep_steps: [], painted_at: null }));
     add('u1', 'front', 0, 1); add('u2', 'front', 0, 2); add('u3', 'front', 1, 1);
@@ -396,6 +399,52 @@ const SEED = () => {
   check('11. the PDF has the sections, and the figure only for comparison', /Where we are: windows and doors/.test(wh.pdf) && /SO FAR/.test(wh.pdf) && /NEEDED NOW/.test(wh.pdf)
     && /Likely total/.test(wh.pdf) && /figure given before the work started was/.test(wh.pdf)
     && /Painting and repairs, as planned/.test(wh.pdf) && /Already invoiced/.test(wh.pdf) && /Likely still to come/.test(wh.pdf));
+
+  // ── 12. Where the carpenter's days went, and billing the days beyond the
+  //        accepted quote (v3.7.1) ──────────────────────────────────────────
+  const cp = await page.evaluate(async () => {
+    const job = activeJob();
+    job.status = 'accepted';
+    job.customItems = [{ id: 'cj', type: 'customLineItem', description: 'Joinery Work @ Day Rate', quantity: 9, unitPrice: 250, total: 2250, applyMarkup: false }];
+    quoteSnapshotsJobId = 'j1';
+    quoteSnapshots = [{ version: 10, data: { totals: { incVat: 4500 }, lines: { work: [
+      { sourceKey: 'windoors:windoors', description: 'Exterior windows and doors', lineTotal: 2430 },
+      { sourceKey: 'custom:cj', description: 'Joinery Work @ Day Rate', lineTotal: 2000 }] } } }];
+    jobInvoicesJobId = 'j1'; jobInvoices = [];
+    job.carpenterPlaced = {};
+    const inv0 = buildFinalInvoiceModel().labour.filter(l => /Joinery/.test(l.desc)).map(l => [l.desc, l.amount]);
+    await openWindoors('site');
+    openWdDetail('f1');
+    const sheet = document.getElementById('wd-sheet-body').textContent;
+    wdSetCarpenterPlaced(1); wdSetCarpenterPlaced(1); wdSetCarpenterPlaced(1);
+    openWdDetail('g1'); wdSetCarpenterPlaced(1); wdSetCarpenterPlaced(1);
+    // Can't place more than the line has.
+    openWdDetail('f2'); for (let i = 0; i < 12; i++) wdSetCarpenterPlaced(0.5);
+    const placed = Object.keys(job.carpenterPlaced).sort().map(k => [k, job.carpenterPlaced[k]]);
+    const placedText = wdCarpenterPlacedText();
+    const inv1 = buildFinalInvoiceModel().labour.filter(l => /Joinery/.test(l.desc)).map(l => [l.desc, l.amount, l.scope || '']);
+    // Forecast from where the days went.
+    const base = windoors.openings[0];
+    windoors.openings.push(Object.assign({}, base, { id: 'q1', side: 'back', floor: 0, position: 3, prep_stage: 'quote', prep_level: null, quote_prep_level: null, prep_variation_id: null, prep_steps: [] }));
+    const fcst = wdForecastModel();
+    // Go ahead on an estimate with carpenter days places them.
+    setWdEstimating(true); openWdDetail('q1'); wdSel = { kind: 'part', ids: { cill: true } }; wdApplyAction('splice'); wdSetCarpenterDays(1);
+    window.confirm = () => true; wdEstimateGoAhead('q1');
+    const afterGo = { qty: job.customItems[0].quantity, q1: job.carpenterPlaced.q1 };
+    const pdf = new TextDecoder('latin1').decode(buildWdWherePdf());
+    windoors.openings = windoors.openings.filter(o => o.id !== 'q1');
+    closeWdDetail(); goBack();
+    return { inv0, inv1, sheet, placed, placedText, carp: fcst.carpenter, toOpen: fcst.toOpen.length, mean: fcst.opened.reduce((t, w) => t + (job.carpenterPlaced[w.id] || 0), 0) / fcst.opened.length, opened: fcst.opened.map(w => w.id), afterGo, pdf };
+  });
+  eq('12. the accepted 8 days and the 9th billed as its own line, at the flat rate', cp.inv0,
+    [['Joinery Work @ Day Rate', 2000], ['Joinery Work @ Day Rate: additional days, 1 × £250.00', 250]]);
+  check('12. the window sheet asks for carpenter days here, recorded not charged', /Carpenter days here/.test(cp.sheet) && /not charged again/.test(cp.sheet) && /9 days on the line not placed yet/.test(cp.sheet), cp.sheet.slice(cp.sheet.indexOf('Carpenter days'), cp.sheet.indexOf('Carpenter days') + 200));
+  eq('12. placed, and never more than the line has', cp.placed, [['f1', 3], ['f2', 4], ['g1', 2]]);
+  eq('12. worded in house order, with what\'s left', cp.placedText, 'Where the days went: Back, ground floor, W1 2 days; Back, first floor, W1 3 days; Back, first floor, W2 4 days.');
+  check('12. ...under the joinery line on the final invoice, the money unchanged', cp.inv1[0][1] === 2000 && cp.inv1[0][2] === cp.placedText && cp.inv1[1][1] === 250, cp.inv1);
+  check('12. the forecast\'s carpenter comes from where the days went', cp.carp && cp.carp.placed && cp.carp.likely === Math.round(cp.mean * cp.toOpen * 2) / 2, [cp.carp, cp.mean, cp.toOpen]);
+  eq('12. go ahead adds the days to the line and places them on the window', cp.afterGo, { qty: 10, q1: 1 });
+  check('12. Where we are lists where the days went', /Where the days went/.test(cp.pdf) && /in the carpenter line above/.test(cp.pdf));
 
   if (process.env.SHOT_DIR) {
     await page.evaluate(() => {
