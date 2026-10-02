@@ -366,27 +366,36 @@ const SEED = () => {
     await openWindoors('site');
     setWdEstimating(true); openWdDetail('u3'); wdSel = { kind: 'part', ids: { cill: true } }; wdApplyAction('splice'); wdSetCarpenterDays(1); setWdEstimating(false); closeWdDetail();
     window.prompt = () => '5,000'; setWdClientFigure();
+    jobInvoicesJobId = 'j1';
+    jobInvoices = [{ id: 'i1', type: 'interim', sequence: 1, subtotal: 2400, xeroTotal: 2400, xeroStatus: 'AUTHORISED', labourLines: [], variationLines: [], materialLines: [] },
+                   { id: 'i2', type: 'interim', sequence: 2, subtotal: 999, xeroStatus: 'VOIDED', labourLines: [], variationLines: [], materialLines: [] }];
+    renderWindoors();
     const m = wdWhereModel();
     const card = document.getElementById('wd-body').textContent;
     const pdf = new TextDecoder('latin1').decode(buildWdWherePdf());
     window.prompt = () => ''; setWdClientFigure();
     const cleared = activeJob().clientFigure;
     window.confirm = () => true; wdEstimateDrop(null);
+    jobInvoices = [];
     goBack();
     const foundSum = windoorsFoundLines().reduce((t, l) => t + variationDeltaAmount({ raw: l.raw, spray: 0 }), 0);
-    return { planned: m.planned, carp: m.carpenter, foundTotal: m.foundTotal, foundSum, adj: m.adjustments, soFar: m.soFar, est: m.estimate.total,
+    return { planned: m.planned, plannedWork: m.plannedWork, invoiced: m.invoiced, carp: m.carpenter, foundTotal: m.foundTotal, foundSum, adj: m.adjustments, soFar: m.soFar, est: m.estimate.total,
              likely: m.likely, low: m.low, high: m.high, fLikely: m.fLikely, client: m.clientFigure, cleared, card, pdf };
   });
   eq('11. starts from the accepted quote', wh.planned, 4500);
-  eq('11. carpenter days beyond the quote: 9 now against 8 accepted', [wh.carp.days, wh.carp.amount], [1, 250]);
+  eq('11. the carpenter as one line: 9 days, 8 planned and 1 more', [wh.carp.days, wh.carp.plannedDays, wh.carp.extraDays, wh.carp.amount, wh.carp.extraAmount], [9, 8, 1, 2250, 250]);
+  eq('11. ...taken out of the planned figure', wh.plannedWork, 2500);
+  eq('11. already invoiced: the live invoices, not a voided one', wh.invoiced, 2400);
   check('11. found so far is the found lines as billed', Math.abs(wh.foundTotal - wh.foundSum - wh.adj) < 0.01, [wh.foundTotal, wh.foundSum]);
   check('11. so far = planned + found + carpenter', Math.abs(wh.soFar - (4500 + wh.foundTotal + 250)) < 0.01);
   check('11. heading = so far + the estimate + the likely allowance', Math.abs(wh.likely - (wh.soFar + wh.est + wh.fLikely)) < 0.01, wh);
   check('11. with a range either side', wh.low <= wh.likely && wh.likely <= wh.high);
   eq('11. the figure given before starting is kept, and can be cleared', [wh.client, wh.cleared], [5000, null]);
-  check('11. the card shows it', /Where we are/.test(wh.card) && /Where it's heading/.test(wh.card) && /Figure given before starting: £5,000.00/.test(wh.card));
+  check('11. the card shows it', /Where we are/.test(wh.card) && /Where it's heading/.test(wh.card) && /Figure given before starting: £5,000.00/.test(wh.card)
+    && /Carpenter so far/.test(wh.card) && /9 days \(8 planned, 1 more\)/.test(wh.card) && /Already invoiced/.test(wh.card), wh.card.slice(wh.card.indexOf('Where we are'), wh.card.indexOf('Where we are') + 600));
   check('11. the PDF has the sections, and the figure only for comparison', /Where we are: windows and doors/.test(wh.pdf) && /SO FAR/.test(wh.pdf) && /NEEDED NOW/.test(wh.pdf)
-    && /Likely total/.test(wh.pdf) && /figure given before the work started was/.test(wh.pdf));
+    && /Likely total/.test(wh.pdf) && /figure given before the work started was/.test(wh.pdf)
+    && /Painting and repairs, as planned/.test(wh.pdf) && /Already invoiced/.test(wh.pdf) && /Likely still to come/.test(wh.pdf));
 
   if (process.env.SHOT_DIR) {
     await page.evaluate(() => {

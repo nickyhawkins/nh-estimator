@@ -1439,12 +1439,13 @@ It's a guide for you to give the client, not a price, and it doesn't go on anyth
 
 When a job is running over, the **Where we are** card (under the Forecast) adds everything up for the client. Its PDF is the thing to send.
 
-- **The work as planned:** the accepted quote's total, as one figure, never its breakdown.
+- **Painting and repairs, as planned:** the accepted quote's total less its carpenter days, as one figure, never its line-by-line breakdown.
+- **Carpenter:** all the carpenter's days so far, as one line, saying how many were planned and how many more (*9 days (8 planned, 1 more)*). The planned days stay in this line even though an interim invoice has billed them: this page says where the job stands, not what's been billed.
 - **Found on site so far**, window by window, at the figures they're billed at. Any repairs that turned out bigger than quoted are a line of their own.
-- **Extra carpenter time so far:** the days on the carpenter's line beyond what the accepted quote had (*1 day beyond the quote*).
 - **Needed now:** the estimate, window by window, with each window's carpenter days.
 - **Allowance for the rest:** the forecast's likely figure, with its range, for the windows not opened up yet.
 - **Where it's heading:** all of that added up, likely, and between the low and high.
+- **Already invoiced** and **likely still to come:** what the job's invoices (interims, say) have billed so far, at Xero's totals (a voided one doesn't count), and the difference. That's usually the figure the client is really asking about.
 
 **The figure given before starting.** If you gave the client a ballpark before starting (*about £5,000*), tap **add one** and type it. It's printed beside the total for comparison (*For comparison, the figure given before the work started was £5,000.00*), but never added into anything: the sums are always the real figures, so the page adds up for anyone checking it.
 

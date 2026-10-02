@@ -28791,27 +28791,45 @@ function wdWhereModel() {
     return { id: l.id, label: l.label, work: l.work, amount: variationDeltaAmount({ raw: l.raw, spray: 0 }) };
   });
   var adj = wdAdjustments();
-  // Carpenter days beyond the accepted quote.
-  var line = wdCarpenterLine(job), carp = { days: 0, amount: 0 };
+  // The carpenter, as one line (v3.7.0, per Nicky): the days the accepted
+  // quote had are taken out of the planned figure and shown with the days
+  // since, so the page says "9 days (8 planned, 1 more)" rather than hiding
+  // 8 inside the plan and showing 1 as if it were all.
+  var line = wdCarpenterLine(job), carp = { days: 0, amount: 0, plannedDays: 0, plannedAmount: 0, extraDays: 0, extraAmount: 0 };
   if (line && snap && snap.data && snap.data.lines) {
     var row = (snap.data.lines.work || []).find(function(r) { return r.sourceKey === 'custom:' + line.id; });
     var was = row ? +row.lineTotal || 0 : 0;
-    var now = customItemTotal(line);
     var price = +line.unitPrice || 0;
     var factor = price > 0 ? wdCarpenterDayAmount(job) / price : 1;
-    if (now - was > 0.005 && price > 0) carp = { days: Math.round((now - was) / price * 2) / 2, amount: (now - was) * factor };
+    var now = customItemTotal(line) * factor;
+    if (price > 0) {
+      var extra = Math.max(0, now - was);
+      carp = { plannedDays: Math.round(was / (price * factor) * 2) / 2, plannedAmount: was,
+               extraDays: Math.round(extra / (price * factor) * 2) / 2, extraAmount: extra };
+      carp.days = carp.plannedDays + carp.extraDays; carp.amount = was + extra;
+    }
   }
+  // Invoiced so far: every live invoice on the job, at Xero's total where
+  // Xero has one.
+  var invoiced = jobInvoiceList(job).filter(function(i) { return i.xeroStatus !== 'VOIDED' && i.xeroStatus !== 'DELETED'; })
+    .reduce(function(t, i) { return t + (i.xeroTotal != null ? +i.xeroTotal : +i.subtotal || 0); }, 0);
   var est = wdEstimateModel(job);
   var fc = wdForecastModel();
   var fcC = fc.carpenter || { lowAmount: 0, likelyAmount: 0, highAmount: 0 };
   var foundTotal = found.reduce(function(s, f) { return s + f.amount; }, 0) + (adj.amount || 0);
-  var soFar = (planned || 0) + foundTotal + carp.amount;
+  var soFar = (planned || 0) + foundTotal + carp.extraAmount;
   var hasForecast = fc.samples > 0 && fc.toOpen.length > 0;
   var fLow = hasForecast ? fc.low + fcC.lowAmount : 0, fLikely = hasForecast ? fc.likely + fcC.likelyAmount : 0, fHigh = hasForecast ? fc.high + fcC.highAmount : 0;
-  return { ready: planned != null, planned: planned, clientFigure: +job.clientFigure > 0 ? +job.clientFigure : null,
+  return { ready: planned != null, planned: planned, plannedWork: (planned || 0) - carp.plannedAmount, invoiced: invoiced,
+           clientFigure: +job.clientFigure > 0 ? +job.clientFigure : null,
            found: found, adjustments: adj.amount || 0, foundTotal: foundTotal, carpenter: carp, soFar: soFar,
            estimate: est, forecast: fc, hasForecast: hasForecast, fLow: fLow, fLikely: fLikely, fHigh: fHigh,
            likely: soFar + est.total + fLikely, low: soFar + est.total + fLow, high: soFar + est.total + fHigh };
+}
+// "9 days (8 planned, 1 more)"
+function wdWhereCarpText(c) {
+  return wdFmtDays(c.days) + (c.plannedDays > 0 && c.extraDays > 0 ? ' (' + wdFmtDays(c.plannedDays).replace(/ days?$/, '') + ' planned, ' + wdFmtDays(c.extraDays).replace(/ days?$/, '') + ' more)'
+    : c.plannedDays > 0 ? ', as planned' : ', beyond the plan');
 }
 function setWdClientFigure() {
   var job = activeJob(); if (!job) return;
@@ -28835,13 +28853,14 @@ function wdWhereCardHtml() {
   var soft = 'flex:1;background:var(--accent-soft-bg);color:var(--accent);border:1px solid var(--accent-soft-border);border-radius:12px;padding:10px;font-size:14px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer';
   var h = '<div class="card" style="padding:12px 14px">'
     + '<div style="font-weight:700;font-size:15px">Where we are</div>'
-    + '<div style="font-size:12px;color:var(--text2);margin-top:4px;line-height:1.45">For the client: where the job stands and where it\'s heading. The PDF shows what was found window by window, the estimate and the allowance for the rest — never the quote\'s breakdown.</div>'
-    + row('The work as planned', fmt(m.planned), 'the accepted quote')
+    + '<div style="font-size:12px;color:var(--text2);margin-top:4px;line-height:1.45">For the client: where the job stands and where it\'s heading. The PDF shows what was found window by window, the estimate and the allowance for the rest. The quote itself is two figures, your work and the carpenter, never its line-by-line breakdown.</div>'
+    + row(m.carpenter.amount > 0.005 ? 'Painting and repairs as planned' : 'The work as planned', fmt(m.plannedWork), m.carpenter.plannedAmount > 0.005 ? 'the accepted quote, less its carpenter days' : 'the accepted quote')
+    + (m.carpenter.amount > 0.005 ? row('Carpenter so far', fmt(m.carpenter.amount), wdWhereCarpText(m.carpenter)) : '')
     + (Math.abs(m.foundTotal) > 0.005 ? row('Found on site so far', fmtSigned(m.foundTotal), m.found.length + ' window' + (m.found.length === 1 ? '' : 's')) : '')
-    + (m.carpenter.amount > 0.005 ? row('Extra carpenter time so far', fmt(m.carpenter.amount), wdFmtDays(m.carpenter.days) + ' beyond the quote') : '')
     + (m.estimate.lines.length ? row('Estimate, not agreed yet', fmt(m.estimate.total), m.estimate.lines.length + ' window' + (m.estimate.lines.length === 1 ? '' : 's')) : '')
     + (m.hasForecast ? row('Allowance for the rest', fmt(m.fLikely), fmt(m.fLow) + ' – ' + fmt(m.fHigh) + ' · ' + m.forecast.toOpen.length + ' not opened up yet') : '')
     + row('Where it\'s heading', fmt(m.likely), m.high - m.low > 0.5 ? fmt(m.low) + ' – ' + fmt(m.high) : '', true)
+    + (m.invoiced > 0.005 ? row('Already invoiced', fmt(m.invoiced), 'still to come, likely: ' + fmt(m.likely - m.invoiced)) : '')
     + '<div style="font-size:12px;color:var(--text2);margin-top:8px">Figure given before starting: '
     + (m.clientFigure ? '<b>' + fmt(m.clientFigure) + '</b> · ' : 'none · ')
     + '<span onclick="setWdClientFigure()" style="color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline">' + (m.clientFigure ? 'change' : 'add one') + '</span></div>'
@@ -28881,10 +28900,10 @@ function buildWdWherePdf() {
   para('Old windows hide their condition until the paint comes off, so the work has grown as each one has been opened up. '
     + 'This is where things stand: what has been found so far, what the windows we have looked at closely need, and a fair allowance for the ones not opened up yet.', 9.5);
   head('SO FAR');
-  money('The work as planned', null, fmt(m.planned));
+  money(m.carpenter.amount > 0.005 ? 'Painting and repairs, as planned' : 'The work as planned', null, fmt(m.plannedWork));
+  if (m.carpenter.amount > 0.005) money('Carpenter', wdWhereCarpText(m.carpenter), fmt(m.carpenter.amount));
   m.found.forEach(function(f) { money('Found on site: ' + f.label, f.work || '', fmtSigned(f.amount)); });
   if (m.adjustments > 0.005) money('Repairs larger than estimated once exposed', null, fmt(m.adjustments));
-  if (m.carpenter.amount > 0.005) money('Extra carpenter time', wdFmtDays(m.carpenter.days) + ' beyond what was planned', fmt(m.carpenter.amount));
   money('So far', null, fmt(m.soFar), true);
   if (m.estimate.lines.length) {
     head('NEEDED NOW');
@@ -28905,6 +28924,10 @@ function buildWdWherePdf() {
   }
   head('WHERE IT IS HEADING');
   money('Likely total', m.high - m.low > 0.5 ? 'between ' + fmt(m.low) + ' and ' + fmt(m.high) : null, fmt(m.likely), true);
+  if (m.invoiced > 0.005) {
+    money('Already invoiced', null, fmt(m.invoiced));
+    money('Likely still to come', m.high - m.low > 0.5 ? 'between ' + fmt(m.low - m.invoiced) + ' and ' + fmt(m.high - m.invoiced) : null, fmt(m.likely - m.invoiced), true);
+  }
   if (m.clientFigure) { d.y -= 4; para('For comparison, the figure given before the work started was ' + fmt(m.clientFigure) + '.', 9.5); }
   d.y -= 8;
   para('Work found on site is done as it is needed, as agreed at the outset, and charged as done. Anything under Needed now is an estimate: '
