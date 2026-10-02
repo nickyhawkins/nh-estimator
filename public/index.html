@@ -29072,73 +29072,224 @@ function wdWhereCardHtml() {
     + '<button onclick="saveWdWherePdf({ share: true })" style="' + soft + ';flex:none;padding:10px 16px">Share</button></div>';
   return h + '</div>';
 }
-function buildWdWherePdf() {
+// The key's drawing (v3.9.0): a sash window with its parts numbered, so a
+// client can match "resin repair (right stile)" to the wood it means.
+function wdSashKeySvg() {
+  var R = function(x, y, w, h, fill, extra) { return '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" fill="' + fill + '" stroke="#5a5f66" stroke-width="1.2"' + (extra || '') + '/>'; };
+  var n = function(num, x, y) {
+    return '<circle cx="' + x + '" cy="' + y + '" r="9" fill="#1e6497" stroke="#fff" stroke-width="1.5"/>'
+      + '<text x="' + x + '" y="' + (y + 4) + '" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="700" fill="#fff">' + num + '</text>';
+  };
+  var glass = '#d6e9f5', wood = '#fbf8f1';
+  var sash = function(y, h, bottomRail) {
+    // Stiles 12 wide; the top sash's meeting rail at its foot, the bottom
+    // sash's at its head; glazing bars split it into four panes.
+    var gx = 64, gw = 112, gy = y + (bottomRail ? 10 : 14), gh = h - (bottomRail ? 10 + 18 : 14 + 10);
+    return R(52, y, 136, h, wood) + R(gx, gy, gw, gh, glass)
+      + R(gx + gw / 2 - 2, gy, 4, gh, wood) + R(gx, gy + gh / 2 - 2, gw, 4, wood);
+  };
+  return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 320" width="100%" style="max-width:240px">'
+    + R(40, 18, 160, 266, '#efe8d8') + R(46, 24, 148, 254, '#fbfbf8')
+    + sash(30, 124, false) + sash(150, 124, true)
+    + R(26, 280, 188, 16, '#e5ddca')
+    + n(1, 120, 37) + n(2, 58, 92) + n(3, 120, 152) + n(4, 120, 263) + n(5, 120, 92) + n(6, 92, 66) + n(7, 120, 288) + n(8, 43, 210)
+    + '</svg>';
+}
+var WD_SASH_KEY = [
+  ['1', 'Top rail', 'the top of a sash'],
+  ['2', 'Stile', 'the upright side of a sash, left or right'],
+  ['3', 'Meeting rail', 'where the top and bottom sashes meet'],
+  ['4', 'Bottom rail', 'the bottom of a sash'],
+  ['5', 'Glazing bar', 'the thin bars between the panes'],
+  ['6', 'Pane', 'one piece of glass'],
+  ['7', 'Cill', 'the ledge at the bottom, outside'],
+  ['8', 'Frame', 'the box the sashes slide in']
+];
+var WD_WORK_KEY = [
+  ['Reputty', 'old putty round the glass hacked out and replaced'],
+  ['Replace glass', 'a cracked or broken pane replaced'],
+  ['Filler', 'small cracks and dents filled before painting'],
+  ['Resin repair', 'soft, rotten wood cut out and rebuilt in resin, then shaped'],
+  ['Splice timber', 'a rotten length cut out and new wood joined in'],
+  ['Carpenter', 'joinery beyond a painter\'s repairs, at a day rate']
+];
+// One window's story for the page: done (found on site, its carpenter days)
+// and needed now (the estimate), keyed by opening.
+function wdWhereWindows(m) {
+  var placed = wdCarpenterPlaced();
+  var est = {};
+  m.estimate.lines.forEach(function(l) { est[l.id] = l; });
+  var found = {};
+  m.found.forEach(function(f) { found[f.id] = f; });
+  var out = [];
+  Windoors.sortOpenings(windoors.openings).forEach(function(o) {
+    var f = found[o.id], e = est[o.id], days = +placed[o.id] || 0;
+    if (!f && !e && !(days > 0)) return;
+    out.push({ o: o, side: o.side, short: (function(t) { return t.charAt(0).toUpperCase() + t.slice(1); })(Windoors.openingLabel(o).replace(/^[^,]+, /, '')),
+               done: f || days > 0 ? { work: f ? f.work : '', amount: f ? f.amount : 0, days: days } : null,
+               needed: e ? { work: e.work, amount: e.amount, days: e.days } : null });
+  });
+  return out;
+}
+async function buildWdWherePdf() {
   var m = wdWhereModel();
   if (!m.ready) throw new Error('the job has no accepted quote to start from');
   var job = activeJob() || {};
+  var round = function(n) { return '£' + Math.round(n).toLocaleString('en-GB'); };
+  var wins = wdWhereWindows(m);
+  // The drawings first (they're async), then the pages.
+  var images = [];
+  var addImage = function(im) { images.push(im); return 'Im' + (images.length + 1); };
+  var data = { property: windoors.property, openings: windoors.openings, marks: windoors.marks };
+  var sides = [];
+  for (var si = 0; si < Windoors.SIDES.length; si++) {
+    var side = Windoors.SIDES[si].key;
+    var rows = wins.filter(function(w) { return w.side === side; });
+    if (!rows.length) continue;
+    var done = {}, need = {};
+    rows.forEach(function(w) { if (w.done) done[w.o.id] = true; if (w.needed) need[w.o.id] = true; });
+    var img = null;
+    try { img = await wdSvgToJpeg(Windoors.elevationSvg(data, side, { highlight: done, highlightNeeded: need, markers: false }), 900); } catch (e) { img = null; }
+    sides.push({ side: side, rows: rows, img: img });
+  }
+  var key = null;
+  try { key = await wdSvgToJpeg(wdSashKeySvg(), 480); } catch (e) { key = null; }
+
   var d = pdfDoc();
   var L = PDF_MARGIN, R = PDF_PAGE_W - PDF_MARGIN, W = R - L;
   var line = function(s, x, size, o) { d.text(s, x, d.y - size, Object.assign({ size: size }, o || {})); d.y -= size + 4; };
-  var para = function(t, size, rgb) {
-    pdfWrap(pdfSanitise(t), false, size, W).forEach(function(ln) { d.need(size + 4); d.text(ln, L, d.y - size, { size: size, rgb: rgb }); d.y -= size + 3; });
+  var para = function(t, size, rgb, x, w) {
+    x = x || L; w = w || W;
+    pdfWrap(pdfSanitise(t), false, size, w).forEach(function(ln) { d.need(size + 4); d.text(ln, x, d.y - size, { size: size, rgb: rgb }); d.y -= size + 3; });
   };
-  var head = function(t) { d.need(30); d.y -= 8; d.text(t, L, d.y - 8, { size: 8, bold: true, rgb: PDF_MUT }); d.y -= 14; };
-  // A row: words on the left (wrapped), the figure on the right.
-  var money = function(label, sub, amount, bold) {
-    var lw = W - 110;
-    var ls = pdfWrap(pdfSanitise(label), !!bold, 10, lw), ss = sub ? pdfWrap(pdfSanitise(sub), false, 8.5, lw) : [];
-    d.need(ls.length * 13 + ss.length * 11 + 10);
-    d.rule(L, d.y, R, PDF_RULE);
-    var top = d.y - 4;
-    d.text(pdfSanitise(amount), R - pdfTextWidth(pdfSanitise(amount), !!bold, 10), top - 10, { size: 10, bold: !!bold });
-    var y = top;
-    ls.forEach(function(t) { y -= 10; d.text(t, L, y, { size: 10, bold: !!bold }); y -= 3; });
-    ss.forEach(function(t) { y -= 8.5; d.text(t, L, y, { size: 8.5, rgb: PDF_MUT }); y -= 2.5; });
-    d.y = y - 6;
+  var head = function(t) { d.need(40); d.y -= 10; d.text(t, L, d.y - 9, { size: 9, bold: true, rgb: PDF_STEEL }); d.y -= 16; };
+  // A row: words on the left (wrapped, with an optional grey line under),
+  // the figure on the right.
+  var money = function(label, sub, amount, o) {
+    o = o || {};
+    var x = o.x || L, right = o.right || R, lw = right - x - 100;
+    var size = o.size || 10;
+    var ls = pdfWrap(pdfSanitise(label), !!o.bold, size, lw), ss = sub ? pdfWrap(pdfSanitise(sub), false, 8.5, lw) : [];
+    d.need(ls.length * (size + 3) + ss.length * 11 + 8);
+    if (o.rule !== false) d.rule(x, d.y, right, PDF_RULE);
+    var top = d.y - 4, y = top;
+    if (amount) d.text(pdfSanitise(amount), right - pdfTextWidth(pdfSanitise(amount), !!o.bold, size), top - size, { size: size, bold: !!o.bold, rgb: o.rgb });
+    ls.forEach(function(t) { y -= size; d.text(t, x, y, { size: size, bold: !!o.bold, rgb: o.rgb }); y -= 3; });
+    ss.forEach(function(t) { y -= 8.5; d.text(t, x, y, { size: 8.5, rgb: PDF_MUT }); y -= 2.5; });
+    d.y = y - 5;
   };
+
   line(quoteBusinessName(), L, 15, { bold: true, rgb: PDF_STEEL });
   line('Where we are: windows and doors', L, 12, { bold: true });
   line([job.name, job.xeroClient].filter(Boolean).join(' · '), L, 9.5, { rgb: PDF_MUT });
   line(new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }), L, 9.5, { rgb: PDF_MUT });
   d.y -= 4; d.rule(L, d.y, R, PDF_STEEL); d.y -= 10;
   para('Old windows hide their condition until the paint comes off, so the work has grown as each one has been opened up. '
-    + 'This is where things stand: what has been found so far, what the windows we have looked at closely need, and a fair allowance for the ones not opened up yet.', 9.5);
-  head('SO FAR');
-  money(m.carpenter.amount > 0.005 ? 'Painting and repairs, as planned' : 'The work as planned', null, fmt(m.plannedWork));
-  if (m.carpenter.amount > 0.005) money('Carpenter', wdWhereCarpText(m.carpenter) + (wdCarpenterPlacedText(job) ? '. ' + wdCarpenterPlacedText(job) : ''), fmt(m.carpenter.amount));
-  m.found.forEach(function(f) {
-    money('Found on site: ' + f.label, [f.work, f.carpDays > 0 ? 'carpenter ' + wdFmtDays(f.carpDays) + ' (in the carpenter line above)' : ''].filter(Boolean).join('; '), fmtSigned(f.amount));
-  });
-  if (m.adjustments > 0.005) money('Repairs larger than estimated once exposed', null, fmt(m.adjustments));
-  money('So far', null, fmt(m.soFar), true);
-  if (m.estimate.lines.length) {
-    head('NEEDED NOW');
-    m.estimate.lines.forEach(function(l) {
-      var bits = [];
-      if (l.work) bits.push(l.work);
-      if (l.days > 0) bits.push('carpenter ' + wdFmtDays(l.days));
-      money(l.label, bits.join('; '), fmt(l.amount));
-    });
-    money('Needed now, in all', null, fmt(m.estimate.total), true);
-  }
-  if (m.hasForecast) {
-    head('STILL TO OPEN UP');
-    var n = m.forecast.toOpen.length;
-    money('Allowance for the ' + n + ' window' + (n === 1 ? '' : 's') + ' and door' + (n === 1 ? '' : 's') + ' not opened up yet',
-      'Likely figure, from what has been found so far. It could be between ' + fmt(m.fLow) + ' and ' + fmt(m.fHigh) + '; it firms up as each one is opened.',
-      fmt(m.fLikely));
-  }
-  head('WHERE IT IS HEADING');
-  money('Likely total', m.high - m.low > 0.5 ? 'between ' + fmt(m.low) + ' and ' + fmt(m.high) : null, fmt(m.likely), true);
+    + 'Here is where things stand, with the windows drawn side by side further down so you can see what has been done where.', 9.5);
+
+  // ── At a glance: the whole money story, in pounds.
+  d.y -= 6;
+  var glance = [];
+  if (m.clientFigure) glance.push({ label: 'The figure given at the start', amount: round(m.clientFigure), grey: true });
+  var plannedSub = m.carpenter.plannedAmount > 0.005
+    ? 'painting and repairs ' + round(m.plannedWork) + ', carpenter ' + wdFmtDays(m.carpenter.plannedDays) + ' ' + round(m.carpenter.plannedAmount) : '';
+  glance.push({ label: 'The work as planned', sub: plannedSub, amount: round(m.planned) });
+  var foundSince = m.foundTotal + m.carpenter.extraAmount;
+  var foundBits = [];
+  if (m.found.length) foundBits.push('repairs on ' + m.found.length + ' window' + (m.found.length === 1 ? '' : 's') + ' ' + round(m.foundTotal));
+  if (m.carpenter.extraAmount > 0.005) foundBits.push('carpenter ' + wdFmtDays(m.carpenter.extraDays) + ' more ' + round(m.carpenter.extraAmount));
+  if (Math.abs(foundSince) > 0.5) glance.push({ label: 'Found on site since', sub: foundBits.join(', '), amount: round(foundSince) });
+  glance.push({ label: 'Done so far', amount: round(m.soFar), bold: true });
+  if (m.estimate.lines.length) glance.push({ label: 'Needed now, if you go ahead', sub: m.estimate.lines.length + ' window' + (m.estimate.lines.length === 1 ? '' : 's') + ', marked in orange below', amount: round(m.estimate.total) });
+  if (m.hasForecast) glance.push({ label: 'Allowance for the windows not opened up yet', sub: 'likely; it could be ' + round(m.fLow) + ' to ' + round(m.fHigh), amount: round(m.fLikely) });
+  glance.push({ label: 'Likely total', sub: m.high - m.low > 0.5 ? 'between ' + round(m.low) + ' and ' + round(m.high) : '', amount: round(m.likely), bold: true });
   if (m.invoiced > 0.005) {
-    money('Already invoiced', null, fmt(m.invoiced));
-    money('Likely still to come', m.high - m.low > 0.5 ? 'between ' + fmt(m.low - m.invoiced) + ' and ' + fmt(m.high - m.invoiced) : null, fmt(m.likely - m.invoiced), true);
+    glance.push({ label: 'Invoiced so far', amount: round(m.invoiced) });
+    glance.push({ label: 'Likely still to come', amount: round(m.likely - m.invoiced), bold: true });
   }
-  if (m.clientFigure) { d.y -= 4; para('For comparison, the figure given before the work started was ' + fmt(m.clientFigure) + '.', 9.5); }
-  d.y -= 8;
-  para('Work found on site is done as it is needed, as agreed at the outset, and charged as done. Anything under Needed now is an estimate: '
+  // Measure, draw the panel, then lay the rows on it.
+  // Exactly what money() will take for each row, so the panel fits them.
+  var gLw = (R - 12) - (L + 12) - 100;
+  var gH = 24 + 10 + glance.reduce(function(t, g) {
+    var nl = pdfWrap(pdfSanitise(g.label), !!g.bold, 10, gLw).length;
+    var ns = g.sub ? pdfWrap(pdfSanitise(g.sub), false, 8.5, gLw).length : 0;
+    return t + 4 + nl * 13 + ns * 11 + 5;
+  }, 0);
+  d.need(gH + 6);
+  var gTop = d.y;
+  d.rect(L, gTop, W, gH, [0.945, 0.957, 0.969]);
+  d.text('AT A GLANCE', L + 12, gTop - 17, { size: 9, bold: true, rgb: PDF_STEEL });
+  d.y = gTop - 24;
+  glance.forEach(function(g, k) {
+    money(g.label, g.sub || '', g.amount, { x: L + 12, right: R - 12, bold: g.bold, rgb: g.grey ? PDF_MUT : null, rule: k > 0 });
+  });
+  d.y = gTop - gH - 8;
+
+  // ── Window by window, side by side.
+  if (sides.length) {
+    head('WINDOW BY WINDOW');
+    para('Each side of the house as you face it, windows numbered left to right. Outlined in blue: work done. Dashed orange: work needed now. '
+      + 'Carpenter days are shown against each window; they are part of the carpenter\'s figure above, not charged again.', 8.5, PDF_MUT);
+    sides.forEach(function(sd) {
+      var iw = 0, ih = 0;
+      if (sd.img) { iw = Math.min(300, W); ih = iw * sd.img.aspect; if (ih > 230) { ih = 230; iw = ih / sd.img.aspect; } }
+      d.need(26 + ih + 40);
+      d.y -= 6;
+      d.text(Windoors.sideLabel(sd.side).toUpperCase(), L, d.y - 10, { size: 10, bold: true, rgb: PDF_INK });
+      d.y -= 18;
+      if (sd.img) { d.image(L + (W - iw) / 2, d.y, iw, ih, addImage(sd.img)); d.y -= ih + 8; }
+      sd.rows.forEach(function(w) {
+        var lines = [];
+        if (w.done) lines.push({ t: 'Done: ' + [w.done.work, w.done.days > 0 ? 'carpenter ' + wdFmtDays(w.done.days) : ''].filter(Boolean).join('; '),
+                                  amt: w.done.amount ? fmtSigned(w.done.amount) : '' });
+        if (w.needed) lines.push({ t: 'Needed now: ' + [w.needed.work, w.needed.days > 0 ? 'carpenter ' + wdFmtDays(w.needed.days) : ''].filter(Boolean).join('; '),
+                                    amt: round(w.needed.amount), needed: true });
+        var lw = W - 100;
+        var laid = lines.map(function(l) { return { l: l, ls: pdfWrap(pdfSanitise(l.t), false, 9, lw) }; });
+        var h = 16 + laid.reduce(function(t, x) { return t + x.ls.length * 12 + 2; }, 0);
+        d.need(h + 4);
+        d.rule(L, d.y, R, PDF_RULE);
+        var y = d.y - 4 - 10.5;
+        d.text(w.short, L, y, { size: 10.5, bold: true });
+        y -= 4;
+        laid.forEach(function(x) {
+          var rgb = x.l.needed ? [0.75, 0.42, 0.0] : PDF_INK;
+          if (x.l.amt) d.text(pdfSanitise(x.l.amt), R - pdfTextWidth(pdfSanitise(x.l.amt), false, 9.5), y - 9.5, { size: 9.5, rgb: rgb });
+          x.ls.forEach(function(t) { y -= 9; d.text(t, L, y, { size: 9, rgb: rgb }); y -= 3; });
+          y -= 2;
+        });
+        d.y = y - 4;
+      });
+    });
+    var rest = wdCarpenterLineDays(job) - wdCarpenterPlacedTotal(job);
+    if (rest >= 0.5) para('Carpenter days not tied to one window (other work): ' + wdFmtDays(rest) + '.', 8.5, PDF_MUT);
+  }
+
+  // ── The key: the parts of a sash, drawn and numbered, and the work words.
+  var keyH = key ? 200 : 0;
+  d.need(40 + Math.max(keyH, WD_SASH_KEY.length * 14) + 20);
+  head('THE PARTS OF A WINDOW, AND THE WORK');
+  var kTop = d.y;
+  var kw = 0;
+  if (key) { kw = keyH / key.aspect; d.image(L, kTop, kw, keyH, addImage(key)); }
+  var tx = L + kw + 16, ty = kTop;
+  WD_SASH_KEY.forEach(function(k) {
+    ty -= 11;
+    d.text(k[0] + '  ' + k[1], tx, ty, { size: 9.5, bold: true });
+    d.text(k[2], tx + 92, ty, { size: 9, rgb: PDF_MUT });
+    ty -= 6;
+  });
+  ty -= 8;
+  WD_WORK_KEY.forEach(function(k) {
+    ty -= 10;
+    d.text(k[0], tx, ty, { size: 9, bold: true });
+    pdfWrap(pdfSanitise(k[1]), false, 8.5, R - (tx + 92)).forEach(function(ln, i) { if (i) ty -= 10; d.text(ln, tx + 92, ty, { size: 8.5, rgb: PDF_MUT }); });
+    ty -= 4;
+  });
+  d.y = Math.min(kTop - keyH, ty) - 10;
+  para('Work found on site is done as it is needed, as agreed at the outset, and charged as done. Anything needed now is an estimate: '
     + 'we will go ahead with it once you are happy to. The allowance is a guide, not a price.', 8.5, PDF_MUT);
-  return pdfSerialise(d, null, []);
+  return pdfSerialise(d, null, images);
 }
 async function saveWdWherePdf(opts) {
   var filename = 'NH-Where-We-Are-' + (((activeJob() && activeJob().name) || 'Job').replace(/[^A-Za-z0-9 _-]+/g, '').trim().replace(/\s+/g, '-') || 'Job')
@@ -29146,7 +29297,7 @@ async function saveWdWherePdf(opts) {
   var win = null;
   if (!(opts && opts.share)) try { win = window.open('', '_blank'); } catch (e) { win = null; }
   try {
-    var blob = new Blob([buildWdWherePdf()], { type: 'application/pdf' });
+    var blob = new Blob([await buildWdWherePdf()], { type: 'application/pdf' });
     if (win && !win.closed) { win.location = await localPdfUrl(blob, filename); return; }
     var file = null;
     try { file = new File([blob], filename, { type: 'application/pdf' }); } catch (e) { file = null; }

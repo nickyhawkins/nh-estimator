@@ -2346,6 +2346,16 @@
   //   maxWidth      CSS max width in px
   function elevationSvg(data, side, opts) {
     opts = opts || {};
+    // highlightNeeded { id: true } (v3.9.0, the Where we are page): picked
+    // out as well, in orange and dashed -- work still to do -- beside the
+    // highlight's solid blue for work done. Both count as lit for fading.
+    var needed = opts.highlightNeeded || null;
+    var doneMap = opts.highlight || null;
+    if (needed) {
+      var both = Object.assign({}, opts.highlight || {});
+      Object.keys(needed).forEach(function (k) { if (needed[k]) both[k] = true; });
+      opts = Object.assign({}, opts, { highlight: both });
+    }
     var g = sideGeometry(data, side);
     var a = g.a, style = g.style;
     var p = PAL[style] || PAL.georgian;
@@ -2584,7 +2594,10 @@
         inner += '<circle class="wd-excluded" cx="' + r1(box.x + box.w - 2) + '" cy="' + r1(box.y + 2) + '" r="5" fill="#8a929b" stroke="#fff" stroke-width="1.2"/>'
           + ln(box.x + box.w - 4.5, box.y + 2, box.x + box.w + 0.5, box.y + 2, '#fff', 1.6);
       }
-      if (lit) inner += rect(box.x - 4, box.y - 4, box.w + 8, box.h + 8, 'none', ' stroke="' + PAL.accent + '" stroke-width="2.2" rx="3"');
+      var isNeeded = needed && real.some(function (id) { return needed[id]; });
+      var isDone = lit && (!needed || real.some(function (id) { return doneMap && doneMap[id]; }));
+      if (isDone) inner += rect(box.x - 4, box.y - 4, box.w + 8, box.h + 8, 'none', ' stroke="' + PAL.accent + '" stroke-width="2.2" rx="3"');
+      if (isNeeded) inner += rect(box.x - (isDone ? 7 : 4), box.y - (isDone ? 7 : 4), box.w + (isDone ? 14 : 8), box.h + (isDone ? 14 : 8), 'none', ' stroke="' + PAL.work + '" stroke-width="2.4" stroke-dasharray="5 3" rx="3"');
       if (opts.selected && real.indexOf(opts.selected) >= 0) inner += rect(box.x - 4, box.y - 4, box.w + 8, box.h + 8, 'none', ' stroke="' + PAL.accent + '" stroke-width="2.5" rx="3"');
       inner += '<text x="' + r1(labelX != null ? labelX : box.x + box.w / 2) + '" y="' + r1(labelY) + '" text-anchor="middle" font-family="Barlow, Arial, sans-serif" font-size="9" font-weight="700" fill="' + PAL.ink + '" paint-order="stroke" stroke="rgba(255,255,255,.85)" stroke-width="2.5">' + openingCode(o) + '</text>';
       var fl = { quote: 0, variation: 0 };
