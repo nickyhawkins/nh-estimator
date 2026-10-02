@@ -6928,7 +6928,7 @@ function persistJobData(job) {
   // interimDraft: the interim invoice builder's saved-as-you-go draft,
   // idempotency key included (STAGED_INVOICING_SPEC.md) -- null, not omitted,
   // once issued, or the merge would keep the spent draft forever.
-  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, quoteTextEdited: job.quoteTextEdited != null ? job.quoteTextEdited : null, invoiceTextEdited: job.invoiceTextEdited != null ? job.invoiceTextEdited : null, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, variationBaselinesAt: job.variationBaselinesAt || null, variationBaselinesLate: !!job.variationBaselinesLate, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, deposit: job.deposit, notes: job.notes, kitchen: job.kitchen, fittedUnits: job.fittedUnits, fittedUnit: Array.isArray(job.fittedUnits) ? null : job.fittedUnit, customItems: job.customItems, isXeroImported: !!job.isXeroImported, honouredLabourAmount: job.honouredLabourAmount != null ? job.honouredLabourAmount : null, depositRequired: job.depositRequired !== false, upchargeTotal: job.upchargeTotal != null ? job.upchargeTotal : null, roundingDelta: job.roundingDelta != null ? job.roundingDelta : null, interimDraft: job.interimDraft || null, interimCarry: job.interimCarry || null, carpenterLineId: job.carpenterLineId || undefined, wdOpened: job.wdOpened || undefined, windoorsVariations: Array.isArray(job.windoorsVariations) ? job.windoorsVariations : undefined, windoorsFound: Array.isArray(job.windoorsFound) ? job.windoorsFound : undefined, exteriorLineLayout: job.exteriorLineLayout || undefined });
+  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, quoteTextEdited: job.quoteTextEdited != null ? job.quoteTextEdited : null, invoiceTextEdited: job.invoiceTextEdited != null ? job.invoiceTextEdited : null, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, variationBaselinesAt: job.variationBaselinesAt || null, variationBaselinesLate: !!job.variationBaselinesLate, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, deposit: job.deposit, notes: job.notes, kitchen: job.kitchen, fittedUnits: job.fittedUnits, fittedUnit: Array.isArray(job.fittedUnits) ? null : job.fittedUnit, customItems: job.customItems, isXeroImported: !!job.isXeroImported, honouredLabourAmount: job.honouredLabourAmount != null ? job.honouredLabourAmount : null, depositRequired: job.depositRequired !== false, upchargeTotal: job.upchargeTotal != null ? job.upchargeTotal : null, roundingDelta: job.roundingDelta != null ? job.roundingDelta : null, interimDraft: job.interimDraft || null, interimCarry: job.interimCarry || null, carpenterLineId: job.carpenterLineId || undefined, wdOpened: job.wdOpened || undefined, clientFigure: job.clientFigure === undefined ? undefined : job.clientFigure, windoorsVariations: Array.isArray(job.windoorsVariations) ? job.windoorsVariations : undefined, windoorsFound: Array.isArray(job.windoorsFound) ? job.windoorsFound : undefined, exteriorLineLayout: job.exteriorLineLayout || undefined });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -26713,7 +26713,7 @@ function renderWindoors() {
           + ' <span style="color:var(--accent);font-weight:700;white-space:nowrap">' + fmtSigned(variationDeltaAmount({ raw: foundRaw, spray: 0 })) + '</span></div>' : '')
       + wdAdjustmentsRowHtml(null, 'margin-top:8px;padding-top:8px;border-top:1px solid var(--border)')
       + '</div>';
-    if (wdInUse() && wdJobAccepted(activeJob())) html += wdEstimateCardHtml() + wdForecastCardHtml();
+    if (wdInUse() && wdJobAccepted(activeJob())) html += wdEstimateCardHtml() + wdForecastCardHtml() + wdWhereCardHtml();
   } else {
     // Collapsible: open while the house is being designed, folded to one
     // summary line once any side's layout is confirmed (tap to reopen).
@@ -28735,10 +28735,8 @@ async function buildWindoorsReportPdf(opts) {
         sec.quoted.forEach(function(q) { rows.push(item(q)); });
       }
       if (sec.variations.length) {
-        rows.push({ t: 'APPROVED VARIATIONS', size: 7.5, bold: true, rgb: PDF_MUT, gap: 4 });
-        sec.variations.forEach(function(v) {
-          rows.push(item(v.text + (v.approvedAt ? ' (approved ' + Windoors.fmtDate(v.approvedAt) + ')' : '')));
-        });
+        rows.push({ t: 'FOUND ON SITE', size: 7.5, bold: true, rgb: PDF_MUT, gap: 4 });
+        sec.variations.forEach(function(v) { rows.push(item(v.text)); });
       }
       var laid = [];
       rows.forEach(function(r) {
@@ -28765,6 +28763,176 @@ async function buildWindoorsReportPdf(opts) {
     d.y -= 6;
   });
   return pdfSerialise(d, null, images);
+}
+
+// ── Where we are (v3.7.0) ─────────────────────────────────────────────────
+// Part 3 of the estimates work: the page to give the client when the job is
+// running over. Everything comes from what the app already holds:
+//   planned      the accepted quote's total
+//   found        work found on site so far, window by window, as billed
+//                (with any repair size adjustments)
+//   carpenter    carpenter days beyond what the accepted quote had, from the
+//                carpenter's line now against its row in the accepted quote
+//   estimate     the windows priced but not agreed yet (with their days)
+//   forecast     the windows not opened up yet, as a range
+// and adds them up to where the job is heading, likely and the range. The
+// figure the client was given before starting (job.clientFigure, optional)
+// is said beside it -- never used in the sum, which is always the real
+// figures, so the page adds up for anyone checking it.
+function wdWhereModel() {
+  var job = activeJob();
+  var out = { ready: false };
+  if (!job || !wdInUse()) return out;
+  var snap = latestQuoteSnapshot(job);
+  var t = snap && snap.data && snap.data.totals;
+  var planned = t ? (+t.incVat || ((+t.labour || 0) + (+t.importedBaseline || 0) + (+t.materials || 0))) : null;
+  if (planned == null && job.acceptedSnapshot) planned = (+job.acceptedSnapshot.estLabourTotal || 0) + (+job.acceptedSnapshot.estMaterialsTotal || 0);
+  var found = windoorsFoundLines().map(function(l) {
+    return { id: l.id, label: l.label, work: l.work, amount: variationDeltaAmount({ raw: l.raw, spray: 0 }) };
+  });
+  var adj = wdAdjustments();
+  // Carpenter days beyond the accepted quote.
+  var line = wdCarpenterLine(job), carp = { days: 0, amount: 0 };
+  if (line && snap && snap.data && snap.data.lines) {
+    var row = (snap.data.lines.work || []).find(function(r) { return r.sourceKey === 'custom:' + line.id; });
+    var was = row ? +row.lineTotal || 0 : 0;
+    var now = customItemTotal(line);
+    var price = +line.unitPrice || 0;
+    var factor = price > 0 ? wdCarpenterDayAmount(job) / price : 1;
+    if (now - was > 0.005 && price > 0) carp = { days: Math.round((now - was) / price * 2) / 2, amount: (now - was) * factor };
+  }
+  var est = wdEstimateModel(job);
+  var fc = wdForecastModel();
+  var fcC = fc.carpenter || { lowAmount: 0, likelyAmount: 0, highAmount: 0 };
+  var foundTotal = found.reduce(function(s, f) { return s + f.amount; }, 0) + (adj.amount || 0);
+  var soFar = (planned || 0) + foundTotal + carp.amount;
+  var hasForecast = fc.samples > 0 && fc.toOpen.length > 0;
+  var fLow = hasForecast ? fc.low + fcC.lowAmount : 0, fLikely = hasForecast ? fc.likely + fcC.likelyAmount : 0, fHigh = hasForecast ? fc.high + fcC.highAmount : 0;
+  return { ready: planned != null, planned: planned, clientFigure: +job.clientFigure > 0 ? +job.clientFigure : null,
+           found: found, adjustments: adj.amount || 0, foundTotal: foundTotal, carpenter: carp, soFar: soFar,
+           estimate: est, forecast: fc, hasForecast: hasForecast, fLow: fLow, fLikely: fLikely, fHigh: fHigh,
+           likely: soFar + est.total + fLikely, low: soFar + est.total + fLow, high: soFar + est.total + fHigh };
+}
+function setWdClientFigure() {
+  var job = activeJob(); if (!job) return;
+  var v = prompt('The figure the client was given before the job started (a ballpark), if any. It\'s said beside the total, never added in. Clear it to leave it off.',
+    job.clientFigure ? String(job.clientFigure) : '');
+  if (v === null) return;
+  var n = parseFloat(String(v).replace(/[£,\s]/g, ''));
+  job.clientFigure = n > 0 ? Math.round(n * 100) / 100 : null;
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  renderWindoors();
+}
+function wdWhereCardHtml() {
+  var m = wdWhereModel();
+  if (!m.ready) return '';
+  var row = function(label, amount, small, bold) {
+    return '<div style="display:flex;justify-content:space-between;gap:10px;border-top:1px solid var(--border);margin-top:6px;padding-top:6px;font-size:13px' + (bold ? ';font-weight:700' : '') + '">'
+      + '<span>' + label + (small ? '<small style="display:block;font-weight:400;color:var(--text2)">' + small + '</small>' : '') + '</span>'
+      + '<span style="white-space:nowrap;text-align:right">' + amount + '</span></div>';
+  };
+  var soft = 'flex:1;background:var(--accent-soft-bg);color:var(--accent);border:1px solid var(--accent-soft-border);border-radius:12px;padding:10px;font-size:14px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer';
+  var h = '<div class="card" style="padding:12px 14px">'
+    + '<div style="font-weight:700;font-size:15px">Where we are</div>'
+    + '<div style="font-size:12px;color:var(--text2);margin-top:4px;line-height:1.45">For the client: where the job stands and where it\'s heading. The PDF shows what was found window by window, the estimate and the allowance for the rest — never the quote\'s breakdown.</div>'
+    + row('The work as planned', fmt(m.planned), 'the accepted quote')
+    + (Math.abs(m.foundTotal) > 0.005 ? row('Found on site so far', fmtSigned(m.foundTotal), m.found.length + ' window' + (m.found.length === 1 ? '' : 's')) : '')
+    + (m.carpenter.amount > 0.005 ? row('Extra carpenter time so far', fmt(m.carpenter.amount), wdFmtDays(m.carpenter.days) + ' beyond the quote') : '')
+    + (m.estimate.lines.length ? row('Estimate, not agreed yet', fmt(m.estimate.total), m.estimate.lines.length + ' window' + (m.estimate.lines.length === 1 ? '' : 's')) : '')
+    + (m.hasForecast ? row('Allowance for the rest', fmt(m.fLikely), fmt(m.fLow) + ' – ' + fmt(m.fHigh) + ' · ' + m.forecast.toOpen.length + ' not opened up yet') : '')
+    + row('Where it\'s heading', fmt(m.likely), m.high - m.low > 0.5 ? fmt(m.low) + ' – ' + fmt(m.high) : '', true)
+    + '<div style="font-size:12px;color:var(--text2);margin-top:8px">Figure given before starting: '
+    + (m.clientFigure ? '<b>' + fmt(m.clientFigure) + '</b> · ' : 'none · ')
+    + '<span onclick="setWdClientFigure()" style="color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline">' + (m.clientFigure ? 'change' : 'add one') + '</span></div>'
+    + '<div style="display:flex;gap:8px;margin-top:10px"><button onclick="saveWdWherePdf()" style="' + soft + '">📄 Where we are (PDF)</button>'
+    + '<button onclick="saveWdWherePdf({ share: true })" style="' + soft + ';flex:none;padding:10px 16px">Share</button></div>';
+  return h + '</div>';
+}
+function buildWdWherePdf() {
+  var m = wdWhereModel();
+  if (!m.ready) throw new Error('the job has no accepted quote to start from');
+  var job = activeJob() || {};
+  var d = pdfDoc();
+  var L = PDF_MARGIN, R = PDF_PAGE_W - PDF_MARGIN, W = R - L;
+  var line = function(s, x, size, o) { d.text(s, x, d.y - size, Object.assign({ size: size }, o || {})); d.y -= size + 4; };
+  var para = function(t, size, rgb) {
+    pdfWrap(pdfSanitise(t), false, size, W).forEach(function(ln) { d.need(size + 4); d.text(ln, L, d.y - size, { size: size, rgb: rgb }); d.y -= size + 3; });
+  };
+  var head = function(t) { d.need(30); d.y -= 8; d.text(t, L, d.y - 8, { size: 8, bold: true, rgb: PDF_MUT }); d.y -= 14; };
+  // A row: words on the left (wrapped), the figure on the right.
+  var money = function(label, sub, amount, bold) {
+    var lw = W - 110;
+    var ls = pdfWrap(pdfSanitise(label), !!bold, 10, lw), ss = sub ? pdfWrap(pdfSanitise(sub), false, 8.5, lw) : [];
+    d.need(ls.length * 13 + ss.length * 11 + 10);
+    d.rule(L, d.y, R, PDF_RULE);
+    var top = d.y - 4;
+    d.text(pdfSanitise(amount), R - pdfTextWidth(pdfSanitise(amount), !!bold, 10), top - 10, { size: 10, bold: !!bold });
+    var y = top;
+    ls.forEach(function(t) { y -= 10; d.text(t, L, y, { size: 10, bold: !!bold }); y -= 3; });
+    ss.forEach(function(t) { y -= 8.5; d.text(t, L, y, { size: 8.5, rgb: PDF_MUT }); y -= 2.5; });
+    d.y = y - 6;
+  };
+  line(quoteBusinessName(), L, 15, { bold: true, rgb: PDF_STEEL });
+  line('Where we are: windows and doors', L, 12, { bold: true });
+  line([job.name, job.xeroClient].filter(Boolean).join(' · '), L, 9.5, { rgb: PDF_MUT });
+  line(new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }), L, 9.5, { rgb: PDF_MUT });
+  d.y -= 4; d.rule(L, d.y, R, PDF_STEEL); d.y -= 10;
+  para('Old windows hide their condition until the paint comes off, so the work has grown as each one has been opened up. '
+    + 'This is where things stand: what has been found so far, what the windows we have looked at closely need, and a fair allowance for the ones not opened up yet.', 9.5);
+  head('SO FAR');
+  money('The work as planned', null, fmt(m.planned));
+  m.found.forEach(function(f) { money('Found on site: ' + f.label, f.work || '', fmtSigned(f.amount)); });
+  if (m.adjustments > 0.005) money('Repairs larger than estimated once exposed', null, fmt(m.adjustments));
+  if (m.carpenter.amount > 0.005) money('Extra carpenter time', wdFmtDays(m.carpenter.days) + ' beyond what was planned', fmt(m.carpenter.amount));
+  money('So far', null, fmt(m.soFar), true);
+  if (m.estimate.lines.length) {
+    head('NEEDED NOW');
+    m.estimate.lines.forEach(function(l) {
+      var bits = [];
+      if (l.work) bits.push(l.work);
+      if (l.days > 0) bits.push('carpenter ' + wdFmtDays(l.days));
+      money(l.label, bits.join('; '), fmt(l.amount));
+    });
+    money('Needed now, in all', null, fmt(m.estimate.total), true);
+  }
+  if (m.hasForecast) {
+    head('STILL TO OPEN UP');
+    var n = m.forecast.toOpen.length;
+    money('Allowance for the ' + n + ' window' + (n === 1 ? '' : 's') + ' and door' + (n === 1 ? '' : 's') + ' not opened up yet',
+      'Likely figure, from what has been found so far. It could be between ' + fmt(m.fLow) + ' and ' + fmt(m.fHigh) + '; it firms up as each one is opened.',
+      fmt(m.fLikely));
+  }
+  head('WHERE IT IS HEADING');
+  money('Likely total', m.high - m.low > 0.5 ? 'between ' + fmt(m.low) + ' and ' + fmt(m.high) : null, fmt(m.likely), true);
+  if (m.clientFigure) { d.y -= 4; para('For comparison, the figure given before the work started was ' + fmt(m.clientFigure) + '.', 9.5); }
+  d.y -= 8;
+  para('Work found on site is done as it is needed, as agreed at the outset, and charged as done. Anything under Needed now is an estimate: '
+    + 'we will go ahead with it once you are happy to. The allowance is a guide, not a price.', 8.5, PDF_MUT);
+  return pdfSerialise(d, null, []);
+}
+async function saveWdWherePdf(opts) {
+  var filename = 'NH-Where-We-Are-' + (((activeJob() && activeJob().name) || 'Job').replace(/[^A-Za-z0-9 _-]+/g, '').trim().replace(/\s+/g, '-') || 'Job')
+    + '-' + new Date().toISOString().slice(0, 10) + '.pdf';
+  var win = null;
+  if (!(opts && opts.share)) try { win = window.open('', '_blank'); } catch (e) { win = null; }
+  try {
+    var blob = new Blob([buildWdWherePdf()], { type: 'application/pdf' });
+    if (win && !win.closed) { win.location = await localPdfUrl(blob, filename); return; }
+    var file = null;
+    try { file = new File([blob], filename, { type: 'application/pdf' }); } catch (e) { file = null; }
+    var canShare = false;
+    try { canShare = !!(file && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })); } catch (e) { canShare = false; }
+    if (canShare) {
+      try { await navigator.share({ files: [file], title: 'Where we are' }); return; }
+      catch (e) { if (e && (e.name === 'AbortError' || e.name === 'NotAllowedError')) return; }
+    }
+    downloadBlob(blob, filename);
+    toast('Saved as ' + filename);
+  } catch (err) {
+    try { if (win) win.close(); } catch (e) { /* already gone */ }
+    reportFailure('Couldn\'t build the where-we-are PDF', err);
+  }
 }
 
 function windoorsReportFilename(todo) {

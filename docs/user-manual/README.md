@@ -1435,6 +1435,25 @@ It's a guide for you to give the client, not a price, and it doesn't go on anyth
 
 ![The forecast: found so far, and what's likely still to come](images/26zrc-windoors-forecast.png)
 
+#### Where we are: telling the client
+
+When a job is running over, the **Where we are** card (under the Forecast) adds everything up for the client. Its PDF is the thing to send.
+
+- **The work as planned:** the accepted quote's total, as one figure, never its breakdown.
+- **Found on site so far**, window by window, at the figures they're billed at. Any repairs that turned out bigger than quoted are a line of their own.
+- **Extra carpenter time so far:** the days on the carpenter's line beyond what the accepted quote had (*1 day beyond the quote*).
+- **Needed now:** the estimate, window by window, with each window's carpenter days.
+- **Allowance for the rest:** the forecast's likely figure, with its range, for the windows not opened up yet.
+- **Where it's heading:** all of that added up, likely, and between the low and high.
+
+**The figure given before starting.** If you gave the client a ballpark before starting (*about £5,000*), tap **add one** and type it. It's printed beside the total for comparison (*For comparison, the figure given before the work started was £5,000.00*), but never added into anything: the sums are always the real figures, so the page adds up for anyone checking it.
+
+**📄 Where we are (PDF)** opens it on its own page; **Share** sends it from your phone. It's built on the phone, so it works with no signal. It ends with a short note: work found on site is done as needed and charged as done; anything under *Needed now* is an estimate, done once they're happy; the allowance is a guide, not a price.
+
+![The Where we are card](images/26zrd-windoors-where-we-are.png)
+
+![The Where we are PDF](images/26zre-windoors-where-we-are-pdf.png)
+
 #### Work to do
 
 **📋 Work to do (PDF)** is on the Windows & Doors screen from Measure and from On Site, as soon as the job has any windows or doors. It's the list of what's still to be done, built on the phone with no signal needed. Tap it to read it: it opens on its own page, the same way the work report does. To send, save or print it, tap **Share** next to it, which hands the PDF to your phone's share sheet (on a computer it downloads).
@@ -1722,6 +1741,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v3.6.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v3.7.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
