@@ -23,6 +23,8 @@
 //      windows, so the next interim doesn't bill it twice.
 //   8. Price per window (v3.4.0): painting, quoted repairs and found work
 //      per opening, adding up to the quote.
+//   9. Estimates (v3.5.0): work priced before it's agreed, with carpenter
+//      days, billed nowhere until Go ahead.
 //
 // Driven in a real browser against the real public/index.html (served off
 // disk, no server, no database -- writes 404 and queue, as offline on site).
@@ -250,6 +252,60 @@ const SEED = () => {
   check('8. the sheet lists them, by side, with the totals', /Price per window/.test(ppw.text) && /Back/.test(ppw.text) && /First floor, W1/.test(ppw.text) && /As quoted/.test(ppw.text) && /Making good/.test(ppw.text) && /Now/.test(ppw.text));
   // Used by its own sheet and nothing else: no quote, invoice or client page.
   eq('8. it is nowhere a client sees', (fs.readFileSync(path.join(PUBLIC, 'index.html'), 'utf8').match(/wdPricePerWindow\(/g) || []).length, 2);
+
+  // ── 9. Estimates (v3.5.0) ────────────────────────────────────────────────
+  const est = await page.evaluate(async () => {
+    const job = activeJob();
+    job.customItems = [{ id: 'cj', type: 'customLineItem', description: 'Joinery Work @ Day Rate', quantity: 9, unitPrice: 250, total: 2250, applyMarkup: false }];
+    const before = { found: windoorsFoundLines().map(l => [l.id, Math.round(l.raw * 100) / 100]), client: JSON.stringify(buildClientVariationLines()) };
+    await openWindoors('site');
+    setWdEstimating(true);
+    openWdDetail('f2');
+    wdSel = { kind: 'part', ids: { right_stile: true, top_rail: true } }; wdApplyAction('splice');
+    wdSetCarpenterDays(0.5); wdSetCarpenterDays(0.5); wdSetCarpenterDays(0.5);
+    const sheet = document.getElementById('wd-sheet-body').textContent;
+    openWdDetail('g1');
+    wdSel = { kind: 'part', ids: { top_rail: true } }; wdApplyAction('resin');
+    const m = wdEstimateModel();
+    const sp = Windoors.actionPrice(wdRates(), 'splice');
+    const after = { found: windoorsFoundLines().map(l => [l.id, Math.round(l.raw * 100) / 100]), client: JSON.stringify(buildClientVariationLines()) };
+    const card = document.getElementById('wd-body').textContent;
+    const ppw = wdPricePerWindow();
+    const todo = Windoors.reportModel(windoors, wdReportVariations(), { todo: true }).sections.some(sec => sec.variations.some(v => /splice/i.test(v.text)));
+    const tickable = wdTickable(windoors.openings.find(o => o.id === 'f2'), windoors.marks.filter(mk => mk.opening_id === 'f2')).some(mk => mk.action_key === 'splice');
+    // Prep can't be changed while estimating.
+    openWdDetail('f2');
+    const prepBefore = windoors.openings.find(o => o.id === 'f2').prep_level;
+    setWdPrep('restoration');
+    const prepAfter = windoors.openings.find(o => o.id === 'f2').prep_level;
+    // Go ahead with f2 only; drop g1.
+    window.confirm = () => true;
+    wdEstimateGoAhead('f2');
+    const ga = { found: windoorsFoundLines().find(l => l.id === 'f2'), qty: job.customItems[0].quantity, total: job.customItems[0].total,
+                 left: wdEstimateModel().lines.map(l => l.id) };
+    wdEstimateDrop('g1');
+    const dropped = { est: !!wdEstimate(false), resin: windoors.marks.some(mk => mk.opening_id === 'g1' && mk.element_id === 'top_rail') };
+    closeWdDetail(); goBack();
+    return { m: { lines: m.lines.map(l => [l.id, l.days, Math.round(l.carpenterAmount * 100) / 100]), total: m.total, work: m.workAmount, carp: m.carpenterAmount },
+             spliceRaw: (sp.mins * rpm() + sp.cost) * 2, f2work: m.lines.find(l => l.id === 'f2').workRaw,
+             same: before.found.join() === after.found.join() && before.client === after.client, sheet, card,
+             ppwEst: Math.round(ppw.estimate * 100) / 100, todo, tickable, prep: [prepBefore, prepAfter], ga, dropped, estimating: wdEstimating,
+             foundBefore: before.found };
+  });
+  eq('9. an estimate holds a line per window, with its carpenter days', est.m.lines, [['g1', 0, 0], ['f2', 1.5, 375]]);
+  check('9. its work is priced like found work', Math.abs(est.f2work - est.spliceRaw) < 0.02, [est.f2work, est.spliceRaw]);
+  check('9. the total is the work as billed plus the carpenter days', Math.abs(est.m.total - (est.m.work + 375)) < 0.01, est.m);
+  check('9. nothing estimated is found work or on the client page', est.same);
+  check('9. ...nor on the work-to-do list, nor to tick off', !est.todo && !est.tickable);
+  check('9. the sheet says it is an estimate, with the carpenter stepper', /estimate — not agreed yet/.test(est.sheet) && /Carpenter/.test(est.sheet) && /1½ days/.test(est.sheet), est.sheet.slice(0, 400));
+  check('9. the screen shows the estimate card', /Estimate total/.test(est.card) && /Go ahead with all/.test(est.card) && /Joinery Work @ Day Rate, £250.00 a day/.test(est.card), est.card.slice(0, 600));
+  check('9. price per window carries it', Math.abs(est.ppwEst - est.m.total) < 0.02, [est.ppwEst, est.m.total]);
+  eq('9. prep can\'t be changed while estimating', est.prep[0], est.prep[1]);
+  check('9. go ahead: the window\'s work is found on site', est.ga.found && Math.abs(est.ga.found.raw - (est.foundBefore.find(f => f[0] === 'f2')[1] + est.spliceRaw)) < 0.05, est.ga.found);
+  eq('9. ...and its days go onto the carpenter\'s line', [est.ga.qty, est.ga.total], [10.5, 2625]);
+  eq('9. ...leaving the rest of the estimate', est.ga.left, ['g1']);
+  eq('9. drop: its marks come off, and an empty estimate goes', est.dropped, { est: false, resin: false });
+  eq('9. leaving the screen ends estimating', est.estimating, false);
 
   if (process.env.SHOT_DIR) {
     await page.evaluate(() => {

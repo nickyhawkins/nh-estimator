@@ -12879,6 +12879,9 @@ function goBack() {
   if (leaving === 'windoors') {
     document.getElementById('wd-sheet').style.display = 'none';
     wdOpenId = null;
+    // Estimating is a deliberate mode: leaving the screen ends it, so a
+    // mark made tomorrow isn't quietly an estimate.
+    wdEstimating = false;
     if (curTab === 'actuals') renderActuals();
     renderSummary();
   }
@@ -25673,7 +25676,37 @@ function wdGroupKeyOf(openingId) {
 // old per-batch drafts were folded in that way (wdFoldInVariations). A
 // declined one (only ever from before v3.3.0) is work that isn't being done.
 function wdVariationList(job) { job = job || activeJob(); return (job && Array.isArray(job.windoorsVariations)) ? job.windoorsVariations : []; }
-function wdIsFound(v) { return !!v && variationStatusOf(v) !== 'declined'; }
+function wdIsFound(v) { return !!v && !v.estimate && variationStatusOf(v) !== 'declined'; }
+// ── Estimates (v3.5.0) ────────────────────────────────────────────────────
+// Work priced before it's agreed: "how much will the front windows cost?"
+// With Estimating switched on (On Site windows screen), new marks go onto
+// the job's one ESTIMATE entry instead of the found record -- priced, shown,
+// but billed nowhere: not found work, not on the client page, the invoices,
+// the reports or the work-to-do list. Carpenter days can be put against a
+// window too (est.carpenter: { openingId: days }). "Go ahead" moves a
+// window's marks onto the found record and adds its days to the job's
+// carpenter line; "Drop" deletes them.
+var wdEstimating = false;
+function wdIsEstimate(v) { return !!v && !!v.estimate; }
+function wdEstimate(create) {
+  var job = activeJob();
+  if (!job) return null;
+  var e = wdVariationList(job).find(wdIsEstimate);
+  if (!e && create) {
+    job.windoorsVariations = wdVariationList(job).slice();
+    e = { id: uid(), createdAt: new Date().toISOString(), description: '', estimate: true, carpenter: {} };
+    job.windoorsVariations.push(e);
+    localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+    persistJobData(job);
+  }
+  return e || null;
+}
+// Entries whose work isn't billed: declined (before v3.3.0) and the estimate.
+function wdUnbilledIds(job) {
+  var out = wdDeclinedIds(job);
+  wdVariationList(job).forEach(function(v) { if (wdIsEstimate(v)) out[v.id] = true; });
+  return out;
+}
 // Before v3.3.0 each batch of site marks was a variation of its own, sent and
 // answered. Fold them in: an unanswered one becomes found work like the rest
 // (approved, since it's being done), an answered one just carries on. A
@@ -25683,7 +25716,7 @@ function wdFoldInVariations(job) {
   if (!job) return 0;
   var now = new Date().toISOString(), n = 0;
   wdVariationList(job).forEach(function(v) {
-    if (!v || v.found || variationStatusOf(v) === 'declined') return;
+    if (!v || v.found || v.estimate || variationStatusOf(v) === 'declined') return;
     v.found = true;
     if (variationStatusOf(v) !== 'approved') {
       v.variationStatus = 'approved';
@@ -25716,7 +25749,7 @@ function wdDraft(create) {
 // variation declined before v3.3.0.
 function wdVariationEditable(variationId) {
   var v = wdVariationList().find(function(x) { return x.id === variationId; });
-  return !v || wdIsFound(v);
+  return !v || wdIsFound(v) || wdIsEstimate(v);
 }
 // Declined entries, by id: their marks and prep aren't being done.
 function wdDeclinedIds(job) {
@@ -25744,7 +25777,7 @@ function windoorsFoundLines(job) {
              name: 'Windows and doors — ' + c.label + (c.work ? ': ' + c.work : '') };
   };
   if (!loaded) return (Array.isArray(job.windoorsFound) ? job.windoorsFound : []).map(line);
-  var skip = wdDeclinedIds(job);
+  var skip = wdUnbilledIds(job);
   var priced = Windoors.priceJob(windoors, wdRates()).variations;
   var per = {};
   Object.keys(priced).forEach(function(vid) {
@@ -25773,6 +25806,206 @@ function windoorsFoundLines(job) {
 // The found lines' total, raw £ before sundries and markup.
 function windoorsFoundRaw(job) {
   return windoorsFoundLines(job).reduce(function(t, l) { return t + l.raw; }, 0);
+}
+
+// The carpenter's line: the custom line extra carpenter days are added to
+// on Go ahead, and whose day rate prices the days in an estimate. Picked
+// once per job (job.carpenterLineId); until then, the one custom line that
+// reads like joinery or carpentry, if there is exactly one.
+function wdCarpenterLine(job) {
+  job = job || activeJob();
+  var items = jobCustomItems(job);
+  if (job && job.carpenterLineId) {
+    var picked = items.find(function(it) { return it.id === job.carpenterLineId; });
+    if (picked) return picked;
+  }
+  var guess = items.filter(function(it) { return /joiner|carpent/i.test(it.description || ''); });
+  return guess.length === 1 ? guess[0] : null;
+}
+// A carpenter day as the client is charged for it: the line's day rate,
+// with the variations markup unless the line goes on without markup.
+function wdCarpenterDayAmount(job) {
+  var it = wdCarpenterLine(job);
+  if (!it) return 0;
+  return (+it.unitPrice || 0) * (it.applyMarkup === false ? 1 : variationMarkupMult());
+}
+function pickWdCarpenterLine() {
+  var job = activeJob();
+  var items = jobCustomItems(job);
+  if (!items.length) { alert('Add a custom line for the carpenter on Measure first — e.g. "Joinery work @ day rate", 1 × £250.'); return; }
+  var cur = wdCarpenterLine(job);
+  var n = prompt('Which custom line is the carpenter\'s day rate?\n\n'
+    + items.map(function(it, i) { return (i + 1) + '. ' + it.description + ' — ' + fmt(+it.unitPrice || 0) + ' a day'; }).join('\n'),
+    cur ? String(items.indexOf(cur) + 1) : '1');
+  if (n === null) return;
+  var it = items[(parseInt(n, 10) || 0) - 1];
+  if (!it) return;
+  job.carpenterLineId = it.id;
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  wdChanged();
+}
+// The estimate, a line per opening with anything in it:
+//   { id, label, work (words), workRaw (£ before sundries/markup),
+//     workAmount (as it would be billed), days, carpenterAmount, amount }
+// plus totals. Work is priced exactly as found work would be.
+function wdEstimateModel(job) {
+  job = job || activeJob();
+  var out = { lines: [], total: 0, workAmount: 0, days: 0, carpenterAmount: 0, id: null };
+  var est = wdEstimate(false);
+  if (!est || !job || job.id !== activeJobId || !wdLoadedForActiveJob()) return out;
+  out.id = est.id;
+  var by = (Windoors.priceJob(windoors, wdRates()).variations[est.id] || {}).byOpening || {};
+  var carp = est.carpenter || {};
+  // Words for the estimate's own marks only.
+  var skip = { unassigned: true };
+  wdVariationList(job).forEach(function(v) { if (v.id !== est.id) skip[v.id] = true; });
+  var day = wdCarpenterDayAmount(job), r = rpm();
+  Windoors.sortOpenings(windoors.openings).forEach(function(o) {
+    var e = by[o.id], days = +carp[o.id] || 0;
+    var raw = e ? e.mins * r + e.materials : 0;
+    if (Math.abs(raw) < 0.005 && !(days > 0)) return;
+    var workAmount = variationDeltaAmount({ raw: raw, spray: 0 });
+    var line = { id: o.id, label: Windoors.openingLabel(o), work: Windoors.describeOpeningSite(windoors, o.id, skip),
+                 workRaw: raw, workAmount: workAmount, days: days, carpenterAmount: days * day, amount: workAmount + days * day };
+    out.lines.push(line);
+    out.workAmount += workAmount; out.days += days; out.carpenterAmount += line.carpenterAmount; out.total += line.amount;
+  });
+  return out;
+}
+function setWdEstimating(on) {
+  wdEstimating = !!on;
+  wdSel = { kind: null, ids: {} };
+  renderWindoors();
+  if (wdOpenId) renderWdDetail();
+}
+// Carpenter days on the open window, in half days.
+function wdSetCarpenterDays(delta) {
+  var o = wdOpening(); if (!o || !wdEstimating) return;
+  var est = wdEstimate(true);
+  est.carpenter = Object.assign({}, est.carpenter || {});
+  var n = Math.max(0, Math.round(((+est.carpenter[o.id] || 0) + delta) * 2) / 2);
+  if (n > 0) est.carpenter[o.id] = n; else delete est.carpenter[o.id];
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(activeJob());
+  wdChanged();
+}
+function wdCarpenterHtml(o) {
+  if (wdMode !== 'site' || !wdEstimating) return '';
+  var est = wdEstimate(false);
+  var days = est && est.carpenter ? +est.carpenter[o.id] || 0 : 0;
+  var line = wdCarpenterLine();
+  var b = 'border:1px solid var(--border);background:var(--surface2);color:var(--text);border-radius:10px;width:40px;height:36px;font-size:18px;font-weight:700;cursor:pointer';
+  return '<div style="margin-top:6px"><div class="subsection-label">Carpenter<small>for work beyond yours — days on this ' + (o.kind === 'door' ? 'door' : 'window') + ', in the estimate</small></div>'
+    + '<div style="display:flex;align-items:center;gap:10px;padding:0 16px 10px">'
+    + '<button type="button" style="' + b + '" onclick="wdSetCarpenterDays(-0.5)">−</button>'
+    + '<span style="min-width:70px;text-align:center;font-size:15px;font-weight:700">' + wdFmtDays(days) + '</span>'
+    + '<button type="button" style="' + b + '" onclick="wdSetCarpenterDays(0.5)">+</button>'
+    + '<span style="font-size:13px;color:var(--text2)">' + (line ? (days ? fmt(days * wdCarpenterDayAmount()) : fmt(wdCarpenterDayAmount()) + ' a day')
+        : '<span onclick="pickWdCarpenterLine()" style="color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline">set the carpenter\'s line</span>') + '</span></div></div>';
+}
+function wdFmtDays(d) {
+  if (!(d > 0)) return 'none';
+  var whole = Math.floor(d), half = d - whole >= 0.5;
+  return (whole ? whole : '') + (half ? '½' : '') + ' day' + (d > 1 ? 's' : '');
+}
+// Go ahead: the client said yes. The window's estimated marks become found
+// work, and its carpenter days go onto the carpenter's line. null = all.
+function wdEstimateGoAhead(openingId) {
+  var job = activeJob(), est = wdEstimate(false);
+  if (!job || !est) return;
+  var m = wdEstimateModel(job);
+  var lines = m.lines.filter(function(l) { return !openingId || l.id === openingId; });
+  if (!lines.length) return;
+  var days = lines.reduce(function(t, l) { return t + l.days; }, 0);
+  var line = wdCarpenterLine(job);
+  if (days > 0 && !line) { alert('Set the carpenter\'s line first (on the estimate), so the days have somewhere to go.'); return; }
+  var what = lines.length === 1 ? lines[0].label : lines.length + ' windows';
+  if (!confirm('Go ahead with ' + what + '?\n\nThe work becomes found on site and is billed as it\'s done'
+    + (days > 0 ? ', and ' + wdFmtDays(days) + ' go' + (days > 1 ? '' : 'es') + ' onto "' + line.description + '"' : '') + '.')) return;
+  var found = wdDraft(true);
+  var ids = {};
+  lines.forEach(function(l) { ids[l.id] = true; });
+  windoors.marks.forEach(function(mk) {
+    if (mk.variation_id === est.id && ids[mk.opening_id]) { mk.variation_id = found.id; wdPutMark(mk); }
+  });
+  if (days > 0) {
+    line.quantity = Math.round(((+line.quantity > 0 ? +line.quantity : 1) + days) * 100) / 100;
+    line.total = Math.round(line.quantity * (+line.unitPrice || 0) * 100) / 100;
+    saveCustomItems();
+  }
+  est.carpenter = Object.assign({}, est.carpenter || {});
+  Object.keys(ids).forEach(function(k) { delete est.carpenter[k]; });
+  wdTidyEstimate(job);
+  toast(lines.length === 1 ? what + ': go ahead — now found on site' : what + ': go ahead — now found on site');
+}
+// Drop: the client said no, or it isn't needed after all.
+function wdEstimateDrop(openingId) {
+  var job = activeJob(), est = wdEstimate(false);
+  if (!job || !est) return;
+  var lines = wdEstimateModel(job).lines.filter(function(l) { return !openingId || l.id === openingId; });
+  if (!lines.length) return;
+  if (!confirm('Drop the estimate for ' + (lines.length === 1 ? lines[0].label : 'all ' + lines.length + ' windows') + '? Its marks are taken off.')) return;
+  var ids = {};
+  lines.forEach(function(l) { ids[l.id] = true; });
+  windoors.marks = windoors.marks.filter(function(mk) {
+    if (mk.variation_id === est.id && ids[mk.opening_id]) { wdDeleteMark(mk); return false; }
+    return true;
+  });
+  est.carpenter = Object.assign({}, est.carpenter || {});
+  Object.keys(ids).forEach(function(k) { delete est.carpenter[k]; });
+  wdTidyEstimate(job);
+}
+// An estimate with nothing left in it goes; either way the job is saved.
+function wdTidyEstimate(job) {
+  var est = wdEstimate(false);
+  if (est && !windoors.marks.some(function(mk) { return mk.variation_id === est.id; }) && !Object.keys(est.carpenter || {}).length) {
+    job.windoorsVariations = wdVariationList(job).filter(function(v) { return v !== est; });
+  }
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  wdChanged();
+  renderActuals();
+}
+// The estimate as a card: a row per window, with Go ahead / Drop, and the
+// total. Shown on the On Site windows screen whenever there is one.
+function wdEstimateCardHtml() {
+  var m = wdEstimateModel();
+  var line = wdCarpenterLine();
+  var link = 'color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline';
+  var h = '<div class="card" style="padding:12px 14px;border:1px dashed var(--warn,#f39c12)">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px">'
+    + '<div style="font-weight:700;font-size:15px">Estimate' + (wdEstimating ? ' <small style="font-weight:600;color:var(--warn,#f39c12)">· estimating</small>' : '') + '</div>'
+    + '<button type="button" onclick="setWdEstimating(' + (!wdEstimating) + ')" style="border:1px solid var(--border);background:' + (wdEstimating ? 'var(--warn,#f39c12)' : 'var(--surface2)') + ';color:' + (wdEstimating ? '#fff' : 'var(--text)') + ';border-radius:10px;padding:7px 12px;font-size:13px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer">'
+    + (wdEstimating ? 'Done estimating' : 'Start estimating') + '</button></div>'
+    + '<div style="font-size:12px;color:var(--text2);margin-top:4px;line-height:1.45">'
+    + (wdEstimating ? 'Marks you make now are <b>estimated</b>, not found work: priced, but billed nowhere until you tap Go ahead. Add carpenter days on a window\'s sheet.'
+        : 'Price work before it\'s agreed — "how much will the front windows cost?" Nothing in an estimate is billed until you tap Go ahead.') + '</div>';
+  if (m.lines.length) {
+    m.lines.forEach(function(l) {
+      var bits = [];
+      if (l.work) bits.push(escapeHtml(l.work) + ' ' + fmt(l.workAmount));
+      if (l.days > 0) bits.push('carpenter ' + wdFmtDays(l.days) + ' ' + fmt(l.carpenterAmount));
+      h += '<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">'
+        + '<div style="display:flex;justify-content:space-between;gap:10px;font-size:13px"><b>' + escapeHtml(l.label) + '</b><b style="white-space:nowrap">' + fmt(l.amount) + '</b></div>'
+        + '<div style="font-size:12px;color:var(--text2);margin-top:2px">' + bits.join(' · ') + '</div>'
+        + '<div style="font-size:12px;margin-top:4px"><span onclick="wdEstimateGoAhead(\'' + l.id + '\')" style="' + link + '">Go ahead</span> · '
+        + '<span onclick="wdEstimateDrop(\'' + l.id + '\')" style="' + link + ';color:var(--danger)">Drop</span> · '
+        + '<span onclick="openWdDetail(\'' + l.id + '\')" style="' + link + '">open</span></div></div>';
+    });
+    h += '<div style="display:flex;justify-content:space-between;gap:10px;border-top:1px solid var(--border);margin-top:8px;padding-top:8px;font-weight:700">'
+      + '<span>Estimate total</span><span style="white-space:nowrap">' + fmt(m.total) + '</span></div>'
+      + '<div style="font-size:12px;color:var(--text2);margin-top:2px">' + fmt(m.workAmount) + ' your repairs'
+      + (m.days > 0 ? ' · ' + fmt(m.carpenterAmount) + ' carpenter (' + wdFmtDays(m.days) + ')' : '') + '. As it would be billed: sundries and markup included.</div>'
+      + '<div style="display:flex;gap:8px;margin-top:10px">'
+      + '<button type="button" onclick="wdEstimateGoAhead(null)" style="flex:1;border:none;background:var(--accent);color:#fff;border-radius:10px;padding:9px;font-size:13px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer">Go ahead with all</button>'
+      + '<button type="button" onclick="wdEstimateDrop(null)" style="border:1px solid var(--border);background:var(--surface2);color:var(--danger);border-radius:10px;padding:9px 12px;font-size:13px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer">Drop all</button></div>';
+  }
+  var cl = line ? jobCustomItems().find(function(it) { return it === line; }) : null;
+  h += '<div style="font-size:12px;color:var(--text2);margin-top:8px">Carpenter: '
+    + (cl ? escapeHtml(cl.description) + ', ' + fmt(+cl.unitPrice || 0) + ' a day · ' + wdFmtDays(+cl.quantity || 0) + ' on the job so far · <span onclick="pickWdCarpenterLine()" style="' + link + '">change</span>'
+        : '<span onclick="pickWdCarpenterLine()" style="' + link + '">set the carpenter\'s line</span>') + '</div>';
+  return h + '</div>';
 }
 // ── Repair size adjustments (RESIN_REPAIR_TIERS_SPEC.md) ──────────────────
 // A resin repair is quoted at a size, and the quote terms say repairs are
@@ -25830,8 +26063,7 @@ function wdAdjustments(job) {
   var out = { raw: 0, amount: 0, time: 0, items: [] };
   if (!job || job.id !== activeJobId || !wdInUse()) return out;
   var p = Windoors.priceJob(windoors, wdRates());
-  var declined = {};
-  wdVariationList(job).forEach(function(v) { if (variationStatusOf(v) === 'declined') declined[v.id] = true; });
+  var declined = wdUnbilledIds(job);
   var r = rpm(), mins = 0;
   p.adjustments.items.forEach(function(it) {
     if (it.variation_id && declined[it.variation_id]) return;
@@ -25895,8 +26127,10 @@ function wdPricePerWindow() {
   var c = calcWindoors();
   var mult = c.total > 0.005 ? applyMarkupAmount(c.total) / c.total : 1;
   var p = c.priced, r = rpm();
-  var found = {};
+  var found = {}, est = {};
   windoorsFoundLines().forEach(function(l) { found[l.id] = variationDeltaAmount({ raw: l.raw, spray: 0 }); });
+  wdEstimateModel().lines.forEach(function(l) { est[l.id] = l.amount; });
+  out.estimate = 0;
   var bySide = {}, order = [];
   Windoors.sortOpenings(windoors.openings).forEach(function(o) {
     var per = p.perOpening[o.id];
@@ -25907,9 +26141,9 @@ function wdPricePerWindow() {
     var f = found[o.id] || 0;
     if (Math.abs(paint) < 0.005 && !repairs && Math.abs(f) < 0.005) return;
     if (!bySide[o.side]) { bySide[o.side] = []; order.push(o.side); }
-    bySide[o.side].push({ id: o.id, label: Windoors.openingLabel(o), paint: paint, repairs: repairs, found: f,
+    bySide[o.side].push({ id: o.id, label: Windoors.openingLabel(o), paint: paint, repairs: repairs, found: f, estimate: est[o.id] || 0,
                           addedOnSite: !!Windoors.openingScope(o, windoors.openings).variationId });
-    out.quoted += paint + repairs; out.found += f;
+    out.quoted += paint + repairs; out.found += f; out.estimate += est[o.id] || 0;
     if (Math.abs(f) > 0.005) out.hasFound = true;
   });
   out.makingGood = Math.max(0, +(windoors.property && windoors.property.making_good) || 0) * mult;
@@ -25931,6 +26165,7 @@ function openWdPriceSheet() {
       var bits = [row.addedOnSite ? 'added on site' : 'painting ' + fmt(row.paint)];
       if (row.repairs) bits.push('repairs ' + fmt(row.repairs));
       if (Math.abs(row.found) > 0.005) bits.push('found ' + fmtSigned(row.found));
+      if (row.estimate > 0.005) bits.push('<span style="color:var(--warn,#f39c12)">estimate ' + fmt(row.estimate) + '</span>');
       h += '<div style="' + cell + '"><span><b>' + escapeHtml((function(t) { return t.charAt(0).toUpperCase() + t.slice(1); })(row.label.replace(/^[^,]+, /, ''))) + '</b>'
         + '<small style="display:block;color:var(--text2)">' + bits.join(' · ') + '</small></span>'
         + '<span style="white-space:nowrap;font-weight:600">' + fmtSigned(row.paint + row.repairs + row.found) + '</span></div>';
@@ -25942,6 +26177,10 @@ function openWdPriceSheet() {
     h += '<div style="' + cell + '"><span>Found on site</span><span style="white-space:nowrap;font-weight:600">' + fmtSigned(m.found) + '</span></div>'
       + '<div style="' + cell + ';font-weight:700"><span>Now</span><span style="white-space:nowrap">' + fmt(m.quoted + m.found) + '</span></div>'
       + '<div style="padding:4px 16px 0;font-size:11px;color:var(--text2)">Found work includes its sundries share, as it\'s billed. Repair size adjustments are on their own line.</div>';
+  }
+  if (m.estimate > 0.005) {
+    h += '<div style="' + cell + '"><span style="color:var(--warn,#f39c12)">Estimate, not agreed yet</span><span style="white-space:nowrap;font-weight:600">' + fmt(m.estimate) + '</span></div>'
+      + '<div style="' + cell + ';font-weight:700"><span>If it goes ahead</span><span style="white-space:nowrap">' + fmt(m.quoted + m.found + m.estimate) + '</span></div>';
   }
   h += '<button onclick="closeScheduleSheet()" style="margin:10px 16px 12px;width:calc(100% - 32px);background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:var(--rs);padding:10px;font-size:14px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer">Close</button></div>';
   openScheduleSheet(h);
@@ -26305,6 +26544,7 @@ function renderWindoors() {
           + ' <span style="color:var(--accent);font-weight:700;white-space:nowrap">' + fmtSigned(variationDeltaAmount({ raw: foundRaw, spray: 0 })) + '</span></div>' : '')
       + wdAdjustmentsRowHtml(null, 'margin-top:8px;padding-top:8px;border-top:1px solid var(--border)')
       + '</div>';
+    if (wdInUse() && wdJobAccepted(activeJob())) html += wdEstimateCardHtml();
   } else {
     // Collapsible: open while the house is being designed, folded to one
     // summary line once any side's layout is confirmed (tap to reopen).
@@ -27386,6 +27626,7 @@ function setWdExcluded(k) {
 }
 function wdIncludeOnSite() {
   var o = wdOpening(); if (!o || !o.excluded || wdMode !== 'site') return;
+  if (wdEstimating) { toast('Switch Estimating off to add a window to the job'); return; }
   if (!confirm('Add ' + Windoors.openingLabel(o) + ' to the job? Its painting is billed as work found on site.')) return;
   o.excluded = false;
   o.include_variation_id = wdDraft(true).id;
@@ -27516,7 +27757,7 @@ function renderWdDetail() {
     if (selCount) {
       var acts = Windoors.actionsFor(o, wdSel.kind);
       h += '<div style="padding:6px 16px 2px;font-size:12px;color:var(--text2)">' + selCount + ' ' + (wdSel.kind === 'pane' ? (isDoor ? 'glass' : (selCount === 1 ? 'pane' : 'panes')) : (selCount === 1 ? 'part' : 'parts')) + ' selected — '
-        + (site ? 'found on site' : 'added to the quote') + '</div>'
+        + (site ? (wdEstimating ? 'estimated, not agreed yet' : 'found on site') : 'added to the quote') + '</div>'
         + '<div style="display:flex;gap:8px;flex-wrap:wrap;padding:4px 16px 8px">'
         + acts.map(function(a) { return '<button type="button" style="' + abtn + '" onclick="wdApplyAction(\'' + a.key + '\')">' + escapeHtml(a.label) + '</button>'; }).join('')
         + '<button type="button" style="' + btn + ';color:var(--danger)" onclick="wdRemoveWork()">Remove all work</button></div>'
@@ -27524,11 +27765,12 @@ function renderWdDetail() {
     } else {
       h += '<div style="padding:4px 16px 8px;font-size:12px;color:var(--text2)">' + (isRun || isWall || (isExtra && Windoors.extraSectioned(o)) ? 'Tap the left, middle or right section to mark where the work is. ' : isExtra ? 'Tap it to mark work on it. ' : 'Tap panes or frame parts to select them — one kind at a time. ')
         + '<span style="display:inline-block;width:10px;height:10px;background:#f0a020;vertical-align:-1px"></span> work · '
-        + '<span style="display:inline-block;width:10px;height:10px;background:#5fb3e6;vertical-align:-1px"></span> glass · dashed = found on site'
+        + '<span style="display:inline-block;width:10px;height:10px;background:#5fb3e6;vertical-align:-1px"></span> glass · dashed = ' + (site && wdEstimating ? 'found on site or estimated' : 'found on site')
         + (site ? ' · the quote\'s marks are locked here' : '') + '</div>';
     }
   }
   h += wdRepairTiersHtml(o, oMarks);
+  h += wdCarpenterHtml(o);
   h += wdWorkListHtml(o, oMarks);
   if (isOther && !site) h += '<div style="padding:12px 16px 4px"><span onclick="deleteWdOther()" style="color:var(--danger);font-size:13px;font-weight:600;cursor:pointer">Remove this item</span></div>';
   if (isRun && !site) h += '<div style="padding:12px 16px 4px"><span onclick="deleteWdRun()" style="color:var(--danger);font-size:13px;font-weight:600;cursor:pointer">Remove this run</span></div>';
@@ -27661,8 +27903,11 @@ function wdWorkListHtml(o, oMarks) {
   if (qc) rows += line(escapeHtml(qc.charAt(0).toUpperCase() + qc.slice(1)), 'quote');
   // Found on site (v3.3.0): all of it as one line, prep as the net change
   // from the quote. Work declined before v3.3.0 on a line of its own.
-  [false, true].forEach(function(declined) {
-    var isMine = function(vid) { return !!declinedIds[vid || 'unassigned'] === declined; };
+  var estId = (wdEstimate(false) || {}).id;
+  var catOf = function(vid) { return vid && vid === estId ? 'estimate' : declinedIds[vid || 'unassigned'] ? 'declined' : 'found'; };
+  ['found', 'estimate', 'declined'].forEach(function(cat) {
+    var declined = cat === 'declined';
+    var isMine = function(vid) { return catOf(vid) === cat; };
     var bits = [];
     if (!addedIn) {
       var ch = Windoors.prepChain(o, p).filter(function(st) { return isMine(st.variation_id); });
@@ -27675,11 +27920,16 @@ function wdWorkListHtml(o, oMarks) {
     if (vc) bits.push(vc);
     if (!bits.length) return;
     var t = bits.join(', ');
-    rows += line(escapeHtml(t.charAt(0).toUpperCase() + t.slice(1)), declined ? 'declined' : 'found on site');
+    rows += line(escapeHtml(t.charAt(0).toUpperCase() + t.slice(1)), cat === 'found' ? 'found on site' : cat === 'estimate' ? 'estimate — not agreed yet' : 'declined');
   });
   var money = [
     wdMode === 'quote' ? fmt((perOpen.quoteMins || 0) * r + (perOpen.quoteMaterials || 0) + (perOpen.quoteFixed || 0)) + ' quoted' : '',
-    perOpen.varMins ? fmtSigned((perOpen.varMins || 0) * r + (perOpen.varMaterials || 0)) + ' found on site' : '',
+    (function() {
+      // Found and estimated work apart (v3.5.0): perOpen.var* is both.
+      var fl = windoorsFoundLines().find(function(l) { return l.id === o.id; });
+      var el = wdEstimateModel().lines.find(function(l) { return l.id === o.id; });
+      return [fl ? fmtSigned(fl.raw) + ' found on site' : '', el && Math.abs(el.workRaw) > 0.005 ? fmt(el.workRaw) + ' estimate' : ''].filter(Boolean).join(' · ');
+    })(),
     // Repairs upgraded on site: their own figure, in neither of the above.
     perOpen.adjMins || perOpen.adjMaterials ? '+' + fmt((perOpen.adjMins || 0) * r + (perOpen.adjMaterials || 0)) + ' size adjustment' : ''
   ].filter(Boolean).join(' · ');
@@ -27698,7 +27948,7 @@ function wdTickable(o, oMarks) {
   return oMarks.filter(function(m) {
     if (m.stage !== 'variation') return true;
     var v = byId[m.variation_id];
-    return !(v && variationStatusOf(v) === 'declined');
+    return !(v && (variationStatusOf(v) === 'declined' || wdIsEstimate(v)));
   });
 }
 // The painting itself (v3.2.5): every opening in the job has it, marked or
@@ -27902,6 +28152,7 @@ function wdPrepNote(o, site) {
 // or down -- is a new step on the open draft, priced from the agreed level.
 function setWdPrep(level) {
   var o = wdOpening(); if (!o) return;
+  if (wdMode === 'site' && wdEstimating) { toast('Prep changes go straight on as found work — switch Estimating off to change prep'); return; }
   var p = windoors.property;
   if (wdMode === 'site' && wdSiteAdded(o)) {
     // Added on site: its whole painting is the variation, so its level is
@@ -27987,7 +28238,7 @@ function wdClearSel() { wdSel = { kind: null, ids: {} }; renderWdDetail(); }
 function wdApplyAction(actionKey) {
   var o = wdOpening(); if (!o) return;
   var site = wdMode === 'site';
-  var draft = site ? wdDraft(true) : null;
+  var draft = site ? (wdEstimating ? wdEstimate(true) : wdDraft(true)) : null;
   var tiered = Windoors.isTiered(actionKey), counted = false;
   Object.keys(wdSel.ids).forEach(function(elId) {
     var same = windoors.marks.filter(function(m) { return m.opening_id === o.id && m.element_id === elId && m.action_key === actionKey; });
@@ -28049,7 +28300,7 @@ function wdRepairTiersHtml(o, oMarks) {
       + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;margin-bottom:5px">'
       + '<span>' + escapeHtml((a ? a.label : m.action_key) + ' (' + (els[m.element_id] || m.element_id).toLowerCase()
         + (Windoors.repairCount(m) > 1 ? ' \u00d7' + Windoors.repairCount(m) : '') + ', ' + Windoors.repairTierDef(cur).short + ')')
-      + (m.stage === 'variation' ? ' <small style="color:var(--text2)">(' + (wdVariationEditable(m.variation_id) ? 'found on site' : 'declined') + ')</small>' : '') + '</span>'
+      + (m.stage === 'variation' ? ' <small style="color:var(--text2)">(' + (wdIsEstimate(wdVariationList().find(function(x) { return x.id === m.variation_id; })) ? 'estimate' : wdVariationEditable(m.variation_id) ? 'found on site' : 'declined') + ')</small>' : '') + '</span>'
       + (up ? '<span style="flex:none;font-size:11px;font-weight:700;color:#fff;background:var(--accent);border-radius:10px;padding:2px 8px">'
           + Windoors.repairTierDef(ag).short + ' \u2192 ' + Windoors.repairTierDef(cur).short + '</span>' : '')
       + '</div>'
@@ -28144,7 +28395,7 @@ function wdSelWorkHtml(o) {
     h += '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 16px;border-top:1px solid var(--border);font-size:13px">'
       + '<span>' + escapeHtml((a ? a.label : m.action_key) + ' · ' + (els[m.element_id] || m.element_id)
         + (Windoors.isTiered(m.action_key) ? ' (' + (Windoors.repairCount(m) > 1 ? '\u00d7' + Windoors.repairCount(m) + ', ' : '') + Windoors.repairTierDef(Windoors.markTier(m)).short + ')' : ''))
-      + (m.stage === 'variation' ? ' <small style="color:var(--text2)">(' + (wdVariationEditable(m.variation_id) ? 'found on site' : 'declined') + ')</small>' : '') + '</span>'
+      + (m.stage === 'variation' ? ' <small style="color:var(--text2)">(' + (wdIsEstimate(wdVariationList().find(function(x) { return x.id === m.variation_id; })) ? 'estimate' : wdVariationEditable(m.variation_id) ? 'found on site' : 'declined') + ')</small>' : '') + '</span>'
       + (can ? '<span onclick="wdRemoveMark(\'' + escapeHtml(m.id) + '\')" style="flex:none;color:var(--danger);font-size:13px;font-weight:600;cursor:pointer">Remove</span>'
              : '<small style="flex:none;color:var(--text2)">locked</small>')
       + '</div>';
@@ -28563,7 +28814,8 @@ function windoorsOnSiteCardHtml() {
   return '<div class="card" style="padding:12px 14px;margin-bottom:12px;cursor:pointer" onclick="openWindoors(\'site\')">'
     + '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px">'
     + '<div><div style="font-weight:700;font-size:15px">🪟 Windows &amp; doors</div>'
-    + '<div style="font-size:12px;color:var(--text2);margin-top:2px">' + (found.length ? 'Work found on site on ' + found.length + ' window' + (found.length === 1 ? '' : 's') : 'Mark problems found once work starts — they\'re billed as found, no approval needed') + '</div>'
+    + '<div style="font-size:12px;color:var(--text2);margin-top:2px">' + (found.length ? 'Work found on site on ' + found.length + ' window' + (found.length === 1 ? '' : 's') : 'Mark problems found once work starts — they\'re billed as found, no approval needed')
+      + (function() { var em = wdEstimateModel(); return em.lines.length ? '<br><span style="color:var(--warn,#f39c12);font-weight:600">Estimate: ' + fmt(em.total) + ' on ' + em.lines.length + ' window' + (em.lines.length === 1 ? '' : 's') + ', not agreed yet</span>' : ''; })() + '</div>'
     + (function() {
         // Ticked off so far, over everything the report could show.
         var all = Windoors.reportableMarks(windoors, wdReportVariations()).marks;
