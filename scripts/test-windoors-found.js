@@ -30,6 +30,7 @@
 //  11. Where we are (v3.7.0): the page for the client, adding it all up.
 //  12. Where the carpenter's days went (v3.7.1), and the days beyond the
 //      accepted quote billed on the final invoice.
+//  13. The Documents tab (v3.8.0): every report in one place.
 //
 // Driven in a real browser against the real public/index.html (served off
 // disk, no server, no database -- writes 404 and queue, as offline on site).
@@ -372,9 +373,13 @@ const SEED = () => {
     jobInvoicesJobId = 'j1';
     jobInvoices = [{ id: 'i1', type: 'interim', sequence: 1, subtotal: 2400, xeroTotal: 2400, xeroStatus: 'AUTHORISED', labourLines: [], variationLines: [], materialLines: [] },
                    { id: 'i2', type: 'interim', sequence: 2, subtotal: 999, xeroStatus: 'VOIDED', labourLines: [], variationLines: [], materialLines: [] }];
-    renderWindoors();
+    await openDocuments();
+    // Offline here: the invoices reload falls back to the phone's (empty) copy.
+    jobInvoicesJobId = 'j1';
+    jobInvoices = [{ id: 'i1', type: 'interim', sequence: 1, subtotal: 2400, xeroTotal: 2400, xeroStatus: 'AUTHORISED', labourLines: [], variationLines: [], materialLines: [] }];
+    renderDocs();
     const m = wdWhereModel();
-    const card = document.getElementById('wd-body').textContent;
+    const card = document.getElementById('docs-body').textContent;
     const pdf = new TextDecoder('latin1').decode(buildWdWherePdf());
     window.prompt = () => ''; setWdClientFigure();
     const cleared = activeJob().clientFigure;
@@ -394,8 +399,9 @@ const SEED = () => {
   check('11. heading = so far + the estimate + the likely allowance', Math.abs(wh.likely - (wh.soFar + wh.est + wh.fLikely)) < 0.01, wh);
   check('11. with a range either side', wh.low <= wh.likely && wh.likely <= wh.high);
   eq('11. the figure given before starting is kept, and can be cleared', [wh.client, wh.cleared], [5000, null]);
-  check('11. the card shows it', /Where we are/.test(wh.card) && /Where it's heading/.test(wh.card) && /Figure given before starting: £5,000.00/.test(wh.card)
-    && /Carpenter so far/.test(wh.card) && /9 days \(8 planned, 1 more\)/.test(wh.card) && /Already invoiced/.test(wh.card), wh.card.slice(wh.card.indexOf('Where we are'), wh.card.indexOf('Where we are') + 600));
+  // v3.8.0: on the Documents tab.
+  check('11. the Documents tab shows it, with the figure given before starting', /Where we are/.test(wh.card) && /Likely total/.test(wh.card) && /Figure given before starting: £5,000.00/.test(wh.card)
+    && /invoiced £2,400.00/.test(wh.card), wh.card.slice(wh.card.indexOf('Where we are'), wh.card.indexOf('Where we are') + 600));
   check('11. the PDF has the sections, and the figure only for comparison', /Where we are: windows and doors/.test(wh.pdf) && /SO FAR/.test(wh.pdf) && /NEEDED NOW/.test(wh.pdf)
     && /Likely total/.test(wh.pdf) && /figure given before the work started was/.test(wh.pdf)
     && /Painting and repairs, as planned/.test(wh.pdf) && /Already invoiced/.test(wh.pdf) && /Likely still to come/.test(wh.pdf));
@@ -445,6 +451,31 @@ const SEED = () => {
   check('12. the forecast\'s carpenter comes from where the days went', cp.carp && cp.carp.placed && cp.carp.likely === Math.round(cp.mean * cp.toOpen * 2) / 2, [cp.carp, cp.mean, cp.toOpen]);
   eq('12. go ahead adds the days to the line and places them on the window', cp.afterGo, { qty: 10, q1: 1 });
   check('12. Where we are lists where the days went', /Where the days went/.test(cp.pdf) && /in the carpenter line above/.test(cp.pdf));
+
+  // ── 13. The Documents tab (v3.8.0) ───────────────────────────────────────
+  const dc = await page.evaluate(async () => {
+    await openDocuments();
+    const body = document.getElementById('docs-body');
+    const text = body.textContent;
+    const nav = Array.from(document.querySelectorAll('.navbar .nav-item')).map(b => b.textContent.trim());
+    const active = document.getElementById('nav-docs').classList.contains('active');
+    // Nothing left elsewhere: the Exterior screen and Summary.
+    await openWindoors('site');
+    const ext = document.getElementById('wd-body').innerHTML;
+    goBack();
+    const sumBar = document.querySelector('#screen-summary .topbar').innerHTML;
+    // The spec sheet opens from here.
+    await openDocuments();
+    return { text, nav, active, ext: { price: /openWdPriceSheet\(\)/.test(ext), todo: /saveWindoorsReportPdf/.test(ext), report: /openWorkReportPdf/.test(ext), where: /saveWdWherePdf/.test(ext), link: /openDocuments\(\)/.test(ext) },
+             sum: { quote: /openClientQuote/.test(sumBar), csv: /exportCSV/.test(sumBar) } };
+  });
+  eq('13. a fifth tab, Documents', dc.nav, ['🏠Home', '📐Measure', '🛠️On Site', '📋Summary', '📄Documents']);
+  check('13. ...highlighted when open', dc.active);
+  check('13. grouped for the client and for you', /For the client/.test(dc.text) && /For you and the team/.test(dc.text));
+  check('13. every document listed', ['Quote', 'Where we are', 'Windows and doors work report', 'Spec sheet', 'Snag list', 'Client\'s page', 'Work to do', 'Price per window', 'Forecast, window by window', 'Repair size adjustments', 'Export (CSV)'].every(n => dc.text.indexOf(n) >= 0), dc.text.slice(0, 400));
+  check('13. one that doesn\'t apply says why', /No snags on this job\./.test(dc.text) && /Not made yet/.test(dc.text));
+  eq('13. the Exterior screen keeps none of them, just a pointer', dc.ext, { price: false, todo: false, report: false, where: false, link: true });
+  eq('13. nor does Summary\'s top bar', dc.sum, { quote: false, csv: false });
 
   if (process.env.SHOT_DIR) {
     await page.evaluate(() => {
