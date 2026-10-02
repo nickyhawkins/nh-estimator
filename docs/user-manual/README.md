@@ -1435,6 +1435,26 @@ It's a guide for you to give the client, not a price, and it doesn't go on anyth
 
 ![The forecast: found so far, and what's likely still to come](images/26zrc-windoors-forecast.png)
 
+#### Where we are: telling the client
+
+When a job is running over, the **Where we are** card (under the Forecast) adds everything up for the client. Its PDF is the thing to send.
+
+- **Painting and repairs, as planned:** the accepted quote's total less its carpenter days, as one figure, never its line-by-line breakdown.
+- **Carpenter:** all the carpenter's days so far, as one line, saying how many were planned and how many more (*9 days (8 planned, 1 more)*). The planned days stay in this line even though an interim invoice has billed them: this page says where the job stands, not what's been billed.
+- **Found on site so far**, window by window, at the figures they're billed at. Any repairs that turned out bigger than quoted are a line of their own.
+- **Needed now:** the estimate, window by window, with each window's carpenter days.
+- **Allowance for the rest:** the forecast's likely figure, with its range, for the windows not opened up yet.
+- **Where it's heading:** all of that added up, likely, and between the low and high.
+- **Already invoiced** and **likely still to come:** what the job's invoices (interims, say) have billed so far, at Xero's totals (a voided one doesn't count), and the difference. That's usually the figure the client is really asking about.
+
+**The figure given before starting.** If you gave the client a ballpark before starting (*about £5,000*), tap **add one** and type it. It's printed beside the total for comparison (*For comparison, the figure given before the work started was £5,000.00*), but never added into anything: the sums are always the real figures, so the page adds up for anyone checking it.
+
+**📄 Where we are (PDF)** opens it on its own page; **Share** sends it from your phone. It's built on the phone, so it works with no signal. It ends with a short note: work found on site is done as needed and charged as done; anything under *Needed now* is an estimate, done once they're happy; the allowance is a guide, not a price.
+
+![The Where we are card](images/26zrd-windoors-where-we-are.png)
+
+![The Where we are PDF](images/26zre-windoors-where-we-are-pdf.png)
+
 #### Work to do
 
 **📋 Work to do (PDF)** is on the Windows & Doors screen from Measure and from On Site, as soon as the job has any windows or doors. It's the list of what's still to be done, built on the phone with no signal needed. Tap it to read it: it opens on its own page, the same way the work report does. To send, save or print it, tap **Share** next to it, which hands the PDF to your phone's share sheet (on a computer it downloads).
@@ -1722,6 +1742,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v3.6.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v3.7.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
