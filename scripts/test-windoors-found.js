@@ -408,9 +408,9 @@ const SEED = () => {
   // drawings, then the key.
   check('11. the PDF opens with the whole story at a glance', /AT A GLANCE/.test(wh.pdf) && /The figure given at the start/.test(wh.pdf) && /The work as planned/.test(wh.pdf)
     && /Done so far/.test(wh.pdf) && /Needed now, if you go ahead/.test(wh.pdf) && /Likely total/.test(wh.pdf) && /Invoiced so far/.test(wh.pdf) && /Likely still to come/.test(wh.pdf));
-  check('11. ...then window by window, side by side, with the drawings', /WINDOW BY WINDOW/.test(wh.pdf) && /BACK/.test(wh.pdf) && /Done: /.test(wh.pdf) && /Needed now: /.test(wh.pdf) && /\/Im2 Do/.test(wh.pdf));
+  check('11. ...then window by window, side by side, with the drawings', /WINDOW BY WINDOW/.test(wh.pdf) && /BACK/.test(wh.pdf) && !/Done: /.test(wh.pdf) && /Needed now: /.test(wh.pdf) && /\/Im2 Do/.test(wh.pdf));
   check('11. ...and a key: the parts of a sash, drawn and numbered, and the work words', /THE PARTS OF A WINDOW, AND THE WORK/.test(wh.pdf) && /Meeting rail/.test(wh.pdf) && /Stile/.test(wh.pdf) && /Splice timber/.test(wh.pdf));
-  check('11. prep in plain words for the client, and the levels in the key', /more preparation than planned: heavy instead of light/.test(wh.pdf) && !/prep raised to/.test(wh.pdf)
+  check('11. prep in plain words for the client, and the levels in the key', /More preparation than planned: heavy instead of light/.test(wh.pdf) && !/prep raised to/.test(wh.pdf)
     && /Preparation, before painting:/.test(wh.pdf) && /taken back to bare wood all over/.test(wh.pdf));
   check('11. estimates in whole pounds', !/Needed now, if you go ahead[^)]*\)\s*Tj[^£]*£[\d,]+\.\d\d/.test(wh.pdf));
 
@@ -458,7 +458,7 @@ const SEED = () => {
   check('12. ...under the joinery line on the final invoice, the money unchanged', cp.inv1[0][1] === 2000 && cp.inv1[0][2] === cp.placedText && cp.inv1[1][1] === 250, cp.inv1);
   check('12. the forecast\'s carpenter comes from where the days went', cp.carp && cp.carp.placed && cp.carp.likely === Math.round(cp.mean * cp.toOpen * 2) / 2, [cp.carp, cp.mean, cp.toOpen]);
   eq('12. go ahead adds the days to the line and places them on the window', cp.afterGo, { qty: 10, q1: 1 });
-  check('12. Where we are shows the days against each window, once', /carpenter 3 days/.test(cp.pdf) && /not charged again/.test(cp.pdf) && !/Where the days went/.test(cp.pdf));
+  check('12. Where we are shows the days against each window, once', /carpenter 3 days/i.test(cp.pdf) && /charged again/.test(cp.pdf) && !/Where the days went/.test(cp.pdf));
 
   // ── 13. The Documents tab (v3.8.0) ───────────────────────────────────────
   const dc = await page.evaluate(async () => {

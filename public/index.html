@@ -29238,7 +29238,7 @@ async function buildWdWherePdf() {
   // ── Window by window, side by side.
   if (sides.length) {
     head('WINDOW BY WINDOW');
-    para('Each side of the house as you face it, windows numbered left to right. Outlined in blue: work done. Dashed orange: work needed now. '
+    para('Each side of the house as you face it, windows numbered left to right. Outlined in blue: work done, listed in black. Dashed orange: work needed now, listed in orange. '
       + 'Carpenter days are shown against each window; they are part of the carpenter\'s figure above, not charged again.', 8.5, PDF_MUT);
     sides.forEach(function(sd) {
       var iw = 0, ih = 0;
@@ -29250,7 +29250,9 @@ async function buildWdWherePdf() {
       if (sd.img) { d.image(L + (W - iw) / 2, d.y, iw, ih, addImage(sd.img)); d.y -= ih + 8; }
       sd.rows.forEach(function(w) {
         var lines = [];
-        if (w.done) lines.push({ t: 'Done: ' + [w.done.work, w.done.days > 0 ? 'carpenter ' + wdFmtDays(w.done.days) : ''].filter(Boolean).join('; '),
+        // Work done is a plain line; only the estimate is labelled (v3.9.1).
+        var cap = function(t) { return t ? t.charAt(0).toUpperCase() + t.slice(1) : t; };
+        if (w.done) lines.push({ t: cap([w.done.work, w.done.days > 0 ? 'carpenter ' + wdFmtDays(w.done.days) : ''].filter(Boolean).join('; ')),
                                   amt: w.done.amount ? fmtSigned(w.done.amount) : '' });
         if (w.needed) lines.push({ t: 'Needed now: ' + [w.needed.work, w.needed.days > 0 ? 'carpenter ' + wdFmtDays(w.needed.days) : ''].filter(Boolean).join('; '),
                                     amt: round(w.needed.amount), needed: true });
