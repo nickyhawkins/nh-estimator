@@ -1420,6 +1420,20 @@ When a client asks *"how much will the front windows cost?"*, price it with an *
 
 Once nothing is left in it, the estimate disappears. The On Site card shows an estimate that's still waiting (*Estimate: £862.24 on 2 windows, not agreed yet*).
 
+#### The carpenter's days
+
+All the carpenter's days live on **one line**, the carpenter's custom line (*Joinery Work @ Day Rate*), at its flat day rate. That covers the days planned in the quote and every extra day since. Add extra days to that line (on Measure, or with **Go ahead** on an estimate) and it grows: 8, 9, 10½…
+
+- **The final invoice bills every day on the line.** Once a quote is accepted, the invoice bills the quoted work at the accepted quote's figures, so the joinery line goes on at the days the quote had (8 × £250). Any days added since go on a line of their own beneath it, *Joinery Work @ Day Rate: additional days, 1 × £250.00*, at the same flat rate. An interim invoice that billed the 8 days is deducted as usual.
+- **Where the days went.** On site, each window's sheet has **Carpenter days here**. Tap **+** for each day (or half day) the carpenter spent on that window. It's a record, **not a charge**: the money is on the line, and placing the days doesn't change it. The app won't let you place more days than the line has, and it tells you how many are still to place. **Go ahead** on an estimate places that window's carpenter days for you.
+- Placed days are used in four places:
+  - **The final invoice:** they're listed under the joinery line (*Where the days went: Back, ground floor, W1 2 days; Back, first floor, W1 3 days; other work 1 day.*).
+  - **Where we are:** each window shows its days beside its work.
+  - **Price per window:** each window shows its days too.
+  - **The forecast:** it uses where the days really went for the windows still to open, instead of spreading the line's days evenly.
+
+Don't move the carpenter's days onto the windows as work, and don't delete the line. Window work found on site has your sundries and markup added, so the same days would cost the client more. Planned days would also read as an overrun.
+
 #### Forecast: the windows not opened up yet
 
 Under the Estimate card, the **Forecast** card answers *"and what about the rest?"* It uses what you've found on the windows you've opened up to forecast the ones you haven't, as a range.
@@ -1742,6 +1756,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v3.7.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v3.7.1. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
