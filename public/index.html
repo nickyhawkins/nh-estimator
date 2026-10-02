@@ -6928,7 +6928,7 @@ function persistJobData(job) {
   // interimDraft: the interim invoice builder's saved-as-you-go draft,
   // idempotency key included (STAGED_INVOICING_SPEC.md) -- null, not omitted,
   // once issued, or the merge would keep the spent draft forever.
-  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, quoteTextEdited: job.quoteTextEdited != null ? job.quoteTextEdited : null, invoiceTextEdited: job.invoiceTextEdited != null ? job.invoiceTextEdited : null, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, variationBaselinesAt: job.variationBaselinesAt || null, variationBaselinesLate: !!job.variationBaselinesLate, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, deposit: job.deposit, notes: job.notes, kitchen: job.kitchen, fittedUnits: job.fittedUnits, fittedUnit: Array.isArray(job.fittedUnits) ? null : job.fittedUnit, customItems: job.customItems, isXeroImported: !!job.isXeroImported, honouredLabourAmount: job.honouredLabourAmount != null ? job.honouredLabourAmount : null, depositRequired: job.depositRequired !== false, upchargeTotal: job.upchargeTotal != null ? job.upchargeTotal : null, roundingDelta: job.roundingDelta != null ? job.roundingDelta : null, interimDraft: job.interimDraft || null, interimCarry: job.interimCarry || null, windoorsVariations: Array.isArray(job.windoorsVariations) ? job.windoorsVariations : undefined, windoorsFound: Array.isArray(job.windoorsFound) ? job.windoorsFound : undefined, exteriorLineLayout: job.exteriorLineLayout || undefined });
+  apiPut('/api/jobs/'+job.id, { templateId: job.templateId, quoteText: job.quoteText, invoiceText: job.invoiceText, quoteTextEdited: job.quoteTextEdited != null ? job.quoteTextEdited : null, invoiceTextEdited: job.invoiceTextEdited != null ? job.invoiceTextEdited : null, xeroClient: job.xeroClient, xeroRef: job.xeroRef, contact: job.contact, xeroContactId: job.xeroContactId, contactSyncedAt: job.contactSyncedAt, xeroQuoteId: job.xeroQuoteId, xeroQuoteNumber: job.xeroQuoteNumber, xeroQuoteStatus: job.xeroQuoteStatus, variationQuoteId: job.variationQuoteId, variationQuoteNumber: job.variationQuoteNumber, variationQuoteStatus: job.variationQuoteStatus, materialsSeeded: job.materialsSeeded, markupOverride: job.markupOverride, markupType: job.markupType, commercial: job.commercial, standalone: job.standalone, status: job.status, quotedAt: job.quotedAt, acceptedAt: job.acceptedAt, declinedAt: job.declinedAt, completedAt: job.completedAt, invoicedAt: job.invoicedAt, xeroInvoiceId: job.xeroInvoiceId, xeroInvoiceNumber: job.xeroInvoiceNumber, acceptedSnapshot: job.acceptedSnapshot, startDate: job.startDate, scheduledDays: job.scheduledDays, scheduleTitle: job.scheduleTitle, workSaturdays: job.workSaturdays, workAllDays: job.workAllDays, freeVariations: job.freeVariations, variationCount: job.variationCount, variationPendingCount: job.variationPendingCount, variationBaselinesAt: job.variationBaselinesAt || null, variationBaselinesLate: !!job.variationBaselinesLate, finalInvoiceTotal: job.finalInvoiceTotal, profitSnapshot: job.profitSnapshot, deposit: job.deposit, notes: job.notes, kitchen: job.kitchen, fittedUnits: job.fittedUnits, fittedUnit: Array.isArray(job.fittedUnits) ? null : job.fittedUnit, customItems: job.customItems, isXeroImported: !!job.isXeroImported, honouredLabourAmount: job.honouredLabourAmount != null ? job.honouredLabourAmount : null, depositRequired: job.depositRequired !== false, upchargeTotal: job.upchargeTotal != null ? job.upchargeTotal : null, roundingDelta: job.roundingDelta != null ? job.roundingDelta : null, interimDraft: job.interimDraft || null, interimCarry: job.interimCarry || null, carpenterLineId: job.carpenterLineId || undefined, wdOpened: job.wdOpened || undefined, windoorsVariations: Array.isArray(job.windoorsVariations) ? job.windoorsVariations : undefined, windoorsFound: Array.isArray(job.windoorsFound) ? job.windoorsFound : undefined, exteriorLineLayout: job.exteriorLineLayout || undefined });
 }
 
 // A job's status is just a label + timestamp on top of what already exists
@@ -26110,6 +26110,175 @@ function openWdAdjustmentsSheet() {
     + '</div>');
 }
 
+// ── Forecast: what the windows not yet opened up are likely to need (v3.6.0)
+// Part 2 of the estimate work. Every window or door opened up so far says
+// how much was found on it against its painting price (found ÷ painting --
+// a ratio, so a big sash and a small dormer can teach each other). Those
+// ratios, applied to each window still to open, give a range:
+//   low    the 25th percentile  (the cleaner windows seen so far)
+//   likely the average
+//   high   the 90th percentile  (close to the worst)
+// An opened window with nothing found counts as a 0 -- leaving it out
+// would make every forecast a worst case. A window in the estimate is
+// neither a sample nor forecast: it has its own figure.
+//
+// Dormers usually fare worse than the floors below, and one side worse than
+// another, so a window is forecast from its own group when that group has 3
+// or more opened: same side and level, else same level, else the whole job.
+//
+// "Opened up" is automatic -- found work on it, prep changed on site, or
+// anything ticked off -- and can be set by hand on the window's sheet
+// (job.wdOpened { openingId: true|false }) for one inspected and found
+// sound, or one ticked off before it was really looked at.
+//
+// The carpenter is forecast more roughly: the days on the carpenter's line
+// over the windows opened up, times the windows still to open (half to one
+// and a half times that). Days were never booked per window, so it's said
+// to be rough.
+function wdForecastKind(o) { return o && (o.kind === 'window' || o.kind === 'door'); }
+function wdOpenedAuto(o, foundById) {
+  if (!o) return false;
+  if (foundById[o.id]) return true;
+  if (o.prep_stage === 'variation' || o.painted_at) return true;
+  return windoors.marks.some(function(m) { return m.opening_id === o.id && !!m.done_at; });
+}
+function wdIsOpened(o, foundById) {
+  var job = activeJob();
+  var set = job && job.wdOpened && typeof job.wdOpened[o.id] === 'boolean' ? job.wdOpened[o.id] : null;
+  if (set !== null) return set;
+  return wdOpenedAuto(o, foundById || wdFoundById());
+}
+function wdFoundById() {
+  var out = {};
+  windoorsFoundLines().forEach(function(l) { if (Math.abs(l.raw) > 0.005) out[l.id] = true; });
+  return out;
+}
+function setWdOpened(k) {
+  var o = wdOpening(); var job = activeJob();
+  if (!o || !job) return;
+  job.wdOpened = Object.assign({}, job.wdOpened || {});
+  if (k === 'auto') delete job.wdOpened[o.id]; else job.wdOpened[o.id] = k === 'yes';
+  localStorage.setItem('pe-jobs', JSON.stringify(jobs));
+  persistJobData(job);
+  wdChanged();
+}
+function wdOpenedHtml(o) {
+  if (wdMode !== 'site' || !wdForecastKind(o) || !wdJobAccepted(activeJob())) return '';
+  var job = activeJob();
+  var set = job && job.wdOpened && typeof job.wdOpened[o.id] === 'boolean' ? job.wdOpened[o.id] : null;
+  var auto = wdOpenedAuto(o, wdFoundById());
+  return '<div class="subsection-label">Opened up<small>'
+    + (set === null ? (auto ? 'yes — it has work found, prep changed or something ticked off' : 'not yet — the forecast counts it as still to open')
+        : 'set by hand' + (set !== auto ? '' : ' (the same as it would be anyway)'))
+    + '</small></div><div style="padding:0 16px 10px">'
+    + wdSegHtml([{ key: 'yes', label: 'Opened up' }, { key: 'no', label: 'Not yet' }, { key: 'auto', label: 'Automatic' }],
+        set === null ? 'auto' : set ? 'yes' : 'no', 'setWdOpened') + '</div>';
+}
+function wdPercentile(sorted, q) {
+  if (!sorted.length) return 0;
+  var pos = (sorted.length - 1) * q, lo = Math.floor(pos), hi = Math.ceil(pos);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+}
+function wdForecastModel() {
+  var out = { opened: [], toOpen: [], estimated: 0, samples: 0, found: 0, low: 0, likely: 0, high: 0,
+              carpenter: null, ready: false };
+  if (!wdInUse()) return out;
+  var ppw = wdPricePerWindow();
+  var rowById = {};
+  ppw.sides.forEach(function(sd) { sd.rows.forEach(function(r) { rowById[r.id] = r; }); });
+  var foundById = wdFoundById();
+  var inEstimate = {};
+  wdEstimateModel().lines.forEach(function(l) { inEstimate[l.id] = true; });
+  Windoors.sortOpenings(windoors.openings).forEach(function(o) {
+    var row = rowById[o.id];
+    if (!row || !wdForecastKind(o) || row.addedOnSite || !(row.paint > 0.005)) return;
+    if (inEstimate[o.id]) { out.estimated++; return; }
+    var item = { id: o.id, label: row.label, paint: row.paint, found: row.found || 0, side: o.side, level: Windoors.levelOf(o) };
+    if (wdIsOpened(o, foundById)) { item.ratio = item.found / item.paint; out.opened.push(item); out.found += item.found; }
+    else out.toOpen.push(item);
+  });
+  out.samples = out.opened.length;
+  out.ready = out.samples >= 3;
+  if (!out.samples) return out;
+  var stats = function(list) {
+    var rs = list.map(function(x) { return x.ratio; }).sort(function(a, b) { return a - b; });
+    return { n: rs.length, low: wdPercentile(rs, 0.25), likely: rs.reduce(function(t, x) { return t + x; }, 0) / rs.length, high: wdPercentile(rs, 0.9) };
+  };
+  var all = stats(out.opened);
+  var groups = {};
+  out.toOpen.forEach(function(w) {
+    var sideLevel = out.opened.filter(function(x) { return x.side === w.side && x.level === w.level; });
+    var level = out.opened.filter(function(x) { return x.level === w.level; });
+    var st = sideLevel.length >= 3 ? stats(sideLevel) : level.length >= 3 ? stats(level) : all;
+    w.basis = sideLevel.length >= 3 ? 'side' : level.length >= 3 ? 'level' : 'job';
+    w.low = w.paint * st.low; w.likely = w.paint * st.likely; w.high = w.paint * st.high;
+    out.low += w.low; out.likely += w.likely; out.high += w.high;
+    groups[w.basis] = true;
+  });
+  out.ratio = all;
+  out.grouped = !!(groups.side || groups.level);
+  // The carpenter, roughly.
+  var line = wdCarpenterLine();
+  if (line && out.toOpen.length) {
+    var days = +line.quantity > 0 ? +line.quantity : 0;
+    var per = days / out.samples, day = wdCarpenterDayAmount();
+    var half = function(d) { return Math.round(d * 2) / 2; };
+    out.carpenter = { days: days, perWindow: per, low: half(per * out.toOpen.length * 0.5), likely: half(per * out.toOpen.length),
+                      high: half(per * out.toOpen.length * 1.5), day: day };
+    out.carpenter.lowAmount = out.carpenter.low * day; out.carpenter.likelyAmount = out.carpenter.likely * day; out.carpenter.highAmount = out.carpenter.high * day;
+  }
+  return out;
+}
+function wdForecastCardHtml() {
+  var f = wdForecastModel();
+  var total = f.opened.length + f.toOpen.length + f.estimated;
+  if (!total) return '';
+  var h = '<div class="card" style="padding:12px 14px">'
+    + '<div style="font-weight:700;font-size:15px">Forecast</div>'
+    + '<div style="font-size:12px;color:var(--text2);margin-top:4px;line-height:1.45">What the windows not opened up yet are likely to need, from what\'s been found on the ones that have. A guide to give the client, not a price.</div>'
+    + '<div style="font-size:13px;margin-top:8px">' + f.opened.length + ' of ' + total + ' windows and doors opened up'
+    + (f.estimated ? ' · ' + f.estimated + ' in the estimate' : '') + ' · ' + f.toOpen.length + ' still to open</div>';
+  if (!f.samples) {
+    return h + '<div style="font-size:12px;color:var(--text2);margin-top:6px">Nothing opened up yet, so there\'s nothing to go on. A window counts once it has work found, prep changed or something ticked off — or set it on its sheet.</div></div>';
+  }
+  var pct = function(x) { return Math.round(x * 100) + '%'; };
+  h += '<div style="font-size:12px;color:var(--text2);margin-top:4px">Found so far: ' + fmt(f.found) + ' — on average ' + pct(f.ratio.likely)
+    + ' on top of a window\'s painting (from ' + pct(f.ratio.low) + ' on the cleaner ones to ' + pct(f.ratio.high) + ' on the worst).</div>';
+  if (!f.toOpen.length) return h + '<div style="font-size:12px;color:var(--text2);margin-top:6px">Every window is opened up or in the estimate: nothing left to forecast.</div></div>';
+  var row = function(label, lo, mid, hi, bold) {
+    return '<div style="display:flex;justify-content:space-between;gap:10px;border-top:1px solid var(--border);margin-top:8px;padding-top:8px;font-size:13px' + (bold ? ';font-weight:700' : '') + '">'
+      + '<span>' + label + '</span><span style="text-align:right;white-space:nowrap">' + fmt(mid) + '<small style="display:block;font-weight:400;color:var(--text2)">' + fmt(lo) + ' – ' + fmt(hi) + '</small></span></div>';
+  };
+  h += row('Your repairs on the ' + f.toOpen.length + ' still to open', f.low, f.likely, f.high);
+  if (f.carpenter) {
+    h += row('Carpenter, roughly: ' + (f.carpenter.likely ? wdFmtDays(f.carpenter.likely) : 'none'), f.carpenter.lowAmount, f.carpenter.likelyAmount, f.carpenter.highAmount)
+      + '<div style="font-size:11px;color:var(--text2);margin-top:2px">' + wdFmtDays(f.carpenter.days) + ' so far over ' + f.samples + ' windows opened up. The days weren\'t booked per window, so treat this as a rough guide.</div>';
+  }
+  var c = f.carpenter || { lowAmount: 0, likelyAmount: 0, highAmount: 0 };
+  h += row('Likely still to come', f.low + c.lowAmount, f.likely + c.likelyAmount, f.high + c.highAmount, true);
+  if (!f.ready) h += '<div style="font-size:12px;color:var(--warn,#f39c12);margin-top:6px">Only ' + f.samples + ' window' + (f.samples === 1 ? '' : 's') + ' opened up so far — the range firms up with every one you open.</div>';
+  else if (f.grouped) h += '<div style="font-size:11px;color:var(--text2);margin-top:6px">Windows are forecast from their own side or level (dormers apart) where 3 or more of those have been opened up.</div>';
+  h += '<div style="margin-top:8px"><span onclick="openWdForecastSheet()" style="color:var(--accent);font-weight:600;font-size:13px;cursor:pointer;text-decoration:underline">Window by window</span></div>';
+  return h + '</div>';
+}
+function openWdForecastSheet() {
+  var f = wdForecastModel();
+  var cell = 'display:flex;justify-content:space-between;gap:10px;padding:8px 16px;border-top:1px solid var(--border);font-size:13px';
+  var pct = function(x) { return Math.round(x * 100) + '%'; };
+  var h = '<div class="card"><div class="card-header">Forecast, window by window</div>'
+    + '<div class="subsection-label">Opened up<small>found on each, against its painting</small></div>';
+  f.opened.forEach(function(w) {
+    h += '<div style="' + cell + '"><span>' + escapeHtml(w.label) + '</span><span style="white-space:nowrap">' + fmtSigned(w.found) + ' <small style="color:var(--text2)">' + pct(w.ratio) + '</small></span></div>';
+  });
+  h += '<div class="subsection-label" style="padding-top:10px">Still to open<small>likely, and the range</small></div>';
+  f.toOpen.forEach(function(w) {
+    h += '<div style="' + cell + '"><span>' + escapeHtml(w.label) + (w.basis !== 'job' ? ' <small style="color:var(--text2)">(from its ' + (w.basis === 'side' ? 'side and level' : 'level') + ')</small>' : '') + '</span>'
+      + '<span style="white-space:nowrap;text-align:right">' + fmt(w.likely) + '<small style="display:block;color:var(--text2)">' + fmt(w.low) + ' – ' + fmt(w.high) + '</small></span></div>';
+  });
+  h += '<button onclick="closeScheduleSheet()" style="margin:10px 16px 12px;width:calc(100% - 32px);background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:var(--rs);padding:10px;font-size:14px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer">Close</button></div>';
+  openScheduleSheet(h);
+}
+
 // ── Price per window (v3.4.0) ─────────────────────────────────────────────
 // What each opening is worth, for Nicky, never the client (a per-window list
 // invites "just do the front", and the quote and invoice bill the exterior as
@@ -26544,7 +26713,7 @@ function renderWindoors() {
           + ' <span style="color:var(--accent);font-weight:700;white-space:nowrap">' + fmtSigned(variationDeltaAmount({ raw: foundRaw, spray: 0 })) + '</span></div>' : '')
       + wdAdjustmentsRowHtml(null, 'margin-top:8px;padding-top:8px;border-top:1px solid var(--border)')
       + '</div>';
-    if (wdInUse() && wdJobAccepted(activeJob())) html += wdEstimateCardHtml();
+    if (wdInUse() && wdJobAccepted(activeJob())) html += wdEstimateCardHtml() + wdForecastCardHtml();
   } else {
     // Collapsible: open while the house is being designed, folded to one
     // summary line once any side's layout is confirmed (tap to reopen).
@@ -27772,6 +27941,7 @@ function renderWdDetail() {
   h += wdRepairTiersHtml(o, oMarks);
   h += wdCarpenterHtml(o);
   h += wdWorkListHtml(o, oMarks);
+  h += wdOpenedHtml(o);
   if (isOther && !site) h += '<div style="padding:12px 16px 4px"><span onclick="deleteWdOther()" style="color:var(--danger);font-size:13px;font-weight:600;cursor:pointer">Remove this item</span></div>';
   if (isRun && !site) h += '<div style="padding:12px 16px 4px"><span onclick="deleteWdRun()" style="color:var(--danger);font-size:13px;font-weight:600;cursor:pointer">Remove this run</span></div>';
   if (isExtra && !site) h += '<div style="padding:12px 16px 4px"><span onclick="deleteWdExtra()" style="color:var(--danger);font-size:13px;font-weight:600;cursor:pointer">Remove this extra</span></div>';

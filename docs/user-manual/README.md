@@ -1420,6 +1420,21 @@ When a client asks *"how much will the front windows cost?"*, price it with an *
 
 Once nothing is left in it, the estimate disappears. The On Site card shows an estimate that's still waiting (*Estimate: £862.24 on 2 windows, not agreed yet*).
 
+#### Forecast: the windows not opened up yet
+
+Under the Estimate card, the **Forecast** card answers *"and what about the rest?"* It uses what you've found on the windows you've opened up to forecast the ones you haven't, as a range.
+
+- **Opened up** means a window has work found on it, prep changed on site, or something ticked off. The card counts them (*3 of 15 windows and doors opened up · 5 in the estimate · 7 still to open*). On site, each window's sheet has an **Opened up** setting: leave it on **Automatic**, or set it by hand. Set **Opened up** for one you've inspected and found sound; that counts as a window where nothing was found, which keeps the forecast honest. Set **Not yet** for one ticked off before you really looked.
+- **How it works out the figure:** for each window opened up, what was found on it against its painting price (*on average 106% on top of a window's painting, from 75% on the cleaner ones to 152% on the worst*). That's applied to each window still to open, so a big sash is forecast bigger than a small dormer. **Likely** uses the average; the range runs from the cleaner windows (the lower quarter) to near the worst (the top tenth).
+- **Dormers and sides apart.** Once 3 or more windows on the same side and level (the dormers, say) are opened up, the windows still to open there are forecast from those alone, not from the whole house.
+- **The carpenter, roughly.** The days on the carpenter's line so far, per window opened up, times the windows still to open (from half that to half as much again). The days weren't booked per window, so the card says it's a rough guide.
+- **Likely still to come** adds the two together. **Window by window** lists what was found on each opened window, and the likely figure and range for each one still to open.
+- Windows in the **estimate** aren't forecast: they have their own figure. With fewer than 3 opened up, the card says the range will firm up as you open more.
+
+It's a guide for you to give the client, not a price, and it doesn't go on anything they see.
+
+![The forecast: found so far, and what's likely still to come](images/26zrc-windoors-forecast.png)
+
 #### Work to do
 
 **📋 Work to do (PDF)** is on the Windows & Doors screen from Measure and from On Site, as soon as the job has any windows or doors. It's the list of what's still to be done, built on the phone with no signal needed. Tap it to read it: it opens on its own page, the same way the work report does. To send, save or print it, tap **Share** next to it, which hands the PDF to your phone's share sheet (on a computer it downloads).
@@ -1707,6 +1722,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v3.5.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v3.6.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
