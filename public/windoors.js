@@ -1644,8 +1644,12 @@
   // id), as one clause -- "reputty x5 panes, prep raised to heavy". Prep is
   // the NET change from what the quote priced, so a level raised and then
   // lowered back says nothing at all. '' when there's nothing.
-  function describeOpeningSite(data, openingId, skip) {
+  // opts.plain (v3.9.1): words for the client's Where we are page, where
+  // "prep raised to heavy" means nothing -- "more preparation than planned:
+  // heavy instead of standard".
+  function describeOpeningSite(data, openingId, skip, opts) {
     skip = skip || {};
+    var plain = !!(opts && opts.plain);
     var openings = liveOpenings(data && data.openings, data && data.property);
     var o = openings.find(function (x) { return x.id === openingId; });
     if (!o) return '';
@@ -1653,12 +1657,14 @@
     var sc = scopeMap(openings)[o.id] || {};
     var bits = [];
     if (sc.variationId && !sc.excluded) {
-      if (!skip[sc.variationId]) bits.push('added to the job, ' + prepLabel(effectivePrep(o, property)).toLowerCase() + ' prep and paint');
+      if (!skip[sc.variationId]) bits.push(plain ? 'added to the job: prepared and painted' : 'added to the job, ' + prepLabel(effectivePrep(o, property)).toLowerCase() + ' prep and paint');
     } else {
       var chain = prepChain(o, property).filter(function (st) { return !skip[st.variation_id || 'unassigned']; });
       if (chain.length) {
         var from = chain[0].from, to = chain[chain.length - 1].to;
-        if (from !== to) bits.push('prep ' + (prepRank(to) > prepRank(from) ? 'raised' : 'lowered') + ' to ' + prepLabel(to).toLowerCase());
+        if (from !== to) bits.push(plain
+          ? (prepRank(to) > prepRank(from) ? 'more' : 'less') + ' preparation than planned: ' + prepLabel(to).toLowerCase() + ' instead of ' + prepLabel(from).toLowerCase()
+          : 'prep ' + (prepRank(to) > prepRank(from) ? 'raised' : 'lowered') + ' to ' + prepLabel(to).toLowerCase());
       }
     }
     var mine = ((data && data.marks) || []).filter(function (m) {

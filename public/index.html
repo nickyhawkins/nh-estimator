@@ -29113,6 +29113,14 @@ var WD_WORK_KEY = [
   ['Splice timber', 'a rotten length cut out and new wood joined in'],
   ['Carpenter', 'joinery beyond a painter\'s repairs, at a day rate']
 ];
+// What the preparation levels mean, for "more preparation than planned:
+// heavy instead of standard" (v3.9.1).
+var WD_PREP_KEY = [
+  ['Light', 'washed down, lightly sanded, bare spots primed'],
+  ['Standard', 'loose and flaking paint scraped off, sanded, primed where bare'],
+  ['Heavy', 'most of the old paint scraped or burnt off, sanded back and primed'],
+  ['Restoration', 'taken back to bare wood all over, then primed']
+];
 // One window's story for the page: done (found on site, its carpenter days)
 // and needed now (the estimate), keyed by opening.
 function wdWhereWindows(m) {
@@ -29125,8 +29133,10 @@ function wdWhereWindows(m) {
   Windoors.sortOpenings(windoors.openings).forEach(function(o) {
     var f = found[o.id], e = est[o.id], days = +placed[o.id] || 0;
     if (!f && !e && !(days > 0)) return;
+    // The client's words for what was done (prep in plain English).
+    var plainWork = f ? Windoors.describeOpeningSite(windoors, o.id, wdUnbilledIds(), { plain: true }) || f.work : '';
     out.push({ o: o, side: o.side, short: (function(t) { return t.charAt(0).toUpperCase() + t.slice(1); })(Windoors.openingLabel(o).replace(/^[^,]+, /, '')),
-               done: f || days > 0 ? { work: f ? f.work : '', amount: f ? f.amount : 0, days: days } : null,
+               done: f || days > 0 ? { work: plainWork, amount: f ? f.amount : 0, days: days } : null,
                needed: e ? { work: e.work, amount: e.amount, days: e.days } : null });
   });
   return out;
@@ -29228,7 +29238,7 @@ async function buildWdWherePdf() {
   // ── Window by window, side by side.
   if (sides.length) {
     head('WINDOW BY WINDOW');
-    para('Each side of the house as you face it, windows numbered left to right. Outlined in blue: work done. Dashed orange: work needed now. '
+    para('Each side of the house as you face it, windows numbered left to right. Outlined in blue: work done, listed in black. Dashed orange: work needed now, listed in orange. '
       + 'Carpenter days are shown against each window; they are part of the carpenter\'s figure above, not charged again.', 8.5, PDF_MUT);
     sides.forEach(function(sd) {
       var iw = 0, ih = 0;
@@ -29240,7 +29250,9 @@ async function buildWdWherePdf() {
       if (sd.img) { d.image(L + (W - iw) / 2, d.y, iw, ih, addImage(sd.img)); d.y -= ih + 8; }
       sd.rows.forEach(function(w) {
         var lines = [];
-        if (w.done) lines.push({ t: 'Done: ' + [w.done.work, w.done.days > 0 ? 'carpenter ' + wdFmtDays(w.done.days) : ''].filter(Boolean).join('; '),
+        // Work done is a plain line; only the estimate is labelled (v3.9.1).
+        var cap = function(t) { return t ? t.charAt(0).toUpperCase() + t.slice(1) : t; };
+        if (w.done) lines.push({ t: cap([w.done.work, w.done.days > 0 ? 'carpenter ' + wdFmtDays(w.done.days) : ''].filter(Boolean).join('; ')),
                                   amt: w.done.amount ? fmtSigned(w.done.amount) : '' });
         if (w.needed) lines.push({ t: 'Needed now: ' + [w.needed.work, w.needed.days > 0 ? 'carpenter ' + wdFmtDays(w.needed.days) : ''].filter(Boolean).join('; '),
                                     amt: round(w.needed.amount), needed: true });
@@ -29267,7 +29279,7 @@ async function buildWdWherePdf() {
 
   // ── The key: the parts of a sash, drawn and numbered, and the work words.
   var keyH = key ? 200 : 0;
-  d.need(40 + Math.max(keyH, WD_SASH_KEY.length * 14) + 20);
+  d.need(40 + Math.max(keyH, WD_SASH_KEY.length * 17 + (WD_WORK_KEY.length + WD_PREP_KEY.length) * 15 + 30) + 20);
   head('THE PARTS OF A WINDOW, AND THE WORK');
   var kTop = d.y;
   var kw = 0;
@@ -29280,12 +29292,18 @@ async function buildWdWherePdf() {
     ty -= 6;
   });
   ty -= 8;
-  WD_WORK_KEY.forEach(function(k) {
-    ty -= 10;
-    d.text(k[0], tx, ty, { size: 9, bold: true });
-    pdfWrap(pdfSanitise(k[1]), false, 8.5, R - (tx + 92)).forEach(function(ln, i) { if (i) ty -= 10; d.text(ln, tx + 92, ty, { size: 8.5, rgb: PDF_MUT }); });
-    ty -= 4;
-  });
+  var keyRows = function(list) {
+    list.forEach(function(k) {
+      ty -= 10;
+      d.text(k[0], tx, ty, { size: 9, bold: true });
+      pdfWrap(pdfSanitise(k[1]), false, 8.5, R - (tx + 92)).forEach(function(ln, i) { if (i) ty -= 10; d.text(ln, tx + 92, ty, { size: 8.5, rgb: PDF_MUT }); });
+      ty -= 4;
+    });
+  };
+  keyRows(WD_WORK_KEY);
+  ty -= 6;
+  ty -= 9; d.text('Preparation, before painting:', tx, ty, { size: 9, bold: true, rgb: PDF_STEEL }); ty -= 2;
+  keyRows(WD_PREP_KEY);
   d.y = Math.min(kTop - keyH, ty) - 10;
   para('Work found on site is done as it is needed, as agreed at the outset, and charged as done. Anything needed now is an estimate: '
     + 'we will go ahead with it once you are happy to. The allowance is a guide, not a price.', 8.5, PDF_MUT);
