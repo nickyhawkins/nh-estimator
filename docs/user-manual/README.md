@@ -67,7 +67,7 @@ Menu (☰) → **Settings** → **Business**:
 
 Between them they carry through to the app header, the sign-in screen, the top
 of every quote you send and its PDF, the snag-list PDF and your calendar feed.
-To check it landed, open any job and tap **Quote ⤴** — what you see there is
+To check it landed, open any job and tap **Open** on **Quote** on the Documents tab — what you see there is
 what the client sees.
 
 ### Connect Xero (one-off)
@@ -114,6 +114,7 @@ The **bottom bar** is always visible and follows the life of a job, left to righ
 | 📐 **Measure** | Everything measured for the current job — rooms, exterior items, kitchen, fitted units and custom lines |
 | 🛠 **On Site** | Time, materials and variations while the job runs |
 | 📋 **Summary** | The priced quote, Xero, and job status |
+| 📄 **Documents** | Every report, PDF, sheet and link for the job — see [The Documents tab](#the-documents-tab) |
 
 ![Menu](images/02-menu.png)
 
@@ -132,6 +133,19 @@ The **menu (☰)**, top right on most screens, holds every other screen:
 Below those, **↩ Undo** appears whenever there's a recent change on the current job you can undo (see [Materials & Undo](#materials--undo)), followed by the sync line — "All changes synced ✓" means everything you've entered is safely on the server — and the build number, so you can confirm a deploy has actually reached your phone. Everything saves automatically as you type; there is no save button to forget.
 
 ---
+
+### The Documents tab
+
+Every report, PDF, sheet and link a job has is on one tab, **📄 Documents**, at the right of the bottom bar. It's the only place they live, so nothing for the client is tucked away on a working screen. It's in two groups:
+
+- **For the client:** the **Quote** (preview and PDF), **Where we are**, the **Windows and doors work report** (and, once the final invoice is in Xero, attaching it), the **Spec sheet** (open it to tick things off, as a PDF, or as a shared link), the **Snag list** PDF, and the **Client's page** link (copy it, or open it to see what they see).
+- **For you and the team:** **Work to do**, **Price per window**, **Forecast, window by window**, **Repair size adjustments**, and **Export (CSV)**.
+
+Each one says what it's for, with **Open** (and **Share** where it's a PDF to send). One that doesn't apply yet stays on the list, greyed, saying why: *No snags on this job*, *Once the quote is accepted*, *This job has no windows and doors set up*. The tab loads the job's latest on the way in; with no signal it works from what's on the phone.
+
+![The Documents tab: for the client](images/02b-documents-tab.png)
+
+![The Documents tab: for you and the team](images/02c-documents-tab-team.png)
 
 ## 3. Measuring up
 
@@ -694,7 +708,7 @@ If the amend would absorb extras you'd already flagged as variations, the sheet 
 
 ### Client-facing quote view
 
-**Quote ⤴** (top bar, next to Export ↓) opens a branded, read-only one-page quote at customer-facing prices — room by room, colour schedule, payment terms and total, with your logo and business colours. It opens inside the app; tap **Save PDF** and it builds a real PDF file (as many pages as it needs) and hands it to your phone's share sheet — save it, email it straight to the client, or send it to a printer. It works with no signal, so you can produce a quote PDF standing in a house with no bars. It's regenerated live every time you open it, so it never shows stale figures, and doesn't touch Xero at all.
+**Quote** on the [Documents tab](#the-documents-tab) opens a branded, read-only one-page quote at customer-facing prices — room by room, colour schedule, payment terms and total, with your logo and business colours. It opens inside the app; tap **Save PDF** and it builds a real PDF file (as many pages as it needs) and hands it to your phone's share sheet — save it, email it straight to the client, or send it to a printer. It works with no signal, so you can produce a quote PDF standing in a house with no bars. It's regenerated live every time you open it, so it never shows stale figures, and doesn't touch Xero at all.
 
 Mostly it's one line per room. The exception is [wallpaper stripping](#walk-the-room), which gets a line of its own — *"Wallpaper Stripping — Back Bedroom"* with the paper type underneath — so the client can see what the labour is for. It's carved out of that room's line rather than added to it, so the total doesn't move, and the same split reaches the Xero quote and the final invoice. Everything else the room needs doing to it (mist coat, prep level, making good) stays inside the room's own price as it always has.
 
@@ -1015,11 +1029,7 @@ Colours tab and the materials list, which are screens for putting numbers in,
 not for looking things up with a brush in your hand.
 
 The **Spec sheet** puts the answers on one screen, and lets you tick them off.
-It sits on On Site next to Snags, headed with how much is still outstanding:
-
-![The spec sheet entry on On Site](images/10h-spec-sheet-entry.png)
-
-Tap **Open** and you get the whole job, area by area:
+It's on the [Documents tab](#the-documents-tab), with how much is still outstanding (*prep 3/12, painted 5/20*). Tap **Open** and you get the whole job, area by area:
 
 ![The spec sheet, by room](images/10h-spec-sheet.png)
 
@@ -1212,7 +1222,7 @@ The last few days of a job are a list of small things: a scuff by the switch, a 
 
 #### The snag list as a PDF
 
-**PDF** at the top of the Snags section builds a one-file copy of the list and
+**Snag list → Open** on the [Documents tab](#the-documents-tab) builds a one-file copy of the list and
 hands it to your phone's share sheet, so it can go straight to the client, to
 whoever's working with you, or into an email as a record. On a computer it
 downloads instead. It's named for the job and the day you exported it
@@ -1227,8 +1237,7 @@ still to do and a filled one, struck through and dated, for anything cleared.
 
 It builds from what's on your phone, not from what's reached the server, so a
 snag you ticked in a cellar with no bars is already ticked in the file. It
-works with no signal at all. Once everything's cleared, **Export PDF** sits
-under the reopened list at the bottom of the screen — that copy is the
+works with no signal at all. Once everything's cleared, that copy is the
 completed punch list, which is the one worth sending on.
 
 #### Adding snags
@@ -1361,7 +1370,7 @@ Old windows are where the surprises are. On a job with [Windows and doors](#wind
 **A resin repair turns out bigger once it's cut out.** Open the window and tap the bigger size under **Repair size**. That's all: there's nothing to send, because the quote terms already say repairs are priced on their estimated size and may go up once exposed. A badge shows the change (*M → L*); tap the agreed size again to undo it. Sizes **below** what the client agreed are greyed out. A repair that turns out smaller stays at its quoted price.
 
 - The size a **quoted** repair was priced at is locked when the job is **accepted**. A repair **found on site** isn't locked at all: nobody agreed a size for it, so set it to whatever it turns out to be and it's billed at that size, as part of that window's found work.
-- The extra on a quoted repair is a **repair size adjustment**, kept apart from everything else. The accepted quote doesn't change. It shows as **Repair size adjustments +£X** under the Windows & Doors total on Summary, on the On Site card and at the top of the On Site windows screen. Tap it for the list: *Front, ground floor, W1: resin repair (cill) M → L, +£18.54*. The figure includes sundries and markup, as the invoice bills it.
+- The extra on a quoted repair is a **repair size adjustment**, kept apart from everything else. The accepted quote doesn't change. It shows as **Repair size adjustments +£X** under the Windows & Doors total on Summary, on the On Site card and at the top of the On Site windows screen. The list is **Repair size adjustments** on the Documents tab: *Front, ground floor, W1: resin repair (cill) M → L, +£18.54*. The figure includes sundries and markup, as the invoice bills it.
 - It's billed on the invoice as part of the **one Windows and doors line** (see [Windows and doors on the invoice](#windows-and-doors-on-the-invoice)), not a line of its own. An interim invoice raised after the upgrade includes it; otherwise it's on the final invoice.
 - The **client's page** shows it as its own line, *Repair size adjustments (per quote terms)*, with no Approve button, so the total they see matches what they'll be invoiced. It updates each time you send or update that page.
 - The **work report** shows the size each repair ended up at: *resin repair (cill, large)*.
@@ -1387,7 +1396,7 @@ Old windows are where the surprises are. On a job with [Windows and doors](#wind
 
 #### Price per window
 
-**💷 Price per window**, on the Windows & Doors screen from Measure and from On Site, lists what each opening is worth, side by side. Each one shows:
+**Price per window**, on the [Documents tab](#the-documents-tab), lists what each opening is worth, side by side. Each one shows:
 
 - **Painting:** its prep and painting at the quoted prep level, with its access and coats.
 - **Repairs:** any work marked on it at the quote stage.
@@ -1442,7 +1451,7 @@ Under the Estimate card, the **Forecast** card answers *"and what about the rest
 - **How it works out the figure:** for each window opened up, what was found on it against its painting price (*on average 106% on top of a window's painting, from 75% on the cleaner ones to 152% on the worst*). That's applied to each window still to open, so a big sash is forecast bigger than a small dormer. **Likely** uses the average; the range runs from the cleaner windows (the lower quarter) to near the worst (the top tenth).
 - **Dormers and sides apart.** Once 3 or more windows on the same side and level (the dormers, say) are opened up, the windows still to open there are forecast from those alone, not from the whole house.
 - **The carpenter, roughly.** The days on the carpenter's line so far, per window opened up, times the windows still to open (from half that to half as much again). The days weren't booked per window, so the card says it's a rough guide.
-- **Likely still to come** adds the two together. **Window by window** lists what was found on each opened window, and the likely figure and range for each one still to open.
+- **Likely still to come** adds the two together. **Forecast, window by window** on the Documents tab lists what was found on each opened window, and the likely figure and range for each one still to open.
 - Windows in the **estimate** aren't forecast: they have their own figure. With fewer than 3 opened up, the card says the range will firm up as you open more.
 
 It's a guide for you to give the client, not a price, and it doesn't go on anything they see.
@@ -1451,7 +1460,7 @@ It's a guide for you to give the client, not a price, and it doesn't go on anyth
 
 #### Where we are: telling the client
 
-When a job is running over, the **Where we are** card (under the Forecast) adds everything up for the client. Its PDF is the thing to send.
+When a job is running over, **Where we are** on the [Documents tab](#the-documents-tab) adds everything up for the client. Its PDF is the thing to send; the tab shows the likely total under it.
 
 - **Painting and repairs, as planned:** the accepted quote's total less its carpenter days, as one figure, never its line-by-line breakdown.
 - **Carpenter:** all the carpenter's days so far, as one line, saying how many were planned and how many more (*9 days (8 planned, 1 more)*). The planned days stay in this line even though an interim invoice has billed them: this page says where the job stands, not what's been billed.
@@ -1461,17 +1470,16 @@ When a job is running over, the **Where we are** card (under the Forecast) adds 
 - **Where it's heading:** all of that added up, likely, and between the low and high.
 - **Already invoiced** and **likely still to come:** what the job's invoices (interims, say) have billed so far, at Xero's totals (a voided one doesn't count), and the difference. That's usually the figure the client is really asking about.
 
-**The figure given before starting.** If you gave the client a ballpark before starting (*about £5,000*), tap **add one** and type it. It's printed beside the total for comparison (*For comparison, the figure given before the work started was £5,000.00*), but never added into anything: the sums are always the real figures, so the page adds up for anyone checking it.
+**The figure given before starting.** If you gave the client a ballpark before starting (*about £5,000*), tap **add one** under Where we are on the Documents tab and type it. It's printed beside the total for comparison (*For comparison, the figure given before the work started was £5,000.00*), but never added into anything: the sums are always the real figures, so the page adds up for anyone checking it.
 
-**📄 Where we are (PDF)** opens it on its own page; **Share** sends it from your phone. It's built on the phone, so it works with no signal. It ends with a short note: work found on site is done as needed and charged as done; anything under *Needed now* is an estimate, done once they're happy; the allowance is a guide, not a price.
+**Open** shows it on its own page; **Share** sends it from your phone. It's built on the phone, so it works with no signal. It ends with a short note: work found on site is done as needed and charged as done; anything under *Needed now* is an estimate, done once they're happy; the allowance is a guide, not a price.
 
-![The Where we are card](images/26zrd-windoors-where-we-are.png)
 
 ![The Where we are PDF](images/26zre-windoors-where-we-are-pdf.png)
 
 #### Work to do
 
-**📋 Work to do (PDF)** is on the Windows & Doors screen from Measure and from On Site, as soon as the job has any windows or doors. It's the list of what's still to be done, built on the phone with no signal needed. Tap it to read it: it opens on its own page, the same way the work report does. To send, save or print it, tap **Share** next to it, which hands the PDF to your phone's share sheet (on a computer it downloads).
+**Work to do** is on the [Documents tab](#the-documents-tab) as soon as the job has any windows or doors. It's the list of what's still to be done, built on the phone with no signal needed. Tap it to read it: it opens on its own page, the same way the work report does. To send, save or print it, tap **Share** next to it, which hands the PDF to your phone's share sheet (on a computer it downloads).
 
 - **At the top, *In all*:** how many openings there are to paint, and the marked work counted up (*Reputty x14 panes, Replace glass x3 panes, Resin repair x5 repairs*).
 - **Then each side**, with its drawing, and **every opening on it**, each with a box to tick on paper for each job: the painting first (*Paint: light prep, 2 coats, first floor access*), then one line per kind of repair (*Reputty x2 panes*, *Replace glass x1 pane*, *Resin repair (cill)*). An access you set by hand is always named (*ground access (set by hand)*), so the team knows the scaffold should be up.
@@ -1482,11 +1490,10 @@ When a job is running over, the **Where we are** card (under the Forecast) adds 
 
 Like the work report, it has **no prices on it**. From Measure it's the schedule of work behind a quote, to send with it or to talk a client through what they're paying for; on site it's the list to hand the team.
 
-![The two PDFs on the Windows & Doors screen](images/26z-windoors-work-to-do.png)
 
 #### The work report
 
-The **work report** is what goes to the client with the final invoice: every window and door on the house, and the work done to each, with the drawings. **There are no prices anywhere on it.** **📄 Work report (PDF)** on the Windows & Doors screen (Measure or On Site) opens it, exactly as Xero will get it, so you can check it before invoicing. The app builds it on the server from what's saved, so it needs a signal; it waits for any changes still saving from your phone first. (The same work, as a web page, is on the client's approval page under their extras.)
+The **work report** is what goes to the client with the final invoice: every window and door on the house, and the work done to each, with the drawings. **There are no prices anywhere on it.** **Windows and doors work report → Open** on the [Documents tab](#the-documents-tab) opens it, exactly as Xero will get it, so you can check it before invoicing. The app builds it on the server from what's saved, so it needs a signal; it waits for any changes still saving from your phone first. (The same work, as a web page, is on the client's approval page under their extras.)
 
 ![The work report: header, summary and the first elevation](images/26zm-windoors-work-report-pdf.png)
 
@@ -1501,7 +1508,7 @@ The **work report** is what goes to the client with the final invoice: every win
 
 Only work **ticked off as done** is listed. Work on a variation the client declined (before v3.3.0) isn't on it. Openings left out of the job aren't on it or counted.
 
-**Work to do (PDF)**, the list for the team, is different: it's still built on the phone and works with no signal (see [Work to do](#work-to-do)).
+**Work to do**, the list for the team, is different: it's still built on the phone and works with no signal (see [Work to do](#work-to-do)).
 
 #### Windows and doors on the invoice
 
@@ -1517,7 +1524,7 @@ A count of zero is left out (*…outside faces, 14 windows.*), and the colours a
 
 ![Attaching the report, and checking it first](images/26zj-windoors-invoice-report-tick.png)
 
-**If the report doesn't attach**, the invoice is still created; the message says the report wasn't attached and why. The Windows & Doors screen then shows **↻ Try attaching the report again** with the reason underneath. Trying again is safe: if Xero already has the report on that invoice, it isn't added a second time. Once it's on, the screen says **✓ Attached to invoice INV-… as Work-Report-INV-….pdf**. Xero doesn't let an app remove an attachment, so a report that's already attached isn't replaced; if you need to change it after that, open it from the Windows & Doors screen and swap it in Xero by hand.
+**If the report doesn't attach**, the invoice is still created; the message says the report wasn't attached and why. The Documents tab then shows, under the work report, **↻ Try attaching the report again** with the reason underneath. Trying again is safe: if Xero already has the report on that invoice, it isn't added a second time. Once it's on, the screen says **✓ Attached to invoice INV-… as Work-Report-INV-….pdf**. Xero doesn't let an app remove an attachment, so a report that's already attached isn't replaced; if you need to change it after that, open it from the Windows & Doors screen and swap it in Xero by hand.
 
 ![The retry, with the reason it didn't attach](images/26zk-windoors-report-attach-retry.png)
 
@@ -1756,6 +1763,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v3.7.1. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v3.8.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*

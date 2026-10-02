@@ -1433,8 +1433,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
          entry point while the hamburger nav didn't exist yet -- Materials is
          now reached from there on every measuring screen, so this one is
          retired rather than left as a second, redundant path in. -->
-    <button onclick="openClientQuote()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:20px;padding:6px 14px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Quote ⤴</button>
-    <button onclick="exportCSV()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:20px;padding:6px 14px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer">Export ↓</button>
+    <!-- Quote ⤴ and Export ↓ moved to the Documents tab (v3.8.0). -->
     <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰</button>
   </div>
   <!-- Compact stand-in for the quote panel once a job is quoted or beyond
@@ -1507,6 +1506,14 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
 </div>
 
 <!-- ══ SETTINGS ══ -->
+<div id="screen-docs" class="screen">
+  <div class="topbar">
+    <div class="topbar-title">Documents</div>
+    <span class="sync-dot" title="Sync status"></span><button class="nav-ham-btn" onclick="toggleNavMenu()">☰</button>
+  </div>
+  <div class="content" id="docs-body"></div>
+</div>
+
 <div id="screen-settings" class="screen">
   <div class="topbar"><div class="topbar-title">Settings</div></div>
   <div class="content">
@@ -2421,6 +2428,7 @@ body.app-offline #xero-quote-btn,body.app-offline #xero-contact-sync-btn,body.ap
   <button class="nav-item" id="nav-home" onclick="goTab('home')"><span class="nav-icon">📐</span><span class="nav-label">Measure</span></button>
   <button class="nav-item" id="nav-actuals" onclick="openActuals()"><span class="nav-icon">🛠️<span class="nav-onsite-badge"></span></span><span class="nav-label">On Site</span></button>
   <button class="nav-item" id="nav-summary" onclick="goTab('summary')"><span class="nav-icon">📋</span><span class="nav-label">Summary</span></button>
+  <button class="nav-item" id="nav-docs" onclick="openDocuments()"><span class="nav-icon">📄</span><span class="nav-label">Documents</span></button>
 </nav>
 
 <!-- ══ HAMBURGER MENU (job admin) ══
@@ -10997,12 +11005,8 @@ function clientApprovalBlockHtml(v) {
       ? 'Creates a private link showing the original quote total and the work found on site, window by window. Nothing for them to answer. No login for them, nothing to Xero.'
       : 'Creates a private link showing the original quote total, these extras and an Approve/Decline on each. No login for them, nothing to Xero.') + '</div>';
   } else {
-    bits += '<div style="margin-top:8px;font-size:11px;color:var(--text2)">Client link — press and hold to copy, or tap Copy:</div>'
-      + '<div style="display:flex;gap:8px;align-items:center;margin-top:4px">'
-      + '<div style="flex:1;min-width:0;font-family:\'DM Mono\',monospace;font-size:11px;color:var(--text2);background:var(--bg);border:1px solid var(--border);border-radius:var(--rs);padding:7px 9px;overflow-x:auto;white-space:nowrap;-webkit-user-select:all;user-select:all">'
-      + escapeHtml(url) + '</div>'
-      + '<span onclick="copyClientQuoteLink()" style="color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;padding:4px">Copy</span>'
-      + '</div>'
+    // The link itself -- copy, open -- is on the Documents tab (v3.8.0).
+    bits += '<div style="margin-top:8px;font-size:11px;color:var(--text2)">The client\'s link is on the <span onclick="openDocuments()" style="color:var(--accent);font-weight:700;cursor:pointer">Documents tab ›</span></div>'
       + '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:8px;font-size:12px;color:var(--text2)">'
       + '<span>' + (approved ? '<span style="color:var(--success);font-weight:600">' + approved + ' approved</span>' : '')
         + (approved && (declined || awaiting) ? ' · ' : '')
@@ -12621,7 +12625,7 @@ function goTab(tab) {
   // but is always ENTERED via openActuals() — see the note below. 'kitchen'
   // is no longer a bottom-bar tab (folded into Measure's + chooser) so it's
   // not in this list — reached only via goScreen('kitchen').
-  ['dash','home','actuals','summary'].forEach(function(t){
+  ['dash','home','actuals','summary','docs'].forEach(function(t){
     var el=document.getElementById('nav-'+t);
     if(el) el.classList.toggle('active', t===tab);
   });
@@ -12640,6 +12644,107 @@ function goTab(tab) {
   // NB no renderActuals() here — actuals live only on the server, so the
   // screen is entered via openActuals(), which loads before it renders.
   // goTab('actuals') on its own would paint a stale or empty list.
+}
+
+// ── Documents (v3.8.0) ────────────────────────────────────────────────────
+// Every report, PDF, sheet and link the job has, in one place -- the fifth
+// tab (per Nicky, 2026-10-02: "only on documents", rather than buttons
+// spread over Summary, On Site and the Exterior screen). Grouped by who it's
+// for. A document that doesn't apply yet stays listed, greyed, with the
+// reason, so nothing just disappears.
+//
+// Entered through openDocuments(), which loads what the documents read first
+// (as openActuals does for On Site), then renders; offline, it renders from
+// what's in memory.
+async function openDocuments() {
+  goTab('docs');
+  var el = document.getElementById('docs-body');
+  if (el) el.innerHTML = '<div class="card" style="padding:16px;color:var(--text2)">Loading…</div>';
+  var id = activeJobId;
+  if (id) {
+    var soft = function(p) { return Promise.resolve(p).catch(function() {}); };
+    await Promise.all([
+      soft(loadWindoors(id)), soft(loadSnags()), soft(loadSnagRooms()), soft(loadSpecTicks()),
+      // The accepted quote only when this phone doesn't already hold it: a
+      // failed fetch adopts "no snapshot" (deliberately, elsewhere), which
+      // on a weak signal would take Where we are away mid-conversation.
+      quoteSnapshotsJobId === id ? null : soft(loadQuoteSnapshots(id)),
+      soft(loadJobInvoices(id)), soft(loadClientVariations(id))
+    ]);
+  }
+  if (curTab === 'docs') renderDocs();
+}
+function renderDocs() {
+  var el = document.getElementById('docs-body');
+  if (!el) return;
+  var job = activeJob();
+  if (!job) { el.innerHTML = '<div class="card" style="padding:16px;color:var(--text2)">Open a job first.</div>'; return; }
+  var accepted = wdJobAccepted(job);
+  var wd = wdInUse();
+  var btn = function(label, fn, primary) {
+    return '<button type="button" onclick="' + fn + '" style="flex:none;background:' + (primary ? 'var(--accent)' : 'var(--accent-soft-bg)') + ';color:' + (primary ? '#fff' : 'var(--accent)')
+      + ';border:1px solid ' + (primary ? 'var(--accent)' : 'var(--accent-soft-border)') + ';border-radius:20px;padding:7px 14px;font-size:13px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer">' + label + '</button>';
+  };
+  // One row: name, what it's for, and its buttons -- or, when it doesn't
+  // apply, the reason instead of the buttons.
+  var row = function(icon, name, what, buttons, unavailable, extra) {
+    return '<div style="padding:12px 16px;border-top:1px solid var(--border)' + (unavailable ? ';opacity:.55' : '') + '">'
+      + '<div style="display:flex;gap:12px;align-items:flex-start">'
+      + '<div style="font-size:20px;line-height:1.2;flex:none">' + icon + '</div>'
+      + '<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:15px">' + name + '</div>'
+      + '<div style="font-size:12.5px;color:var(--text2);margin-top:2px;line-height:1.45">' + what + '</div>'
+      + (unavailable ? '<div style="font-size:12px;color:var(--text3);margin-top:4px;font-style:italic">' + unavailable + '</div>'
+          : '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">' + buttons + '</div>')
+      + (extra && !unavailable ? extra : '')
+      + '</div></div></div>';
+  };
+  var group = function(title, rows) {
+    return '<div class="section-title" style="margin:16px 0 8px">' + title + '</div><div class="card" style="padding:0;overflow:hidden">'
+      + rows.join('').replace('border-top:1px solid var(--border)', 'border-top:none') + '</div>';
+  };
+  var noWd = 'This job has no windows and doors set up.';
+  // ── For the client
+  var client = [];
+  client.push(row('🧾', 'Quote', 'The quote as the client sees it, to check or save as a PDF.', btn('Open', 'openClientQuote()', true)));
+  var where = wd && accepted ? wdWhereModel() : null;
+  client.push(row('📍', 'Where we are', 'Where the job stands and where it\'s heading: found so far, the estimate, an allowance for the rest, and what\'s been invoiced.',
+    btn('Open', 'saveWdWherePdf()', true) + btn('Share', 'saveWdWherePdf({ share: true })'),
+    !wd ? noWd : !accepted ? 'Once the quote is accepted.' : !(where && where.ready) ? 'Needs the accepted quote on this phone — reopen the job with a signal.' : '',
+    where && where.ready ? '<div style="font-size:12.5px;margin-top:8px;color:var(--text2)">Likely total <b style="color:var(--text)">' + fmt(where.likely) + '</b>'
+      + (where.high - where.low > 0.5 ? ' (' + fmt(where.low) + ' – ' + fmt(where.high) + ')' : '')
+      + (where.invoiced > 0.005 ? ' · invoiced ' + fmt(where.invoiced) : '')
+      + '<br>Figure given before starting: ' + (where.clientFigure ? '<b>' + fmt(where.clientFigure) + '</b> · ' : 'none · ')
+      + '<span onclick="setWdClientFigure()" style="color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline">' + (where.clientFigure ? 'change' : 'add one') + '</span></div>' : ''));
+  client.push(row('🪟', 'Windows and doors work report', 'Every window and door and what was done to it, with the drawings. No prices. It goes on the final invoice.',
+    btn('Open', 'openWorkReportPdf()', true) + wdAttachmentHtml('').replace(/style="[^"]*"/, 'style="flex:none;background:var(--accent-soft-bg);color:var(--accent);border:1px solid var(--accent-soft-border);border-radius:20px;padding:7px 14px;font-size:13px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer"'),
+    !wd ? noWd : ''));
+  var spec = jobSpecModel();
+  var sc = spec.rows.length ? specCounts(spec) : null;
+  client.push(row('🎨', 'Spec sheet', 'Every surface with its colour, coats and prep, room by room. Tick prep and painting off on it as you go'
+      + (sc ? ' — prep ' + sc.prepDone + '/' + sc.prepTotal + ', painted ' + sc.painted + '/' + sc.total : '') + '.',
+    btn('Open', 'openSpecSheet()', true) + btn('PDF', 'saveSpecPdf()') + btn(specLink && specLink.token ? 'Share link' : 'Start a link', 'shareSpecLink()'),
+    spec.rows.length ? '' : 'Nothing measured on this job yet.'));
+  client.push(row('📝', 'Snag list', 'The snag list as a PDF, room by room' + ((snags || []).length ? ' — ' + snags.length + ' snag' + (snags.length === 1 ? '' : 's') : '') + '.',
+    btn('Open', 'saveSnagPdf()', true), (snags || []).length ? '' : 'No snags on this job.'));
+  var link = clientQuoteLinkUrl();
+  client.push(row('🔗', 'Client\'s page', 'The private link where the client sees the original total, extras and work found on site, and answers any extras.',
+    btn('Copy link', 'copyClientQuoteLink()', true) + btn('Open', 'window.open(clientQuoteLinkUrl(), \'_blank\')'),
+    link ? '' : 'Not made yet — it\'s created the first time you send variations from On Site.'));
+  // ── For you and the team
+  var team = [];
+  team.push(row('📋', 'Work to do', 'The windows and doors still to do, with a box to tick on paper for each job. For the team.',
+    btn('Open', 'saveWindoorsReportPdf(true)', true) + btn('Share', 'saveWindoorsReportPdf(true, { share: true })'), !wd ? noWd : ''));
+  team.push(row('💷', 'Price per window', 'What each window is worth: painting, quoted repairs, work found and any estimate. Never for the client.',
+    btn('Open', 'openWdPriceSheet()', true), !wd ? noWd : ''));
+  var fc = wd && accepted ? wdForecastModel() : null;
+  team.push(row('🔮', 'Forecast, window by window', 'What was found on each window opened up, and what each one still to open is likely to need.',
+    btn('Open', 'openWdForecastSheet()', true), !wd ? noWd : !accepted ? 'Once the quote is accepted.' : !(fc && fc.samples) ? 'Nothing opened up yet.' : ''));
+  var adj = wd ? wdAdjustments() : { items: [] };
+  team.push(row('🔍', 'Repair size adjustments', 'Quoted resin repairs found bigger once cut out, and what each adds.',
+    btn('Open', 'openWdAdjustmentsSheet()', true), !wd ? noWd : !adj.items.length ? 'No repairs upgraded.' : ''));
+  team.push(row('⬇️', 'Export (CSV)', 'The job\'s rooms and figures as a spreadsheet file.', btn('Download', 'exportCSV()', true)));
+  el.innerHTML = '<div style="font-size:13px;color:var(--text2);margin:4px 2px 0">' + escapeHtml(job.name || '') + '</div>'
+    + group('For the client', client) + group('For you and the team', team) + '<div style="height:12px"></div>';
 }
 
 // ── Hamburger menu (job admin) ──────────────────────────────────────────────
@@ -16542,7 +16647,6 @@ function snagsSectionHtml() {
   return '<div class="section-title" style="margin:16px 0 8px;display:flex;align-items:center;justify-content:space-between;gap:10px">'
       + '<span>Snags (' + openN + ')</span>'
       + '<span style="display:flex;gap:6px;flex:none">'
-      + '<button id="snag-pdf-btn" onclick="saveSnagPdf()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);border-radius:20px;padding:5px 12px;font-size:12px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;text-transform:none;letter-spacing:0">PDF</button>'
       + '<button onclick="openSnagPanel()" style="background:var(--accent-soft-bg);border:1px solid var(--accent-soft-border);color:var(--accent);border-radius:20px;padding:5px 12px;font-size:12px;font-weight:700;font-family:\'DM Sans\',sans-serif;cursor:pointer;text-transform:none;letter-spacing:0">+ Add snag</button>'
       + '</span>'
     + '</div>'
@@ -16579,7 +16683,6 @@ function snagsQuietHtml() {
         ? snagListHtml()
           + '<div style="display:flex;justify-content:center;gap:6px;padding:8px 0 0">'
           + '<button onclick="openSnagPanel()" style="background:none;border:none;color:var(--text2);font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;padding:6px 10px">+ Add snag</button>'
-          + '<button id="snag-pdf-btn" onclick="saveSnagPdf()" style="background:none;border:none;color:var(--text2);font-size:13px;font-weight:600;font-family:\'DM Sans\',sans-serif;cursor:pointer;padding:6px 10px">Export PDF</button>'
           + '</div>'
         : '');
 }
@@ -17661,6 +17764,10 @@ async function openSpecSheet() {
   specSheetOpen = true;
   specFilter = '';
   var el = document.getElementById('spec-panel');
+  // Opened from the Documents tab too (v3.8.0): the panel sits in On Site's
+  // markup, and a fixed overlay inside a hidden screen doesn't show -- so it
+  // lives at the top of the page.
+  if (el && el.parentNode !== document.body) document.body.appendChild(el);
   if (el) el.style.display = 'block';
   var box = document.getElementById('spec-find');
   if (box) box.value = '';
@@ -17681,6 +17788,7 @@ function closeSpecSheet() {
   var el = document.getElementById('spec-panel');
   if (el) el.style.display = 'none';
   renderActuals();
+  if (curTab === 'docs') renderDocs();
 }
 
 function onSpecFilterInput() {
@@ -18507,7 +18615,7 @@ function renderActuals() {
   // open (snagsSectionHtml returns '' otherwise). The cleared/empty list has
   // its own quiet home at the bottom -- see snagsQuietHtml.
   var specModel = jobSpecModel();
-  el.innerHTML = onSiteJobHeader() + snagsSectionHtml() + specSectionHtml(specModel) + windoorsOnSiteCardHtml() + head + renderTimeOnSiteCard()
+  el.innerHTML = onSiteJobHeader() + snagsSectionHtml() + windoorsOnSiteCardHtml() + head + renderTimeOnSiteCard()
     + '<div class="section-title" style="margin:16px 0 8px;display:flex;align-items:center;justify-content:space-between;gap:14px">Materials'
       + undoChipHtml()
     + '</div>'
@@ -18519,7 +18627,7 @@ function renderActuals() {
     + add
     + variationsSection
     + snagsQuietHtml()
-    + specQuietHtml(specModel);
+    + ''; // the spec sheet lives on the Documents tab (v3.8.0)
   restoreFields(pendingAdd);
   // Reuses the Summary picker wholesale -- same onMaterialProductInput
   // function, same materialItemIndex, just mounted with the 'act-add' prefix.
@@ -26178,9 +26286,9 @@ function wdAdjustmentText(it) {
 function wdAdjustmentsRowHtml(adj, style) {
   adj = adj || wdAdjustments();
   if (!(adj.amount > 0.005)) return '';
-  return '<div onclick="event.stopPropagation();openWdAdjustmentsSheet()" style="display:flex;justify-content:space-between;gap:10px;align-items:center;cursor:pointer;font-size:13px;' + (style || '') + '">'
+  return '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;font-size:13px;' + (style || '') + '">'
     + '<span>Repair size adjustments <small style="color:var(--text2)">· ' + adj.items.length + ' upgraded on site</small></span>'
-    + '<span style="font-weight:700;color:var(--accent);white-space:nowrap">+' + fmt(adj.amount) + ' ›</span></div>';
+    + '<span style="font-weight:700;color:var(--accent);white-space:nowrap">+' + fmt(adj.amount) + '</span></div>';
 }
 function openWdAdjustmentsSheet() {
   var adj = wdAdjustments();
@@ -26360,7 +26468,6 @@ function wdForecastCardHtml() {
   h += row('Likely still to come', f.low + c.lowAmount, f.likely + c.likelyAmount, f.high + c.highAmount, true);
   if (!f.ready) h += '<div style="font-size:12px;color:var(--warn,#f39c12);margin-top:6px">Only ' + f.samples + ' window' + (f.samples === 1 ? '' : 's') + ' opened up so far — the range firms up with every one you open.</div>';
   else if (f.grouped) h += '<div style="font-size:11px;color:var(--text2);margin-top:6px">Windows are forecast from their own side or level (dormers apart) where 3 or more of those have been opened up.</div>';
-  h += '<div style="margin-top:8px"><span onclick="openWdForecastSheet()" style="color:var(--accent);font-weight:600;font-size:13px;cursor:pointer;text-decoration:underline">Window by window</span></div>';
   return h + '</div>';
 }
 function openWdForecastSheet() {
@@ -26816,7 +26923,7 @@ function renderWindoors() {
           + ' <span style="color:var(--accent);font-weight:700;white-space:nowrap">' + fmtSigned(variationDeltaAmount({ raw: foundRaw, spray: 0 })) + '</span></div>' : '')
       + wdAdjustmentsRowHtml(null, 'margin-top:8px;padding-top:8px;border-top:1px solid var(--border)')
       + '</div>';
-    if (wdInUse() && wdJobAccepted(activeJob())) html += wdEstimateCardHtml() + wdForecastCardHtml() + wdWhereCardHtml();
+    if (wdInUse() && wdJobAccepted(activeJob())) html += wdEstimateCardHtml() + wdForecastCardHtml();
   } else {
     // Collapsible: open while the house is being designed, folded to one
     // summary line once any side's layout is confirmed (tap to reopen).
@@ -26871,19 +26978,10 @@ function renderWindoors() {
   // quote; on site, the list to hand the team. Whenever there are openings.
   // It opens on a page of its own, which on an installed iPhone app has no
   // share button -- so Share sits beside it.
-  // Price per window (v3.4.0): yours, never the client's.
-  if (wdInUse()) html += '<button onclick="openWdPriceSheet()" style="' + soft + '">💷 Price per window</button>';
-  if (wdInUse()) html += '<div style="display:flex;gap:8px">'
-    + '<button onclick="saveWindoorsReportPdf(true)" style="' + soft + ';flex:1">📋 Work to do (PDF)</button>'
-    + '<button onclick="saveWindoorsReportPdf(true, { share: true })" style="' + soft + ';width:auto;flex:none;padding:11px 16px">Share</button></div>';
-  if (wdInUse()) {
-    // The work report (WINDOWS_DOORS_INVOICE_SPEC.md): built by the server
-    // from the saved rows, exactly as it goes on the final invoice -- so it
-    // can be checked before invoicing.
-    html += '<button onclick="openWorkReportPdf()" style="' + soft + '">📄 Work report (PDF)</button>';
-    html += wdAttachmentHtml(soft);
-    html += '<div style="height:8px"></div>';
-  }
+  // The documents -- price per window, work to do, the work report and its
+  // invoice attachment -- are on the Documents tab (v3.8.0).
+  if (wdInUse()) html += '<button onclick="openDocuments()" style="' + soft + '">📄 Reports and PDFs are on the Documents tab ›</button>';
+  if (wdInUse()) html += '<div style="height:8px"></div>';
   body.innerHTML = html;
   wdWireElevation();
   populateWdColourSlots();
@@ -28946,6 +29044,7 @@ function setWdClientFigure() {
   localStorage.setItem('pe-jobs', JSON.stringify(jobs));
   persistJobData(job);
   renderWindoors();
+  if (curTab === 'docs') renderDocs();
 }
 function wdWhereCardHtml() {
   var m = wdWhereModel();
@@ -29209,7 +29308,7 @@ async function loadWdAttachment() {
     var r = await apiGet('/auth/invoice-attachment?jobId=' + encodeURIComponent(job.id) + '&invoiceId=' + encodeURIComponent(job.xeroInvoiceId));
     var before = JSON.stringify(wdAttachment);
     wdAttachment = r && r.attachment ? Object.assign({ jobId: job.id }, r.attachment) : { jobId: job.id, syncState: 'none', xeroInvoiceId: job.xeroInvoiceId };
-    if (JSON.stringify(wdAttachment) !== before) renderWindoors();
+    if (JSON.stringify(wdAttachment) !== before) { renderWindoors(); if (curTab === 'docs') renderDocs(); }
   } catch (e) { /* the button still works; it just can't say what happened last time */ }
 }
 function wdAttachmentHtml(soft) {
@@ -29255,6 +29354,7 @@ async function attachWindoorsReportNow() {
   if (r && r.ok) toast('Report attached to invoice ' + (job.xeroInvoiceNumber || ''));
   else alert(wdAttachFailureText({ error: (r && r.error) || 'no reply', reconnect: !!(r && r.reconnect) }));
   renderWindoors();
+  if (curTab === 'docs') renderDocs();
 }
 
 // ── Measure-list row and the On Site card ────────────────────────────────
