@@ -380,7 +380,7 @@ const SEED = () => {
     renderDocs();
     const m = wdWhereModel();
     const card = document.getElementById('docs-body').textContent;
-    const pdf = new TextDecoder('latin1').decode(buildWdWherePdf());
+    const pdf = new TextDecoder('latin1').decode(await buildWdWherePdf());
     window.prompt = () => ''; setWdClientFigure();
     const cleared = activeJob().clientFigure;
     window.confirm = () => true; wdEstimateDrop(null);
@@ -402,9 +402,13 @@ const SEED = () => {
   // v3.8.0: on the Documents tab.
   check('11. the Documents tab shows it, with the figure given before starting', /Where we are/.test(wh.card) && /Likely total/.test(wh.card) && /Figure given before starting: £5,000.00/.test(wh.card)
     && /invoiced £2,400.00/.test(wh.card), wh.card.slice(wh.card.indexOf('Where we are'), wh.card.indexOf('Where we are') + 600));
-  check('11. the PDF has the sections, and the figure only for comparison', /Where we are: windows and doors/.test(wh.pdf) && /SO FAR/.test(wh.pdf) && /NEEDED NOW/.test(wh.pdf)
-    && /Likely total/.test(wh.pdf) && /figure given before the work started was/.test(wh.pdf)
-    && /Painting and repairs, as planned/.test(wh.pdf) && /Already invoiced/.test(wh.pdf) && /Likely still to come/.test(wh.pdf));
+  // v3.9.0 layout: at a glance first, then window by window with the
+  // drawings, then the key.
+  check('11. the PDF opens with the whole story at a glance', /AT A GLANCE/.test(wh.pdf) && /The figure given at the start/.test(wh.pdf) && /The work as planned/.test(wh.pdf)
+    && /Done so far/.test(wh.pdf) && /Needed now, if you go ahead/.test(wh.pdf) && /Likely total/.test(wh.pdf) && /Invoiced so far/.test(wh.pdf) && /Likely still to come/.test(wh.pdf));
+  check('11. ...then window by window, side by side, with the drawings', /WINDOW BY WINDOW/.test(wh.pdf) && /BACK/.test(wh.pdf) && /Done: /.test(wh.pdf) && /Needed now: /.test(wh.pdf) && /\/Im2 Do/.test(wh.pdf));
+  check('11. ...and a key: the parts of a sash, drawn and numbered, and the work words', /THE PARTS OF A WINDOW, AND THE WORK/.test(wh.pdf) && /Meeting rail/.test(wh.pdf) && /Stile/.test(wh.pdf) && /Splice timber/.test(wh.pdf));
+  check('11. estimates in whole pounds', !/Needed now, if you go ahead[^)]*\)\s*Tj[^£]*£[\d,]+\.\d\d/.test(wh.pdf));
 
   // ── 12. Where the carpenter's days went, and billing the days beyond the
   //        accepted quote (v3.7.1) ──────────────────────────────────────────
@@ -437,7 +441,7 @@ const SEED = () => {
     setWdEstimating(true); openWdDetail('q1'); wdSel = { kind: 'part', ids: { cill: true } }; wdApplyAction('splice'); wdSetCarpenterDays(1);
     window.confirm = () => true; wdEstimateGoAhead('q1');
     const afterGo = { qty: job.customItems[0].quantity, q1: job.carpenterPlaced.q1 };
-    const pdf = new TextDecoder('latin1').decode(buildWdWherePdf());
+    const pdf = new TextDecoder('latin1').decode(await buildWdWherePdf());
     windoors.openings = windoors.openings.filter(o => o.id !== 'q1');
     closeWdDetail(); goBack();
     return { inv0, inv1, sheet, placed, placedText, carp: fcst.carpenter, toOpen: fcst.toOpen.length, mean: fcst.opened.reduce((t, w) => t + (job.carpenterPlaced[w.id] || 0), 0) / fcst.opened.length, opened: fcst.opened.map(w => w.id), afterGo, pdf };
@@ -450,7 +454,7 @@ const SEED = () => {
   check('12. ...under the joinery line on the final invoice, the money unchanged', cp.inv1[0][1] === 2000 && cp.inv1[0][2] === cp.placedText && cp.inv1[1][1] === 250, cp.inv1);
   check('12. the forecast\'s carpenter comes from where the days went', cp.carp && cp.carp.placed && cp.carp.likely === Math.round(cp.mean * cp.toOpen * 2) / 2, [cp.carp, cp.mean, cp.toOpen]);
   eq('12. go ahead adds the days to the line and places them on the window', cp.afterGo, { qty: 10, q1: 1 });
-  check('12. Where we are lists where the days went', /Where the days went/.test(cp.pdf) && /in the carpenter line above/.test(cp.pdf));
+  check('12. Where we are shows the days against each window, once', /carpenter 3 days/.test(cp.pdf) && /not charged again/.test(cp.pdf) && !/Where the days went/.test(cp.pdf));
 
   // ── 13. The Documents tab (v3.8.0) ───────────────────────────────────────
   const dc = await page.evaluate(async () => {

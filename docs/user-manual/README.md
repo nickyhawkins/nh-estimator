@@ -1460,22 +1460,29 @@ It's a guide for you to give the client, not a price, and it doesn't go on anyth
 
 #### Where we are: telling the client
 
-When a job is running over, **Where we are** on the [Documents tab](#the-documents-tab) adds everything up for the client. Its PDF is the thing to send; the tab shows the likely total under it.
+When a job is running over, **Where we are** on the [Documents tab](#the-documents-tab) puts it all in front of the client. It's written for someone who isn't in the trade: the answer first, then the windows drawn so they can see what's been done where, then a key to the words. The tab shows the likely total under it.
 
-- **Painting and repairs, as planned:** the accepted quote's total less its carpenter days, as one figure, never its line-by-line breakdown.
-- **Carpenter:** all the carpenter's days so far, as one line, saying how many were planned and how many more (*9 days (8 planned, 1 more)*). The planned days stay in this line even though an interim invoice has billed them: this page says where the job stands, not what's been billed.
-- **Found on site so far**, window by window, at the figures they're billed at. Any repairs that turned out bigger than quoted are a line of their own.
-- **Needed now:** the estimate, window by window, with each window's carpenter days.
-- **Allowance for the rest:** the forecast's likely figure, with its range, for the windows not opened up yet.
-- **Where it's heading:** all of that added up, likely, and between the low and high.
-- **Already invoiced** and **likely still to come:** what the job's invoices (interims, say) have billed so far, at Xero's totals (a voided one doesn't count), and the difference. That's usually the figure the client is really asking about.
+**At a glance**, at the top, in whole pounds:
 
-**The figure given before starting.** If you gave the client a ballpark before starting (*about £5,000*), tap **add one** under Where we are on the Documents tab and type it. It's printed beside the total for comparison (*For comparison, the figure given before the work started was £5,000.00*), but never added into anything: the sums are always the real figures, so the page adds up for anyone checking it.
+- **The figure given at the start**, if you gave one (in grey, for comparison; it's never added in).
+- **The work as planned:** the accepted quote, with its split into your painting and repairs and the carpenter's planned days.
+- **Found on site since:** the repairs found on the windows, and any carpenter days beyond the plan.
+- **Done so far.**
+- **Needed now, if you go ahead:** the estimate.
+- **Allowance for the windows not opened up yet:** the forecast's likely figure and its range.
+- **Likely total**, with its range; then **Invoiced so far** and **Likely still to come**.
 
-**Open** shows it on its own page; **Share** sends it from your phone. It's built on the phone, so it works with no signal. It ends with a short note: work found on site is done as needed and charged as done; anything under *Needed now* is an estimate, done once they're happy; the allowance is a guide, not a price.
+**Window by window.** Each side of the house that has any work is drawn as its elevation, every window numbered (W1, W2… left to right as you face it), the way the work report draws it. A window with work done is outlined in **blue**; one with work needed now in **dashed orange**. Under each drawing, a line per window: *Done:* what was found and done, with its carpenter days and what it cost; *Needed now:* the estimate for it, in orange. The carpenter's days are shown once, against the window they went on, and the page says they're part of the carpenter's figure, not charged again. Days not tied to a window are noted at the end.
 
+**The key.** A drawing of a sash window with its parts numbered (top rail, stile, meeting rail, bottom rail, glazing bar, pane, cill, frame), and a line on each kind of work (reputty, replace glass, filler, resin repair, splice timber, carpenter). So *"resin repair (right stile)"* means something to someone who's never heard the word.
 
-![The Where we are PDF](images/26zre-windoors-where-we-are-pdf.png)
+**The figure given before starting.** If you gave the client a ballpark before starting (*about £5,000*), tap **add one** under Where we are on the Documents tab and type it.
+
+**Open** shows the PDF on its own page; **Share** sends it from your phone. It's built on the phone, so it works with no signal. It ends with a short note: work found on site is done as needed and charged as done; anything needed now is an estimate, done once they're happy; the allowance is a guide, not a price.
+
+![Where we are: at a glance, then the first side drawn](images/26zre-windoors-where-we-are-pdf.png)
+
+![The key: the parts of a sash, and the work](images/26zrf-windoors-where-we-are-key.png)
 
 #### Work to do
 
@@ -1763,6 +1770,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v3.8.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v3.9.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
