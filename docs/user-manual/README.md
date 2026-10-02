@@ -1399,6 +1399,27 @@ It's **for you, not the client**. Use it to tell a client what a window was quot
 
 ![Price per window: painting, quoted repairs and found work for each opening](images/26zr-windoors-price-per-window.png)
 
+#### Estimates: pricing work before it's agreed
+
+When a client asks *"how much will the front windows cost?"*, price it with an **estimate** before doing anything. On On Site, the Windows & Doors screen has an **Estimate** card under the found-on-site panel (once the quote is accepted).
+
+- Tap **Start estimating**. The card turns orange, and any work you mark now is **estimated**, not found work. It's priced the same way, but it's billed nowhere: it isn't on the Variations card, the client's page, the invoices, the work report or the work-to-do list, and there's nothing to tick off. Each window's sheet tags it *estimate — not agreed yet*.
+- **Carpenter days.** For work beyond what you'd do yourself, a window's sheet shows a **Carpenter** row while you're estimating. Tap **+** and **−** to set the days on that window, in half days (*1½ days, £375.00*). The day rate comes from the job's carpenter line, the custom line you bill the carpenter on (here *Joinery Work @ Day Rate*, £250 a day). The app picks a line with *joinery* or *carpenter* in its name. If it can't, tap **set the carpenter's line** and choose one.
+- **The card lists each window**: its work and what it would cost, its carpenter days, and the window's total. Under that is the **Estimate total**, split into your repairs and the carpenter, as it would be billed (sundries and markup included). That's the figure to give the client. **Price per window** shows each window's estimate too, with an *If it goes ahead* total.
+- **Prep changes** and **adding a window to the job** aren't estimated: switch estimating off to do those, as found work.
+- Tap **Done estimating** when you've finished. Leaving the screen also stops it, so a mark you make tomorrow can't become an estimate by accident.
+
+![The estimate: two front windows, your repairs and the carpenter, with Go ahead on each](images/26zra-windoors-estimate-card.png)
+
+![Carpenter days on a window, in the estimate](images/26zrb-windoors-estimate-carpenter.png)
+
+**When the client answers**, on each window (or for all of them at once):
+
+- **Go ahead**: the window's estimated work becomes found on site, billed as it's done like any other. Its carpenter days are added to the carpenter's line (9 days becomes 10½), so they're billed with the rest of the carpenter's time.
+- **Drop**: the window's estimated work is taken off, and its carpenter days with it.
+
+Once nothing is left in it, the estimate disappears. The On Site card shows an estimate that's still waiting (*Estimate: £862.24 on 2 windows, not agreed yet*).
+
 #### Work to do
 
 **📋 Work to do (PDF)** is on the Windows & Doors screen from Measure and from On Site, as soon as the job has any windows or doors. It's the list of what's still to be done, built on the phone with no signal needed. Tap it to read it: it opens on its own page, the same way the work report does. To send, save or print it, tap **Share** next to it, which hands the PDF to your phone's share sheet (on a computer it downloads).
@@ -1686,6 +1707,6 @@ If you try to switch to a job this phone hasn't got a copy of, it now tells you 
 
 ---
 
-*Manual for NH Estimator v3.4.0. Screenshots taken from the app with example data.*
+*Manual for NH Estimator v3.5.0. Screenshots taken from the app with example data.*
 
 *Keeping this manual up to date: edit this file, then run `npm run build:manual` to regenerate the PDF edition ([NH-Estimator-User-Manual.pdf](NH-Estimator-User-Manual.pdf)) and commit both together. The cover picks up the app version and date automatically.*
